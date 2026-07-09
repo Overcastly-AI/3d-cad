@@ -1,0 +1,17 @@
+# Prose docs are hand-maintained (doc agents); prettier's md rewrapping churns diffs.
+docs/
+.claude/
+CLAUDE.md
+README.md
+LICENSE
+
+# Generated — never hand-edited (CLAUDE.md DRY rule).
+packages/contracts/
+packages/ts-client/
+pnpm-lock.yaml
+uv.lock
+
+# Build/venv output
+node_modules/
+dist/
+.venv/

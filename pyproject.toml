@@ -1,0 +1,53 @@
+# Root of the uv workspace (RESEARCH.md §3/§6). Not a package itself.
+[project]
+name = "loft-workspace"
+version = "0.0.0"
+description = "Loft monorepo workspace root (tooling only — services and packages are the members)"
+requires-python = ">=3.12"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+# Glob tolerates not-yet-created services; py-kit is the first Python member.
+members = ["services/*", "packages/py-kit"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.12",
+    "pyright>=1.1.400",
+]
+
+# ---------------------------------------------------------------------------
+# Shared lint/type/test config — single source of truth for all Python members
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = [".venv", "packages/contracts", "packages/ts-client"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "SIM", # simplify
+    "RUF", # ruff-specific
+]
+
+[tool.pyright]
+include = ["services", "packages"]
+exclude = ["**/node_modules", "**/__pycache__", "**/.venv", "packages/contracts", "packages/ts-client"]
+typeCheckingMode = "strict"  # no untyped defs in services/packages (CLAUDE.md)
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["services", "packages"]
+addopts = "-q"

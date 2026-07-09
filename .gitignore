@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+.pnpm-store/
+
+# Test / e2e artifacts
+playwright-report/
+test-results/
+
+# Editors & OS
+.DS_Store
+.idea/
+.vscode/
+
+# Env files (12-factor: env-only config; commit only *.example)
+.env
+.env.*
+!.env.example

@@ -213,3 +213,10 @@ recipe here in the same commit as the fix.**
   `main` without explicit permission.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
+- In this container, `uv python install 3.12` fails (403: the egress proxy
+  blocks github.com release downloads of python-build-standalone — a policy
+  denial, don't retry/route around). Not needed: system interpreters exist at
+  `/usr/bin/python3.10`–`3.13`; with `.python-version` = 3.12, `uv sync`
+  picks up `/usr/bin/python3.12` automatically. PyPI + npm registries are
+  direct (proxy no-proxy list), so `uv sync` / `pnpm install` just work.
+- `just` is not preinstalled: `uv tool install rust-just` → `~/.local/bin/just`.

@@ -14,9 +14,11 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 - ✅ `CLAUDE.md` constitution + `.claude/` agent org (agents, skills, workflows)
 - ✅ Design mandate: `frontend-design` skill vendored (Apache-2.0) + standing
       UI/UX directive in CLAUDE.md/VISION.md, wired into frontend agents
-- ⬜ Monorepo scaffold: uv + pnpm workspaces, `justfile`, ruff/pyright/eslint
-      configs, `packages/py-kit` with service bootstrap (config, JSON logs,
-      health/readiness, error envelope)
+- ✅ Monorepo scaffold: uv + pnpm workspaces (incl. `@loft/design`
+      placeholder), `justfile`, ruff/pyright/eslint/prettier configs —
+      `just lint` + `just test` green
+- ⬜ `packages/py-kit` service bootstrap (config, JSON logs, health/readiness,
+      error envelope), unit tested
 - ⬜ Service skeletons: `gateway`, `geometry`, `documents` — each boots, serves
       `/healthz` + `/readyz`, has a Dockerfile; `docker compose up` brings up
       db + redis + minio + services + web

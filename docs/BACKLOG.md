@@ -10,10 +10,11 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Ready (top of queue)
 
-- [ ] (P1, M) Monorepo scaffold — uv + pnpm workspaces (incl. empty
+- [x] (P1, M) Monorepo scaffold — uv + pnpm workspaces (incl. empty
       `packages/design` member), justfile, ruff/pyright/eslint/prettier
       configs, root README pointers. No app code yet; `just lint` and `just
-      test` pass trivially. [src: roadmap]
+      test` pass trivially. [src: roadmap] (README pointers deferred to the
+      P2 community-surface item to avoid a territory clash)
 - [ ] (P1, M) `packages/py-kit` — service bootstrap: pydantic-settings config,
       structlog JSON logging, FastAPI app factory with `/healthz` + `/readyz`,
       standard error envelope, arq queue client. Unit tested. [src: roadmap]
@@ -63,6 +64,11 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-09 — Monorepo scaffold shipped: uv workspace (`services/*` +
+  `packages/py-kit`, Python 3.12) + pnpm workspace (`apps/*` + `packages/*`,
+  `@loft/design` placeholder), justfile with lint/test/dev/gen/e2e targets,
+  ruff + pyright(strict) + eslint(flat) + prettier configs. `just lint` and
+  `just test` green. [platform-builder]
 - 2026-07-09 — Founder decision: design system lives in `packages/design`
   (source-only workspace pkg: tokens as Tailwind preset + TS constants,
   primitives, fonts; one palette for DOM and WebGL). RESEARCH §5, CLAUDE.md,
