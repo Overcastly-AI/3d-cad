@@ -1,13 +1,15 @@
 """Geometry app — boots on the py-kit factory (probes, logging, envelope).
 
-Skeleton stage: FastAPI shell only. NO kernel imports here or anywhere in
-this package yet — OCP/build123d arrive with the "web shell + first light"
-item (docs/BACKLOG.md), confined to this service.
+Routes live in :mod:`geometry.api`; kernel code (the only OCP/build123d
+imports in the monorepo) lives in :mod:`geometry.kernel`. This module stays
+kernel-free — it only assembles the service.
 """
 
 import uvicorn
 from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
+
+from geometry.api import router
 
 TITLE = "Loft Geometry"
 VERSION = "0.1.0"
@@ -36,7 +38,9 @@ def build_app(settings: GeometrySettings | None = None) -> FastAPI:
             return "skipped"
         return "configured (ping lands with the arq worker)"
 
-    return create_app(settings, title=TITLE, version=VERSION, readiness_checks=(redis,))
+    app = create_app(settings, title=TITLE, version=VERSION, readiness_checks=(redis,))
+    app.include_router(router)
+    return app
 
 
 app = build_app()

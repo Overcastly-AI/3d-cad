@@ -1,7 +1,9 @@
-"""geometry.main — skeleton probes + error-envelope smoke, boundary guard."""
+"""geometry.main — probes + error-envelope smoke.
 
-import importlib
-import sys
+Kernel behaviour is covered by tests/test_kernel.py; the API surface by
+tests/test_api.py; the worker task by tests/test_worker.py.
+"""
+
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -60,12 +62,3 @@ def test_api_error_renders_envelope() -> None:
     response = TestClient(service).get("/api/v1/boom")
     assert response.status_code == 500
     assert _envelope(response.json())["code"] == "internal_error"
-
-
-def test_worker_stub_imports_without_kernel() -> None:
-    """Skeleton boundary: importing the service must not pull in the kernel."""
-    module = importlib.import_module("geometry.worker")
-
-    assert module.__doc__ is not None  # docstring stub only
-    assert "OCP" not in sys.modules
-    assert "build123d" not in sys.modules

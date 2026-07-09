@@ -1,8 +1,357 @@
 {
+  "components": {
+    "schemas": {
+      "BoundingBox": {
+        "description": "Axis-aligned bounding box (mm), exact (not mesh-inflated).",
+        "properties": {
+          "max": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "min": {
+            "$ref": "#/components/schemas/Vec3"
+          }
+        },
+        "required": [
+          "min",
+          "max"
+        ],
+        "title": "BoundingBox",
+        "type": "object"
+      },
+      "BoxParams": {
+        "description": "Axis-aligned box dimensions (mm); the min corner sits at the origin.",
+        "properties": {
+          "x": {
+            "description": "Size along X (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Size along Y (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z": {
+            "description": "Size along Z (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "title": "BoxParams",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "MeshStats": {
+        "description": "Statistics of the tessellated GLB artifact.",
+        "properties": {
+          "glb_bytes": {
+            "description": "Size of the binary glTF payload in bytes",
+            "title": "Glb Bytes",
+            "type": "integer"
+          },
+          "triangles": {
+            "title": "Triangles",
+            "type": "integer"
+          },
+          "vertices": {
+            "title": "Vertices",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "vertices",
+          "triangles",
+          "glb_bytes"
+        ],
+        "title": "MeshStats",
+        "type": "object"
+      },
+      "ShapeProperties": {
+        "description": "Mass properties + topology of the evaluated B-rep shape.",
+        "properties": {
+          "bounding_box": {
+            "$ref": "#/components/schemas/BoundingBox"
+          },
+          "centroid": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Centre of mass (mm)"
+          },
+          "surface_area": {
+            "description": "Total surface area (mm^2)",
+            "title": "Surface Area",
+            "type": "number"
+          },
+          "topology": {
+            "$ref": "#/components/schemas/TopologyCounts"
+          },
+          "volume": {
+            "description": "Volume (mm^3)",
+            "title": "Volume",
+            "type": "number"
+          }
+        },
+        "required": [
+          "volume",
+          "surface_area",
+          "centroid",
+          "bounding_box",
+          "topology"
+        ],
+        "title": "ShapeProperties",
+        "type": "object"
+      },
+      "TessellateRequest": {
+        "description": "Build a parametric shape and tessellate it to GLB.",
+        "properties": {
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Max distance (mm) between a curve and its tessellation; lower = finer mesh",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "params": {
+            "$ref": "#/components/schemas/BoxParams"
+          },
+          "shape": {
+            "const": "box",
+            "description": "Shape kind (parametric box only, today)",
+            "title": "Shape",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shape",
+          "params"
+        ],
+        "title": "TessellateRequest",
+        "type": "object"
+      },
+      "TessellationMetadata": {
+        "description": "Everything about a tessellation except the mesh itself.\n\nReturned as JSON by ``POST /api/v1/tessellate/meta`` and carried,\ncompact-serialized, in the ``X-Loft-Properties`` response header of\n``POST /api/v1/tessellate``.",
+        "properties": {
+          "mesh": {
+            "$ref": "#/components/schemas/MeshStats"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/ShapeProperties"
+          }
+        },
+        "required": [
+          "properties",
+          "mesh"
+        ],
+        "title": "TessellationMetadata",
+        "type": "object"
+      },
+      "TopologyCounts": {
+        "description": "B-rep entity counts \u2014 asserted exactly by the golden-model suite.",
+        "properties": {
+          "edges": {
+            "title": "Edges",
+            "type": "integer"
+          },
+          "faces": {
+            "title": "Faces",
+            "type": "integer"
+          },
+          "shells": {
+            "title": "Shells",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "faces",
+          "edges",
+          "shells"
+        ],
+        "title": "TopologyCounts",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "Vec3": {
+        "description": "A 3D point/vector in model space (mm).",
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          },
+          "z": {
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "title": "Vec3",
+        "type": "object"
+      }
+    }
+  },
   "info": {
     "title": "Loft Geometry",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
-  "paths": {}
+  "paths": {
+    "/api/v1/tessellate": {
+      "post": {
+        "description": "Build a parametric shape, tessellate it, return the GLB mesh.",
+        "operationId": "tessellate_api_v1_tessellate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TessellateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Binary glTF (GLB) mesh of the requested shape. The `X-Loft-Properties` header carries `TessellationMetadata` as compact JSON (see `POST /api/v1/tessellate/meta` for the same payload as a typed JSON body).",
+            "headers": {
+              "X-Loft-Properties": {
+                "description": "TessellationMetadata as compact JSON",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tessellate",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/tessellate/meta": {
+      "post": {
+        "description": "JSON twin of ``/tessellate``: mass properties + mesh stats, no mesh.",
+        "operationId": "tessellate_meta_api_v1_tessellate_meta_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TessellateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TessellationMetadata"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tessellate Meta",
+        "tags": [
+          "geometry"
+        ]
+      }
+    }
+  }
 }
