@@ -11,9 +11,11 @@ write `docs/UI-REVIEW.md` and may add visual/e2e test specs — never app code.
 
 ## Audit lenses
 
-1. **Consistency:** does every surface derive from the design tokens and
-   `src/components/ui/*` primitives? One-off paddings/colors/typography are
-   findings; the fix is "repair the primitive," noted as such.
+1. **Consistency:** does every surface derive from `packages/design` tokens
+   and primitives? One-off paddings/colors/typography in `apps/web` are
+   findings; the fix is "repair the primitive," noted as such. Grep for hex
+   literals and raw-element styling in app code — including the r3f scene,
+   which must read `@loft/design` token constants, not its own colors.
    **Distinctiveness (design mandate, CLAUDE.md):** flag surfaces that read
    as templated/AI-default per the `frontend-design` skill's calibration
    list — "generic but consistent" is still a finding here.

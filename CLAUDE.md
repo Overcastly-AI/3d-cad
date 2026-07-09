@@ -51,9 +51,11 @@ and intentional** — never templated. Standing rules:
    redesign — invokes it first: establish/extend the token system (palette /
    type / layout / **one signature element**), avoid the AI-default looks it
    names, spend boldness in one place, keep the rest disciplined.
-2. **Design system first.** Tokens + `apps/web/src/components/ui/*` are the
-   single source of truth; screens compose primitives. Fix the primitive,
-   never the instance (this is the DRY rule applied to design).
+2. **Design system first.** `packages/design` (tokens + primitives + fonts)
+   is the single source of truth; screens compose primitives. Fix the
+   primitive, never the instance (this is the DRY rule applied to design).
+   Both renderers draw from it: Tailwind preset for the DOM, TS token
+   constants for the WebGL viewport — one palette, two renderers.
 3. **The viewport is the hero.** Chrome recedes; the model gets the pixels.
    Panels, trees, and toolbars are quiet precision instruments — dense,
    legible, keyboard-first — not marketing surfaces.
@@ -82,6 +84,8 @@ services/documents  Parts/assemblies, feature trees, versioning (Postgres)
 packages/py-kit     Shared Python service kit (config, logging, health, queue, errors)
 packages/contracts  Generated OpenAPI schemas (committed; CI checks drift)
 packages/ts-client  Generated TypeScript client (never hand-edited)
+packages/design     Design system: tokens (Tailwind preset + TS constants),
+                    UI primitives, fonts (source-only; RESEARCH §5)
 deploy/             Docker/Helm assets
 docs/               VISION, RESEARCH, ROADMAP, BACKLOG, audits, QA reviews
 .claude/            Agents, skills, workflows
@@ -98,8 +102,10 @@ WET code is a defect class here, reviewed as such:
 - **Cross-service boilerplate lives in `py-kit` once** — config, logging,
   health/readiness, error envelope, queue plumbing. If you're copying code
   between services, stop and move it to `py-kit`.
-- **Frontend primitives:** design tokens + `apps/web/src/components/ui/*` are
-  the single source; components derive from them.
+- **Frontend primitives:** `packages/design` (tokens + UI primitives + fonts)
+  is the single source; `apps/web` composes it and never restyles raw
+  elements. The r3f viewport reads the SAME tokens (selection/hover/grid/
+  background) — no hex values duplicated between DOM and WebGL.
 - DRY ≠ premature abstraction: extract on the second real use, not the first
   imagined one.
 

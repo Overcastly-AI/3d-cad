@@ -55,6 +55,8 @@ packages/
                   # queue client, service bootstrap. Every service builds on it.
   ts-client/      # TypeScript API client GENERATED from the OpenAPI specs.
   contracts/      # Exported OpenAPI schemas (generated from pydantic, committed).
+  design/         # Design system: tokens (Tailwind preset + TS constants),
+                  # UI primitives, fonts. Source-only workspace pkg (§5).
 deploy/           # Dockerfiles context, later Helm/Kustomize
 docs/             # This direction layer
 .claude/          # Agent org: agents, skills, workflows
@@ -93,6 +95,18 @@ static bundle behind nginx: cloud-native friendly and simple.
 
 **Geometry transport:** server-side tessellation → **glTF/GLB** buffers to
 the viewport (Draco compression later). The client never runs the kernel.
+
+**Design system (`packages/design`) — decided 2026-07-09 (founder):** design
+tokens, UI primitives, and fonts live in a **source-only pnpm workspace
+package**, not inside `apps/web`. Rationale: (a) the UI spans two renderers —
+DOM and WebGL — and the r3f viewport needs raw token values (selection/hover
+highlights, grid, background) that must exactly match the DOM theme; a tokens
+package consumed by both the Tailwind preset and the three.js scene makes
+"one palette, two renderers" structural. (b) The package boundary makes the
+CLAUDE.md design mandate greppable/enforceable in review. (c) Near-certain
+second consumers (docs site, landing page) get brand cohesion for free.
+Deliberately cheap: no build step, no publishing, no Storybook until the
+primitive count earns it (Phase 1+, via backlog item).
 
 ## 6. Monorepo tooling
 

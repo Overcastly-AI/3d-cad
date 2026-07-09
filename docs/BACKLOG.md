@@ -10,9 +10,10 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Ready (top of queue)
 
-- [ ] (P1, M) Monorepo scaffold — uv + pnpm workspaces, justfile, ruff/pyright/
-      eslint/prettier configs, root README pointers. No app code yet; `just
-      lint` and `just test` pass trivially. [src: roadmap]
+- [ ] (P1, M) Monorepo scaffold — uv + pnpm workspaces (incl. empty
+      `packages/design` member), justfile, ruff/pyright/eslint/prettier
+      configs, root README pointers. No app code yet; `just lint` and `just
+      test` pass trivially. [src: roadmap]
 - [ ] (P1, M) `packages/py-kit` — service bootstrap: pydantic-settings config,
       structlog JSON logging, FastAPI app factory with `/healthz` + `/readyz`,
       standard error envelope, arq queue client. Unit tested. [src: roadmap]
@@ -25,10 +26,12 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 - [ ] (P1, L) Web shell + first light — Vite React app, TanStack Router
       layout, r3f viewport; geometry service tessellates a parametric cube to
       GLB via the queue; viewport renders it. Proves HTTP → queue → OCCT →
-      GLB → viewport. **Includes the initial design token system** (palette /
-      type / layout / signature element) via the mandatory `frontend-design`
-      skill — the shell must land distinctive, not templated (CLAUDE.md
-      design mandate). [src: roadmap, founder]
+      GLB → viewport. **Includes the initial design token system in
+      `packages/design`** (palette / type / layout / signature element —
+      Tailwind preset + TS constants + fonts) via the mandatory
+      `frontend-design` skill; the r3f scene reads the same tokens. The
+      shell must land distinctive, not templated (CLAUDE.md design mandate).
+      [src: roadmap, founder]
 - [ ] (P1, M) CI pipeline — lint/typecheck/unit per package (path-filtered),
       compose config validation, contract drift check. [src: roadmap]
 - [ ] (P2, M) Geometry golden harness — golden-model runner (mass properties
@@ -60,6 +63,10 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-09 — Founder decision: design system lives in `packages/design`
+  (source-only workspace pkg: tokens as Tailwind preset + TS constants,
+  primitives, fonts; one palette for DOM and WebGL). RESEARCH §5, CLAUDE.md,
+  frontend agents, and the scaffold/web-shell items updated. [orchestrator]
 - 2026-07-09 — Design mandate recorded (founder): frontend-design skill
   vendored and made mandatory for all UI work; web-shell item below now
   includes establishing the initial design token system. [orchestrator]
