@@ -1,0 +1,106 @@
+# Loft CI — lint / typecheck / unit tests, contract drift, compose validation.
+#
+# Jobs (all independent, run in parallel):
+#   python    — ruff (lint + format), pyright strict, pytest across the uv workspace
+#   ts        — eslint + prettier, tsc typecheck, vitest across the pnpm workspace
+#   contracts — `just gen-check`: regenerate OpenAPI contracts + TS client into a
+#               tempdir and diff against the committed output (fails on drift)
+#   compose   — `docker compose config -q` for the base stack and base+dev overlay
+#
+# Notes:
+# - The geometry golden suite and Playwright e2e get their OWN workflow later
+#   (separate backlog items: golden harness, web shell) — they need built
+#   artifacts / a running stack and their own time budget, not a skipped gate.
+# - The uv cache is keyed on uv.lock on purpose: when OCP lands in the Python
+#   env its wheels are ~700MB, and that cache is what keeps the python and
+#   contracts jobs from re-downloading them on every run (CLAUDE.md recipe).
+# - The repo is small enough that every job runs on every push; per-package
+#   path filtering is a later optimization once job times warrant it.
+
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - "claude/**"
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # Python version comes from .python-version; uv installs it if missing.
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Pyright (strict)
+        run: uv run pyright
+      - name: Pytest
+        run: uv run pytest
+
+  ts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm version comes from package.json "packageManager".
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: ESLint + Prettier check
+        run: pnpm run lint
+      - name: Typecheck
+        run: pnpm -r --if-present run typecheck
+      - name: Unit tests
+        run: pnpm -r --if-present run test
+
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Install just
+        run: uv tool install rust-just
+      - name: Contract drift check
+        run: just gen-check
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate base compose config
+        run: docker compose config -q
+      - name: Validate dev-overlay compose config
+        run: docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q

@@ -34,8 +34,11 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 - ⬜ Web shell: Vite + React + TS app with router, layout, and an r3f viewport
       rendering a server-tessellated cube from the geometry service (proves
       the whole pipe: HTTP → queue → OCCT → GLB → viewport)
-- ⬜ CI: lint + typecheck + unit tests (path-filtered per package) + compose
-      config validation
+- ✅ CI: lint + typecheck + unit tests + contract drift check + compose
+      config validation as GitHub Actions (`.github/workflows/ci.yml`, four
+      parallel jobs, uv cache keyed on uv.lock); workflow authored + every
+      job's commands verified passing locally — first hosted run occurs on
+      push (per-package path filtering deferred until job times warrant)
 - ⬜ Geometry golden-suite harness (first golden model: the cube) + STEP
       round-trip test
 - ⬜ Community surface: README (truth-only), CONTRIBUTING, SECURITY, issue

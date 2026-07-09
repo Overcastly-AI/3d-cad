@@ -36,8 +36,12 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
       `frontend-design` skill; the r3f scene reads the same tokens. The
       shell must land distinctive, not templated (CLAUDE.md design mandate).
       [src: roadmap, founder]
-- [ ] (P1, M) CI pipeline — lint/typecheck/unit per package (path-filtered),
+- [x] (P1, M) CI pipeline — lint/typecheck/unit per package (path-filtered),
       compose config validation, contract drift check. [src: roadmap]
+      (workflow authored + every job's command list verified passing locally;
+      first hosted Actions run occurs on push. Per-package path filtering
+      deferred — repo is small and all jobs run in parallel; revisit when
+      job times warrant)
 - [ ] (P2, M) Geometry golden harness — golden-model runner (mass properties
       + topology counts vs. committed goldens), STEP round-trip test; cube as
       first golden. [src: roadmap]
@@ -67,6 +71,20 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-09 — CI pipeline shipped: `.github/workflows/ci.yml` — four parallel
+  jobs. **python** (uv sync --locked, ruff check + format check, pyright,
+  pytest; uv cache keyed on uv.lock so the future ~700MB OCP wheels aren't
+  re-downloaded per run — CLAUDE.md recipe), **ts** (pnpm frozen install with
+  store cache, eslint + prettier, recursive typecheck + test), **contracts**
+  (`just gen-check` drift gate, just installed via `uv tool install
+  rust-just`), **compose** (`docker compose config -q`, base and base+dev
+  overlay). Triggers: push to main + `claude/**`, plus PRs; per-ref
+  concurrency group cancels superseded runs; timeout-minutes on every job
+  (≤15); actions pinned to major tags. Workflow authored + every job's
+  command list verified passing locally; first hosted Actions run occurs on
+  push. Geometry golden suite + e2e get their own workflow later (separate
+  backlog items); per-package path filtering deferred until job times
+  warrant. [platform-builder]
 - 2026-07-09 — Contract pipeline shipped: `scripts/gen-contracts.py` imports
   each service's `build_app()` and dumps deterministic OpenAPI JSON (sorted
   keys, 2-space indent, trailing newline) to `packages/contracts/
