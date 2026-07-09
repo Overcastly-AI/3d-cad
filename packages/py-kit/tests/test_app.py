@@ -77,6 +77,27 @@ def test_readyz_all_checks_pass() -> None:
     }
 
 
+def test_readyz_check_may_report_status_string() -> None:
+    async def postgres() -> str:
+        return "skipped"
+
+    async def redis() -> None:
+        return None
+
+    app = create_app(
+        BaseServiceSettings(),
+        title="Test",
+        version="0.0.1",
+        readiness_checks=[postgres, redis],
+    )
+    response = TestClient(app).get("/readyz")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "checks": {"postgres": "skipped", "redis": "ok"},
+    }
+
+
 def test_readyz_failing_check_gives_503_with_detail() -> None:
     async def redis_ping() -> None:
         return None

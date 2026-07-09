@@ -21,9 +21,12 @@ from py_kit.logging import (
     get_logger,
 )
 
-ReadinessCheck = Callable[[], Awaitable[None]]
+ReadinessCheck = Callable[[], Awaitable[str | None]]
 """Async callable that returns on success and raises on failure. Its
-``__name__`` is used as the check's key in the ``/readyz`` report."""
+``__name__`` is used as the check's key in the ``/readyz`` report. Return
+``None`` for a plain ``"ok"``, or a short status string (e.g. ``"skipped"``
+when the dependency isn't configured yet) to report a non-default healthy
+state."""
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -68,13 +71,13 @@ def create_app(
         for check in readiness_checks:
             name = getattr(check, "__name__", type(check).__name__)
             try:
-                await check()
+                status = await check()
             except Exception as exc:
                 ready = False
                 checks[name] = f"error: {exc}"
                 _logger.warning("readiness_check_failed", check=name, error=str(exc))
             else:
-                checks[name] = "ok"
+                checks[name] = status if status is not None else "ok"
         return JSONResponse(
             status_code=200 if ready else 503,
             content={

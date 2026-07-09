@@ -4,6 +4,9 @@ requires-python = ">=3.12"
 
 [manifest]
 members = [
+    "loft-documents",
+    "loft-gateway",
+    "loft-geometry",
     "loft-py-kit",
     "loft-workspace",
 ]
@@ -210,6 +213,57 @@ wheels = [
 ]
 
 [[package]]
+name = "loft-documents"
+version = "0.1.0"
+source = { editable = "services/documents" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "loft-py-kit" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "loft-py-kit", editable = "packages/py-kit" },
+    { name = "uvicorn", specifier = ">=0.32" },
+]
+
+[[package]]
+name = "loft-gateway"
+version = "0.1.0"
+source = { editable = "services/gateway" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "loft-py-kit" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "loft-py-kit", editable = "packages/py-kit" },
+    { name = "uvicorn", specifier = ">=0.32" },
+]
+
+[[package]]
+name = "loft-geometry"
+version = "0.1.0"
+source = { editable = "services/geometry" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "loft-py-kit" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "loft-py-kit", editable = "packages/py-kit" },
+    { name = "uvicorn", specifier = ">=0.32" },
+]
+
+[[package]]
 name = "loft-py-kit"
 version = "0.1.0"
 source = { editable = "packages/py-kit" }
@@ -238,6 +292,9 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "httpx2" },
+    { name = "loft-documents" },
+    { name = "loft-gateway" },
+    { name = "loft-geometry" },
     { name = "loft-py-kit" },
     { name = "pyright" },
     { name = "pytest" },
@@ -249,6 +306,9 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "httpx2", specifier = ">=0.1" },
+    { name = "loft-documents", editable = "services/documents" },
+    { name = "loft-gateway", editable = "services/gateway" },
+    { name = "loft-geometry", editable = "services/geometry" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
     { name = "pyright", specifier = ">=1.1.400" },
     { name = "pytest", specifier = ">=8.3" },

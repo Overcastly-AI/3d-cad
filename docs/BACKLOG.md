@@ -64,6 +64,15 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-09 — Service skeletons (3a) shipped: `gateway` (:8000), `documents`
+  (:8001), `geometry` (:8002) boot on py-kit `create_app` with per-service
+  Settings subclasses; documents/geometry expose `postgres`/`redis` readiness
+  checks that report "skipped" while POSTGRES_URL/REDIS_URL are unset (real
+  pings slot in later, no probe-API change — py-kit readiness checks may now
+  return a status string); geometry worker is a docstring stub, no kernel
+  imports. 19 new unit tests (40 total); `just lint` + `just test` green;
+  all three booted under uvicorn and probes curled 200. Compose/Dockerfiles
+  (3b) pending [backend-builder]
 - 2026-07-09 — `packages/py-kit` service bootstrap shipped: env-driven
   `BaseServiceSettings` (pydantic-settings), structlog JSON logging (console
   renderer via `LOG_FORMAT=console`) with request-context binding, `ApiError`
