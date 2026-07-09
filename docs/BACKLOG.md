@@ -18,9 +18,11 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 - [x] (P1, M) `packages/py-kit` — service bootstrap: pydantic-settings config,
       structlog JSON logging, FastAPI app factory with `/healthz` + `/readyz`,
       standard error envelope, arq queue client. Unit tested. [src: roadmap]
-- [ ] (P1, L) Service skeletons + compose — gateway/geometry/documents boot on
+- [x] (P1, L) Service skeletons + compose — gateway/geometry/documents boot on
       py-kit, Dockerfiles, `docker compose up` brings up db/redis/minio/
-      services; smoke script curls all healthz. [src: roadmap]
+      services; smoke script curls all healthz. [src: roadmap] (compose
+      runtime verified via config validation + bare-uvicorn smoke only — this
+      sandbox has no docker daemon; runtime `up` check is a new ROADMAP item)
 - [ ] (P1, M) Contract pipeline — `just gen` exports OpenAPI from services to
       `packages/contracts`, generates `packages/ts-client`; CI fails on drift.
       [src: roadmap]
@@ -64,6 +66,23 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-09 — Compose + Dockerfiles (3b) shipped: ONE parameterized
+  multi-stage `deploy/docker/service.Dockerfile` (build-arg `SERVICE_NAME`,
+  uv `--frozen --no-dev --no-editable` install, deps layer cached on uv.lock,
+  non-root user, curl HEALTHCHECK on `/healthz`, commented growth point for
+  OCP's GL system libs); `docker-compose.yml` (postgres:16 + redis:7 + pinned
+  minio + mc bucket-init + three services, datastore healthchecks,
+  `service_healthy` depends_on, POSTGRES_URL/REDIS_URL/S3_URL wiring, named
+  volumes, `.env.example`); `docker-compose.dev.yml` hot-reload override
+  (bind-mounted src via PYTHONPATH + uvicorn --reload); `scripts/
+  smoke-healthz.sh` (healthz+readyz table, BASE_PORT arg, retries, non-zero
+  on failure); `scripts/dev-instance.sh <N>` (project `loft-<N>`, ports
+  +N*100); `just dev`/`dev-down`/`smoke`. Verified: both compose configs
+  validate, dev-instance offsets render correctly, smoke passed 6/6 against a
+  bare-uvicorn boot of all three services (and fails non-zero against dead
+  ports); `just lint` + `just test` green. **Compose runtime not verified in
+  this sandbox (no docker daemon) — needs a Docker host** (tracked as a new
+  ROADMAP Phase 0 bullet). [platform-builder]
 - 2026-07-09 — Service skeletons (3a) shipped: `gateway` (:8000), `documents`
   (:8001), `geometry` (:8002) boot on py-kit `create_app` with per-service
   Settings subclasses; documents/geometry expose `postgres`/`redis` readiness

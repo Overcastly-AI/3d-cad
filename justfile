@@ -4,10 +4,20 @@ set shell := ["bash", "-cu"]
 default:
     @just --list
 
-# Full dev stack (db/redis/minio + services + web, hot reload)
+# Full dev stack via docker compose — needs a running docker daemon.
+# db/redis/minio + gateway/documents/geometry with hot reload (web joins the
+# stack with the web-shell backlog item). Foreground; Ctrl-C then `just dev-down`.
 dev:
-    @echo "just dev: not implemented yet — the compose stack lands with the 'Service skeletons + compose' backlog item (docs/BACKLOG.md)."
-    @exit 1
+    docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+# Tear down the dev stack (keeps named volumes; add -v manually to wipe data)
+dev-down:
+    docker compose -f docker-compose.yml -f docker-compose.dev.yml down
+
+# Probe /healthz + /readyz on all three services (compose or bare uvicorn).
+# Usage: just smoke [base_port]
+smoke base_port="8000":
+    scripts/smoke-healthz.sh {{base_port}}
 
 # Lint + typecheck: ruff (lint + format), pyright strict, eslint + prettier
 lint:

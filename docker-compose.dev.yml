@@ -1,0 +1,38 @@
+# Dev override: hot reload for the Python services.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#   (or: just dev)
+#
+# Sources are bind-mounted over the baked-in wheels via PYTHONPATH (which
+# wins over site-packages), so edits on the host reload instantly without a
+# rebuild. Rebuild only when dependencies (uv.lock) change.
+
+x-dev-service: &dev-service
+  environment:
+    # /app/dev/service = this service's src/, /app/dev/py-kit = shared kit.
+    PYTHONPATH: /app/dev/service:/app/dev/py-kit
+    LOG_FORMAT: console
+  # $$ defers expansion to the container shell (SERVICE_NAME/PORT are baked
+  # into the image / set by the base compose file, not by compose itself).
+  command: >
+    sh -c 'exec uvicorn "$${SERVICE_NAME}.main:app" --host 0.0.0.0
+    --port "$${PORT:-8000}" --reload --reload-dir /app/dev'
+
+services:
+  gateway:
+    <<: *dev-service
+    volumes:
+      - ./services/gateway/src:/app/dev/service:ro
+      - ./packages/py-kit/src:/app/dev/py-kit:ro
+
+  documents:
+    <<: *dev-service
+    volumes:
+      - ./services/documents/src:/app/dev/service:ro
+      - ./packages/py-kit/src:/app/dev/py-kit:ro
+
+  geometry:
+    <<: *dev-service
+    volumes:
+      - ./services/geometry/src:/app/dev/service:ro
+      - ./packages/py-kit/src:/app/dev/py-kit:ro

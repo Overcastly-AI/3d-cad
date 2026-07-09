@@ -19,10 +19,14 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
       `just lint` + `just test` green
 - ✅ `packages/py-kit` service bootstrap (config, JSON logs, health/readiness,
       error envelope, arq queue client), unit tested
-- 🚧 Service skeletons: `gateway`, `geometry`, `documents` — each boots, serves
-      `/healthz` + `/readyz`, has a Dockerfile; `docker compose up` brings up
-      db + redis + minio + services + web (skeletons on py-kit shipped;
-      Dockerfiles/compose pending)
+- ✅ Service skeletons + compose: `gateway`, `geometry`, `documents` boot on
+      py-kit, serve `/healthz` + `/readyz`; one parameterized service
+      Dockerfile + compose stack (db/redis/minio + services, healthy-gated)
+      authored and config-validated; smoke + per-instance dev scripts;
+      probes verified against bare-uvicorn boots (web joins compose with the
+      web-shell item)
+- ⬜ Verify full `docker compose up` on a Docker-capable host (this sandbox
+      has no docker daemon — images and stack runtime are unproven)
 - ⬜ Contract pipeline: OpenAPI generated from pydantic → committed to
       `packages/contracts` → `packages/ts-client` generated; CI drift check
 - ⬜ Web shell: Vite + React + TS app with router, layout, and an r3f viewport
