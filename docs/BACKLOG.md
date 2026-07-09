@@ -25,7 +25,10 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 - [ ] (P1, L) Web shell + first light — Vite React app, TanStack Router
       layout, r3f viewport; geometry service tessellates a parametric cube to
       GLB via the queue; viewport renders it. Proves HTTP → queue → OCCT →
-      GLB → viewport. [src: roadmap]
+      GLB → viewport. **Includes the initial design token system** (palette /
+      type / layout / signature element) via the mandatory `frontend-design`
+      skill — the shell must land distinctive, not templated (CLAUDE.md
+      design mandate). [src: roadmap, founder]
 - [ ] (P1, M) CI pipeline — lint/typecheck/unit per package (path-filtered),
       compose config validation, contract drift check. [src: roadmap]
 - [ ] (P2, M) Geometry golden harness — golden-model runner (mass properties
@@ -57,4 +60,7 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-09 — Design mandate recorded (founder): frontend-design skill
+  vendored and made mandatory for all UI work; web-shell item below now
+  includes establishing the initial design token system. [orchestrator]
 - 2026-07-09 — Board created (Phase 0 sliced from ROADMAP). [orchestrator]

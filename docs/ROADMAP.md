@@ -12,6 +12,8 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 - ✅ Loop blueprint from Next-Lane review (`docs/AUTONOMOUS-LOOP.md`)
 - ✅ Direction docs: VISION, RESEARCH, ROADMAP, BACKLOG
 - ✅ `CLAUDE.md` constitution + `.claude/` agent org (agents, skills, workflows)
+- ✅ Design mandate: `frontend-design` skill vendored (Apache-2.0) + standing
+      UI/UX directive in CLAUDE.md/VISION.md, wired into frontend agents
 - ⬜ Monorepo scaffold: uv + pnpm workspaces, `justfile`, ruff/pyright/eslint
       configs, `packages/py-kit` with service bootstrap (config, JSON logs,
       health/readiness, error envelope)

@@ -11,6 +11,11 @@ paths (DRY rule, CLAUDE.md).
 
 ## Ground rules
 
+- **Design mandate (standing founder priority, CLAUDE.md):** invoke the
+  `frontend-design` skill BEFORE any UI work. Distinctive, intentional,
+  token-driven — never templated or AI-default. One signature element;
+  boldness spent in one place; the viewport is the hero and the chrome
+  recedes.
 - Strict TypeScript; no `any` without a justifying comment.
 - **Design system first:** design tokens + `src/components/ui/*` primitives
   are the single source; screens compose them. Fix the primitive, not the
@@ -29,6 +34,7 @@ paths (DRY rule, CLAUDE.md).
 
 1. `pnpm lint` + `pnpm typecheck` + unit tests green.
 2. Flow verified in the real running stack (`just dev`), not just Storybook
-   or unit tests; screenshot captured for the founder update when visual.
+   or unit tests; before/after screenshots captured for the founder update
+   on any visual change (design mandate #4).
 3. E2E specs updated/added when the flow is user-facing.
 4. `docs/ROADMAP.md` + `docs/BACKLOG.md` ticked in the same commit.

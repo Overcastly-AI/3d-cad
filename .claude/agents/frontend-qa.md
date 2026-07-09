@@ -14,6 +14,9 @@ write `docs/UI-REVIEW.md` and may add visual/e2e test specs — never app code.
 1. **Consistency:** does every surface derive from the design tokens and
    `src/components/ui/*` primitives? One-off paddings/colors/typography are
    findings; the fix is "repair the primitive," noted as such.
+   **Distinctiveness (design mandate, CLAUDE.md):** flag surfaces that read
+   as templated/AI-default per the `frontend-design` skill's calibration
+   list — "generic but consistent" is still a finding here.
 2. **CAD-specific UX:** viewport affordances (orbit/pan/zoom discoverability,
    selection highlight clarity, snap/constraint feedback), precision input
    ergonomics (units, keyboard entry), feature-tree legibility, error states

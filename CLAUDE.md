@@ -40,6 +40,29 @@ quality — that is your job.
    that flips a ❌ row on the VISION.md scorecard outranks new pillars.
 6. **Keep docs honest** (below) and **never push a red build.**
 
+## Design mandate — STANDING FOUNDER PRIORITY (UI/UX)
+
+Frontend design is a first-class product goal, not polish. CAD tools are
+where engineers live all day; ours must look and feel **premium, distinctive,
+and intentional** — never templated. Standing rules:
+
+1. **Always use the `frontend-design` skill** (`.claude/skills/frontend-design/`,
+   vendored Anthropic skill). ANY UI work — new surface, component, or
+   redesign — invokes it first: establish/extend the token system (palette /
+   type / layout / **one signature element**), avoid the AI-default looks it
+   names, spend boldness in one place, keep the rest disciplined.
+2. **Design system first.** Tokens + `apps/web/src/components/ui/*` are the
+   single source of truth; screens compose primitives. Fix the primitive,
+   never the instance (this is the DRY rule applied to design).
+3. **The viewport is the hero.** Chrome recedes; the model gets the pixels.
+   Panels, trees, and toolbars are quiet precision instruments — dense,
+   legible, keyboard-first — not marketing surfaces.
+4. **Show, don't tell.** UI changes ship with before/after screenshots
+   (desktop + small-laptop widths) surfaced to the founder at milestones.
+5. **Never break the product for looks.** Preserve test hooks (`data-testid`,
+   roles, accessible names). Quality floor: WCAG-AA contrast, visible focus,
+   `prefers-reduced-motion`, self-hosted fonts, responsive to 1280×800.
+
 ## Stack (change only with docs/RESEARCH.md + docs/ARCHITECTURE.md updates)
 
 - **Backend:** Python 3.12+, FastAPI microservices; OCCT via OCP + build123d

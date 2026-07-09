@@ -82,6 +82,17 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 Every row starts ❌ except the structural one. That's the honest baseline;
 the loop's job is to flip rows and never let this table go stale.
 
+## Design mandate (founder, 2026-07-09)
+
+**Frontend design is a stated founder priority, on par with geometric
+correctness.** The product must look and feel premium, distinctive, and
+intentional — a tool engineers are proud to live in all day — never
+templated. Operationalized as the standing "Design mandate" section in
+`CLAUDE.md` (mandatory `frontend-design` skill for all UI work, token-driven
+design system, the viewport as hero, screenshots to the founder). Incumbent
+CAD UIs are dated and cluttered; design is a real wedge, alongside the four
+structural advantages above.
+
 ## What we are NOT building (for now)
 
 - CAM, simulation/FEA, rendering — out of scope until the modeling core is a

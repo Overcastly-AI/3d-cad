@@ -31,6 +31,7 @@ Python-microservices CAD platform.
 | `run-stack` | Bring the stack up (single, per-agent instance, or full compose artifact) and verify it |
 | `geometry-gates` | Run/extend golden models, round-trips, determinism, budgets — mandatory for kernel-adjacent work |
 | `add-microservice` | Add a new service the DRY way (and challenge whether you should) |
+| `frontend-design` | **Mandatory for ANY UI work** (CLAUDE.md design mandate) — distinctive, intentional visual design; vendored Anthropic skill (Apache-2.0, see its `LICENSE.txt`) |
 
 Recommended additions from the Superpowers plugin (`/plugin marketplace add
 obra/superpowers`): TDD, systematic-debugging, writing-plans,
