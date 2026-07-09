@@ -27,8 +27,10 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
       web-shell item)
 - ⬜ Verify full `docker compose up` on a Docker-capable host (this sandbox
       has no docker daemon — images and stack runtime are unproven)
-- ⬜ Contract pipeline: OpenAPI generated from pydantic → committed to
-      `packages/contracts` → `packages/ts-client` generated; CI drift check
+- ✅ Contract pipeline: OpenAPI generated from pydantic → committed to
+      `packages/contracts` → `packages/ts-client` generated (`just gen`);
+      drift check ready as `just gen-check` (CI wiring lands with the CI
+      bullet below)
 - ⬜ Web shell: Vite + React + TS app with router, layout, and an r3f viewport
       rendering a server-tessellated cube from the geometry service (proves
       the whole pipe: HTTP → queue → OCCT → GLB → viewport)

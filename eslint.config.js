@@ -15,4 +15,16 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    // Node codegen/tooling scripts (run via `just gen`) — declare the Node
+    // globals they use; extend the list as scripts grow.
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
 );

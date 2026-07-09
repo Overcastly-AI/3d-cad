@@ -1,0 +1,6 @@
+{
+  "name": "@loft/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GENERATED OpenAPI schemas exported from the FastAPI services — do not edit; run `just gen`"
+}

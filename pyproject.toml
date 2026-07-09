@@ -54,7 +54,7 @@ select = [
 ]
 
 [tool.pyright]
-include = ["services", "packages"]
+include = ["services", "packages", "scripts"]
 exclude = ["**/node_modules", "**/__pycache__", "**/.venv", "packages/contracts", "packages/ts-client"]
 typeCheckingMode = "strict"  # no untyped defs in services/packages (CLAUDE.md)
 # FastAPI/pytest register functions via decorators (@app.get, @app.exception_handler,

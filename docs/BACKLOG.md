@@ -23,9 +23,10 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
       services; smoke script curls all healthz. [src: roadmap] (compose
       runtime verified via config validation + bare-uvicorn smoke only — this
       sandbox has no docker daemon; runtime `up` check is a new ROADMAP item)
-- [ ] (P1, M) Contract pipeline — `just gen` exports OpenAPI from services to
+- [x] (P1, M) Contract pipeline — `just gen` exports OpenAPI from services to
       `packages/contracts`, generates `packages/ts-client`; CI fails on drift.
-      [src: roadmap]
+      [src: roadmap] (drift check ships as `just gen-check`; wiring it into CI
+      is the CI-pipeline item below)
 - [ ] (P1, L) Web shell + first light — Vite React app, TanStack Router
       layout, r3f viewport; geometry service tessellates a parametric cube to
       GLB via the queue; viewport renders it. Proves HTTP → queue → OCCT →
@@ -66,6 +67,22 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-09 — Contract pipeline shipped: `scripts/gen-contracts.py` imports
+  each service's `build_app()` and dumps deterministic OpenAPI JSON (sorted
+  keys, 2-space indent, trailing newline) to `packages/contracts/
+  <service>.openapi.json`; `scripts/gen-ts-client.mjs` generates
+  `packages/ts-client/src/<service>/` (openapi-typescript `schema.ts` + thin
+  openapi-fetch `index.ts` wrapper, "GENERATED — do not edit" headers);
+  `@loft/ts-client` is source-only with per-service exports
+  (`@loft/ts-client/gateway` etc.) and a strict `tsc --noEmit` typecheck so
+  generated output is provably valid strict TS. `just gen` runs both steps
+  (idempotent — verified by hashing); `just gen-check` regenerates into a
+  tempdir and diffs vs. committed output (fails on a perturbed contract AND
+  a perturbed client file — both demonstrated; never dirties the tree; this
+  is what CI will call). Generated dirs stay excluded from ruff/pyright/
+  eslint/prettier; `scripts/` added to pyright strict. `just lint` + `just
+  test` + `pnpm -r typecheck` green. CI wiring itself = CI-pipeline item.
+  [platform-builder]
 - 2026-07-09 — Compose + Dockerfiles (3b) shipped: ONE parameterized
   multi-stage `deploy/docker/service.Dockerfile` (build-arg `SERVICE_NAME`,
   uv `--frozen --no-dev --no-editable` install, deps layer cached on uv.lock,

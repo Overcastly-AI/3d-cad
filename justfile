@@ -31,9 +31,16 @@ test:
     uv run pytest || [ $? -eq 5 ]  # pytest exit 5 = no tests collected; fine until the first suites land
     pnpm run test
 
-# Regenerate OpenAPI contracts + TS client
+# Regenerate OpenAPI contracts (pydantic → packages/contracts) + typed TS
+# client (packages/ts-client). Both are committed; CI fails on drift.
 gen:
-    @echo "just gen: placeholder — lands with the 'Contract pipeline' backlog item (docs/BACKLOG.md)."
+    uv run scripts/gen-contracts.py
+    node scripts/gen-ts-client.mjs
+
+# Drift check (CI calls this): regenerate into a tempdir and diff against the
+# committed output — non-zero on drift, never dirties the working tree.
+gen-check:
+    scripts/gen-check.sh
 
 # Playwright e2e + geometry golden suite
 e2e:
