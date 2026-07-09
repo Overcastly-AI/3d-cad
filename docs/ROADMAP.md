@@ -17,8 +17,8 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 - ✅ Monorepo scaffold: uv + pnpm workspaces (incl. `@loft/design`
       placeholder), `justfile`, ruff/pyright/eslint/prettier configs —
       `just lint` + `just test` green
-- ⬜ `packages/py-kit` service bootstrap (config, JSON logs, health/readiness,
-      error envelope), unit tested
+- ✅ `packages/py-kit` service bootstrap (config, JSON logs, health/readiness,
+      error envelope, arq queue client), unit tested
 - ⬜ Service skeletons: `gateway`, `geometry`, `documents` — each boots, serves
       `/healthz` + `/readyz`, has a Dockerfile; `docker compose up` brings up
       db + redis + minio + services + web

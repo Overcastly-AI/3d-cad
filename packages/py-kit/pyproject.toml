@@ -4,7 +4,13 @@ version = "0.1.0"
 description = "Shared Python service kit for Loft services (config, logging, health, queue, errors)"
 requires-python = ">=3.12"
 license = "MIT"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic-settings>=2.7",
+    "structlog>=24.4",
+    "arq>=0.26",
+    "uvicorn>=0.32",
+]
 
 [build-system]
 requires = ["hatchling"]

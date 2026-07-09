@@ -15,7 +15,7 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
       configs, root README pointers. No app code yet; `just lint` and `just
       test` pass trivially. [src: roadmap] (README pointers deferred to the
       P2 community-surface item to avoid a territory clash)
-- [ ] (P1, M) `packages/py-kit` — service bootstrap: pydantic-settings config,
+- [x] (P1, M) `packages/py-kit` — service bootstrap: pydantic-settings config,
       structlog JSON logging, FastAPI app factory with `/healthz` + `/readyz`,
       standard error envelope, arq queue client. Unit tested. [src: roadmap]
 - [ ] (P1, L) Service skeletons + compose — gateway/geometry/documents boot on
@@ -64,6 +64,14 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-09 — `packages/py-kit` service bootstrap shipped: env-driven
+  `BaseServiceSettings` (pydantic-settings), structlog JSON logging (console
+  renderer via `LOG_FORMAT=console`) with request-context binding, `ApiError`
+  hierarchy + standard error envelope (404/409/422/500, opaque unhandled
+  500s), `create_app` factory wiring request-id middleware + `/healthz` +
+  `/readyz` (per-check detail, 503 on failure), thin arq `QueueClient`.
+  21 unit tests; `just lint` + `just test` green; probes verified against a
+  real uvicorn boot. [backend-builder]
 - 2026-07-09 — Monorepo scaffold shipped: uv workspace (`services/*` +
   `packages/py-kit`, Python 3.12) + pnpm workspace (`apps/*` + `packages/*`,
   `@loft/design` placeholder), justfile with lint/test/dev/gen/e2e targets,

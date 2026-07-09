@@ -17,7 +17,14 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.12",
     "pyright>=1.1.400",
+    # Workspace members under test + shared test deps: `uv run pytest` from the
+    # root needs the members importable in the single workspace venv.
+    "loft-py-kit",
+    "httpx2>=0.1",  # fastapi/starlette TestClient transport (httpx is deprecated there)
 ]
+
+[tool.uv.sources]
+loft-py-kit = { workspace = true }
 
 # ---------------------------------------------------------------------------
 # Shared lint/type/test config — single source of truth for all Python members
@@ -44,10 +51,15 @@ select = [
 include = ["services", "packages"]
 exclude = ["**/node_modules", "**/__pycache__", "**/.venv", "packages/contracts", "packages/ts-client"]
 typeCheckingMode = "strict"  # no untyped defs in services/packages (CLAUDE.md)
+# FastAPI/pytest register functions via decorators (@app.get, @app.exception_handler,
+# @pytest.fixture); pyright can't see that access and would flag every handler.
+reportUnusedFunction = false
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["services", "packages"]
-addopts = "-q"
+# importlib mode: test module names may repeat across workspace members
+# (e.g. every member can have tests/test_config.py) without collisions.
+addopts = "-q --import-mode=importlib"
