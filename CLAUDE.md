@@ -121,11 +121,14 @@ WET code is a defect class here, reviewed as such:
 
 ```bash
 just dev            # compose up db/redis/minio + services + web (hot reload)
-just test           # all unit tests (py + ts)
+just dev-down       # tear down the dev stack (keeps volumes)
+just smoke          # probe /healthz + /readyz on all services
 just lint           # ruff + pyright + eslint
+just test           # all unit tests (py + ts)
 just gen            # regenerate contracts + ts-client
-just e2e            # Playwright + geometry golden suite
-docker compose up -d --build   # full stack
+just gen-check      # CI gate: regenerate in tempdir, diff vs. committed
+just e2e            # placeholder; Playwright + geometry golden suite land in Phase 1
+docker compose up -d --build   # full stack (use `just dev` for dev with hot reload)
 ```
 
 (Targets land with the monorepo scaffold; keep this section true as they do.)

@@ -45,8 +45,8 @@ model, and flipping rows is the roadmap.
 **What runs today (verified in this repo):**
 
 - **Monorepo** — uv + pnpm workspaces, `justfile`, ruff/pyright(strict)/
-  eslint/prettier; `just lint` and `just test` green (82 unit tests at the
-  time of writing: 69 pytest + 13 vitest).
+  eslint/prettier; `just lint` and `just test` green (89 unit tests: 76 pytest
+  + 13 vitest).
 - **Three FastAPI services** (`gateway`, `documents`, `geometry`) booting on
   a shared service kit (`packages/py-kit`: config, JSON logging,
   health/readiness probes, error envelope, queue client).
