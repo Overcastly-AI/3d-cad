@@ -70,10 +70,13 @@ carry forward as blocked board items.
 
 The thinnest vertical slice a working engineer can feel:
 
-- 🚧 Auth: email/password, JWT via gateway; single-workspace (backend
+- ✅ Auth: email/password, JWT via gateway; single-workspace (backend
       shipped 2026-07-10: argon2id + HS256 register/login/me under
       `/api/v1/auth/*`, users via alembic `0001_users`, fail-fast JWT_SECRET
-      posture, hard postgres readiness. Web sign-in pending)
+      posture, hard postgres readiness. Web sign-in shipped 2026-07-10:
+      drawing-sheet sign-in/register, localStorage session, global
+      invalid-token expiry → quiet notice; e2e-verified
+      register→login→refresh→logout, 15/15 Playwright green)
 - 🚧 Documents: create/list parts; parametric feature tree persisted (JSONB
       params + ordered tree) (parts CRUD shipped 2026-07-10: owner-scoped
       create/list/get/delete via alembic `0001_parts` + auth-protected

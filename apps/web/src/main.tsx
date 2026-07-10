@@ -6,7 +6,11 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { installAuthTransport } from "./auth/transport";
 import { router } from "./router";
+
+// Bearer header + global invalid-token catch on the one gateway client.
+installAuthTransport();
 
 const queryClient = new QueryClient();
 

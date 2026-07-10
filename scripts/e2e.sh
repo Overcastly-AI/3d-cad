@@ -85,6 +85,38 @@ echo
 echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
 start_service geometry geometry.main:app "$GEOMETRY_PORT"
 export GEOMETRY_URL="${GEOMETRY_URL:-http://${HOST}:${GEOMETRY_PORT}}"
+
+# Gateway DB plumbing: the auth e2e needs a user store. Without a Postgres
+# daemon (this sandbox), default POSTGRES_URL to the same file-backed
+# aiosqlite database the gateway's own unit suite uses, and apply the
+# migration-equivalent (ORM metadata create) the way its tests do.
+if [[ -z "${POSTGRES_URL:-}" ]]; then
+  export POSTGRES_URL="sqlite+aiosqlite:///${RUN_DIR}/gateway-e2e.db"
+  echo "e2e: POSTGRES_URL unset — using ${POSTGRES_URL}"
+  uv run python - <<'PY'
+import asyncio
+import os
+
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from gateway.db import Base
+from py_kit.db import async_dsn
+
+
+async def main() -> None:
+    engine = create_async_engine(async_dsn(os.environ["POSTGRES_URL"]))
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+
+
+asyncio.run(main())
+PY
+fi
+
+# Explicit dev posture: unset LOFT_ENV fails closed on the gateway (JWT
+# secret required outside dev), so this local gate declares itself dev.
+export LOFT_ENV="${LOFT_ENV:-dev}"
 start_service gateway gateway.main:app "$GATEWAY_PORT"
 
 if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" && -d /opt/pw-browsers ]]; then

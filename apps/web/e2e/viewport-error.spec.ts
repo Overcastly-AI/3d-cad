@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 
+import { seedSession } from "./support";
+
 const TESSELLATE = "**/api/v1/geometry/tessellate";
+
+// The modeler now lives behind sign-in; every spec gets a fresh session.
+test.beforeEach(async ({ page }) => {
+  await seedSession(page);
+});
 
 /**
  * The worst CAD failure mode is a wrong model on screen: a corrupt GLB with

@@ -92,13 +92,14 @@ with them; #8 is small platform enablement.
       contracts + ts-client regenerated; documents service still imports no
       kernel code. Shipped 2026-07-10 (see changelog) — db/alembic plumbing
       extracted to py-kit on this second real use. [src: roadmap]
-- [ ] (P1, S) Auth v1 web sign-in — login/register screens + session
+- [x] (P1, S) Auth v1 web sign-in — login/register screens + session
       handling in `apps/web` composing `packages/design` primitives
       (`frontend-design` skill mandatory), authenticated fetch wiring in the
       generated client's transport. Depends on Auth v1 backend. Acceptance:
       Playwright e2e — register → login → land in the app → refresh keeps
       session → logout; WCAG-AA + visible focus + 1280×800 verified;
-      screenshots for the founder. [src: roadmap]
+      screenshots for the founder. Shipped 2026-07-10 (see changelog;
+      reconciled after an interrupted first run). [src: roadmap]
 - [x] (P1, S) `just e2e` wiring — make the target run the Playwright suite
       (`@loft/web`) plus the geometry gates (`test_goldens.py`,
       `test_step_roundtrip.py`) per the run commands at the top of
@@ -189,6 +190,12 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — Auth v1 web sign-in shipped (Ready #7; reconciled/finished
+  after an interrupted run): drawing-sheet sign-in composing design tokens,
+  localStorage session (XSS tradeoff noted), global invalid-token 401 →
+  quiet "session expired" notice; 6 new e2e specs, 15/15 green.
+  [frontend-builder]
 
 - 2026-07-10 — Documents parts CRUD shipped (Ready #6): owner-scoped CRUD +
   alembic `0001_parts`, auth-protected gateway aggregation (JWT →

@@ -60,6 +60,11 @@ export interface PanelActionCellProps extends ButtonHTMLAttributes<HTMLButtonEle
   label: string;
   /** Quiet one-line description under the label — e.g. "Exact B-rep". */
   caption?: string;
+  /**
+   * Toggle-style cells (mode switches): the selected cell's label carries
+   * brass and `aria-pressed` is set. Leave undefined for plain actions.
+   */
+  selected?: boolean;
 }
 
 /**
@@ -72,6 +77,7 @@ export interface PanelActionCellProps extends ButtonHTMLAttributes<HTMLButtonEle
 export function PanelActionCell({
   label,
   caption,
+  selected,
   className,
   type,
   ...rest
@@ -79,6 +85,7 @@ export function PanelActionCell({
   return (
     <button
       type={type ?? "button"}
+      aria-pressed={selected}
       className={cx(
         "block w-full px-3 py-2 text-left transition-colors duration-fast",
         "hover:bg-carbide",
@@ -88,7 +95,12 @@ export function PanelActionCell({
       )}
       {...rest}
     >
-      <span className="block font-display text-2xs uppercase tracking-[0.14em] text-mist">
+      <span
+        className={cx(
+          "block font-display text-2xs uppercase tracking-[0.14em]",
+          selected ? "text-brass" : "text-mist",
+        )}
+      >
         {label}
       </span>
       {caption ? (

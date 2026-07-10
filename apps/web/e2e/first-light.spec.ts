@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-import { expectRenderedModel, SCREENSHOT_DIR } from "./support";
+import { expectRenderedModel, SCREENSHOT_DIR, seedSession } from "./support";
+
+// The modeler now lives behind sign-in; every spec gets a fresh session.
+test.beforeEach(async ({ page }) => {
+  await seedSession(page);
+});
 
 test.describe("first light", () => {
   test("renders the OCCT-tessellated cube with real mass properties (desktop)", async ({

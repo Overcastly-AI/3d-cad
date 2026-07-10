@@ -2,7 +2,12 @@ import { readFile, stat } from "node:fs/promises";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { expectRenderedModel, SCREENSHOT_DIR } from "./support";
+import { expectRenderedModel, SCREENSHOT_DIR, seedSession } from "./support";
+
+// The modeler now lives behind sign-in; every spec gets a fresh session.
+test.beforeEach(async ({ page }) => {
+  await seedSession(page);
+});
 
 /** The first-light box must be meshed before its export can mean anything. */
 async function waitForModel(page: Page): Promise<void> {

@@ -1,6 +1,68 @@
 import { expect, type Page } from "@playwright/test";
 
+import { SESSION_STORAGE_KEY } from "../src/auth/session";
+
 export const SCREENSHOT_DIR = "../../docs/screenshots";
+
+/** Meets the gateway's 8–256 char policy; not a secret (test-only). */
+export const TEST_PASSWORD = "loft-e2e-passw0rd";
+
+/**
+ * A unique throwaway address per call — registrations never collide.
+ * example.com because pydantic's email-validator rejects special-use TLDs
+ * like `.test` ("reserved name") with a 422.
+ */
+export function uniqueEmail(): string {
+  return `e2e-${Date.now()}-${Math.floor(Math.random() * 1e9)}@example.com`;
+}
+
+export interface RegisteredAccount {
+  email: string;
+  token: string;
+  user: unknown;
+}
+
+/** Register a fresh account via the real gateway (through the Vite proxy). */
+export async function registerViaApi(page: Page): Promise<RegisteredAccount> {
+  const email = uniqueEmail();
+  const response = await page.request.post("/api/v1/auth/register", {
+    data: { email, password: TEST_PASSWORD },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `e2e register failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const body = (await response.json()) as {
+    access_token: string;
+    user: unknown;
+  };
+  return { email, token: body.access_token, user: body.user };
+}
+
+/** Write a session into localStorage before every page load in this page. */
+export async function seedStoredSession(
+  page: Page,
+  token: string,
+  user: unknown,
+): Promise<void> {
+  await page.addInitScript(
+    ({ key, value }) => {
+      window.localStorage.setItem(key, value);
+    },
+    { key: SESSION_STORAGE_KEY, value: JSON.stringify({ token, user }) },
+  );
+}
+
+/**
+ * Register + seed the session — the fast path for specs that test the
+ * modeler, not the sign-in flow itself.
+ */
+export async function seedSession(page: Page): Promise<RegisteredAccount> {
+  const account = await registerViaApi(page);
+  await seedStoredSession(page, account.token, account.user);
+  return account;
+}
 
 /** Count distinct colors on the WebGL canvas — proves a real render. */
 export async function distinctCanvasColors(page: Page): Promise<number> {
