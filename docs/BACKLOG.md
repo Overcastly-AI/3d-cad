@@ -45,9 +45,10 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
       first hosted Actions run occurs on push. Per-package path filtering
       deferred — repo is small and all jobs run in parallel; revisit when
       job times warrant)
-- [ ] (P2, M) Geometry golden harness — golden-model runner (mass properties
+- [x] (P2, M) Geometry golden harness — golden-model runner (mass properties
       + topology counts vs. committed goldens), STEP round-trip test; cube as
-      first golden. [src: roadmap]
+      first golden. [src: roadmap] (`just e2e` wiring deferred — justfile is
+      platform territory; run commands documented in docs/GEOMETRY-QA.md)
 - [x] (P2, S) Community surface — README (truth-only: what runs today, no
       aspirational badges), CONTRIBUTING, SECURITY, issue templates.
       [src: roadmap]
@@ -77,6 +78,21 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-10 — Geometry golden harness shipped: data-driven golden runner
+  (`services/geometry/tests/test_goldens.py`) discovering
+  `services/geometry/goldens/<name>/{model,expected}.json` — mass properties
+  within each golden's documented tolerance + rationale, topology and mesh
+  counts exact, determinism at byte strength in-process AND across an
+  interpreter restart (subsumed + removed the old test_kernel determinism
+  test); zero runner changes to add a golden. First golden: 10×20×30 box,
+  hand-derived expectations (6000 mm³ / 2200 mm² / centroid (5,10,15) /
+  6/12/1 / 24v/12t) at 1e-7, measured deviation 0.0. STEP round-trip gate
+  (`test_step_roundtrip.py`, parametrized over the inventory): export →
+  re-import → re-measure, deviation exactly 0.0 on all 11 mass-property
+  checks, topology preserved. Harness proven to fail on perturbed
+  volume/topology. First `docs/GEOMETRY-QA.md` entry with evidence tables +
+  7-item gap list (curved golden, queue path, endpoint-level round-trip,
+  `just e2e` wiring = platform). 34 geometry tests green. [geometry-qa]
 - 2026-07-10 — Community surface shipped: truth-only README rewrite (CI +
   MIT badges, first-light hero screenshot, four structural advantages, honest
   "what runs / what doesn't" status with the all-❌ scorecard linked,

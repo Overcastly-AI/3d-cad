@@ -1,0 +1,5 @@
+{
+  "shape": "box",
+  "params": { "x": 10.0, "y": 20.0, "z": 30.0 },
+  "linear_deflection": 0.1
+}

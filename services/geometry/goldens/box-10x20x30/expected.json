@@ -1,0 +1,26 @@
+{
+  "description": "10 x 20 x 30 mm axis-aligned box, min corner at the origin. Locks the parametric box builder, GProp mass properties, exact optimal AABB, B-rep topology counts, and the 0.1 mm linear-deflection tessellation (the only shipped modeling capability as of 2026-07-10).",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "volume = 10 * 20 * 30 = 6000 mm^3",
+    "surface_area = 2 * (10*20 + 20*30 + 10*30) = 2 * (200 + 600 + 300) = 2200 mm^2",
+    "centroid = (10/2, 20/2, 30/2) = (5, 10, 15) mm by symmetry",
+    "bounding_box = [0,0,0]..[10,20,30]: build_box places the min corner at the origin",
+    "topology: a rectangular prism is 6 planar faces, 12 straight edges, 1 closed shell",
+    "mesh: each planar rectangular face tessellates to exactly 2 triangles (6 * 2 = 12); faceted per-face normals mean no vertex sharing across faces, so 6 faces * 4 corners = 24 vertices",
+    "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-7,
+  "tolerance_rationale": "CLAUDE.md kernel linear tolerance (1e-7 m convention, applied here in model units). The box is planar-exact in OCCT: GProp integrates planar faces without approximation error, so the measured deviation from analytic is exactly 0.0 (verified 2026-07-10, docs/GEOMETRY-QA.md). 1e-7 is the standing kernel bound, not a fitted epsilon; loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 6000.0,
+    "surface_area": 2200.0,
+    "centroid": { "x": 5.0, "y": 10.0, "z": 15.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 10.0, "y": 20.0, "z": 30.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}

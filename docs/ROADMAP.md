@@ -44,8 +44,12 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
       parallel jobs, uv cache keyed on uv.lock); workflow authored + every
       job's commands verified passing locally — first hosted run occurs on
       push (per-package path filtering deferred until job times warrant)
-- ⬜ Geometry golden-suite harness (first golden model: the cube) + STEP
-      round-trip test
+- ✅ Geometry golden-suite harness (first golden model: the cube) + STEP
+      round-trip test — data-driven runner over `services/geometry/goldens/`
+      (documented per-model tolerances, exact topology/mesh counts,
+      byte-level determinism incl. interpreter-restart), STEP round-trip at
+      0.0 measured deviation; evidence + gap list in `docs/GEOMETRY-QA.md`
+      (`just e2e` wiring = platform territory, still pending)
 - ✅ Community surface: README (truth-only — hero screenshot, honest status,
       verified quickstart, CI badge), CONTRIBUTING, SECURITY,
       CODE_OF_CONDUCT, bug/feature issue templates + PR template

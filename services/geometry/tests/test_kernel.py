@@ -1,8 +1,13 @@
-"""Kernel golden model: the 10 x 20 x 30 mm box (first light).
+"""Kernel unit tests against the 10 x 20 x 30 mm box (first light).
 
-Mass properties are asserted against analytic values within GOLDEN_TOL;
-topology counts exactly; tessellation determinism at full byte strength
-(RESEARCH §9 geometry gates).
+Mass properties are asserted against analytic values within GOLDEN_TOL and
+topology counts exactly, at the unit level (build_box / measure_shape /
+tessellate_glb directly) so a failure localizes to one kernel function.
+
+The data-driven golden-model harness — including the canonical determinism
+gate (in-process byte compare + interpreter-restart rebuild), which subsumed
+this file's former ``test_tessellation_is_deterministic`` — lives in
+``test_goldens.py`` over ``services/geometry/goldens/`` (RESEARCH §9).
 """
 
 import struct
@@ -89,15 +94,6 @@ def test_glb_payload_is_valid_binary_gltf() -> None:
     assert stats.triangles == 12
     assert stats.vertices == 24
     assert stats.glb_bytes == len(glb)
-
-
-def test_tessellation_is_deterministic() -> None:
-    """Same request twice → identical metadata AND byte-identical GLB."""
-    glb_a, meta_a = evaluate_tessellation(GOLDEN_REQUEST)
-    glb_b, meta_b = evaluate_tessellation(GOLDEN_REQUEST)
-
-    assert meta_a == meta_b
-    assert glb_a == glb_b
 
 
 def test_build_and_tessellate_performance_budget() -> None:
