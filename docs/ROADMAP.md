@@ -73,8 +73,11 @@ The thinnest vertical slice a working engineer can feel:
 - ⬜ Auth: email/password, JWT via gateway; single-workspace
 - ⬜ Documents: create/list parts; parametric feature tree persisted (JSONB
       params + ordered tree)
-- ⬜ Sketcher v1: plane selection, line/rect/circle/arc, dimensional +
-      geometric constraints (planegcs behind `SketchSolver` interface)
+- 🚧 Sketcher v1: plane selection, line/rect/circle/arc, dimensional +
+      geometric constraints (planegcs behind `SketchSolver` interface —
+      solver layer shipped 2026-07-10: protocol + planegcs 0.8.0 backend,
+      LGPL-2.1 verified, benchmark rectangle at 0.0 deviation,
+      bitwise-deterministic; RESEARCH §2. Sketch persistence/API/UI pending)
 - ⬜ Features v1: extrude (add/cut), fillet, chamfer; feature re-evaluation on
       param edit; error surfacing when a feature fails to rebuild
 - ⬜ Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of

@@ -62,7 +62,7 @@ with them; #8 is small platform enablement.
       Acceptance: `docs/design/` doc reviewed by code-reviewer with
       kernel-architect concerns addressed; RESEARCH.md cross-linked in the
       same commit; no application code. [src: roadmap]
-- [ ] (P1, M) SketchSolver interface + planegcs spike — typed `SketchSolver`
+- [x] (P1, M) SketchSolver interface + planegcs spike — typed `SketchSolver`
       protocol in the geometry service plus a spike verdict on planegcs:
       license check (LGPL-dynamic ok, no GPL — RESEARCH §8), wheel
       availability/buildability in this container and CI, benchmark sketch
@@ -185,6 +185,28 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — SketchSolver interface + planegcs spike (Ready #4) shipped —
+  **verdict: planegcs adopted**, spike code promoted to the real module
+  (`services/geometry/src/geometry/sketch/`). Typed `SketchSolver` protocol
+  over pure-pydantic DTOs (entities with sketch-local string ids per
+  feature-tree §2.4/§6; constraints: coincident / horizontal / vertical /
+  distance / radius / fixed; `SolvedSketch` output = solved positions +
+  status converged/underconstrained/overconstrained/conflicting/diverged +
+  DOF + conflicting/redundant constraint indices — the coming per-feature
+  solved-sketch `FeatureResult` payload, feature-tree §7.10).
+  `PlanegcsSketchSolver` backend: PyPI `planegcs` 0.8.0,
+  **LGPL-2.1-or-later verified in wheel METADATA + bundled LICENSE** (GPL
+  candidates `py-slvs`/`python-solvespace` identified and never installed).
+  Benchmark rectangle (40 × 25, feature-tree §6 example + anchor) solves to
+  analytic corners at 0.0 deviation, DOF 0, bitwise-deterministic across
+  runs/instances, guess-insensitive when fully constrained; 10 unit tests
+  cover benchmark, determinism, underconstrained/conflicting/redundant
+  diagnosis (statuses, not crashes), circle radius, definition errors.
+  RESEARCH §2 decision recorded in the same commit. scipy fallback not
+  needed, not implemented. No API routes/contracts (interface-only item);
+  sketch DTOs migrate to `py_kit.schemas` with the sketch API.
+  [kernel-architect]
 
 - 2026-07-10 — Export gateway proxy (1b-gateway) shipped: `POST
   /api/v1/geometry/export` on the gateway forwards to geometry's

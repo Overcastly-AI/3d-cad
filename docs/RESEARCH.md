@@ -25,17 +25,53 @@ for MCAD), truck (Rust, immature), writing our own (a decade of work).
 **Licensing:** OCCT is LGPL-2.1 *with exception* — safe to depend on from an
 MIT app. build123d and OCP are Apache-2.0.
 
-## 2. Sketch constraint solver — planegcs first, custom fallback
+## 2. Sketch constraint solver — planegcs (spike verdict 2026-07-10: adopted)
 
-**Decision:** Evaluate FreeCAD's planar geometric constraint solver
-(**planegcs**, LGPL) via its Python packaging for the 2D sketcher. Fallback if
-packaging proves unworkable: a scipy-based least-squares solver behind the
-same interface.
+**Decision:** FreeCAD's planar geometric constraint solver via the
+**`planegcs`** PyPI package (0.8.0), behind the `SketchSolver` protocol in
+`services/geometry/src/geometry/sketch/`. The spike verdict is **adopted as
+the real module** — the scipy least-squares fallback was not needed and was
+not implemented; it remains the named fallback should planegcs packaging ever
+break.
 
-**Guardrail:** SolveSpace's solver is GPLv3 — **do not** introduce it or any
-GPL dependency into this MIT codebase. LGPL dynamic deps are fine.
-The solver sits behind a `SketchSolver` interface in the geometry service so
-the choice is swappable.
+**Packaging evidence (spike, 2026-07-10):** `planegcs` on PyPI
+(github.com/spookylukey/planegcs) extracts PlaneGCS from FreeCAD's Sketcher
+and wraps it with a typed Python API (`py.typed` + `.pyi` stubs —
+pyright-strict clean). Actively released (0.1.0 → 0.8.0 over 2026), cp312 +
+cp313 manylinux/Windows wheels; sdist builds need eigen3 + boost headers,
+which we don't rely on. The cp312 manylinux wheel installs and runs in this
+container via `uv add --package loft-geometry planegcs`.
+
+**License evidence (blocking check, passed):** wheel METADATA declares
+`License: LGPL-2.1-or-later`; the bundled `dist-info/licenses/LICENSE` is
+LGPL-2.1 and credits the FreeCAD PlaneGCS origin. LGPL as a
+dynamically-loaded extension module is allowed (§8), same posture as OCCT.
+Rejected candidates found during the spike: `py-slvs` and
+`python-solvespace` (SolveSpace bindings — **GPLv3, forbidden**, never
+installed), `pyGCS` (unrelated grid-convergence tool).
+
+**Benchmark evidence (spike, asserted forever by
+`services/geometry/tests/test_sketch_solver.py`):** the reference rectangle
+(4 lines, coincident corners, horizontal/vertical, driving dimensions
+40 × 25 mm, one corner anchored — the feature-tree §6 worked example plus an
+anchor) solves DOF 0 with **0.0 observed deviation** from the analytic
+corners; solutions are **bitwise deterministic** across runs and fresh solver
+instances (RESEARCH §9 gate), and — fully constrained — insensitive to a
+displaced starting guess. Diagnosis is first-class: remaining DOF count,
+conflicting and redundant constraints reported as indices into the input
+constraint list (planegcs constraint tags mapped back). Underconstrained
+sketches still solve and stay **near the input positions** (the entity
+positions are the starting guess) — deterministic, but guess-*dependent* by
+design; only fully-constrained sketches are guess-independent. No iteration
+count is exposed; the default DogLeg algorithm is used with no random
+restarts.
+
+**Guardrail (standing):** SolveSpace's solver is GPLv3 — **do not** introduce
+it or any GPL dependency into this MIT codebase. LGPL dynamic deps are fine.
+The solver stays behind the `SketchSolver` protocol
+(`geometry.sketch.solver`); callers import the interface package, never
+`planegcs`. The sketch DTOs are pure pydantic (no kernel, no solver types)
+and migrate to `py_kit.schemas` when the sketch API lands.
 
 ## 3. Architecture — monorepo of microservices, contract-first, DRY
 

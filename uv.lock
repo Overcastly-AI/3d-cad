@@ -560,6 +560,7 @@ dependencies = [
     { name = "build123d" },
     { name = "fastapi" },
     { name = "loft-py-kit" },
+    { name = "planegcs" },
     { name = "uvicorn" },
 ]
 
@@ -568,6 +569,7 @@ requires-dist = [
     { name = "build123d", specifier = ">=0.11.1" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
+    { name = "planegcs", specifier = ">=0.8.0" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]
 
@@ -768,6 +770,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/c3/059298687310d527a58bb01f3b1965787ee3b40dce76752eda8b44e9a2c5/pexpect-4.9.0-py2.py3-none-any.whl", hash = "sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523", size = 63772, upload-time = "2023-11-25T06:56:14.81Z" },
+]
+
+[[package]]
+name = "planegcs"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6c/6d/2ae123c5913387f52ab5b969f25bbc513d41f04546ecc5662ab86464a495/planegcs-0.8.0.tar.gz", hash = "sha256:09e77e6e3a27fa77d3b5a69065ea4c82ae6ed35753246a2e518b1a6005fea162", size = 188341, upload-time = "2026-06-22T11:46:09.107Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/bc/1b9f891f47946622d48023d4f7d89a61d4bc9e961612510665bfcfc67360/planegcs-0.8.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b7cee480273c1544534f374cc09e068cbcc04625313cbb42a0af386a27537bd1", size = 468642, upload-time = "2026-06-22T11:46:03.377Z" },
+    { url = "https://files.pythonhosted.org/packages/01/b4/c8679aef89e1457e969e97bbeaaa20e4fc705fa69926b3b6e37935344d4c/planegcs-0.8.0-cp312-cp312-win_amd64.whl", hash = "sha256:eaca385138e8ae01402c432b7eafd1eece71f77913576c3fbb90a97280cc263f", size = 397122, upload-time = "2026-06-22T11:46:04.915Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/40/7ca54bb9b36d4a6e1c8bc8576518b2b90183629bc22fc21e846cafe2c899/planegcs-0.8.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:de30b5b34e43b5f8bf4c11d89e625ddfd633ded2a621e71e58146d12721d0cfb", size = 468826, upload-time = "2026-06-22T11:46:06.159Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/90/9e15c226932056a636c911f0df88981395c619992df8a07c56e266d16f71/planegcs-0.8.0-cp313-cp313-win_amd64.whl", hash = "sha256:6412308c98004dc4d02f0e169c11553bc73ca5ec01b9b8756fc0c2f4fb0792ae", size = 397157, upload-time = "2026-06-22T11:46:07.61Z" },
 ]
 
 [[package]]
