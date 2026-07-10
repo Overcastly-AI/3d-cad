@@ -30,7 +30,7 @@ Sequenced for Phase 1. #1–#2 are kernel-only and independent; #3–#4 are the
 sketcher prerequisites; #5–#7 (auth + documents CRUD) proceed in parallel
 with them; #8 is small platform enablement.
 
-- [ ] (P1, M) STEP/STL export endpoints + UI download — geometry service
+- [x] (P1, M) STEP/STL export endpoints + UI download — geometry service
       `POST /api/v1/export` (format: step|stl) building from the same model
       params as tessellate, streamed via a gateway proxy; download control in
       the web title-block/toolbar (design primitives, `frontend-design`
@@ -42,10 +42,10 @@ with them; #8 is small platform enablement.
       and the decision recorded in GEOMETRY-QA (gap #4); exported STL
       re-imported and volume asserted within documented tolerance; QA
       downloads both formats for the 10×20×30 box in a real browser and
-      re-imports them. **PARTIAL 2026-07-10:** geometry half (1a) shipped —
-      endpoint + all geometry-gate acceptance points green (see changelog);
-      gateway proxy (1b-gateway) shipped too (see changelog); web download
-      UI + browser QA (1b-web) remain. [src: roadmap, geometry-qa]
+      re-imports them. Shipped in three slices: geometry endpoint (1a),
+      gateway proxy (1b-gateway), web download UI + real-browser download
+      e2e (1b-web) — see the 2026-07-10 changelog entries.
+      [src: roadmap, geometry-qa]
 - [x] (P1, S) First curved golden: cylinder — add a parametric cylinder to
       the kernel/request schema and land golden `cylinder` alongside the box.
       De-risks curved GProp integration, tessellation deflection, and STEP
@@ -186,6 +186,30 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — STEP/STL download UI (1b-web) shipped — closes Ready #1 end
+  to end. The title block gained an EXPORT row in the footer-strip rhythm
+  (status cell `Ready/Writing…/Failed` + actionable STEP "B-rep" and STL
+  "Mesh" cells) built on a new `PanelActionCell` primitive in
+  `packages/design` (actionable title-block cell: inset brass focus ring,
+  carbide hover, disabled/busy states — frontend-design skill pass, captions
+  tightened after screenshot critique). Typed data layer via the generated
+  client only: shared `gatewayClient` extracted to `apps/web/src/api/
+  client.ts` (tessellate + export now share one instance and the SAME mesh
+  deflections, so exported STL facets match the viewport),
+  `exportPart.ts` parses the server-authoritative `Content-Disposition`
+  filename (quoted/bare, path-stripping, `filename*` ignored → fallback) and
+  downloads via blob + anchor; failure shows a flag-ink ruled note
+  consistent with the viewport rejection stamp. Tests: 9 new vitest cases
+  (filename parsing + exportBox happy/fallback/error against an injected
+  typed client); 4 new Playwright specs against the real stack — STEP
+  download asserted `box.step` starting `ISO-10303-21`, STL asserted
+  `box.stl` at exactly 684 bytes (84-byte header + 12×50), keyboard-only
+  export (focus + Enter), abort→Failed→recovery, and the 1280×800 founder
+  shot (`docs/screenshots/export-control.png`). `just e2e` fully green (13
+  geometry gates + 9 Playwright). VISION scorecard Interop row now has a
+  shipped export half — re-score routed to vision-steward (VISION.md not
+  touched here). [frontend-builder]
 
 - 2026-07-10 — First curved golden shipped (Ready #2, GEOMETRY-QA gap #1
   closed): parametric cylinder end to end. Shared schemas (py-kit) gained

@@ -2,8 +2,9 @@
  * Gateway data layer — all types come from the generated `@loft/ts-client`
  * (pydantic → OpenAPI → TS; CLAUDE.md DRY rule). No hand-written API types.
  */
-import { createGatewayClient } from "@loft/ts-client/gateway";
 import type { components } from "@loft/ts-client/gateway";
+
+import { gatewayClient, MESH_LINEAR_DEFLECTION_MM } from "./client";
 
 export type BoxParams = components["schemas"]["BoxParams"];
 export type TessellationMetadata =
@@ -20,9 +21,6 @@ export type Vec3 = components["schemas"]["Vec3"];
  * the e2e happy path) instead of quietly dropping mass properties.
  */
 export const PROPERTIES_HEADER = "X-Loft-Properties";
-
-/** Same-origin in dev (Vite proxies /api to the gateway) and in prod. */
-const client = createGatewayClient({ baseUrl: "/" });
 
 export interface TessellationResult {
   /** Binary glTF payload, ready for GLTFLoader.parseAsync. */
@@ -99,10 +97,14 @@ export function parsePropertiesHeader(
 export async function tessellateBox(
   params: BoxParams,
 ): Promise<TessellationResult> {
-  const { data, error, response } = await client.POST(
+  const { data, error, response } = await gatewayClient.POST(
     "/api/v1/geometry/tessellate",
     {
-      body: { shape: "box", params, linear_deflection: 0.1 },
+      body: {
+        shape: "box",
+        params,
+        linear_deflection: MESH_LINEAR_DEFLECTION_MM,
+      },
       parseAs: "arrayBuffer",
     },
   );

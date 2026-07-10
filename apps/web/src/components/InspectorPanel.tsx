@@ -9,6 +9,7 @@ import {
   formatVec3,
 } from "../lib/format";
 import { DimensionForm } from "./DimensionForm";
+import { ExportControls } from "./ExportControls";
 
 export interface InspectorPanelProps {
   dimensions: BoxParams;
@@ -127,6 +128,9 @@ export function InspectorPanel({
             </span>
           </div>
         </div>
+
+        {/* EXPORT row: issuing the part file is title-block business. */}
+        <ExportControls dimensions={dimensions} />
       </Panel>
 
       {error ? (

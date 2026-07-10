@@ -82,9 +82,11 @@ The thinnest vertical slice a working engineer can feel:
       param edit; error surfacing when a feature fails to rebuild
 - ⬜ Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of
       tessellated body, feature-tree panel with edit/rollback
-- 🚧 Export: STEP + STL download (geometry `POST /api/v1/export` shipped
-      2026-07-10 — byte-deterministic STEP/STL, endpoint-level round-trip
-      gates; gateway proxy + web download UI pending)
+- ✅ Export: STEP + STL download (shipped 2026-07-10 — byte-deterministic
+      STEP/STL geometry endpoint with round-trip gates, gateway proxy, and
+      title-block export controls in the web app; QA'd in a real browser:
+      Playwright downloads `box.step`/`box.stl` through the full stack and
+      asserts file contents)
 - 🚧 Golden models: 5 reference parts covering every shipped feature (2 of
       5: `box-10x20x30`, `cylinder-r10-h25` — first curved golden shipped
       2026-07-10 with a measured 1e-9 curved-GProp tolerance, seam-edge

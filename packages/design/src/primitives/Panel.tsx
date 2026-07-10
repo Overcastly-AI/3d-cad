@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 
 import { cx } from "../cx";
 
@@ -53,6 +53,49 @@ export interface PanelRowProps {
   unit?: string;
   children: ReactNode;
   "data-testid"?: string;
+}
+
+export interface PanelActionCellProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  /** The action, tracked caps — e.g. "STEP". */
+  label: string;
+  /** Quiet one-line description under the label — e.g. "Exact B-rep". */
+  caption?: string;
+}
+
+/**
+ * An actionable cell of the title block — same ruled anatomy as the static
+ * label/value cells, but pressable. The label carries primary ink (mist)
+ * where static cell labels stay gauge: on this panel, mist caps = an action.
+ * Hover insets to the carbide ground; the focus ring is drawn inset so it
+ * survives the panel's ruled edges.
+ */
+export function PanelActionCell({
+  label,
+  caption,
+  className,
+  type,
+  ...rest
+}: PanelActionCellProps) {
+  return (
+    <button
+      type={type ?? "button"}
+      className={cx(
+        "block w-full px-3 py-2 text-left transition-colors duration-fast",
+        "hover:bg-carbide",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
+        "disabled:opacity-50 disabled:pointer-events-none",
+        className,
+      )}
+      {...rest}
+    >
+      <span className="block font-display text-2xs uppercase tracking-[0.14em] text-mist">
+        {label}
+      </span>
+      {caption ? (
+        <span className="block font-data text-xs text-gauge">{caption}</span>
+      ) : null}
+    </button>
+  );
 }
 
 /** One ruled label/value cell of the title block. */
