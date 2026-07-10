@@ -68,19 +68,25 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 
 | Dimension | Status | Notes |
 |---|---|---|
-| Sketching & constraints | ❌ | Nothing shipped yet |
-| Part modeling (features, history) | ❌ | Nothing shipped yet |
+| Sketching & constraints | ❌ | Solver adopted (planegcs, LGPL-verified; benchmark rectangle solves at 0.0 deviation, bitwise-deterministic — commit 3da8f0a), but no sketch API and no sketcher UI. A solver is not a sketcher. |
+| Part modeling (features, history) | ❌ | Parametric box + cylinder with live param editing in the viewport; no feature tree, no history, no real features (extrude/fillet unshipped; persistence exists as a design doc only). |
 | Assemblies & mates | ❌ | Not started (Phase 3) |
-| Interop (STEP/IGES/STL) | ❌ | Kernel supports it; not exposed yet |
+| Interop (STEP/IGES/STL) | ❌ | Half-flipped. EXPORT: shipped + QA-verified end-to-end (STEP/STL endpoints byte-deterministic; endpoint-level STEP round-trip 0.0 deviation; real-browser download e2e — commits 12e7b4e/c5e2b1e/8cd63d5, GEOMETRY-QA 2026-07-10). IMPORT: not started (Phase 4). No IGES; only box/cylinder shapes exist to export. Not parity until an engineer can bring a real part IN. |
 | Drawings & documentation | ❌ | Not started (Phase 4) |
-| Performance on real parts | ❌ | No benchmark suite yet |
+| Performance on real parts | ❌ | Per-golden perf tripwires live in the geometry gates (~4–5 ms warm on primitives vs 2 s ceiling), but there are no real parts yet and no benchmark suite. |
 | Collaboration & versioning | ❌ | Not started (Phase 3) |
-| Extensibility (scripting API) | ❌ | Python-first design, not shipped |
-| Agent access (MCP) | ❌ | Designed-for, not shipped |
+| Extensibility (scripting API) | ❌ | Python-first design holds kernel-side (modeling API is Python), but the scripting API itself is unshipped (Phase 5 surface). |
+| Agent access (MCP) | ❌ | Designed-for, not shipped (Phase 5) |
 | Price / freedom | ✅ | MIT, self-hosted, unlimited — true from day one |
 
 Every row starts ❌ except the structural one. That's the honest baseline;
 the loop's job is to flip rows and never let this table go stale.
+
+Last re-scored 2026-07-10 (vision-steward) against git log +
+`docs/GEOMETRY-QA.md` + the BACKLOG changelog. Interop deliberately stays ❌
+despite a QA-verified export path: ➖ means parity with tools that all
+import STEP, and import doesn't exist here. The nearest flips remain
+Sketching → Part modeling (Phase 1's spine) and Interop-import (Phase 4).
 
 ## Design mandate (founder, 2026-07-09)
 

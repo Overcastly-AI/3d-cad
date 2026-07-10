@@ -187,6 +187,16 @@ All shipped through commit 322a988; details in the Changelog below and
 
 ## Changelog
 
+- 2026-07-10 — VISION scorecard re-scored (routed from the 1b-web ship):
+  Interop stays ❌ with an honest half-flipped note (export shipped +
+  QA-verified end-to-end at 0.0 round-trip deviation — 12e7b4e/c5e2b1e/
+  8cd63d5; import not started, Phase 4; only box/cylinder exist to export);
+  Sketching note updated (planegcs solver adopted ≠ sketcher); stale notes
+  refreshed on Part modeling (live param editing, no features/history),
+  Performance (gate tripwires, no benchmark suite), Extensibility (design
+  holds, API unshipped). No status flips; Price/freedom remains the only ✅.
+  [vision-steward]
+
 - 2026-07-10 — STEP/STL download UI (1b-web) shipped — closes Ready #1 end
   to end. The title block gained an EXPORT row in the footer-strip rhythm
   (status cell `Ready/Writing…/Failed` + actionable STEP "B-rep" and STL
