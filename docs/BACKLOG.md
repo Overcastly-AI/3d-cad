@@ -78,6 +78,20 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-10 — Phase 0 review-fix batch (code-reviewer verdict:
+  request-changes → all findings closed). fix(platform): geometry image now
+  boots — runtime stage installs OCCT's X/GL system libs (verified against
+  the OCP wheel's NEEDED chain); `just test` no longer tolerates pytest
+  exit 5. fix(py-kit): shared `tessellate_responses()` OpenAPI helper
+  dedupes gateway/geometry; `/readyz` reports exception type only (full
+  message logged server-side; DSN-leak regression test). fix(web): corrupt
+  GLB now clears the stale mesh and shows an on-system error stamp instead
+  of an unhandled rejection (React-free glbGeometry seam, 6 new unit tests
+  + corrupt-GLB e2e). Process: doc-syncer definition now requires the lint
+  gate. Deferred as accepted 🟢s: CI SHA-pinning (cheap hardening, later),
+  worker import-time settings read (cosmetic). [code-reviewer → platform-
+  builder, backend-builder, frontend-builder, orchestrator]
+
 - 2026-07-10 — Geometry golden harness shipped: data-driven golden runner
   (`services/geometry/tests/test_goldens.py`) discovering
   `services/geometry/goldens/<name>/{model,expected}.json` — mass properties
