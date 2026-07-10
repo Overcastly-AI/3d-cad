@@ -92,12 +92,14 @@ with them; #8 is small platform enablement.
       Playwright e2e — register → login → land in the app → refresh keeps
       session → logout; WCAG-AA + visible focus + 1280×800 verified;
       screenshots for the founder. [src: roadmap]
-- [ ] (P1, S) `just e2e` wiring — make the target run the Playwright suite
+- [x] (P1, S) `just e2e` wiring — make the target run the Playwright suite
       (`@loft/web`) plus the geometry gates (`test_goldens.py`,
       `test_step_roundtrip.py`) per the run commands at the top of
       GEOMETRY-QA (gap #6). Acceptance: `just e2e` green locally end-to-end;
       README/CONTRIBUTING command tables updated if they change; CI e2e job
-      explicitly deferred or wired, stated in the commit. [src: geometry-qa]
+      explicitly deferred or wired, stated in the commit. Shipped via
+      `scripts/e2e.sh` (see 2026-07-10 changelog entry); CI e2e job
+      explicitly deferred to a separate workflow item. [src: geometry-qa]
 
 ## Next (P2)
 
@@ -180,6 +182,20 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — `just e2e` wired (Ready #8, GEOMETRY-QA gap #6): new
+  `scripts/e2e.sh` runs the geometry gates (`test_goldens.py` +
+  `test_step_roundtrip.py`; 8 passed) then the `@loft/web` Playwright suite
+  (5 passed, chromium at `/opt/pw-browsers` auto-detected). The script boots
+  geometry (:8002) + gateway (:8000) as background uvicorn processes with
+  saved PIDs and an EXIT-trap teardown — never pattern-killing — and reuses
+  already-healthy listeners (verified: a pre-running geometry service is
+  reused and survives the run), so it composes with a live dev loop;
+  Playwright's `webServer` starts/reuses Vite. Idempotent (two consecutive
+  green runs), non-zero on any failing leg, failure output tails the dead
+  service's log. CLAUDE.md Commands entry de-placeholdered; README +
+  CONTRIBUTING document the gate. CI e2e job explicitly deferred to a
+  separate workflow item. [platform-builder]
 
 - 2026-07-10 — Feature-tree persistence design doc authored
   (`docs/design/feature-tree.md`, Ready #3): separate `features` table with

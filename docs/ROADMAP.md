@@ -57,7 +57,8 @@ carry forward as blocked board items.
       (documented per-model tolerances, exact topology/mesh counts,
       byte-level determinism incl. interpreter-restart), STEP round-trip at
       0.0 measured deviation; evidence + gap list in `docs/GEOMETRY-QA.md`
-      (`just e2e` wiring = platform territory, still pending)
+      (`just e2e` wired 2026-07-10: `scripts/e2e.sh` runs geometry gates +
+      Playwright, booting/reusing services itself; CI e2e job deferred)
 - ✅ Community surface: README (truth-only — hero screenshot, honest status,
       verified quickstart, CI badge), CONTRIBUTING, SECURITY,
       CODE_OF_CONDUCT, bug/feature issue templates + PR template

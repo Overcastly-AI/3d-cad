@@ -72,6 +72,12 @@ CI fails on drift. Kernel-adjacent changes additionally need geometry
 correctness coverage (golden models / analytic assertions — see the existing
 tests in `services/geometry/tests`).
 
+`just e2e` is the local end-to-end gate (not yet a CI job): it runs the
+geometry golden + STEP round-trip suites, then the Playwright browser tests
+for `@loft/web`, booting the geometry and gateway services itself (or
+reusing healthy ones already listening on :8002/:8000). Run it for any
+user-facing or kernel-adjacent change.
+
 ## Conventions (short version — CLAUDE.md is authoritative)
 
 - **Strict typing both sides:** pyright-clean Python (no untyped defs in

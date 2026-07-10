@@ -42,6 +42,9 @@ gen:
 gen-check:
     scripts/gen-check.sh
 
-# Playwright e2e + geometry golden suite
+# End-to-end gate: geometry gates (goldens + STEP round-trip), then the
+# Playwright suite for @loft/web. Boots geometry (:8002) + gateway (:8000)
+# itself (background uvicorn, PID-tracked, cleaned up on exit) or reuses
+# healthy ones; Playwright starts/reuses the Vite dev server.
 e2e:
-    @echo "just e2e: placeholder — lands with the web-shell and golden-harness backlog items (docs/BACKLOG.md)."
+    scripts/e2e.sh

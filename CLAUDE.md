@@ -127,7 +127,8 @@ just lint           # ruff + pyright + eslint
 just test           # all unit tests (py + ts)
 just gen            # regenerate contracts + ts-client
 just gen-check      # CI gate: regenerate in tempdir, diff vs. committed
-just e2e            # placeholder; Playwright + geometry golden suite land in Phase 1
+just e2e            # geometry gates (goldens + STEP round-trip) + Playwright suite;
+                    # boots geometry/gateway itself (PID-tracked, cleaned up)
 docker compose up -d --build   # full stack (use `just dev` for dev with hot reload)
 ```
 

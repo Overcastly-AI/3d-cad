@@ -98,7 +98,9 @@ pnpm --filter @loft/web dev       # web app  :5173 (proxies /api → gateway)
 
 Open http://localhost:5173 — you should see the tessellated box and be able
 to edit its dimensions live. `just smoke` probes all service health
-endpoints.
+endpoints. `just e2e` runs the full end-to-end gate — the geometry golden +
+STEP round-trip suites, then the Playwright browser tests — booting (or
+reusing) the geometry and gateway services itself.
 
 The full stack (datastores + services) via Docker Compose:
 
