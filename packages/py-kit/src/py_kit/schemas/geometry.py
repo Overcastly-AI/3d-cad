@@ -10,7 +10,7 @@ Units: millimetres for lengths, mm^2 / mm^3 for area / volume. The GLB
 payload itself is in metres per the glTF specification.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,30 @@ PROPERTIES_HEADER = "X-Loft-Properties"
 
 #: Media type of the binary glTF tessellation payload.
 GLB_MEDIA_TYPE = "model/gltf-binary"
+
+
+def tessellate_responses(description: str) -> dict[int | str, dict[str, Any]]:
+    """OpenAPI ``responses`` block for a binary-GLB tessellate route.
+
+    Single source of truth (DRY) for the geometry service and the gateway
+    proxy: a 200 with a ``model/gltf-binary`` body and compact-JSON
+    ``TessellationMetadata`` in the ``X-Loft-Properties`` header. Only the
+    ``description`` differs per route, so it is the one parameter.
+    """
+    return {
+        200: {
+            "description": description,
+            "content": {
+                GLB_MEDIA_TYPE: {"schema": {"type": "string", "format": "binary"}}
+            },
+            "headers": {
+                PROPERTIES_HEADER: {
+                    "description": "TessellationMetadata as compact JSON",
+                    "schema": {"type": "string"},
+                }
+            },
+        }
+    }
 
 
 class BoxParams(BaseModel):

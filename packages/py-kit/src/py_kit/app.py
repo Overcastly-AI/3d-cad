@@ -80,7 +80,10 @@ def create_app(
                 status = await check()
             except Exception as exc:
                 ready = False
-                checks[name] = f"error: {exc}"
+                # Exception *type* only in the body — /readyz is unauthenticated
+                # and str(exc) may embed secrets (e.g. a Postgres DSN). The full
+                # message goes to the server-side log.
+                checks[name] = f"error: {type(exc).__name__}"
                 _logger.warning("readiness_check_failed", check=name, error=str(exc))
             else:
                 checks[name] = status if status is not None else "ok"

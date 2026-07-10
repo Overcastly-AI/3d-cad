@@ -21,6 +21,7 @@ from py_kit.schemas.geometry import (
     PROPERTIES_HEADER,
     TessellateRequest,
     TessellationMetadata,
+    tessellate_responses,
 )
 
 #: Upstream call budget — tessellation is CPU-bound and may take a while.
@@ -91,24 +92,13 @@ def _raise_upstream_error(upstream: httpx.Response) -> NoReturn:
     raise exc
 
 
-_TESSELLATE_RESPONSES: dict[int | str, dict[str, Any]] = {
-    200: {
-        "description": (
-            "Binary glTF (GLB) mesh of the requested shape, proxied from the "
-            f"geometry service. The `{PROPERTIES_HEADER}` header carries "
-            "`TessellationMetadata` as compact JSON (see "
-            "`POST /api/v1/geometry/tessellate/meta` for the same payload as "
-            "a typed JSON body)."
-        ),
-        "content": {GLB_MEDIA_TYPE: {"schema": {"type": "string", "format": "binary"}}},
-        "headers": {
-            PROPERTIES_HEADER: {
-                "description": "TessellationMetadata as compact JSON",
-                "schema": {"type": "string"},
-            }
-        },
-    }
-}
+_TESSELLATE_RESPONSES = tessellate_responses(
+    "Binary glTF (GLB) mesh of the requested shape, proxied from the "
+    f"geometry service. The `{PROPERTIES_HEADER}` header carries "
+    "`TessellationMetadata` as compact JSON (see "
+    "`POST /api/v1/geometry/tessellate/meta` for the same payload as "
+    "a typed JSON body)."
+)
 
 
 @router.post("/tessellate", response_class=Response, responses=_TESSELLATE_RESPONSES)

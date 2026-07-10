@@ -106,7 +106,7 @@ def test_readyz_failing_check_gives_503_with_detail() -> None:
         return None
 
     async def postgres_ping() -> None:
-        raise RuntimeError("connection refused")
+        raise RuntimeError("connection refused: postgres://loft:hunter2@db:5432/loft")
 
     app = create_app(
         BaseServiceSettings(),
@@ -119,7 +119,11 @@ def test_readyz_failing_check_gives_503_with_detail() -> None:
     body = response.json()
     assert body["status"] == "unavailable"
     assert body["checks"]["redis_ping"] == "ok"
-    assert body["checks"]["postgres_ping"] == "error: connection refused"
+    # Exception *type* only — /readyz is unauthenticated and the message could
+    # embed credentials (e.g. a Postgres DSN).
+    assert body["checks"]["postgres_ping"] == "error: RuntimeError"
+    assert "connection refused" not in response.text
+    assert "hunter2" not in response.text
 
 
 def test_lifespan_passed_through_to_fastapi() -> None:
