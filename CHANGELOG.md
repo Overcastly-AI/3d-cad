@@ -36,11 +36,11 @@ wave.
 
 - **feat: monorepo scaffold (uv + pnpm workspaces, justfile, lint/test gates)**
   — `services/{gateway,documents,geometry}` + `packages/{py-kit,contracts,ts-client,design}`
-  + `apps/web` + `deploy/` directories created. Python workspace (uv 0.5+,
-  Python 3.12, pyproject.toml per package), TypeScript workspace (pnpm 10,
-  package.json per package). Justfile with `lint` / `test` / `dev` / `gen` /
-  `e2e` targets. ruff (lint + format), pyright (strict), eslint (flat),
-  prettier configs. `just lint` and `just test` green.
+  - `apps/web` + `deploy/` directories created. Python workspace (uv 0.5+,
+    Python 3.12, pyproject.toml per package), TypeScript workspace (pnpm 10,
+    package.json per package). Justfile with `lint` / `test` / `dev` / `gen` /
+    `e2e` targets. ruff (lint + format), pyright (strict), eslint (flat),
+    prettier configs. `just lint` and `just test` green.
 
 - **feat(py-kit): service bootstrap — config, JSON logging, app factory, error
   envelope, queue client**
@@ -64,13 +64,13 @@ wave.
   — `deploy/docker/service.Dockerfile`: ONE multi-stage Dockerfile parameterized
   via build-arg `SERVICE_NAME` (deps layer cached on uv.lock, non-root user,
   curl HEALTHCHECK on `/healthz`). `docker-compose.yml`: Postgres 16 + Redis 7
-  + MinIO + three services, datastore healthchecks, service_healthy depends_on,
-  env wiring, named volumes. `docker-compose.dev.yml`: hot-reload override
-  (bind-mounted src via PYTHONPATH + uvicorn --reload). Helper scripts:
-  `scripts/smoke-healthz.sh` (health/readiness table, retries), `scripts/dev-instance.sh <N>`
-  (offsets to run parallel instances). Both configs validate; smoke passed
-  6/6 against bare-uvicorn boot. **Compose runtime not verified in this sandbox
-  (no docker daemon)** — tracked as new ROADMAP Phase 0 item.
+  - MinIO + three services, datastore healthchecks, service_healthy depends_on,
+    env wiring, named volumes. `docker-compose.dev.yml`: hot-reload override
+    (bind-mounted src via PYTHONPATH + uvicorn --reload). Helper scripts:
+    `scripts/smoke-healthz.sh` (health/readiness table, retries), `scripts/dev-instance.sh <N>`
+    (offsets to run parallel instances). Both configs validate; smoke passed
+    6/6 against bare-uvicorn boot. **Compose runtime not verified in this sandbox
+    (no docker daemon)** — tracked as new ROADMAP Phase 0 item.
 
 - **ci: lint/typecheck/test, contract drift, compose validation workflow**
   — `.github/workflows/ci.yml`: four parallel jobs (python, ts, contracts,
@@ -100,17 +100,17 @@ wave.
   — `services/geometry`: OCCT via build123d for parametric solid modeling. Box
   builder accepts x/y/z mm dimensions, evaluates B-rep, tessellates to
   byte-deterministic GLB (identical across runs). Exports `POST /api/v1/tessellate`
-  + `/tessellate/meta` endpoints. Mass properties (volume, area, centroid) and
-  topology counts (faces/edges/shells) computed exactly. Golden 10×20×30 box:
-  6000 mm³ / 2200 mm² / centroid (5,10,15), 6/12/1 topology, <2 s perf tripwire
-  (4–8 ms warm). Asserted analytically at 1e-7 kernel tolerance.
+  - `/tessellate/meta` endpoints. Mass properties (volume, area, centroid) and
+    topology counts (faces/edges/shells) computed exactly. Golden 10×20×30 box:
+    6000 mm³ / 2200 mm² / centroid (5,10,15), 6/12/1 topology, <2 s perf tripwire
+    (4–8 ms warm). Asserted analytically at 1e-7 kernel tolerance.
 
 - **feat(gateway): geometry tessellation proxy + shared DTOs in py-kit**
   — Gateway now surfaces geometry service: `POST /api/v1/geometry/tessellate`
   (GLB passthrough incl. X-Loft-Properties header via lifespan-managed httpx2
   AsyncClient, 30s budget). Transport failures map to py-kit 502
   `upstream_unavailable` envelope; upstream errors re-surfaced. `POST
-  /api/v1/geometry/tessellate/meta` JSON twin. GatewaySettings.geometry_url
+/api/v1/geometry/tessellate/meta` JSON twin. GatewaySettings.geometry_url
   env wire (GEOMETRY_URL; compose defaults to http://geometry:8002). Boundary
   DTOs moved to `py_kit.schemas.geometry` (single source of truth); geometry
   re-exports. Contracts + ts-client regenerated.
