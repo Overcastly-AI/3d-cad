@@ -183,6 +183,23 @@ All shipped through commit 322a988; details in the Changelog below and
 
 ## Changelog
 
+- 2026-07-10 — Feature-tree design doc revised per code-reviewer
+  request-changes (verdict now resolved; design itself endorsed —
+  determinism + boundaries unchanged). 🔴 fixed: target-side FK on
+  `feature_dependencies` changed from `ON DELETE RESTRICT` (which made
+  whole-part deletion impossible — the parts→features CASCADE fires RI
+  triggers per row) to `ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
+  with the friendly 409-with-dependents explicitly documents' pre-check and
+  the FK a commit-time backstop. 🟡s: `ix_feature_deps_target` added (PG
+  doesn't auto-index the FK's referencing side); same-part invariants now
+  DB-enforced via `UNIQUE (part_id, id)` + composite FKs (deps both sides,
+  rollback bar with `SET NULL (rollback_feature_id)`); §7 gains
+  mesh-delivery path, GLB GC, solved-sketch payload, delete-UX open
+  questions. 🟢s all taken (redundant index dropped, rename-bump waste
+  accepted, upcast-totality rule, body-affecting definition, stale-version
+  writes → 422, part-scoped authz). Resolution log in the doc's §8.5.
+  [backend-builder]
+
 - 2026-07-10 — `just e2e` wired (Ready #8, GEOMETRY-QA gap #6): new
   `scripts/e2e.sh` runs the geometry gates (`test_goldens.py` +
   `test_step_roundtrip.py`; 8 passed) then the `@loft/web` Playwright suite

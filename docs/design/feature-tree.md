@@ -1,7 +1,8 @@
 # Feature-Tree Persistence — Design
 
-Status: **proposed** (awaiting code-reviewer pass; kernel-architect concerns
-pre-addressed in §8). Scope: **design only** — implementation is the
+Status: **revised** (code-reviewer verdict 2026-07-10: request-changes —
+design endorsed, schema-integrity findings; all findings addressed in this
+revision, resolution log in §8.5). Scope: **design only** — implementation is the
 "Feature-tree persistence implementation" backlog item, which depends on this
 doc and on parts CRUD.
 
@@ -66,21 +67,44 @@ CREATE TABLE features (
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT uq_features_part_order UNIQUE (part_id, order_index)
-    DEFERRABLE INITIALLY DEFERRED
+    DEFERRABLE INITIALLY DEFERRED,
+  -- Composite-FK target: lets every reference TO a feature also pin its part,
+  -- making the same-part invariant (§2.2 rule 1) DB-enforced, not app-only.
+  CONSTRAINT uq_features_part_id UNIQUE (part_id, id)
 );
-
-CREATE INDEX ix_features_part_order ON features (part_id, order_index);
+-- No separate (part_id, order_index) index: the unique index backing
+-- uq_features_part_order already serves the ordered range scan.
 
 -- Materialized inter-feature references, derived from params on every write (§2.3)
 CREATE TABLE feature_dependencies (
-  feature_id            uuid NOT NULL REFERENCES features(id) ON DELETE CASCADE,
-  references_feature_id uuid NOT NULL REFERENCES features(id) ON DELETE RESTRICT,
-  PRIMARY KEY (feature_id, references_feature_id)
+  part_id               uuid NOT NULL,
+  feature_id            uuid NOT NULL,
+  references_feature_id uuid NOT NULL,
+  PRIMARY KEY (feature_id, references_feature_id),
+  -- Both endpoints are pinned to the same part via composite FKs (§2.2 rule 1).
+  FOREIGN KEY (part_id, feature_id)
+    REFERENCES features (part_id, id) ON DELETE CASCADE,
+  -- Backstop only (friendly 409 comes from documents' pre-check, §2.3).
+  -- Deferred so whole-part CASCADE deletes pass; NOT RESTRICT — see §2.3.
+  FOREIGN KEY (part_id, references_feature_id)
+    REFERENCES features (part_id, id)
+    ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
 );
+
+-- Postgres does not auto-index the referencing side of an FK; without this,
+-- reverse lookups ("who references X", §2.3) and the RI check fired by a
+-- feature delete are sequential scans over feature_dependencies.
+CREATE INDEX ix_feature_deps_target
+  ON feature_dependencies (references_feature_id);
 
 ALTER TABLE parts
   ADD CONSTRAINT fk_parts_rollback_feature
-  FOREIGN KEY (rollback_feature_id) REFERENCES features(id) ON DELETE SET NULL;
+  FOREIGN KEY (id, rollback_feature_id) REFERENCES features (part_id, id)
+  ON DELETE SET NULL (rollback_feature_id);
+  -- Composite: the bar can only point at a feature of the SAME part. The
+  -- referencing-column list on SET NULL is Postgres 15+; the stack pins
+  -- Postgres 16 (CLAUDE.md). MATCH SIMPLE (default) means a NULL bar is
+  -- exempt from the check, as intended.
 ```
 
 **Ordering: dense integers, renumber on reorder.** `order_index` is
@@ -95,9 +119,18 @@ migrate to fractional indexing behind the same API — the order key is never
 exposed as meaningful to clients beyond relative position.
 
 **`tree_version`** is a monotonic counter bumped in the same transaction as
-*any* tree mutation (feature insert/update/delete/reorder, rollback move). It
-serves optimistic concurrency (clients send the expected version, 409 via the
-py-kit error envelope on mismatch) and keys evaluation-result caching (§4.4).
+*any* tree mutation (feature insert/update/delete/reorder, rename, rollback
+move). It serves optimistic concurrency — clients send the expected version
+with every write; a stale version is rejected **422** via the py-kit error
+envelope (409 stays reserved for the delete-with-dependents conflict, §2.3,
+so the two failure modes are distinguishable by status alone) — and keys
+evaluation-result caching (§4.4). Renames bump it too: a name-only change
+invalidates one cached evaluation for no geometric reason, and that waste is
+**accepted for v1** — one uniform "any mutation bumps" rule is worth more
+than the cache hit, and carving out exceptions invites drift.
+
+**Authorization:** all feature routes authorize against the **owning part** —
+the caller must have access to `part_id`; features carry no ACLs of their own.
 
 ### 1.3 Per-feature params: versioned JSONB envelope
 
@@ -169,6 +202,14 @@ Documents upcasts on read before anything leaves the repository layer, so the
 rest of the system — including the evaluation request (§4) — only ever sees
 current-version params. Bulk data migrations (rewriting old rows) are optional
 housekeeping, not correctness-required, because upcasts are applied lazily.
+Upcast rules: every upcast is **total** — it must succeed on any params blob
+that validated under the old version (no partial upcasts, no "unmigratable"
+rows); the registry enforces **complete chains** at import time (v1→v2→…→
+current with no gaps, so lazily-read old rows can always reach the current
+shape); and a version bump may introduce a new **required** field only when
+its value derives from the old version's implicit behavior (e.g. if extrude
+v2 had introduced `direction` as required, the upcast fills the `"normal"`
+that v1 semantics implied).
 
 **Mapping to JSONB:** write path is
 `Feature.model_validate(envelope)` → split into columns →
@@ -209,7 +250,11 @@ pointing at a sketch feature.
 
 ### 2.2 Reference validity rules (write-time, documents service)
 
-1. `feature_id` must exist and belong to the **same part**.
+1. `feature_id` must exist and belong to the **same part**. This invariant is
+   also **DB-enforced**, not app-only: `features` carries `UNIQUE (part_id,
+   id)` so composite FKs pin both `feature_dependencies` endpoints and
+   `parts.rollback_feature_id` to the owning part (§1.2) — a cross-part
+   reference cannot be persisted even by a buggy code path.
 2. The referenced feature must be **strictly earlier in the tree**
    (`order_index` of target < `order_index` of referrer), checked on every
    feature write *and* every reorder. This keeps evaluation a single forward
@@ -226,13 +271,27 @@ validated params (a py-kit helper walks the model, so extraction can't drift
 from the schema) and rewrites that feature's rows in `feature_dependencies`
 in the same transaction. This buys:
 
-- **DB-level integrity:** `ON DELETE RESTRICT` on the target side means you
-  cannot delete a sketch that an extrude still consumes — the API surfaces a
-  409 (py-kit envelope) listing the dependents instead of silently corrupting
-  the tree.
+- **Friendly conflict surfacing — documents' job, not the FK's:** before
+  deleting a feature, documents runs a pre-check query (`SELECT feature_id
+  FROM feature_dependencies WHERE references_feature_id = :id`, served by
+  `ix_feature_deps_target`) and, if rows exist, returns a **409** (py-kit
+  envelope) listing the dependents. See §7.11 for the v1-vs-later UX shape.
+- **DB-level integrity as backstop only:** the target-side FK is
+  `ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED` — checked at **commit**,
+  not per row. A lone delete of a still-referenced feature that somehow slips
+  past the pre-check still fails at commit, so a code-path bug can never
+  silently corrupt the tree; a whole-part delete passes, because by commit
+  time the parts→features CASCADE has removed the dependent features and
+  (via the `feature_id`-side CASCADE) every edge. Plain `ON DELETE RESTRICT`
+  would be wrong here: RESTRICT checks immediately per row and cannot be
+  deferred, and the parts→features CASCADE fires RI triggers row by row in
+  insertion order — deleting the sketch row trips its trigger while the
+  extrude's dependency edge still exists, making **part deletion impossible**
+  for any part whose tree contains a reference.
 - **Cheap dependency queries:** "what must be re-evaluated / what breaks if I
-  edit or delete feature X" is one indexed query, needed by rollback UX and
-  by future selective re-evaluation.
+  edit or delete feature X" is one indexed query
+  (`ix_feature_deps_target`, §1.2 — Postgres does not create it for us),
+  needed by rollback UX and by future selective re-evaluation.
 
 The JSONB stays the source of truth for *what* is referenced;
 `feature_dependencies` is a derived index, rebuilt from params on write
@@ -283,7 +342,8 @@ feature list. Nothing is deleted or mutated below the bar.
   out. Editing a rolled-back feature is allowed (that is the point of rolling
   back: insert/edit mid-history); inserting a feature while rolled back
   inserts immediately after the bar and moves the bar to the new feature.
-- **Deletion of the bar feature:** `ON DELETE SET NULL` resets the bar to the
+- **Deletion of the bar feature:** `ON DELETE SET NULL (rollback_feature_id)`
+  on the composite FK (§1.2) resets the bar to the
   tip. Simple and safe (never dangles); if UX later prefers "bar moves to the
   previous feature", documents can implement that in the delete path without
   a schema change.
@@ -365,7 +425,10 @@ class EvaluateTreeResult(BaseModel):
 order; on the **first** failure it marks that feature `error` and every
 subsequent feature `skipped`, then tessellates and uploads the **last-good
 body** (the state after the last `ok` body-affecting feature) so the viewport
-always has something honest to show. The rule is deliberately blunt:
+always has something honest to show. A **body-affecting feature** is one whose
+evaluation mutates the part's solid body (extrude add/cut today; fillet,
+chamfer, etc. later) as opposed to one that only produces input geometry for
+later features (a sketch). The rule is deliberately blunt:
 deterministic, trivially explainable in the UI ("everything after the red
 feature didn't run"), and it never presents a body that silently omits a
 mid-history feature. Finer-grained skipping (only the failed feature's
@@ -405,13 +468,22 @@ Alembic is introduced in `services/documents` (env wired to the existing
   define it.
 - **`0002_feature_tree`** — this design. One revision, four operations, in
   order:
-  1. `CREATE TABLE features` (§1.2) + `ix_features_part_order`.
-  2. `CREATE TABLE feature_dependencies`.
+  1. `CREATE TABLE features` (§1.2), with both unique constraints —
+     `uq_features_part_order` (deferrable; its backing unique index also
+     serves the ordered tree load, so no separate index is created) and
+     `uq_features_part_id` (the composite-FK target for same-part
+     enforcement).
+  2. `CREATE TABLE feature_dependencies` (`part_id` column + the two
+     composite FKs, the target side `NO ACTION DEFERRABLE INITIALLY
+     DEFERRED`) + `CREATE INDEX ix_feature_deps_target` (§1.2 — Postgres
+     does not auto-index the FK's referencing side).
   3. `ALTER TABLE parts ADD COLUMN tree_version bigint NOT NULL DEFAULT 0`.
   4. `ALTER TABLE parts ADD COLUMN rollback_feature_id uuid NULL` +
-     `fk_parts_rollback_feature` (added after `features` exists — the
-     parts↔features FK pair is circular, so the constraint must be a
-     separate op, which alembic handles naturally).
+     composite `fk_parts_rollback_feature` with
+     `ON DELETE SET NULL (rollback_feature_id)` (added after `features`
+     exists — the parts↔features FK pair is circular, so the constraint must
+     be a separate op, which alembic handles naturally; the SET NULL column
+     list needs Postgres ≥ 15, satisfied by the pinned Postgres 16).
 
   Downgrade drops in reverse order. No data migration: the tables are new and
   the `parts` additions have defaults, so `0002` is safe on any `0001`
@@ -494,7 +566,7 @@ constraint shapes are illustrative pending the sketch-model item, §1.4):
 **`feature_dependencies`** (derived on write, §2.3):
 
 ```json
-{ "feature_id": "f-bbbb", "references_feature_id": "f-aaaa" }
+{ "part_id": "p-7f3a", "feature_id": "f-bbbb", "references_feature_id": "f-aaaa" }
 ```
 
 Evaluation: documents loads the two rows ordered by `order_index`, validates
@@ -536,10 +608,36 @@ by its owning item or a groom pass:
 7. **Tree branching/versioned history** (named versions, undo beyond
    rollback). `tree_version` is a fencing counter, not a history mechanism;
    real versioning is a later-phase design.
+8. **Client mesh-delivery path.** `EvaluateTreeResult` carries `mesh_glb_id`,
+   an object-storage key — but today's only GLB path is the tessellate proxy,
+   which returns the bytes **inline** through the gateway. Getting an
+   evaluated tree's mesh to the browser is a **new** path and it shapes the
+   gateway surface (CLAUDE.md: the web app talks only to the gateway):
+   gateway streams from object storage vs. presigned URL handed to the client
+   vs. documents relaying bytes. Decide in the implementation item, with the
+   gateway route as the default posture.
+9. **GLB lifecycle / GC.** Content-addressed artifacts (§4.4) are never
+   overwritten, so every tree mutation can strand an orphan in object
+   storage. v1 accepts unbounded growth in dev; a retention/GC policy
+   (refcount vs. age-based sweep keyed on cache keys) is needed before
+   self-host guidance calls storage bounded.
+10. **Per-feature solved-sketch payload.** The sketcher needs the **solved**
+    sketch geometry back (post-constraint positions), not just ok/error.
+    That is an **additive `FeatureResult` extension** — e.g. an optional
+    per-feature `data` payload populated for sketch features — owned by the
+    "Sketch model + solver integration" item; nothing in this contract blocks
+    it.
+11. **Delete-with-dependents UX.** v1 is the 409-with-dependents-list
+    (§2.3): the client must delete or re-point dependents first.
+    Cascade-with-confirmation ("delete Sketch1 and 2 dependent features?")
+    is a later UX decision implemented in documents' delete path — the
+    dependency edges to walk already exist, so **no schema change** is
+    needed.
 
 ## 8. Review — anticipated kernel-architect concerns
 
-For the code-reviewer pass (routed by the orchestrator). Each concern with
+§8.1–8.4 were written ahead of the code-reviewer pass; §8.5 records the pass
+itself and how each finding was resolved. Each concern with
 where the design answers it:
 
 ### 8.1 Determinism of evaluation order
@@ -595,3 +693,41 @@ where the design answers it:
   solution) is the SketchSolver spike's acceptance gate, not re-designed
   here; this contract only guarantees the solver is *invoked* with
   deterministic inputs in a deterministic order.
+
+### 8.5 Review log
+
+**2026-07-10 — code-reviewer: request-changes → revised same day.** The
+fundamental design (separate `features` table, versioned envelope, strict
+backward references, strict-prefix evaluation) was endorsed ("strong design";
+determinism and service boundaries airtight); all findings were
+schema-integrity and doc-completeness items, resolved as follows:
+
+- 🔴 **`ON DELETE RESTRICT` on `feature_dependencies.references_feature_id`
+  broke part deletion** — the parts→features CASCADE fires RI triggers per
+  row in insertion order, so the sketch's trigger sees the not-yet-deleted
+  extrude edge and errors. **Resolved:** target-side FK is now `ON DELETE NO
+  ACTION DEFERRABLE INITIALLY DEFERRED` (commit-time check — whole-part
+  deletes pass, lone deletes of referenced features still fail as a
+  corruption backstop), and §2.3 now states the friendly 409-with-dependents
+  comes from documents' pre-check query, with the FK as backstop only.
+- 🟡 **Reverse-lookup index missing** — Postgres does not auto-index the
+  referencing side of an FK, so the "one indexed query" claim was false.
+  **Resolved:** `ix_feature_deps_target` added to §1.2 and the migration
+  plan (§5).
+- 🟡 **Same-part invariants were app-level only.** **Resolved with the
+  DB-enforced option:** `UNIQUE (part_id, id)` on `features`; composite FK
+  `(id, rollback_feature_id) → features (part_id, id)` for the rollback bar;
+  `part_id` column on `feature_dependencies` with composite FKs on both
+  endpoints (§1.2, §2.2 rule 1). No blocker found; the doc's stated reason
+  for the side table is DB-enforceable integrity, so it is DB-enforced.
+- 🟡 **Missing open questions.** **Resolved:** §7.8–7.11 added — client
+  mesh-delivery path (new gateway-shaping path vs. today's inline-GLB flow),
+  GLB lifecycle/GC, per-feature solved-sketch payload (additive
+  `FeatureResult` extension), delete-with-dependents UX (409-with-list v1,
+  cascade-with-confirmation later without schema change).
+- 🟢 (all taken): redundant `ix_features_part_order` dropped (the unique
+  constraint's backing index serves the scan); rename-bumps-`tree_version`
+  waste explicitly accepted for v1 (§1.2); upcast-totality rule added
+  (§1.4); "body-affecting feature" defined (§4.3); stale-version writes →
+  **422** envelope, keeping 409 for dependents conflicts (§1.2); feature
+  routes authorize against the owning part (§1.2).
