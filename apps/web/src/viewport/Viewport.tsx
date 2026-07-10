@@ -56,10 +56,12 @@ export interface ViewportProps {
 export function Viewport({ glb }: ViewportProps) {
   const reducedMotion = useReducedMotion();
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
-  const handleGeometry = useCallback(
-    (next: BufferGeometry) => setGeometry(next),
-    [],
-  );
+  const [parseError, setParseError] = useState<Error | null>(null);
+  const handleGeometry = useCallback((next: BufferGeometry) => {
+    setGeometry(next);
+    setParseError(null);
+  }, []);
+  const handleError = useCallback((error: Error) => setParseError(error), []);
 
   return (
     <div
@@ -97,10 +99,37 @@ export function Viewport({ glb }: ViewportProps) {
           fadeStrength={1.2}
           infiniteGrid
         />
-        {glb ? <ModelMesh glb={glb} onGeometry={handleGeometry} /> : null}
+        {glb ? (
+          <ModelMesh
+            glb={glb}
+            onGeometry={handleGeometry}
+            onError={handleError}
+          />
+        ) : null}
         <FitCamera geometry={geometry} />
         <OrbitControls makeDefault enableDamping={!reducedMotion} />
       </Canvas>
+      {/*
+        Rejection stamp — shown when the GLB fails to parse. The stale mesh
+        has already been cleared (ModelMesh.onError), so the viewport never
+        shows a model that doesn't match the inspector. Static, token-only
+        (flag = error), same drawing-stamp language as the title block.
+      */}
+      {parseError ? (
+        <div
+          role="alert"
+          data-testid="viewport-error"
+          className="absolute left-3 top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+        >
+          <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+            Mesh rejected · {parseError.name}
+          </span>
+          <span className="mt-1 block font-body text-xs text-mist">
+            The model could not be displayed and was cleared. Apply the
+            dimensions again to re-mesh.
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }

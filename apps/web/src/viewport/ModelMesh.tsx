@@ -4,64 +4,26 @@ import {
   BufferGeometry,
   EdgesGeometry,
   LineBasicMaterial,
-  Mesh,
   MeshStandardMaterial,
 } from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { useThree } from "@react-three/fiber";
 
-/** GLB scenes are metres (glTF spec); the app works in millimetres. */
-const METRES_TO_MM = 1000;
-
-/**
- * Parse GLB bytes off the wire into one render-ready BufferGeometry, scaled
- * to mm. OCCT writes one glTF primitive per B-rep face (plus a Z-up→Y-up
- * node rotation), so every mesh is baked through its world matrix and
- * merged. Embedded materials are disposed — the surface material comes from
- * the design tokens, same palette as the DOM.
- */
-async function parseGlbGeometry(
-  glb: ArrayBuffer,
-): Promise<BufferGeometry | null> {
-  const gltf = await new GLTFLoader().parseAsync(glb, "");
-  gltf.scene.updateMatrixWorld(true);
-  const parts: BufferGeometry[] = [];
-  gltf.scene.traverse((object) => {
-    if (object instanceof Mesh) {
-      const mesh = object as Mesh;
-      parts.push(mesh.geometry.clone().applyMatrix4(mesh.matrixWorld));
-      mesh.geometry.dispose();
-      const material = mesh.material;
-      for (const m of Array.isArray(material) ? material : [material]) {
-        m.dispose();
-      }
-    }
-  });
-  if (parts.length === 0) {
-    return null;
-  }
-  const geometry = mergeGeometries(parts, false);
-  for (const part of parts) {
-    part.dispose();
-  }
-  if (geometry === null) {
-    return null;
-  }
-  geometry.scale(METRES_TO_MM, METRES_TO_MM, METRES_TO_MM);
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
+import { loadGlbGeometry } from "./glbGeometry";
 
 export interface ModelMeshProps {
   glb: ArrayBuffer;
   /** Called with the mm-scaled geometry whenever a new mesh is ready. */
   onGeometry?: (geometry: BufferGeometry) => void;
+  /**
+   * Called when the GLB cannot be parsed. The stale mesh is cleared first —
+   * a wrong model on screen next to fresh inspector numbers is worse than an
+   * empty viewport.
+   */
+  onError?: (error: Error) => void;
 }
 
 /** The tessellated model: token-driven surface + B-rep edge overlay. */
-export function ModelMesh({ glb, onGeometry }: ModelMeshProps) {
+export function ModelMesh({ glb, onGeometry, onError }: ModelMeshProps) {
   const invalidate = useThree((state) => state.invalidate);
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
 
@@ -89,19 +51,31 @@ export function ModelMesh({ glb, onGeometry }: ModelMeshProps) {
 
   useEffect(() => {
     let cancelled = false;
-    void parseGlbGeometry(glb).then((next) => {
-      if (cancelled || next === null) {
-        next?.dispose();
-        return;
-      }
-      setGeometry(next);
-      onGeometry?.(next);
-      invalidate();
+    // loadGlbGeometry never rejects — every failure lands in onError.
+    void loadGlbGeometry(glb, {
+      isCancelled: () => cancelled,
+      onGeometry: (next) => {
+        setGeometry(next);
+        onGeometry?.(next);
+      },
+      onError: (error) => {
+        setGeometry(null);
+        onError?.(error);
+      },
     });
     return () => {
       cancelled = true;
     };
-  }, [glb, onGeometry, invalidate]);
+  }, [glb, onGeometry, onError]);
+
+  // Post-commit frame. With frameloop="demand" + preserveDrawingBuffer, an
+  // invalidate() issued inside the load callback draws BEFORE React commits
+  // the mesh change — clearing a stale mesh would leave its last frame in
+  // the framebuffer. This effect runs after the commit, so the drawn frame
+  // always matches the React scene graph.
+  useEffect(() => {
+    invalidate();
+  }, [geometry, invalidate]);
 
   // Dispose GPU resources when a geometry is replaced or unmounts.
   const edges = useMemo(

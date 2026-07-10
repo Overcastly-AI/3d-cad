@@ -11,6 +11,14 @@ export type TessellationMetadata =
 export type ShapeProperties = components["schemas"]["ShapeProperties"];
 export type Vec3 = components["schemas"]["Vec3"];
 
+/**
+ * Deliberate cross-language duplicate (HTTP header names don't flow through
+ * the OpenAPI-generated types). Source of truth: `PROPERTIES_HEADER` in
+ * `packages/py-kit/src/py_kit/schemas/geometry.py` — change both together.
+ * Drift is loud, not silent: `parsePropertiesHeader` throws when the header
+ * is absent, so a renamed server header fails the first tessellation (and
+ * the e2e happy path) instead of quietly dropping mass properties.
+ */
 export const PROPERTIES_HEADER = "X-Loft-Properties";
 
 /** Same-origin in dev (Vite proxies /api to the gateway) and in prod. */
