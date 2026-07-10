@@ -34,7 +34,7 @@ Run the app locally without Docker:
 
 ```bash
 uv run python -m geometry.main    # :8002
-uv run python -m gateway.main     # :8000
+LOFT_ENV=dev uv run python -m gateway.main     # :8000
 pnpm --filter @loft/web dev       # :5173 (proxies /api → gateway)
 ```
 

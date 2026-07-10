@@ -92,7 +92,7 @@ Run the app without Docker (verified — this is how it's developed today):
 
 ```bash
 uv run python -m geometry.main    # OCCT geometry service  :8002
-uv run python -m gateway.main     # gateway (proxies /api/v1/geometry/*)  :8000
+LOFT_ENV=dev uv run python -m gateway.main   # gateway (proxies /api/v1/geometry/*)  :8000
 pnpm --filter @loft/web dev       # web app  :5173 (proxies /api → gateway)
 ```
 

@@ -25,7 +25,7 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. `uv run python -m geometry.main` + `uv run python -m gateway.main`
+        1. `uv run python -m geometry.main` + `LOFT_ENV=dev uv run python -m gateway.main`
         2. `pnpm --filter @loft/web dev`, open http://localhost:5173
         3. Set X to …
     validations:

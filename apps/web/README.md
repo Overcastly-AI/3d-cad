@@ -17,7 +17,7 @@ run the stack (`just dev`), or bare-uvicorn for a lightweight loop:
 
 ```bash
 uv run uvicorn geometry.main:app --port 8002   # geometry (OCCT)
-uv run uvicorn gateway.main:app --port 8000    # gateway
+LOFT_ENV=dev uv run uvicorn gateway.main:app --port 8000    # gateway
 pnpm --filter @loft/web dev
 ```
 
