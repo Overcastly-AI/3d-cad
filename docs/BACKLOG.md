@@ -48,7 +48,7 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 - [ ] (P2, M) Geometry golden harness — golden-model runner (mass properties
       + topology counts vs. committed goldens), STEP round-trip test; cube as
       first golden. [src: roadmap]
-- [ ] (P2, S) Community surface — README (truth-only: what runs today, no
+- [x] (P2, S) Community surface — README (truth-only: what runs today, no
       aspirational badges), CONTRIBUTING, SECURITY, issue templates.
       [src: roadmap]
 - [ ] (P2, S) Watchdog — arm the stall-recovery routine per
@@ -77,6 +77,18 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Changelog
 
+- 2026-07-10 — Community surface shipped: truth-only README rewrite (CI +
+  MIT badges, first-light hero screenshot, four structural advantages, honest
+  "what runs / what doesn't" status with the all-❌ scorecard linked,
+  quickstart + bare-metal dev flow — every command re-run and verified in
+  this sandbox incl. a live 6,000 mm³ tessellate through the gateway; compose
+  path presented with its runtime-unverified caveat), CONTRIBUTING.md
+  (verified setup, gates table, conventions, docs-sync + conventional-commit
+  PR expectations, agent-team note), SECURITY.md (GitHub private advisories,
+  main-only support, no bounty, honest scope notes), CODE_OF_CONDUCT.md
+  (Contributor Covenant 2.1), issue templates (bug: run-mode/commit/env;
+  feature: "which structural advantage?" dropdown; config with security
+  contact link), PR template mirroring the definition of done. [oss-curator]
 - 2026-07-10 — Web shell + first light shipped (closes the 5c item):
   `packages/design` v1 — machine-shop token system per the mandatory
   `frontend-design` skill (carbide/anvil/mist/gauge + one brass accent +

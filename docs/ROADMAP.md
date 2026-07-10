@@ -46,8 +46,9 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
       push (per-package path filtering deferred until job times warrant)
 - ⬜ Geometry golden-suite harness (first golden model: the cube) + STEP
       round-trip test
-- ⬜ Community surface: README (truth-only), CONTRIBUTING, SECURITY, issue
-      templates
+- ✅ Community surface: README (truth-only — hero screenshot, honest status,
+      verified quickstart, CI badge), CONTRIBUTING, SECURITY,
+      CODE_OF_CONDUCT, bug/feature issue templates + PR template
 - ⬜ Watchdog: stall-recovery routine armed per `docs/AUTONOMOUS-LOOP.md` §1.4
 
 ## Phase 1 — MVP: sketch → extrude → export ⬜

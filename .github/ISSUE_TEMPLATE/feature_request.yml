@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a capability or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check [docs/ROADMAP.md](https://github.com/Overcastly-AI/3d-cad/blob/main/docs/ROADMAP.md) —
+        a lot of "missing" CAD capability (sketching, features, export,
+        assemblies) is already sequenced there, and a +1 with your use case on
+        the roadmap theme is more useful than a duplicate.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do that you can't? Real-part, daily-driver scenarios carry the most weight.
+    validations:
+      required: true
+  - type: dropdown
+    id: advantage
+    attributes:
+      label: Which structural advantage does this serve?
+      description: |
+        The project prioritizes by the four structural advantages in
+        [docs/VISION.md](https://github.com/Overcastly-AI/3d-cad/blob/main/docs/VISION.md)
+        — capabilities that don't exploit one are table stakes, not differentiators.
+      options:
+        - Free & unlimited (no seat/feature/export gates)
+        - Your data, your files, your compute (self-host, open format, air-gap)
+        - Open & extensible (Python-first modeling API, MIT)
+        - AI-native & agent-native (MCP / agent access)
+        - Table stakes (needed for daily-driver credibility)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like to see. Sketches, references to how other CAD tools do it, or API shapes all welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other approaches you rejected.
