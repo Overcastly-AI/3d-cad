@@ -48,6 +48,50 @@
         "title": "BoxParams",
         "type": "object"
       },
+      "ExportRequest": {
+        "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; its quality fields default\nto the tessellation defaults so the exported mesh matches what the\nviewport shows.",
+        "properties": {
+          "angular_deflection": {
+            "default": 0.1,
+            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)",
+            "exclusiveMinimum": 0.0,
+            "title": "Angular Deflection",
+            "type": "number"
+          },
+          "format": {
+            "description": "Export file format: STEP (exact B-rep) or STL (faceted mesh)",
+            "enum": [
+              "step",
+              "stl"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep)",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "params": {
+            "$ref": "#/components/schemas/BoxParams"
+          },
+          "shape": {
+            "const": "box",
+            "description": "Shape kind (parametric box only, today)",
+            "title": "Shape",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shape",
+          "params",
+          "format"
+        ],
+        "title": "ExportRequest",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -260,6 +304,63 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/geometry/export": {
+      "post": {
+        "description": "Build + export on the geometry service; pass the file bytes through.",
+        "operationId": "export_api_v1_geometry_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "model/step": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/stl": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The exported CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"<shape>.<format>\"",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
     "/api/v1/geometry/tessellate": {
       "post": {
         "description": "Build + tessellate on the geometry service; pass the GLB through.",

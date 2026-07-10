@@ -1,4 +1,4 @@
-"""Gateway → geometry tessellation proxy (``/api/v1/geometry/*``).
+"""Gateway → geometry proxy (``/api/v1/geometry/*``): tessellation + export.
 
 apps/web talks ONLY to the gateway (CLAUDE.md service boundaries), so the
 geometry API is surfaced here. Routes are typed with the shared py-kit DTOs —
@@ -17,10 +17,14 @@ import httpx2 as httpx
 from fastapi import APIRouter, Request, Response
 from py_kit import REQUEST_ID_HEADER, ApiError, UpstreamUnavailableError
 from py_kit.schemas.geometry import (
+    EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
     PROPERTIES_HEADER,
+    ExportRequest,
+    ShapeRequest,
     TessellateRequest,
     TessellationMetadata,
+    export_responses,
     tessellate_responses,
 )
 
@@ -47,7 +51,7 @@ def create_geometry_client(
 
 
 async def _forward(
-    http_request: Request, path: str, payload: TessellateRequest
+    http_request: Request, path: str, payload: ShapeRequest
 ) -> httpx.Response:
     """POST *payload* to the geometry service, mapping transport failures."""
     client: httpx.AsyncClient = http_request.app.state.geometry_client
@@ -126,3 +130,28 @@ async def tessellate_meta(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return TessellationMetadata.model_validate_json(upstream.content)
+
+
+_EXPORT_RESPONSES = export_responses(
+    "The exported CAD file, proxied byte-exact from the geometry service: "
+    "STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL "
+    "(`model/stl`, faceted mesh). `Content-Disposition` carries the suggested "
+    "download filename. Byte-deterministic: identical requests produce "
+    "identical files."
+)
+
+
+@router.post("/export", response_class=Response, responses=_EXPORT_RESPONSES)
+async def export(request: ExportRequest, http_request: Request) -> Response:
+    """Build + export on the geometry service; pass the file bytes through."""
+    upstream = await _forward(http_request, "/api/v1/export", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    headers: dict[str, str] = {}
+    if "content-disposition" in upstream.headers:
+        headers["Content-Disposition"] = upstream.headers["content-disposition"]
+    return Response(
+        content=upstream.content,
+        media_type=EXPORT_MEDIA_TYPES[request.format],
+        headers=headers,
+    )

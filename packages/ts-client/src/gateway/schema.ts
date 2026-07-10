@@ -1,6 +1,26 @@
 // GENERATED — do not edit; run `just gen`.
 // Types for the gateway service (source contract: packages/contracts/gateway.openapi.json).
 export interface paths {
+    "/api/v1/geometry/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export
+         * @description Build + export on the geometry service; pass the file bytes through.
+         */
+        post: operations["export_api_v1_geometry_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/tessellate": {
         parameters: {
             query?: never;
@@ -73,6 +93,42 @@ export interface components {
              * @description Size along Z (mm)
              */
             z: number;
+        };
+        /**
+         * ExportRequest
+         * @description Build a parametric shape and export it as a downloadable CAD file.
+         *
+         *     STEP exports the exact B-rep — the deflection fields are meaningless for
+         *     it and ignored. STL is a faceted approximation; its quality fields default
+         *     to the tessellation defaults so the exported mesh matches what the
+         *     viewport shows.
+         */
+        ExportRequest: {
+            /**
+             * Angular Deflection
+             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)
+             * @default 0.1
+             */
+            angular_deflection: number;
+            /**
+             * Format
+             * @description Export file format: STEP (exact B-rep) or STL (faceted mesh)
+             * @enum {string}
+             */
+            format: "step" | "stl";
+            /**
+             * Linear Deflection
+             * @description STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep)
+             * @default 0.1
+             */
+            linear_deflection: number;
+            params: components["schemas"]["BoxParams"];
+            /**
+             * Shape
+             * @description Shape kind (parametric box only, today)
+             * @constant
+             */
+            shape: "box";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -191,6 +247,42 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    export_api_v1_geometry_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportRequest"];
+            };
+        };
+        responses: {
+            /** @description The exported CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            200: {
+                headers: {
+                    /** @description attachment; filename="<shape>.<format>" */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "model/step": string;
+                    "model/stl": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     tessellate_api_v1_geometry_tessellate_post: {
         parameters: {
             query?: never;

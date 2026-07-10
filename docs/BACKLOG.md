@@ -44,8 +44,8 @@ with them; #8 is small platform enablement.
       downloads both formats for the 10×20×30 box in a real browser and
       re-imports them. **PARTIAL 2026-07-10:** geometry half (1a) shipped —
       endpoint + all geometry-gate acceptance points green (see changelog);
-      gateway proxy + web download UI + browser QA (1b) remain.
-      [src: roadmap, geometry-qa]
+      gateway proxy (1b-gateway) shipped too (see changelog); web download
+      UI + browser QA (1b-web) remain. [src: roadmap, geometry-qa]
 - [ ] (P1, S) First curved golden: cylinder — add a parametric cylinder to
       the kernel/request schema and land golden `cylinder` alongside the box.
       De-risks curved GProp integration, tessellation deflection, and STEP
@@ -185,6 +185,22 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — Export gateway proxy (1b-gateway) shipped: `POST
+  /api/v1/geometry/export` on the gateway forwards to geometry's
+  `/api/v1/export` over the same lifespan-managed httpx2 client as the
+  tessellate proxy — file bytes passed through byte-exact with the correct
+  media type (shared `EXPORT_MEDIA_TYPES`) and upstream `Content-Disposition`
+  filename, request id propagated, transport failures → py-kit 502
+  `upstream_unavailable` envelope, upstream envelopes re-surfaced. DTOs +
+  `export_responses()` OpenAPI block reused from `py_kit.schemas.geometry`
+  (zero duplication; `_forward` widened to the shared `ShapeRequest` base).
+  Tests: happy path both formats against a mocked upstream (bytes/media
+  type/Content-Disposition passthrough), upstream-down 502, gateway-side 422
+  (bad params + unknown format never reach upstream). Gateway contract +
+  ts-client regenerated; `just lint` / `just test` (95 py + 19 ts) /
+  `just gen-check` green. Web download UI (1b-web) pending — item stays
+  open. [backend-builder]
 
 - 2026-07-10 — STEP/STL export geometry endpoints (1a) shipped: geometry
   `POST /api/v1/export` (format: step|stl) built from the same shape params

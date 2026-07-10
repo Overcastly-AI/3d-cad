@@ -9,9 +9,11 @@ from fastapi.testclient import TestClient
 from gateway.main import GatewaySettings, build_app
 from py_kit import REQUEST_ID_HEADER
 from py_kit.schemas.geometry import (
+    EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
     PROPERTIES_HEADER,
     BoundingBox,
+    ExportRequest,
     MeshStats,
     ShapeProperties,
     TessellateRequest,
@@ -27,6 +29,17 @@ BOX_REQUEST: dict[str, Any] = {
 }
 
 GLB = b"glTF\x02\x00\x00\x00fake-payload"
+
+#: Fake export payloads per format — passthrough is asserted byte-exact.
+EXPORT_BYTES: dict[str, bytes] = {
+    "step": b"ISO-10303-21;\nfake step file\nEND-ISO-10303-21;\n",
+    "stl": b"\x00" * 80 + b"\x0c\x00\x00\x00fake-binary-stl",
+}
+
+
+def export_request(fmt: str) -> dict[str, Any]:
+    return {**BOX_REQUEST, "format": fmt, "angular_deflection": 0.1}
+
 
 METADATA = TessellationMetadata(
     properties=ShapeProperties(
@@ -107,15 +120,54 @@ def test_tessellate_meta_proxies_typed_json() -> None:
     assert upstream.url.path == "/api/v1/tessellate/meta"
 
 
+@pytest.mark.parametrize("fmt", ["step", "stl"])
+def test_export_proxies_file_and_content_disposition(fmt: str) -> None:
+    seen: list[httpx.Request] = []
+    payload = EXPORT_BYTES[fmt]
+    disposition = f'attachment; filename="box.{fmt}"'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            content=payload,
+            headers={
+                "content-type": EXPORT_MEDIA_TYPES[fmt],
+                "content-disposition": disposition,
+            },
+        )
+
+    with make_client(handler) as client:
+        response = client.post("/api/v1/geometry/export", json=export_request(fmt))
+
+    assert response.status_code == 200
+    assert response.content == payload  # byte-exact passthrough
+    assert response.headers["content-type"] == EXPORT_MEDIA_TYPES[fmt]
+    assert response.headers["content-disposition"] == disposition
+
+    [upstream] = seen
+    assert upstream.url.path == "/api/v1/export"
+    assert ExportRequest.model_validate_json(
+        upstream.content
+    ) == ExportRequest.model_validate(export_request(fmt))
+    # Request id propagates upstream so gateway/geometry logs correlate.
+    assert upstream.headers[REQUEST_ID_HEADER] == response.headers[REQUEST_ID_HEADER]
+
+
 @pytest.mark.parametrize(
-    "path", ["/api/v1/geometry/tessellate", "/api/v1/geometry/tessellate/meta"]
+    ("path", "payload"),
+    [
+        ("/api/v1/geometry/tessellate", BOX_REQUEST),
+        ("/api/v1/geometry/tessellate/meta", BOX_REQUEST),
+        ("/api/v1/geometry/export", export_request("step")),
+    ],
 )
-def test_upstream_down_maps_to_502_envelope(path: str) -> None:
+def test_upstream_down_maps_to_502_envelope(path: str, payload: dict[str, Any]) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
     with make_client(handler) as client:
-        response = client.post(path, json=BOX_REQUEST)
+        response = client.post(path, json=payload)
 
     assert response.status_code == 502
     error = _envelope(response.json())
@@ -176,6 +228,24 @@ def test_invalid_request_rejected_at_the_gateway() -> None:
         response = client.post(
             "/api/v1/geometry/tessellate",
             json={"shape": "box", "params": {"x": 0.0, "y": 1.0, "z": 1.0}},
+        )
+
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == "validation_error"
+    assert seen == []
+
+
+def test_invalid_export_format_rejected_at_the_gateway() -> None:
+    """Unknown export format fails DTO validation — never goes upstream."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200)
+
+    with make_client(handler) as client:
+        response = client.post(
+            "/api/v1/geometry/export", json={**BOX_REQUEST, "format": "obj"}
         )
 
     assert response.status_code == 422
