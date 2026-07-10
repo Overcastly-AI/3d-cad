@@ -1,8 +1,10 @@
-"""Gateway persistence — async SQLAlchemy engine, session plumbing, models.
+"""Gateway persistence — declarative models (users).
 
 The gateway owns the identity store (users) per RESEARCH §3 — auth is a
-gateway concern, so users live HERE, not in the documents service. Schema
-changes ship as alembic migrations under ``services/gateway/alembic``
+gateway concern, so users live HERE, not in the documents service. Plumbing
+(engine/session state, DSN normalization, readiness ping) comes from
+:mod:`py_kit.db` (extracted there on its second real use — documents parts).
+Schema changes ship as alembic migrations under ``services/gateway/alembic``
 (CLAUDE.md: migrations only, no ad-hoc SQL); the ORM metadata below is the
 single source those migrations are written from.
 
@@ -13,45 +15,17 @@ without a Postgres daemon — see ``tests/test_auth.py`` for the honest
 statement of that split.
 """
 
-import asyncio
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-#: Budget for the readiness ``SELECT 1`` — a probe, not a real query.
-DB_PING_TIMEOUT_S = 2.0
 
 #: RFC 5321 upper bound for a full email address.
 EMAIL_MAX_LENGTH = 320
 
 #: Generous bound for the argon2 encoded hash string (current output ~97 ch).
 PASSWORD_HASH_MAX_LENGTH = 255
-
-
-def async_dsn(url: str) -> str:
-    """Normalize a DSN to its async SQLAlchemy driver form.
-
-    Compose/ops hand services plain ``postgresql://`` URLs (see
-    docker-compose.yml); SQLAlchemy needs the ``+asyncpg`` driver marker.
-    URLs that already name a ``+driver`` pass through unchanged.
-    """
-    for prefix, replacement in (
-        ("postgresql://", "postgresql+asyncpg://"),
-        ("postgres://", "postgresql+asyncpg://"),
-        ("sqlite://", "sqlite+aiosqlite://"),
-    ):
-        if url.startswith(prefix):
-            return replacement + url.removeprefix(prefix)
-    return url
 
 
 class Base(DeclarativeBase):
@@ -87,35 +61,3 @@ class User(Base):
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         """Identify the row WITHOUT the hash — keep secrets out of any log."""
         return f"User(id={self.id!r}, email={self.email!r})"
-
-
-@dataclass
-class DatabaseState:
-    """Mutable holder bridging lifespan-owned resources to closures.
-
-    ``build_app`` creates readiness-check closures before the app (and its
-    lifespan) exists; the lifespan fills this in on startup and clears it on
-    shutdown.
-    """
-
-    engine: AsyncEngine | None = None
-    sessionmaker: async_sessionmaker[AsyncSession] | None = None
-
-
-def create_database(postgres_url: str) -> DatabaseState:
-    """Create the engine + sessionmaker for *postgres_url* (async driver)."""
-    engine = create_async_engine(async_dsn(postgres_url), pool_pre_ping=True)
-    return DatabaseState(
-        engine=engine,
-        sessionmaker=async_sessionmaker(engine, expire_on_commit=False),
-    )
-
-
-async def ping(engine: AsyncEngine, timeout_s: float = DB_PING_TIMEOUT_S) -> None:
-    """Readiness probe: ``SELECT 1`` within *timeout_s* (raises on failure)."""
-
-    async def select_one() -> None:
-        async with engine.connect() as connection:
-            await connection.execute(sa.text("SELECT 1"))
-
-    await asyncio.wait_for(select_one(), timeout=timeout_s)

@@ -1,16 +1,28 @@
 """Documents app — boots on the py-kit factory (probes, logging, envelope).
 
-Skeleton stage: no ``/api/v1`` routes and no DB driver yet; the Postgres
-schema (alembic) and the first document routes land with the feature-tree
-persistence work (docs/ROADMAP.md Phase 1).
+``/api/v1`` surface: parts CRUD (:mod:`documents.parts`), backed by Postgres
+via the shared :mod:`py_kit.db` plumbing with the schema owned by
+``services/documents/alembic``. The feature tree lands next per
+docs/design/feature-tree.md. This service never imports kernel code
+(CLAUDE.md service boundaries) — geometry artifacts are referenced by
+object-storage id only.
 """
+
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
+from py_kit.db import DatabaseState, postgres_readiness
+
+from documents.parts import router as parts_router
 
 TITLE = "Loft Documents"
 VERSION = "0.1.0"
+
+#: Readiness-probe budget for the ``SELECT 1`` ping.
+READINESS_PROBE_TIMEOUT_S = 2.0
 
 
 class DocumentsSettings(BaseServiceSettings):
@@ -21,24 +33,38 @@ class DocumentsSettings(BaseServiceSettings):
 
 
 def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
-    """Build the documents app with its Postgres readiness check."""
+    """Build the documents app.
+
+    The postgres readiness check is HARD (shared py-kit posture): parts
+    cannot serve without their store, so an unreachable DB takes ``/readyz``
+    to 503. With ``POSTGRES_URL`` unset (bare-uvicorn dev without a DB) the
+    check reports ``"skipped"`` and parts routes answer 503 per-request.
+    """
     settings = settings or DocumentsSettings()
+    database = DatabaseState()
 
-    async def postgres() -> str:
-        """Postgres readiness.
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        """Own the DB engine for the app's lifetime."""
+        if settings.postgres_url is not None:
+            database.start(settings.postgres_url)
+        app.state.database = database
+        try:
+            yield
+        finally:
+            await database.dispose()
 
-        Skeleton stage: no DB driver yet (drivers arrive with the alembic
-        schema). With ``POSTGRES_URL`` unset the check reports ``"skipped"``
-        and ``/readyz`` stays 200. The real connection ping replaces this
-        body later — same check name, no probe-API change.
-        """
-        if settings.postgres_url is None:
-            return "skipped"
-        return "configured (ping lands with the documents schema)"
-
-    return create_app(
-        settings, title=TITLE, version=VERSION, readiness_checks=(postgres,)
+    app = create_app(
+        settings,
+        title=TITLE,
+        version=VERSION,
+        readiness_checks=(
+            postgres_readiness(settings, database, timeout_s=READINESS_PROBE_TIMEOUT_S),
+        ),
+        lifespan=lifespan,
     )
+    app.include_router(parts_router)
+    return app
 
 
 app = build_app()

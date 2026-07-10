@@ -10,6 +10,10 @@ dependencies = [
     "structlog>=24.4",
     "arq>=0.26",
     "uvicorn>=0.32",
+    # py_kit.db / py_kit.alembic_env (shared persistence plumbing). DB drivers
+    # (asyncpg, aiosqlite) stay with the services — py-kit is driver-agnostic.
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.14",
 ]
 
 [build-system]

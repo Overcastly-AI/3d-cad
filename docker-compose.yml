@@ -90,6 +90,10 @@ services:
       # Upstream for the /api/v1/geometry/* proxy (readiness reports it
       # best-effort; REDIS_URL etc. get wired when WebSocket fan-out lands).
       GEOMETRY_URL: http://geometry:8002
+      # Upstream for the /api/v1/parts aggregation — the gateway verifies the
+      # JWT and forwards the user id in X-Loft-User (documents is internal
+      # and trusts that header; never expose its port to the public edge).
+      DOCUMENTS_URL: http://documents:8001
       # Identity store for /api/v1/auth/* (readiness pings it HARD — a dead
       # DB takes the gateway unready). Schema via alembic, run from the host:
       #   POSTGRES_URL=postgresql://loft:loft-dev-only@localhost:${DB_PORT:-5432}/loft \
@@ -119,8 +123,10 @@ services:
     environment:
       PORT: "8001"
       LOG_FORMAT: ${LOG_FORMAT:-json}
-      # Setting POSTGRES_URL flips the readiness check from "skipped";
-      # the real connection ping lands with the alembic schema (Phase 1).
+      # Parts store (readiness pings it HARD — a dead DB takes documents
+      # unready). Schema via alembic, run from the host:
+      #   POSTGRES_URL=postgresql://loft:loft-dev-only@localhost:${DB_PORT:-5432}/loft \
+      #     uv run alembic -c services/documents/alembic.ini upgrade head
       POSTGRES_URL: postgresql://${POSTGRES_USER:-loft}:${POSTGRES_PASSWORD:-loft-dev-only}@db:5432/${POSTGRES_DB:-loft}
     ports:
       - "${DOCUMENTS_PORT:-8001}:8001"

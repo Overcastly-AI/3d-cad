@@ -83,14 +83,15 @@ with them; #8 is small platform enablement.
       code-reviewer pass mandatory before merge. Shipped 2026-07-10 (see
       changelog; reconciled after an interrupted first run) — code-reviewer
       pass routed by the orchestrator. [src: roadmap]
-- [ ] (P1, M) Documents service: parts CRUD — create/list/get/delete parts
+- [x] (P1, M) Documents service: parts CRUD — create/list/get/delete parts
       in Postgres (alembic migration), owner-scoped once auth lands (stub
       principal acceptable to start — soft dependency), gateway aggregation
       routes, real postgres readiness ping replacing the "skipped" check.
       Feature-tree column lands later, after the design doc. Acceptance:
       unit tests against a real test DB; py-kit error envelope on 404/409;
       contracts + ts-client regenerated; documents service still imports no
-      kernel code. [src: roadmap]
+      kernel code. Shipped 2026-07-10 (see changelog) — db/alembic plumbing
+      extracted to py-kit on this second real use. [src: roadmap]
 - [ ] (P1, S) Auth v1 web sign-in — login/register screens + session
       handling in `apps/web` composing `packages/design` primitives
       (`frontend-design` skill mandatory), authenticated fetch wiring in the
@@ -188,6 +189,10 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — Documents parts CRUD shipped (Ready #6): owner-scoped CRUD +
+  alembic `0001_parts`, auth-protected gateway aggregation (JWT →
+  `X-Loft-User`), db/alembic plumbing extracted to py-kit. [backend-builder]
 
 - 2026-07-10 — Auth v1 backend shipped (Ready #5; reconciled and finished
   after the first agent was killed mid-task — inherited implementation

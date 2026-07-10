@@ -1,4 +1,9 @@
-"""documents.main — skeleton probes + error-envelope smoke."""
+"""documents.main — probes + error-envelope smoke.
+
+Postgres readiness is the shared HARD py-kit check (py_kit.db): "skipped"
+without POSTGRES_URL, a real ``SELECT 1`` otherwise — the ok/unreachable
+paths need a running lifespan and live in tests/test_parts.py.
+"""
 
 from typing import Any
 
@@ -24,17 +29,6 @@ def test_readyz_postgres_skipped_when_unconfigured() -> None:
     response = TestClient(service).get("/readyz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "checks": {"postgres": "skipped"}}
-
-
-def test_readyz_postgres_reported_when_configured() -> None:
-    service = build_app(
-        DocumentsSettings(postgres_url="postgresql://loft:loft@db:5432/loft")
-    )
-    response = TestClient(service).get("/readyz")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "ok"
-    assert body["checks"]["postgres"].startswith("configured")
 
 
 def _envelope(body: dict[str, Any]) -> dict[str, Any]:

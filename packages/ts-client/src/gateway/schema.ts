@@ -121,6 +121,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Parts
+         * @description The caller's parts, oldest first.
+         */
+        get: operations["list_parts_api_v1_parts_get"];
+        put?: never;
+        /**
+         * Create Part
+         * @description Create a part owned by the caller (201; 409 envelope on duplicate name).
+         */
+        post: operations["create_part_api_v1_parts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Part
+         * @description One of the caller's parts (404 envelope for unknown/foreign ids).
+         */
+        get: operations["get_part_api_v1_parts__part_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Part
+         * @description Delete one of the caller's parts (204; 404 for unknown/foreign ids).
+         */
+        delete: operations["delete_part_api_v1_parts__part_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -271,6 +319,57 @@ export interface components {
             triangles: number;
             /** Vertices */
             vertices: number;
+        };
+        /**
+         * PartCreate
+         * @description Create a part owned by the calling user.
+         */
+        PartCreate: {
+            /**
+             * Name
+             * @description Part name; unique per owner, whitespace-trimmed, 1-200 characters
+             */
+            name: string;
+        };
+        /**
+         * PartListResponse
+         * @description The caller's parts, oldest first (wrapper leaves room for pagination).
+         */
+        PartListResponse: {
+            /** Parts */
+            parts: components["schemas"]["PartResponse"][];
+        };
+        /**
+         * PartResponse
+         * @description A part as stored — identity, ownership, and timestamps.
+         *
+         *     The feature tree is NOT here yet: it lands as its own tables per
+         *     docs/design/feature-tree.md once the implementation item ships.
+         */
+        PartResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Owner Id
+             * Format: uuid
+             * @description Owning user id (gateway-verified)
+             */
+            owner_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * RegisterRequest
@@ -590,6 +689,119 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TessellationMetadata"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_parts_api_v1_parts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartListResponse"];
+                };
+            };
+        };
+    };
+    create_part_api_v1_parts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_part_api_v1_parts__part_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_part_api_v1_parts__part_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

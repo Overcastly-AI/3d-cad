@@ -220,6 +220,79 @@
         "title": "MeshStats",
         "type": "object"
       },
+      "PartCreate": {
+        "description": "Create a part owned by the calling user.",
+        "properties": {
+          "name": {
+            "description": "Part name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PartCreate",
+        "type": "object"
+      },
+      "PartListResponse": {
+        "description": "The caller's parts, oldest first (wrapper leaves room for pagination).",
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/PartResponse"
+            },
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "parts"
+        ],
+        "title": "PartListResponse",
+        "type": "object"
+      },
+      "PartResponse": {
+        "description": "A part as stored \u2014 identity, ownership, and timestamps.\n\nThe feature tree is NOT here yet: it lands as its own tables per\ndocs/design/feature-tree.md once the implementation item ships.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "description": "Owning user id (gateway-verified)",
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "owner_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PartResponse",
+        "type": "object"
+      },
       "RegisterRequest": {
         "description": "Create an account. Policy: 8-256 chars, enforced in the route.",
         "properties": {
@@ -723,6 +796,167 @@
         "summary": "Tessellate Meta",
         "tags": [
           "geometry"
+        ]
+      }
+    },
+    "/api/v1/parts": {
+      "get": {
+        "description": "The caller's parts, oldest first.",
+        "operationId": "list_parts_api_v1_parts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Parts",
+        "tags": [
+          "parts"
+        ]
+      },
+      "post": {
+        "description": "Create a part owned by the caller (201; 409 envelope on duplicate name).",
+        "operationId": "create_part_api_v1_parts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Part",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}": {
+      "delete": {
+        "description": "Delete one of the caller's parts (204; 404 for unknown/foreign ids).",
+        "operationId": "delete_part_api_v1_parts__part_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Part",
+        "tags": [
+          "parts"
+        ]
+      },
+      "get": {
+        "description": "One of the caller's parts (404 envelope for unknown/foreign ids).",
+        "operationId": "get_part_api_v1_parts__part_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Part",
+        "tags": [
+          "parts"
         ]
       }
     }

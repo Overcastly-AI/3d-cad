@@ -11,21 +11,19 @@ Security invariants (asserted by tests/test_auth.py):
   read-then-write check.
 """
 
-from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from py_kit import (
-    ApiError,
     ConflictError,
     UnauthorizedError,
     ValidationApiError,
     get_logger,
 )
+from py_kit.db import SessionDep
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.auth.schemas import (
     PASSWORD_MAX_LENGTH,
@@ -45,7 +43,7 @@ from gateway.auth.security import (
     password_needs_rehash,
     verify_password,
 )
-from gateway.db import DatabaseState, User
+from gateway.db import User
 
 _logger = get_logger("gateway.auth")
 
@@ -58,31 +56,12 @@ _INVALID_CREDENTIALS = "Invalid email or password."
 _INVALID_TOKEN = "Invalid or expired token."
 
 
-class DatabaseUnavailableError(ApiError):
-    """The gateway has no database configured/started (HTTP 503)."""
-
-    status_code = 503
-    code = "database_unavailable"
-
-
-async def get_session(request: Request) -> AsyncGenerator[AsyncSession]:
-    """Yield a request-scoped DB session from the lifespan-owned sessionmaker."""
-    database: DatabaseState | None = getattr(request.app.state, "database", None)
-    if database is None or database.sessionmaker is None:
-        raise DatabaseUnavailableError(
-            "Database is not configured; set POSTGRES_URL to enable auth."
-        )
-    async with database.sessionmaker() as session:
-        yield session
-
-
 def get_auth_config(request: Request) -> AuthConfig:
     """The resolved auth config — set exclusively by ``build_app``."""
     config: AuthConfig = request.app.state.auth_config
     return config
 
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 AuthConfigDep = Annotated[AuthConfig, Depends(get_auth_config)]
 
 _bearer_scheme = HTTPBearer(

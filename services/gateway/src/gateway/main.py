@@ -1,9 +1,11 @@
 """Gateway app — boots on the py-kit factory (probes, logging, envelope).
 
 ``/api/v1`` surface: the geometry proxy (:mod:`gateway.geometry` — apps/web
-talks only to the gateway, CLAUDE.md service boundaries) and auth
+talks only to the gateway, CLAUDE.md service boundaries), auth
 (:mod:`gateway.auth` — email/password + JWT; the gateway owns identity per
-RESEARCH §3, backed by its own Postgres schema under ``alembic/``).
+RESEARCH §3, backed by its own Postgres schema under ``alembic/``), and the
+parts aggregation (:mod:`gateway.parts` — auth-protected forwarding to the
+documents service with the verified principal attached).
 
 Startup is fail-fast on secrets: ``build_app`` resolves the JWT secret
 posture BEFORE assembling the app, so a non-dev deployment without
@@ -17,11 +19,13 @@ import httpx2 as httpx
 import uvicorn
 from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
+from py_kit.db import DatabaseState, postgres_readiness
 
 from gateway.auth import auth_router, resolve_auth_config
-from gateway.db import DatabaseState, create_database, ping
 from gateway.geometry import create_geometry_client
 from gateway.geometry import router as geometry_router
+from gateway.parts import create_documents_client
+from gateway.parts import router as parts_router
 
 TITLE = "Loft Gateway"
 VERSION = "0.1.0"
@@ -39,6 +43,7 @@ class GatewaySettings(BaseServiceSettings):
     service_name: str = "gateway"
     port: int = 8000
     geometry_url: str = "http://localhost:8002"  # env: GEOMETRY_URL
+    documents_url: str = "http://localhost:8001"  # env: DOCUMENTS_URL
     # Deployment environment posture. ONLY the exact value "dev" permits
     # running without JWT_SECRET (a fixed, publicly-known fallback is used and
     # a warning logged); everything else fails startup without a real secret.
@@ -51,6 +56,7 @@ def build_app(
     settings: GatewaySettings | None = None,
     *,
     geometry_transport: httpx.AsyncBaseTransport | None = None,
+    documents_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Build the gateway app.
 
@@ -59,7 +65,7 @@ def build_app(
     fail-fast choke point; routes only ever read the resolved config from
     ``app.state.auth_config``, which is populated nowhere else.
 
-    ``geometry_transport`` lets tests hand the upstream client an
+    The ``*_transport`` parameters let tests hand each upstream client an
     ``httpx.MockTransport``; production always passes ``None`` (real network).
     """
     settings = settings or GatewaySettings()
@@ -72,22 +78,22 @@ def build_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-        """Own startup/shutdown resources: geometry client + DB engine."""
+        """Own startup/shutdown resources: upstream clients + DB engine."""
         client = create_geometry_client(settings.geometry_url, geometry_transport)
         app.state.geometry_client = client
+        documents_client = create_documents_client(
+            settings.documents_url, documents_transport
+        )
+        app.state.documents_client = documents_client
         if settings.postgres_url is not None:
-            started = create_database(settings.postgres_url)
-            database.engine = started.engine
-            database.sessionmaker = started.sessionmaker
+            database.start(settings.postgres_url)
         app.state.database = database
         try:
             yield
         finally:
             await client.aclose()
-            if database.engine is not None:
-                await database.engine.dispose()
-                database.engine = None
-                database.sessionmaker = None
+            await documents_client.aclose()
+            await database.dispose()
 
     async def geometry() -> str:
         """Best-effort, REPORT-ONLY geometry reachability ("ok"/"unreachable").
@@ -107,21 +113,12 @@ def build_app(
             return "unreachable"
         return "ok" if response.status_code == 200 else "unreachable"
 
-    async def postgres() -> str:
-        """Postgres readiness: real ``SELECT 1`` when POSTGRES_URL is set.
-
-        HARD check (unlike geometry): auth cannot serve without its store, so
-        an unreachable DB takes ``/readyz`` to 503. The failure detail is the
-        exception *type* only (py-kit strips messages — a DSN could leak).
-        With POSTGRES_URL unset (bare-uvicorn dev without a DB) the check
-        reports "skipped" and auth routes answer 503 per-request instead.
-        """
-        if settings.postgres_url is None:
-            return "skipped"
-        if database.engine is None:
-            raise RuntimeError("database engine not started")
-        await ping(database.engine, timeout_s=READINESS_PROBE_TIMEOUT_S)
-        return "ok"
+    # Postgres readiness is the shared py-kit posture: HARD check (unlike
+    # geometry) — auth cannot serve without its store; "skipped" while
+    # POSTGRES_URL is unset (auth routes then answer 503 per-request).
+    postgres = postgres_readiness(
+        settings, database, timeout_s=READINESS_PROBE_TIMEOUT_S
+    )
 
     app = create_app(
         settings,
@@ -133,6 +130,7 @@ def build_app(
     app.state.auth_config = auth_config
     app.include_router(geometry_router)
     app.include_router(auth_router)
+    app.include_router(parts_router)
     return app
 
 

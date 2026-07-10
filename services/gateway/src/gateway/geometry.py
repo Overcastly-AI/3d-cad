@@ -3,19 +3,15 @@
 apps/web talks ONLY to the gateway (CLAUDE.md service boundaries), so the
 geometry API is surfaced here. Routes are typed with the shared py-kit DTOs —
 the exact models the geometry service serves, never hand-duplicated — and
-forward over the lifespan-managed httpx2 ``AsyncClient`` on ``app.state``.
-
-Error strategy: transport failures (connect refused, timeout) become the
-py-kit 502 ``upstream_unavailable`` envelope; upstream error *responses*
-(already py-kit envelopes) are re-surfaced with their code/message/details
-under the gateway's own request id. Raw stacks never reach the client.
+forward over the lifespan-managed httpx2 ``AsyncClient`` on ``app.state``
+using the shared :mod:`gateway.upstream` plumbing (502 on transport failure,
+upstream envelopes re-surfaced).
 """
 
-from typing import Any, NoReturn
+from typing import NoReturn
 
 import httpx2 as httpx
 from fastapi import APIRouter, Request, Response
-from py_kit import REQUEST_ID_HEADER, ApiError, UpstreamUnavailableError
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
@@ -28,8 +24,13 @@ from py_kit.schemas.geometry import (
     tessellate_responses,
 )
 
+from gateway.upstream import create_upstream_client, forward, raise_upstream_error
+
 #: Upstream call budget — tessellation is CPU-bound and may take a while.
 GEOMETRY_TIMEOUT_S = 30.0
+
+#: Human-readable upstream name for shared error surfaces.
+_SERVICE = "Geometry"
 
 router = APIRouter(prefix="/api/v1/geometry", tags=["geometry"])
 
@@ -38,15 +39,9 @@ def create_geometry_client(
     geometry_url: str,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> httpx.AsyncClient:
-    """Build the upstream client (owned by the gateway app's lifespan).
-
-    ``transport`` exists so tests can inject an ``httpx.MockTransport``;
-    ``None`` (production) selects the default network transport.
-    """
-    return httpx.AsyncClient(
-        base_url=geometry_url,
-        timeout=GEOMETRY_TIMEOUT_S,
-        transport=transport,
+    """The geometry upstream client (see :func:`create_upstream_client`)."""
+    return create_upstream_client(
+        geometry_url, timeout_s=GEOMETRY_TIMEOUT_S, transport=transport
     )
 
 
@@ -55,45 +50,19 @@ async def _forward(
 ) -> httpx.Response:
     """POST *payload* to the geometry service, mapping transport failures."""
     client: httpx.AsyncClient = http_request.app.state.geometry_client
-    try:
-        return await client.post(
-            path,
-            content=payload.model_dump_json(),
-            headers={
-                "content-type": "application/json",
-                # Propagate the request id so gateway/geometry logs correlate.
-                REQUEST_ID_HEADER: http_request.state.request_id,
-            },
-        )
-    except httpx.HTTPError as exc:
-        raise UpstreamUnavailableError(
-            "Geometry service is unreachable.",
-            # Exception *type* only — str(exc) may leak internal URLs.
-            details={"reason": type(exc).__name__},
-        ) from exc
+    return await forward(
+        client,
+        http_request,
+        "POST",
+        path,
+        service=_SERVICE,
+        json_content=payload.model_dump_json(),
+    )
 
 
 def _raise_upstream_error(upstream: httpx.Response) -> NoReturn:
-    """Re-surface a geometry error response in the gateway's envelope.
-
-    Geometry already answers with the py-kit envelope; keep its code,
-    message, and details (the gateway stamps its own request id). Anything
-    non-envelope collapses to an opaque upstream_error with the same status.
-    """
-    try:
-        error: dict[str, Any] = upstream.json()["error"]
-        code = str(error["code"])
-        message = str(error["message"])
-        details = error.get("details")
-    except (ValueError, KeyError, TypeError):
-        code, message, details = (
-            "upstream_error",
-            "Geometry service returned an error.",
-            None,
-        )
-    exc = ApiError(message, code=code, details=details)
-    exc.status_code = upstream.status_code
-    raise exc
+    """Re-surface a geometry error response (see :func:`raise_upstream_error`)."""
+    raise_upstream_error(upstream, service=_SERVICE)
 
 
 _TESSELLATE_RESPONSES = tessellate_responses(

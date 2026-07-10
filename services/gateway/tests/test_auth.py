@@ -35,8 +35,9 @@ from gateway.auth.security import (
     hash_password,
     verify_password,
 )
-from gateway.db import Base, async_dsn
+from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
+from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
 #: >= MIN_JWT_SECRET_LENGTH; distinctive so leak-assertions can grep for it.
