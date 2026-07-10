@@ -28,7 +28,7 @@ lint:
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:
-    uv run pytest || [ $? -eq 5 ]  # pytest exit 5 = no tests collected; fine until the first suites land
+    uv run pytest
     pnpm run test
 
 # Regenerate OpenAPI contracts (pydantic → packages/contracts) + typed TS

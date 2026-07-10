@@ -53,12 +53,19 @@ ENV SERVICE_NAME=${SERVICE_NAME} \
 
 # curl is for the container HEALTHCHECK only.
 #
-# NOTE (geometry image growth): when OCP/build123d land in services/geometry,
-# the OCCT shared libraries need X/GL system libs at import time. Add them
-# here gated on SERVICE_NAME=geometry (or split a geometry runtime stage):
-#   libgl1 libglu1-mesa libxext6 libxrender1 libx11-6 fontconfig
+# X/GL system libs: the OCP wheel's bundled OCCT shared libraries link against
+# libGL.so.1 / libX11.so.6 (etc.) at import time, so the geometry image cannot
+# start without them. Installed unconditionally on purpose: a few MB on the
+# non-geometry images beats build-arg branching / a split runtime stage.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        libgl1 \
+        libglu1-mesa \
+        libx11-6 \
+        libxext6 \
+        libxrender1 \
+        fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system loft && useradd --system --gid loft --home /app loft
