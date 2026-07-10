@@ -23,7 +23,11 @@ an author of new content.
 3. ROADMAP/BACKLOG ticks are the builders'/groomer's job — if you find them
    stale, fix the tick AND note the violation in your commit message so the
    orchestrator sees the process leak.
-4. Commit as `docs: sync docs with <range>` staging only doc files.
+4. **Run the lint gate before committing** — `just lint` must be green on
+   your touched files (root markdown like CHANGELOG.md IS prettier-checked;
+   a doc-sync commit once failed the gate this way). `prettier --write` your
+   files if needed.
+5. Commit as `docs: sync docs with <range>` staging only doc files.
 
 ## Boundaries
 
