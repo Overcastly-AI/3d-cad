@@ -14,8 +14,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
-#: Password policy bounds. The floor is NIST-baseline; the cap prevents
-#: multi-megabyte passwords from becoming an argon2 CPU-DoS vector.
+#: Password policy bounds. The floor is NIST-baseline (register only); the
+#: cap prevents multi-megabyte passwords from becoming an argon2 CPU-DoS
+#: vector and applies to EVERY route that feeds argon2 — register and login.
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = 256
 
@@ -34,7 +35,10 @@ class LoginRequest(BaseModel):
     """Exchange email + password for an access token."""
 
     email: EmailStr = Field(description="Account email")
-    password: SecretStr = Field(description="Account password")
+    password: SecretStr = Field(
+        description=f"Account password (at most {PASSWORD_MAX_LENGTH} "
+        "characters — same cap as register, enforced in the route)"
+    )
 
 
 class UserResponse(BaseModel):

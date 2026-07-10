@@ -333,6 +333,20 @@ def test_register_oversized_password_422(client: TestClient) -> None:
     assert "x" * 300 not in response.text
 
 
+def test_login_oversized_password_422_without_echo(client: TestClient) -> None:
+    """The argon2 CPU-DoS cap applies to login too — rejected before any DB
+    lookup or hash work, and never echoed."""
+    _register(client)
+    response = client.post(
+        "/api/v1/auth/login", json={"email": EMAIL, "password": "x" * 300}
+    )
+    assert response.status_code == 422
+    error = _envelope(response.json())
+    assert error["code"] == "validation_error"
+    assert error["details"] == {"field": "password"}
+    assert "x" * 300 not in response.text
+
+
 def test_schema_validation_422_does_not_echo_password(client: TestClient) -> None:
     """pydantic-level 422 (bad email) with a real password in the payload:
     py-kit scrubs the ``input`` echo from validation details."""
@@ -416,6 +430,18 @@ class TestStartupFailFast:
     """`build_app` must refuse to construct the app on a bad secret posture —
     referenced from gateway/auth/security.py's module docstring."""
 
+    def test_unset_everything_refuses_to_boot(self) -> None:
+        """Fail-closed default: LOFT_ENV has no default, so an entirely
+        unconfigured deployment (no LOFT_ENV, no JWT_SECRET) dies at startup
+        instead of silently signing tokens with the repo-public dev secret.
+        The error names both ways out: explicit LOFT_ENV=dev or a real
+        secret. (Explicit kwargs beat the suite's ambient LOFT_ENV=dev from
+        conftest.py — this models a truly bare environment.)"""
+        settings = GatewaySettings(loft_env=None, jwt_secret=None)
+        with pytest.raises(RuntimeError, match="LOFT_ENV=dev") as excinfo:
+            build_app(settings)
+        assert "JWT_SECRET is required" in str(excinfo.value)
+
     def test_non_dev_env_without_secret_refuses_to_boot(self) -> None:
         settings = GatewaySettings(loft_env="production", jwt_secret=None)
         with pytest.raises(RuntimeError, match="JWT_SECRET is required"):
@@ -424,6 +450,24 @@ class TestStartupFailFast:
     def test_empty_secret_counts_as_unset(self) -> None:
         settings = GatewaySettings(loft_env="staging", jwt_secret="")
         with pytest.raises(RuntimeError, match="JWT_SECRET is required"):
+            build_app(settings)
+
+    def test_whitespace_only_secret_counts_as_unset_in_prod(self) -> None:
+        settings = GatewaySettings(loft_env="production", jwt_secret="   \n\t ")
+        with pytest.raises(RuntimeError, match="JWT_SECRET is required"):
+            build_app(settings)
+
+    def test_secret_is_stripped_before_checks_and_use(self) -> None:
+        """A stray trailing newline (openssl → env file) must not silently
+        change the signing key: the stripped value is checked AND used."""
+        settings = GatewaySettings(
+            loft_env="production", jwt_secret=f"  {TEST_JWT_SECRET}\n"
+        )
+        assert build_app(settings).state.auth_config.jwt_secret == TEST_JWT_SECRET
+
+    def test_whitespace_padding_cannot_rescue_a_short_secret(self) -> None:
+        settings = GatewaySettings(loft_env="production", jwt_secret="short" + " " * 40)
+        with pytest.raises(RuntimeError, match="too short"):
             build_app(settings)
 
     def test_typoed_env_name_fails_closed(self) -> None:

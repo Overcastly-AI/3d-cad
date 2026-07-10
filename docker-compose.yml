@@ -99,9 +99,13 @@ services:
       #   POSTGRES_URL=postgresql://loft:loft-dev-only@localhost:${DB_PORT:-5432}/loft \
       #     uv run alembic -c services/gateway/alembic.ini upgrade head
       POSTGRES_URL: postgresql://${POSTGRES_USER:-loft}:${POSTGRES_PASSWORD:-loft-dev-only}@db:5432/${POSTGRES_DB:-loft}
-      # JWT posture: LOFT_ENV=dev (default) tolerates an unset JWT_SECRET via
-      # a fixed, publicly-known fallback — LOCAL DEV ONLY. Any other LOFT_ENV
-      # refuses to boot without a real secret (>= 32 chars).
+      # JWT posture — the gateway itself is FAIL-CLOSED (no LOFT_ENV default
+      # in the app: unset LOFT_ENV + unset JWT_SECRET refuses to boot). This
+      # dev stack opts into dev EXPLICITLY here: LOFT_ENV=dev tolerates an
+      # unset JWT_SECRET via a fixed, publicly-known fallback — LOCAL DEV
+      # ONLY. For any real deploy set LOFT_ENV (e.g. production) + a real
+      # JWT_SECRET (>= 32 chars, `openssl rand -hex 32`); any non-"dev" value
+      # refuses to boot without one.
       LOFT_ENV: ${LOFT_ENV:-dev}
       JWT_SECRET: ${JWT_SECRET:-}
     ports:

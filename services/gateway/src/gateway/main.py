@@ -44,10 +44,13 @@ class GatewaySettings(BaseServiceSettings):
     port: int = 8000
     geometry_url: str = "http://localhost:8002"  # env: GEOMETRY_URL
     documents_url: str = "http://localhost:8001"  # env: DOCUMENTS_URL
-    # Deployment environment posture. ONLY the exact value "dev" permits
-    # running without JWT_SECRET (a fixed, publicly-known fallback is used and
-    # a warning logged); everything else fails startup without a real secret.
-    loft_env: str = "dev"  # env: LOFT_ENV
+    # Deployment environment posture — NO default, fail-closed: ONLY the
+    # explicitly-set exact value LOFT_ENV=dev permits running without
+    # JWT_SECRET (a fixed, publicly-known fallback is used and a warning
+    # logged). Unset, or anything else, refuses startup without a real
+    # secret — an unconfigured deployment must die loudly, not silently sign
+    # tokens with the repo-public dev constant.
+    loft_env: str | None = None  # env: LOFT_ENV ("dev" opts into the fallback)
     jwt_secret: str | None = None  # env: JWT_SECRET (>= 32 chars when set)
     jwt_ttl_s: int = DEFAULT_TOKEN_TTL_S  # env: JWT_TTL_S
 
@@ -61,7 +64,9 @@ def build_app(
     """Build the gateway app.
 
     Raises :class:`RuntimeError` (i.e. the process does not boot) when the
-    JWT secret posture is invalid for ``settings.loft_env`` — this is THE
+    JWT secret posture is invalid for ``settings.loft_env`` — including the
+    fully-unset case (no ``LOFT_ENV``, no ``JWT_SECRET``): booting demands
+    either an explicit ``LOFT_ENV=dev`` or a real secret. This is THE
     fail-fast choke point; routes only ever read the resolved config from
     ``app.state.auth_config``, which is populated nowhere else.
 

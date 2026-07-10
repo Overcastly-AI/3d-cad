@@ -20,6 +20,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+# gateway.main fail-fasts at import on the JWT secret posture (fail-closed:
+# unset LOFT_ENV + unset JWT_SECRET refuses to boot). Schema export needs no
+# real secret, so opt into the dev fallback explicitly — BEFORE the imports.
+os.environ.setdefault("LOFT_ENV", "dev")
+
 from documents.main import build_app as build_documents
 from fastapi import FastAPI
 from gateway.main import build_app as build_gateway

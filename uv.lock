@@ -829,6 +829,7 @@ version = "0.1.0"
 source = { editable = "services/gateway" }
 dependencies = [
     { name = "alembic" },
+    { name = "anyio" },
     { name = "argon2-cffi" },
     { name = "asyncpg" },
     { name = "email-validator" },
@@ -843,6 +844,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
+    { name = "anyio", specifier = ">=4" },
     { name = "argon2-cffi", specifier = ">=23.1" },
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "email-validator", specifier = ">=2.2" },

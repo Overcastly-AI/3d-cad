@@ -136,6 +136,9 @@ with them; #8 is small platform enablement.
 - [ ] (P2, M) arq/redis queue runtime — move geometry evaluation from
       sync-inline to the real queue path; geometry gates gain queue-path
       coverage (GEOMETRY-QA gap #2). [src: roadmap, geometry-qa]
+- [ ] (P2, M) Rate limiting + request-size caps on unauthenticated auth
+      endpoints (py-kit middleware — DRY home) — pre-deploy hardening.
+      [src: code-reviewer]
 
 ## Later (P3)
 
@@ -190,6 +193,10 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — Auth security-review 🟡/🟢 fixes: fail-closed LOFT_ENV (no
+  default; boot demands explicit `LOFT_ENV=dev` OR a real secret), argon2 off
+  the event loop, secret `.strip()`, login password cap. [backend-builder]
 
 - 2026-07-10 — Auth v1 web sign-in shipped (Ready #7; reconciled/finished
   after an interrupted run): drawing-sheet sign-in composing design tokens,

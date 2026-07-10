@@ -181,7 +181,7 @@
             "type": "string"
           },
           "password": {
-            "description": "Account password",
+            "description": "Account password (at most 256 characters \u2014 same cap as register, enforced in the route)",
             "format": "password",
             "title": "Password",
             "type": "string",

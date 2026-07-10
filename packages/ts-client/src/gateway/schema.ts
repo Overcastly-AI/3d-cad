@@ -301,7 +301,7 @@ export interface components {
             /**
              * Password
              * Format: password
-             * @description Account password
+             * @description Account password (at most 256 characters — same cap as register, enforced in the route)
              */
             password: string;
         };

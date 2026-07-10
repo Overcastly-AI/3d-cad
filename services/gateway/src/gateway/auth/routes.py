@@ -9,10 +9,14 @@ Security invariants (asserted by tests/test_auth.py):
   enumerate accounts.
 - Duplicate email is enforced by the DB unique constraint (race-free), not a
   read-then-write check.
+- Argon2 work (hash/verify — CPU-bound on purpose) always runs in a worker
+  thread via ``anyio.to_thread.run_sync``, never on the event loop; the
+  anti-enumeration dummy burn takes the same offloaded path.
 """
 
 from typing import Annotated
 
+import anyio.to_thread
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from py_kit import (
@@ -36,9 +40,9 @@ from gateway.auth.schemas import (
 from gateway.auth.security import (
     AuthConfig,
     TokenError,
+    burn_dummy_verification,
     create_access_token,
     decode_access_token,
-    dummy_password_hash,
     hash_password,
     password_needs_rehash,
     verify_password,
@@ -99,18 +103,27 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-def check_password_policy(password: str) -> None:
-    """Enforce the length policy WITHOUT echoing the value (see schemas.py)."""
-    if len(password) < PASSWORD_MIN_LENGTH:
-        raise ValidationApiError(
-            f"Password must be at least {PASSWORD_MIN_LENGTH} characters.",
-            details={"field": "password"},
-        )
+def check_password_cap(password: str) -> None:
+    """Enforce the length cap WITHOUT echoing the value (see schemas.py).
+
+    Applied wherever a password reaches argon2 — register AND login — so an
+    oversized payload can never buy a giant hash computation (CPU DoS).
+    """
     if len(password) > PASSWORD_MAX_LENGTH:
         raise ValidationApiError(
             f"Password must be at most {PASSWORD_MAX_LENGTH} characters.",
             details={"field": "password"},
         )
+
+
+def check_password_policy(password: str) -> None:
+    """Enforce the full length policy (floor + cap) for new passwords."""
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise ValidationApiError(
+            f"Password must be at least {PASSWORD_MIN_LENGTH} characters.",
+            details={"field": "password"},
+        )
+    check_password_cap(password)
 
 
 def _normalize_email(email: str) -> str:
@@ -135,7 +148,8 @@ async def register(
     check_password_policy(password)
     user = User(
         email=_normalize_email(request.email),
-        password_hash=hash_password(password),
+        # Offloaded: argon2 is CPU-bound and must not stall the event loop.
+        password_hash=await anyio.to_thread.run_sync(hash_password, password),
     )
     session.add(user)
     try:
@@ -155,19 +169,23 @@ async def login(
 ) -> AuthTokenResponse:
     """Exchange email + password for an access token (uniform 401 on failure)."""
     password = request.password.get_secret_value()
+    check_password_cap(password)  # same DoS guard as register (cap only)
     result = await session.execute(
         select(User).where(User.email == _normalize_email(request.email))
     )
     user = result.scalar_one_or_none()
     if user is None:
-        # Burn the same argon2 cost as a real check (anti-enumeration timing).
-        verify_password(dummy_password_hash(), password)
+        # Burn the same argon2 cost as a real check (anti-enumeration
+        # timing), on the same offloaded worker-thread path.
+        await anyio.to_thread.run_sync(burn_dummy_verification, password)
         raise UnauthorizedError(_INVALID_CREDENTIALS, code="invalid_credentials")
-    if not verify_password(user.password_hash, password):
+    if not await anyio.to_thread.run_sync(
+        verify_password, user.password_hash, password
+    ):
         raise UnauthorizedError(_INVALID_CREDENTIALS, code="invalid_credentials")
     if password_needs_rehash(user.password_hash):
-        # Transparent parameter upgrade on successful login.
-        user.password_hash = hash_password(password)
+        # Transparent parameter upgrade on successful login (offloaded).
+        user.password_hash = await anyio.to_thread.run_sync(hash_password, password)
         await session.commit()
     _logger.info("user_logged_in", user_id=str(user.id))
     return _token_response(user, config)

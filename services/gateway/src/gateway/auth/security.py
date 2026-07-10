@@ -2,24 +2,37 @@
 
 Secret posture (documented honestly):
 
-- ``LOFT_ENV`` defaults to ``"dev"``. In dev only, an unset ``JWT_SECRET``
-  falls back to a fixed, publicly-known constant so `just dev`/`just gen`
-  work out of the box — every dev token is therefore forgeable by anyone,
-  which is fine for localhost and NOTHING else. A warning is logged whenever
-  the fallback engages.
-- In ANY other ``LOFT_ENV`` value (``production``, ``staging``, a typo…) an
-  unset/empty ``JWT_SECRET`` makes :func:`resolve_auth_config` raise, which
-  :func:`gateway.main.build_app` calls first thing — the process refuses to
-  boot. Fail-closed: only the exact string ``"dev"`` opts into the fallback,
-  so misspelling the environment name cannot silently weaken a deployment.
-- An explicitly-set secret shorter than :data:`MIN_JWT_SECRET_LENGTH` is
-  rejected in every environment (HS256 with a short secret is brute-forceable).
+- ``LOFT_ENV`` has NO default. The dev fallback secret requires the exact,
+  explicitly-set value ``LOFT_ENV=dev``: only then does an unset
+  ``JWT_SECRET`` fall back to a fixed, publicly-known constant (so
+  `just dev`/`just gen` work out of the box) — every dev token is therefore
+  forgeable by anyone, which is fine for localhost and NOTHING else. A
+  warning is logged whenever the fallback engages.
+- With ``LOFT_ENV`` unset, or set to ANYTHING else (``production``,
+  ``staging``, a typo…), an unset/empty/whitespace-only ``JWT_SECRET`` makes
+  :func:`resolve_auth_config` raise, which :func:`gateway.main.build_app`
+  calls first thing — the process refuses to boot. Fail-closed: an
+  UNCONFIGURED deployment dies loudly instead of silently signing tokens
+  with a repo-public secret, and misspelling the environment name cannot
+  weaken a deployment either.
+- The secret is ``.strip()``-ed before any check or use (a stray trailing
+  newline from ``openssl rand -hex 32 >>`` must not silently change the
+  signing key). A secret that is set but shorter than
+  :data:`MIN_JWT_SECRET_LENGTH` after stripping is rejected in every
+  environment (HS256 with a short secret is brute-forceable).
 
 There is exactly one path to a usable secret — this module's
 ``resolve_auth_config`` — and routes read the result from ``app.state``,
 which only ``build_app`` populates. No bypass exists to construct the app
 with an unchecked secret (Next-Lane's fail-fast had one; ours is tested in
 ``tests/test_auth.py::TestStartupFailFast``).
+
+Token scope (known limits, deliberate for a single-service verifier): access
+tokens carry ``sub``/``iat``/``exp`` only — no ``aud``/``iss``/``jti`` — and
+there is no revocation store, so a token stays valid until ``exp`` even
+after logout/credential change. Both become REQUIRED work the moment a
+second service verifies tokens (aud/iss confusion) or logout must actually
+invalidate (jti + revocation list).
 """
 
 import uuid
@@ -55,7 +68,7 @@ class AuthConfig:
 
 
 def resolve_auth_config(
-    *, loft_env: str, jwt_secret: str | None, token_ttl_s: int
+    *, loft_env: str | None, jwt_secret: str | None, token_ttl_s: int
 ) -> AuthConfig:
     """Validate the JWT secret posture; raise rather than boot weak.
 
@@ -65,13 +78,17 @@ def resolve_auth_config(
     """
     if token_ttl_s <= 0:
         raise RuntimeError(f"JWT_TTL_S must be positive, got {token_ttl_s}")
-    secret = jwt_secret or None  # "" (e.g. `JWT_SECRET=` in compose) == unset
+    # ""/whitespace (e.g. `JWT_SECRET=` in compose, a stray newline) == unset;
+    # the stripped value is also what gets used, so the checked secret and the
+    # signing secret can never differ.
+    secret = (jwt_secret or "").strip() or None
     if secret is None:
         if loft_env != "dev":
             raise RuntimeError(
-                f"JWT_SECRET is required when LOFT_ENV={loft_env!r} (only "
-                "LOFT_ENV=dev may run without one). Generate one with "
-                "`openssl rand -hex 32`."
+                f"JWT_SECRET is required when LOFT_ENV={loft_env!r}. Either "
+                "set a real secret (generate one with `openssl rand -hex 32`) "
+                "or, for LOCAL DEV ONLY, opt into the forgeable fallback "
+                "explicitly with LOFT_ENV=dev."
             )
         _logger.warning(
             "jwt_dev_fallback_secret_in_use",
@@ -87,6 +104,11 @@ def resolve_auth_config(
 
 
 # --- password hashing (argon2id, library defaults) --------------------------
+#
+# Everything here is CPU-bound by design (tens of milliseconds per call —
+# that's the point). Async routes must offload these to a worker
+# thread (`anyio.to_thread.run_sync`) or every concurrent login/register
+# stalls the whole event loop for the duration of a hash.
 
 _hasher = PasswordHasher()
 
@@ -119,6 +141,16 @@ def dummy_password_hash() -> str:
     tradeoff; login should not add a second, quieter oracle.)
     """
     return hash_password(uuid.uuid4().hex)
+
+
+def burn_dummy_verification(password: str) -> None:
+    """Verify *password* against the throwaway hash; discard the result.
+
+    One synchronous callable so login's unknown-email branch can offload the
+    WHOLE burn — including minting the cached dummy hash on first use — to
+    the same worker-thread path as a real verification (timing parity).
+    """
+    verify_password(dummy_password_hash(), password)
 
 
 # --- JWT access tokens -------------------------------------------------------
