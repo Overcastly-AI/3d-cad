@@ -2,12 +2,18 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 0 — Foundation.**
+**Current focus: Phase 1 — MVP: sketch → extrude → export.**
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 
-## Phase 0 — Foundation 🚧
+## Phase 0 — Foundation ✅
+
+All buildable items shipped through commit 322a988 (including the full
+code-review fix batch). Two items below stay ⬜ because they are
+**environment-blocked, not build-blocked** — neither can be attempted in this
+sandbox regardless of code state, so they do not gate the phase advance; they
+carry forward as blocked board items.
 
 - ✅ Loop blueprint from Next-Lane review (`docs/AUTONOMOUS-LOOP.md`)
 - ✅ Direction docs: VISION, RESEARCH, ROADMAP, BACKLOG
@@ -26,7 +32,9 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
       probes verified against bare-uvicorn boots (web joins compose with the
       web-shell item)
 - ⬜ Verify full `docker compose up` on a Docker-capable host (this sandbox
-      has no docker daemon — images and stack runtime are unproven)
+      has no docker daemon — images and stack runtime are unproven).
+      **Environment-blocked**, does not gate the Phase 1 advance; first
+      Docker-capable session picks it up
 - ✅ Contract pipeline: OpenAPI generated from pydantic → committed to
       `packages/contracts` → `packages/ts-client` generated (`just gen`);
       drift check ready as `just gen-check` (CI wiring lands with the CI
@@ -54,8 +62,10 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
       verified quickstart, CI badge), CONTRIBUTING, SECURITY,
       CODE_OF_CONDUCT, bug/feature issue templates + PR template
 - ⬜ Watchdog: stall-recovery routine armed per `docs/AUTONOMOUS-LOOP.md` §1.4
+      (blocked on the loop actually running unattended — armed when batch
+      chaining starts; does not gate the Phase 1 advance)
 
-## Phase 1 — MVP: sketch → extrude → export ⬜
+## Phase 1 — MVP: sketch → extrude → export 🚧
 
 The thinnest vertical slice a working engineer can feel:
 

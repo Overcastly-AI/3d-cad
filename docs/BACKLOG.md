@@ -8,75 +8,198 @@ autonomous build loop pulls from **Ready (top of queue)** only.
 Format: `- [ ] (P1, M) title — description [src]` · P0 critical / P1 now /
 P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
+## Scorecard gaps (docs/VISION.md daily-driver scorecard)
+
+Every row is ❌ except Price/freedom (✅ structurally). Nearest flips and the
+Ready items that drive them:
+
+- **Interop (STEP/STL)** — nearest flip: kernel already round-trips STEP at
+  0.0 deviation; only the endpoints + UI are missing. → Ready #1.
+- **Sketching & constraints** — needs the solver spike + feature-tree design
+  doc first. → Ready #3, #4 (prereqs), sketcher itself in Next.
+- **Part modeling (features, history)** — needs feature-tree persistence +
+  extrude. → Ready #3, #6 feed it; extrude in Next.
+- **Extensibility (scripting API)** — Python-first design makes this cheap
+  once Features v1 exists; Phase 5 surface, no Phase 1 item yet.
+- Assemblies, Drawings, Performance, Collaboration, Agent access — later
+  phases; no Phase 1 items target them.
+
 ## Ready (top of queue)
 
-- [x] (P1, M) Monorepo scaffold — uv + pnpm workspaces (incl. empty
-      `packages/design` member), justfile, ruff/pyright/eslint/prettier
-      configs, root README pointers. No app code yet; `just lint` and `just
-      test` pass trivially. [src: roadmap] (README pointers deferred to the
-      P2 community-surface item to avoid a territory clash)
-- [x] (P1, M) `packages/py-kit` — service bootstrap: pydantic-settings config,
-      structlog JSON logging, FastAPI app factory with `/healthz` + `/readyz`,
-      standard error envelope, arq queue client. Unit tested. [src: roadmap]
-- [x] (P1, L) Service skeletons + compose — gateway/geometry/documents boot on
-      py-kit, Dockerfiles, `docker compose up` brings up db/redis/minio/
-      services; smoke script curls all healthz. [src: roadmap] (compose
-      runtime verified via config validation + bare-uvicorn smoke only — this
-      sandbox has no docker daemon; runtime `up` check is a new ROADMAP item)
-- [x] (P1, M) Contract pipeline — `just gen` exports OpenAPI from services to
-      `packages/contracts`, generates `packages/ts-client`; CI fails on drift.
-      [src: roadmap] (drift check ships as `just gen-check`; wiring it into CI
-      is the CI-pipeline item below)
-- [x] (P1, L) Web shell + first light — Vite React app, TanStack Router
-      layout, r3f viewport; geometry service tessellates a parametric cube to
-      GLB via the queue; viewport renders it. Proves HTTP → queue → OCCT →
-      GLB → viewport. **Includes the initial design token system in
-      `packages/design`** (palette / type / layout / signature element —
-      Tailwind preset + TS constants + fonts) via the mandatory
-      `frontend-design` skill; the r3f scene reads the same tokens. The
-      shell must land distinctive, not templated (CLAUDE.md design mandate).
-      [src: roadmap, founder] (queue leg still sync-inline — geometry
-      evaluates in-request; arq/redis runtime lands with the queue/storage
-      items. E2E runs via `pnpm --filter @loft/web e2e` until the justfile
-      `e2e` target is wired — platform territory)
-- [x] (P1, M) CI pipeline — lint/typecheck/unit per package (path-filtered),
-      compose config validation, contract drift check. [src: roadmap]
-      (workflow authored + every job's command list verified passing locally;
-      first hosted Actions run occurs on push. Per-package path filtering
-      deferred — repo is small and all jobs run in parallel; revisit when
-      job times warrant)
-- [x] (P2, M) Geometry golden harness — golden-model runner (mass properties
-      + topology counts vs. committed goldens), STEP round-trip test; cube as
-      first golden. [src: roadmap] (`just e2e` wiring deferred — justfile is
-      platform territory; run commands documented in docs/GEOMETRY-QA.md)
-- [x] (P2, S) Community surface — README (truth-only: what runs today, no
-      aspirational badges), CONTRIBUTING, SECURITY, issue templates.
-      [src: roadmap]
-- [ ] (P2, S) Watchdog — arm the stall-recovery routine per
-      `docs/AUTONOMOUS-LOOP.md` §1.4 once the loop starts running.
-      [src: retro]
+Sequenced for Phase 1. #1–#2 are kernel-only and independent; #3–#4 are the
+sketcher prerequisites; #5–#7 (auth + documents CRUD) proceed in parallel
+with them; #8 is small platform enablement.
+
+- [ ] (P1, M) STEP/STL export endpoints + UI download — geometry service
+      `POST /api/v1/export` (format: step|stl) building from the same model
+      params as tessellate, streamed via a gateway proxy; download control in
+      the web title-block/toolbar (design primitives, `frontend-design`
+      skill). Fastest scorecard flip: turns Interop's "kernel supports it;
+      not exposed yet" into a shipped export half. Acceptance: contracts +
+      ts-client regenerated (`just gen-check` green); endpoint-level STEP
+      round-trip gate (HTTP export → re-import → mass props within golden
+      tolerance — GEOMETRY-QA gap #3); STEP timestamp pinned for determinism
+      and the decision recorded in GEOMETRY-QA (gap #4); exported STL
+      re-imported and volume asserted within documented tolerance; QA
+      downloads both formats for the 10×20×30 box in a real browser and
+      re-imports them. [src: roadmap, geometry-qa]
+- [ ] (P1, S) First curved golden: cylinder — add a parametric cylinder to
+      the kernel/request schema and land golden `cylinder` alongside the box.
+      De-risks curved GProp integration, tessellation deflection, and STEP
+      surface re-approximation before extrude/fillet need them (GEOMETRY-QA
+      gap #1). Acceptance: hand-derived analytic mass properties with a
+      documented curved-geometry tolerance + rationale; exact topology/mesh
+      counts; determinism + STEP round-trip come free from the parametrized
+      gates; GEOMETRY-QA entry with evidence tables. [src: geometry-qa]
+- [ ] (P1, M) Feature-tree persistence design doc — document model for
+      parametric history: JSONB param schema, ordered feature tree,
+      references (forward-compatible with Phase 2 topological naming),
+      rollback semantics, alembic migration plan, worked example (sketch +
+      extrude part). Prerequisite for the sketcher and Features v1.
+      Acceptance: `docs/design/` doc reviewed by code-reviewer with
+      kernel-architect concerns addressed; RESEARCH.md cross-linked in the
+      same commit; no application code. [src: roadmap]
+- [ ] (P1, M) SketchSolver interface + planegcs spike — typed `SketchSolver`
+      protocol in the geometry service plus a spike verdict on planegcs:
+      license check (LGPL-dynamic ok, no GPL — RESEARCH §8), wheel
+      availability/buildability in this container and CI, benchmark sketch
+      solved (rectangle with dimensional + coincident/horizontal/vertical
+      constraints) with a determinism check; scipy least-squares fallback
+      recommendation if unworkable. Prerequisite for the sketcher.
+      Acceptance: decision recorded in RESEARCH §2 in the same commit; spike
+      code clearly marked or discarded; interface unit-tested against
+      whichever backend wins. [src: research]
+- [ ] (P1, M) Auth v1 backend — email/password register/login on the
+      gateway, password hashing (argon2/bcrypt), JWT access tokens under
+      `/api/v1/auth/*`, user store per RESEARCH §3, alembic migration,
+      protected-route dependency. Acceptance: unit tests cover wrong
+      password, duplicate email, token expiry/tamper; passwords and hashes
+      never appear in logs or error envelopes (py-kit envelope used
+      throughout); contracts + ts-client regenerated. Security-sensitive:
+      code-reviewer pass mandatory before merge. [src: roadmap]
+- [ ] (P1, M) Documents service: parts CRUD — create/list/get/delete parts
+      in Postgres (alembic migration), owner-scoped once auth lands (stub
+      principal acceptable to start — soft dependency), gateway aggregation
+      routes, real postgres readiness ping replacing the "skipped" check.
+      Feature-tree column lands later, after the design doc. Acceptance:
+      unit tests against a real test DB; py-kit error envelope on 404/409;
+      contracts + ts-client regenerated; documents service still imports no
+      kernel code. [src: roadmap]
+- [ ] (P1, S) Auth v1 web sign-in — login/register screens + session
+      handling in `apps/web` composing `packages/design` primitives
+      (`frontend-design` skill mandatory), authenticated fetch wiring in the
+      generated client's transport. Depends on Auth v1 backend. Acceptance:
+      Playwright e2e — register → login → land in the app → refresh keeps
+      session → logout; WCAG-AA + visible focus + 1280×800 verified;
+      screenshots for the founder. [src: roadmap]
+- [ ] (P1, S) `just e2e` wiring — make the target run the Playwright suite
+      (`@loft/web`) plus the geometry gates (`test_goldens.py`,
+      `test_step_roundtrip.py`) per the run commands at the top of
+      GEOMETRY-QA (gap #6). Acceptance: `just e2e` green locally end-to-end;
+      README/CONTRIBUTING command tables updated if they change; CI e2e job
+      explicitly deferred or wired, stated in the commit. [src: geometry-qa]
 
 ## Next (P2)
 
-- [ ] (P2, M) Auth v1 — email/password + JWT in gateway; user table in
-      documents service or dedicated store per RESEARCH §3. [src: roadmap]
-- [ ] (P2, L) Feature-tree persistence design doc — document model for
-      parametric history (JSONB params, ordered tree, references); reviewed
-      before implementation. [src: roadmap]
-- [ ] (P2, M) SketchSolver interface + planegcs spike — validate the LGPL
-      planegcs packaging; fall back to scipy least-squares if unworkable
-      (RESEARCH §2). [src: research]
+- [ ] (P2, M) Feature-tree persistence implementation — schema + repository
+      + API in documents service per the accepted design doc. Depends on the
+      design doc and parts CRUD. [src: roadmap]
+- [ ] (P2, M) Sketch model + solver integration — sketch entities/constraints
+      persisted per the design doc, solved via `SketchSolver`; API to
+      create/update a sketch and get solved geometry. Depends on the spike +
+      design doc. [src: roadmap]
+- [ ] (P2, L) Sketcher v1 UI — plane selection, line/rect/circle/arc,
+      dimensional + geometric constraints in the viewport. Split into S/M
+      slices at groom time once the sketch API lands. [src: roadmap]
+- [ ] (P2, M) Extrude (add/cut) end-to-end — first real feature: sketch
+      profile → solid, feature re-evaluation on param edit, rebuild-error
+      surfacing; ships with its golden model in the same commit
+      (geometry-gates skill). [src: roadmap]
+- [ ] (P2, M) Fillet + chamfer — each with a golden in the same commit;
+      curved-surface STEP round-trip observations recorded in GEOMETRY-QA.
+      [src: roadmap]
+- [ ] (P2, M) Viewport v1 upgrades — face/edge picking, feature-tree panel
+      with edit/rollback. Depends on features existing. [src: roadmap]
+- [ ] (P2, M) Full-flow Playwright e2e — login → sketch → extrude → edit
+      param → export, desktop + touch smoke (roadmap Phase 1 exit gate).
+      [src: roadmap]
+- [ ] (P2, M) arq/redis queue runtime — move geometry evaluation from
+      sync-inline to the real queue path; geometry gates gain queue-path
+      coverage (GEOMETRY-QA gap #2). [src: roadmap, geometry-qa]
 
 ## Later (P3)
 
-- [ ] (P3, L) Sketcher v1 UI (after solver spike + feature-tree design)
-- [ ] (P3, L) Extrude/fillet/chamfer features end-to-end
-- [ ] (P3, M) STEP/STL export endpoints + UI
 - [ ] (P3, S) py-kit: align FastAPI 422 OpenAPI schema with the py-kit error
       envelope (currently documents HTTPValidationError)
       [src: kernel-architect]
+- [ ] (P3, S) CI: pin GitHub Actions to full commit SHAs — cheap supply-chain
+      hardening; deferred 🟢 from the Phase 0 review-fix batch.
+      [src: code-reviewer]
+- [ ] (P3, S) geometry worker: move import-time settings read to lazy/DI —
+      cosmetic; deferred 🟢 from the Phase 0 review-fix batch.
+      [src: code-reviewer]
+
+## Blocked (environment/timing — not build-blocked)
+
+- [ ] (P2, S) Verify full `docker compose up` runtime on a Docker-capable
+      host — this sandbox has no docker daemon; images and stack runtime are
+      unproven. First Docker-capable session picks it up. [src: roadmap]
+- [ ] (P2, S) Watchdog — arm the stall-recovery routine per
+      `docs/AUTONOMOUS-LOOP.md` §1.4 once the loop runs unattended.
+      [src: retro]
+
+## Done (Phase 0) — archive
+
+All shipped through commit 322a988; details in the Changelog below and
+`CHANGELOG.md`.
+
+- [x] (P1, M) Monorepo scaffold — uv + pnpm workspaces, justfile, lint/test
+      gates green. [src: roadmap]
+- [x] (P1, M) `packages/py-kit` service bootstrap — config, JSON logging,
+      app factory, error envelope, queue client; unit tested. [src: roadmap]
+- [x] (P1, L) Service skeletons + compose — gateway/geometry/documents on
+      py-kit; parameterized Dockerfile + compose stack config-validated;
+      smoke + dev-instance scripts (runtime `up` = blocked item above).
+      [src: roadmap]
+- [x] (P1, M) Contract pipeline — `just gen` + `just gen-check` drift gate;
+      OpenAPI → `packages/contracts` → `packages/ts-client`. [src: roadmap]
+- [x] (P1, L) Web shell + first light — design tokens (`packages/design`),
+      r3f viewport rendering OCCT-tessellated GLB via the gateway, live
+      parametric editing, Playwright e2e, founder screenshots.
+      [src: roadmap, founder]
+- [x] (P1, M) CI pipeline — lint/typecheck/unit, contract drift, compose
+      validation as four parallel GitHub Actions jobs. [src: roadmap]
+- [x] (P2, M) Geometry golden harness — data-driven golden runner + STEP
+      round-trip gate; cube golden at 0.0 measured deviation; evidence in
+      docs/GEOMETRY-QA.md. [src: roadmap]
+- [x] (P2, S) Community surface — truth-only README, CONTRIBUTING, SECURITY,
+      CODE_OF_CONDUCT, issue/PR templates. [src: roadmap]
+- [x] (P0, batch) Phase 0 review-fix batch — geometry image runtime libs,
+      pytest exit-5 gate, OpenAPI dedupe helper, readyz detail hygiene,
+      corrupt-GLB surfacing (see 2026-07-10 changelog entry).
+      [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — **Groomed for Phase 1.** ROADMAP reconciled against
+  e5cd0ca..322a988: all eight buildable Phase 0 bullets verified against
+  their commits and already ✅; phase marker advanced (Phase 0 ✅ → Phase 1
+  🚧, "Current focus" updated) — the two remaining ⬜ bullets
+  (Docker-host compose runtime, watchdog arming) are environment-blocked,
+  not build-blocked, so they don't gate the advance and moved to a Blocked
+  section here. New Ready queue: 8 P1 items sequencing Phase 1 — STEP/STL
+  export first (fastest VISION scorecard flip: Interop; kernel round-trips
+  STEP at 0.0 deviation already), cylinder golden (GEOMETRY-QA gap #1,
+  de-risks curved geometry before extrude/fillet), feature-tree design doc +
+  planegcs spike (sketcher prerequisites, promoted from Next), auth backend
+  + web sign-in (split from one M/L into M+S), documents parts CRUD, and
+  `just e2e` wiring (gap #6). GEOMETRY-QA gaps #2/#3/#4 folded into the
+  export and queue items. Filed the two review-fix deferred 🟢s as P3s (CI
+  SHA-pinning, worker import-time settings). Old Later items (sketcher UI,
+  extrude/fillet/chamfer, export) superseded by the sequenced Next/Ready
+  slices. Phase 0 [x] items archived to a Done section; added the Scorecard
+  gaps note (all ❌ except Price/freedom; Interop is the nearest flip).
+  [backlog-groomer]
 
 - 2026-07-10 — Phase 0 review-fix batch (code-reviewer verdict:
   request-changes → all findings closed). fix(platform): geometry image now
