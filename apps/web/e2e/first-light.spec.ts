@@ -1,0 +1,125 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const SCREENSHOT_DIR = "../../docs/screenshots";
+
+/** Count distinct colors on the WebGL canvas — proves a real render. */
+async function distinctCanvasColors(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      '[data-testid="viewport"] canvas',
+    );
+    if (!canvas) return 0;
+    const probe = document.createElement("canvas");
+    probe.width = canvas.width;
+    probe.height = canvas.height;
+    const ctx = probe.getContext("2d");
+    if (!ctx) return 0;
+    ctx.drawImage(canvas, 0, 0);
+    const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+    const colors = new Set<number>();
+    for (let i = 0; i < data.length; i += 64) {
+      const r = data[i] ?? 0;
+      const g = data[i + 1] ?? 0;
+      const b = data[i + 2] ?? 0;
+      colors.add((r << 16) | (g << 8) | b);
+    }
+    return colors.size;
+  });
+}
+
+async function expectRenderedModel(page: Page): Promise<void> {
+  await expect(page.getByTestId("tessellation-status")).toHaveText(
+    "Up to date",
+    {
+      timeout: 30_000,
+    },
+  );
+  // Grid + lit aluminum model produce far more shades than an empty ground.
+  await expect
+    .poll(() => distinctCanvasColors(page), { timeout: 15_000 })
+    .toBeGreaterThan(24);
+}
+
+test.describe("first light", () => {
+  test("renders the OCCT-tessellated cube with real mass properties (desktop)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    await expect(page.getByTestId("status-chip")).toHaveText("First light");
+    await expect(page.getByRole("heading", { name: "LOFT" })).toBeVisible();
+
+    // Real properties for the 10×20×30 mm box, from the X-Loft-Properties header.
+    await expect(page.getByTestId("prop-volume")).toContainText("6,000");
+    await expect(page.getByTestId("prop-area")).toContainText("2,200");
+    await expect(page.getByTestId("prop-centroid")).toContainText("5, 10, 15");
+    await expect(page.getByTestId("prop-extents")).toContainText(
+      "10 × 20 × 30",
+    );
+    await expect(page.getByTestId("prop-faces")).toContainText("6");
+    await expect(page.getByTestId("prop-triangles")).toContainText("12");
+
+    await expectRenderedModel(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/first-light-desktop.png`,
+    });
+  });
+
+  test("re-tessellates when dimensions are edited (keyboard-first)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expectRenderedModel(page);
+
+    // Per-keystroke typing into the dimension cells, then Enter to apply.
+    for (const [axis, value] of [
+      ["x", "40"],
+      ["y", "12"],
+      ["z", "8"],
+    ] as const) {
+      const field = page.getByTestId(`dim-${axis}`);
+      await field.click();
+      await field.fill("");
+      await field.pressSequentially(value, { delay: 40 });
+    }
+    await page.getByTestId(`dim-z`).press("Enter");
+
+    // 40 × 12 × 8 = 3840 mm³, tessellated server-side and re-rendered.
+    await expect(page.getByTestId("prop-volume")).toContainText("3,840", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("prop-extents")).toContainText("40 × 12 × 8");
+    await expectRenderedModel(page);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/first-light-edited.png` });
+  });
+
+  test("rejects invalid dimensions with a visible message", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const field = page.getByTestId("dim-x");
+    await field.click();
+    await field.fill("");
+    await field.pressSequentially("-5", { delay: 40 });
+    await page.getByTestId("dim-apply").click();
+    await expect(page.getByRole("alert")).toHaveText(
+      "Enter a value above 0 mm",
+    );
+  });
+});
+
+test.describe("small laptop (1280×800)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("shell stays viewport-dominant at 1280×800", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("prop-volume")).toContainText("6,000");
+    await expectRenderedModel(page);
+    const viewport = page.getByTestId("viewport");
+    const box = await viewport.boundingBox();
+    expect(box).not.toBeNull();
+    // The model owns the pixels: viewport > half the window width.
+    expect(box?.width ?? 0).toBeGreaterThan(640);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/first-light-laptop.png` });
+  });
+});

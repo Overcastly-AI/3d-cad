@@ -27,7 +27,7 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
       `packages/contracts`, generates `packages/ts-client`; CI fails on drift.
       [src: roadmap] (drift check ships as `just gen-check`; wiring it into CI
       is the CI-pipeline item below)
-- [ ] (P1, L) Web shell + first light — Vite React app, TanStack Router
+- [x] (P1, L) Web shell + first light — Vite React app, TanStack Router
       layout, r3f viewport; geometry service tessellates a parametric cube to
       GLB via the queue; viewport renders it. Proves HTTP → queue → OCCT →
       GLB → viewport. **Includes the initial design token system in
@@ -35,7 +35,10 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
       Tailwind preset + TS constants + fonts) via the mandatory
       `frontend-design` skill; the r3f scene reads the same tokens. The
       shell must land distinctive, not templated (CLAUDE.md design mandate).
-      [src: roadmap, founder]
+      [src: roadmap, founder] (queue leg still sync-inline — geometry
+      evaluates in-request; arq/redis runtime lands with the queue/storage
+      items. E2E runs via `pnpm --filter @loft/web e2e` until the justfile
+      `e2e` target is wired — platform territory)
 - [x] (P1, M) CI pipeline — lint/typecheck/unit per package (path-filtered),
       compose config validation, contract drift check. [src: roadmap]
       (workflow authored + every job's command list verified passing locally;
@@ -68,9 +71,47 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 - [ ] (P3, L) Sketcher v1 UI (after solver spike + feature-tree design)
 - [ ] (P3, L) Extrude/fillet/chamfer features end-to-end
 - [ ] (P3, M) STEP/STL export endpoints + UI
+- [ ] (P3, S) py-kit: align FastAPI 422 OpenAPI schema with the py-kit error
+      envelope (currently documents HTTPValidationError)
+      [src: kernel-architect]
 
 ## Changelog
 
+- 2026-07-10 — Web shell + first light shipped (closes the 5c item):
+  `packages/design` v1 — machine-shop token system per the mandatory
+  `frontend-design` skill (carbide/anvil/mist/gauge + one brass accent +
+  aluminum model material; Hanken Grotesk UI + Fragment Mono data faces,
+  self-hosted via @fontsource; all text pairs ≥7:1, control borders ≥3:1
+  verified numerically), Tailwind preset derived FROM the TS constants,
+  first primitives (Button, Panel/Section/Row = the signature "title block",
+  Toolbar, Chip, NumberField). `apps/web` — Vite + React 19 + strict TS,
+  TanStack Router (`/`) + Query, zustand store, r3f viewport rendering the
+  gateway-proxied OCCT GLB (one primitive per B-rep face merged client-side,
+  mm-scaled, token-driven material + edge overlay, GPU disposal on swap,
+  frameloop="demand", reduced-motion honored), engineering-drawing title
+  block showing live mass properties from `X-Loft-Properties`, keyboard-first
+  x/y/z dimension form re-tessellating live. Typed exclusively via generated
+  `@loft/ts-client/gateway`; zero hex literals in apps/web (grep-verified).
+  13 vitest unit tests (header parsing, dimension validation); 4-spec
+  Playwright e2e against the real geometry+gateway stack asserting 6,000 mm³
+  for the 10×20×30 box, a non-empty WebGL canvas, per-keystroke parametric
+  edit to 3,840 mm³, and 1280×800 layout; founder screenshots committed to
+  `docs/screenshots/first-light-{desktop,laptop,edited}.png`.
+  [frontend-builder]
+- 2026-07-10 — Gateway geometry proxy shipped: `POST /api/v1/geometry/
+  tessellate` (GLB passthrough incl. X-Loft-Properties header, lifespan-
+  managed httpx2 client, 30s budget, transport failures → py-kit 502
+  upstream_unavailable envelope) + `/tessellate/meta` JSON twin;
+  GEOMETRY_URL setting + report-only geometry readiness; boundary DTOs moved
+  to `py_kit.schemas.geometry` (single source, geometry re-exports);
+  contracts + ts-client regenerated. [backend-builder]
+- 2026-07-10 — Geometry kernel first light shipped: OCCT via build123d in
+  `services/geometry` — parametric box builder, tessellation to
+  deterministic GLB (byte-identical across runs), exact mass properties +
+  topology counts, `POST /api/v1/tessellate` (+ `/meta`); golden 10×20×30
+  box asserted analytically at 1e-7 with 6/12/1 topology and a <2 s perf
+  tripwire (4–8 ms warm). Queue verification deferred until redis runs in
+  the dev stack. [kernel-architect]
 - 2026-07-09 — CI pipeline shipped: `.github/workflows/ci.yml` — four parallel
   jobs. **python** (uv sync --locked, ruff check + format check, pyright,
   pytest; uv cache keyed on uv.lock so the future ~700MB OCP wheels aren't

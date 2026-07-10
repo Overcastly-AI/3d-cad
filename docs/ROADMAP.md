@@ -31,9 +31,14 @@ ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
       `packages/contracts` → `packages/ts-client` generated (`just gen`);
       drift check ready as `just gen-check` (CI wiring lands with the CI
       bullet below)
-- ⬜ Web shell: Vite + React + TS app with router, layout, and an r3f viewport
-      rendering a server-tessellated cube from the geometry service (proves
-      the whole pipe: HTTP → queue → OCCT → GLB → viewport)
+- ✅ Web shell: Vite + React + TS app with router, layout, and an r3f viewport
+      rendering a server-tessellated cube from the geometry service via the
+      gateway, with the `packages/design` token system (design-mandate debut:
+      title-block inspector, one palette across DOM + WebGL) and live
+      parametric dimension editing; proven end-to-end in Chromium with
+      screenshots (`docs/screenshots/`). Honest note: the queue leg is still
+      sync-inline — the pipe today is HTTP → gateway → OCCT → GLB → viewport;
+      arq/redis queue runtime lands with the queue/storage items
 - ✅ CI: lint + typecheck + unit tests + contract drift check + compose
       config validation as GitHub Actions (`.github/workflows/ci.yml`, four
       parallel jobs, uv cache keyed on uv.lock); workflow authored + every
