@@ -73,6 +73,10 @@ envelopes) lives once in `py-kit`, never copy-pasted.
 imports the kernel; the web app talks only to the gateway. Boundaries are
 enforced in review.
 
+Feature-tree persistence (documents-side parametric history: schema, param
+envelope, references, rollback, evaluation contract) is specified in
+[`docs/design/feature-tree.md`](./design/feature-tree.md).
+
 ## 4. Data & messaging
 
 - **PostgreSQL 16** — documents, users, feature trees (JSONB feature params +

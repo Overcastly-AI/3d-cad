@@ -51,7 +51,7 @@ with them; #8 is small platform enablement.
       documented curved-geometry tolerance + rationale; exact topology/mesh
       counts; determinism + STEP round-trip come free from the parametrized
       gates; GEOMETRY-QA entry with evidence tables. [src: geometry-qa]
-- [ ] (P1, M) Feature-tree persistence design doc — document model for
+- [x] (P1, M) Feature-tree persistence design doc — document model for
       parametric history: JSONB param schema, ordered feature tree,
       references (forward-compatible with Phase 2 topological naming),
       rollback semantics, alembic migration plan, worked example (sketch +
@@ -180,6 +180,24 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — Feature-tree persistence design doc authored
+  (`docs/design/feature-tree.md`, Ready #3): separate `features` table with
+  dense `order_index` chosen over a JSONB array (identity, FK-enforceable
+  references, targeted updates — tradeoff table in the doc); versioned
+  `{type, version, params}` envelope with type/version promoted to columns
+  and params validated by py-kit pydantic models (registry + upcast-on-read);
+  `GeomRef` discriminated union for inter-feature references with a reserved
+  `subshape` variant as the Phase 2 topological-naming extension point;
+  rollback bar as `parts.rollback_feature_id` (prefix evaluation); stateless
+  `EvaluateTreeRequest/Result` contract with strict-prefix partial results
+  and per-feature error attachment (no kernel types, artifacts by
+  object-storage id); alembic `0002_feature_tree` plan sequenced after parts
+  CRUD's `0001`; worked sketch+extrude example as JSON rows; kernel-architect
+  concerns (evaluation-order determinism, parameter units, tolerance
+  handling) pre-addressed in the doc's Review section — code-reviewer pass
+  routed by the orchestrator. RESEARCH §3 cross-linked in the same commit.
+  Doc only; implementation remains the Next-queue item. [backend-builder]
 
 - 2026-07-10 — **Groomed for Phase 1.** ROADMAP reconciled against
   e5cd0ca..322a988: all eight buildable Phase 0 bullets verified against
