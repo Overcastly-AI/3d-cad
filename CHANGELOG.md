@@ -179,3 +179,44 @@ wave.
   verified against known runtime/commit/env variables.
   — `.github/ISSUE_TEMPLATE/config.yml`: security contact link.
   — `.github/PULL_REQUEST_TEMPLATE.md`: mirrors definition of done.
+
+## [Phase 1: MVP — sketcher/export foundations, batch 1] — 2026-07-10
+
+- **docs: feature-tree persistence design** (952e86a) — `docs/design/
+feature-tree.md`: features table vs JSONB tradeoff, versioned param
+  envelope, `GeomRef`, rollback bar, evaluation contract, alembic plan.
+- **feat(platform): wire `just e2e`** (1baa986) — `scripts/e2e.sh` runs
+  geometry gates + Playwright, self-managed service boot/reuse (GEOMETRY-QA
+  gap #6).
+- **docs(design): revise feature-tree design per code-reviewer** (485ac3a) —
+  FK `ON DELETE` fix, reverse-lookup index, DB-enforced same-part invariants;
+  verdict resolved.
+- **feat(geometry): STEP/STL export endpoints** (12e7b4e) — byte-deterministic
+  STEP (pinned timestamp)/STL, endpoint-level round-trip at 0.0 deviation
+  (GEOMETRY-QA gaps #3/#4 closed).
+- **feat(gateway): export proxy** (c5e2b1e) — `POST /api/v1/geometry/export`
+  passthrough with media type + `Content-Disposition`.
+- **feat(geometry): SketchSolver interface + planegcs spike** (3da8f0a) —
+  verdict: planegcs adopted (LGPL-2.1 verified), benchmark rectangle 0.0
+  deviation, bitwise-deterministic.
+- **feat(geometry): first curved golden** (9765c2c) — `cylinder-r10-h25`,
+  1e-9 measured curved-GProp tolerance, seam-edge topology, curved STEP
+  round-trip baseline (GEOMETRY-QA gap #1 closed).
+- **feat(web): STEP/STL download UI** (8cd63d5) — title-block EXPORT row,
+  new `PanelActionCell` primitive, real-browser download e2e; closes the
+  export item end to end.
+- **docs(vision): re-score daily-driver scorecard** (95617d1) — Interop
+  half-flipped (export shipped, import Phase 4); other rows refreshed.
+- **feat(gateway): auth v1** (b82a091) — argon2id + HS256 JWT
+  register/login/me, fail-fast `JWT_SECRET` posture, hard postgres
+  readiness.
+- **feat(documents): parts CRUD** (ba40016) — owner-scoped CRUD + alembic
+  `0001_parts`, auth-protected gateway aggregation.
+- **feat(web): auth v1 sign-in** (9fde895) — drawing-sheet sign-in/register,
+  session persistence, global expiry notice; 15/15 Playwright green.
+- **fix(gateway): fail-closed auth posture** (6479c10, 565e337) — fail-closed
+  `LOFT_ENV`, argon2 off the event loop, secret `.strip()`, login password
+  cap; run-command docs updated to match.
+- **docs(board): groom for Phase 1** (35bd7ec) — Ready queue sequenced
+  (export/cylinder/design-doc/spike/auth/CRUD/e2e), Scorecard-gaps note
+  added, Phase 0 archived. [backlog-groomer]
