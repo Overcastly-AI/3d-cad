@@ -95,6 +95,23 @@ export interface components {
             z: number;
         };
         /**
+         * CylinderParams
+         * @description Right circular cylinder (mm): base disc centred at the origin in the
+         *     XY plane, axis along +Z.
+         */
+        CylinderParams: {
+            /**
+             * Height
+             * @description Height along +Z (mm)
+             */
+            height: number;
+            /**
+             * Radius
+             * @description Radius (mm)
+             */
+            radius: number;
+        };
+        /**
          * ExportRequest
          * @description Build a parametric shape and export it as a downloadable CAD file.
          *
@@ -122,13 +139,17 @@ export interface components {
              * @default 0.1
              */
             linear_deflection: number;
-            params: components["schemas"]["BoxParams"];
+            /**
+             * Params
+             * @description Parameters of the selected shape kind
+             */
+            params: components["schemas"]["BoxParams"] | components["schemas"]["CylinderParams"];
             /**
              * Shape
-             * @description Shape kind (parametric box only, today)
-             * @constant
+             * @description Shape kind; must match the params model
+             * @enum {string}
              */
-            shape: "box";
+            shape: "box" | "cylinder";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -181,13 +202,17 @@ export interface components {
              * @default 0.1
              */
             linear_deflection: number;
-            params: components["schemas"]["BoxParams"];
+            /**
+             * Params
+             * @description Parameters of the selected shape kind
+             */
+            params: components["schemas"]["BoxParams"] | components["schemas"]["CylinderParams"];
             /**
              * Shape
-             * @description Shape kind (parametric box only, today)
-             * @constant
+             * @description Shape kind; must match the params model
+             * @enum {string}
              */
-            shape: "box";
+            shape: "box" | "cylinder";
         };
         /**
          * TessellationMetadata

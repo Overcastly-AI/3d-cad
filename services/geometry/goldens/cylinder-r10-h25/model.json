@@ -1,0 +1,5 @@
+{
+  "shape": "cylinder",
+  "params": { "radius": 10.0, "height": 25.0 },
+  "linear_deflection": 0.1
+}

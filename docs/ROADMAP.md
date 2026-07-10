@@ -85,7 +85,10 @@ The thinnest vertical slice a working engineer can feel:
 - 🚧 Export: STEP + STL download (geometry `POST /api/v1/export` shipped
       2026-07-10 — byte-deterministic STEP/STL, endpoint-level round-trip
       gates; gateway proxy + web download UI pending)
-- ⬜ Golden models: 5 reference parts covering every shipped feature
+- 🚧 Golden models: 5 reference parts covering every shipped feature (2 of
+      5: `box-10x20x30`, `cylinder-r10-h25` — first curved golden shipped
+      2026-07-10 with a measured 1e-9 curved-GProp tolerance, seam-edge
+      topology, and a curved STEP round-trip baseline; docs/GEOMETRY-QA.md)
 - ⬜ E2E: Playwright — login → sketch → extrude → edit param → export, desktop
       and touch viewport smoke
 

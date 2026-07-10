@@ -10,9 +10,11 @@ from build123d import Solid
 
 from geometry.kernel.export import export_step_bytes, export_stl_bytes
 from geometry.kernel.properties import measure_shape
-from geometry.kernel.shapes import build_box
+from geometry.kernel.shapes import build_box, build_cylinder
 from geometry.kernel.tessellate import glb_stats, tessellate_glb
 from geometry.schemas import (
+    BoxParams,
+    CylinderParams,
     ExportRequest,
     ShapeRequest,
     TessellateRequest,
@@ -21,6 +23,7 @@ from geometry.schemas import (
 
 __all__ = [
     "build_box",
+    "build_cylinder",
     "build_shape",
     "evaluate_export",
     "evaluate_tessellation",
@@ -36,13 +39,16 @@ def build_shape(request: ShapeRequest) -> Solid:
     """Dispatch a validated request to its shape builder.
 
     Accepts the shared ``ShapeRequest`` base, so tessellation and export
-    requests build through the identical path. ``request.shape`` is a
-    Literal, so pyright checks this match for exhaustiveness as new shape
-    kinds land.
+    requests build through the identical path. Dispatch is on the params
+    model — ``ShapeRequest`` validation guarantees it matches ``shape`` —
+    and ``params`` is a closed union, so pyright checks this match for
+    exhaustiveness as new shape kinds land.
     """
-    match request.shape:
-        case "box":
+    match request.params:
+        case BoxParams():
             return build_box(request.params.x, request.params.y, request.params.z)
+        case CylinderParams():
+            return build_cylinder(request.params.radius, request.params.height)
 
 
 def evaluate_tessellation(

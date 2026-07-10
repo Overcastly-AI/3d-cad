@@ -1,0 +1,28 @@
+{
+  "description": "r=10 x h=25 mm right circular cylinder, base disc centred at the origin in the XY plane, axis +Z. FIRST CURVED GOLDEN: locks GProp integration over an analytic quadric (cylindrical) surface, curved-face tessellation at the 0.1 mm / 0.1 rad deflection settings, seam-edge topology, and (via the parametrized round-trip gates) STEP re-approximation of curved geometry — de-risking extrude/fillet (GEOMETRY-QA gap #1).",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "volume = pi * r^2 * h = pi * 10^2 * 25 = 2500*pi = 7853.981633974483 mm^3 (nearest double to 2500*pi)",
+    "surface_area = 2*pi*r*(r + h) = 2*pi*10*(10 + 25) = 700*pi = 2199.114857512855 mm^2 (lateral 2*pi*r*h = 500*pi plus two caps 2 * pi*r^2 = 200*pi)",
+    "centroid = (0, 0, h/2) = (0, 0, 12.5) mm by symmetry: the axis passes through the origin along +Z",
+    "bounding_box = [-r,-r,0]..[r,r,h] = [-10,-10,0]..[10,10,25]: build_cylinder centres the base disc at the origin; the optimal (exact) AABB of a Z-axis cylinder is the square prism of half-width r",
+    "topology: OCCT models the closed cylinder as 3 faces (1 cylindrical lateral + 2 planar caps), 3 edges (2 cap circles + 1 straight SEAM edge where the periodic cylindrical surface's parametrization closes — OCCT keeps the seam as a real edge, verified 2026-07-10 against Solid.make_cylinder, build123d 0.11.1/OCCT 7.9), 1 closed shell",
+    "mesh: OCCT's BRepMesh discretizes the circular boundary into 126 segments at linear_deflection 0.1 mm / angular_deflection 0.1 rad (deterministic mesher output, measured 2026-07-10 and pinned here so a mesher-behavior change fails loudly; STL facet parity confirms the same count)",
+    "mesh triangles = lateral 126*2 = 252 (two triangles per circumferential segment) + 2 caps * (126 - 2) = 248 (each cap triangulates its 126-gon boundary with no interior vertices: a polygon with n boundary and 0 interior vertices triangulates to exactly n-2 triangles) = 500",
+    "mesh vertices = lateral 2 rows * 127 = 254 (127 = 126 segments + 1: the seam column is duplicated in the parametric unwrap) + 2 caps * 126 = 252, total 506 (faceted per-face normals - no vertex sharing across faces, same convention as the box golden)",
+    "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CURVED-GEOMETRY tolerance, measured first, then set (geometry-gates skill: never copy a bound blindly). Unlike the planar box - which GProp integrates exactly (deviation 0.0) - curved faces go through OCCT's Gauss-quadrature surface/volume integration, which for analytic quadrics converges to machine precision but not to exact zero. Measured deviations vs the analytic values above (2026-07-10, build123d 0.11.1 / OCCT 7.9): volume 0.0; surface_area 4.55e-13 mm^2 (~2e-16 relative, i.e. one ulp-scale); centroid <= 1.8e-15 mm; AABB exactly 0.0 on all six bounds (OCCT's optimal bbox is exact for a Z-aligned cylinder). Documented ceiling 1e-9 = ~2000x the observed worst case, headroom for libm/platform variation in the quadrature's transcendental evaluations across CI hosts - while staying 100x TIGHTER than the standing planar 1e-7 bound, because locking GProp's curved-surface accuracy is precisely what this golden is for. Loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 7853.981633974483,
+    "surface_area": 2199.114857512855,
+    "centroid": { "x": 0.0, "y": 0.0, "z": 12.5 },
+    "bounding_box": {
+      "min": { "x": -10.0, "y": -10.0, "z": 0.0 },
+      "max": { "x": 10.0, "y": 10.0, "z": 25.0 }
+    }
+  },
+  "topology": { "faces": 3, "edges": 3, "shells": 1 },
+  "mesh": { "vertices": 506, "triangles": 500 }
+}

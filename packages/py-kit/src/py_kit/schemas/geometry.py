@@ -10,9 +10,9 @@ Units: millimetres for lengths, mm^2 / mm^3 for area / volume. The GLB
 payload itself is in metres per the glTF specification.
 """
 
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 #: Default tessellation linear deflection (mm) — viewport-quality meshes.
 DEFAULT_LINEAR_DEFLECTION = 0.1
@@ -71,16 +71,50 @@ class BoxParams(BaseModel):
     z: float = Field(gt=0, description="Size along Z (mm)")
 
 
+class CylinderParams(BaseModel):
+    """Right circular cylinder (mm): base disc centred at the origin in the
+    XY plane, axis along +Z."""
+
+    radius: float = Field(gt=0, description="Radius (mm)")
+    height: float = Field(gt=0, description="Height along +Z (mm)")
+
+
+#: Supported parametric shape kinds (wire discriminator of ``ShapeRequest``).
+ShapeKind = Literal["box", "cylinder"]
+
+#: Union of per-shape parameter models. Field sets are disjoint by design so
+#: pydantic union validation is unambiguous; the shape/params pairing itself
+#: is enforced by ``ShapeRequest``.
+ShapeParams = BoxParams | CylinderParams
+
+
 class ShapeRequest(BaseModel):
     """Parametric shape selection — the base every evaluation request shares.
 
     ``TessellateRequest`` and ``ExportRequest`` extend it, so a shape that can
     be tessellated can always be exported with the same params (DRY: one
-    shape/params contract, two artifact kinds).
+    shape/params contract, two artifact kinds). ``shape`` and ``params`` must
+    agree (``box`` ↔ ``BoxParams``, ``cylinder`` ↔ ``CylinderParams``);
+    mismatches fail validation with a 422.
     """
 
-    shape: Literal["box"] = Field(description="Shape kind (parametric box only, today)")
-    params: BoxParams
+    shape: ShapeKind = Field(description="Shape kind; must match the params model")
+    params: ShapeParams = Field(description="Parameters of the selected shape kind")
+
+    @model_validator(mode="after")
+    def _params_match_shape(self) -> Self:
+        """Reject a ``shape`` kind paired with another kind's params."""
+        match self.shape:  # exhaustive: pyright flags new kinds added to ShapeKind
+            case "box":
+                expected: type[BoxParams] | type[CylinderParams] = BoxParams
+            case "cylinder":
+                expected = CylinderParams
+        if not isinstance(self.params, expected):
+            raise ValueError(
+                f"shape {self.shape!r} requires {expected.__name__} params, "
+                f"got {type(self.params).__name__}"
+            )
+        return self
 
 
 class TessellateRequest(ShapeRequest):

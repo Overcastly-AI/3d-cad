@@ -4,6 +4,7 @@ The export endpoint has its own gate module (``test_export.py``); the
 validation-envelope assertion is the shared conftest fixture.
 """
 
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -23,6 +24,10 @@ BOX_REQUEST: dict[str, Any] = {
 
 #: Documented golden tolerance — see tests/test_kernel.py.
 GOLDEN_TOL = 1e-7
+
+#: Documented curved-geometry tolerance — see
+#: goldens/cylinder-r10-h25/expected.json tolerance_rationale.
+CURVED_TOL = 1e-9
 
 
 def test_tessellate_returns_glb_with_properties_header() -> None:
@@ -76,6 +81,47 @@ def test_tessellate_rejects_bad_params_with_envelope(
     response = client.post(
         "/api/v1/tessellate", json={"shape": "box", "params": params}
     )
+
+    assert response.status_code == 422
+    assert_validation_envelope(response.json())
+
+
+def test_tessellate_cylinder_returns_curved_mesh() -> None:
+    """The cylinder kind works through the full HTTP path (golden numbers:
+    goldens/cylinder-r10-h25 — the harness owns the tight assertions)."""
+    response = client.post(
+        "/api/v1/tessellate",
+        json={"shape": "cylinder", "params": {"radius": 10.0, "height": 25.0}},
+    )
+
+    assert response.status_code == 200
+    assert response.content[:4] == b"glTF"
+    metadata = TessellationMetadata.model_validate_json(
+        response.headers[PROPERTIES_HEADER]
+    )
+    assert metadata.properties.topology.faces == 3
+    assert metadata.properties.volume == pytest.approx(2500 * math.pi, abs=CURVED_TOL)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # box kind with cylinder params
+        {"shape": "box", "params": {"radius": 10.0, "height": 25.0}},
+        # cylinder kind with box params
+        {"shape": "cylinder", "params": {"x": 10.0, "y": 20.0, "z": 30.0}},
+        # cylinder with non-positive params (Field(gt=0) validators)
+        {"shape": "cylinder", "params": {"radius": 0.0, "height": 25.0}},
+        {"shape": "cylinder", "params": {"radius": 10.0, "height": -1.0}},
+    ],
+)
+def test_tessellate_rejects_mismatched_or_bad_shape_params(
+    payload: dict[str, Any],
+    assert_validation_envelope: Callable[[dict[str, Any]], None],
+) -> None:
+    """The shape/params pairing is enforced at validation time (422 envelope),
+    so mismatches never reach the kernel dispatch."""
+    response = client.post("/api/v1/tessellate", json=payload)
 
     assert response.status_code == 422
     assert_validation_envelope(response.json())

@@ -48,6 +48,29 @@
         "title": "BoxParams",
         "type": "object"
       },
+      "CylinderParams": {
+        "description": "Right circular cylinder (mm): base disc centred at the origin in the\nXY plane, axis along +Z.",
+        "properties": {
+          "height": {
+            "description": "Height along +Z (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "radius": {
+            "description": "Radius (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Radius",
+            "type": "number"
+          }
+        },
+        "required": [
+          "radius",
+          "height"
+        ],
+        "title": "CylinderParams",
+        "type": "object"
+      },
       "ExportRequest": {
         "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; its quality fields default\nto the tessellation defaults so the exported mesh matches what the\nviewport shows.",
         "properties": {
@@ -75,11 +98,23 @@
             "type": "number"
           },
           "params": {
-            "$ref": "#/components/schemas/BoxParams"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoxParams"
+              },
+              {
+                "$ref": "#/components/schemas/CylinderParams"
+              }
+            ],
+            "description": "Parameters of the selected shape kind",
+            "title": "Params"
           },
           "shape": {
-            "const": "box",
-            "description": "Shape kind (parametric box only, today)",
+            "description": "Shape kind; must match the params model",
+            "enum": [
+              "box",
+              "cylinder"
+            ],
             "title": "Shape",
             "type": "string"
           }
@@ -175,11 +210,23 @@
             "type": "number"
           },
           "params": {
-            "$ref": "#/components/schemas/BoxParams"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoxParams"
+              },
+              {
+                "$ref": "#/components/schemas/CylinderParams"
+              }
+            ],
+            "description": "Parameters of the selected shape kind",
+            "title": "Params"
           },
           "shape": {
-            "const": "box",
-            "description": "Shape kind (parametric box only, today)",
+            "description": "Shape kind; must match the params model",
+            "enum": [
+              "box",
+              "cylinder"
+            ],
             "title": "Shape",
             "type": "string"
           }

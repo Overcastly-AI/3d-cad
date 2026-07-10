@@ -46,14 +46,15 @@ with them; #8 is small platform enablement.
       endpoint + all geometry-gate acceptance points green (see changelog);
       gateway proxy (1b-gateway) shipped too (see changelog); web download
       UI + browser QA (1b-web) remain. [src: roadmap, geometry-qa]
-- [ ] (P1, S) First curved golden: cylinder — add a parametric cylinder to
+- [x] (P1, S) First curved golden: cylinder — add a parametric cylinder to
       the kernel/request schema and land golden `cylinder` alongside the box.
       De-risks curved GProp integration, tessellation deflection, and STEP
       surface re-approximation before extrude/fillet need them (GEOMETRY-QA
       gap #1). Acceptance: hand-derived analytic mass properties with a
       documented curved-geometry tolerance + rationale; exact topology/mesh
       counts; determinism + STEP round-trip come free from the parametrized
-      gates; GEOMETRY-QA entry with evidence tables. [src: geometry-qa]
+      gates; GEOMETRY-QA entry with evidence tables. Shipped 2026-07-10 as
+      `cylinder-r10-h25` (see changelog). [src: geometry-qa]
 - [x] (P1, M) Feature-tree persistence design doc — document model for
       parametric history: JSONB param schema, ordered feature tree,
       references (forward-compatible with Phase 2 topological naming),
@@ -185,6 +186,31 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — First curved golden shipped (Ready #2, GEOMETRY-QA gap #1
+  closed): parametric cylinder end to end. Shared schemas (py-kit) gained
+  `CylinderParams` (radius/height, gt=0) + `shape: "box"|"cylinder"` with a
+  model validator enforcing the shape↔params pairing (mismatch → 422
+  envelope, tested); kernel `build_cylinder` (base disc at origin, axis +Z)
+  with `build_shape` dispatching exhaustively on the params union — the
+  tessellate/export/worker paths picked the new kind up unchanged (verified
+  through every parametrized gate, zero runner changes). Golden
+  `goldens/cylinder-r10-h25/`: hand-derived analytics (volume 2500π ≈
+  7853.9816339745 mm³, area 700π ≈ 2199.1148575129 mm² = 500π lateral +
+  200π caps, centroid (0,0,12.5), exact AABB) with a MEASURED-then-set
+  curved-geometry tolerance 1e-9 (observed worst GProp deviation 4.55e-13
+  mm² on area, ~2000× margin, still 100× tighter than the planar 1e-7;
+  rationale in expected.json + GEOMETRY-QA); topology 3F/3E/1S — the seam
+  edge on the periodic lateral face is real, verified against OCCT; mesh
+  pinned 506v/500t with per-face derivation (126-segment circle). First
+  curved STEP round-trip observations recorded: volume/AABB/topology exact,
+  area wobbles 1.03e-10 mm² (~1000× inside the 1e-7 bound) — baseline
+  logged, no defect. STL enclosed volume consumes real slack for the first
+  time (dev 3.255 mm³ vs derived bound 8301.5 mm³). Byte-determinism (GLB/
+  STEP/STL) in-process + across interpreter restart; harness proven red on
+  perturbed volume/edge-count then restored; warm rebuild+tessellate 4.3–5.1
+  ms. 13 new tests (124 workspace-wide green); contracts + ts-client
+  regenerated, `just gen-check` green. [kernel-architect]
 
 - 2026-07-10 — SketchSolver interface + planegcs spike (Ready #4) shipped —
   **verdict: planegcs adopted**, spike code promoted to the real module
