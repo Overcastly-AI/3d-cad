@@ -144,7 +144,13 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   assert mass properties (volume, area, centroid) within tolerance and
   topology counts (faces/edges/shells) exactly.
 - **Round-trip fidelity:** model → STEP export → re-import → compare mass
-  properties and topology.
+  properties and topology. Runs at two levels: kernel (build123d I/O) and
+  endpoint (`POST /api/v1/export` over HTTP).
+- **Export byte-determinism:** identical requests → byte-identical STEP/STL
+  files. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
+  byte range OCCT writes — is pinned kernel-side
+  (`geometry.kernel.export.STEP_EXPORT_TIMESTAMP`; decision + evidence in
+  docs/GEOMETRY-QA.md 2026-07-10).
 - **Solver determinism:** same sketch + constraints → identical solution
   across runs.
 - **Performance budgets:** wall-clock ceilings for reference rebuilds and

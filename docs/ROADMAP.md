@@ -79,7 +79,9 @@ The thinnest vertical slice a working engineer can feel:
       param edit; error surfacing when a feature fails to rebuild
 - ⬜ Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of
       tessellated body, feature-tree panel with edit/rollback
-- ⬜ Export: STEP + STL download
+- 🚧 Export: STEP + STL download (geometry `POST /api/v1/export` shipped
+      2026-07-10 — byte-deterministic STEP/STL, endpoint-level round-trip
+      gates; gateway proxy + web download UI pending)
 - ⬜ Golden models: 5 reference parts covering every shipped feature
 - ⬜ E2E: Playwright — login → sketch → extrude → edit param → export, desktop
       and touch viewport smoke

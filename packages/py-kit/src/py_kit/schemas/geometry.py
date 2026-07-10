@@ -17,11 +17,26 @@ from pydantic import BaseModel, Field
 #: Default tessellation linear deflection (mm) — viewport-quality meshes.
 DEFAULT_LINEAR_DEFLECTION = 0.1
 
+#: Default angular deflection (rad) between adjacent tessellation segments.
+#: Single source for the fixed tessellation setting AND the STL export
+#: default, so "default quality" means the same mesh on both paths.
+DEFAULT_ANGULAR_DEFLECTION = 0.1
+
 #: Response header carrying compact-JSON ``TessellationMetadata`` next to a GLB.
 PROPERTIES_HEADER = "X-Loft-Properties"
 
 #: Media type of the binary glTF tessellation payload.
 GLB_MEDIA_TYPE = "model/gltf-binary"
+
+#: Supported export file formats (``POST /api/v1/export``).
+ExportFormat = Literal["step", "stl"]
+
+#: Media type per export format. STEP part 21 is IANA ``model/step``;
+#: binary STL is IANA ``model/stl``.
+EXPORT_MEDIA_TYPES: dict[str, str] = {
+    "step": "model/step",
+    "stl": "model/stl",
+}
 
 
 def tessellate_responses(description: str) -> dict[int | str, dict[str, Any]]:
@@ -56,11 +71,21 @@ class BoxParams(BaseModel):
     z: float = Field(gt=0, description="Size along Z (mm)")
 
 
-class TessellateRequest(BaseModel):
-    """Build a parametric shape and tessellate it to GLB."""
+class ShapeRequest(BaseModel):
+    """Parametric shape selection — the base every evaluation request shares.
+
+    ``TessellateRequest`` and ``ExportRequest`` extend it, so a shape that can
+    be tessellated can always be exported with the same params (DRY: one
+    shape/params contract, two artifact kinds).
+    """
 
     shape: Literal["box"] = Field(description="Shape kind (parametric box only, today)")
     params: BoxParams
+
+
+class TessellateRequest(ShapeRequest):
+    """Build a parametric shape and tessellate it to GLB."""
+
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
         gt=0,
@@ -68,6 +93,63 @@ class TessellateRequest(BaseModel):
             "Max distance (mm) between a curve and its tessellation; lower = finer mesh"
         ),
     )
+
+
+class ExportRequest(ShapeRequest):
+    """Build a parametric shape and export it as a downloadable CAD file.
+
+    STEP exports the exact B-rep — the deflection fields are meaningless for
+    it and ignored. STL is a faceted approximation; its quality fields default
+    to the tessellation defaults so the exported mesh matches what the
+    viewport shows.
+    """
+
+    format: ExportFormat = Field(
+        description="Export file format: STEP (exact B-rep) or STL (faceted mesh)"
+    )
+    linear_deflection: float = Field(
+        default=DEFAULT_LINEAR_DEFLECTION,
+        gt=0,
+        description=(
+            "STL facet linear deflection (mm), same semantics as tessellation; "
+            "ignored for STEP (exact B-rep)"
+        ),
+    )
+    angular_deflection: float = Field(
+        default=DEFAULT_ANGULAR_DEFLECTION,
+        gt=0,
+        description=(
+            "STL facet angular deflection (rad) between adjacent segments; "
+            "ignored for STEP (exact B-rep)"
+        ),
+    )
+
+
+def export_filename(request: ExportRequest) -> str:
+    """Deterministic download filename for an export (Content-Disposition)."""
+    return f"{request.shape}.{request.format}"
+
+
+def export_responses(description: str) -> dict[int | str, dict[str, Any]]:
+    """OpenAPI ``responses`` block for the binary export route.
+
+    Shared (DRY) between the geometry service and the future gateway proxy: a
+    200 whose body is the exported file in one of the export media types, with
+    a ``Content-Disposition`` attachment filename.
+    """
+    binary = {"schema": {"type": "string", "format": "binary"}}
+    return {
+        200: {
+            "description": description,
+            "content": {media: binary for media in EXPORT_MEDIA_TYPES.values()},
+            "headers": {
+                "Content-Disposition": {
+                    "description": 'attachment; filename="<shape>.<format>"',
+                    "schema": {"type": "string"},
+                }
+            },
+        }
+    }
 
 
 class Vec3(BaseModel):

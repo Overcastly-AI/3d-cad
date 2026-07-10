@@ -1,5 +1,10 @@
-"""Geometry REST API — GLB response, metadata header/twin, validation envelope."""
+"""Geometry REST API — GLB response, metadata header/twin, validation envelope.
 
+The export endpoint has its own gate module (``test_export.py``); the
+validation-envelope assertion is the shared conftest fixture.
+"""
+
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -56,15 +61,6 @@ def test_tessellate_default_deflection() -> None:
     assert response.content[:4] == b"glTF"
 
 
-def _assert_validation_envelope(body: dict[str, Any]) -> None:
-    """The py-kit error envelope with the standard validation code."""
-    assert set(body) == {"error"}
-    error: dict[str, Any] = body["error"]
-    assert set(error) == {"code", "message", "details", "request_id"}
-    assert error["code"] == "validation_error"
-    assert error["details"]  # pydantic locates the offending field(s)
-
-
 @pytest.mark.parametrize(
     "params",
     [
@@ -73,29 +69,36 @@ def _assert_validation_envelope(body: dict[str, Any]) -> None:
         {"x": 10.0, "y": 20.0},  # missing dimension
     ],
 )
-def test_tessellate_rejects_bad_params_with_envelope(params: dict[str, float]) -> None:
+def test_tessellate_rejects_bad_params_with_envelope(
+    params: dict[str, float],
+    assert_validation_envelope: Callable[[dict[str, Any]], None],
+) -> None:
     response = client.post(
         "/api/v1/tessellate", json={"shape": "box", "params": params}
     )
 
     assert response.status_code == 422
-    _assert_validation_envelope(response.json())
+    assert_validation_envelope(response.json())
 
 
-def test_tessellate_rejects_unknown_shape() -> None:
+def test_tessellate_rejects_unknown_shape(
+    assert_validation_envelope: Callable[[dict[str, Any]], None],
+) -> None:
     response = client.post(
         "/api/v1/tessellate",
         json={"shape": "teapot", "params": {"x": 1.0, "y": 1.0, "z": 1.0}},
     )
 
     assert response.status_code == 422
-    _assert_validation_envelope(response.json())
+    assert_validation_envelope(response.json())
 
 
-def test_tessellate_rejects_non_positive_deflection() -> None:
+def test_tessellate_rejects_non_positive_deflection(
+    assert_validation_envelope: Callable[[dict[str, Any]], None],
+) -> None:
     response = client.post(
         "/api/v1/tessellate", json={**BOX_REQUEST, "linear_deflection": 0.0}
     )
 
     assert response.status_code == 422
-    _assert_validation_envelope(response.json())
+    assert_validation_envelope(response.json())

@@ -42,7 +42,10 @@ with them; #8 is small platform enablement.
       and the decision recorded in GEOMETRY-QA (gap #4); exported STL
       re-imported and volume asserted within documented tolerance; QA
       downloads both formats for the 10×20×30 box in a real browser and
-      re-imports them. [src: roadmap, geometry-qa]
+      re-imports them. **PARTIAL 2026-07-10:** geometry half (1a) shipped —
+      endpoint + all geometry-gate acceptance points green (see changelog);
+      gateway proxy + web download UI + browser QA (1b) remain.
+      [src: roadmap, geometry-qa]
 - [ ] (P1, S) First curved golden: cylinder — add a parametric cylinder to
       the kernel/request schema and land golden `cylinder` alongside the box.
       De-risks curved GProp integration, tessellation deflection, and STEP
@@ -182,6 +185,24 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — STEP/STL export geometry endpoints (1a) shipped: geometry
+  `POST /api/v1/export` (format: step|stl) built from the same shape params
+  as tessellate (shared `ShapeRequest` base in py-kit), correct media types
+  (`model/step`/`model/stl`) + Content-Disposition filenames, py-kit 422
+  envelope. Kernel `geometry/kernel/export.py`: STEP timestamp PINNED
+  (`STEP_EXPORT_TIMESTAMP`, via `export_step(timestamp=)` through BytesIO) →
+  byte-deterministic STEP; binary STL meshes with the exact GLB-path mesher
+  settings (defaults 0.1 mm / 0.1 rad). Gates: endpoint-level STEP
+  round-trip (HTTP export → re-import → 0.0 deviation on all 11
+  mass-property checks, topology exact — GEOMETRY-QA gap #3 closed); STL
+  enclosed volume via divergence theorem within the deflection-derived
+  faceting bound (measured deviation 0.0); STEP-timestamp decision +
+  evidence recorded in GEOMETRY-QA (gap #4 closed); byte-determinism for
+  both formats in-process and across interpreter restart; 15 new tests,
+  shared round-trip/envelope fixtures in tests/conftest.py. Contracts +
+  ts-client regenerated, `just gen-check` green. Gateway proxy + web
+  download UI (1b) pending — item stays open. [kernel-architect]
 
 - 2026-07-10 — Feature-tree design doc revised per code-reviewer
   request-changes (verdict now resolved; design itself endorsed —

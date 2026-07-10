@@ -20,11 +20,13 @@ from build123d.exporters3d import (
     export_gltf,  # pyright: ignore[reportUnknownVariableType]  (Shape[Unknown] param upstream)
 )
 
-from geometry.schemas import MeshStats
+from geometry.schemas import DEFAULT_ANGULAR_DEFLECTION, MeshStats
 
 #: Max angle (rad) between adjacent tessellation segments. Fixed service-wide
-#: so a given ``linear_deflection`` always means the same mesh.
-ANGULAR_DEFLECTION = 0.1
+#: so a given ``linear_deflection`` always means the same mesh. Single source
+#: is py-kit's DEFAULT_ANGULAR_DEFLECTION — also the STL export default, so
+#: default-quality STL matches the viewport mesh.
+ANGULAR_DEFLECTION = DEFAULT_ANGULAR_DEFLECTION
 
 GLB_MAGIC = b"glTF"
 _GLB_HEADER = struct.Struct("<4sII")  # magic, version, total length

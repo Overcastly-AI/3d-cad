@@ -13,8 +13,12 @@ go green.
 # golden-model harness (mass props / topology / mesh / determinism):
 uv run pytest services/geometry/tests/test_goldens.py -v
 
-# STEP round-trip fidelity gate:
+# STEP round-trip fidelity gate (kernel-level):
 uv run pytest services/geometry/tests/test_step_roundtrip.py -v
+
+# export gates (endpoint-level STEP round-trip, STL faceting bound,
+# STEP/STL byte-determinism, media types, validation envelope):
+uv run pytest services/geometry/tests/test_export.py -v
 
 # full geometry service suite (kernel unit tests + API + worker + gates):
 uv run pytest services/geometry
@@ -40,6 +44,102 @@ cross-checked in a second tool — never recorded from harness output.
 Coverage audit vs. shipped modeling capabilities (commits d136b29/7b39a27):
 `build_box`, `measure_shape`, `tessellate_glb`/GLB stats — **all covered by
 golden #1**. No shipped feature type lacks a golden as of this entry.
+
+---
+
+## 2026-07-10 — Export endpoints: endpoint-level STEP round-trip + byte-deterministic STEP/STL (closes gaps #3, #4)
+
+Environment: dev container, Python 3.12.3, build123d 0.11.1 (OCCT 7.9 via
+OCP), pytest 9.1.1. Suite: 91 passed workspace-wide (~10.9 s); 15 new export
+gate tests in `services/geometry/tests/test_export.py`, parametrized over the
+golden inventory (future goldens get export coverage for free).
+
+### Gate — endpoint-level STEP round-trip (gap #3 closed)
+
+`POST /api/v1/export {format: "step"}` over HTTP → `import_step` →
+re-measure with the same GProp pipeline, compared against the in-memory
+original via the shared `assert_roundtrip_preserved` fixture (same 1e-7
+`ROUNDTRIP_TOL` + exact topology as the kernel-level gate, now in
+`tests/conftest.py` — single source):
+
+| Quantity | Original | HTTP-exported → re-imported | Deviation |
+| --- | --- | --- | --- |
+| volume | 6000.0 mm³ | 6000.0 | **0.0** |
+| surface area | 2200.0 mm² | 2200.0 | **0.0** |
+| centroid x/y/z | 5.0 / 10.0 / 15.0 | identical | **0.0** |
+| AABB min/max (6 values) | exact | identical | **0.0** |
+| topology F/E/S | 6 / 12 / 1 | 6 / 12 / 1 | preserved |
+
+Exported artifact: 15,348-byte STEP AP214 part 21, media type `model/step`,
+`Content-Disposition: attachment; filename="box.step"`.
+
+### Decision — STEP timestamp pinned for byte-determinism (gap #4 closed)
+
+OCCT stamps every STEP file's `FILE_NAME` record with wall-clock creation
+time — the ONE nondeterministic byte range in the output. **Decision:** the
+kernel pins it via build123d's `export_step(timestamp=...)` to the sentinel
+`geometry.kernel.export.STEP_EXPORT_TIMESTAMP` (2000-01-01T00:00:00). STEP
+consumers treat the timestamp as provenance metadata, not geometry; a fixed
+sentinel makes identical requests byte-identical (RESEARCH §9, updated this
+commit). Evidence:
+
+- Pinned `FILE_NAME` record:
+  `FILE_NAME('Open CASCADE Shape Model','2000-01-01T00:00:00',...)` — the
+  name field is the fixed writer default (export goes through `BytesIO`, so
+  no filesystem path can leak in either).
+- Repeated exports: identical sha256 `8124c8cd276400cd…` (15,348 bytes),
+  in-process AND across a fresh-interpreter restart probe.
+- `test_step_export_timestamp_is_pinned` additionally asserts today's date
+  does NOT appear anywhere in the output.
+- **Gate proven to fail on wrong bytes** (a gate that can't go red is
+  worthless): temporarily removing the `timestamp=` pin made
+  `test_step_export_timestamp_is_pinned` fail with the wall-clock date
+  leaking into the file, then the pin was restored and the suite re-ran
+  green.
+
+### Gate — STL export (faceted round-trip + determinism)
+
+`POST /api/v1/export {format: "stl"}` → binary STL (`model/stl`,
+`filename="box.stl"`), 684 bytes = 84-byte header + 12 × 50-byte facets,
+sha256 `199a683573665694…` identical across repeated runs and the
+interpreter-restart probe (binary STL embeds no timestamps; fixed OCCT
+header).
+
+Quality defaults (documented in `py_kit.schemas.geometry` /
+`geometry/kernel/export.py`): `linear_deflection` 0.1 mm +
+`angular_deflection` 0.1 rad — the SAME values and the SAME
+`BRepMesh_IncrementalMesh` call as the GLB tessellation path, so the
+exported mesh matches what the viewport shows (facet-count parity asserted:
+12 STL facets == 12 GLB triangles).
+
+**STL volume tolerance — derived, not ad-hoc** (STL is faceted; the B-rep
+1e-7 cannot apply). Derivation (`stl_volume_tolerance` in test_export.py):
+OCCT meshes with *relative* linear deflection (build123d passes
+`isRelative=True`), so facet deviation ≤ `linear_deflection × AABB diagonal`
+model-wide; the enclosed-volume error is then ≤ `surface_area × that
+deviation`. For `box-10x20x30`: 2200 × 0.1 × 37.4166 = **8231.7 mm³
+ceiling**; measured enclosed volume (divergence theorem over the re-parsed
+facets) = 6000.0 vs B-rep 6000.0 — **deviation 0.0** (planar faces facet
+exactly; the bound is a ceiling for future curved goldens, and the
+facet-count parity check keeps the gate sharp for planar ones).
+
+### Performance
+
+Warm endpoint wall-clock (TestClient, box golden): STEP export ~20 ms, STL
+export ~7 ms — well inside the 2 s tripwire class; no budget rows needed yet.
+
+### Coverage notes
+
+- Validation errors return the py-kit 422 envelope (5 parametrized cases:
+  unknown format, missing format, bad shape params, non-positive linear /
+  angular deflection).
+- Omitted STL quality params are byte-identical to explicit defaults.
+- Gaps #3 and #4 below are now marked closed; endpoint gates run in the
+  standard suite (`uv run pytest services/geometry`). The gateway proxy +
+  web download UI (backlog item 1b) are NOT covered here — browser-level QA
+  lands with them.
+
+[kernel-architect]
 
 ---
 
@@ -126,13 +226,13 @@ finding, not absorbed into the tolerance.
 2. **No queue-path coverage.** Gates run `evaluate_tessellation` directly;
    the arq worker leg is still sync-inline in the product (see BACKLOG) and
    unexercised by geometry gates. Revisit when redis/arq runtime lands.
-3. **STEP round-trip is kernel-level only.** No export endpoint exists yet
-   (Phase 1 "STEP/STL export endpoints"); endpoint-level round-trip
-   (HTTP-export → re-import) must be added when it ships.
-4. **STEP byte-determinism not asserted** — STEP embeds a creation
-   timestamp. `export_step` accepts `timestamp=` for pinning; decide when
-   STEP export becomes a product feature (determinism gate currently covers
-   GLB only, which is the artifact users receive today).
+3. ~~**STEP round-trip is kernel-level only.**~~ **Closed 2026-07-10** —
+   endpoint-level round-trip gate shipped with `POST /api/v1/export`
+   (`tests/test_export.py`; evidence in the entry above).
+4. ~~**STEP byte-determinism not asserted.**~~ **Closed 2026-07-10** — STEP
+   timestamp pinned kernel-side (`STEP_EXPORT_TIMESTAMP`); byte-determinism
+   asserted for STEP and STL, in-process + across interpreter restart
+   (entry above).
 5. **GLB byte size not pinned in goldens** (deliberate: brittle across
    glTF-writer upgrades with no geometric meaning). It IS asserted
    internally consistent (`glb_bytes == len(glb)`) and byte-deterministic

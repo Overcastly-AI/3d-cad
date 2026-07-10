@@ -7,11 +7,15 @@ keeping kernel/API/worker/test imports stable.
 """
 
 from py_kit.schemas.geometry import (
+    DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
     BoundingBox,
     BoxParams,
+    ExportFormat,
+    ExportRequest,
     MeshStats,
     ShapeProperties,
+    ShapeRequest,
     TessellateRequest,
     TessellationMetadata,
     TopologyCounts,
@@ -19,11 +23,15 @@ from py_kit.schemas.geometry import (
 )
 
 __all__ = [
+    "DEFAULT_ANGULAR_DEFLECTION",
     "DEFAULT_LINEAR_DEFLECTION",
     "BoundingBox",
     "BoxParams",
+    "ExportFormat",
+    "ExportRequest",
     "MeshStats",
     "ShapeProperties",
+    "ShapeRequest",
     "TessellateRequest",
     "TessellationMetadata",
     "TopologyCounts",

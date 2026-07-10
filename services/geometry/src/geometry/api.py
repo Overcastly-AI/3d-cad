@@ -8,16 +8,19 @@ queue path (``geometry.worker``) calls the same core function.
 
 from fastapi import APIRouter, Response
 
-# GLB_MEDIA_TYPE, PROPERTIES_HEADER, and the shared OpenAPI responses block
-# live in py-kit (single source of truth, shared with the gateway proxy).
+# Media types, filename rule, and the shared OpenAPI responses blocks live in
+# py-kit (single source of truth, shared with the gateway proxy).
 from py_kit.schemas.geometry import (
+    EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
     PROPERTIES_HEADER,
+    export_filename,
+    export_responses,
     tessellate_responses,
 )
 
-from geometry.kernel import evaluate_tessellation
-from geometry.schemas import TessellateRequest, TessellationMetadata
+from geometry.kernel import evaluate_export, evaluate_tessellation
+from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
 
 router = APIRouter(prefix="/api/v1", tags=["geometry"])
 
@@ -26,6 +29,13 @@ _TESSELLATE_RESPONSES = tessellate_responses(
     f"`{PROPERTIES_HEADER}` header carries `TessellationMetadata` "
     "as compact JSON (see `POST /api/v1/tessellate/meta` for the "
     "same payload as a typed JSON body)."
+)
+
+_EXPORT_RESPONSES = export_responses(
+    "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep) "
+    "or binary STL (`model/stl`, faceted mesh). `Content-Disposition` "
+    "carries the suggested download filename. Byte-deterministic: identical "
+    "requests produce identical files."
 )
 
 
@@ -45,3 +55,16 @@ def tessellate_meta(request: TessellateRequest) -> TessellationMetadata:
     """JSON twin of ``/tessellate``: mass properties + mesh stats, no mesh."""
     _glb, metadata = evaluate_tessellation(request)
     return metadata
+
+
+@router.post("/export", response_class=Response, responses=_EXPORT_RESPONSES)
+def export(request: ExportRequest) -> Response:
+    """Build a parametric shape and export it as a STEP or STL download."""
+    data = evaluate_export(request)
+    return Response(
+        content=data,
+        media_type=EXPORT_MEDIA_TYPES[request.format],
+        headers={
+            "Content-Disposition": f'attachment; filename="{export_filename(request)}"'
+        },
+    )

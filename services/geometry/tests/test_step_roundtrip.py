@@ -14,14 +14,19 @@ STEP without degradation (evidence in docs/GEOMETRY-QA.md). A deviation
 here is a DEFECT to root-cause to export, import, or kernel — never
 tolerance noise to absorb (geometry-qa agent rules).
 
-Scope: this exercises the kernel + build123d I/O layer directly. There is no
-STEP export *endpoint* yet (Phase 1 roadmap); endpoint-level round-trip
-coverage lands with it — tracked as a gap in docs/GEOMETRY-QA.md.
+Scope: this exercises the kernel + build123d I/O layer directly (build123d's
+default wall-clock STEP timestamp is irrelevant here — geometry, not bytes,
+is compared). The endpoint-level round-trip gate — HTTP export → re-import —
+plus export byte-determinism live in ``test_export.py``.
 
 Parametrized over the golden inventory, so every future golden gets
-round-trip coverage with zero changes here.
+round-trip coverage with zero changes here. The comparison itself (mass
+properties within the shared ``ROUNDTRIP_TOL``, topology exact) is the
+``assert_roundtrip_preserved`` conftest fixture, shared with the
+endpoint-level gate.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -33,13 +38,7 @@ from build123d import (
     import_step,  # pyright: ignore[reportUnknownVariableType]
 )
 from geometry.kernel import build_shape, measure_shape
-from geometry.schemas import TessellateRequest
-
-#: Round-trip tolerance for mass properties: the CLAUDE.md kernel linear
-#: tolerance (1e-7), NOT a fitted epsilon — measured round-trip deviation
-#: for the planar box is exactly 0.0 (module docstring). Loosening this is a
-#: reviewed decision recorded in docs/GEOMETRY-QA.md, never a quick fix.
-ROUNDTRIP_TOL = 1e-7
+from geometry.schemas import ShapeProperties, TessellateRequest
 
 GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
 MODEL_FILES = sorted(GOLDENS_DIR.glob("*/model.json"))
@@ -55,7 +54,11 @@ def test_roundtrip_inventory_is_nonempty() -> None:
 
 
 @each_model
-def test_step_roundtrip_preserves_geometry(model_path: Path, tmp_path: Path) -> None:
+def test_step_roundtrip_preserves_geometry(
+    model_path: Path,
+    tmp_path: Path,
+    assert_roundtrip_preserved: Callable[[str, ShapeProperties, ShapeProperties], None],
+) -> None:
     name = model_path.parent.name
     request = TessellateRequest.model_validate_json(
         model_path.read_text(encoding="utf-8")
@@ -76,28 +79,4 @@ def test_step_roundtrip_preserves_geometry(model_path: Path, tmp_path: Path) -> 
     assert len(solids) == 1, f"{name}: expected 1 solid after import, got {len(solids)}"
     reimported = measure_shape(solids[0])
 
-    checks: list[tuple[str, float, float]] = [
-        ("volume", reimported.volume, original.volume),
-        ("surface_area", reimported.surface_area, original.surface_area),
-        ("centroid.x", reimported.centroid.x, original.centroid.x),
-        ("centroid.y", reimported.centroid.y, original.centroid.y),
-        ("centroid.z", reimported.centroid.z, original.centroid.z),
-        ("bbox.min.x", reimported.bounding_box.min.x, original.bounding_box.min.x),
-        ("bbox.min.y", reimported.bounding_box.min.y, original.bounding_box.min.y),
-        ("bbox.min.z", reimported.bounding_box.min.z, original.bounding_box.min.z),
-        ("bbox.max.x", reimported.bounding_box.max.x, original.bounding_box.max.x),
-        ("bbox.max.y", reimported.bounding_box.max.y, original.bounding_box.max.y),
-        ("bbox.max.z", reimported.bounding_box.max.z, original.bounding_box.max.z),
-    ]
-    for label, got, want in checks:
-        assert got == pytest.approx(want, abs=ROUNDTRIP_TOL), (
-            f"{name}: round-trip {label} drifted — exported {want!r}, "
-            f"re-imported {got!r} (tol {ROUNDTRIP_TOL!r}). This is a defect "
-            f"to root-cause (export/import/kernel), not noise."
-        )
-
-    assert reimported.topology == original.topology, (
-        f"{name}: topology changed across STEP round-trip — "
-        f"exported {original.topology.model_dump()}, "
-        f"re-imported {reimported.topology.model_dump()}"
-    )
+    assert_roundtrip_preserved(name, reimported, original)
