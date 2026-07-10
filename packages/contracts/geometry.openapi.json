@@ -148,7 +148,7 @@
         "type": "object"
       },
       "TessellationMetadata": {
-        "description": "Everything about a tessellation except the mesh itself.\n\nReturned as JSON by ``POST /api/v1/tessellate/meta`` and carried,\ncompact-serialized, in the ``X-Loft-Properties`` response header of\n``POST /api/v1/tessellate``.",
+        "description": "Everything about a tessellation except the mesh itself.\n\nReturned as JSON by the ``.../tessellate/meta`` routes and carried,\ncompact-serialized, in the ``X-Loft-Properties`` response header of the\nbinary ``.../tessellate`` routes (geometry service and gateway proxy).",
         "properties": {
           "mesh": {
             "$ref": "#/components/schemas/MeshStats"

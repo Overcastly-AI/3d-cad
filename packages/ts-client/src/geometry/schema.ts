@@ -137,9 +137,9 @@ export interface components {
          * TessellationMetadata
          * @description Everything about a tessellation except the mesh itself.
          *
-         *     Returned as JSON by ``POST /api/v1/tessellate/meta`` and carried,
-         *     compact-serialized, in the ``X-Loft-Properties`` response header of
-         *     ``POST /api/v1/tessellate``.
+         *     Returned as JSON by the ``.../tessellate/meta`` routes and carried,
+         *     compact-serialized, in the ``X-Loft-Properties`` response header of the
+         *     binary ``.../tessellate`` routes (geometry service and gateway proxy).
          */
         TessellationMetadata: {
             mesh: components["schemas"]["MeshStats"];

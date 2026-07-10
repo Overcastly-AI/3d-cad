@@ -70,6 +70,18 @@ class InternalError(ApiError):
     code = "internal_error"
 
 
+class UpstreamUnavailableError(ApiError):
+    """A depended-on Loft service could not be reached (HTTP 502).
+
+    Raised by proxy/aggregation layers (e.g. the gateway) when a connect,
+    timeout, or transport error prevents the upstream call entirely — the
+    client sees the standard envelope, never a raw stack.
+    """
+
+    status_code = 502
+    code = "upstream_unavailable"
+
+
 def error_response(
     *,
     status_code: int,

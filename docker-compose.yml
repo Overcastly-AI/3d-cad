@@ -87,8 +87,9 @@ services:
     environment:
       PORT: "8000"
       LOG_FORMAT: ${LOG_FORMAT:-json}
-      # No infra deps yet (readiness is trivially green); REDIS_URL etc.
-      # get wired here when the gateway grows queue/WebSocket fan-out.
+      # Upstream for the /api/v1/geometry/* proxy (readiness reports it
+      # best-effort; REDIS_URL etc. get wired when WebSocket fan-out lands).
+      GEOMETRY_URL: http://geometry:8002
     ports:
       - "${GATEWAY_PORT:-8000}:8000"
     depends_on:

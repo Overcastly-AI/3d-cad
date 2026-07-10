@@ -4,9 +4,9 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from geometry.api import GLB_MEDIA_TYPE, PROPERTIES_HEADER
 from geometry.main import app
 from geometry.schemas import TessellationMetadata
+from py_kit.schemas.geometry import GLB_MEDIA_TYPE, PROPERTIES_HEADER
 
 client = TestClient(app)
 

@@ -11,6 +11,7 @@ def test_default_settings() -> None:
     settings = GatewaySettings()
     assert settings.service_name == "gateway"
     assert settings.port == 8000
+    assert settings.geometry_url == "http://localhost:8002"
 
 
 def test_healthz() -> None:
@@ -19,10 +20,13 @@ def test_healthz() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_readyz_always_ready_in_skeleton() -> None:
-    response = TestClient(build_app()).get("/readyz")
+def test_readyz_stays_ready_with_geometry_down() -> None:
+    """The geometry check is report-only: unreachable upstream never fails
+    readiness (see gateway.main), it is just annotated in the report."""
+    settings = GatewaySettings(geometry_url="http://127.0.0.1:9")  # nothing listens
+    response = TestClient(build_app(settings)).get("/readyz")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "checks": {}}
+    assert response.json() == {"status": "ok", "checks": {"geometry": "unreachable"}}
 
 
 def _envelope(body: dict[str, Any]) -> dict[str, Any]:

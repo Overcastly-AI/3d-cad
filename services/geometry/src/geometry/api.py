@@ -10,13 +10,12 @@ from typing import Any
 
 from fastapi import APIRouter, Response
 
+# GLB_MEDIA_TYPE + PROPERTIES_HEADER live in py-kit (single source of truth,
+# shared with the gateway proxy).
+from py_kit.schemas.geometry import GLB_MEDIA_TYPE, PROPERTIES_HEADER
+
 from geometry.kernel import evaluate_tessellation
 from geometry.schemas import TessellateRequest, TessellationMetadata
-
-#: Compact JSON ``TessellationMetadata`` accompanying the binary GLB response.
-PROPERTIES_HEADER = "X-Loft-Properties"
-
-GLB_MEDIA_TYPE = "model/gltf-binary"
 
 router = APIRouter(prefix="/api/v1", tags=["geometry"])
 

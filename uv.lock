@@ -539,6 +539,7 @@ version = "0.1.0"
 source = { editable = "services/gateway" }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "loft-py-kit" },
     { name = "uvicorn" },
 ]
@@ -546,6 +547,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx2", specifier = ">=2.5" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]

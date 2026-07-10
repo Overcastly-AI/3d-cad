@@ -1,7 +1,10 @@
 """py_kit.app — factory, probes, request-id middleware, error envelope."""
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Any
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from py_kit.app import REQUEST_ID_HEADER, create_app
 from py_kit.config import BaseServiceSettings
@@ -117,6 +120,24 @@ def test_readyz_failing_check_gives_503_with_detail() -> None:
     assert body["status"] == "unavailable"
     assert body["checks"]["redis_ping"] == "ok"
     assert body["checks"]["postgres_ping"] == "error: connection refused"
+
+
+def test_lifespan_passed_through_to_fastapi() -> None:
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        events.append("start")
+        yield
+        events.append("stop")
+
+    app = create_app(
+        BaseServiceSettings(), title="Test", version="0.0.1", lifespan=lifespan
+    )
+    with TestClient(app) as client:
+        assert events == ["start"]
+        assert client.get("/healthz").status_code == 200
+    assert events == ["start", "stop"]
 
 
 def test_probes_not_in_openapi_schema() -> None:

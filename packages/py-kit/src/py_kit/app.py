@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable, Sequence
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from starlette.types import Lifespan
 
 from py_kit.config import BaseServiceSettings
 from py_kit.errors import install_error_handlers
@@ -39,10 +40,15 @@ def create_app(
     title: str,
     version: str,
     readiness_checks: Sequence[ReadinessCheck] = (),
+    lifespan: Lifespan[FastAPI] | None = None,
 ) -> FastAPI:
-    """Build a service app with logging, probes, and the error envelope."""
+    """Build a service app with logging, probes, and the error envelope.
+
+    ``lifespan`` is passed straight to FastAPI — services use it to own
+    startup/shutdown resources (e.g. the gateway's upstream HTTP client).
+    """
     configure_logging(settings)
-    app = FastAPI(title=title, version=version)
+    app = FastAPI(title=title, version=version, lifespan=lifespan)
     install_error_handlers(app)
 
     @app.middleware("http")
