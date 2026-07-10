@@ -207,6 +207,31 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   (numbers, screenshots), then what's running, then what's next — proactively
   at milestones.
 
+## Token economy (founder priority 2026-07-10 — quality-neutral savings only)
+
+Usage-limit interruptions cost more than they save; spend tokens where
+quality lives (builders, reviewers, geometry QA) and trim everywhere else:
+
+- **Model tiers:** direction/docs roles (groomer, vision-steward,
+  oss-curator: `model: sonnet`; doc-syncer: `haiku`) — builders, reviewers,
+  and QA stay on the strong default. Never downgrade a role whose output
+  gates correctness or security.
+- **Lean briefs:** orchestrator briefs point at the BACKLOG item's acceptance
+  criteria instead of restating them; only deltas, environment facts, and
+  territory go in the brief.
+- **Scoped reading:** agents read the doc *sections* they need (e.g.
+  RESEARCH §N named in the brief), not every direction doc end-to-end.
+- **Targeted verification:** the orchestrator re-runs a *targeted slice* of a
+  completed agent's gates (the protocol's wording — not the full suite);
+  the full sweep (`just lint && just test && just e2e`) runs once per batch
+  end, not per item.
+- **Lean shared docs:** files every agent reads must stay small. BACKLOG
+  changelog entries ≤3 lines; groomer prunes older entries into CHANGELOG.md
+  each pass; Done archives get collapsed to one line per item after a phase
+  closes.
+- **Right-size reports:** agent return reports carry evidence tails and
+  decisions, not narration. Screenshots > prose for UI evidence.
+
 ## Environment recipes (hard-won — append as you learn)
 
 Next-Lane's equivalent section was earned through painful debugging; ours
