@@ -1,6 +1,37 @@
 {
   "components": {
     "schemas": {
+      "AuthTokenResponse": {
+        "description": "A signed-in identity: the user plus a bearer access token.",
+        "properties": {
+          "access_token": {
+            "description": "JWT for `Authorization: Bearer <token>`",
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Access-token lifetime in seconds",
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "token_type": {
+            "const": "bearer",
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserResponse"
+          }
+        },
+        "required": [
+          "user",
+          "access_token",
+          "expires_in"
+        ],
+        "title": "AuthTokenResponse",
+        "type": "object"
+      },
       "BoundingBox": {
         "description": "Axis-aligned bounding box (mm), exact (not mesh-inflated).",
         "properties": {
@@ -140,6 +171,30 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "LoginRequest": {
+        "description": "Exchange email + password for an access token.",
+        "properties": {
+          "email": {
+            "description": "Account email",
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "description": "Account password",
+            "format": "password",
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
       "MeshStats": {
         "description": "Statistics of the tessellated GLB artifact.",
         "properties": {
@@ -163,6 +218,30 @@
           "glb_bytes"
         ],
         "title": "MeshStats",
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "description": "Create an account. Policy: 8-256 chars, enforced in the route.",
+        "properties": {
+          "email": {
+            "description": "Account email; unique, case-insensitive",
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "description": "Plaintext password, 8-256 characters (never stored; argon2id-hashed)",
+            "format": "password",
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest",
         "type": "object"
       },
       "ShapeProperties": {
@@ -279,6 +358,33 @@
         "title": "TopologyCounts",
         "type": "object"
       },
+      "UserResponse": {
+        "description": "Public view of an account \u2014 no credential material, ever.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "created_at"
+        ],
+        "title": "UserResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -343,6 +449,14 @@
         "title": "Vec3",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "bearerFormat": "JWT",
+        "description": "Access token from `/api/v1/auth/register` or `/api/v1/auth/login`.",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
@@ -351,6 +465,117 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "description": "Exchange email + password for an access token (uniform 401 on failure).",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "description": "The authenticated account (protected: bearer token required).",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "description": "Create an account and sign it in (201, envelope 409 on duplicate).",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/geometry/export": {
       "post": {
         "description": "Build + export on the geometry service; pass the file bytes through.",

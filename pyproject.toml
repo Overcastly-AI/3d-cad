@@ -23,7 +23,8 @@ dev = [
     "loft-gateway",
     "loft-documents",
     "loft-geometry",
-    "httpx2>=0.1",  # fastapi/starlette TestClient transport (httpx is deprecated there)
+    "httpx2>=0.1", # fastapi/starlette TestClient transport (httpx is deprecated there)
+    "aiosqlite>=0.20",
 ]
 
 [tool.uv.sources]

@@ -90,9 +90,21 @@ services:
       # Upstream for the /api/v1/geometry/* proxy (readiness reports it
       # best-effort; REDIS_URL etc. get wired when WebSocket fan-out lands).
       GEOMETRY_URL: http://geometry:8002
+      # Identity store for /api/v1/auth/* (readiness pings it HARD — a dead
+      # DB takes the gateway unready). Schema via alembic, run from the host:
+      #   POSTGRES_URL=postgresql://loft:loft-dev-only@localhost:${DB_PORT:-5432}/loft \
+      #     uv run alembic -c services/gateway/alembic.ini upgrade head
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-loft}:${POSTGRES_PASSWORD:-loft-dev-only}@db:5432/${POSTGRES_DB:-loft}
+      # JWT posture: LOFT_ENV=dev (default) tolerates an unset JWT_SECRET via
+      # a fixed, publicly-known fallback — LOCAL DEV ONLY. Any other LOFT_ENV
+      # refuses to boot without a real secret (>= 32 chars).
+      LOFT_ENV: ${LOFT_ENV:-dev}
+      JWT_SECRET: ${JWT_SECRET:-}
     ports:
       - "${GATEWAY_PORT:-8000}:8000"
     depends_on:
+      db:
+        condition: service_healthy
       documents:
         condition: service_healthy
       geometry:

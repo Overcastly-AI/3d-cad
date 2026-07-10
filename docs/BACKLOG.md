@@ -73,14 +73,16 @@ with them; #8 is small platform enablement.
       Acceptance: decision recorded in RESEARCH §2 in the same commit; spike
       code clearly marked or discarded; interface unit-tested against
       whichever backend wins. [src: research]
-- [ ] (P1, M) Auth v1 backend — email/password register/login on the
+- [x] (P1, M) Auth v1 backend — email/password register/login on the
       gateway, password hashing (argon2/bcrypt), JWT access tokens under
       `/api/v1/auth/*`, user store per RESEARCH §3, alembic migration,
       protected-route dependency. Acceptance: unit tests cover wrong
       password, duplicate email, token expiry/tamper; passwords and hashes
       never appear in logs or error envelopes (py-kit envelope used
       throughout); contracts + ts-client regenerated. Security-sensitive:
-      code-reviewer pass mandatory before merge. [src: roadmap]
+      code-reviewer pass mandatory before merge. Shipped 2026-07-10 (see
+      changelog; reconciled after an interrupted first run) — code-reviewer
+      pass routed by the orchestrator. [src: roadmap]
 - [ ] (P1, M) Documents service: parts CRUD — create/list/get/delete parts
       in Postgres (alembic migration), owner-scoped once auth lands (stub
       principal acceptable to start — soft dependency), gateway aggregation
@@ -186,6 +188,33 @@ All shipped through commit 322a988; details in the Changelog below and
       [src: code-reviewer]
 
 ## Changelog
+
+- 2026-07-10 — Auth v1 backend shipped (Ready #5; reconciled and finished
+  after the first agent was killed mid-task — inherited implementation
+  audited, lint-hardened, and test-covered; nothing reverted). Gateway owns
+  identity (RESEARCH §3): `POST /api/v1/auth/register` (201) / `login` /
+  `GET me` with argon2id hashing (salted, transparent rehash-on-login) and
+  HS256 JWTs (`sub`/`iat`/`exp` required, algorithm pinned). Fail-fast
+  secret posture: only `LOFT_ENV=dev` may boot without `JWT_SECRET` (fixed
+  public fallback + logged warning); any other env, an empty secret, a
+  <32-char secret, or a non-positive TTL refuses startup — proven by
+  `TestStartupFailFast` incl. the typo'd-env fail-closed case. Users table
+  via alembic `0001_users` (Postgres-targeted; offline SQL verified), real
+  `SELECT 1` postgres readiness when POSTGRES_URL is set (HARD check;
+  exception type only — no DSN leak, tested), compose wires gateway →
+  db + JWT_SECRET/LOFT_ENV passthrough (migration run stays a documented
+  host-side command — runtime image has no alembic; wire-up deferred to the
+  documents-CRUD item). py-kit: `UnauthorizedError` (401 +
+  `WWW-Authenticate: Bearer`), envelope response headers, and 422 details
+  scrubbed to type/loc/msg so request payloads (passwords!) are never
+  echoed. 30 new gateway tests (SQLite/aiosqlite; dialect split + weakened
+  Postgres coverage documented in the module docstring) + 3 py-kit tests:
+  happy paths, uniform-401 anti-enumeration (byte-identical envelopes +
+  dummy-hash timing burn), duplicate email 409 (constraint, race-free, case
+  variant), expiry/tamper/alg-none/ghost-user 401s, no password/hash
+  material in captured logs or bodies. Contracts + ts-client regenerated;
+  `just lint` / `just test` (156 py + 28 ts) / `just gen-check` green.
+  Unblocks Ready #7 (Auth v1 web sign-in). [backend-builder]
 
 - 2026-07-10 — VISION scorecard re-scored (routed from the 1b-web ship):
   Interop stays ❌ with an honest half-flipped note (export shipped +

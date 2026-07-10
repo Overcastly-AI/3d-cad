@@ -1,6 +1,66 @@
 // GENERATED — do not edit; run `just gen`.
 // Types for the gateway service (source contract: packages/contracts/gateway.openapi.json).
 export interface paths {
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login
+         * @description Exchange email + password for an access token (uniform 401 on failure).
+         */
+        post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Me
+         * @description The authenticated account (protected: bearer token required).
+         */
+        get: operations["me_api_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register
+         * @description Create an account and sign it in (201, envelope 409 on duplicate).
+         */
+        post: operations["register_api_v1_auth_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/export": {
         parameters: {
             query?: never;
@@ -65,6 +125,29 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AuthTokenResponse
+         * @description A signed-in identity: the user plus a bearer access token.
+         */
+        AuthTokenResponse: {
+            /**
+             * Access Token
+             * @description JWT for `Authorization: Bearer <token>`
+             */
+            access_token: string;
+            /**
+             * Expires In
+             * @description Access-token lifetime in seconds
+             */
+            expires_in: number;
+            /**
+             * Token Type
+             * @default bearer
+             * @constant
+             */
+            token_type: "bearer";
+            user: components["schemas"]["UserResponse"];
+        };
         /**
          * BoundingBox
          * @description Axis-aligned bounding box (mm), exact (not mesh-inflated).
@@ -157,6 +240,24 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * LoginRequest
+         * @description Exchange email + password for an access token.
+         */
+        LoginRequest: {
+            /**
+             * Email
+             * Format: email
+             * @description Account email
+             */
+            email: string;
+            /**
+             * Password
+             * Format: password
+             * @description Account password
+             */
+            password: string;
+        };
+        /**
          * MeshStats
          * @description Statistics of the tessellated GLB artifact.
          */
@@ -170,6 +271,24 @@ export interface components {
             triangles: number;
             /** Vertices */
             vertices: number;
+        };
+        /**
+         * RegisterRequest
+         * @description Create an account. Policy: 8-256 chars, enforced in the route.
+         */
+        RegisterRequest: {
+            /**
+             * Email
+             * Format: email
+             * @description Account email; unique, case-insensitive
+             */
+            email: string;
+            /**
+             * Password
+             * Format: password
+             * @description Plaintext password, 8-256 characters (never stored; argon2id-hashed)
+             */
+            password: string;
         };
         /**
          * ShapeProperties
@@ -238,6 +357,27 @@ export interface components {
             /** Shells */
             shells: number;
         };
+        /**
+         * UserResponse
+         * @description Public view of an account — no credential material, ever.
+         */
+        UserResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -272,6 +412,92 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    login_api_v1_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    me_api_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+        };
+    };
+    register_api_v1_auth_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_api_v1_geometry_export_post: {
         parameters: {
             query?: never;

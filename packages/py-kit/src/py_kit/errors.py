@@ -9,7 +9,8 @@ Services raise :class:`ApiError` subclasses; :func:`install_error_handlers`
 opaque 500 — no stack traces or internals leak to clients.
 """
 
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, ClassVar
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -23,10 +24,16 @@ _logger = get_logger("py_kit.errors")
 
 
 class ApiError(Exception):
-    """Base API error. Subclasses fix the HTTP status and default code."""
+    """Base API error. Subclasses fix the HTTP status and default code.
+
+    ``headers`` (class-level) lets a subclass attach response headers to the
+    rendered envelope — e.g. the RFC 6750 ``WWW-Authenticate`` challenge on
+    :class:`UnauthorizedError`.
+    """
 
     status_code: int = 500
     code: str = "internal_error"
+    headers: ClassVar[dict[str, str] | None] = None
 
     def __init__(
         self,
@@ -40,6 +47,21 @@ class ApiError(Exception):
         if code is not None:
             self.code = code
         self.details = details
+
+
+class UnauthorizedError(ApiError):
+    """Missing or invalid credentials (HTTP 401).
+
+    Rendered with a ``WWW-Authenticate: Bearer`` challenge (RFC 6750) — the
+    Loft auth surface is bearer-token based. Callers refine ``code`` (e.g.
+    ``invalid_credentials`` on login, ``invalid_token`` on protected routes)
+    but MUST keep messages generic: never echo credentials or say which of
+    email/password was wrong.
+    """
+
+    status_code = 401
+    code = "unauthorized"
+    headers: ClassVar[dict[str, str] | None] = {"WWW-Authenticate": "Bearer"}
 
 
 class NotFoundError(ApiError):
@@ -89,6 +111,7 @@ def error_response(
     message: str,
     details: Any = None,
     request_id: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     """Render the standard error envelope."""
     return JSONResponse(
@@ -101,7 +124,26 @@ def error_response(
                 "request_id": request_id,
             }
         },
+        headers=headers,
     )
+
+
+#: Keys of a pydantic validation error that are safe to echo to the client.
+#: ``input`` (and ``ctx``/``url``) are deliberately dropped: request payloads
+#: may carry secrets (passwords, tokens), and reflecting them back in the 422
+#: envelope would leak them to logs/proxies/browsers. ``loc`` + ``msg`` are
+#: enough to fix the request.
+_SAFE_VALIDATION_ERROR_KEYS = ("type", "loc", "msg")
+
+
+def _scrub_validation_errors(
+    errors: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Strip input echoes from pydantic validation errors (see above)."""
+    return [
+        {key: error[key] for key in _SAFE_VALIDATION_ERROR_KEYS if key in error}
+        for error in errors
+    ]
 
 
 def _request_id(request: Request) -> str | None:
@@ -119,6 +161,7 @@ def install_error_handlers(app: FastAPI) -> None:
             message=exc.message,
             details=exc.details,
             request_id=_request_id(request),
+            headers=exc.headers,
         )
 
     @app.exception_handler(RequestValidationError)
@@ -129,7 +172,7 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code=422,
             code="validation_error",
             message="Request validation failed.",
-            details=exc.errors(),
+            details=_scrub_validation_errors(exc.errors()),
             request_id=_request_id(request),
         )
 

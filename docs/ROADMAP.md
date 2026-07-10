@@ -70,7 +70,10 @@ carry forward as blocked board items.
 
 The thinnest vertical slice a working engineer can feel:
 
-- ⬜ Auth: email/password, JWT via gateway; single-workspace
+- 🚧 Auth: email/password, JWT via gateway; single-workspace (backend
+      shipped 2026-07-10: argon2id + HS256 register/login/me under
+      `/api/v1/auth/*`, users via alembic `0001_users`, fail-fast JWT_SECRET
+      posture, hard postgres readiness. Web sign-in pending)
 - ⬜ Documents: create/list parts; parametric feature tree persisted (JSONB
       params + ordered tree)
 - 🚧 Sketcher v1: plane selection, line/rect/circle/arc, dimensional +

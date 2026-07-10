@@ -22,11 +22,16 @@ def test_healthz() -> None:
 
 def test_readyz_stays_ready_with_geometry_down() -> None:
     """The geometry check is report-only: unreachable upstream never fails
-    readiness (see gateway.main), it is just annotated in the report."""
+    readiness (see gateway.main), it is just annotated in the report. The
+    postgres check reports "skipped" while POSTGRES_URL is unset (the real
+    ping paths are covered in tests/test_auth.py)."""
     settings = GatewaySettings(geometry_url="http://127.0.0.1:9")  # nothing listens
     response = TestClient(build_app(settings)).get("/readyz")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "checks": {"geometry": "unreachable"}}
+    assert response.json() == {
+        "status": "ok",
+        "checks": {"geometry": "unreachable", "postgres": "skipped"},
+    }
 
 
 def _envelope(body: dict[str, Any]) -> dict[str, Any]:

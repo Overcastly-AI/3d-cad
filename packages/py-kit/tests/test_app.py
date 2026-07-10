@@ -8,12 +8,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from py_kit.app import REQUEST_ID_HEADER, create_app
 from py_kit.config import BaseServiceSettings
-from py_kit.errors import ApiError, ConflictError, NotFoundError
-from pydantic import BaseModel
+from py_kit.errors import ApiError, ConflictError, NotFoundError, UnauthorizedError
+from pydantic import BaseModel, SecretStr
 
 
 class _Payload(BaseModel):
     quantity: int
+
+
+class _Credentials(BaseModel):
+    secret: SecretStr
 
 
 def _build_app() -> TestClient:
@@ -42,6 +46,14 @@ def _build_app() -> TestClient:
     @app.post("/api/v1/items")
     async def items(payload: _Payload) -> dict[str, int]:
         return {"quantity": payload.quantity}
+
+    @app.get("/api/v1/protected")
+    async def protected() -> None:
+        raise UnauthorizedError("Not authenticated.")
+
+    @app.post("/api/v1/credentials")
+    async def credentials(payload: _Credentials) -> dict[str, bool]:
+        return {"ok": bool(payload.secret)}
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -192,6 +204,31 @@ def test_request_validation_error_envelope() -> None:
     details = error["details"]
     assert isinstance(details, list) and details
     assert details[0]["loc"] == ["body", "quantity"]
+
+
+def test_validation_error_never_echoes_input() -> None:
+    """422 details are scrubbed to type/loc/msg — the offending input value
+    (which may be a password or token) is never reflected back."""
+    response = _build_app().post("/api/v1/items", json={"quantity": "hunter2-secret"})
+    assert response.status_code == 422
+    assert "hunter2-secret" not in response.text
+    details = _envelope(response.json())["details"]
+    assert all(set(item) <= {"type", "loc", "msg"} for item in details)
+
+    # A missing sibling field must not drag the whole (secret-bearing) body
+    # into the `input` echo either.
+    response = _build_app().post(
+        "/api/v1/credentials", json={"secrets": "hunter2-secret"}
+    )
+    assert response.status_code == 422
+    assert "hunter2-secret" not in response.text
+
+
+def test_unauthorized_error_sets_bearer_challenge() -> None:
+    response = _build_app().get("/api/v1/protected")
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert _envelope(response.json())["code"] == "unauthorized"
 
 
 def test_unknown_route_uses_envelope() -> None:
