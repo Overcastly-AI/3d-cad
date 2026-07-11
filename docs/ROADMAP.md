@@ -137,10 +137,12 @@ The thinnest vertical slice a working engineer can feel:
       title-block export controls in the web app; QA'd in a real browser:
       Playwright downloads `box.step`/`box.stl` through the full stack and
       asserts file contents)
-- 🚧 Golden models: 5 reference parts covering every shipped feature (2 of
-      5: `box-10x20x30`, `cylinder-r10-h25` — first curved golden shipped
-      2026-07-10 with a measured 1e-9 curved-GProp tolerance, seam-edge
-      topology, and a curved STEP round-trip baseline; docs/GEOMETRY-QA.md)
+- 🚧 Golden models: 5 reference parts covering every shipped feature (3 of
+      5: `box-10x20x30`, `cylinder-r10-h25` — first curved golden, 1e-9
+      curved-GProp tolerance, seam-edge topology, curved STEP round-trip
+      baseline; `sketch-extrude-40x25x10` — first feature-tree golden
+      shipped 2026-07-11 with BACKLOG #6, 1e-9 tolerance, 0.0-deviation STEP
+      round-trip; docs/GEOMETRY-QA.md. Fillet + chamfer goldens pending)
 - ⬜ E2E: Playwright — login → sketch → extrude → edit param → export, desktop
       and touch viewport smoke
 

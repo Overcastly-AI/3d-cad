@@ -220,3 +220,33 @@ feature-tree.md`: features table vs JSONB tradeoff, versioned param
 - **docs(board): groom for Phase 1** (35bd7ec) — Ready queue sequenced
   (export/cylinder/design-doc/spike/auth/CRUD/e2e), Scorecard-gaps note
   added, Phase 0 archived. [backlog-groomer]
+
+## [Phase 1: MVP — sketcher/Features-v1, batch 2] — 2026-07-11
+
+- **feat(documents): feature-tree persistence — schema + API slice** (6b6ff36)
+  — alembic `0002_feature_tree`, feature CRUD/reorder/rollback with §2.2
+  reference rules, 409-with-dependents, 422-stale-version.
+- **feat(geometry): evaluate-tree slice** (23004a5) — stateless
+  `POST /api/v1/evaluate`, ordered dispatch, strict-prefix partial results,
+  sketch-only handler registry.
+- **feat(sketch): sketch model + solver API** (8831c21) — typed sketch
+  entity/constraint schemas, §6 worked example solved end-to-end at 0.0
+  deviation, DOF 0, over real HTTP.
+- **feat(web): sketcher v1** (91fa1d1) — `/parts/{id}` workspace: datum-plane
+  pick, L/R/C/A click-to-place tools, 1 mm-snap DRO, save→evaluate→render;
+  e2e 19/19.
+- **docs(board): file parts-home UI item** (cadeb31) — workspace was
+  direct-URL-only.
+- **feat(web): sketcher constraints + solve feedback** (75f0214) — H/V/D/R/X/C
+  verbs, in-viewport glyphs with inline dimension edit, live
+  save→solve→adopt loop, DRO DOF cell, conflict diagnostics; e2e 25/25.
+- **docs(board): file structured conflict-indices item** (17668b2) — frontend
+  parses error text today, filed for a typed field.
+- **feat(geometry): extrude (add/cut) end-to-end** (11eaa65) — first
+  body-affecting feature; golden `sketch-extrude-40x25x10` (1e-9 tolerance,
+  0.0-dev STEP round-trip), strict-prefix broken-profile case, §7.8 interim
+  content-addressed mesh endpoint.
+- **docs(board): groom for Phase 1 wrap-up** (this pass) — ROADMAP golden
+  count fixed (2→3 of 5); Ready refilled toward the exit gate: mesh-fetch
+  gateway proxy + viewport render, extrude UI, parts home, fillet/chamfer
+  split, export-from-tree, full-flow e2e. [backlog-groomer]

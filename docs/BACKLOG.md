@@ -10,134 +10,134 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Scorecard gaps (docs/VISION.md daily-driver scorecard)
 
-Every row is ❌ except Price/freedom (✅ structurally). Sketching and Part
-modeling are the active flips this phase — the whole Ready queue below feeds
-them:
+Every row is ❌ except Price/freedom (✅ structurally). See VISION.md's table
+for current row text — the vision-steward re-scores it independently each
+pass; this note only points the queue at it, no duplication:
 
-- **Sketching & constraints** — solver adopted (planegcs, 0.0-deviation
-  benchmark), the sketch model + solve API runs end-to-end (Ready #1–#3),
-  the sketcher UI authors/persists/renders solved entities (Ready #4), and
-  constraint authoring + live solve feedback shipped (Ready #5, 2026-07-11).
-  Re-score candidate for the vision-steward (VISION.md scorecard row).
-- **Part modeling (features, history)** — feature tree persisted + evaluated
-  (Ready #1–#3) and the first body-affecting feature shipped: extrude
-  add/cut with its golden + rebuild-error surfacing (Ready #6, 2026-07-11).
-  Remaining for the flip: fillet/chamfer, feature-tree panel with
-  edit/rollback, parts-home UI (Next items).
-- **Interop (STEP/STL)** — half-flipped per VISION's 2026-07-10 re-score
-  (export shipped + QA-verified at 0.0 round-trip deviation; import unstarted,
-  Phase 4). No Phase 1 item targets it further; stays ❌ until import lands.
+- **Part modeling row** — extrude is real geometry (golden-verified) but the
+  daily-driver loop is still broken per the row's own language: the extruded
+  body doesn't render (mesh-fetch proxy unshipped), no way to create/edit an
+  extrude from the UI, no feature-tree edit/rollback UI, no fillet/chamfer,
+  no parts-home UI. Ready #1–#6 below close these gaps in dependency order.
+- **Sketching row** — no Phase 1 items target it further this pass (Phase 2:
+  tangent/perpendicular/parallel/equal/symmetric/concentric, trim/offset,
+  mirror/pattern, construction geometry).
+- **Interop row** — half-flipped (export shipped, import Phase 4). Ready #7
+  closes the export-from-tree gap (GEOMETRY-QA gap #8) so an engineer can
+  export the part they just extruded, not just bare primitives.
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
   access — later phases; no Phase 1 items target them.
 
 ## Ready (top of queue)
 
-Sequenced for the sketcher/Features-v1 slice of Phase 1, per
-`docs/design/feature-tree.md`. #1–#2 are independent (shared DTOs, no DB
-dependency between them) and can build in parallel; #3 depends on both; #4→#5
-are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
-#4/#5.
+Sequenced toward the Phase 1 exit gate (roadmap: login → sketch → extrude →
+edit param → export). #1→#2→#3 is the mesh-visibility + extrude-UI chain
+(each depends on the previous). #4 (parts home) and #5→#6 (fillet, chamfer)
+are independent of that chain and of each other's predecessors beyond #5→#6,
+and can build in parallel with it. #7 (export-from-tree) is independent of
+#1–#6 and can start immediately. #8 (full-flow e2e) is the exit gate and
+depends on #2, #3, #4, #7.
 
-- [x] (P1, M) Feature-tree persistence — documents schema + API slice —
-      implement design doc §1–3, §5 in the documents service: alembic
-      `0002_feature_tree` (`features` + `feature_dependencies` tables,
-      `tree_version`/`rollback_feature_id` columns per §1.2); feature CRUD API
-      (create/update/delete/reorder a feature, move the rollback bar);
-      reference validation (§2.2: same-part, strictly-earlier, type-
-      compatible) with materialized `feature_dependencies` (§2.3) and a
-      409-with-dependents delete conflict; optimistic concurrency via
-      `tree_version` (stale write → 422, distinct from the 409). Structural
-      `py_kit.schemas.features` envelope only — entity/constraint bodies are
-      finalized by #3. No geometry evaluation wiring yet (#2). Depends on:
-      parts CRUD, feature-tree design doc (both shipped).
-      Acceptance: alembic migration applies/downgrades against a real test
-      DB; unit tests cover the three §2.2 reference rules, dependency-edge
-      maintenance, 409-with-dependents delete, stale-`tree_version` 422,
-      rollback-bar move + `SET NULL` on bar-feature delete; contracts +
-      ts-client regenerated (`just gen-check` green); documents still imports
-      no kernel code. [src: roadmap]
-- [x] (P1, M) Feature-tree persistence — geometry evaluate slice — implement
-      the stateless `EvaluateTreeRequest`/`EvaluateTreeResult` contract
-      (design §4) as a new geometry-service endpoint: ordered per-feature
-      dispatch, strict-prefix partial-result rule (§4.3 — first failure marks
-      `error`, the rest `skipped`, last-good body tessellated),
-      `FeatureError` surfacing. DTOs live in `py_kit.schemas.features`
-      (shared, no duplication). Registers only the `sketch` type for now,
-      solved via the existing `SketchSolver` and returned as an additive
-      `FeatureResult.data` payload (open question §7.10); `extrude` dispatch
-      is added by #6 in the same framework. Geometry stays DB-less
-      (RESEARCH §3) — independent of #1, buildable in parallel. Depends on:
-      feature-tree design doc, SketchSolver (both shipped).
-      Acceptance: API tests cover an all-sketch tree (`ok`, `mesh_glb_id:
-      null` — no body-affecting feature ran), a failing-sketch tree
-      (strict-prefix skip demonstrated), byte-deterministic responses;
-      contracts + ts-client regenerated. [src: roadmap]
-- [x] (P1, M) Sketch model + solver API — finalize `SketchEntity`/
-      `SketchConstraint` pydantic shapes in `py_kit.schemas.features` (design
-      §1.4 placeholder): line/rect/circle/arc with sketch-local string ids
-      (§2.4), the five constraint kinds the planegcs spike benchmarked
-      (coincident/horizontal/vertical/distance/radius/fixed — plus `radius`
-      for circles). Wire a sketch feature end-to-end through #1 (persist) and
-      #2 (solve): a client can create/update a sketch feature and get solved
-      geometry back. Depends on: #1, #2.
-      Acceptance: API test reproduces the design doc's §6 worked example
-      (40×25 rectangle on XY, 5 constraints) end-to-end — create part →
-      create sketch feature → evaluate-tree → solved corners at 0.0
-      deviation, DOF 0; underconstrained/conflicting sketches surface solver
-      status via `FeatureError`/`data`, never a crash; contracts + ts-client
-      regenerated. [src: roadmap]
-- [x] (P1, S) Sketcher UI — plane + entity authoring — viewport datum-plane
-      selection (XY/XZ/YZ) and raw entity authoring (line/rect/circle/arc)
-      wired to the sketch API (#3); no constraint UI yet, entities persist
-      unconstrained. `frontend-design` skill mandatory (new viewport
-      interaction affordances + an entity-toolbar panel composing
-      `packages/design` primitives). Depends on: #3.
-      Acceptance: Playwright e2e — select a plane, draw a rectangle, reload
-      and see it persisted; WCAG-AA + visible focus + 1280×800 verified;
-      founder screenshots. [src: roadmap]
-- [x] (P1, M) Sketcher UI — constraints + solve feedback — constraint
-      toolbar (coincident/horizontal/vertical/distance/radius/fixed) plus a
-      live solved-geometry render loop consuming the #2/#3 solved payload,
-      and a DOF/status indicator (converged/under/over-constrained/
-      conflicting). Depends on: #4.
-      Acceptance: Playwright e2e reproduces the design-doc worked example
-      (draw + dimension a 40×25 rectangle, solved corners rendered);
-      over-constrained/conflicting states show a legible in-viewport
-      diagnostic, not a silent failure; WCAG-AA + 1280×800 verified;
-      founder screenshots. [src: roadmap]
-- [x] (P1, M) Extrude (add/cut) end-to-end — first real feature: registers
-      `extrude` in #2's evaluate-tree dispatcher — sketch profile (closed-wire
-      check) → solid via build123d, `add`/`cut` boolean against the prior
-      body, `direction: normal|reverse`. Feature re-evaluation on param edit;
-      rebuild-error surfacing (`profile_not_closed`, `boolean_failed` per
-      design §4.3) pinned to the failing feature. Ships with its golden model
-      in the same commit (geometry-gates skill) — hand-derived from the
-      design doc's §6 worked example (40×25 rectangle extruded 10 mm =
-      10 000 mm³). Depends on: #2, #3.
-      Acceptance: golden `sketch-extrude-40x25x10` passes every parametrized
-      gate (mass props/topology/mesh/determinism/STEP round-trip) at a
-      documented tolerance; a broken-profile case demonstrates the
-      strict-prefix error rule end-to-end at the API level; contracts +
-      ts-client regenerated. [src: roadmap]
+- [ ] (P1, S) Gateway mesh-fetch proxy — add
+      `GET /api/v1/geometry/meshes/{mesh_glb_id}` to the gateway, proxying
+      geometry's already-shipped content-addressed mesh endpoint (feature-tree
+      design §7.8 interim decision: `mesh_glb_id` is a `sha256:` content
+      address served from an in-process LRU). Same `_forward` proxy pattern as
+      the existing tessellate/export routes (`services/gateway/src/gateway/
+      geometry.py`) — CLAUDE.md service boundary: the web app never talks to
+      geometry directly. Depends on: nothing new (mesh endpoint shipped
+      2026-07-11 with extrude).
+      Acceptance: gateway route returns byte-identical GLB + media type as
+      geometry's endpoint on a hit; a miss passes through the py-kit
+      `mesh_not_found` 404 envelope unchanged; auth-protected like sibling
+      geometry routes; integration test hits it over real HTTP
+      gateway→geometry. [src: geometry-qa, product-auditor]
+- [ ] (P1, M) Viewport renders evaluated-tree bodies — the workspace viewport
+      fetches `mesh_glb_id` from an evaluate-tree response via #1 and renders
+      the resulting body mesh, replacing/augmenting the 2D sketch overlay —
+      the extrude loop becomes visible for the first time (VISION.md
+      Part-modeling row: "an engineer extrudes and sees nothing" today).
+      `frontend-design` skill mandatory (new 3D body render layer; extend
+      `packages/design` shading/material tokens if needed — one palette
+      across DOM + WebGL). Depends on: #1.
+      Acceptance: Playwright e2e — solve a rectangle sketch, extrude it (via
+      API is fine for this item; UI authoring is #3), reload the workspace,
+      see the extruded body rendered (screenshot evidence); handles
+      `mesh_glb_id: null` (no body-affecting feature yet) by showing the
+      sketch only, no error state; WCAG-AA + 1280×800 verified; founder
+      screenshots. [src: product-auditor, engineering-auditor]
+- [ ] (P1, M) Extrude feature UI — create/edit + feature-tree panel
+      edit/rollback — from the workspace, add an extrude feature against a
+      closed sketch profile (direction/operation/distance params), edit its
+      params, and use the feature-tree panel to select any feature and move
+      the rollback bar (documents API already supports this). Scoped slice of
+      the roadmap's "Viewport v1" item — face/edge picking stays out of scope
+      (filed separately in Next, blocked on #5/#6). Depends on: #2 (so the
+      new UI's output is immediately visible and testable).
+      Acceptance: Playwright e2e — sketch a rectangle, extrude via the UI, see
+      the body, edit the extrude distance and see it update, roll the bar
+      back before the extrude and see the pre-extrude state; rebuild errors
+      (`profile_not_closed`) surfaced legibly in the tree panel, not a silent
+      failure; WCAG-AA + 1280×800; founder screenshots. [src: product-auditor,
+      roadmap]
+- [ ] (P1, S) Parts home UI — create/list/open/delete parts screens (the
+      `/parts/{id}` workspace exists but is only reachable by direct URL;
+      e2e creates parts via API today). Composes design primitives;
+      independent of #1–#3, needed for the Phase 1 full-flow e2e exit gate (a
+      user must reach the workspace without a hand-typed URL). Acceptance:
+      Playwright e2e — sign in, create a part from the UI, open it, delete
+      it, list reflects each step; WCAG-AA + 1280×800; founder screenshots.
+      [src: frontend-builder]
+- [ ] (P1, M) Fillet feature — round edges of the extruded body via
+      build123d; registers in the evaluate-tree dispatcher alongside extrude.
+      Ships with its own golden in the same commit (geometry-gates skill) —
+      first fillet golden is a new curved-topology class beyond the cylinder;
+      STEP round-trip observations recorded in GEOMETRY-QA. Edge-selection
+      references reuse the design doc's `GeomRef` conventions. Depends on:
+      extrude (shipped).
+      Acceptance: golden passes every parametrized gate (mass props/topology/
+      mesh/determinism/STEP round-trip) at a measured-then-set tolerance; a
+      bad-edge-selection error path pinned at the API level; contracts +
+      ts-client regenerated. [src: roadmap, product-auditor]
+- [ ] (P1, M) Chamfer feature — bevel edges of the extruded body via
+      build123d; registers in the evaluate-tree dispatcher, reusing #5's
+      edge-reference plumbing. Ships with its own golden in the same commit;
+      STEP round-trip observations recorded in GEOMETRY-QA. Depends on: #5
+      (edge-reference plumbing).
+      Acceptance: golden passes every parametrized gate at a documented
+      tolerance; bad-edge-selection error path pinned; contracts + ts-client
+      regenerated. [src: roadmap, product-auditor]
+- [ ] (P1, M) Export-from-tree — extend export to accept an evaluated feature
+      tree (part id, optionally a rollback point), not just a bare
+      `ShapeRequest` (closes GEOMETRY-QA gap #8: `POST /api/v1/export` speaks
+      shapes only today, so an engineer cannot export the part they just
+      extruded). Gateway route + web title-block wiring so export works from
+      the part workspace. Depends on: evaluate-tree, documents feature-tree
+      API (both shipped).
+      Acceptance: export gates parametrize the `sketch-extrude-40x25x10` tree
+      golden (STEP + STL, byte-deterministic, endpoint-level round-trip)
+      alongside the existing shape goldens; the workspace's export button
+      downloads the current evaluated body; contracts + ts-client
+      regenerated. [src: geometry-qa, roadmap]
+- [ ] (P1, M) Full-flow Playwright e2e — login → create part → sketch →
+      extrude → edit param → export, desktop + touch viewport smoke. This is
+      the Phase 1 exit gate (docs/ROADMAP.md "Current focus"); closing it is
+      the signal to advance to Phase 2. Depends on: #2, #3, #4, #7.
+      Acceptance: one Playwright spec exercises the full loop against the
+      real stack (`scripts/e2e.sh` boot/reuse), green on desktop (1280×800)
+      and a touch viewport profile; founder screenshot set of every step.
+      [src: roadmap]
 
 ## Next (P2)
 
-- [ ] (P2, S) Parts home UI — create/list/open/delete parts screens (the
-      `/parts/{id}` workspace exists but is only reachable by direct URL;
-      e2e creates parts via API). Composes design primitives; needed for
-      the Phase 1 full-flow e2e exit gate. [src: frontend-builder]
+- [ ] (P2, M) Viewport v1 — face/edge picking — needed for in-UI edge
+      selection when authoring fillet/chamfer (Ready #5/#6 ship the
+      API-level `GeomRef` edge references; UI picking is separate). Depends
+      on Ready #5/#6. [src: roadmap]
 - [ ] (P3, S) Structured conflict indices — promote conflicting/redundant
       constraint indices from the `sketch_conflicting` error message into a
       typed `FeatureError` field (geometry + py-kit); frontend currently
       parses the message (documented). [src: frontend-builder]
-- [ ] (P2, M) Fillet + chamfer — each with a golden in the same commit;
-      curved-surface STEP round-trip observations recorded in GEOMETRY-QA.
-      Depends on extrude existing. [src: roadmap]
-- [ ] (P2, M) Viewport v1 upgrades — face/edge picking, feature-tree panel
-      with edit/rollback. Depends on features existing. [src: roadmap]
-- [ ] (P2, M) Full-flow Playwright e2e — login → sketch → extrude → edit
-      param → export, desktop + touch smoke (roadmap Phase 1 exit gate).
-      [src: roadmap]
 - [ ] (P2, M) arq/redis queue runtime — move geometry evaluation from
       sync-inline to the real queue path; geometry gates gain queue-path
       coverage (GEOMETRY-QA gap #2). [src: roadmap, geometry-qa]
@@ -220,39 +220,37 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 - [x] (P1, S) `just e2e` wiring — `scripts/e2e.sh` runs geometry gates +
       Playwright (GEOMETRY-QA gap #6). [src: geometry-qa]
 
+### Phase 1 — Ready batch 2 (through commit 11eaa65)
+
+- [x] (P1, M) Feature-tree persistence — documents schema + API slice —
+      alembic `0002_feature_tree`, feature CRUD/reorder/rollback, reference
+      rules, 409/422 conflict handling. [src: roadmap]
+- [x] (P1, M) Feature-tree persistence — geometry evaluate slice — stateless
+      `POST /api/v1/evaluate`, ordered dispatch, strict-prefix partial
+      results. [src: roadmap]
+- [x] (P1, M) Sketch model + solver API — typed sketch entity/constraint
+      schemas, §6 worked example solved end-to-end at 0.0 deviation.
+      [src: roadmap]
+- [x] (P1, S) Sketcher UI — plane + entity authoring — `/parts/{id}`
+      workspace, datum-plane pick, L/R/C/A tools, persistence e2e 19/19.
+      [src: roadmap]
+- [x] (P1, M) Sketcher UI — constraints + solve feedback — H/V/D/R/X/C
+      verbs, in-viewport glyphs, DRO DOF cell, conflict diagnostics; e2e
+      25/25. [src: roadmap]
+- [x] (P1, M) Extrude (add/cut) end-to-end — first body-affecting feature +
+      golden `sketch-extrude-40x25x10`, strict-prefix error rule, §7.8
+      interim mesh endpoint. [src: roadmap]
+
 ## Changelog
 
+- 2026-07-11 — **Groomed for the Phase 1 wrap-up.** ROADMAP golden count
+  fixed (2→3 of 5, `sketch-extrude-40x25x10` was missing). Ready refilled
+  toward the exit gate: mesh-fetch gateway proxy + viewport render
+  (VISION Part-modeling row's "invisible extrude" gap), extrude feature UI +
+  feature-tree edit/rollback, parts home, fillet/chamfer split into
+  independently-golden'd items, export-from-tree (GEOMETRY-QA gap #8),
+  full-flow e2e as the exit gate. Ready batch 2 (6 items) archived to
+  one-liners; prior Changelog entries moved to `CHANGELOG.md`. [backlog-groomer]
 - 2026-07-11 — **VISION.md re-scored: Sketching + Part modeling stay ❌.**
   Both have real shipped, QA-verified capability but neither closes the
   daily-driver loop yet — see scorecard notes for the precise gaps. [vision-steward]
-- 2026-07-11 — **Ready #6 shipped: extrude (add/cut) end-to-end.** First
-  body-affecting feature + golden `sketch-extrude-40x25x10` (0-dev STEP RT),
-  API strict-prefix broken-profile case, §7.8 interim mesh endpoint. [kernel-architect]
-- 2026-07-11 — **Ready #5 shipped: sketcher constraints + solve feedback.**
-  Picking + H/V/D/R/X/C verbs, in-viewport glyphs with inline dimension edit,
-  live save→solve loop, DRO DOF cell, conflict diagnostics; e2e 25/25. [frontend-builder]
-- 2026-07-11 — **Ready #4 shipped: sketcher UI — plane + entity authoring.**
-  `/parts/{id}` workspace: datum-plane pick, L/R/C/A click-to-place tools,
-  1 mm-snap DRO, save→evaluate→solved render; e2e 19/19. [frontend-builder]
-- 2026-07-11 — **Ready #3 shipped: sketch model + solver API.** Typed sketch
-  schemas in py-kit, `FeatureResult.data` (§7.10), documents evaluation-request,
-  gateway evaluate route; §6 rectangle solved over real HTTP. [backend-builder]
-- 2026-07-11 — **Ready #2 shipped: geometry evaluate slice.** Stateless
-  `POST /api/v1/evaluate` per design §4: sketch-only handler registry (extrude
-  plugs in via #6), strict-prefix rule, byte-deterministic. [kernel-architect]
-- 2026-07-11 — **Ready #1 shipped: feature-tree persistence (documents slice).**
-  Alembic `0002_feature_tree` (§1.2 DDL verbatim), feature CRUD/reorder/rollback
-  with §2.2 rules, 409-dependents, 422-stale; tested on SQLite + real scratch
-  Postgres (migrations applied). [backend-builder]
-- 2026-07-10 — **Groomed for the sketcher/Features-v1 slice.** ROADMAP
-  verified against `git log` (35bd7ec..565e337) — already accurate, no edits
-  needed. Refilled Ready from Next: feature-tree persistence implementation
-  split into an independent documents-schema/API slice (#1) and
-  geometry-evaluate slice (#2, sketch-only dispatch); sketch model + solver
-  API (#3); sketcher UI split into plane/entity authoring (#4) and
-  constraints/solve feedback (#5) now that the sketch API shape is known from
-  the design doc; extrude end-to-end with its golden (#6). Scorecard-gaps
-  note updated — Sketching + Part modeling are the active flips. Board
-  hygiene: shipped Ready batch 1 (8 items) collapsed to one line each in the
-  Done archive; all prior Changelog entries (Phase 0 + Phase 1 batch 1, 19
-  entries) moved to `CHANGELOG.md` as one-liners. [backlog-groomer]
