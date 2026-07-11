@@ -6,7 +6,14 @@
  * hands it up to the workspace (an extrude opens its editor); rolling the bar
  * before a feature marks everything below it inert without deleting it.
  */
-import { Panel, PanelActionCell, PanelSection } from "@loft/design";
+import {
+  ExtrudeIcon,
+  Panel,
+  PanelSection,
+  RevolveIcon,
+  SketchIcon,
+  ToolButton,
+} from "@loft/design";
 import type { ReactNode } from "react";
 
 import type {
@@ -210,33 +217,57 @@ export function FeatureTreePanel({
           )}
         </PanelSection>
 
-        <PanelActionCell
-          label="New sketch"
-          caption="Pick a plane, then L / R / C / A"
-          data-testid="new-sketch"
-          disabled={sketchActive || tree === undefined}
-          onClick={onNewSketch}
-        />
-        <PanelActionCell
-          label="Extrude"
-          caption={
-            canExtrude ? "Add or cut a sketch profile" : "Solve a sketch first"
-          }
-          data-testid="new-extrude"
-          disabled={!canExtrude || sketchActive || tree === undefined}
-          onClick={onNewExtrude}
-        />
-        <PanelActionCell
-          label="Revolve"
-          caption={
-            canRevolve
-              ? "Sweep a sketch profile about an axis"
-              : "Solve a sketch first"
-          }
-          data-testid="new-revolve"
-          disabled={!canRevolve || sketchActive || tree === undefined}
-          onClick={onNewRevolve}
-        />
+        {/* Create toolbar: the feature verbs as scribed icon buttons, grouped
+            like Fusion's Create — a sketch, then the body-affecting features. */}
+        <div
+          role="group"
+          aria-label="Create"
+          className="border-t border-hairline"
+        >
+          <span className="block px-3 pb-1 pt-2 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+            Create
+          </span>
+          <div className="flex items-stretch divide-x divide-hairline border-t border-hairline">
+            <ToolButton
+              className="grow justify-center"
+              icon={<SketchIcon />}
+              showLabel
+              label="Sketch"
+              data-testid="new-sketch"
+              aria-label="New sketch — pick a plane, then L / R / C / A"
+              disabled={sketchActive || tree === undefined}
+              onClick={onNewSketch}
+            />
+            <ToolButton
+              className="grow justify-center"
+              icon={<ExtrudeIcon />}
+              showLabel
+              label="Extrude"
+              data-testid="new-extrude"
+              aria-label={
+                canExtrude
+                  ? "Extrude — add or cut a sketch profile"
+                  : "Extrude — solve a sketch first"
+              }
+              disabled={!canExtrude || sketchActive || tree === undefined}
+              onClick={onNewExtrude}
+            />
+            <ToolButton
+              className="grow justify-center"
+              icon={<RevolveIcon />}
+              showLabel
+              label="Revolve"
+              data-testid="new-revolve"
+              aria-label={
+                canRevolve
+                  ? "Revolve — sweep a sketch profile about an axis"
+                  : "Revolve — solve a sketch first"
+              }
+              disabled={!canRevolve || sketchActive || tree === undefined}
+              onClick={onNewRevolve}
+            />
+          </div>
+        </div>
 
         {/* Title-block footer: the tree's vitals. */}
         <div className="grid grid-cols-3 divide-x divide-hairline border-t border-hairline">

@@ -227,6 +227,12 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       ad-hoc per-golden warm-rebuild numbers already in GEOMETRY-QA.md
       (3.8 ms–33 ms today) into a tracked suite with committed budgets and a
       CI regression gate (GEOMETRY-QA gap #7). [src: geometry-qa]
+- [ ] (P2, S) Toolbar system rollout — convert the remaining text-idiom
+      surfaces to the shipped `ToolButton`/`Flyout` primitives (DRO,
+      Extrude/Revolve editor op/direction toggles, ExportControls) and add a
+      Modify group + a sketch-tool overflow flyout as fillet/chamfer/sweep/
+      slot/polygon/spline land. Doc: `docs/design/toolbar-system.md`.
+      [src: frontend-builder]
 - [ ] (P3, S) Structured conflict indices — promote conflicting/redundant
       constraint indices from the `sketch_conflicting` error message into a
       typed `FeatureError` field (geometry + py-kit); frontend currently
@@ -362,6 +368,12 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Toolbar system shipped (frontend, design-system evolution):**
+  grouped-icon toolbar + keyboard-navigable flyouts + hand-drawn scribed CAD
+  icon set in `packages/design`; sketch tool+constraint toolbar (Geometric/
+  Dimensional/Relational flyouts) + feature Create toolbar converted; every
+  shortcut preserved as a tooltip accelerator; 54 e2e green.
+  Doc: `docs/design/toolbar-system.md`. Follow-up in Next. [frontend-builder]
 - 2026-07-11 — **Revolve authoring UI 5b shipped (frontend → #5 done):**
   "Revolve" action + title-block editor (line-entity axis pick, construction
   centerline default; brass angle handle); save/edit → live annular body;

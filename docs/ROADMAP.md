@@ -123,6 +123,14 @@ item below.
       reassess; still predicate-only edge selection, no hole/pattern/shell/
       draft). Next: sweep, loft, shell, draft, holes, linear/circular
       patterns, boolean between bodies, datum planes/axes
+- ⬜ Design system: grouped-icon toolbar + flyouts (✅ shipped — icon layer
+      for the growing tool count: `ToolButton`/`ToolGroup`/`Flyout`/`Kbd` +
+      hand-drawn scribed CAD icon set in `packages/design`; sketch tool +
+      constraint toolbar (Geometric/Dimensional/Relational flyouts) and the
+      feature Create toolbar converted; every keyboard shortcut preserved as a
+      tooltip accelerator; full e2e green. Doc: `docs/design/toolbar-system.md`).
+      Next: convert the remaining text-idiom surfaces (DRO, editor toggles,
+      export) + a Modify group as fillet/chamfer/sweep land
 - ⬜ Measurement tools, mass properties panel, units system
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
