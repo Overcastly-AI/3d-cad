@@ -123,7 +123,7 @@ WET code is a defect class here, reviewed as such:
 just dev            # compose up db/redis/minio + services + web (hot reload)
 just dev-down       # tear down the dev stack (keeps volumes)
 just smoke          # probe /healthz + /readyz on all services
-just lint           # ruff + pyright + eslint
+just lint           # ruff + pyright + eslint/prettier + TS typecheck (tsc)
 just test           # all unit tests (py + ts)
 just gen            # regenerate contracts + ts-client
 just gen-check      # CI gate: regenerate in tempdir, diff vs. committed

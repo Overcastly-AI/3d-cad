@@ -19,12 +19,16 @@ dev-down:
 smoke base_port="8000":
     scripts/smoke-healthz.sh {{base_port}}
 
-# Lint + typecheck: ruff (lint + format), pyright strict, eslint + prettier
+# Lint + typecheck: ruff (lint + format), pyright strict, eslint + prettier,
+# and TS typecheck (tsc) across the pnpm workspace. The TS typecheck is here so
+# a backend change that regenerates packages/ts-client and breaks a frontend
+# type can't pass a builder's gate before pushing (caught only by CI otherwise).
 lint:
     uv run ruff check .
     uv run ruff format --check .
     uv run pyright
     pnpm run lint
+    pnpm -r --if-present run typecheck
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:
