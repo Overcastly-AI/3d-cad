@@ -26,16 +26,22 @@ export type ConstraintAction =
   | "coincident"
   | "parallel"
   | "perpendicular"
-  | "tangent";
+  | "tangent"
+  | "equal"
+  | "symmetric"
+  | "concentric";
 
 /**
  * Key → verb while the selection is non-empty (see `resolveSketchKey`).
  *
- * The relational verbs relating two whole curves: **P** parallel (∥), **T**
- * tangent, and **L** perpendicular (⊥ — the right angle reads as an "L", and
- * L is the line-tool key reused in the constraint vocabulary, the same
- * cross-vocabulary reuse H/V/D/R/X/C already lean on). Chosen to leave E/S/O
- * free for the next slice's equal/symmetric/concentric verbs.
+ * Relational verbs relating whole entities: **P** parallel (∥), **T** tangent,
+ * **L** perpendicular (⊥ — the right angle reads as an "L", and L is the
+ * line-tool key reused in the constraint vocabulary, the same cross-vocabulary
+ * reuse H/V/D/R/X/C already lean on). The size/shape trio the 3b slice left
+ * free: **E** equal (=), **S** symmetric (⟷ about an axis), **O** cOncentric
+ * (◎) — E/S initial their verb; O takes coNcentric's stressed letter (C is
+ * already coincident). None of E/S/O is a draw tool (tools are L/R/C/A), so
+ * they only ever read as constraint verbs.
  */
 export const CONSTRAINT_SHORTCUTS: Readonly<Record<string, ConstraintAction>> =
   {
@@ -48,6 +54,9 @@ export const CONSTRAINT_SHORTCUTS: Readonly<Record<string, ConstraintAction>> =
     p: "parallel",
     l: "perpendicular",
     t: "tangent",
+    e: "equal",
+    s: "symmetric",
+    o: "concentric",
   };
 
 /**
@@ -61,9 +70,9 @@ export const CONSTRUCTION_SHORTCUT = "n";
 /**
  * One keyboard, two vocabularies: with an EMPTY selection the letters arm
  * drawing tools (L/R/C/A); with a selection they are constraint verbs
- * (H/V/D/R/X/C plus P/L/T for parallel/perpendicular/tangent) plus the
- * construction toggle (N). Selection presence is the mode — deterministic,
- * no chords.
+ * (H/V/D/R/X/C plus P/L/T for parallel/perpendicular/tangent and E/S/O for
+ * equal/symmetric/concentric) plus the construction toggle (N). Selection
+ * presence is the mode — deterministic, no chords.
  */
 export function resolveSketchKey(
   key: string,
@@ -193,22 +202,30 @@ export function sameConstraint(
         (sameRef(a.a, other.b) && sameRef(a.b, other.a))
       );
     }
-    // parallel/perpendicular/tangent relate two whole entities by id; each is
-    // symmetric (order immaterial), so an unordered id-pair match dedupes them.
+    // parallel/perpendicular/tangent and equal/concentric each relate two
+    // whole entities by id; every one is symmetric (order immaterial), so an
+    // unordered id-pair match dedupes them.
     case "parallel":
     case "perpendicular":
-    case "tangent": {
+    case "tangent":
+    case "equal":
+    case "concentric": {
       const other = b as typeof a;
       return (
         (a.a === other.a && a.b === other.b) ||
         (a.a === other.b && a.b === other.a)
       );
     }
-    // 4a→4b: equal/symmetric/concentric exist in the schema (solver shipped in
-    // 4a) but have no authoring verbs yet; a conservative "never duplicate"
-    // keeps this exhaustive switch green until 4b adds real dedup + glyphs.
-    default:
-      return false;
+    // symmetric ties two points about a line: same axis, and the same
+    // (unordered) point pair.
+    case "symmetric": {
+      const other = b as typeof a;
+      return (
+        a.line === other.line &&
+        ((sameRef(a.a, other.a) && sameRef(a.b, other.b)) ||
+          (sameRef(a.a, other.b) && sameRef(a.b, other.a)))
+      );
+    }
   }
 }
 
@@ -379,6 +396,75 @@ export function applyConstraintAction(
       }
       return { outcome: "added", constraints: [constraint] };
     }
+    case "equal": {
+      const picks = selectedEntities(selection, entities).filter(
+        (e) => e.kind === "line" || e.kind === "circle" || e.kind === "arc",
+      );
+      const [a, b] = picks;
+      if (picks.length !== 2 || a === undefined || b === undefined) {
+        return hint("Select two lines, or two circles/arcs, to make equal.");
+      }
+      const aRound = a.kind === "circle" || a.kind === "arc";
+      const bRound = b.kind === "circle" || b.kind === "arc";
+      // Equal length (two lines) or equal radius (two rounds) — never mixed.
+      if (!((a.kind === "line" && b.kind === "line") || (aRound && bRound))) {
+        return hint(
+          "Equal needs two of a kind — two lines, or two circles/arcs.",
+        );
+      }
+      const constraint: SketchConstraint = { kind: "equal", a: a.id, b: b.id };
+      if (constraints.some((c) => sameConstraint(c, constraint))) {
+        return hint("Already equal.");
+      }
+      return { outcome: "added", constraints: [constraint] };
+    }
+    case "concentric": {
+      const rounds = selectedEntities(selection, entities).filter(
+        (e) => e.kind === "circle" || e.kind === "arc",
+      );
+      const [a, b] = rounds;
+      if (rounds.length !== 2 || a === undefined || b === undefined) {
+        return hint("Select two circles or arcs to make concentric.");
+      }
+      const constraint: SketchConstraint = {
+        kind: "concentric",
+        a: a.id,
+        b: b.id,
+      };
+      if (constraints.some((c) => sameConstraint(c, constraint))) {
+        return hint("Already concentric.");
+      }
+      return { outcome: "added", constraints: [constraint] };
+    }
+    case "symmetric": {
+      const points = selection.filter((pick) => pick.kind === "point");
+      const [a, b] = points;
+      if (points.length !== 2 || a === undefined || b === undefined) {
+        return hint(
+          "Select two points and a line (the mirror axis) to make symmetric.",
+        );
+      }
+      const lines = selectedLineIds(selection, entities);
+      const line = lines[0];
+      if (lines.length !== 1 || line === undefined) {
+        return hint(
+          "Symmetric needs one line for the mirror axis — a construction centerline reads cleanest.",
+        );
+      }
+      if (a.entity === b.entity && a.point === b.point) {
+        return hint("Pick two different points.");
+      }
+      const constraint: SketchConstraint = {
+        kind: "symmetric",
+        a: { entity: a.entity, point: a.point },
+        b: { entity: b.entity, point: b.point },
+        line,
+      };
+      if (constraints.some((c) => sameConstraint(c, constraint))) {
+        return hint("Already symmetric about that line.");
+      }
+      return { outcome: "added", constraints: [constraint] };
+    }
   }
 }
 
@@ -490,14 +576,20 @@ function entityGlyphAnchor(entity: SketchEntity, offsetMm: number): Point2D {
   return { x: entity.position.x + offsetMm, y: entity.position.y + offsetMm };
 }
 
-/** Relational-constraint glyph text — engineering-drawing marks. */
+/**
+ * Whole-entity relational marks — engineering-drawing notation, one bare
+ * mono glyph each. Equal is the `=` sign; concentric is the bullseye ◎ (a
+ * circle inside a circle — the relation drawn as its own picture).
+ */
 const RELATIONAL_LABEL: Record<
-  "parallel" | "perpendicular" | "tangent",
+  "parallel" | "perpendicular" | "tangent" | "equal" | "concentric",
   string
 > = {
   parallel: "∥",
   perpendicular: "⊥",
   tangent: "T",
+  equal: "=",
+  concentric: "◎",
 };
 
 /**
@@ -575,7 +667,9 @@ export function constraintGlyphs(
       }
       case "parallel":
       case "perpendicular":
-      case "tangent": {
+      case "tangent":
+      case "equal":
+      case "concentric": {
         // Anchor on the first entity of the pair; skip if it's gone mid-edit.
         const entity = byId.get(constraint.a);
         if (entity === undefined) return;
@@ -584,6 +678,27 @@ export function constraintGlyphs(
           kind: constraint.kind,
           label: RELATIONAL_LABEL[constraint.kind],
           anchor: entityGlyphAnchor(entity, offsetMm),
+          editable: false,
+        });
+        return;
+      }
+      case "symmetric": {
+        // The mark sits at the midpoint of the mirrored pair — which lies on
+        // the axis once solved — nudged clear of the centerline. Skip if
+        // either point's entity is gone mid-edit.
+        if (!byId.has(constraint.a.entity) || !byId.has(constraint.b.entity)) {
+          return;
+        }
+        const pa = pointOf(constraint.a, byId);
+        const pb = pointOf(constraint.b, byId);
+        glyphs.push({
+          index,
+          kind: "symmetric",
+          label: "⟷",
+          anchor: {
+            x: (pa.x + pb.x) / 2 + offsetMm,
+            y: (pa.y + pb.y) / 2 + offsetMm,
+          },
           editable: false,
         });
         return;

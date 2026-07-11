@@ -91,6 +91,24 @@ const CONSTRAINTS: ReadonlyArray<{
     keyHint: "T",
     name: "Tangent constraint (T, on a selected line and arc/circle, or two curves)",
   },
+  {
+    action: "equal",
+    label: "Equal",
+    keyHint: "E",
+    name: "Equal constraint (E, on two selected lines or two circles/arcs)",
+  },
+  {
+    action: "symmetric",
+    label: "Symm",
+    keyHint: "S",
+    name: "Symmetric constraint (S, on two selected points about a selected line)",
+  },
+  {
+    action: "concentric",
+    label: "Concen",
+    keyHint: "O",
+    name: "Concentric constraint (O, on two selected circles or arcs)",
+  },
 ];
 
 export interface SketchStripProps {

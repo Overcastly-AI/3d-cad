@@ -695,3 +695,283 @@ test.describe("sketcher constraints small laptop (1280×800)", () => {
     });
   });
 });
+
+/**
+ * Size/shape constraints (BACKLOG #4, frontend 4b): the trio that completes
+ * the six-constraint vocabulary — E equal (=), S symmetric (⟷ about an axis),
+ * O concentric (◎). Each worked case draws deliberately un-satisfying
+ * geometry, applies the verb, and proves from the intercepted evaluate
+ * payload that the solver MOVED the geometry to satisfy the relation, and
+ * that the glyph renders.
+ */
+const SIZE_TOLERANCE_MM = 1e-3;
+
+const circleRadius = (entities: SolvedEntity[], id: string): number | null =>
+  entities.find((e) => e.id === id)?.radius ?? null;
+
+const circleCenter = (
+  entities: SolvedEntity[],
+  id: string,
+): SolvedPoint | null => entities.find((e) => e.id === id)?.center ?? null;
+
+/** Reflect point `p` across the infinite line through `a`–`b`. */
+function reflectAcrossLine(
+  p: SolvedPoint,
+  a: SolvedPoint,
+  b: SolvedPoint,
+): SolvedPoint {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return p;
+  const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  return { x: 2 * (a.x + t * dx) - p.x, y: 2 * (a.y + t * dy) - p.y };
+}
+
+const gap = (a: SolvedPoint, b: SolvedPoint): number =>
+  Math.hypot(a.x - b.x, a.y - b.y);
+
+test.describe("sketcher size/shape constraints", () => {
+  test("equal-radius circles: two different radii converge", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Equal part");
+    const evaluations = collectEvaluations(page, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    // e1: r10 at the origin. e2: r5, well clear to the right.
+    await page.keyboard.press("c");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await clickPlane(page, at, { x: 10, y: 0 });
+    await page.keyboard.press("c");
+    await clickPlane(page, at, { x: 35, y: 0 });
+    await clickPlane(page, at, { x: 40, y: 0 });
+    await page.keyboard.press("Escape");
+
+    await clickPlane(page, at, { x: 0, y: 10 }); // e1 body (top)
+    await clickPlane(page, at, { x: 35, y: 5 }); // e2 body (top)
+    await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
+    await page.keyboard.press("e");
+    await expect(page.getByTestId("glyph-0")).toHaveText("=");
+
+    await expect
+      .poll(() => {
+        const sketch = latestSketch(evaluations);
+        if (sketch?.data == null) return null;
+        const r1 = circleRadius(sketch.data.entities, "e1");
+        const r2 = circleRadius(sketch.data.entities, "e2");
+        if (r1 === null || r2 === null) return null;
+        return {
+          equal: Math.abs(r1 - r2) < SIZE_TOLERANCE_MM,
+          moved: Math.abs(r2 - 5) > 0.1, // the r5 circle grew
+        };
+      })
+      .toEqual({ equal: true, moved: true });
+  });
+
+  test("concentric circles: two offset centers share one point", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Concentric part");
+    const evaluations = collectEvaluations(page, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    // e1: r10 at the origin. e2: r6 with an offset centre at (30, 5).
+    await page.keyboard.press("c");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await clickPlane(page, at, { x: 10, y: 0 });
+    await page.keyboard.press("c");
+    await clickPlane(page, at, { x: 30, y: 5 });
+    await clickPlane(page, at, { x: 36, y: 5 });
+    await page.keyboard.press("Escape");
+
+    await clickPlane(page, at, { x: 0, y: 10 }); // e1 body (top)
+    await clickPlane(page, at, { x: 30, y: 11 }); // e2 body (top)
+    await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
+    await page.keyboard.press("o");
+    await expect(page.getByTestId("glyph-0")).toHaveText("◎");
+
+    await expect
+      .poll(() => {
+        const sketch = latestSketch(evaluations);
+        if (sketch?.data == null) return null;
+        const c1 = circleCenter(sketch.data.entities, "e1");
+        const c2 = circleCenter(sketch.data.entities, "e2");
+        if (c1 === null || c2 === null) return null;
+        return {
+          shared: gap(c1, c2) < SIZE_TOLERANCE_MM,
+          moved: gap(c2, { x: 30, y: 5 }) > 1, // the offset centre moved in
+        };
+      })
+      .toEqual({ shared: true, moved: true });
+  });
+
+  test("symmetric rectangle about a construction centerline: corners mirror", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Symmetric part");
+    const evaluations = collectEvaluations(page, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    // A 40×20 rectangle (e1..e4), and a vertical centerline at x=15 (e5),
+    // deliberately OFF the rectangle's own centre (x=20).
+    await page.keyboard.press("r");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await clickPlane(page, at, { x: 40, y: 20 });
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 15, y: -30 });
+    await clickPlane(page, at, { x: 15, y: -5 });
+    await page.keyboard.press("Escape");
+
+    // Make the centerline construction (reference-only axis) — the clean way
+    // to carry a mirror line, straight from the #2 construction vocabulary.
+    await clickPlane(page, at, { x: 15, y: -17 });
+    await expect(page.getByTestId("selection-readout")).toContainText("1 ent");
+    await page.keyboard.press("n");
+
+    // Symmetric: the bottom edge's two corners about the centerline.
+    await clickPlane(page, at, { x: 0, y: 0 }); // e1.start (bottom-left)
+    await clickPlane(page, at, { x: 40, y: 0 }); // e1.end (bottom-right)
+    await clickPlane(page, at, { x: 15, y: -17 }); // the centerline axis
+    await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
+    await page.keyboard.press("s");
+    await expect(page.getByTestId("glyph-0")).toHaveText("⟷");
+
+    await expect
+      .poll(() => {
+        const sketch = latestSketch(evaluations);
+        if (sketch?.data == null) return null;
+        const es = sketch.data.entities;
+        const e1 = es.find((e) => e.id === "e1");
+        const axis = es.find((e) => e.id === "e5");
+        if (
+          e1?.start === undefined ||
+          e1.end === undefined ||
+          axis?.start === undefined ||
+          axis.end === undefined
+        ) {
+          return null;
+        }
+        const mirrored = reflectAcrossLine(e1.start, axis.start, axis.end);
+        // Displacement of every involved endpoint from where it was drawn.
+        const moved = Math.max(
+          gap(e1.start, { x: 0, y: 0 }),
+          gap(e1.end, { x: 40, y: 0 }),
+          gap(axis.start, { x: 15, y: -30 }),
+          gap(axis.end, { x: 15, y: -5 }),
+        );
+        return {
+          symmetric: gap(mirrored, e1.end) < SIZE_TOLERANCE_MM,
+          moved: moved > 1,
+        };
+      })
+      .toEqual({ symmetric: true, moved: true });
+  });
+});
+
+/**
+ * The founder shot: one sketch carrying two of the new marks at once — a
+ * concentric pair (◎) and a symmetric line about a construction centerline
+ * (⟷) — captured at both widths.
+ */
+async function buildSizeShapeShowcase(
+  page: Page,
+  at: (pt: { x: number; y: number }) => { x: number; y: number },
+) {
+  // Concentric: a ring and an off-centre smaller circle.
+  await page.keyboard.press("c");
+  await clickPlane(page, at, { x: 0, y: 0 });
+  await clickPlane(page, at, { x: 12, y: 0 });
+  await page.keyboard.press("c");
+  await clickPlane(page, at, { x: 5, y: 3 });
+  await clickPlane(page, at, { x: 11, y: 3 });
+  await page.keyboard.press("Escape");
+  await clickPlane(page, at, { x: 0, y: 12 }); // e1 body (top)
+  await clickPlane(page, at, { x: 5, y: 9 }); // e2 body (top of r6)
+  await page.keyboard.press("o");
+  await expect(page.locator('[data-kind="concentric"]')).toHaveText("◎");
+
+  // Symmetric: a line whose ends mirror about a construction centerline.
+  await page.keyboard.press("l");
+  await clickPlane(page, at, { x: -20, y: -30 });
+  await clickPlane(page, at, { x: 30, y: -30 });
+  await page.keyboard.press("l");
+  await clickPlane(page, at, { x: 0, y: -55 });
+  await clickPlane(page, at, { x: 0, y: -18 });
+  await page.keyboard.press("Escape");
+  await clickPlane(page, at, { x: 0, y: -42 }); // centerline body
+  await page.keyboard.press("n"); // construction
+  await clickPlane(page, at, { x: -20, y: -30 }); // e3 start
+  await clickPlane(page, at, { x: 30, y: -30 }); // e3 end
+  await clickPlane(page, at, { x: 0, y: -42 }); // centerline axis
+  await page.keyboard.press("s");
+  await expect(page.locator('[data-kind="symmetric"]')).toHaveText("⟷");
+}
+
+test.describe("sketcher size/shape constraints — founder screenshot", () => {
+  test("desktop: concentric ◎ + symmetric ⟷ about a centerline", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Showcase");
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+    await buildSizeShapeShowcase(page, at);
+    await page.mouse.move(1400, 900);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/constraints-equal-symmetric-concentric-desktop.png`,
+    });
+  });
+});
+
+test.describe("sketcher size/shape constraints small laptop (1280×800)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("laptop: the new glyphs stay usable; founder screenshot", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Showcase laptop");
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 640, y: 560 },
+      { x: 940, y: 380 },
+    );
+    await buildSizeShapeShowcase(page, at);
+    const viewport = page.getByTestId("viewport");
+    const box = await viewport.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThan(640);
+    await page.mouse.move(1100, 700);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/constraints-equal-symmetric-concentric-laptop.png`,
+    });
+  });
+});

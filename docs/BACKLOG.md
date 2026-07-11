@@ -106,7 +106,7 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       perpendicular lines, line+circle tangent — each asserts the solved
       geometry moved. `frontend-design` skill invoked (verbs documented,
       E/S/O left free for #4).
-- [ ] (P1, M) Sketch constraints — equal/symmetric/concentric — second
+- [x] (P1, M) Sketch constraints — equal/symmetric/concentric — second
       constraint-vocabulary slice, same pattern as the item above: equal
       (length/radius), symmetric (about a line — cleanest with a
       construction line from the item above, but works with any line),
@@ -130,6 +130,17 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       (sameConstraint + glyphAria default branches, 4a→4b). Remaining (4b):
       keyboard verbs (E/S/O) + glyphs in apps/web — do not tick until 4b
       lands._
+      **DONE — 4b (frontend, 2026-07-11):** size/shape verbs on the
+      selection-presence keyboard — **E** equal (=), **S** symmetric (⟷ about
+      an axis), **O** cOncentric (◎) — each validates the selection client-side
+      (equal = two lines or two circles/arcs, never mixed; symmetric = two
+      points + a line; concentric = two circles/arcs) with a `role=status`
+      hint, maps to the schema payload, and renders its engineering mark near
+      the geometry; conflict flags reuse the existing solve path. Worked e2e:
+      equal-radius circles converge, concentric circles share a center,
+      rectangle made symmetric about a construction centerline — each asserts
+      the solved geometry moved. `frontend-design` skill invoked. Completes the
+      Sketching row's 6-constraint vocabulary (re-score candidate).
 - [ ] (P1, M) Revolve feature — second core body-affecting feature (Part
       modeling row): revolve a closed sketch profile around an axis (edge or
       line) via build123d, reusing extrude's profile/closed-wire-check
@@ -326,6 +337,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **equal/symmetric/concentric 4b shipped (frontend → #4 done):**
+  E/S/O verbs + =/⟷/◎ glyphs; validation+hints; worked e2e (equal/concentric
+  circles, symmetric-about-centerline) moved geometry. All 6 constraints done —
+  Sketching row re-score candidate. [frontend-builder]
 - 2026-07-11 — equal/symmetric/concentric schema+solver (4a) shipped; UI verbs
   (4b) pending. [kernel-architect]
 - 2026-07-11 — **tangent/perp/parallel 3b shipped (frontend → #3 done):**

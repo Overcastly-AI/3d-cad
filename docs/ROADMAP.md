@@ -107,9 +107,10 @@ item below.
 - ⬜ Full sketcher: tangent/perpendicular/parallel (✅ shipped: schema+planegcs
       solver 3a + P/L/T keyboard verbs & ∥/⊥/T glyphs 3b — 3 of the 6 new
       constraint kinds done)/equal/symmetric/concentric (✅ shipped:
-      schema+planegcs solver 4a — equal_length/equal_radius, symmetric_line,
-      coincident-centers; E/S/O keyboard verbs & glyphs are 4b; once 4b lands
-      all 6 new constraint kinds done — note for vision-steward)
+      schema+planegcs solver 4a + E/S/O keyboard verbs & =/⟷/◎ glyphs 4b —
+      the remaining 3). **All 6 new constraint kinds are now done** (H/V/D/R/X/C
+      base + P/L/T + E/S/O); the Sketching scorecard row is a re-score
+      candidate — vision-steward to reassess.
       constraints (the Sketching scorecard row's named gap),
       construction geometry (✅ shipped: schema+solver+profile-exclusion +
       N-verb UI toggle with dashed/muted rendering), trim/extend,

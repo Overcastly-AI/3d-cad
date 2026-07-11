@@ -39,10 +39,28 @@ const circle: SketchEntity = {
   radius: 10,
   construction: false,
 };
-const entities = [line, line2, circle];
+const circle2: SketchEntity = {
+  id: "e4",
+  kind: "circle",
+  center: { x: 200, y: 0 },
+  radius: 5,
+  construction: false,
+};
+const arc: SketchEntity = {
+  id: "e5",
+  kind: "arc",
+  center: { x: 0, y: 100 },
+  start: { x: 10, y: 100 },
+  end: { x: 0, y: 110 },
+  construction: false,
+};
+const entities = [line, line2, circle, circle2, arc];
 
 const pickLine = (id: string): SketchPick => ({ kind: "entity", id });
-const pickPoint = (entity: string, point: "start" | "end"): SketchPick => ({
+const pickPoint = (
+  entity: string,
+  point: "start" | "end" | "center",
+): SketchPick => ({
   kind: "point",
   entity,
   point,
@@ -80,11 +98,27 @@ describe("resolveSketchKey — one keyboard, two vocabularies", () => {
       type: "constraint",
       action: "tangent",
     });
+    // The size/shape trio: E equal, S symmetric, O concentric.
+    expect(resolveSketchKey("e", true)).toEqual({
+      type: "constraint",
+      action: "equal",
+    });
+    expect(resolveSketchKey("s", true)).toEqual({
+      type: "constraint",
+      action: "symmetric",
+    });
+    expect(resolveSketchKey("o", true)).toEqual({
+      type: "constraint",
+      action: "concentric",
+    });
     // The relational letters still arm/return nothing with an empty selection
-    // (P/T aren't tools; L is the line tool).
+    // (P/T aren't tools; L is the line tool). E/S/O aren't tools either.
     expect(resolveSketchKey("l", false)).toEqual({ type: "tool" });
     expect(resolveSketchKey("p", false)).toBeNull();
     expect(resolveSketchKey("t", false)).toBeNull();
+    expect(resolveSketchKey("e", false)).toBeNull();
+    expect(resolveSketchKey("s", false)).toBeNull();
+    expect(resolveSketchKey("o", false)).toBeNull();
   });
 
   it("N toggles construction only while something is selected", () => {
@@ -315,6 +349,149 @@ describe("applyConstraintAction", () => {
       applyConstraintAction("tangent", [pickLine("e3")], entities, []),
     ).toMatchObject({ outcome: "hint" });
   });
+
+  it("equal relates two lines or two rounds, never a mixed pair", () => {
+    // two lines → equal length.
+    expect(
+      applyConstraintAction(
+        "equal",
+        [pickLine("e1"), pickLine("e2")],
+        entities,
+        [],
+      ),
+    ).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "equal", a: "e1", b: "e2" }],
+    });
+    // two circles → equal radius.
+    expect(
+      applyConstraintAction(
+        "equal",
+        [pickLine("e3"), pickLine("e4")],
+        entities,
+        [],
+      ),
+    ).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "equal", a: "e3", b: "e4" }],
+    });
+    // a circle + an arc → equal radius (both rounds).
+    expect(
+      applyConstraintAction(
+        "equal",
+        [pickLine("e3"), pickLine("e5")],
+        entities,
+        [],
+      ),
+    ).toMatchObject({ outcome: "added" });
+    // a line + a circle: no equal-size relation → hint.
+    expect(
+      applyConstraintAction(
+        "equal",
+        [pickLine("e1"), pickLine("e3")],
+        entities,
+        [],
+      ),
+    ).toMatchObject({ outcome: "hint" });
+    // one entity: rejected.
+    expect(
+      applyConstraintAction("equal", [pickLine("e1")], entities, []),
+    ).toMatchObject({ outcome: "hint" });
+  });
+
+  it("refuses a duplicate equal regardless of entity order", () => {
+    expect(
+      applyConstraintAction(
+        "equal",
+        [pickLine("e1"), pickLine("e2")],
+        entities,
+        [{ kind: "equal", a: "e2", b: "e1" }],
+      ),
+    ).toMatchObject({ outcome: "hint" });
+  });
+
+  it("concentric relates exactly two circles/arcs, rejecting lines", () => {
+    expect(
+      applyConstraintAction(
+        "concentric",
+        [pickLine("e3"), pickLine("e5")],
+        entities,
+        [],
+      ),
+    ).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "concentric", a: "e3", b: "e5" }],
+    });
+    // a line has no center → hint (only the two rounds would be picked).
+    expect(
+      applyConstraintAction(
+        "concentric",
+        [pickLine("e1"), pickLine("e3")],
+        entities,
+        [],
+      ),
+    ).toMatchObject({ outcome: "hint" });
+    expect(
+      applyConstraintAction("concentric", [pickLine("e3")], entities, []),
+    ).toMatchObject({ outcome: "hint" });
+  });
+
+  it("symmetric ties two points about a selected line axis", () => {
+    expect(
+      applyConstraintAction(
+        "symmetric",
+        [pickPoint("e1", "start"), pickPoint("e2", "end"), pickLine("e2")],
+        entities,
+        [],
+      ),
+    ).toEqual({
+      outcome: "added",
+      constraints: [
+        {
+          kind: "symmetric",
+          a: { entity: "e1", point: "start" },
+          b: { entity: "e2", point: "end" },
+          line: "e2",
+        },
+      ],
+    });
+    // two points, no axis line → hint about the axis.
+    expect(
+      applyConstraintAction(
+        "symmetric",
+        [pickPoint("e1", "start"), pickPoint("e2", "end")],
+        entities,
+        [],
+      ),
+    ).toMatchObject({ outcome: "hint" });
+    // one point + a line → hint about the point count.
+    expect(
+      applyConstraintAction(
+        "symmetric",
+        [pickPoint("e1", "start"), pickLine("e2")],
+        entities,
+        [],
+      ),
+    ).toMatchObject({ outcome: "hint" });
+  });
+
+  it("refuses a duplicate symmetric regardless of point order", () => {
+    expect(
+      applyConstraintAction(
+        "symmetric",
+        [pickPoint("e1", "start"), pickPoint("e2", "end"), pickLine("e2")],
+        entities,
+        [
+          {
+            kind: "symmetric",
+            a: { entity: "e2", point: "end" },
+            b: { entity: "e1", point: "start" },
+            line: "e2",
+          },
+        ],
+      ),
+    ).toMatchObject({ outcome: "hint" });
+  });
 });
 
 describe("sameConstraint", () => {
@@ -388,6 +565,50 @@ describe("constraintGlyphs — engineering notation", () => {
     expect(glyphs.every((g) => !g.editable)).toBe(true);
     // Anchored on entity `a` (e1 midpoint normal), not at the origin.
     expect(glyphs[0]?.anchor).toEqual({ x: 20, y: 3.5 });
+  });
+
+  it("renders the size/shape marks (= / ⟷ / ◎) for equal/symmetric/concentric", () => {
+    const glyphs = constraintGlyphs(
+      [
+        { kind: "equal", a: "e3", b: "e4" },
+        { kind: "concentric", a: "e3", b: "e5" },
+        {
+          kind: "symmetric",
+          a: { entity: "e1", point: "start" },
+          b: { entity: "e1", point: "end" },
+          line: "e2",
+        },
+      ],
+      entities,
+      3.5,
+    );
+    expect(glyphs.map((g) => g.label)).toEqual(["=", "◎", "⟷"]);
+    expect(glyphs.map((g) => g.kind)).toEqual([
+      "equal",
+      "concentric",
+      "symmetric",
+    ]);
+    expect(glyphs.every((g) => !g.editable)).toBe(true);
+    // Symmetric sits at the mirrored pair's midpoint, nudged clear of the axis.
+    // e1 runs (0,0)→(40,0): midpoint (20,0), + offset on both axes.
+    expect(glyphs[2]?.anchor).toEqual({ x: 23.5, y: 3.5 });
+  });
+
+  it("skips a symmetric constraint whose points' entity is gone", () => {
+    expect(
+      constraintGlyphs(
+        [
+          {
+            kind: "symmetric",
+            a: { entity: "missing", point: "start" },
+            b: { entity: "e1", point: "end" },
+            line: "e2",
+          },
+        ],
+        entities,
+        3.5,
+      ),
+    ).toEqual([]);
   });
 
   it("skips a relational constraint whose first entity is gone", () => {

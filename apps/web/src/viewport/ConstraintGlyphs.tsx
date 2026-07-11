@@ -47,10 +47,12 @@ function glyphAria(glyph: ConstraintGlyph): string {
       return "Perpendicular constraint";
     case "tangent":
       return "Tangent constraint";
-    // 4a→4b: equal/symmetric/concentric solve in 4a but have no glyphs yet;
-    // a generic label keeps this exhaustive switch green until 4b renders them.
-    default:
-      return "Constraint";
+    case "equal":
+      return "Equal constraint";
+    case "symmetric":
+      return "Symmetric constraint";
+    case "concentric":
+      return "Concentric constraint";
   }
 }
 
