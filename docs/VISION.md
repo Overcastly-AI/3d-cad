@@ -69,9 +69,9 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 | Dimension | Status | Notes |
 |---|---|---|
 | Sketching & constraints | ❌ | Real sketcher now exists and closes the loop: plane pick, click-to-place line/rect/circle/arc, 6 constraint kinds (coincident/horizontal/vertical/distance/radius/fixed) with keyboard verbs, live save→solve→render, DOF readout, conflict diagnostics, dimension-edit-moves-corners proven e2e (commits 91fa1d1/75f0214, 25/25 Playwright). Still behind daily-driver parity: no tangent/perpendicular/parallel/equal/symmetric/concentric constraints (nothing to relate an arc to a line — most real parts need these), no trim/extend, no offset, no construction geometry, no mirror/pattern, no sketch fillet/chamfer. An engineer can rough out a simple closed profile; cannot yet sketch the kind of part that needs tangent-constrained fillets or symmetric construction geometry, which is most of them. |
-| Part modeling (features, history) | ❌ | Feature tree persists and evaluates server-side; extrude (add/cut) is the first body-affecting feature, shipped end-to-end with a golden (`sketch-extrude-40x25x10`, 1e-9 mass-props tolerance, 0.0-deviation STEP round-trip — commit 11eaa65, GEOMETRY-QA 2026-07-11). Correctness is proven, but the daily-driver loop is still broken: the extruded body does not render in the viewport (mesh-fetch proxy unshipped — an engineer extrudes and sees nothing), there is no feature-tree edit/rollback UI (features are API-only, no way to go back and change a step), no fillet/chamfer (the single most common secondary feature on real parts), and no parts-home UI (workspace is direct-URL-only). Extrude is real geometry, not yet a usable modeling loop. |
+| Part modeling (features, history) | ❌ | Biggest jump yet, still short of parity. The full authoring loop is now real and QA-verified end-to-end: sketch → extrude(add/cut) → fillet/chamfer → edit-dimension-live → rollback → render-in-viewport → export, proven in a real browser by the Phase 1 exit-gate e2e (commit ff6b226) and an independent code-review pass that returned APPROVE with no 🔴/🟡 findings. This is a real leap from a72c36b's "nothing renders" state: bodies render (mesh proxy, commit 8680502), the feature tree has select/edit/rollback UI (commit e80e378), and fillet + chamfer both ship with goldens at 0.0 and 1.26e-10 STEP round-trip (commits 56eebb0/02b6e9c). Stays ❌, not ➖: only 3 features exist (extrude/fillet/chamfer) against the daily drivers' dozens — no revolve, sweep, loft, dedicated hole feature, linear/circular pattern, shell, or draft, so anything that isn't built from prismatic extrusions (shafts, ribs, lofted surfaces, bolt-circle patterns) can't be modeled at all; fillet/chamfer select edges by geometric predicate (`all_edges`/`axis_parallel`), not click-a-specific-edge (Phase 2 topological naming/`SubshapeRef`), so an engineer can't selectively round one edge and leave its neighbor sharp — most real parts need exactly that; and it's single-body only, no multi-body booleans. The core prismatic block-with-rounded-edges loop is real and usable today; breadth and edge-selection precision for a general part are not. |
 | Assemblies & mates | ❌ | Not started (Phase 3) |
-| Interop (STEP/IGES/STL) | ❌ | Half-flipped. EXPORT: shipped + QA-verified end-to-end (STEP/STL endpoints byte-deterministic; endpoint-level STEP round-trip 0.0 deviation; real-browser download e2e — commits 12e7b4e/c5e2b1e/8cd63d5, GEOMETRY-QA 2026-07-10). IMPORT: not started (Phase 4). No IGES; only box/cylinder shapes exist to export. Not parity until an engineer can bring a real part IN. |
+| Interop (STEP/IGES/STL) | ❌ | Half-flipped, deepened but not flipped. EXPORT now covers what an engineer actually MODELS, not just bare primitives: `POST /api/v1/export/tree` (gateway `POST /api/v1/parts/{id}/export?format=`) evaluates a sketch→extrude→fillet/chamfer tree and exports the last-good body, byte-deterministic, tree goldens round-tripped at 0.0 (extrude/chamfer) and 1.26e-10 (fillet), the download proven through a real browser in the Phase 1 exit-gate e2e (commits aad27d9/ff6b226, GEOMETRY-QA 2026-07-11). IMPORT still doesn't exist (Phase 4) — an engineer cannot bring a real STEP/IGES file from another tool IN, only export what was built here. No IGES either direction. ➖ requires both directions; the flip is gated entirely on import. |
 | Drawings & documentation | ❌ | Not started (Phase 4) |
 | Performance on real parts | ❌ | Per-golden perf tripwires live in the geometry gates (~4–5 ms warm on primitives vs 2 s ceiling), but there are no real parts yet and no benchmark suite. |
 | Collaboration & versioning | ❌ | Not started (Phase 3) |
@@ -82,19 +82,24 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 Every row starts ❌ except the structural one. That's the honest baseline;
 the loop's job is to flip rows and never let this table go stale.
 
-Last re-scored 2026-07-11 (vision-steward) against git log + `docs/GEOMETRY-QA.md`
-+ the BACKLOG changelog. Sketching and Part modeling both stay ❌ despite real
-shipped, QA-verified capability (sketcher authoring/constraints/solve loop;
-extrude add/cut with a 0.0-deviation STEP-round-tripped golden) — an
-aspirational ➖ would poison prioritization. Sketching is behind on
-constraint/editing vocabulary (no tangent/perpendicular/parallel/equal/
-symmetric, no trim/offset/construction geometry) that most real parts need;
-Part modeling is behind because the one feature that exists doesn't render in
-the viewport and can't be edited or rolled back once built. Interop
-deliberately stays ❌ despite a QA-verified export path: ➖ means parity with
-tools that all import STEP, and import doesn't exist here. Nearest flips:
-close the extrude-render/rollback gap on Part modeling, widen the constraint
-vocabulary on Sketching, then Interop-import (Phase 4).
+Last re-scored 2026-07-11 (vision-steward) against git log through ff6b226 +
+`docs/GEOMETRY-QA.md` + the independent code-review pass (APPROVE, no
+🔴/🟡) that closed out the feature stack, and the Phase 1 exit-gate e2e
+(`full-flow.spec.ts`) proving login → sketch → extrude → edit-param → export
+in a real browser. Part modeling gets its biggest jump since the project
+started — a real, QA-verified sketch→extrude→fillet/chamfer→edit→rollback→
+render→export loop — but stays ❌: the operating question is about modeling
+a *real* part, and 3 features with predicate-only edge selection, no
+revolve/hole/pattern/shell/draft, and single-body-only can model prismatic
+blocks, not most real parts. Interop stays ❌ too: export now covers the
+modeled tree (not just bare primitives) at 0.0-to-1.26e-10 STEP round-trip,
+but import still doesn't exist and ➖ needs both directions. Sketching is
+unchanged since a72c36b (same 6 constraint kinds, still no
+tangent/perpendicular/parallel/equal/symmetric/concentric) — reconfirmed
+against the same git evidence, not re-flipped. Phase 1 MVP is complete end-
+to-end; nearest flips for Phase 2: widen feature breadth (revolve/hole/
+pattern) and move to click-specific edge selection on Part modeling, widen
+constraint vocabulary on Sketching, then Interop-import (Phase 4).
 
 ## Design mandate (founder, 2026-07-09)
 

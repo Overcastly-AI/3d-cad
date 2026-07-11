@@ -295,6 +295,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Scorecard re-scored post-exit-gate.** Part modeling stays ❌
+  (real sketch→extrude→fillet/chamfer→edit→rollback→render→export loop,
+  but only 3 features + predicate edge selection, no revolve/hole/pattern);
+  Interop stays ❌ (export now covers the modeled tree, import still Phase
+  4); Sketching unchanged. [vision-steward]
 - 2026-07-11 — **Ready #8 shipped: full-flow e2e — the Phase 1 exit gate.**
   `full-flow.spec.ts` proves login → sketch → extrude → edit-param → export
   end-to-end in a real browser (desktop + 1280×800 + touch smoke); web
