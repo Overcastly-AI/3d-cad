@@ -298,6 +298,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Toponaming design doc revised** (code-reviewer request-changes):
+  stage-1 "never silent retarget" → best-effort (structural = stage 2); typed
+  selector union, precise `feature_id`, helper-wiring flag, §8 log. [kernel-architect]
 - 2026-07-11 — construction-geometry schema+solver+profile-exclusion (2a)
   shipped; UI toggle (2b) pending. [kernel-architect]
 - 2026-07-11 — **Topological naming design doc landed** (Ready #1 → done).

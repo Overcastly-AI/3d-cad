@@ -1,6 +1,7 @@
 # Topological Naming — Design
 
-Status: **draft for code-reviewer** (2026-07-11). Scope: **design only** — no
+Status: **revised after code-reviewer request-changes** (2026-07-11; see §8
+review log). Scope: **design only** — no
 code, no contracts, no `param_version` change. This doc specifies how a
 `SubshapeRef` (the variant reserved by
 [`docs/design/feature-tree.md`](./feature-tree.md) §2.4) identifies a specific
@@ -100,7 +101,29 @@ best case is "crashes instead of corrupting" is not a naming scheme.
 
 The design goal, stated as a rule: **a reference must resolve to the same
 geometric entity across rebuilds, or fail honestly (§5). It must never silently
-retarget.**
+retarget.** Be precise about what "never" costs, because the two stages earn it
+differently:
+
+- **Index-based retarget is _structural_** — an index is a position in a list
+  the kernel reorders freely, so a wrong-but-valid target is the *expected*
+  outcome of any upstream perturbation. That is what §1.3 rejects outright.
+- **Signature-based retarget (stage 1) is _residual_, not structural.** A
+  geometric fingerprint is not a stable list position, so the failure mode is
+  usually *honest*: the intended subshape moves out of tolerance → zero match →
+  `subshape_unresolved`, or a symmetric twin matches too → `subshape_ambiguous`.
+  But there is one residual silent hole (§2b, §5): the intended subshape moves
+  **out** of tolerance while a *different* subshape coincidentally lands
+  **within** tolerance of the stored signature. That is a **unique** match, so
+  the exactly-one-or-error rule (§7.2) sees no ambiguity and returns the wrong
+  entity silently. Stage 1 makes this **unlikely and mostly honest-failing**;
+  it does **not** make it structurally impossible.
+- **Provenance-based non-retarget (stage 2) _is_ structural.** Provenance
+  replay never inspects coordinates — it follows the operation's own
+  `Modified`/`Generated` maps from stable anchors (§2c) — so a geometry move
+  *cannot* make it latch onto a coincidentally-nearby entity, and the §2d
+  step-4 signature cross-check catches the degenerate remainder. The structural
+  "never silently retargets" guarantee therefore belongs to **stage 2**; stage
+  1 approximates it.
 
 ---
 
@@ -153,7 +176,13 @@ those within tolerance on every field, and require **exactly one** match
   40→60 and the midpoint moves to `[30,0,10]`, length→60; a naive
   exact-point/length match misses. Adjacency-only matching helps but a
   symmetric part yields **two** edges with an identical signature → ambiguous
-  → honest error (never a silent retarget — the redeeming property).
+  → honest error (the usual, redeeming outcome). **The residual silent hole
+  (§1.3):** if the width edit pushes the target *out* of tolerance while some
+  *other* edge happens to fall *within* tolerance of the stored signature, that
+  is a lone match — the exactly-one rule (§7.2) fires no ambiguity and returns
+  the wrong edge silently. Signature matching makes this rare and mostly
+  honest-failing, not impossible; only provenance (2c) forecloses it
+  structurally.
 - **Hole-on-face:** signature of the `+Z` top face = `{surface: plane, normal:
   [0,0,1], area, centroid}`. Survives upstream edits that keep a single planar
   top face; fails / goes ambiguous if the upstream feature splits the top face
@@ -222,14 +251,30 @@ signature (2b) alongside. Resolution order:
    **unique** subshape, done.
 2. If provenance is **ambiguous** (a one→many split junction), use the stored
    signature to pick the fragment whose geometry matches — deterministic
-   tie-break, or honest error if still ambiguous.
+   tie-break, or honest error if the signature *also* ties. **This tie-break is
+   stage-2-only:** it disambiguates a provenance one→many where the candidate
+   set is already pinned to genuine fragments of the named entity. It is **not**
+   a licence for pure signature matching to guess — see the determinism note
+   below.
 3. If history is **unavailable** (an operation not yet instrumented, or a
-   legacy ref written before capture existed), fall back to pure signature
-   matching (2b).
+   legacy stage-1 / `selector_version: 1` ref written before capture existed),
+   fall back to pure signature matching (2b). Pure signature matching (this
+   step, and all of stage 1) **never tie-breaks** — ≥2 in-tolerance candidates
+   is always `subshape_ambiguous` (§7.2), because signature-only has no
+   provenance-pinned candidate set to break the tie *within*.
 4. **Cross-check:** if provenance resolves to a subshape whose signature
    diverges wildly from the stored one, flag low-confidence rather than trust
-   blindly.
+   blindly — this is the step that recovers the structural non-retarget
+   guarantee against a degenerate provenance replay.
 5. If nothing resolves uniquely → §5 honest failure.
+
+**Determinism distinction (crisp):** signature is used **two different ways**.
+As stage 1's *sole* identity it is a strict exactly-one filter that errors on a
+tie (never guesses). As stage 2's *disambiguator* it breaks a provenance
+one→many by choosing the geometrically-matching fragment — a deterministic
+tie-break over an already-provenance-restricted set — and errors only when the
+signature ties too. Same function, two roles: stage 1 refuses to guess; stage 2
+may pick, but only among fragments provenance has already vouched for.
 
 - **Fillet-plate / hole-on-face:** best of both — provenance survives the
   parametric moves that defeat 2b, and the signature disambiguates the
@@ -237,9 +282,9 @@ signature (2b) alongside. Resolution order:
 - **Storage:** provenance name + signature + `selector_version`. Largest.
 - **Cost:** highest (both must be produced and, on resolve, both consulted) —
   but the signature half ships **first** and cheaply (2b needs no history
-  capture), and the provenance half is added under the same opaque
-  `selector_version` without a schema break (§4). This is the staged path §3
-  adopts.
+  capture), and the provenance half is added as a new member of the same
+  versioned `Selector` union without a schema break (§4). This is the staged
+  path §3 adopts.
 
 ---
 
@@ -247,19 +292,23 @@ signature (2b) alongside. Resolution order:
 
 **Decision: adopt the hybrid (2d) as the target architecture — a
 provenance-anchored name with a geometric signature as disambiguator and
-fallback — and deliver it in two stages under a single opaque, versioned
-`SubshapeRef.selector` payload so the stage boundary is invisible to storage
-and callers.**
+fallback — and deliver it in two stages under a single typed, version-
+discriminated `SubshapeRef.selector` union (§4) so the stage boundary is an
+additive union member, invisible to storage and callers.**
 
 - **Stage 1 (ships with "face/edge picking"): geometric signature only (2b).**
   It unblocks the product goal *now* — a working engineer clicks a face or
   edge, we persist its signature, and it survives the common edits (upstream
   inserts, parametric changes that don't move the target). It is honest about
-  its limits (symmetric ambiguity, moved geometry → honest §5 error, never a
-  silent retarget), and — critically — it needs **no** kernel-history
-  instrumentation, so it is buildable against build123d results as they exist
-  today. `SubshapeRef.selector` carries `{ signature, feature_id }` at
-  `selector_version: 1`.
+  its limits (symmetric ambiguity and moved geometry usually surface as an
+  honest §5 error — `subshape_ambiguous` / `subshape_unresolved`), and —
+  critically — it needs **no** kernel-history instrumentation, so it is
+  buildable against build123d results as they exist today. It is **best-effort,
+  not structurally non-retargeting**: the §1.3 residual hole (target moves out
+  of tolerance while a different subshape moves in → lone wrong match) remains
+  possible until stage 2's provenance closes it; the picking item ships
+  mis-resolve telemetry / a guard sized by the §6.3 spike. `SubshapeRef`'s
+  `selector` carries the signature at `selector_version: 1`.
 - **Stage 2 (after the history-capture spike, §6): promote to full hybrid
   (2c primary + 2b fallback).** Add `Modified`/`Generated` capture at the OCP
   maker boundary; extend the selector payload with the provenance name at
@@ -276,7 +325,10 @@ engineer model a real part in this today?"):
   "not yet."
 - Provenance-later earns the robustness that keeps references alive under
   aggressive history editing — the property that separates a toy from a daily
-  driver — without ever having shipped a scheme that silently corrupts.
+  driver — and *upgrades* stage 1's best-effort honesty into the **structural**
+  non-retarget guarantee (§1.3). Stage 1 never ships an *index-based* scheme
+  (the §1.3 structural corruption); its residual signature hole is rare,
+  telemetry-guarded, and closed by stage 2 rather than left standing.
 - Both stages honor **determinism is a feature** (RESEARCH §9): resolution is a
   pure, total-ordered function of the tree; ambiguity is an honest error, never
   a coin flip (§7.2).
@@ -320,36 +372,116 @@ The decision is **purely additive** — no persisted selector changes shape, no
   reserved in feature-tree §2.4 becomes concrete; same additive-union
   reasoning; no sketch/extrude `param_version` bump.
 - **The selector payload is versioned *independently* of `param_version`.**
-  `SubshapeRef.selector_version` (already in the reserved shape) versions the
-  opaque `selector` blob. Stage 1 → stage 2 (signature-only → hybrid) is an
-  increment of `selector_version` *inside* the opaque payload, decoupled from
+  `selector_version` is the **discriminator of the typed `Selector` union**
+  (below), not a loose sibling int over an opaque blob. Stage 1 → stage 2
+  (signature-only → hybrid) adds a `SelectorV2` union member, decoupled from
   feature `param_version` entirely — the elegant part of the reservation. This
   is the one place `param_version`'s upcast machinery (feature-tree §1.4) does
   **not** apply; the selector carries its own version and resolves
-  fallback-first for older selectors (§3 stage 2).
-- **`SubshapeRef.feature_id` joins the dependency graph.** Unlike today's
-  fillet/chamfer (which carry no `FeatureRef` and depend on the prior body only
-  by tree order — feature-tree §2.4, `feature_references()` → empty set), a
-  `SubshapeRef` names *the result of a specific originating feature*, so its
-  `feature_id` **materializes into `feature_dependencies`** (feature-tree §2.3)
-  exactly like a `FeatureRef`. This is a strict improvement: the write-time
-  409-with-dependents pre-check now protects the originating feature from
-  deletion, and reorder re-checks the strict-backward rule (§2.2 rule 2) for
-  named refs too. `feature_references()`' slot map extends to surface the
-  `SubshapeRef.feature_id` per selecting feature.
+  fallback-first for older (`selector_version: 1`) selectors (§3 stage 2).
+- **`SubshapeRef.feature_id` joins the dependency graph — with a stage-shifting
+  definition, stated precisely.** Unlike today's fillet/chamfer (which carry no
+  `FeatureRef` and depend on the prior body only by tree order — feature-tree
+  §2.4, `feature_references()` → empty set), a `SubshapeRef` names a subshape
+  *of a specific feature's result*, so its `feature_id` **materializes into
+  `feature_dependencies`** (feature-tree §2.3) like a `FeatureRef`: the
+  write-time 409-with-dependents pre-check protects that feature from deletion,
+  and reorder re-checks the strict-backward rule (§2.2 rule 2) for named refs
+  too. **But which feature `feature_id` names differs by stage, and this must
+  be said plainly:**
+  - **Stage 1 (signature-only):** the signature is matched against the **whole
+    current body** at the selecting feature's point in the tree. There is no
+    provenance, so `feature_id` is **"the prior body-affecting feature whose
+    body I signature-match against"** — the tip of the body chain the selector
+    sees — *not necessarily the true originating feature* of the subshape (the
+    edge may have been born several features earlier). It is the honest v1
+    anchor: the feature whose result the match is performed on.
+  - **Stage 2 (provenance):** `feature_id` shifts to the **true originating
+    feature** — the operation that generated the subshape, possibly several
+    features earlier than the stage-1 body-chain tip.
+  - **Consequence for the graph (no data migration, but a real edge shift):**
+    for the *same user pick*, the materialized `feature_dependencies` edge — and
+    therefore *which* feature the 409 protects — **can differ between v1 and
+    v2**. This does **not** force a data migration (v1 refs keep resolving,
+    fallback-first — §3), but the dependency the graph records is
+    stage-dependent, and a v1→v2 selector upgrade may re-point that edge. Flag,
+    not defect: the protected feature only ever moves *earlier* in the chain
+    (originating feature is an ancestor of the body-chain tip), so no dependent
+    is ever left unprotected.
+- **Wiring `feature_id` into `feature_dependencies` is NOT "purely additive like
+  a `FeatureRef`" — it touches shipped self-checking helpers.** The reserved
+  §2.4 stub reads as if a `SubshapeRef` slots in for free; it does not. Three
+  shipped, self-consistency-asserting helpers in
+  `py_kit/schemas/features.py` need **real** (still-additive-on-the-wire, but
+  code-changing) edits:
+  - `iter_feature_refs` yields **only** `FeatureRef` today (`isinstance(value,
+    FeatureRef)`); it must widen to also yield a `SubshapeRef`'s `feature_id`
+    (or the walk must surface both ref kinds) or the graph silently drops
+    named-ref edges.
+  - `FeatureReference.ref` is typed `FeatureRef`; it must widen to a
+    `FeatureRef | SubshapeRef` union (or the slot-map must carry a bare
+    `feature_id` + kind) so `feature_references()` can surface a `SubshapeRef`
+    slot.
+  - The `walked == mapped` self-consistency assert in `feature_references()`
+    compares the generic walk against the hand-written slot map; **both sides
+    must learn about `SubshapeRef` together**, or the assert fires. That assert
+    is exactly the guard that makes this non-additive visible — it will reject a
+    half-done wiring, which is the point.
+  Net: on the *wire / persisted shape* the `kind: "subshape"` union member is
+  additive (no `param_version` bump); in the *dependency-extraction code* it is
+  a genuine widening of three typed helpers, and the doc says so.
 
-Illustrative stage-1 shape (final field names owned by the implementation item;
-`selector` stays **opaque and versioned** so the resolver, not the schema, owns
-its meaning):
+Illustrative stage-1 shape (final field names owned by the implementation item).
+The selector is **typed and versioned** — a `selector_version`-discriminated
+union, *not* `dict[str, Any]` — so pydantic validates the payload at the service
+boundary and the generated TS client is typed (CLAUDE.md strict typing; no
+unjustified `Any`). The discriminator is decoupled from `param_version` and the
+union stays additive: stage 2 adds a `SelectorV2` member without disturbing
+persisted `SelectorV1` rows.
 
 ```python
+class SubshapeSignature(BaseModel):
+    """§2b fingerprint — typed, kernel-free (no TopoDS)."""
+    subshape_type: Literal["face", "edge", "vertex"]
+    # curve/surface kind, canonical sample point, metric, sorted neighbour
+    # descriptors — full-precision (§7.2); exact fields owned by the impl item.
+
+class SelectorV1(BaseModel):
+    selector_version: Literal[1]
+    signature: SubshapeSignature
+
+class SelectorV2(BaseModel):
+    selector_version: Literal[2]
+    signature: SubshapeSignature          # retained as fallback + §2d validator
+    provenance: ProvenanceName            # §2c: originating feature + role/anchor ids
+
+Selector = Annotated[
+    SelectorV1 | SelectorV2, Field(discriminator="selector_version")
+]
+
 class SubshapeRef(BaseModel):
     kind: Literal["subshape"]
-    feature_id: UUID          # whose result the subshape belongs to (→ deps graph)
+    feature_id: UUID                      # → deps graph; see the stage-shift note above
     subshape_type: Literal["face", "edge", "vertex"]
-    selector: dict[str, Any]  # opaque, versioned payload (signature @ v1; + provenance @ v2)
-    selector_version: int
+    selector: Selector                    # typed, version-discriminated union
 ```
+
+> **Fidelity delta flagged:** the feature-tree §2.4 reserved stub sketches a
+> bare `SubshapeRef` without a `subshape_type` field; adding
+> `subshape_type: Literal["face","edge","vertex"]` (mirrored on the signature)
+> is a small, harmless **addition** to that stub. This doc otherwise claims
+> strict fidelity to the reservation, so the delta is called out rather than
+> smuggled in. Whether `subshape_type` lives on `SubshapeRef`, on the signature,
+> or (redundantly) both is an impl-item choice.
+
+If deferring any selector-payload validation to the resolver is later preferred
+over the typed union, that is a deliberate trade requiring its own
+justification (it re-introduces an `Any` boundary and a TS-client hole); the
+resolver would then need to distinguish a **malformed** selector
+(`subshape_reference_invalid`, a data/authoring bug) from an **honest
+unresolved** one (`subshape_unresolved`, §5). The typed union is preferred
+precisely because it makes that distinction a boundary-validation error, not a
+resolver heuristic.
 
 ---
 
@@ -384,9 +516,17 @@ verbatim.
   exists after editing Extrude1"* — downstream rows grey out (`rolled_back`-style
   muted token), and the viewport shows the last-good body with a non-blocking
   banner. The user rolls the bar to the failing feature and re-picks the edge,
-  or edits the upstream feature back to a state where the ref resolves. **Never
-  a silent retarget** — the §1.3 failure mode is structurally impossible because
-  ambiguity is an error, not a guess.
+  or edits the upstream feature back to a state where the ref resolves. **No
+  _index-based_ silent retarget** — the §1.3 *structural* failure is excluded at
+  both stages because we never persist an enumeration index, and ambiguity is an
+  error, not a guess. The **residual signature retarget** (target moves out of
+  tolerance while a different subshape moves in → lone wrong match, §1.3/§2b) is
+  the one silent hole stage 1 does not fully close: it is rare and mostly
+  surfaces as `subshape_unresolved`/`subshape_ambiguous` where detectable, but a
+  unique wrong match is *not* detectable from geometry alone. Stage 2's
+  coordinate-blind provenance replay (plus the §2d cross-check) closes it
+  structurally. Stage 1 therefore ships the §6.3-sized mis-resolve telemetry so
+  the residual is *observed*, not merely asserted away.
 - **Consistency with `FeatureRef` deletion:** because `SubshapeRef.feature_id`
   materializes into `feature_dependencies` (§4), deleting the originating
   feature is *already* a write-time 409-with-dependents (feature-tree §2.3) —
@@ -414,25 +554,40 @@ blocks *this* design's endorsement.
    stateless, document-less service. Spike both weights; default lean is
    hand-rolled `BRepTools_History` tracking (no OCAF document), promoted only if
    OCAF's replay demonstrably beats it on the split/merge junctions.
-3. **Signature determinism under tolerance, measured on goldens.** Confirm the
-   `fillet-plate-r5` / `chamfer-plate-d5` bodies produce **stable, unique**
-   edge/face signatures across rebuilds at the documented per-model tolerance
-   (RESEARCH §9), and quantify how close two edges get before the ambiguity
-   rule fires. Sets the tolerance policy for §7.2. Produces a new
-   `subshape-ref-<name>` golden (new capability ⇒ new golden, per the DoD).
+3. **Signature determinism *and mis-resolve rate* under tolerance, measured on
+   goldens.** Confirm the `fillet-plate-r5` / `chamfer-plate-d5` bodies produce
+   **stable, unique** edge/face signatures across rebuilds at the documented
+   per-model tolerance (RESEARCH §9), and quantify **two** separations, not one:
+   (a) how close two *distinct* edges get before the ambiguity rule fires (the
+   §7.2 tolerance policy); and (b) — the residual silent hole (§1.3/§2b) — under
+   a *parametric move* of the target, **how often a moved target yields a unique
+   but WRONG match** (target out of tolerance, a different subshape in). (b)
+   sizes the mis-resolve telemetry/guard the picking item must ship, since a
+   lone wrong match is invisible to the ambiguity rule. Produces a new
+   `subshape-ref-<name>` golden (new capability ⇒ new golden, per the DoD),
+   asserting *both* that intended targets resolve and that the mis-resolve rate
+   stays within the measured, documented bound.
 4. **Truly symmetric selections.** Four congruent edges with identical
    signatures *and* identical provenance roles (a 4-fold-symmetric part) cannot
    be told apart by either half of the hybrid. The pick UI must then store an
    explicit discriminator (e.g. a canonical index into the deterministically
    ordered congruence class) — decide the discriminator shape with the picking
-   item; it lives inside the opaque `selector`.
+   item; it lives inside the typed `selector` union.
 5. **The cross-rebuild stability *guarantee* we publish.** Define a tiered
-   contract users can rely on: (T0) parametric-value edits that don't move the
-   target — **guaranteed** to resolve; (T1) upstream inserts that don't touch
-   the target's neighborhood — **guaranteed** (stage 2) / best-effort (stage 1);
-   (T2) topology-changing edits in the neighborhood (split/merge) —
-   **best-effort with an honest §5 error, never silent**. Publishing this
-   honestly is part of the daily-driver promise.
+   contract users can rely on, stated honestly per stage:
+   - **(T0)** parametric-value edits that don't move the target — **guaranteed**
+     to resolve, both stages.
+   - **(T1)** upstream inserts that don't touch the target's neighborhood —
+     **guaranteed at stage 2**; **best-effort at stage 1** (a lone wrong match
+     is possible — §1.3 — surfaced as `subshape_unresolved`/`subshape_ambiguous`
+     only *where detectable*, not always).
+   - **(T2)** topology-changing edits in the neighborhood (split/merge) —
+     **best-effort at both stages**, with an honest §5 error on failure.
+   The load-bearing honesty: at **stage 2** T1/T2 carry the *structural*
+   non-retarget guarantee (coordinate-blind provenance + §2d cross-check); at
+   **stage 1** T1/T2 are best-effort with a **residual mis-resolve possible** —
+   NOT "never silent." Publishing that distinction, rather than overselling
+   stage 1, is the daily-driver promise.
 6. **Sketch-entity id stability under sketch edits.** Stage-2 provenance anchors
    on sketch-local ids (`e1`…). If the user deletes and redraws an entity, its
    id may change and every downstream provenance name breaks. How stable are
@@ -445,6 +600,30 @@ blocks *this* design's endorsement.
    (RESEARCH §3) and names are a pure function of the tree, so a map is
    derivable, never stored. Confirm the recompute cost fits the performance
    budget (RESEARCH §9) on a deep tree.
+8. **Stage-1 `feature_id` definition + the v1→v2 dependency-edge shift.** Stage
+   1 anchors `SubshapeRef.feature_id` on the **body-chain tip the signature is
+   matched against**, not the true originating feature (§4). Confirm this is the
+   right v1 anchor for the `feature_dependencies` edge (and thus the 409 target),
+   and specify the v1→v2 migration behaviour when the edge re-points to the
+   originating (earlier) feature: does an in-place selector upgrade rewrite the
+   materialized edge, or is it recomputed on next evaluation? Owned by the
+   picking item + the stage-2 provenance item jointly.
+9. **Residual false-unique-match risk (the stage-1 silent hole).** Tracked as a
+   first-class risk, measured by the §6.3 spike (b): a moved target yielding a
+   *unique but wrong* signature match is the one silent retarget stage 1 does
+   not close. The open decision is the **guard**: mis-resolve telemetry only, a
+   confidence threshold that downgrades a lone low-similarity match to
+   `subshape_unresolved`, or gating the riskiest edits until stage 2. Decide
+   with the picking item, sized by §6.3.
+10. **Vertex signatures.** `subshape_type` admits `"vertex"`, but no vertex
+    signature or worked case is specified — an edge fingerprints on curve kind +
+    length + adjacency, a face on surface kind + area + centroid, but a vertex
+    is a degenerate point (zero length, zero area). A vertex signature must lean
+    on **point coordinates + adjacency** (the sorted set of incident edges/faces
+    and their signatures), and even then congruent corners of a symmetric part
+    tie exactly. Specify the vertex signature and its worked failure case with
+    the picking item; until then `"vertex"` is reserved-but-unspecified, not
+    shippable.
 
 ---
 
@@ -502,28 +681,40 @@ matching is where it's easiest to violate. Rules:
 
 ### 7.3 What cross-rebuild stability do we actually guarantee?
 
-The tiered contract (§6.5): T0 parametric edits and T1 non-neighborhood
-inserts resolve (guaranteed at stage 2, best-effort at stage 1); T2
-topology-changing neighborhood edits are best-effort and, on failure, produce
-the §5 honest error. The load-bearing guarantee across **all** tiers and both
-stages: **the resolver never silently retargets.** It resolves to the same
-entity or it errors — the §1.3 catastrophe is structurally excluded because
-ambiguity is an error, not a guess.
+The tiered contract (§6.5), stated per stage: T0 parametric edits resolve at
+both stages; T1 non-neighborhood inserts resolve (guaranteed at stage 2,
+best-effort at stage 1); T2 topology-changing neighborhood edits are best-effort
+at both and, on failure, produce the §5 honest error. What is guaranteed across
+**all** tiers and both stages is the narrow, structural claim: **the resolver
+never persists or follows an enumeration index, so the §1.3 _index-based_ silent
+retarget is excluded** — ambiguity is an error, not a guess.
+
+What is **not** guaranteed at stage 1 is the *full* non-retarget property. The
+§1.3/§2b residual holds: a signature-only match can return a lone WRONG subshape
+when the intended one moved out of tolerance and a different one moved in — a
+real silent retarget, geometric rather than index-based, invisible to the
+ambiguity rule. Stage 1 makes it **unlikely and mostly honest-failing**, and
+ships §6.3 mis-resolve telemetry so it is observed; only **stage 2** makes
+non-retargeting *structural*, because provenance replay never inspects
+coordinates and the §2d step-4 cross-check catches the degenerate remainder. The
+doc states this rather than claiming stage 1 "never silently retargets."
 
 ### 7.4 Boundary hygiene (standing check)
 
 - `SubshapeRef` is **pure pydantic**: `feature_id` (UUID), `subshape_type`
-  (enum), an opaque `selector` dict of strings/ids/numbers, and
-  `selector_version` (int). **No `TopoDS`, no OCP type, nothing kernel** crosses
-  the service boundary — resolution happens entirely inside `services/geometry`,
-  and the persisted name is kernel-free by construction, same posture as
-  `EdgeSelector` today.
+  (enum), and a **typed, `selector_version`-discriminated `Selector` union**
+  (§4) of strings/ids/numbers — *not* a `dict[str, Any]`, so pydantic validates
+  it at the boundary and the TS client is typed (CLAUDE.md strict typing). **No
+  `TopoDS`, no OCP type, nothing kernel** crosses the service boundary —
+  resolution happens entirely inside `services/geometry`, and the persisted name
+  is kernel-free by construction, same posture as `EdgeSelector` today.
 - The provenance name (stage 2) anchors on **already-crossing, kernel-free
   identifiers** — sketch-local entity ids (`e1`…, already in the schema) and
   operation-role enum strings — so adding it introduces no new boundary
   crossing.
-- Documents never resolves names; it only stores/relays the opaque selector and
-  materializes `feature_id` into `feature_dependencies`. The kernel stays behind
+- Documents never resolves names; it only stores/relays the typed selector and
+  materializes `feature_id` into `feature_dependencies` (via the widened
+  `iter_feature_refs`/`feature_references` helpers — §4). The kernel stays behind
   the boundary; documents stays kernel-free (feature-tree §8.4).
 
 ### 7.5 Determinism of resolution order (standing check)
@@ -544,3 +735,54 @@ which we adopt as stage 1 and as the hybrid's fallback, not reinvented under the
 predicate union. `all_edges` / `axis_parallel` remain the right tool for
 *set* selections (round every vertical edge) and are **not** deprecated; the
 `subshape` variant is added **beside** them for *singular* selections.
+
+---
+
+## 8. Review / decision log
+
+- **2026-07-11 — request-changes → revised.** `code-reviewer` endorsed the
+  design and the staged plan and requested correctness-of-claims fixes (the
+  approach was not changed). Per-finding resolution:
+  - 🔴 **"Never silently retargets" overstated for stage 1.** Fixed throughout.
+    The guarantee is now split: index-based silent retarget is *structurally*
+    excluded at both stages (we never persist an index); the **residual
+    signature retarget** (intended subshape moves out of tolerance while a
+    different one moves in → lone WRONG match, invisible to the ambiguity rule)
+    is acknowledged as a real, geometric, non-index silent retarget that stage 1
+    makes *unlikely and mostly honest-failing*, **not impossible**. The
+    *structural* non-retarget guarantee is attributed to stage 2 (coordinate-
+    blind provenance + §2d step-4 cross-check). Reworked: §1.3 framing (new
+    stage-by-stage rule), §2b (residual hole), §3 (stage-1 limits + ordering
+    rationale), §5 (UI bullet), §6.5 tier contract (per-stage T1/T2 honesty),
+    §7.3. Folded the residual "false unique match after a move" into the §6.3
+    spike as a *second* measured separation (mis-resolve rate), sizing the
+    picking item's telemetry/guard.
+  - 🟡 **1 — typed selector union.** `selector: dict[str, Any]` replaced with a
+    typed `selector_version`-discriminated `Selector = SelectorV1 | SelectorV2`
+    union (§4 code block, §7.4). Kills the unjustified `Any`, gives pydantic
+    boundary validation + a typed TS client, stays additive and decoupled from
+    `param_version`. Deferring validation to the resolver is noted as the
+    rejected alternative with its malformed-vs-unresolved cost.
+  - 🟡 **2 — `feature_id` defined precisely.** §4 now states stage 1's
+    `feature_id` = the prior body-affecting feature whose body the signature is
+    matched against (not necessarily the originating feature); stage 2 shifts to
+    the true originating feature (possibly several earlier). The v1→v2
+    dependency-edge/409-target shift is called out (no data migration; protected
+    feature only moves earlier). New Open Question 8 tracks the migration
+    behaviour.
+  - 🟡 **3 — not "purely additive."** §4 now states plainly that wiring
+    `feature_id` into `feature_dependencies` requires **real** edits to three
+    shipped self-checking helpers in `py_kit/schemas/features.py`
+    (`iter_feature_refs`, `FeatureReference.ref`, the `walked == mapped`
+    assert) — additive on the wire, a genuine typed-helper widening in code.
+  - 🟡 **4 — tie-break vs refuse-to-guess.** §2d step 2/3 + a new determinism
+    note: stage 1 (pure signature) **never** tie-breaks and errors on ≥2
+    matches; stage 2 (provenance) **may** use the signature to disambiguate a
+    provenance one→many, erroring only if the signature also ties.
+  - 🟡 **5 — `subshape_type` fidelity delta.** §4 flags that adding
+    `subshape_type: Literal["face","edge","vertex"]` is an addition to the
+    feature-tree §2.4 reserved stub (harmless, now explicit).
+  - 🟢 **Open Questions added:** 8 (stage-1 `feature_id` definition + edge
+    shift), 9 (residual false-unique-match risk, tied to §6.3), 10 (vertex
+    signatures — degenerate length, point + adjacency, `"vertex"` reserved-but-
+    unspecified).
