@@ -222,6 +222,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **VISION.md re-scored: Sketching + Part modeling stay ❌.**
+  Both have real shipped, QA-verified capability but neither closes the
+  daily-driver loop yet — see scorecard notes for the precise gaps. [vision-steward]
 - 2026-07-11 — **Ready #6 shipped: extrude (add/cut) end-to-end.** First
   body-affecting feature + golden `sketch-extrude-40x25x10` (0-dev STEP RT),
   API strict-prefix broken-profile case, §7.8 interim mesh endpoint. [kernel-architect]

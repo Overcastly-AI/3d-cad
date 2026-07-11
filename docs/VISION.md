@@ -68,8 +68,8 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 
 | Dimension | Status | Notes |
 |---|---|---|
-| Sketching & constraints | ❌ | Solver adopted (planegcs, LGPL-verified; benchmark rectangle solves at 0.0 deviation, bitwise-deterministic — commit 3da8f0a), but no sketch API and no sketcher UI. A solver is not a sketcher. |
-| Part modeling (features, history) | ❌ | Parametric box + cylinder with live param editing in the viewport; no feature tree, no history, no real features (extrude/fillet unshipped; persistence exists as a design doc only). |
+| Sketching & constraints | ❌ | Real sketcher now exists and closes the loop: plane pick, click-to-place line/rect/circle/arc, 6 constraint kinds (coincident/horizontal/vertical/distance/radius/fixed) with keyboard verbs, live save→solve→render, DOF readout, conflict diagnostics, dimension-edit-moves-corners proven e2e (commits 91fa1d1/75f0214, 25/25 Playwright). Still behind daily-driver parity: no tangent/perpendicular/parallel/equal/symmetric/concentric constraints (nothing to relate an arc to a line — most real parts need these), no trim/extend, no offset, no construction geometry, no mirror/pattern, no sketch fillet/chamfer. An engineer can rough out a simple closed profile; cannot yet sketch the kind of part that needs tangent-constrained fillets or symmetric construction geometry, which is most of them. |
+| Part modeling (features, history) | ❌ | Feature tree persists and evaluates server-side; extrude (add/cut) is the first body-affecting feature, shipped end-to-end with a golden (`sketch-extrude-40x25x10`, 1e-9 mass-props tolerance, 0.0-deviation STEP round-trip — commit 11eaa65, GEOMETRY-QA 2026-07-11). Correctness is proven, but the daily-driver loop is still broken: the extruded body does not render in the viewport (mesh-fetch proxy unshipped — an engineer extrudes and sees nothing), there is no feature-tree edit/rollback UI (features are API-only, no way to go back and change a step), no fillet/chamfer (the single most common secondary feature on real parts), and no parts-home UI (workspace is direct-URL-only). Extrude is real geometry, not yet a usable modeling loop. |
 | Assemblies & mates | ❌ | Not started (Phase 3) |
 | Interop (STEP/IGES/STL) | ❌ | Half-flipped. EXPORT: shipped + QA-verified end-to-end (STEP/STL endpoints byte-deterministic; endpoint-level STEP round-trip 0.0 deviation; real-browser download e2e — commits 12e7b4e/c5e2b1e/8cd63d5, GEOMETRY-QA 2026-07-10). IMPORT: not started (Phase 4). No IGES; only box/cylinder shapes exist to export. Not parity until an engineer can bring a real part IN. |
 | Drawings & documentation | ❌ | Not started (Phase 4) |
@@ -82,11 +82,19 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 Every row starts ❌ except the structural one. That's the honest baseline;
 the loop's job is to flip rows and never let this table go stale.
 
-Last re-scored 2026-07-10 (vision-steward) against git log +
-`docs/GEOMETRY-QA.md` + the BACKLOG changelog. Interop deliberately stays ❌
-despite a QA-verified export path: ➖ means parity with tools that all
-import STEP, and import doesn't exist here. The nearest flips remain
-Sketching → Part modeling (Phase 1's spine) and Interop-import (Phase 4).
+Last re-scored 2026-07-11 (vision-steward) against git log + `docs/GEOMETRY-QA.md`
++ the BACKLOG changelog. Sketching and Part modeling both stay ❌ despite real
+shipped, QA-verified capability (sketcher authoring/constraints/solve loop;
+extrude add/cut with a 0.0-deviation STEP-round-tripped golden) — an
+aspirational ➖ would poison prioritization. Sketching is behind on
+constraint/editing vocabulary (no tangent/perpendicular/parallel/equal/
+symmetric, no trim/offset/construction geometry) that most real parts need;
+Part modeling is behind because the one feature that exists doesn't render in
+the viewport and can't be edited or rolled back once built. Interop
+deliberately stays ❌ despite a QA-verified export path: ➖ means parity with
+tools that all import STEP, and import doesn't exist here. Nearest flips:
+close the extrude-render/rollback gap on Part modeling, widen the constraint
+vocabulary on Sketching, then Interop-import (Phase 4).
 
 ## Design mandate (founder, 2026-07-09)
 
