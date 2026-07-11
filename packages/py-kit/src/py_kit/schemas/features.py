@@ -152,6 +152,33 @@ class FilletParamsV1(BaseModel):
     radius_mm: float = Field(gt=0, description="Fillet radius (mm)")
 
 
+class ChamferParamsV1(BaseModel):
+    """Bevel selected edges of the current body chain with a symmetric distance.
+
+    The chamfer sibling of :class:`FilletParamsV1`: it reuses the SAME
+    :class:`EdgeSelector` predicate (the shared edge-reference plumbing —
+    design §2.4, NOT topological naming; Phase 2 is ``SubshapeRef``), so a UI
+    or caller names chamfer edges exactly as it names fillet edges. Like a
+    fillet it operates on the implicit single body chain (design §7.6), so it
+    carries no ``FeatureRef``; its dependency on the prior body-affecting
+    feature is the tree order.
+
+    ``distance_mm`` is the symmetric setback measured along each of the edge's
+    two adjacent faces (a 45° bevel): the flat chamfer face is the hypotenuse.
+    """
+
+    edges: EdgeSelector = Field(
+        description="Which edges of the current body to bevel (geometric "
+        "predicate, not topological naming — design §2.4; same selector union "
+        "as fillet)"
+    )
+    distance_mm: float = Field(
+        gt=0,
+        description="Symmetric chamfer setback along each adjacent face (mm) — "
+        "a 45° bevel",
+    )
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -179,15 +206,24 @@ class FilletFeature(BaseModel):
     params: FilletParamsV1
 
 
+class ChamferFeature(BaseModel):
+    """``{"type": "chamfer", "version": 1, "params": {...}}`` envelope."""
+
+    type: Literal["chamfer"]
+    version: Literal[1]
+    params: ChamferParamsV1
+
+
 #: Discriminated union of the CURRENT version of every feature type — this is
 #: what the OpenAPI contract exports (design §1.4). Older stored versions are
 #: upcast on read via :data:`FEATURE_REGISTRY`.
 Feature = Annotated[
-    SketchFeature | ExtrudeFeature | FilletFeature, Field(discriminator="type")
+    SketchFeature | ExtrudeFeature | FilletFeature | ChamferFeature,
+    Field(discriminator="type"),
 ]
 
 #: Plain (non-annotated) union alias for type annotations of validated values.
-FeatureEnvelope = SketchFeature | ExtrudeFeature | FilletFeature
+FeatureEnvelope = SketchFeature | ExtrudeFeature | FilletFeature | ChamferFeature
 
 
 # --- §1.4 Registry + upcasts -----------------------------------------------------
@@ -332,6 +368,7 @@ FEATURE_REGISTRY: FeatureTypeRegistry[FeatureEnvelope] = FeatureTypeRegistry()
 FEATURE_REGISTRY.register(SketchFeature)
 FEATURE_REGISTRY.register(ExtrudeFeature)
 FEATURE_REGISTRY.register(FilletFeature)
+FEATURE_REGISTRY.register(ChamferFeature)
 FEATURE_REGISTRY.validate_chains()
 
 
@@ -396,11 +433,12 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                     "profile", feature.params.profile, frozenset({"sketch"})
                 )
             )
-        case FilletFeature():
-            # No FeatureRef: fillet rounds the implicit single body chain
-            # (design §7.6) and selects edges by a geometric predicate, not by
-            # a per-feature subshape reference (design §2.4). Its ordering
-            # dependency on the prior body-affecting feature is the tree order.
+        case FilletFeature() | ChamferFeature():
+            # No FeatureRef: fillet/chamfer modify the implicit single body
+            # chain (design §7.6) and select edges by a geometric predicate,
+            # not by a per-feature subshape reference (design §2.4). Their
+            # ordering dependency on the prior body-affecting feature is the
+            # tree order.
             pass
         case _:
             assert_never(feature)  # exhaustive: new types must map their slots

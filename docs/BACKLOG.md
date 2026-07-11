@@ -128,7 +128,7 @@ depends on #2, #3, #4, #7.
       STEP round-trip vol dev 1.26e-10 (project's largest, curved fillet
       re-approx; 800× inside bound). Contracts + ts-client regenerated.
       [kernel-architect]
-- [ ] (P1, M) Chamfer feature — bevel edges of the extruded body via
+- [x] (P1, M) Chamfer feature — bevel edges of the extruded body via
       build123d; registers in the evaluate-tree dispatcher, reusing #5's
       edge-reference plumbing. Ships with its own golden in the same commit;
       STEP round-trip observations recorded in GEOMETRY-QA. Depends on: #5
@@ -136,6 +136,16 @@ depends on #2, #3, #4, #7.
       Acceptance: golden passes every parametrized gate at a documented
       tolerance; bad-edge-selection error path pinned; contracts + ts-client
       regenerated. [src: roadmap, product-auditor]
+      Shipped 2026-07-11: `chamfer` handler + kernel (`chamfer_body`) reusing
+      the SAME `EdgeSelector`; fillet's `select_fillet_edges`/`NoFilletEdgesError`
+      extracted to shared `geometry.kernel.edges` (`select_edges`/
+      `NoEdgesSelectedError` — DRY second consumer). `ChamferParamsV1` +
+      `ChamferFeature` in the discriminated union. Golden `chamfer-plate-d5`
+      (plate, 4 vertical edges d=5, V=9500, all-planar) through every gate at
+      1e-9; `no_target_body` / `no_chamfer_edges` / `chamfer_failed` pinned
+      API-level. STEP round-trip vol/area dev **0.0** (planar — tighter than
+      fillet's curved 1.26e-10). Contracts + ts-client regenerated.
+      [kernel-architect]
 - [ ] (P1, M) Export-from-tree — extend export to accept an evaluated feature
       tree (part id, optionally a rollback point), not just a bare
       `ShapeRequest` (closes GEOMETRY-QA gap #8: `POST /api/v1/export` speaks
@@ -272,6 +282,12 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #6 shipped: chamfer feature.** `chamfer` handler +
+  kernel reusing fillet's `EdgeSelector`; edge selection extracted to shared
+  `geometry.kernel.edges.select_edges` (DRY). Golden `chamfer-plate-d5`
+  (V=9500, all-planar, 10/24/1, 48/28) through every gate at 1e-9; STEP
+  round-trip 0.0 dev (planar vs fillet's curved 1.26e-10); 3 error paths
+  pinned; contracts regenerated. [kernel-architect]
 - 2026-07-11 — **Ready #5 shipped: fillet feature.** `fillet` handler +
   kernel via build123d; `EdgeSelector` (`all_edges`/`axis_parallel`) is a
   deterministic geometric predicate, not topological naming (design §2.4

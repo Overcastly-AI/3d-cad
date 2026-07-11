@@ -13,8 +13,10 @@ last-good state.
 Dispatch is a ``type → handler`` registry (:data:`FEATURE_HANDLERS`):
 ``sketch`` (produces input geometry, not body-affecting), ``extrude`` (the
 first **body-affecting** feature, §4.3 — mutates the part's single solid body
-chain via add/cut booleans) and ``fillet`` (rounds selected edges of that body
-chain; body-affecting). A feature that validates against
+chain via add/cut booleans), ``fillet`` (rounds selected edges of that body
+chain) and ``chamfer`` (bevels selected edges; both body-affecting and both
+resolving edges through the shared geometric selector). A feature that
+validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
 ``feature_type_unsupported`` error — never a transport failure (§4.3: the
 py-kit error envelope is reserved for transport/validation failures of the
@@ -41,6 +43,7 @@ from dataclasses import dataclass, field
 
 from build123d import Solid
 from py_kit.schemas.features import (
+    ChamferFeature,
     DatumPlaneRef,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
@@ -58,16 +61,18 @@ from py_kit.schemas.geometry import MeshStats, ShapeProperties
 
 from geometry.kernel import (
     BooleanError,
+    ChamferError,
     FilletError,
-    NoFilletEdgesError,
+    NoEdgesSelectedError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
     build_profile_face,
+    chamfer_body,
     combine_body,
     extrude_face,
     fillet_body,
     measure_shape,
-    select_fillet_edges,
+    select_edges,
     tessellate_glb,
 )
 from geometry.mesh_store import store_mesh_glb
@@ -269,8 +274,8 @@ def _evaluate_fillet(
         )
 
     try:
-        edges = select_fillet_edges(state.body, params.edges)
-    except NoFilletEdgesError as exc:
+        edges = select_edges(state.body, params.edges)
+    except NoEdgesSelectedError as exc:
         return FeatureError(code="no_fillet_edges", message=str(exc))
 
     try:
@@ -280,13 +285,51 @@ def _evaluate_fillet(
     return None
 
 
+def _evaluate_chamfer(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Bevel selected edges of the current body chain (body-affecting, §4.3).
+
+    The chamfer sibling of :func:`_evaluate_fillet` — same shape, same edge
+    plumbing (:func:`select_edges`, design §2.4), same single-body requirement
+    (``no_target_body`` otherwise, design §7.6). An empty match is
+    ``no_chamfer_edges``; a kernel failure is ``chamfer_failed``. ``state.body``
+    is only replaced on success (strict-prefix rule tessellates the last-good
+    body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, ChamferFeature), "registry dispatches on type='chamfer'"
+    params = feature.params
+
+    if state.body is None:
+        return FeatureError(
+            code="no_target_body",
+            message=(
+                "Chamfer requires an existing body, but no body-affecting "
+                "feature precedes this one; add an extrude first."
+            ),
+        )
+
+    try:
+        edges = select_edges(state.body, params.edges)
+    except NoEdgesSelectedError as exc:
+        return FeatureError(code="no_chamfer_edges", message=str(exc))
+
+    try:
+        state.body = chamfer_body(state.body, edges, params.distance_mm)
+    except ChamferError as exc:
+        return FeatureError(code="chamfer_failed", message=str(exc))
+    return None
+
+
 #: The dispatcher registry (§4): feature ``type`` discriminator → handler.
 #: Consulted by key only; no iteration order participates (RESEARCH §9
-#: determinism). New feature types (chamfer, …) plug in here.
+#: determinism). New feature types plug in here.
 FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "sketch": _evaluate_sketch,
     "extrude": _evaluate_extrude,
     "fillet": _evaluate_fillet,
+    "chamfer": _evaluate_chamfer,
 }
 
 

@@ -217,6 +217,50 @@ export interface components {
             kind: "axis_parallel";
         };
         /**
+         * ChamferFeature
+         * @description ``{"type": "chamfer", "version": 1, "params": {...}}`` envelope.
+         */
+        ChamferFeature: {
+            params: components["schemas"]["ChamferParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "chamfer";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * ChamferParamsV1
+         * @description Bevel selected edges of the current body chain with a symmetric distance.
+         *
+         *     The chamfer sibling of :class:`FilletParamsV1`: it reuses the SAME
+         *     :class:`EdgeSelector` predicate (the shared edge-reference plumbing —
+         *     design §2.4, NOT topological naming; Phase 2 is ``SubshapeRef``), so a UI
+         *     or caller names chamfer edges exactly as it names fillet edges. Like a
+         *     fillet it operates on the implicit single body chain (design §7.6), so it
+         *     carries no ``FeatureRef``; its dependency on the prior body-affecting
+         *     feature is the tree order.
+         *
+         *     ``distance_mm`` is the symmetric setback measured along each of the edge's
+         *     two adjacent faces (a 45° bevel): the flat chamfer face is the hypotenuse.
+         */
+        ChamferParamsV1: {
+            /**
+             * Distance Mm
+             * @description Symmetric chamfer setback along each adjacent face (mm) — a 45° bevel
+             */
+            distance_mm: number;
+            /**
+             * Edges
+             * @description Which edges of the current body to bevel (geometric predicate, not topological naming — design §2.4; same selector union as fillet)
+             */
+            edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"];
+        };
+        /**
          * CoincidentConstraint
          * @description Two named points share a location.
          */
@@ -318,7 +362,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"];
             /**
              * Id
              * Format: uuid
@@ -379,7 +423,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -439,7 +483,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"];
             /**
              * Id
              * Format: uuid
@@ -498,7 +542,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"]) | null;
+            feature?: (components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"]) | null;
             /** Name */
             name?: string | null;
         };

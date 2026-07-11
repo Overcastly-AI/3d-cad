@@ -1,0 +1,34 @@
+{
+  "description": "FIRST CHAMFER GOLDEN: the sketch-extrude-40x25x10 plate with its 4 VERTICAL edges (parallel to Z) beveled at distance 5 mm (symmetric 45 degrees). A three-feature TREE (sketch -> extrude -> chamfer) evaluated through the same evaluate-tree path as the extrude and fillet goldens: planegcs solve -> profile face -> 10 mm prism -> geometric axis-parallel edge selection (design 2.4, the SAME EdgeSelector plumbing fillet uses, NOT topological naming) -> symmetric OCCT chamfer -> GProp on the evaluated body -> tessellation -> content-addressed GLB. Locks: the chamfer handler + shared edge selector, GProp over 4 PLANAR bevel faces (unlike the fillet's cylindrical surfaces), planar tessellation of the bevels AND of the octagonal top/bottom caps, and (via the parametrized round-trip gate) EXACT STEP survival of the all-planar B-rep.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). Base body is the 40x25x10 box; the 4 vertical edges (length 10, parallel to Z) are beveled at symmetric distance r=5 (a 45-degree chamfer).",
+    "A 45-degree chamfer of setback r replaces a square corner (area r^2) with a right triangle of legs r x r (area r^2/2) removed in cross-section, so it removes r^2/2 of material per unit height. Over the full height h=10 each vertical edge removes h*r^2/2 = 10*25/2 = 125. The 4 corner chamfers do not interfere (each face is 40 or 25 wide, and 5+5 < both), so:",
+    "volume = 10000 - 4 * (h*r^2/2) = 10000 - 4*125 = 10000 - 500 = 9500 mm^3 (EXACT; all-planar geometry, no curved integration)",
+    "surface_area top+bottom: each of the 2 caps loses 4 corner triangles of r^2/2 = 12.5: each cap = 40*25 - 4*12.5 = 1000 - 50 = 950; two caps = 1900",
+    "surface_area vertical walls: the 4 side faces total 1300 mm^2; each of the 4 vertical edges removes a strip r=5 wide from EACH of its 2 adjacent walls over height 10, so 4*2*(5*10) = 400 is removed -> walls = 900 mm^2",
+    "surface_area chamfer bevels: each vertical bevel is a flat rectangle of width r*sqrt(2)=5*sqrt(2) (the 45-degree hypotenuse of the r x r triangle) and height h=10, area 50*sqrt(2); four -> 200*sqrt(2)",
+    "surface_area = 1900 + 900 + 200*sqrt(2) = 2800 + 200*sqrt(2) = 3082.842712474619 mm^2",
+    "centroid = (20, 12.5, 5) mm: the 4 vertical edges are beveled symmetrically and the chamfer is uniform along z, preserving the plate's three mirror symmetries",
+    "bounding_box = [0,0,0]..[40,25,10]: the flat faces at x=0/40 and y=0/25 persist (narrowed) and still reach the box extents; z is untouched",
+    "topology: 10 faces (top + bottom + 4 narrowed vertical planar walls + 4 PLANAR bevel faces), 24 edges (8 vertical straight tangent lines where each bevel meets its 2 walls + top ring of 8 straight edges + bottom ring of 8 straight edges), 1 shell. Same COUNTS as the fillet golden but all edges are straight and the 4 corner faces are planar. Euler check for a genus-0 solid: V - E + F = 16 - 24 + 10 = 2 (16 vertices = 8 top + 8 bottom, each cap a convex octagon).",
+    "mesh (linear 0.1 mm / angular 0.1 rad, isRelative=False): every face is PLANAR with straight boundary edges (1 segment each), so the mesh is coarse and exact -- no arc discretization anywhere (contrast the fillet golden, whose quarter-arcs discretize to 32 segments).",
+    "mesh chamfer bevels: 4 rectangles, 4 nodes / 2 triangles each -> 16 nodes / 8 triangles",
+    "mesh vertical walls: 4 narrowed rectangles, 4 nodes / 2 triangles each -> 16 nodes / 8 triangles",
+    "mesh top & bottom caps: each is a convex OCTAGON (4 shortened original edges + 4 chamfer edges) with 8 boundary nodes and no interior node, triangulated to 8-2 = 6 triangles -> 8 nodes / 6 triangles each; two faces -> 16 nodes / 12 triangles",
+    "mesh totals = 16 + 16 + 16 = 48 vertices and 8 + 8 + 12 = 28 triangles (per-face faceted normals, no vertex sharing across faces -- same convention as the box, cylinder and fillet goldens)",
+    "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "ALL-PLANAR tolerance, measured first, then set (geometry-gates skill: never copy a bound blindly). Unlike the fillet golden's cylindrical faces, every face of the chamfered plate is planar, so GProp integrates them EXACTLY: measured volume deviation 0.0 and surface_area deviation 0.0 vs the analytic values. The only residual is ulp-scale noise from the wire->face->prism construction path and the optimal AABB min corner. Measured deviations vs the analytic values (2026-07-11, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 0.0, surface_area 0.0, centroid <= 3.55e-15 mm (x), AABB min <= 8.88e-16 mm (x; max exact). Documented ceiling 1e-9 matches the extrude and fillet tree goldens' posture (this golden extends the extrude plate, whose planar prism uses the same 1e-9 bound) -- ~2.8e5x the observed worst case, headroom for libm/platform variation across CI hosts while staying 100x TIGHTER than the standing planar 1e-7 bound. The solver contributes zero error by construction (zero-residual start, solved == input bitwise). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 9500.0,
+    "surface_area": 3082.842712474619,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 10, "edges": 24, "shells": 1 },
+  "mesh": { "vertices": 48, "triangles": 28 }
+}

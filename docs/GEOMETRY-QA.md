@@ -45,6 +45,7 @@ recorded from harness output.
 | `cylinder-r10-h25` | FIRST CURVED golden: GProp integration over an analytic quadric, curved-face tessellation deflection, seam-edge topology, STEP re-approximation of curved surfaces | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 4.55e-13) | 3 / 3 / 1 | 506 / 500 |
 | `sketch-extrude-40x25x10` | FIRST FEATURE-TREE golden (design §6 worked example): evaluate-tree path — planegcs solve → profile wire/closed-wire check → face → prism → GProp on the evaluated body → content-addressed GLB | 1e-9 (wire→face→prism ulp accumulation, measured-then-set; observed worst 1.82e-12) | 6 / 12 / 1 | 24 / 12 |
 | `fillet-plate-r5` | FIRST FILLET golden (new curved-topology class): sketch→extrude→fillet tree — the plate's 4 vertical (Z-parallel) edges rounded r=5 via geometric edge selection (design §2.4, not topological naming); GProp over quarter-cylinder fillet surfaces, curved-face tessellation, STEP re-approximation of trimmed cylindrical surfaces | 1e-9 (curved-geometry, measured-then-set; observed worst 1.78e-15) | 10 / 24 / 1 | 544 / 524 |
+| `chamfer-plate-d5` | FIRST CHAMFER golden (all-planar): sketch→extrude→chamfer tree — the plate's 4 vertical (Z-parallel) edges beveled d=5 (45°) via the SAME `EdgeSelector` plumbing fillet uses (shared `select_edges` helper, design §2.4); GProp over 4 PLANAR bevel faces + octagonal caps, EXACT STEP survival (0.0 vs fillet's curved 1.26e-10) | 1e-9 (all-planar, measured-then-set; volume/area exact, residual worst 3.55e-15) | 10 / 24 / 1 | 48 / 28 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
@@ -52,11 +53,107 @@ export, sketch solve + extrude (add/cut) + fillet via evaluate-tree — all
 covered by the inventory. Export-endpoint gates parametrize over **shape**
 goldens only (gap #8); the tree goldens' STEP round-trip runs at kernel level.
 Extrude `cut`, `direction: reverse`, circle profiles, every extrude error
-path, and every fillet path (both selectors + `no_target_body` /
-`no_fillet_edges` / `fillet_failed`) are additionally pinned by
-`tests/test_extrude.py` / `tests/test_fillet.py`. No shipped modeling
-capability lacks a golden as of the 2026-07-11 fillet entry (chamfer must
-ship with theirs).
+path, and every fillet/chamfer path (both selectors + `no_target_body` /
+`no_fillet_edges`|`no_chamfer_edges` / `fillet_failed`|`chamfer_failed`) are
+additionally pinned by `tests/test_extrude.py` / `tests/test_fillet.py` /
+`tests/test_chamfer.py`. No shipped modeling capability lacks a golden as of
+the 2026-07-11 chamfer entry — the three core features (extrude, fillet,
+chamfer) are all golden-covered.
+
+---
+
+## 2026-07-11 — First chamfer golden: `chamfer-plate-d5` (chamfer feature, BACKLOG #6)
+
+Environment: dev container, Python 3.12.3, build123d 0.11.1 (OCCT 7.9 via
+OCP), planegcs 0.8.0, pytest 9.1.1. Full geometry suite green; the golden
+flows through every parametrized gate (goldens ×4, kernel-level STEP
+round-trip) with **zero runner changes** — a fourth feature type in an
+existing tree golden.
+
+Model: the `sketch-extrude-40x25x10` plate with a third feature — a `chamfer`
+beveling its **4 vertical edges** (selector `axis_parallel` `axis: "Z"`) at
+distance 5 mm (symmetric 45°). **Chamfer reuses fillet's SAME `EdgeSelector`
+plumbing** resolved through the shared `select_edges` kernel helper — a
+deterministic geometric predicate, NOT topological naming (design §2.4 — v1
+limitation, Phase 2 is `SubshapeRef`). The fillet-side `select_fillet_edges` /
+`NoFilletEdgesError` were extracted to `geometry.kernel.edges`
+(`select_edges` / `NoEdgesSelectedError`) — the second real consumer earned
+the DRY extraction; the feature layer maps the neutral error onto each
+feature's own `no_fillet_edges` / `no_chamfer_edges` code.
+
+### Gate 1 — mass properties: analytic vs GProp on the beveled body
+
+Hand derivation (full text in the golden's `expected.json`): a 45° chamfer of
+setback r removes a right-triangle cross-section `r²/2` per unit height.
+Volume `= 10000 − 4·(h·r²/2) = 9500` (**exact — all-planar**); surface area
+`= 2800 + 200√2` (caps `1900` + walls `900` + 4 planar bevels `200√2`);
+centroid `(20, 12.5, 5)`; AABB `[0,0,0]..[40,25,10]` (flat faces persist to
+the extents).
+
+| Quantity | Expected (analytic) | Actual (GProp) | Deviation | Bound |
+| --- | --- | --- | --- | --- |
+| volume | 9500 mm³ | 9500.0 | **0.0** | 1e-9 |
+| surface area | 2800+200√2 = 3082.842712474619 mm² | 3082.842712474619 | **0.0** | 1e-9 |
+| centroid x/y/z | (20, 12.5, 5) mm | (20−3.55e-15, 12.5, 5−8.9e-16) | ≤ 3.55e-15 | 1e-9 |
+| AABB (6 values) | [0,0,0]..[40,25,10] | min x −8.9e-16, else identical | ≤ 8.9e-16 | 1e-9 |
+| faces/edges/shells | 10 / 24 / 1 | 10 / 24 / 1 | — | exact |
+| mesh vertices/triangles | 48 / 28 | 48 / 28 | — | exact |
+
+**All-planar tolerance — measured first, then set (1e-9).** Unlike the fillet
+golden's cylindrical faces, every face here is planar, so GProp integrates
+volume and area **exactly** (0.0); the residual is ulp-scale on centroid/AABB
+(worst 3.55e-15). Ceiling 1e-9 matches the extrude plate this golden extends.
+
+**Topology finding:** **10 faces / 24 edges / 1 shell** — the SAME counts as
+the fillet golden, but every corner face is planar and every edge straight:
+top + bottom (each a convex OCTAGON) + 4 narrowed vertical walls + 4 flat
+bevels; edges are 8 vertical tangent lines + two 8-straight-edge rings. Euler
+V−E+F = 16−24+10 = 2. Same counts, entirely different geometry class (planar
+vs curved) — the exact-match gate is honest but not sufficient alone, which is
+why mass-props + STEP round-trip run alongside.
+
+**Mesh derivation (counts pinned exactly):** all faces planar with straight
+boundary edges (1 segment each) — no arc discretization anywhere (contrast the
+fillet golden's 32-segment quarter-arcs). Bevels 4×(4/2); walls 4×(4/2); the
+two octagonal caps 2×(8 nodes / 6 tris, n−2 with no interior node). Totals
+**48 / 28** — an order of magnitude coarser than the fillet's 544/524, the
+direct geometric consequence of planar-vs-curved.
+
+### Gate 2 — STEP round-trip: planar chamfer survives EXACTLY
+
+Kernel-level gate against `ROUNDTRIP_TOL` 1e-7 + exact topology:
+
+| Quantity | Original | Re-imported | Deviation |
+| --- | --- | --- | --- |
+| volume | 9500.0 mm³ | 9500.0 | **0.0** |
+| surface area | 3082.842712474619 mm² | 3082.842712474619 | **0.0** |
+| centroid x/y/z | (20, 12.5, 5) | ≤3.55e-15 apart | ≤ 3.55e-15 |
+| AABB min/max (6 values) | exact | ≤3.3e-16 | ≤ 3.3e-16 |
+| topology F/E/S | 10 / 24 / 1 | 10 / 24 / 1 | preserved |
+
+**Finding (recorded observation):** the chamfer round-trips through STEP with
+**exactly 0.0** volume and area deviation — **tighter than the fillet's
+1.26e-10** (the project's largest, from re-approximating trimmed cylindrical
+surfaces). The reason is geometric: chamfer bevels are PLANAR, and planar
+B-rep survives STEP AP214 exactly (same as the box/extrude goldens), whereas
+the fillet's cylinders re-trim/reparameterize at double-precision scale. This
+is the expected planar-vs-curved contrast the board item asked to record — no
+action, baseline for regression watch. Artifact: 29,663-byte STEP AP214,
+byte-deterministic (timestamp pinned as in gap #4).
+
+### Gate 3 — determinism
+
+In-process double rebuild AND fresh-interpreter rebuild: identical metadata,
+byte-identical GLB (5,568 bytes, sha256 `f2895ad354ec9d06…`). The shared edge
+selector filters `body.edges()` (OCCT deterministic order) by a pure
+predicate, so the selected set — and the whole evaluate response incl.
+`mesh_glb_id` — is byte-reproducible.
+
+Both selectors (`axis_parallel` + `all_edges`), all three error paths
+(`no_target_body` / `no_chamfer_edges` / `chamfer_failed`), and the 422
+non-positive-distance rejection are pinned in `tests/test_chamfer.py`.
+
+[kernel-architect]
 
 ---
 
@@ -508,6 +605,7 @@ finding, not absorbed into the tolerance.
 | 2026-07-10 | box-10x20x30 | 3.8–4.3 ms | < 2 s (tripwire) |
 | 2026-07-11 | sketch-extrude-40x25x10 (full evaluate-tree: solve + extrude + GProp + tessellate) | ~8.3 ms | < 2 s (tripwire) |
 | 2026-07-11 | fillet-plate-r5 (evaluate-tree: solve + extrude + fillet + GProp + tessellate) | ~33 ms | < 2 s (tripwire) |
+| 2026-07-11 | chamfer-plate-d5 (evaluate-tree: solve + extrude + chamfer + GProp + tessellate) | ~28 ms | < 2 s (tripwire) |
 
 ### Gaps / coverage list for future passes
 

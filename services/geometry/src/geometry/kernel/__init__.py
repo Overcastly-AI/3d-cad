@@ -10,6 +10,8 @@ service boundary.
 
 from build123d import Solid
 
+from geometry.kernel.chamfer import ChamferError, chamfer_body
+from geometry.kernel.edges import NoEdgesSelectedError, select_edges
 from geometry.kernel.export import export_step_bytes, export_stl_bytes
 from geometry.kernel.extrude import (
     BooleanError,
@@ -19,12 +21,7 @@ from geometry.kernel.extrude import (
     combine_body,
     extrude_face,
 )
-from geometry.kernel.fillet import (
-    FilletError,
-    NoFilletEdgesError,
-    fillet_body,
-    select_fillet_edges,
-)
+from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.properties import measure_shape
 from geometry.kernel.shapes import build_box, build_cylinder
 from geometry.kernel.tessellate import glb_stats, tessellate_glb
@@ -39,14 +36,16 @@ from geometry.schemas import (
 
 __all__ = [
     "BooleanError",
+    "ChamferError",
     "FilletError",
-    "NoFilletEdgesError",
+    "NoEdgesSelectedError",
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "build_box",
     "build_cylinder",
     "build_profile_face",
     "build_shape",
+    "chamfer_body",
     "combine_body",
     "evaluate_export",
     "evaluate_tessellation",
@@ -56,7 +55,7 @@ __all__ = [
     "fillet_body",
     "glb_stats",
     "measure_shape",
-    "select_fillet_edges",
+    "select_edges",
     "tessellate_glb",
 ]
 

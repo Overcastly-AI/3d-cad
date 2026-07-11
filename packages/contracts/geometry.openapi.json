@@ -88,6 +88,67 @@
         "title": "BoxParams",
         "type": "object"
       },
+      "ChamferFeature": {
+        "description": "``{\"type\": \"chamfer\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/ChamferParamsV1"
+          },
+          "type": {
+            "const": "chamfer",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "ChamferFeature",
+        "type": "object"
+      },
+      "ChamferParamsV1": {
+        "description": "Bevel selected edges of the current body chain with a symmetric distance.\n\nThe chamfer sibling of :class:`FilletParamsV1`: it reuses the SAME\n:class:`EdgeSelector` predicate (the shared edge-reference plumbing \u2014\ndesign \u00a72.4, NOT topological naming; Phase 2 is ``SubshapeRef``), so a UI\nor caller names chamfer edges exactly as it names fillet edges. Like a\nfillet it operates on the implicit single body chain (design \u00a77.6), so it\ncarries no ``FeatureRef``; its dependency on the prior body-affecting\nfeature is the tree order.\n\n``distance_mm`` is the symmetric setback measured along each of the edge's\ntwo adjacent faces (a 45\u00b0 bevel): the flat chamfer face is the hypotenuse.",
+        "properties": {
+          "distance_mm": {
+            "description": "Symmetric chamfer setback along each adjacent face (mm) \u2014 a 45\u00b0 bevel",
+            "exclusiveMinimum": 0.0,
+            "title": "Distance Mm",
+            "type": "number"
+          },
+          "edges": {
+            "description": "Which edges of the current body to bevel (geometric predicate, not topological naming \u2014 design \u00a72.4; same selector union as fillet)",
+            "discriminator": {
+              "mapping": {
+                "all_edges": "#/components/schemas/AllEdgesSelector",
+                "axis_parallel": "#/components/schemas/AxisParallelEdgesSelector"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AllEdgesSelector"
+              },
+              {
+                "$ref": "#/components/schemas/AxisParallelEdgesSelector"
+              }
+            ],
+            "title": "Edges"
+          }
+        },
+        "required": [
+          "edges",
+          "distance_mm"
+        ],
+        "title": "ChamferParamsV1",
+        "type": "object"
+      },
       "CoincidentConstraint": {
         "description": "Two named points share a location.",
         "properties": {
@@ -326,6 +387,7 @@
           "feature": {
             "discriminator": {
               "mapping": {
+                "chamfer": "#/components/schemas/ChamferFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
                 "sketch": "#/components/schemas/SketchFeature"
@@ -341,6 +403,9 @@
               },
               {
                 "$ref": "#/components/schemas/FilletFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ChamferFeature"
               }
             ],
             "title": "Feature"
