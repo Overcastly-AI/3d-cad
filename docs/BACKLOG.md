@@ -124,6 +124,10 @@ are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
       `/parts/{id}` workspace exists but is only reachable by direct URL;
       e2e creates parts via API). Composes design primitives; needed for
       the Phase 1 full-flow e2e exit gate. [src: frontend-builder]
+- [ ] (P3, S) Structured conflict indices — promote conflicting/redundant
+      constraint indices from the `sketch_conflicting` error message into a
+      typed `FeatureError` field (geometry + py-kit); frontend currently
+      parses the message (documented). [src: frontend-builder]
 - [ ] (P2, M) Fillet + chamfer — each with a golden in the same commit;
       curved-surface STEP round-trip observations recorded in GEOMETRY-QA.
       Depends on extrude existing. [src: roadmap]
