@@ -24,6 +24,8 @@ export type SketchConstraint =
   components["schemas"]["SketchParamsV1"]["constraints"][number];
 export type FeatureUpdate = components["schemas"]["FeatureUpdate"];
 export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
+export type ExtrudeFeature = components["schemas"]["ExtrudeFeature"];
+export type ExtrudeParams = components["schemas"]["ExtrudeParamsV1"];
 
 /** One of the caller's parts. */
 export async function fetchPart(
@@ -125,6 +127,65 @@ export function sketchFeatureUpdate(
     expected_tree_version: expectedTreeVersion,
     feature: sketchFeatureEnvelope(plane, entities, constraints),
   };
+}
+
+/** The `{type, version, params}` envelope shared by extrude create and update. */
+function extrudeFeatureEnvelope(params: ExtrudeParams): ExtrudeFeature {
+  return { type: "extrude", version: 1, params };
+}
+
+/**
+ * The create payload for an extrude feature: a linear cut of an EARLIER
+ * sketch's profile (design §2.2). Pure — unit-tested against the generated
+ * types, matching `sketchFeatureCreate`.
+ */
+export function extrudeFeatureCreate(
+  name: string,
+  params: ExtrudeParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: extrudeFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing extrude (no rename). */
+export function extrudeFeatureUpdate(
+  params: ExtrudeParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: extrudeFeatureEnvelope(params),
+  };
+}
+
+/**
+ * Move the rollback bar (design §3): `rollbackFeatureId` names the last
+ * INCLUDED feature, or null for the tip (everything included). Returns the
+ * renumbered tree + its new concurrency token.
+ */
+export async function moveRollbackBar(
+  partId: string,
+  rollbackFeatureId: string | null,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureTreeResponse> {
+  const { data, error } = await client.PUT("/api/v1/parts/{part_id}/rollback", {
+    params: { path: { part_id: partId } },
+    body: {
+      rollback_feature_id: rollbackFeatureId,
+      expected_tree_version: expectedTreeVersion,
+    },
+  });
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The rollback bar could not be moved."),
+    );
+  }
+  return data;
 }
 
 /** Replace a feature's params (200; 422 on stale version). */

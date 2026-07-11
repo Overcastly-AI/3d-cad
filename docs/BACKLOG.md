@@ -75,7 +75,7 @@ depends on #2, #3, #4, #7.
       blank viewport; profile sketch recedes behind the body. e2e seeds
       sketch+extrude via API (the #3 authoring UI seam), asserts the solid
       renders + volume 10000 in the inspector + reload persists. [frontend-builder]
-- [ ] (P1, M) Extrude feature UI — create/edit + feature-tree panel
+- [x] (P1, M) Extrude feature UI — create/edit + feature-tree panel
       edit/rollback — from the workspace, add an extrude feature against a
       closed sketch profile (direction/operation/distance params), edit its
       params, and use the feature-tree panel to select any feature and move
@@ -83,12 +83,14 @@ depends on #2, #3, #4, #7.
       the roadmap's "Viewport v1" item — face/edge picking stays out of scope
       (filed separately in Next, blocked on #5/#6). Depends on: #2 (so the
       new UI's output is immediately visible and testable).
-      Acceptance: Playwright e2e — sketch a rectangle, extrude via the UI, see
-      the body, edit the extrude distance and see it update, roll the bar
-      back before the extrude and see the pre-extrude state; rebuild errors
-      (`profile_not_closed`) surfaced legibly in the tree panel, not a silent
-      failure; WCAG-AA + 1280×800; founder screenshots. [src: product-auditor,
-      roadmap]
+      Shipped 2026-07-11: title-block extrude editor (top-left HUD, keyboard-
+      first — brass distance handle, Enter/Esc, add/cut + normal/reverse
+      toggles, profile select); selectable tree rows, per-feature error lines
+      (`profile_not_closed` legible under the row), and a brass rollback
+      "cut line" whose slots wind the build back (extrude excluded → the
+      sketch-only pre-extrude state, nothing destroyed). New `SelectField`
+      primitive. e2e: UI sketch→extrude→edit-distance→rollback→open-profile
+      error, desktop + 1280×800; founder screenshots. [frontend-builder]
 - [ ] (P1, S) Parts home UI — create/list/open/delete parts screens (the
       `/parts/{id}` workspace exists but is only reachable by direct URL;
       e2e creates parts via API today). Composes design primitives;
@@ -252,6 +254,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #3 shipped: extrude authoring + tree edit/rollback.**
+  Keyboard-first title-block extrude editor (create/edit), selectable tree
+  rows with legible per-feature rebuild errors, and a brass rollback bar that
+  winds the build back to the pre-extrude sketch. e2e + founder screenshots.
+  [frontend-builder]
 - 2026-07-11 — **Ready #2 shipped: the extrude loop is visible.** Workspace
   fetches the evaluate response's `mesh_glb_id` through the gateway proxy and
   renders the solid; mass properties reach a title-block body inspector; 404 →

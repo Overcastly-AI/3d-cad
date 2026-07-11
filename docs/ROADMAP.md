@@ -121,7 +121,12 @@ The thinnest vertical slice a working engineer can feel:
       splines, patterns, construction geometry — is Phase 2)
 - 🚧 Features v1: extrude (add/cut), fillet, chamfer; feature re-evaluation on
       param edit; error surfacing when a feature fails to rebuild
-      (extrude shipped 2026-07-11 [BACKLOG #6]: first body-affecting feature
+      (extrude authoring UI shipped 2026-07-11 [BACKLOG #3]: create/edit an
+      extrude from the workspace — keyboard-first title-block editor
+      [distance/operation/direction, profile by feature reference], live
+      re-evaluate on param edit, per-feature rebuild errors surfaced legibly
+      in the tree panel.
+      extrude geometry shipped 2026-07-11 [BACKLOG #6]: first body-affecting feature
       — solved profile → closed-wire check → prism along the plane normal
       [normal/reverse] → add/cut boolean, single body chain; per-feature
       rebuild errors [`profile_not_closed`, `boolean_failed`,
@@ -138,7 +143,10 @@ The thinnest vertical slice a working engineer can feel:
       edges]; mass properties surface in a title-block body inspector; the
       profile sketch recedes behind the body; a `mesh_not_found` 404 triggers
       a re-evaluate [§7.8], never a blank viewport. Extrude-authoring UI +
-      feature-tree edit/rollback + face/edge picking pending [#3])
+      feature-tree select/edit + rollback-bar shipped 2026-07-11 [BACKLOG #3]:
+      selectable rows, a brass rollback "cut line" that winds the build back
+      to the pre-extrude state, per-feature error lines. Face/edge picking
+      pending [Next, blocked on fillet/chamfer #5/#6])
 - ✅ Export: STEP + STL download (shipped 2026-07-10 — byte-deterministic
       STEP/STL geometry endpoint with round-trip gates, gateway proxy, and
       title-block export controls in the web app; QA'd in a real browser:

@@ -6,14 +6,26 @@ import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import {
   createFeature,
   evaluatePart,
+  extrudeFeatureCreate,
+  extrudeFeatureUpdate,
+  type FeatureResponse,
   fetchFeatureTree,
   fetchPart,
+  moveRollbackBar,
   sketchFeatureCreate,
   sketchFeatureUpdate,
   updateFeature,
 } from "../api/parts";
 import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
+import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
+import {
+  defaultExtrudeForm,
+  defaultProfileId,
+  type ExtrudeForm,
+  formFromParams,
+  profileOptions,
+} from "../features/extrude";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -381,6 +393,151 @@ export function PartPage() {
   // Leaving the workspace always leaves sketch mode.
   useEffect(() => () => useSketchStore.getState().exit(), []);
 
+  // ---------------------------------------------------------------------
+  // Extrude authoring + feature-tree interactions. Discrete user actions
+  // (not the debounced sketch chain): each reads the freshest tree_version,
+  // retries once on a stale-version race, then invalidates the tree + the
+  // evaluate so the body updates through the #2 render path.
+  // ---------------------------------------------------------------------
+  const features = tree.data?.features ?? [];
+  const sketchProfiles = useMemo(() => profileOptions(features), [features]);
+  const [editor, setEditor] = useState<{
+    mode: "create" | "edit";
+    initial: ExtrudeForm;
+    featureId?: string;
+  } | null>(null);
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
+    null,
+  );
+  const [extrudeSaving, setExtrudeSaving] = useState(false);
+  const [extrudeError, setExtrudeError] = useState<string | null>(null);
+  const [rollbackBusy, setRollbackBusy] = useState(false);
+
+  /** Latest tree version, refetched if the query has none yet. */
+  const freshTreeVersion = useCallback(async (): Promise<number> => {
+    if (tree.data !== undefined) return tree.data.tree_version;
+    return (await fetchFeatureTree(partId)).tree_version;
+  }, [partId, tree.data]);
+
+  const refreshTreeAndBody = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["features", partId] });
+    await queryClient.invalidateQueries({ queryKey: ["evaluate", partId] });
+    await queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
+  }, [partId, queryClient]);
+
+  const openCreateExtrude = useCallback(() => {
+    const profileId = defaultProfileId(tree.data?.features ?? []);
+    if (profileId === "") return;
+    setExtrudeError(null);
+    setSelectedFeatureId(null);
+    setEditor({ mode: "create", initial: defaultExtrudeForm(profileId) });
+  }, [tree.data]);
+
+  const selectFeature = useCallback((feature: FeatureResponse) => {
+    setSelectedFeatureId(feature.id);
+    if (feature.feature.type === "extrude") {
+      setExtrudeError(null);
+      setEditor({
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromParams(feature.feature.params),
+      });
+    } else {
+      setEditor(null);
+    }
+  }, []);
+
+  const closeEditor = useCallback(() => {
+    setEditor(null);
+    setExtrudeError(null);
+  }, []);
+
+  const submitExtrude = useCallback(
+    (params: Parameters<typeof extrudeFeatureCreate>[1]) => {
+      const current = editor;
+      if (current === null) return;
+      setExtrudeSaving(true);
+      setExtrudeError(null);
+      void (async () => {
+        try {
+          const attempt = async (version: number) =>
+            current.mode === "create"
+              ? createFeature(
+                  partId,
+                  extrudeFeatureCreate(
+                    `Extrude${
+                      (tree.data?.features ?? []).filter(
+                        (f) => f.feature.type === "extrude",
+                      ).length + 1
+                    }`,
+                    params,
+                    version,
+                  ),
+                )
+              : updateFeature(
+                  partId,
+                  current.featureId as string,
+                  extrudeFeatureUpdate(params, version),
+                );
+          let response;
+          try {
+            response = await attempt(await freshTreeVersion());
+          } catch {
+            response = await attempt(
+              (await fetchFeatureTree(partId)).tree_version,
+            );
+          }
+          setSelectedFeatureId(response.feature.id);
+          setEditor(null);
+          await refreshTreeAndBody();
+        } catch (error) {
+          setExtrudeError(
+            error instanceof Error
+              ? error.message
+              : "The extrude could not be saved.",
+          );
+        } finally {
+          setExtrudeSaving(false);
+        }
+      })();
+    },
+    [editor, partId, tree.data, freshTreeVersion, refreshTreeAndBody],
+  );
+
+  const moveRollback = useCallback(
+    (rollbackFeatureId: string | null) => {
+      setRollbackBusy(true);
+      void (async () => {
+        try {
+          const run = async (version: number) =>
+            moveRollbackBar(partId, rollbackFeatureId, version);
+          try {
+            await run(await freshTreeVersion());
+          } catch {
+            await run((await fetchFeatureTree(partId)).tree_version);
+          }
+          await refreshTreeAndBody();
+        } finally {
+          setRollbackBusy(false);
+        }
+      })();
+    },
+    [partId, freshTreeVersion, refreshTreeAndBody],
+  );
+
+  // A solved sketch must exist before an extrude can consume one.
+  const canExtrude =
+    sketchProfiles.length > 0 &&
+    (evaluation.data?.features.some(
+      (f) => f.status === "ok" && f.data?.kind === "solved_sketch",
+    ) ??
+      false);
+
+  // Sketch mode owns the viewport; leaving/entering it dismisses the editor.
+  useEffect(() => {
+    if (mode !== "off") setEditor(null);
+  }, [mode]);
+
   // The body is the hero: once a solid renders, the profile sketch that
   // defined it recedes (it sits on the body's base face — coincident scribe
   // ink would only z-fight the solid). It returns, live, on sketch re-entry.
@@ -413,8 +570,16 @@ export function PartPage() {
             lastSynced.current = 0;
             failedRevision.current = null;
             setSyncError(null);
+            setEditor(null);
+            setSelectedFeatureId(null);
             begin();
           }}
+          canExtrude={canExtrude}
+          onNewExtrude={openCreateExtrude}
+          selectedFeatureId={selectedFeatureId}
+          onSelectFeature={selectFeature}
+          onMoveRollback={moveRollback}
+          rollbackBusy={rollbackBusy}
         />
         <Viewport
           glb={body.data}
@@ -429,6 +594,17 @@ export function PartPage() {
               />
               <SketchDro solving={syncPending || evaluation.isFetching} />
               <SolveDiagnostic />
+              {mode === "off" && editor !== null ? (
+                <ExtrudeEditor
+                  mode={editor.mode}
+                  profiles={sketchProfiles}
+                  initial={editor.initial}
+                  onSubmit={submitExtrude}
+                  onCancel={closeEditor}
+                  saving={extrudeSaving}
+                  error={extrudeError}
+                />
+              ) : null}
               {regenerating ? (
                 <div
                   role="status"

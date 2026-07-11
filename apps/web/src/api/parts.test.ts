@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  type ExtrudeParams,
+  extrudeFeatureCreate,
+  extrudeFeatureUpdate,
   sketchFeatureCreate,
   sketchFeatureUpdate,
   type SketchConstraint,
@@ -66,6 +69,44 @@ describe("sketchFeatureUpdate", () => {
           constraints,
         },
       },
+    });
+    expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+const extrudeParams: ExtrudeParams = {
+  profile: {
+    kind: "feature",
+    feature_id: "11111111-1111-1111-1111-111111111111",
+  },
+  distance_mm: 10,
+  operation: "add",
+  direction: "normal",
+};
+
+describe("extrudeFeatureCreate", () => {
+  it("wraps the params in the {type, version, params} create envelope", () => {
+    const body = extrudeFeatureCreate("Extrude1", extrudeParams, 2);
+    expect(body).toEqual({
+      name: "Extrude1",
+      expected_tree_version: 2,
+      feature: { type: "extrude", version: 1, params: extrudeParams },
+    });
+  });
+});
+
+describe("extrudeFeatureUpdate", () => {
+  it("wraps the re-parametrized envelope for the PATCH (no rename)", () => {
+    const cut: ExtrudeParams = {
+      ...extrudeParams,
+      distance_mm: 6,
+      operation: "cut",
+      direction: "reverse",
+    };
+    const body = extrudeFeatureUpdate(cut, 9);
+    expect(body).toEqual({
+      expected_tree_version: 9,
+      feature: { type: "extrude", version: 1, params: cut },
     });
     expect(body).not.toHaveProperty("name", expect.anything());
   });
