@@ -6,7 +6,10 @@ CPU-bound and runs on the threadpool, keeping the event loop free. The arq
 queue path (``geometry.worker``) calls the same core function.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Response
+from py_kit.errors import NotFoundError
 
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
@@ -22,6 +25,7 @@ from py_kit.schemas.geometry import (
 
 from geometry.features import evaluate_tree
 from geometry.kernel import evaluate_export, evaluate_tessellation
+from geometry.mesh_store import fetch_mesh_glb
 from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
 
 router = APIRouter(prefix="/api/v1", tags=["geometry"])
@@ -71,6 +75,36 @@ def evaluate(request: EvaluateTreeRequest) -> EvaluateTreeResult:
     stays reserved for transport/validation failures of this call itself.
     """
     return evaluate_tree(request).result
+
+
+_MESH_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {
+        "content": {GLB_MEDIA_TYPE: {"schema": {"type": "string", "format": "binary"}}},
+        "description": (
+            "Binary glTF (GLB) mesh addressed by an `EvaluateTreeResult."
+            "mesh_glb_id` content hash (`sha256:<hex>`). 404 = evicted or "
+            "unknown: re-evaluate the tree (results are pure functions of "
+            "the request; feature-tree design §4.4/§7.8)."
+        ),
+    }
+}
+
+
+@router.get("/meshes/{mesh_glb_id}", response_class=Response, responses=_MESH_RESPONSES)
+def fetch_mesh(mesh_glb_id: str) -> Response:
+    """Fetch the GLB artifact a tree evaluation returned by content address.
+
+    The interim §7.8 mesh-delivery path: `mesh_glb_id` is a pure content
+    address, so this route keeps the same contract when the in-process store
+    is replaced by object storage (docs/design/feature-tree.md §7.8).
+    """
+    glb = fetch_mesh_glb(mesh_glb_id)
+    if glb is None:
+        raise NotFoundError(
+            "Mesh artifact unknown or evicted; re-evaluate the tree to regenerate it.",
+            code="mesh_not_found",
+        )
+    return Response(content=glb, media_type=GLB_MEDIA_TYPE)
 
 
 @router.post("/export", response_class=Response, responses=_EXPORT_RESPONSES)

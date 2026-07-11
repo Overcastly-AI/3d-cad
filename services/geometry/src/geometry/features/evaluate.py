@@ -10,36 +10,41 @@ partial-result rule (§4.3): the FIRST failure is marked ``error``, every
 subsequent feature ``skipped``, and the artifact fields reflect the
 last-good state.
 
-Dispatch is a ``type → handler`` registry (:data:`FEATURE_HANDLERS`). Only
-``sketch`` is registered in this slice; ``extrude`` plugs into the same
-registry with BACKLOG #6. A feature that validates against the shared
-``Feature`` union but has no registered handler is a per-feature
+Dispatch is a ``type → handler`` registry (:data:`FEATURE_HANDLERS`):
+``sketch`` (produces input geometry, not body-affecting) and ``extrude``
+(the first **body-affecting** feature, §4.3 — mutates the part's single
+solid body chain via add/cut booleans). A feature that validates against
+the shared ``Feature`` union but has no registered handler is a per-feature
 ``feature_type_unsupported`` error — never a transport failure (§4.3: the
 py-kit error envelope is reserved for transport/validation failures of the
 evaluation call itself, not for geometry outcomes).
 
-A **sketch is not body-affecting** (§4.3): it only produces input geometry
-for later features. With sketch-only dispatch no body ever exists, so an
-evaluation honestly returns ``mesh_glb_id: null`` / ``properties: null``
-while ``last_good_feature_id`` still names the last ``ok`` feature — exactly
-the §6 failure-flavour shape. The content-addressed object-storage write
-(§4.4) stays behind the :func:`store_mesh_glb` seam until a body-affecting
-feature type registers.
+When the evaluated prefix ends with a body, the last-good body is measured
+(GProp) and tessellated, and the GLB is stored content-addressed behind the
+interim §7.8 seam (:mod:`geometry.mesh_store` — in-process LRU today, object
+storage when the compose/queue item lands); ``mesh_glb_id`` carries the
+content address either way. With no body-affecting feature ``ok``, the
+artifact fields stay honestly ``null`` — exactly the §6 failure-flavour
+shape.
 
 Determinism (RESEARCH §9): evaluation order is the request list order, the
-registry is consulted by key only (no iteration order participates), and the
-solver backend is bitwise-deterministic — the same request yields an
-identical result, including solved positions.
+registry is consulted by key only (no iteration order participates), the
+solver backend is bitwise-deterministic, and kernel builds/booleans are pure
+functions of their inputs — the same request yields an identical result,
+including ``mesh_glb_id`` (a content hash of a deterministic GLB).
 """
 
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from build123d import Solid
 from py_kit.schemas.features import (
+    DatumPlaneRef,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     EvaluateTreeResult,
+    ExtrudeFeature,
     FeatureData,
     FeatureError,
     FeatureRef,
@@ -47,7 +52,19 @@ from py_kit.schemas.features import (
     SketchFeature,
     SolvedSketchData,
 )
+from py_kit.schemas.geometry import MeshStats, ShapeProperties
 
+from geometry.kernel import (
+    BooleanError,
+    ProfileNotClosedError,
+    ProfileUnsupportedError,
+    build_profile_face,
+    combine_body,
+    extrude_face,
+    measure_shape,
+    tessellate_glb,
+)
+from geometry.mesh_store import store_mesh_glb
 from geometry.sketch import (
     PlanegcsSketchSolver,
     SketchDefinitionError,
@@ -65,22 +82,29 @@ _SOLVER: SketchSolver = PlanegcsSketchSolver()
 class EvaluationState:
     """Mutable state threaded through one ordered dispatch pass.
 
-    ``solved_sketches`` is keyed by feature id and insertion-ordered by
-    evaluation order (deterministic). The extrude handler (BACKLOG #6) reads
-    its profile from here and adds body tracking (current solid, last-good
-    body) when it registers — no body-affecting feature type exists yet, so
-    no body fields are defined now.
+    ``solved_sketches``/``sketch_planes`` are keyed by feature id and
+    insertion-ordered by evaluation order (deterministic); the extrude
+    handler reads its profile from them. ``body`` is the part's single solid
+    body chain (design §7.6) — a kernel type held strictly service-internal,
+    mutated only by body-affecting handlers **on success** (so after a
+    failure it is exactly the last-good body the strict-prefix rule
+    tessellates, §4.3).
     """
 
     linear_deflection: float
     solved_sketches: dict[uuid.UUID, SolvedSketch] = field(
         default_factory=dict[uuid.UUID, SolvedSketch]
     )
+    sketch_planes: dict[uuid.UUID, DatumPlaneRef] = field(
+        default_factory=dict[uuid.UUID, DatumPlaneRef]
+    )
+    body: Solid | None = None
 
 
 #: One feature handler: evaluate the item, record outputs on ``state``, and
 #: return ``None`` on success or the per-feature error (§4.3). Geometry
-#: outcomes are values, never exceptions.
+#: outcomes are values, never exceptions. Handlers mutate ``state`` only on
+#: the success path.
 FeatureHandler = Callable[[EvaluatedFeatureInput, EvaluationState], FeatureError | None]
 
 
@@ -142,32 +166,84 @@ def _evaluate_sketch(
         )
 
     state.solved_sketches[item.id] = solved
+    state.sketch_planes[item.id] = plane
+    return None
+
+
+def _evaluate_extrude(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Extrude an earlier sketch's profile and boolean it against the body.
+
+    The first **body-affecting** handler (§4.3): profile → closed-wire check
+    → prism along the sketch plane normal (``direction: normal|reverse``) →
+    ``add``/``cut`` against the prior body. Kernel failures surface as the
+    design's error codes (``profile_not_closed``, ``boolean_failed``, …),
+    pinned to this feature; ``state.body`` is only replaced on success.
+    """
+    feature = item.feature
+    assert isinstance(feature, ExtrudeFeature), "registry dispatches on type='extrude'"
+    params = feature.params
+
+    profile_id = params.profile.feature_id
+    solved = state.solved_sketches.get(profile_id)
+    plane = state.sketch_planes.get(profile_id)
+    if solved is None or plane is None:
+        # Documents enforces §2.2 (same part, strictly earlier, type sketch)
+        # at write time — geometry re-checks because it must not trust its
+        # callers for correctness. Anything not an ok sketch of this prefix
+        # (unknown id, non-sketch feature, or a sketch the strict-prefix rule
+        # never reached) resolves to nothing.
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                "Extrude profile must reference an earlier successfully "
+                "solved sketch feature of this tree."
+            ),
+            upstream_feature_id=profile_id,
+        )
+
+    try:
+        face = build_profile_face(plane.plane, solved.entities)
+    except ProfileNotClosedError as exc:
+        return FeatureError(
+            code="profile_not_closed",
+            message=str(exc),
+            upstream_feature_id=profile_id,
+        )
+    except ProfileUnsupportedError as exc:
+        return FeatureError(
+            code="profile_unsupported",
+            message=str(exc),
+            upstream_feature_id=profile_id,
+        )
+
+    if params.operation == "cut" and state.body is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "Cut requires an existing body, but no body-affecting "
+                "feature precedes this one; use an additive extrude first."
+            ),
+        )
+
+    tool = extrude_face(
+        face, plane.plane, params.distance_mm, params.direction == "reverse"
+    )
+    try:
+        state.body = combine_body(state.body, tool, params.operation)
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
     return None
 
 
 #: The dispatcher registry (§4): feature ``type`` discriminator → handler.
-#: ``extrude`` registers here with BACKLOG #6 — same framework, no new
-#: plumbing. Consulted by key only; no iteration order participates
-#: (RESEARCH §9 determinism).
+#: Consulted by key only; no iteration order participates (RESEARCH §9
+#: determinism). New feature types (fillet, chamfer, …) plug in here.
 FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "sketch": _evaluate_sketch,
+    "extrude": _evaluate_extrude,
 }
-
-
-def store_mesh_glb(glb: bytes) -> str:
-    """SEAM — content-addressed object-storage write (design §4.4, §7.9).
-
-    Returns the storage key for ``EvaluateTreeResult.mesh_glb_id``.
-    Unreachable in this slice: no registered feature type is body-affecting
-    (§4.3), so no evaluation ever produces a body to tessellate and store.
-    Implemented together with the first body-affecting feature (extrude,
-    BACKLOG #6) once the client mesh-delivery decision (§7.8) fixes the
-    storage posture.
-    """
-    raise NotImplementedError(
-        "object-storage mesh write lands with the first body-affecting "
-        "feature (extrude, BACKLOG #6; design feature-tree.md §4.4/§7.8)"
-    )
 
 
 def _dispatch(
@@ -212,21 +288,28 @@ class TreeEvaluation:
     """A full evaluation: the boundary DTO plus service-internal payloads.
 
     ``result`` is everything that crosses the service boundary — including
-    the per-feature solved-sketch payloads on ``FeatureResult.data`` (§7.10,
-    lifted by BACKLOG #3). ``solved_sketches`` (``ok`` sketch features only,
-    evaluation order) stays exposed service-internally as typed solver
-    output: the extrude handler (BACKLOG #6) reads its profile from here.
+    the per-feature solved-sketch payloads on ``FeatureResult.data`` (§7.10)
+    and the content-addressed ``mesh_glb_id``. The remaining fields are
+    strictly service-internal (used by the golden harness and future
+    callers inside this service): ``solved_sketches`` (``ok`` sketch
+    features only, evaluation order), ``body`` (the last-good kernel solid —
+    never serialized), and the tessellation artifact ``glb``/``mesh`` that
+    ``mesh_glb_id`` addresses.
     """
 
     result: EvaluateTreeResult
     solved_sketches: dict[uuid.UUID, SolvedSketch]
+    body: Solid | None = None
+    glb: bytes | None = None
+    mesh: MeshStats | None = None
 
 
 def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
 
     Deterministic: same request → identical statuses, identical solved
-    positions (RESEARCH §9). Never raises for geometry outcomes.
+    positions, byte-identical GLB and therefore identical ``mesh_glb_id``
+    (RESEARCH §9). Never raises for geometry outcomes.
     """
     state = EvaluationState(linear_deflection=request.linear_deflection)
     results: list[FeatureResult] = []
@@ -253,20 +336,31 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
             )
             failed = True
 
-    # §4.4 artifact fields: when a body-affecting feature type registers
-    # (extrude, BACKLOG #6), the last-good body is tessellated here and
-    # written through store_mesh_glb(). With sketch-only dispatch no body
-    # ever exists, so null is the honest, spec-consistent value — the §6
-    # failure flavour shows exactly this shape (mesh_glb_id: null,
-    # properties: null, last_good_feature_id still set).
+    # §4.3/§4.4 artifact fields: the LAST-GOOD body — handlers mutate
+    # state.body only on success, so even after a mid-tree failure this is
+    # the state after the last ok body-affecting feature ("the viewport
+    # always has something honest to show"). No body (sketch-only tree, or
+    # the first extrude failed) → honestly null, the §6 failure flavour.
+    properties: ShapeProperties | None = None
+    mesh_glb_id: str | None = None
+    glb: bytes | None = None
+    mesh: MeshStats | None = None
+    if state.body is not None:
+        properties = measure_shape(state.body)
+        glb, mesh = tessellate_glb(state.body, request.linear_deflection)
+        mesh_glb_id = store_mesh_glb(glb)
+
     return TreeEvaluation(
         result=EvaluateTreeResult(
             part_id=request.part_id,
             tree_version=request.tree_version,
             features=results,
-            mesh_glb_id=None,
-            properties=None,
+            mesh_glb_id=mesh_glb_id,
+            properties=properties,
             last_good_feature_id=last_good_feature_id,
         ),
         solved_sketches=state.solved_sketches,
+        body=state.body,
+        glb=glb,
+        mesh=mesh,
     )

@@ -245,7 +245,7 @@
                 "type": "null"
               }
             ],
-            "description": "Object-storage key of the LAST-GOOD body mesh",
+            "description": "Content-addressed artifact key (sha256:<hex>) of the LAST-GOOD body mesh; fetch via the geometry service's GET /api/v1/meshes/{mesh_glb_id} (interim \u00a77.8 path \u2014 the key becomes the object-storage key when that successor lands)",
             "title": "Mesh Glb Id"
           },
           "part_id": {
@@ -1295,6 +1295,50 @@
           }
         },
         "summary": "Export",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/meshes/{mesh_glb_id}": {
+      "get": {
+        "description": "Fetch the GLB artifact a tree evaluation returned by content address.\n\nThe interim \u00a77.8 mesh-delivery path: `mesh_glb_id` is a pure content\naddress, so this route keeps the same contract when the in-process store\nis replaced by object storage (docs/design/feature-tree.md \u00a77.8).",
+        "operationId": "fetch_mesh_api_v1_meshes__mesh_glb_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mesh_glb_id",
+            "required": true,
+            "schema": {
+              "title": "Mesh Glb Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Binary glTF (GLB) mesh addressed by an `EvaluateTreeResult.mesh_glb_id` content hash (`sha256:<hex>`). 404 = evicted or unknown: re-evaluate the tree (results are pure functions of the request; feature-tree design \u00a74.4/\u00a77.8)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fetch Mesh",
         "tags": [
           "geometry"
         ]

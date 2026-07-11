@@ -1,11 +1,12 @@
 """STEP round-trip fidelity gate — gate 2 of the geometry QA strategy
 (docs/RESEARCH.md §9), kernel-level.
 
-Every golden's shape is rebuilt, exported to STEP via build123d
-(``export_step``, OCCT STEPControl underneath), re-imported
-(``import_step``), re-measured through the same GProp pipeline, and compared
-against the in-memory original: mass properties within ``ROUNDTRIP_TOL``,
-topology counts exactly.
+Every golden's solid is rebuilt (:func:`geometry.harness.build_model_solid`
+— shape goldens via the parametric builders, feature-tree goldens via the
+full evaluate-tree path), exported to STEP via build123d (``export_step``,
+OCCT STEPControl underneath), re-imported (``import_step``), re-measured
+through the same GProp pipeline, and compared against the in-memory
+original: mass properties within ``ROUNDTRIP_TOL``, topology counts exactly.
 
 Measured 2026-07-10 (build123d 0.11.1): the 10x20x30 box round-trips with a
 deviation of exactly 0.0 on every mass property, bbox extent, and centroid
@@ -37,8 +38,9 @@ from build123d import (
     export_step,  # pyright: ignore[reportUnknownVariableType]
     import_step,  # pyright: ignore[reportUnknownVariableType]
 )
-from geometry.kernel import build_shape, measure_shape
-from geometry.schemas import ShapeProperties, TessellateRequest
+from geometry.harness import build_model_solid, load_model_request
+from geometry.kernel import measure_shape
+from geometry.schemas import ShapeProperties
 
 GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
 MODEL_FILES = sorted(GOLDENS_DIR.glob("*/model.json"))
@@ -60,10 +62,8 @@ def test_step_roundtrip_preserves_geometry(
     assert_roundtrip_preserved: Callable[[str, ShapeProperties, ShapeProperties], None],
 ) -> None:
     name = model_path.parent.name
-    request = TessellateRequest.model_validate_json(
-        model_path.read_text(encoding="utf-8")
-    )
-    original_shape = build_shape(request)
+    request = load_model_request(model_path.read_text(encoding="utf-8"))
+    original_shape = build_model_solid(request)
     original = measure_shape(original_shape)
 
     # Export: build123d/OCCT writes a STEP AP214 part 21 file.

@@ -20,8 +20,10 @@ them:
   constraint authoring + live solve feedback shipped (Ready #5, 2026-07-11).
   Re-score candidate for the vision-steward (VISION.md scorecard row).
 - **Part modeling (features, history)** — feature tree persisted + evaluated
-  (Ready #1–#3) but no body-affecting feature yet; box/cylinder live-param
-  editing only. → Ready #6.
+  (Ready #1–#3) and the first body-affecting feature shipped: extrude
+  add/cut with its golden + rebuild-error surfacing (Ready #6, 2026-07-11).
+  Remaining for the flip: fillet/chamfer, feature-tree panel with
+  edit/rollback, parts-home UI (Next items).
 - **Interop (STEP/STL)** — half-flipped per VISION's 2026-07-10 re-score
   (export shipped + QA-verified at 0.0 round-trip deviation; import unstarted,
   Phase 4). No Phase 1 item targets it further; stays ❌ until import lands.
@@ -103,7 +105,7 @@ are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
       over-constrained/conflicting states show a legible in-viewport
       diagnostic, not a silent failure; WCAG-AA + 1280×800 verified;
       founder screenshots. [src: roadmap]
-- [ ] (P1, M) Extrude (add/cut) end-to-end — first real feature: registers
+- [x] (P1, M) Extrude (add/cut) end-to-end — first real feature: registers
       `extrude` in #2's evaluate-tree dispatcher — sketch profile (closed-wire
       check) → solid via build123d, `add`/`cut` boolean against the prior
       body, `direction: normal|reverse`. Feature re-evaluation on param edit;
@@ -220,6 +222,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #6 shipped: extrude (add/cut) end-to-end.** First
+  body-affecting feature + golden `sketch-extrude-40x25x10` (0-dev STEP RT),
+  API strict-prefix broken-profile case, §7.8 interim mesh endpoint. [kernel-architect]
 - 2026-07-11 — **Ready #5 shipped: sketcher constraints + solve feedback.**
   Picking + H/V/D/R/X/C verbs, in-viewport glyphs with inline dimension edit,
   live save→solve loop, DRO DOF cell, conflict diagnostics; e2e 25/25. [frontend-builder]

@@ -19,6 +19,13 @@ Closes docs/GEOMETRY-QA.md gaps #3 and #4:
 Parametrized over the golden inventory (``goldens/*/model.json``, mirroring
 ``test_step_roundtrip.py`` — importlib import mode keeps test modules from
 importing each other), so every future golden gets export coverage for free.
+
+Scope: **shape goldens only** (``model.json`` carrying a ``ShapeRequest``).
+The export endpoint's request vocabulary is parametric shapes — evaluated
+feature trees cannot be exported over HTTP yet (that lands with the
+part-export item; gap recorded in docs/GEOMETRY-QA.md). Tree goldens still
+get STEP round-trip coverage at kernel level via ``test_step_roundtrip.py``,
+which rebuilds them through the full evaluate-tree path.
 """
 
 import hashlib
@@ -58,7 +65,20 @@ from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, export_filename
 client = TestClient(app)
 
 GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
-MODEL_FILES = sorted(GOLDENS_DIR.glob("*/model.json"))
+
+
+def _is_shape_golden(model_path: Path) -> bool:
+    """True for goldens the export endpoint can speak (ShapeRequest models);
+    feature-tree goldens carry a ``features`` list instead (see module
+    docstring for why they are out of endpoint-export scope for now)."""
+    import json
+
+    return "shape" in json.loads(model_path.read_text(encoding="utf-8"))
+
+
+MODEL_FILES = [
+    path for path in sorted(GOLDENS_DIR.glob("*/model.json")) if _is_shape_golden(path)
+]
 
 each_model = pytest.mark.parametrize(
     "model_path", MODEL_FILES, ids=[path.parent.name for path in MODEL_FILES]

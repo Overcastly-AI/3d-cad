@@ -447,7 +447,7 @@ export interface components {
             last_good_feature_id: string | null;
             /**
              * Mesh Glb Id
-             * @description Object-storage key of the LAST-GOOD body mesh
+             * @description Content-addressed artifact key (sha256:<hex>) of the LAST-GOOD body mesh; fetch via the geometry service's GET /api/v1/meshes/{mesh_glb_id} (interim §7.8 path — the key becomes the object-storage key when that successor lands)
              */
             mesh_glb_id: string | null;
             /**

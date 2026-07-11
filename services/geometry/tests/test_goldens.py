@@ -3,8 +3,10 @@
 
 Discovers every golden under ``services/geometry/goldens/`` and, for each:
 
-* rebuilds it through :func:`geometry.kernel.evaluate_tessellation` — the
-  same evaluation path the REST route and the worker task share;
+* rebuilds it through :func:`geometry.harness.evaluate_model`, which
+  dispatches to the same evaluation paths the REST routes and the worker
+  task share (``evaluate_tessellation`` for shape goldens, ``evaluate_tree``
+  for feature-tree goldens);
 * asserts mass properties (volume, surface area, centroid, exact AABB)
   within the golden's **documented per-model tolerance** from
   ``expected.json`` (never an ad-hoc epsilon — CLAUDE.md conventions);
@@ -17,10 +19,12 @@ Discovers every golden under ``services/geometry/goldens/`` and, for each:
   byte-strength assertion, plus the cross-process leg), which was removed.
 
 Adding a golden requires ZERO runner changes: drop
-``goldens/<name>/model.json`` (a serialized ``TessellateRequest``) and
-``goldens/<name>/expected.json`` next to it. Expectations must be
-hand-derived or independently cross-checked — a golden recorded from buggy
-harness output enshrines the bug (geometry-gates skill rule).
+``goldens/<name>/model.json`` (a serialized ``TessellateRequest`` for a
+single shape, or a serialized ``EvaluateTreeRequest`` for a feature tree —
+:mod:`geometry.harness` owns the dispatch) and ``goldens/<name>/expected.json``
+next to it. Expectations must be hand-derived or independently cross-checked
+— a golden recorded from buggy harness output enshrines the bug
+(geometry-gates skill rule).
 """
 
 import hashlib
@@ -30,8 +34,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from geometry.kernel import evaluate_tessellation
-from geometry.schemas import BoundingBox, TessellateRequest, TopologyCounts, Vec3
+from geometry.harness import ModelRequest, evaluate_model, load_model_request
+from geometry.schemas import BoundingBox, TopologyCounts, Vec3
 from pydantic import BaseModel, ConfigDict, Field
 
 GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
@@ -90,7 +94,7 @@ class GoldenCase:
     """A discovered golden: its name, build request, and expectations."""
 
     name: str
-    request: TessellateRequest
+    request: ModelRequest
     expected: GoldenExpectation
 
 
@@ -103,9 +107,7 @@ def _load_goldens() -> list[GoldenCase]:
         cases.append(
             GoldenCase(
                 name=golden_dir.name,
-                request=TessellateRequest.model_validate_json(
-                    model_path.read_text(encoding="utf-8")
-                ),
+                request=load_model_request(model_path.read_text(encoding="utf-8")),
                 expected=GoldenExpectation.model_validate_json(
                     (golden_dir / "expected.json").read_text(encoding="utf-8")
                 ),
@@ -134,7 +136,7 @@ def test_every_golden_dir_is_complete() -> None:
 
 @each_golden
 def test_mass_properties_within_documented_tolerance(case: GoldenCase) -> None:
-    _, metadata = evaluate_tessellation(case.request)
+    _, metadata = evaluate_model(case.request)
     actual = metadata.properties
     expected = case.expected.properties
     tolerance = case.expected.tolerance
@@ -164,7 +166,7 @@ def test_mass_properties_within_documented_tolerance(case: GoldenCase) -> None:
 def test_topology_and_mesh_counts_exact(case: GoldenCase) -> None:
     """Exact-match gate: a changed count is a real geometric change —
     explain it or fix it (geometry-gates skill), never widen it."""
-    glb, metadata = evaluate_tessellation(case.request)
+    glb, metadata = evaluate_model(case.request)
 
     assert metadata.properties.topology == case.expected.topology, (
         f"{case.name}: topology expected "
@@ -183,8 +185,8 @@ def test_rebuild_is_deterministic_in_process(case: GoldenCase) -> None:
     Canonical home of the determinism gate (RESEARCH §9); any flake here is
     a P0, not a retry.
     """
-    glb_a, meta_a = evaluate_tessellation(case.request)
-    glb_b, meta_b = evaluate_tessellation(case.request)
+    glb_a, meta_a = evaluate_model(case.request)
+    glb_b, meta_b = evaluate_model(case.request)
 
     assert meta_a == meta_b, f"{case.name}: metadata differs between rebuilds"
     assert glb_a == glb_b, f"{case.name}: GLB bytes differ between rebuilds"
@@ -196,11 +198,9 @@ _RESTART_PROBE = """\
 import hashlib
 import sys
 
-from geometry.kernel import evaluate_tessellation
-from geometry.schemas import TessellateRequest
+from geometry.harness import evaluate_model, load_model_request
 
-request = TessellateRequest.model_validate_json(sys.stdin.read())
-glb, metadata = evaluate_tessellation(request)
+glb, metadata = evaluate_model(load_model_request(sys.stdin.read()))
 print(hashlib.sha256(glb).hexdigest())
 print(metadata.model_dump_json())
 """
@@ -212,7 +212,7 @@ def test_rebuild_is_deterministic_across_interpreter_restart(
 ) -> None:
     """Fresh-interpreter rebuild (worker-restart emulation, RESEARCH §9)
     must produce the same GLB bytes and metadata as this process."""
-    glb, metadata = evaluate_tessellation(case.request)
+    glb, metadata = evaluate_model(case.request)
 
     result = subprocess.run(
         [sys.executable, "-c", _RESTART_PROBE],

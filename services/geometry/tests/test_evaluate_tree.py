@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from geometry.features import evaluate_tree, store_mesh_glb
+from geometry.features import FEATURE_HANDLERS, evaluate_tree
 from geometry.main import app
 from geometry.sketch import SketchEntity, SketchLine
 from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
@@ -291,9 +291,14 @@ def test_duplicate_entity_ids_rejected_at_request_validation(
 # --- Dispatcher registry ------------------------------------------------------------
 
 
-def test_unregistered_feature_type_is_per_feature_error() -> None:
-    """extrude validates against the shared Feature union but has no handler
-    until BACKLOG #6 registers one — per-feature error, never a crash."""
+def test_unregistered_feature_type_is_per_feature_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A feature that validates against the shared Feature union but has no
+    registered handler (a registry gap — every union member is registered in
+    this build, so the gap is simulated by unregistering extrude) is a
+    per-feature error under the strict-prefix rule, never a crash."""
+    monkeypatch.delitem(FEATURE_HANDLERS, "extrude")
     extrude = {
         "id": str(MID_ID),
         "feature": {
@@ -306,15 +311,17 @@ def test_unregistered_feature_type_is_per_feature_error() -> None:
             },
         },
     }
-    result = _post(
-        _request(
-            [
-                _sketch_input(SKETCH_ID, rectangle_params()),
-                extrude,
-                _sketch_input(TAIL_ID, rectangle_params()),
-            ]
+    result = evaluate_tree(
+        EvaluateTreeRequest.model_validate(
+            _request(
+                [
+                    _sketch_input(SKETCH_ID, rectangle_params()),
+                    extrude,
+                    _sketch_input(TAIL_ID, rectangle_params()),
+                ]
+            )
         )
-    )
+    ).result
 
     assert [r.status for r in result.features] == ["ok", "error", "skipped"]
     error = result.features[1].error
@@ -417,10 +424,3 @@ def test_response_round_trips_through_shared_dto() -> None:
     wire: dict[str, Any] = response.json()
     round_tripped = EvaluateTreeResult.model_validate(wire).model_dump(mode="json")
     assert round_tripped == wire
-
-
-def test_store_mesh_glb_is_an_unwired_seam() -> None:
-    """The §4.4 object-storage write is a documented seam until the first
-    body-affecting feature (extrude, BACKLOG #6) lands."""
-    with pytest.raises(NotImplementedError):
-        store_mesh_glb(b"glTF")

@@ -621,6 +621,18 @@ by its owning item or a groom pass:
    gateway streams from object storage vs. presigned URL handed to the client
    vs. documents relaying bytes. Decide in the implementation item, with the
    gateway route as the default posture.
+   **Interim decision (2026-07-11, extrude item):** `mesh_glb_id` is a pure
+   **content address** (`sha256:<hex>` of the GLB bytes) and the geometry
+   service serves `GET /api/v1/meshes/{mesh_glb_id}` from a bounded
+   in-process LRU (`geometry.mesh_store`) — no MinIO runs in this
+   environment yet, and the evaluate flow is sync-HTTP like the tessellate
+   proxy. The store is a cache, not state (geometry stays stateless): a miss
+   after eviction/restart is an honest 404 (`mesh_not_found`) and the client
+   re-evaluates, since results are pure functions of the request (§4.4). The
+   DTO is already the object-storage contract — the compose/queue successor
+   swaps the LRU for content-addressed MinIO writes plus gateway streaming
+   (the default posture above) without touching `EvaluateTreeResult`, the
+   key format, or any caller.
 9. **GLB lifecycle / GC.** Content-addressed artifacts (§4.4) are never
    overwritten, so every tree mutation can strand an orphan in object
    storage. v1 accepts unbounded growth in dev; a retention/GC policy

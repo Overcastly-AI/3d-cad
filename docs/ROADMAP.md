@@ -119,8 +119,17 @@ The thinnest vertical slice a working engineer can feel:
       solved corners]. Sketching scorecard row is now a re-score
       candidate for the vision-steward. Remaining sketcher depth —
       splines, patterns, construction geometry — is Phase 2)
-- ⬜ Features v1: extrude (add/cut), fillet, chamfer; feature re-evaluation on
+- 🚧 Features v1: extrude (add/cut), fillet, chamfer; feature re-evaluation on
       param edit; error surfacing when a feature fails to rebuild
+      (extrude shipped 2026-07-11 [BACKLOG #6]: first body-affecting feature
+      — solved profile → closed-wire check → prism along the plane normal
+      [normal/reverse] → add/cut boolean, single body chain; per-feature
+      rebuild errors [`profile_not_closed`, `boolean_failed`,
+      `no_prior_body`, …] pinned to the failing feature under the
+      strict-prefix rule; mesh delivery via content-addressed
+      `GET /api/v1/meshes/{id}` [feature-tree §7.8 interim]; golden
+      `sketch-extrude-40x25x10` through every gate incl. 0.0-deviation STEP
+      round-trip — docs/GEOMETRY-QA.md. Fillet/chamfer pending)
 - ⬜ Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of
       tessellated body, feature-tree panel with edit/rollback
 - ✅ Export: STEP + STL download (shipped 2026-07-10 — byte-deterministic

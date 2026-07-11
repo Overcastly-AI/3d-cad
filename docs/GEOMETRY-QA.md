@@ -30,10 +30,12 @@ justfile is platform territory, so wiring it is left to `platform-builder`
 
 **Adding a golden** requires zero runner changes: create
 `services/geometry/goldens/<name>/model.json` (a serialized
-`TessellateRequest`) + `expected.json` (hand-derived values, per-model
-`tolerance` + `tolerance_rationale`). Both discovery-inventory guard tests
-fail loudly if discovery ever breaks. Expectations must be hand-derived or
-cross-checked in a second tool — never recorded from harness output.
+`TessellateRequest` for a single shape OR a serialized `EvaluateTreeRequest`
+for a feature tree — `geometry.harness` owns the dispatch) + `expected.json`
+(hand-derived values, per-model `tolerance` + `tolerance_rationale`). Both
+discovery-inventory guard tests fail loudly if discovery ever breaks.
+Expectations must be hand-derived or cross-checked in a second tool — never
+recorded from harness output.
 
 ## Golden inventory
 
@@ -41,13 +43,82 @@ cross-checked in a second tool — never recorded from harness output.
 | --- | --- | --- | --- | --- |
 | `box-10x20x30` | parametric box build, GProp mass properties, exact AABB, 0.1 mm-deflection tessellation to GLB | 1e-7 (CLAUDE.md kernel linear tolerance; measured deviation 0.0) | 6 / 12 / 1 | 24 / 12 |
 | `cylinder-r10-h25` | FIRST CURVED golden: GProp integration over an analytic quadric, curved-face tessellation deflection, seam-edge topology, STEP re-approximation of curved surfaces | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 4.55e-13) | 3 / 3 / 1 | 506 / 500 |
+| `sketch-extrude-40x25x10` | FIRST FEATURE-TREE golden (design §6 worked example): evaluate-tree path — planegcs solve → profile wire/closed-wire check → face → prism → GProp on the evaluated body → content-addressed GLB | 1e-9 (wire→face→prism ulp accumulation, measured-then-set; observed worst 1.82e-12) | 6 / 12 / 1 | 24 / 12 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
-export — all covered by the inventory (export gates parametrize over it).
-No shipped shape kind lacks a golden as of the 2026-07-10 cylinder entry.
+export, sketch solve + extrude (add/cut) via evaluate-tree — all covered by
+the inventory. Export-endpoint gates parametrize over **shape** goldens only
+(gap #8); the tree golden's STEP round-trip runs at kernel level. Extrude
+`cut`, `direction: reverse`, circle profiles, and every extrude error path
+are additionally pinned by `tests/test_extrude.py`. No shipped modeling
+capability lacks a golden as of the 2026-07-11 extrude entry (fillet/chamfer
+must ship with theirs).
 
 ---
+
+## 2026-07-11 — First feature-tree golden: `sketch-extrude-40x25x10` (extrude add/cut, BACKLOG #6)
+
+Environment: dev container, Python 3.12.3, build123d 0.11.1 (OCCT 7.9 via
+OCP), planegcs 0.8.0, pytest 9.1.1. Suite: 352 passed workspace-wide
+(~59 s); the tree golden flows through every parametrized gate — goldens ×4
+(mass props, exact topology/mesh, in-process + fresh-interpreter
+byte-determinism) and the kernel-level STEP round-trip — after a minimal
+harness extension: `geometry.harness` dispatches `model.json` structurally
+(`TessellateRequest` vs `EvaluateTreeRequest`), so future tree goldens again
+need **zero runner changes**.
+
+Model: the feature-tree design's §6 worked example verbatim — 40 × 25 mm
+rectangle on XY (4 lines, the doc's 5 constraints, entities at the analytic
+positions; deliberately underconstrained, DOF 10, zero initial residual so
+the solve provably returns the input bitwise) extruded 10 mm `add`/`normal`.
+
+### Gate 1 — mass properties: analytic vs GProp on the evaluated body
+
+| Quantity | Expected (analytic) | Actual (GProp) | Deviation | Bound |
+| --- | --- | --- | --- | --- |
+| volume | 40·25·10 = 10000 mm³ | 9999.999999999998 | **1.82e-12** | 1e-9 |
+| surface area | 3300 mm² | 3300.0 | **0.0** | 1e-9 |
+| centroid x/y/z | (20, 12.5, 5) mm | (20−3.6e-15, 12.5, 5+8.9e-16) | ≤ 3.6e-15 | 1e-9 |
+| AABB (6 values) | [0,0,0]..[40,25,10] | identical | **0.0** | 1e-9 |
+| faces/edges/shells | 6 / 12 / 1 | 6 / 12 / 1 | — | exact |
+| mesh vertices/triangles | 24 / 12 | 24 / 12 | — | exact |
+
+**Tolerance — measured first, then set (1e-9).** Unlike the primitive box
+(exact 0.0), the wire→face→prism construction path accumulates ulp-scale
+error in GProp integration: observed worst 1.82e-12 mm³ absolute on volume
+(~2e-16 relative). Ceiling 1e-9 ≈ 500× the observed worst, matching the
+cylinder golden's posture and staying 100× tighter than the planar 1e-7
+bound. The solver contributes exactly 0.0 (solved == input bitwise,
+verified).
+
+**Topology finding:** the prism of a 4-edge wire matches the primitive box
+(6/12/1, 24/12 mesh) — different OCCT construction path
+(`BRepBuilderAPI_MakeFace` + `MakePrism` vs `BRepPrimAPI_MakeBox`), same
+counts, pinned exactly.
+
+### Other gates + behavior pinned (`tests/test_extrude.py`, API level)
+
+- **Determinism:** byte-identical GLB + metadata in-process and across a
+  fresh interpreter (planegcs → prism → glTF writer chain); `mesh_glb_id` is
+  a sha256 content address, so whole evaluate responses are byte-identical.
+- **STEP round-trip (kernel level):** deviation **0.0** on volume, area,
+  centroid, all AABB bounds; topology identical (6/12/1).
+- **Strict-prefix broken-profile case (§4.3/§6 failure flavour):** unclosed
+  profile → sketch `ok`, extrude `error: profile_not_closed`
+  (`upstream_feature_id` = the sketch), downstream `skipped`,
+  `last_good_feature_id` = sketch, `mesh_glb_id`/`properties` null.
+- **Booleans:** cut pocket volume 9600.0 (dev 0.0 vs analytic at 1e-9),
+  post-cut topology 11 faces; disjoint add → `boolean_failed` (single body
+  chain, §7.6); cut with no body → `no_prior_body`; >1 loop →
+  `profile_unsupported`; circle profile → cylinder volume πr²h at 1e-9;
+  `direction: reverse` spans z ∈ [−10, 0].
+- **Mesh delivery (§7.8 interim):** `GET /api/v1/meshes/{sha256:…}` serves
+  the GLB from a bounded in-process LRU; miss = 404 `mesh_not_found`
+  (re-evaluate). Object storage is the documented successor.
+
+Performance: warm evaluate-tree (solve + extrude + GProp + tessellate)
+averages ~8.3 ms — table row added below.
 
 ## 2026-07-10 — First curved golden: `cylinder-r10-h25` (closes gap #1)
 
@@ -339,14 +410,17 @@ finding, not absorbed into the tolerance.
 | Date | Golden | Warm rebuild+tessellate | Budget |
 | --- | --- | --- | --- |
 | 2026-07-10 | box-10x20x30 | 3.8–4.3 ms | < 2 s (tripwire) |
+| 2026-07-11 | sketch-extrude-40x25x10 (full evaluate-tree: solve + extrude + GProp + tessellate) | ~8.3 ms | < 2 s (tripwire) |
 
 ### Gaps / coverage list for future passes
 
 1. ~~**One golden, one shape type, planar-only.**~~ **Closed 2026-07-10** —
    first curved golden `cylinder-r10-h25` shipped (entry above): curved
    GProp at 1e-9 documented tolerance, seam-edge topology, curved STEP
-   round-trip observations recorded. Extrude/fillet still require their own
-   goldens in the same commit (geometry-gates skill).
+   round-trip observations recorded. Extrude shipped its golden in the same
+   commit (`sketch-extrude-40x25x10`, 2026-07-11 entry); fillet/chamfer
+   still require their own goldens in the same commit (geometry-gates
+   skill).
 2. **No queue-path coverage.** Gates run `evaluate_tessellation` directly;
    the arq worker leg is still sync-inline in the product (see BACKLOG) and
    unexercised by geometry gates. Revisit when redis/arq runtime lands.
@@ -367,6 +441,12 @@ finding, not absorbed into the tolerance.
 7. **Performance tracking is a single coarse tripwire.** Start per-golden
    budget rows in the table above as the inventory grows; >10% regression
    inside budget is still a filed defect.
+8. **Evaluated trees are not endpoint-exportable.** `POST /api/v1/export`
+   speaks `ShapeRequest` only, so the export gates parametrize over shape
+   goldens; the tree golden's STEP round-trip runs at kernel level
+   (`test_step_roundtrip.py` via `geometry.harness.build_model_solid`).
+   Close when part export (export an evaluated feature tree over HTTP) lands
+   — the Phase 1 full-flow e2e will need it.
 
 Findings filed this pass: none red — all shipped capabilities have golden
 coverage and all gates are green with zero measured deviation. Gaps above

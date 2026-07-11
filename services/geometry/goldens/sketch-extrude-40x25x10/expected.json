@@ -1,0 +1,27 @@
+{
+  "description": "FIRST FEATURE-TREE GOLDEN: the feature-tree design's §6 worked example — a 40 x 25 mm rectangle sketched on the XY datum plane (4 lines, the doc's 5 constraints, entities at the analytic positions) extruded 10 mm additively. Locks the full evaluate-tree path: planegcs sketch solve → profile wire assembly + closed-wire check → face → prism along the plane normal → GProp on the evaluated body → tessellation → content-addressed GLB (mesh_glb_id). The sketch is deliberately underconstrained (§6 has no anchor; DOF 10) with zero initial residual, so the solver provably returns the input positions bitwise — solver determinism is asserted by the harness determinism gates through the same model.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "profile: the §6 rectangle spans x in [0,40], y in [0,25] on XY; entities start at the analytic solution and the 5 §6 constraints have zero residual there, so the solved profile is exactly the drawn rectangle (verified bitwise 2026-07-11, planegcs 0.8.0: solved == input, status underconstrained, DOF 10)",
+    "volume = 40 * 25 * 10 = 10000 mm^3 (profile area 1000 mm^2 x 10 mm depth)",
+    "surface_area = 2*(40*25) + 2*(40*10) + 2*(25*10) = 2000 + 800 + 500 = 3300 mm^2",
+    "centroid = (40/2, 25/2, 10/2) = (20, 12.5, 5) mm by symmetry; extrude direction 'normal' on XY is +Z, so z spans [0, 10]",
+    "bounding_box = [0,0,0]..[40,25,10]: sketch coordinates are world X/Y on the XY datum plane, prism along +Z",
+    "topology: a rectangular prism is 6 planar faces, 12 straight edges, 1 closed shell — same counts as the primitive box golden, but built via BRepBuilderAPI_MakeFace + MakePrism instead of BRepPrimAPI_MakeBox",
+    "mesh: each planar rectangular face tessellates to exactly 2 triangles (6 * 2 = 12); faceted per-face normals mean no vertex sharing across faces, so 6 faces * 4 corners = 24 vertices (same convention as box-10x20x30)",
+    "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill: never copy a bound blindly). Unlike the primitive box (exact 0.0), the wire->face->prism construction path accumulates ulp-scale floating-point error in GProp's integration over the constructed planar faces. Measured deviations vs the analytic values (2026-07-11, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 1.82e-12 mm^3 (~2e-16 relative, one-ulp scale at 1e4), surface_area exactly 0.0, centroid <= 3.6e-15 mm, AABB exactly 0.0 on all six bounds. Documented ceiling 1e-9 = ~500x the observed worst case, headroom for libm/platform variation across CI hosts — while staying 100x TIGHTER than the standing planar 1e-7 bound, matching the cylinder golden's posture. The solver contributes zero error by construction (zero-residual start, solved == input bitwise). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 10000.0,
+    "surface_area": 3300.0,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}

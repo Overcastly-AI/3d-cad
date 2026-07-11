@@ -516,7 +516,10 @@ class EvaluateTreeResult(BaseModel):
     tree_version: int
     features: list[FeatureResult] = Field(description="Same order as the request")
     mesh_glb_id: str | None = Field(
-        description="Object-storage key of the LAST-GOOD body mesh"
+        description="Content-addressed artifact key (sha256:<hex>) of the "
+        "LAST-GOOD body mesh; fetch via the geometry service's "
+        "GET /api/v1/meshes/{mesh_glb_id} (interim §7.8 path — the key "
+        "becomes the object-storage key when that successor lands)"
     )
     properties: ShapeProperties | None = Field(
         description="Mass properties of the last-good body"

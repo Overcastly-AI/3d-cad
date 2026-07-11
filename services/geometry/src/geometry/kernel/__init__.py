@@ -2,13 +2,23 @@
 import OCP/build123d (CLAUDE.md service boundaries).
 
 Inputs are pydantic DTOs (:mod:`geometry.schemas`); outputs are GLB bytes
-plus metadata DTOs. Kernel types (TopoDS/build123d shapes) never cross this
-package boundary.
+plus metadata DTOs. Kernel shapes (TopoDS/build123d) may be threaded through
+service-internal evaluation state (the feature evaluator holds the current
+body between features), but they never serialize into a DTO or cross the
+service boundary.
 """
 
 from build123d import Solid
 
 from geometry.kernel.export import export_step_bytes, export_stl_bytes
+from geometry.kernel.extrude import (
+    BooleanError,
+    ProfileNotClosedError,
+    ProfileUnsupportedError,
+    build_profile_face,
+    combine_body,
+    extrude_face,
+)
 from geometry.kernel.properties import measure_shape
 from geometry.kernel.shapes import build_box, build_cylinder
 from geometry.kernel.tessellate import glb_stats, tessellate_glb
@@ -22,13 +32,19 @@ from geometry.schemas import (
 )
 
 __all__ = [
+    "BooleanError",
+    "ProfileNotClosedError",
+    "ProfileUnsupportedError",
     "build_box",
     "build_cylinder",
+    "build_profile_face",
     "build_shape",
+    "combine_body",
     "evaluate_export",
     "evaluate_tessellation",
     "export_step_bytes",
     "export_stl_bytes",
+    "extrude_face",
     "glb_stats",
     "measure_shape",
     "tessellate_glb",

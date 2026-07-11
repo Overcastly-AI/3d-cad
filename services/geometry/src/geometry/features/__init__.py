@@ -3,7 +3,9 @@
 The evaluation contract's DTOs live in :mod:`py_kit.schemas.features`
 (shared single source, CLAUDE.md DRY rule); this package owns the ordered
 dispatch, the strict-prefix partial-result rule, and the handler registry
-that new feature types (extrude, BACKLOG #6) plug into.
+(``sketch`` + ``extrude`` today) that new feature types plug into. Artifact
+delivery (the content-addressed GLB behind ``mesh_glb_id``) lives in
+:mod:`geometry.mesh_store` — the interim §7.8 seam.
 """
 
 from geometry.features.evaluate import (
@@ -12,7 +14,6 @@ from geometry.features.evaluate import (
     FeatureHandler,
     TreeEvaluation,
     evaluate_tree,
-    store_mesh_glb,
 )
 
 __all__ = [
@@ -21,5 +22,4 @@ __all__ = [
     "FeatureHandler",
     "TreeEvaluation",
     "evaluate_tree",
-    "store_mesh_glb",
 ]

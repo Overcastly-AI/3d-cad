@@ -48,6 +48,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/meshes/{mesh_glb_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch Mesh
+         * @description Fetch the GLB artifact a tree evaluation returned by content address.
+         *
+         *     The interim §7.8 mesh-delivery path: `mesh_glb_id` is a pure content
+         *     address, so this route keeps the same contract when the in-process store
+         *     is replaced by object storage (docs/design/feature-tree.md §7.8).
+         */
+        get: operations["fetch_mesh_api_v1_meshes__mesh_glb_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tessellate": {
         parameters: {
             query?: never;
@@ -253,7 +277,7 @@ export interface components {
             last_good_feature_id: string | null;
             /**
              * Mesh Glb Id
-             * @description Object-storage key of the LAST-GOOD body mesh
+             * @description Content-addressed artifact key (sha256:<hex>) of the LAST-GOOD body mesh; fetch via the geometry service's GET /api/v1/meshes/{mesh_glb_id} (interim §7.8 path — the key becomes the object-storage key when that successor lands)
              */
             mesh_glb_id: string | null;
             /**
@@ -826,6 +850,37 @@ export interface operations {
                 content: {
                     "model/step": string;
                     "model/stl": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fetch_mesh_api_v1_meshes__mesh_glb_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mesh_glb_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Binary glTF (GLB) mesh addressed by an `EvaluateTreeResult.mesh_glb_id` content hash (`sha256:<hex>`). 404 = evicted or unknown: re-evaluate the tree (results are pure functions of the request; feature-tree design §4.4/§7.8). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "model/gltf-binary": string;
                 };
             };
             /** @description Validation Error */
