@@ -75,6 +75,20 @@ def _to_world(plane: Plane, point: Point2D) -> Vector:
     return plane.origin + plane.x_dir * point.x + plane.y_dir * point.y
 
 
+def plane_point_to_world(
+    plane_name: Literal["XY", "XZ", "YZ"], point: Point2D
+) -> Vector:
+    """Map a solved sketch (x, y) mm onto its datum plane in world coordinates.
+
+    The single public entry to the plane→world mapping the profile builder uses
+    internally, so a feature that needs a sketch point in world space (e.g.
+    revolve's axis endpoints) shares the EXACT mapping the profile is built with
+    (CLAUDE.md DRY rule) — the axis and the profile can never disagree on where
+    the sketch plane sits in the world.
+    """
+    return _to_world(DATUM_PLANES[plane_name], point)
+
+
 def _entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
     """The profile edge(s) contributed by one solved sketch entity."""
     match entity:

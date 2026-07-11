@@ -154,6 +154,19 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       rule); contracts + ts-client regenerated; extrude's title-block
       authoring-UI pattern extended for revolve params (axis pick, angle).
       [src: roadmap, product-auditor]
+      _PARTIAL (5a shipped): `RevolveParamsV1` (profile ref + `RevolveAxis`
+      sketch-line ref + angle_deg + add/cut + direction) in the typed py-kit
+      schema + registry/union; revolve handler in the evaluate-tree dispatcher
+      reusing extrude's `build_profile_face`/`combine_body`; golden
+      `revolve-annulus-r10-20-h15` (annular cylinder, hand-derived
+      V=4500π/A=1500π) through every gate — mass props @1e-9, exact
+      topology 4/6/1, mesh 1012/1008, byte-determinism (incl. interpreter
+      restart), STEP round-trip (curved, ≤1.04e-10, topology exact); error
+      paths `profile_not_closed`/`no_axis`/`axis_intersects_profile`/
+      `no_prior_body`/`reference_unresolved` pinned; contracts+ts-client
+      regen. No apps/web stub needed (no exhaustive Feature switch). Remaining
+      (5b): revolve authoring UI (axis pick + angle title-block) in apps/web —
+      do not tick until 5b lands._
 - [ ] (P2, S) Measurement tool — point/edge distance — transient viewport
       measurement (click two points/edges, read distance/angle in a
       title-block readout); no persisted reference, so independent of #1.
@@ -337,6 +350,8 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — revolve kernel+schema+golden (5a) shipped; authoring UI (5b)
+  pending. [kernel-architect]
 - 2026-07-11 — **Sketching re-scored, held ❌ (not ➖):** all 6 new
   relational constraints + construction geometry closed the row's named gap,
   but trim/offset/mirror/splines/sketch-fillet — every-session incumbent

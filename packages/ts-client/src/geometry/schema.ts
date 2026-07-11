@@ -453,7 +453,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"];
             /**
              * Id
              * Format: uuid
@@ -824,6 +824,91 @@ export interface components {
              * @description Radius (mm)
              */
             value_mm: number;
+        };
+        /**
+         * RevolveAxis
+         * @description The axis of revolution: a straight LINE entity of the profile's sketch.
+         *
+         *     v1 references a line entity by its sketch-local id (design §2.4 entity ids)
+         *     within the SAME sketch the profile comes from. A **construction** line is
+         *     the natural choice — a centerline is reference-only (excluded from the
+         *     closed-wire profile) and is exactly what an axis of revolution is — but any
+         *     line entity resolves; the axis is defined by the line's two solved
+         *     endpoints, mapped to world space through the profile's datum plane.
+         *
+         *     The ``kind`` discriminator seeds a future additive ``datum_axis`` variant
+         *     (the §2.1 ``GeomRef`` pattern) without forcing a ``param_version`` bump: a
+         *     persisted axis is always ``{"kind": "sketch_line", "entity": ...}`` today,
+         *     and a later datum-axis reference joins as ``kind: "datum_axis"``.
+         */
+        RevolveAxis: {
+            /**
+             * Entity
+             * @description Sketch-local id of a LINE entity in the profile's sketch (a construction centerline is ideal) used as the axis of revolution
+             */
+            entity: string;
+            /**
+             * Kind
+             * @default sketch_line
+             * @constant
+             */
+            kind: "sketch_line";
+        };
+        /**
+         * RevolveFeature
+         * @description ``{"type": "revolve", "version": 1, "params": {...}}`` envelope.
+         */
+        RevolveFeature: {
+            params: components["schemas"]["RevolveParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "revolve";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * RevolveParamsV1
+         * @description Revolution of an earlier sketch feature's profile about a sketch-line axis.
+         *
+         *     The revolve sibling of :class:`ExtrudeParamsV1` (design §4.3, second core
+         *     body-affecting feature): it consumes the SAME ``profile`` FeatureRef to an
+         *     earlier sketch and the SAME ``add``/``cut`` boolean against the body chain,
+         *     swapping the linear prism for a swept revolution. The ``axis`` is a
+         *     :class:`RevolveAxis` (a line entity of that same sketch — no picked
+         *     sub-geometry reference, so this is independent of topological naming), and
+         *     ``angle_deg`` is the sweep (full 360° by default). The profile must clear
+         *     the axis: a profile the axis crosses would revolve into self-intersecting
+         *     material and is a per-feature ``axis_intersects_profile`` error (design
+         *     §4.3), never a silent bad body.
+         */
+        RevolveParamsV1: {
+            /**
+             * Angle Deg
+             * @description Sweep angle about the axis (degrees); 360 = full solid of revolution
+             * @default 360
+             */
+            angle_deg: number;
+            /** @description Axis of revolution — a line entity of the profile's sketch */
+            axis: components["schemas"]["RevolveAxis"];
+            /**
+             * Direction
+             * @description Sweep sense about the axis for a partial revolution (irrelevant at a full 360°): 'reverse' sweeps the opposite way
+             * @default normal
+             * @enum {string}
+             */
+            direction: "normal" | "reverse";
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "add" | "cut";
+            /** @description Must resolve to an EARLIER sketch feature (design §2.2) */
+            profile: components["schemas"]["FeatureRef"];
         };
         /**
          * ShapeProperties

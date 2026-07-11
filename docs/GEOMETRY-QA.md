@@ -46,6 +46,7 @@ recorded from harness output.
 | `sketch-extrude-40x25x10` | FIRST FEATURE-TREE golden (design §6 worked example): evaluate-tree path — planegcs solve → profile wire/closed-wire check → face → prism → GProp on the evaluated body → content-addressed GLB | 1e-9 (wire→face→prism ulp accumulation, measured-then-set; observed worst 1.82e-12) | 6 / 12 / 1 | 24 / 12 |
 | `fillet-plate-r5` | FIRST FILLET golden (new curved-topology class): sketch→extrude→fillet tree — the plate's 4 vertical (Z-parallel) edges rounded r=5 via geometric edge selection (design §2.4, not topological naming); GProp over quarter-cylinder fillet surfaces, curved-face tessellation, STEP re-approximation of trimmed cylindrical surfaces | 1e-9 (curved-geometry, measured-then-set; observed worst 1.78e-15) | 10 / 24 / 1 | 544 / 524 |
 | `chamfer-plate-d5` | FIRST CHAMFER golden (all-planar): sketch→extrude→chamfer tree — the plate's 4 vertical (Z-parallel) edges beveled d=5 (45°) via the SAME `EdgeSelector` plumbing fillet uses (shared `select_edges` helper, design §2.4); GProp over 4 PLANAR bevel faces + octagonal caps, EXACT STEP survival (0.0 vs fillet's curved 1.26e-10) | 1e-9 (all-planar, measured-then-set; volume/area exact, residual worst 3.55e-15) | 10 / 24 / 1 | 48 / 28 |
+| `revolve-annulus-r10-20-h15` | FIRST REVOLVE golden (solid of revolution): sketch→revolve tree — a rectangle [r 10..20]×[h 0..15] revolved 360° about a CONSTRUCTION centerline into an annular cylinder; shares extrude's `build_profile_face`/`combine_body`; GProp over two coaxial cylinders + two annular caps, periodic seam-edge topology, STEP re-approximation of the revolved cylinders | 1e-9 (curved-geometry, measured-then-set; observed worst 1.82e-12 on volume) | 4 / 6 / 1 | 1012 / 1008 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
@@ -55,12 +56,70 @@ goldens (`POST /api/v1/export`) and tree goldens (`POST /api/v1/export/tree`,
 closed gap #8); the tree goldens' STEP round-trip runs at kernel AND endpoint
 level.
 Extrude `cut`, `direction: reverse`, circle profiles, every extrude error
-path, and every fillet/chamfer path (both selectors + `no_target_body` /
-`no_fillet_edges`|`no_chamfer_edges` / `fillet_failed`|`chamfer_failed`) are
-additionally pinned by `tests/test_extrude.py` / `tests/test_fillet.py` /
-`tests/test_chamfer.py`. No shipped modeling capability lacks a golden as of
-the 2026-07-11 chamfer entry — the three core features (extrude, fillet,
-chamfer) are all golden-covered.
+path, every fillet/chamfer path (both selectors + `no_target_body` /
+`no_fillet_edges`|`no_chamfer_edges` / `fillet_failed`|`chamfer_failed`), and
+every revolve path (add/cut, partial angle, touching-axis disc + all four
+error codes `profile_not_closed`/`no_axis`/`axis_intersects_profile`/
+`no_prior_body`/`reference_unresolved`) are additionally pinned by
+`tests/test_extrude.py` / `tests/test_fillet.py` / `tests/test_chamfer.py` /
+`tests/test_revolve.py`. No shipped modeling capability lacks a golden as of
+the 2026-07-11 revolve entry — the four core features (extrude, revolve,
+fillet, chamfer) are all golden-covered.
+
+---
+
+## 2026-07-11 — First revolve golden: `revolve-annulus-r10-20-h15` (revolve feature, BACKLOG Ready #5 / 5a)
+
+Environment: dev container, Python 3.12.3, build123d 0.11.1 (OCCT 7.9 via
+OCP), planegcs 0.8.0, pytest 9.1.1. Full geometry + py-kit suites green;
+`just lint` (ruff/pyright/eslint/tsc) clean; `just gen-check` clean.
+
+The revolve feature (second core body-affecting feature, second core sketch
+consumer after extrude) plugs into the same golden harness as a fifth model
+with **zero runner changes** — a serialized `EvaluateTreeRequest` (sketch →
+revolve). The handler reuses extrude's `build_profile_face` (construction
+geometry excluded there — the axis IS a construction line) and `combine_body`
+(add/cut), owning only the axis resolution + revolve. Axis design (v1): a LINE
+entity of the profile's sketch, named by sketch-local id
+(`{"kind":"sketch_line","entity":...}`) — no picked sub-geometry, so
+independent of topological naming; a construction centerline is the natural
+axis.
+
+### Golden shape + hand-derivation (analytic vs GProp)
+
+Profile: rectangle r∈[10,20], y∈[0,15] mm on XY, revolved 360° about the
+sketch centerline x=0 → an **annular cylinder** (washer) coaxial with world Y.
+
+| Quantity | Analytic | GProp | Deviation |
+| --- | --- | --- | --- |
+| volume | π(r_o²−r_i²)h = 4500π = 14137.16694115407 | 14137.166941154072 | 1.82e-12 |
+| surface_area | 2πh(r_o+r_i) + 2π(r_o²−r_i²) = 1500π = 4712.38898038469 | 4712.38898038469 | 0.0 |
+| centroid | (0, 7.5, 0) — on the axis, mid-height | (2.06e-15, 7.5, 6.73e-16) | ≤ 2.06e-15 |
+| AABB | [−20,0,−20]..[20,15,20] | identical | 0.0 (all six) |
+
+Tolerance **1e-9**, measured-then-set: worst deviation 1.82e-12 (volume);
+1e-9 is ~5.5e5× headroom yet 100× tighter than the 1e-7 planar bound —
+matching the cylinder/extrude/fillet posture.
+
+### Topology + mesh (exact-match gate)
+
+4 faces (outer cylinder, inner cylinder, top + bottom annular caps), 6 edges
+(1 seam per periodic cylinder + outer & inner boundary circle per cap), 1
+shell, 4 vertices. Mesh at 0.1 mm / 0.1 rad: 1012 vertices / 1008 triangles
+(126-segment circles per the 2×angular rule; caps triangulate as
+outer/inner-ring strips, no interior node). Note: the naive polyhedral Euler
+count does not apply — cylinders are periodic (seam) and each cap is one face
+with two boundary loops; a washer solid is a solid torus (genus 1).
+
+### STEP round-trip — curved observation (recorded, not a defect)
+
+The revolved cylinders survive STEP export→import with topology **exactly
+preserved (4/6/1)** and mass-property deviations ≤ **1.04e-10** (volume
+1.04e-10, surface 6.18e-11, centroid ≤ 1.91e-13, AABB 0.0) — the largest
+round-trip drift in the inventory so far, but the same curved-surface
+re-approximation flavour the cylinder (5.8e-13) and fillet (1.26e-10) goldens
+recorded, ~1000× inside the 1e-7 round-trip bound. No action; recorded so a
+future regression has a baseline.
 
 ---
 

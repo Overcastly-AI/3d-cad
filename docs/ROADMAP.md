@@ -115,7 +115,9 @@ item below.
       construction geometry (✅ shipped: schema+solver+profile-exclusion +
       N-verb UI toggle with dashed/muted rendering), trim/extend,
       mirror/pattern, splines, over-constraint diagnostics
-- ⬜ Features: revolve (first, unblocked), sweep, loft, shell, draft, holes,
+- ⬜ Features: revolve (🔶 5a shipped — kernel+schema+golden
+      `revolve-annulus-r10-20-h15`; add/cut, partial angle, sketch-line axis;
+      5b authoring UI pending), sweep, loft, shell, draft, holes,
       linear/circular patterns, boolean between bodies, datum planes/axes
 - ⬜ Measurement tools, mass properties panel, units system
 - ⬜ Performance benchmark suite with budgets in CI

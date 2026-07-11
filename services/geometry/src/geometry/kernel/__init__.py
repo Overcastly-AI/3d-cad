@@ -23,6 +23,14 @@ from geometry.kernel.extrude import (
 )
 from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.properties import measure_shape
+from geometry.kernel.revolve import (
+    AxisIntersectsProfileError,
+    NoAxisError,
+    RevolveError,
+    check_axis_clears_profile,
+    resolve_axis_line,
+    revolve_face,
+)
 from geometry.kernel.shapes import build_box, build_cylinder
 from geometry.kernel.tessellate import glb_stats, tessellate_glb
 from geometry.schemas import (
@@ -36,17 +44,21 @@ from geometry.schemas import (
 )
 
 __all__ = [
+    "AxisIntersectsProfileError",
     "BooleanError",
     "ChamferError",
     "FilletError",
+    "NoAxisError",
     "NoEdgesSelectedError",
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
+    "RevolveError",
     "build_box",
     "build_cylinder",
     "build_profile_face",
     "build_shape",
     "chamfer_body",
+    "check_axis_clears_profile",
     "combine_body",
     "evaluate_export",
     "evaluate_tessellation",
@@ -57,6 +69,8 @@ __all__ = [
     "fillet_body",
     "glb_stats",
     "measure_shape",
+    "resolve_axis_line",
+    "revolve_face",
     "select_edges",
     "tessellate_glb",
 ]

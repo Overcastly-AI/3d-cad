@@ -13,9 +13,11 @@ last-good state.
 Dispatch is a ``type → handler`` registry (:data:`FEATURE_HANDLERS`):
 ``sketch`` (produces input geometry, not body-affecting), ``extrude`` (the
 first **body-affecting** feature, §4.3 — mutates the part's single solid body
-chain via add/cut booleans), ``fillet`` (rounds selected edges of that body
-chain) and ``chamfer`` (bevels selected edges; both body-affecting and both
-resolving edges through the shared geometric selector). A feature that
+chain via add/cut booleans), ``revolve`` (sweeps a profile about a sketch-line
+axis, sharing extrude's profile + boolean plumbing), ``fillet`` (rounds
+selected edges of that body chain) and ``chamfer`` (bevels selected edges; both
+body-affecting and both resolving edges through the shared geometric selector).
+A feature that
 validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
 ``feature_type_unsupported`` error — never a transport failure (§4.3: the
@@ -41,7 +43,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from build123d import Solid
+from build123d import Face, Solid
 from py_kit.schemas.features import (
     ChamferFeature,
     DatumPlaneRef,
@@ -54,24 +56,31 @@ from py_kit.schemas.features import (
     FeatureRef,
     FeatureResult,
     FilletFeature,
+    RevolveFeature,
     SketchFeature,
     SolvedSketchData,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
 
 from geometry.kernel import (
+    AxisIntersectsProfileError,
     BooleanError,
     ChamferError,
     FilletError,
+    NoAxisError,
     NoEdgesSelectedError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
+    RevolveError,
     build_profile_face,
     chamfer_body,
+    check_axis_clears_profile,
     combine_body,
     extrude_face,
     fillet_body,
     measure_shape,
+    resolve_axis_line,
+    revolve_face,
     select_edges,
     tessellate_glb,
 )
@@ -181,6 +190,49 @@ def _evaluate_sketch(
     return None
 
 
+def _resolve_profile_face(
+    profile: FeatureRef, state: EvaluationState
+) -> tuple[Face, DatumPlaneRef, SolvedSketch] | FeatureError:
+    """Resolve a profile FeatureRef to its ``(face, plane, solved sketch)``.
+
+    The shared front half of every body-affecting feature that consumes a
+    sketch profile (extrude, revolve — CLAUDE.md DRY rule): it re-checks the
+    §2.2 reference rule (documents enforces it at write time; geometry must not
+    trust its callers), then builds the single closed profile face through the
+    shared :func:`build_profile_face` (construction geometry excluded there).
+    Both failure flavours are returned as per-feature errors pinned to the
+    upstream sketch, so the caller just propagates them.
+    """
+    profile_id = profile.feature_id
+    solved = state.solved_sketches.get(profile_id)
+    plane = state.sketch_planes.get(profile_id)
+    if solved is None or plane is None:
+        # Anything not an ok sketch of this prefix (unknown id, non-sketch
+        # feature, or a sketch the strict-prefix rule never reached) resolves
+        # to nothing.
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                "Profile must reference an earlier successfully solved sketch "
+                "feature of this tree."
+            ),
+            upstream_feature_id=profile_id,
+        )
+    try:
+        face = build_profile_face(plane.plane, solved.entities)
+    except ProfileNotClosedError as exc:
+        return FeatureError(
+            code="profile_not_closed", message=str(exc), upstream_feature_id=profile_id
+        )
+    except ProfileUnsupportedError as exc:
+        return FeatureError(
+            code="profile_unsupported",
+            message=str(exc),
+            upstream_feature_id=profile_id,
+        )
+    return face, plane, solved
+
+
 def _evaluate_extrude(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -196,38 +248,10 @@ def _evaluate_extrude(
     assert isinstance(feature, ExtrudeFeature), "registry dispatches on type='extrude'"
     params = feature.params
 
-    profile_id = params.profile.feature_id
-    solved = state.solved_sketches.get(profile_id)
-    plane = state.sketch_planes.get(profile_id)
-    if solved is None or plane is None:
-        # Documents enforces §2.2 (same part, strictly earlier, type sketch)
-        # at write time — geometry re-checks because it must not trust its
-        # callers for correctness. Anything not an ok sketch of this prefix
-        # (unknown id, non-sketch feature, or a sketch the strict-prefix rule
-        # never reached) resolves to nothing.
-        return FeatureError(
-            code="reference_unresolved",
-            message=(
-                "Extrude profile must reference an earlier successfully "
-                "solved sketch feature of this tree."
-            ),
-            upstream_feature_id=profile_id,
-        )
-
-    try:
-        face = build_profile_face(plane.plane, solved.entities)
-    except ProfileNotClosedError as exc:
-        return FeatureError(
-            code="profile_not_closed",
-            message=str(exc),
-            upstream_feature_id=profile_id,
-        )
-    except ProfileUnsupportedError as exc:
-        return FeatureError(
-            code="profile_unsupported",
-            message=str(exc),
-            upstream_feature_id=profile_id,
-        )
+    resolved = _resolve_profile_face(params.profile, state)
+    if isinstance(resolved, FeatureError):
+        return resolved
+    face, plane, _ = resolved
 
     if params.operation == "cut" and state.body is None:
         return FeatureError(
@@ -241,6 +265,75 @@ def _evaluate_extrude(
     tool = extrude_face(
         face, plane.plane, params.distance_mm, params.direction == "reverse"
     )
+    try:
+        state.body = combine_body(state.body, tool, params.operation)
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+    return None
+
+
+def _evaluate_revolve(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Revolve an earlier sketch's profile about a sketch-line axis (§4.3).
+
+    The revolve sibling of :func:`_evaluate_extrude`: it shares the profile
+    resolution + closed-wire check (:func:`_resolve_profile_face`) and the
+    ``add``/``cut`` boolean (:func:`combine_body`), swapping the linear prism
+    for a swept revolution about a LINE entity of the SAME sketch. Kernel
+    failures surface as design error codes pinned to this feature —
+    ``profile_not_closed``/``profile_unsupported`` (upstream sketch),
+    ``no_axis`` (bad axis reference), ``axis_intersects_profile`` (the axis
+    crosses the profile → self-intersecting body), ``no_prior_body`` (cut with
+    nothing to cut), ``revolve_failed``, ``boolean_failed``. ``state.body`` is
+    only replaced on success (strict-prefix rule tessellates the last-good
+    body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, RevolveFeature), "registry dispatches on type='revolve'"
+    params = feature.params
+
+    resolved = _resolve_profile_face(params.profile, state)
+    if isinstance(resolved, FeatureError):
+        return resolved
+    face, plane, solved = resolved
+
+    try:
+        axis_line = resolve_axis_line(solved.entities, params.axis.entity)
+        check_axis_clears_profile(axis_line, solved.entities)
+    except NoAxisError as exc:
+        return FeatureError(
+            code="no_axis",
+            message=str(exc),
+            upstream_feature_id=params.profile.feature_id,
+        )
+    except AxisIntersectsProfileError as exc:
+        return FeatureError(
+            code="axis_intersects_profile",
+            message=str(exc),
+            upstream_feature_id=params.profile.feature_id,
+        )
+
+    if params.operation == "cut" and state.body is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "Cut requires an existing body, but no body-affecting "
+                "feature precedes this one; use an additive feature first."
+            ),
+        )
+
+    try:
+        tool = revolve_face(
+            face,
+            axis_line,
+            plane.plane,
+            params.angle_deg,
+            params.direction == "reverse",
+        )
+    except RevolveError as exc:
+        return FeatureError(code="revolve_failed", message=str(exc))
+
     try:
         state.body = combine_body(state.body, tool, params.operation)
     except BooleanError as exc:
@@ -328,6 +421,7 @@ def _evaluate_chamfer(
 FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "sketch": _evaluate_sketch,
     "extrude": _evaluate_extrude,
+    "revolve": _evaluate_revolve,
     "fillet": _evaluate_fillet,
     "chamfer": _evaluate_chamfer,
 }

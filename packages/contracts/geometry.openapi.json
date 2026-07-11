@@ -448,6 +448,7 @@
                 "chamfer": "#/components/schemas/ChamferFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
+                "revolve": "#/components/schemas/RevolveFeature",
                 "sketch": "#/components/schemas/SketchFeature"
               },
               "propertyName": "type"
@@ -458,6 +459,9 @@
               },
               {
                 "$ref": "#/components/schemas/ExtrudeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/RevolveFeature"
               },
               {
                 "$ref": "#/components/schemas/FilletFeature"
@@ -1001,6 +1005,99 @@
           "value_mm"
         ],
         "title": "RadiusConstraint",
+        "type": "object"
+      },
+      "RevolveAxis": {
+        "description": "The axis of revolution: a straight LINE entity of the profile's sketch.\n\nv1 references a line entity by its sketch-local id (design \u00a72.4 entity ids)\nwithin the SAME sketch the profile comes from. A **construction** line is\nthe natural choice \u2014 a centerline is reference-only (excluded from the\nclosed-wire profile) and is exactly what an axis of revolution is \u2014 but any\nline entity resolves; the axis is defined by the line's two solved\nendpoints, mapped to world space through the profile's datum plane.\n\nThe ``kind`` discriminator seeds a future additive ``datum_axis`` variant\n(the \u00a72.1 ``GeomRef`` pattern) without forcing a ``param_version`` bump: a\npersisted axis is always ``{\"kind\": \"sketch_line\", \"entity\": ...}`` today,\nand a later datum-axis reference joins as ``kind: \"datum_axis\"``.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local id of a LINE entity in the profile's sketch (a construction centerline is ideal) used as the axis of revolution",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "sketch_line",
+            "default": "sketch_line",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity"
+        ],
+        "title": "RevolveAxis",
+        "type": "object"
+      },
+      "RevolveFeature": {
+        "description": "``{\"type\": \"revolve\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/RevolveParamsV1"
+          },
+          "type": {
+            "const": "revolve",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "RevolveFeature",
+        "type": "object"
+      },
+      "RevolveParamsV1": {
+        "description": "Revolution of an earlier sketch feature's profile about a sketch-line axis.\n\nThe revolve sibling of :class:`ExtrudeParamsV1` (design \u00a74.3, second core\nbody-affecting feature): it consumes the SAME ``profile`` FeatureRef to an\nearlier sketch and the SAME ``add``/``cut`` boolean against the body chain,\nswapping the linear prism for a swept revolution. The ``axis`` is a\n:class:`RevolveAxis` (a line entity of that same sketch \u2014 no picked\nsub-geometry reference, so this is independent of topological naming), and\n``angle_deg`` is the sweep (full 360\u00b0 by default). The profile must clear\nthe axis: a profile the axis crosses would revolve into self-intersecting\nmaterial and is a per-feature ``axis_intersects_profile`` error (design\n\u00a74.3), never a silent bad body.",
+        "properties": {
+          "angle_deg": {
+            "default": 360.0,
+            "description": "Sweep angle about the axis (degrees); 360 = full solid of revolution",
+            "exclusiveMinimum": 0.0,
+            "maximum": 360.0,
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "axis": {
+            "$ref": "#/components/schemas/RevolveAxis",
+            "description": "Axis of revolution \u2014 a line entity of the profile's sketch"
+          },
+          "direction": {
+            "default": "normal",
+            "description": "Sweep sense about the axis for a partial revolution (irrelevant at a full 360\u00b0): 'reverse' sweeps the opposite way",
+            "enum": [
+              "normal",
+              "reverse"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "add",
+              "cut"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "Must resolve to an EARLIER sketch feature (design \u00a72.2)"
+          }
+        },
+        "required": [
+          "profile",
+          "axis",
+          "operation"
+        ],
+        "title": "RevolveParamsV1",
         "type": "object"
       },
       "ShapeProperties": {
