@@ -6,12 +6,18 @@ import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import {
   createFeature,
   evaluatePart,
+  type ExtrudeParams,
   extrudeFeatureCreate,
   extrudeFeatureUpdate,
+  type FeatureCreate,
   type FeatureResponse,
+  type FeatureUpdate,
   fetchFeatureTree,
   fetchPart,
   moveRollbackBar,
+  type RevolveParams,
+  revolveFeatureCreate,
+  revolveFeatureUpdate,
   sketchFeatureCreate,
   sketchFeatureUpdate,
   updateFeature,
@@ -20,6 +26,7 @@ import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { PartExportControls } from "../components/PartExportControls";
+import { RevolveEditor } from "../components/RevolveEditor";
 import {
   defaultExtrudeForm,
   defaultProfileId,
@@ -27,6 +34,14 @@ import {
   formFromParams,
   profileOptions,
 } from "../features/extrude";
+import {
+  type AxisOption,
+  axisOptions,
+  defaultAxisId,
+  defaultRevolveForm,
+  formFromRevolveParams,
+  type RevolveForm,
+} from "../features/revolve";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -406,16 +421,37 @@ export function PartPage() {
   // ---------------------------------------------------------------------
   const features = tree.data?.features ?? [];
   const sketchProfiles = useMemo(() => profileOptions(features), [features]);
-  const [editor, setEditor] = useState<{
-    mode: "create" | "edit";
-    initial: ExtrudeForm;
-    featureId?: string;
-  } | null>(null);
+  // Axis line-entity choices per profile sketch — the revolve editor scopes its
+  // axis picker to the selected profile's own lines.
+  const axesByProfile = useMemo(() => {
+    const map: Record<string, AxisOption[]> = {};
+    for (const profile of sketchProfiles) {
+      map[profile.id] = axisOptions(features, profile.id);
+    }
+    return map;
+  }, [sketchProfiles, features]);
+  // The authoring seat holds one editor at a time — an extrude OR a revolve —
+  // so they share the saving/error state and the viewport top-left anchor.
+  const [editor, setEditor] = useState<
+    | {
+        kind: "extrude";
+        mode: "create" | "edit";
+        initial: ExtrudeForm;
+        featureId?: string;
+      }
+    | {
+        kind: "revolve";
+        mode: "create" | "edit";
+        initial: RevolveForm;
+        featureId?: string;
+      }
+    | null
+  >(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
     null,
   );
-  const [extrudeSaving, setExtrudeSaving] = useState(false);
-  const [extrudeError, setExtrudeError] = useState<string | null>(null);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState(false);
 
   /** Latest tree version, refetched if the query has none yet. */
@@ -433,19 +469,45 @@ export function PartPage() {
   const openCreateExtrude = useCallback(() => {
     const profileId = defaultProfileId(tree.data?.features ?? []);
     if (profileId === "") return;
-    setExtrudeError(null);
+    setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({ mode: "create", initial: defaultExtrudeForm(profileId) });
+    setEditor({
+      kind: "extrude",
+      mode: "create",
+      initial: defaultExtrudeForm(profileId),
+    });
+  }, [tree.data]);
+
+  const openCreateRevolve = useCallback(() => {
+    const featureList = tree.data?.features ?? [];
+    const profileId = defaultProfileId(featureList);
+    if (profileId === "") return;
+    const axes = axisOptions(featureList, profileId);
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "revolve",
+      mode: "create",
+      initial: defaultRevolveForm(profileId, defaultAxisId(axes)),
+    });
   }, [tree.data]);
 
   const selectFeature = useCallback((feature: FeatureResponse) => {
     setSelectedFeatureId(feature.id);
+    setEditorError(null);
     if (feature.feature.type === "extrude") {
-      setExtrudeError(null);
       setEditor({
+        kind: "extrude",
         mode: "edit",
         featureId: feature.id,
         initial: formFromParams(feature.feature.params),
+      });
+    } else if (feature.feature.type === "revolve") {
+      setEditor({
+        kind: "revolve",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromRevolveParams(feature.feature.params),
       });
     } else {
       setEditor(null);
@@ -454,35 +516,31 @@ export function PartPage() {
 
   const closeEditor = useCallback(() => {
     setEditor(null);
-    setExtrudeError(null);
+    setEditorError(null);
   }, []);
 
-  const submitExtrude = useCallback(
-    (params: Parameters<typeof extrudeFeatureCreate>[1]) => {
-      const current = editor;
-      if (current === null) return;
-      setExtrudeSaving(true);
-      setExtrudeError(null);
+  // The shared save path for either body-affecting feature: read the freshest
+  // tree_version, retry once on a stale-version race, then invalidate the tree
+  // + evaluate + mesh so the body updates through the #2 render path.
+  const runFeatureSave = useCallback(
+    (
+      createEnvelope: (version: number) => FeatureCreate,
+      updateEnvelope: (version: number) => FeatureUpdate,
+      isCreate: boolean,
+      featureId: string | undefined,
+      fallbackMessage: string,
+    ) => {
+      setEditorSaving(true);
+      setEditorError(null);
       void (async () => {
         try {
           const attempt = async (version: number) =>
-            current.mode === "create"
-              ? createFeature(
-                  partId,
-                  extrudeFeatureCreate(
-                    `Extrude${
-                      (tree.data?.features ?? []).filter(
-                        (f) => f.feature.type === "extrude",
-                      ).length + 1
-                    }`,
-                    params,
-                    version,
-                  ),
-                )
+            isCreate
+              ? createFeature(partId, createEnvelope(version))
               : updateFeature(
                   partId,
-                  current.featureId as string,
-                  extrudeFeatureUpdate(params, version),
+                  featureId as string,
+                  updateEnvelope(version),
                 );
           let response;
           try {
@@ -496,17 +554,51 @@ export function PartPage() {
           setEditor(null);
           await refreshTreeAndBody();
         } catch (error) {
-          setExtrudeError(
-            error instanceof Error
-              ? error.message
-              : "The extrude could not be saved.",
+          setEditorError(
+            error instanceof Error ? error.message : fallbackMessage,
           );
         } finally {
-          setExtrudeSaving(false);
+          setEditorSaving(false);
         }
       })();
     },
-    [editor, partId, tree.data, freshTreeVersion, refreshTreeAndBody],
+    [partId, freshTreeVersion, refreshTreeAndBody],
+  );
+
+  const submitExtrude = useCallback(
+    (params: ExtrudeParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "extrude") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "extrude").length + 1;
+      runFeatureSave(
+        (version) =>
+          extrudeFeatureCreate(`Extrude${nextIndex}`, params, version),
+        (version) => extrudeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The extrude could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitRevolve = useCallback(
+    (params: RevolveParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "revolve") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "revolve").length + 1;
+      runFeatureSave(
+        (version) =>
+          revolveFeatureCreate(`Revolve${nextIndex}`, params, version),
+        (version) => revolveFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The revolve could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
   );
 
   const moveRollback = useCallback(
@@ -530,8 +622,8 @@ export function PartPage() {
     [partId, freshTreeVersion, refreshTreeAndBody],
   );
 
-  // A solved sketch must exist before an extrude can consume one.
-  const canExtrude =
+  // A solved sketch must exist before an extrude or revolve can consume one.
+  const hasSolvedSketch =
     sketchProfiles.length > 0 &&
     (evaluation.data?.features.some(
       (f) => f.status === "ok" && f.data?.kind === "solved_sketch",
@@ -585,8 +677,10 @@ export function PartPage() {
             setSelectedFeatureId(null);
             begin();
           }}
-          canExtrude={canExtrude}
+          canExtrude={hasSolvedSketch}
           onNewExtrude={openCreateExtrude}
+          canRevolve={hasSolvedSketch}
+          onNewRevolve={openCreateRevolve}
           selectedFeatureId={selectedFeatureId}
           onSelectFeature={selectFeature}
           onMoveRollback={moveRollback}
@@ -606,15 +700,28 @@ export function PartPage() {
               <SketchDro solving={syncPending || evaluation.isFetching} />
               <SolveDiagnostic />
               {mode === "off" && editor !== null ? (
-                <ExtrudeEditor
-                  mode={editor.mode}
-                  profiles={sketchProfiles}
-                  initial={editor.initial}
-                  onSubmit={submitExtrude}
-                  onCancel={closeEditor}
-                  saving={extrudeSaving}
-                  error={extrudeError}
-                />
+                editor.kind === "extrude" ? (
+                  <ExtrudeEditor
+                    mode={editor.mode}
+                    profiles={sketchProfiles}
+                    initial={editor.initial}
+                    onSubmit={submitExtrude}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
+                ) : (
+                  <RevolveEditor
+                    mode={editor.mode}
+                    profiles={sketchProfiles}
+                    axesByProfile={axesByProfile}
+                    initial={editor.initial}
+                    onSubmit={submitRevolve}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
+                )
               ) : null}
               {regenerating ? (
                 <div

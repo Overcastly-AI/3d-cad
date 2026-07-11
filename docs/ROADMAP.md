@@ -115,10 +115,14 @@ item below.
       construction geometry (✅ shipped: schema+solver+profile-exclusion +
       N-verb UI toggle with dashed/muted rendering), trim/extend,
       mirror/pattern, splines, over-constraint diagnostics
-- ⬜ Features: revolve (🔶 5a shipped — kernel+schema+golden
-      `revolve-annulus-r10-20-h15`; add/cut, partial angle, sketch-line axis;
-      5b authoring UI pending), sweep, loft, shell, draft, holes,
-      linear/circular patterns, boolean between bodies, datum planes/axes
+- ⬜ Features: revolve (✅ shipped — 5a kernel+schema+golden
+      `revolve-annulus-r10-20-h15` + 5b authoring UI: title-block editor with
+      line-entity axis pick & brass angle handle, live edit, tree errors).
+      **4 body-affecting features now (extrude+revolve+fillet+chamfer)** — the
+      Part-modeling scorecard row is a re-score candidate (vision-steward to
+      reassess; still predicate-only edge selection, no hole/pattern/shell/
+      draft). Next: sweep, loft, shell, draft, holes, linear/circular
+      patterns, boolean between bodies, datum planes/axes
 - ⬜ Measurement tools, mass properties panel, units system
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations

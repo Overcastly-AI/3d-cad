@@ -29,6 +29,10 @@ export interface FeatureTreePanelProps {
   canExtrude: boolean;
   /** Begin a new extrude against the last solved sketch. */
   onNewExtrude: () => void;
+  /** True when a solved sketch exists to revolve (same gate as extrude). */
+  canRevolve: boolean;
+  /** Begin a new revolve against the last solved sketch. */
+  onNewRevolve: () => void;
   /** Selected feature id (brass left-rule); extrude rows open their editor. */
   selectedFeatureId: string | null;
   onSelectFeature: (feature: FeatureResponse) => void;
@@ -52,6 +56,8 @@ export function FeatureTreePanel({
   sketchActive,
   canExtrude,
   onNewExtrude,
+  canRevolve,
+  onNewRevolve,
   selectedFeatureId,
   onSelectFeature,
   onMoveRollback,
@@ -219,6 +225,17 @@ export function FeatureTreePanel({
           data-testid="new-extrude"
           disabled={!canExtrude || sketchActive || tree === undefined}
           onClick={onNewExtrude}
+        />
+        <PanelActionCell
+          label="Revolve"
+          caption={
+            canRevolve
+              ? "Sweep a sketch profile about an axis"
+              : "Solve a sketch first"
+          }
+          data-testid="new-revolve"
+          disabled={!canRevolve || sketchActive || tree === undefined}
+          onClick={onNewRevolve}
         />
 
         {/* Title-block footer: the tree's vitals. */}

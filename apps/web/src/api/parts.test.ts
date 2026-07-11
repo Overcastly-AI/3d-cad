@@ -9,6 +9,9 @@ import {
   extrudeFeatureUpdate,
   fetchParts,
   PartNameTakenError,
+  type RevolveParams,
+  revolveFeatureCreate,
+  revolveFeatureUpdate,
   sketchFeatureCreate,
   sketchFeatureUpdate,
   type SketchConstraint,
@@ -229,6 +232,45 @@ describe("extrudeFeatureUpdate", () => {
     expect(body).toEqual({
       expected_tree_version: 9,
       feature: { type: "extrude", version: 1, params: cut },
+    });
+    expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+const revolveParams: RevolveParams = {
+  profile: {
+    kind: "feature",
+    feature_id: "11111111-1111-1111-1111-111111111111",
+  },
+  axis: { kind: "sketch_line", entity: "axis" },
+  angle_deg: 360,
+  operation: "add",
+  direction: "normal",
+};
+
+describe("revolveFeatureCreate", () => {
+  it("wraps the params in the {type, version, params} create envelope", () => {
+    const body = revolveFeatureCreate("Revolve1", revolveParams, 2);
+    expect(body).toEqual({
+      name: "Revolve1",
+      expected_tree_version: 2,
+      feature: { type: "revolve", version: 1, params: revolveParams },
+    });
+  });
+});
+
+describe("revolveFeatureUpdate", () => {
+  it("wraps the re-parametrized envelope for the PATCH (no rename)", () => {
+    const half: RevolveParams = {
+      ...revolveParams,
+      angle_deg: 180,
+      operation: "cut",
+      direction: "reverse",
+    };
+    const body = revolveFeatureUpdate(half, 9);
+    expect(body).toEqual({
+      expected_tree_version: 9,
+      feature: { type: "revolve", version: 1, params: half },
     });
     expect(body).not.toHaveProperty("name", expect.anything());
   });

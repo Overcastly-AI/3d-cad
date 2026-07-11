@@ -141,7 +141,7 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       rectangle made symmetric about a construction centerline — each asserts
       the solved geometry moved. `frontend-design` skill invoked. Completes the
       Sketching row's 6-constraint vocabulary (re-score candidate).
-- [ ] (P1, M) Revolve feature — second core body-affecting feature (Part
+- [x] (P1, M) Revolve feature — second core body-affecting feature (Part
       modeling row): revolve a closed sketch profile around an axis (edge or
       line) via build123d, reusing extrude's profile/closed-wire-check
       plumbing and registering in the evaluate-tree dispatcher alongside
@@ -167,6 +167,18 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       regen. No apps/web stub needed (no exhaustive Feature switch). Remaining
       (5b): revolve authoring UI (axis pick + angle title-block) in apps/web —
       do not tick until 5b lands._
+      **DONE — 5b (frontend, 2026-07-11):** a "Revolve" feature action beside
+      Extrude opens the revolve editor in the shared title-block seat (mutually
+      exclusive with sketch/extrude). Axis pick = a ruled select of the
+      profile sketch's line entities, construction centerline ranked first &
+      default (keyboard-first, testable — no viewport-pick layer); angle is the
+      brass parametric handle (360° default). Save→evaluate renders the
+      annular body; editing the angle re-evaluates live; per-feature
+      `axis_intersects_profile`/`profile_not_closed` errors surface in the
+      tree. Worked e2e (5/5): seeded offset-from-centerline sketch, revolve via
+      UI → 4500π mm³ washer, angle 360→180 halves the body, both bad-axis/
+      open-profile errors. `frontend-design` skill invoked; screenshots
+      desktop + 1280×800.
 - [ ] (P2, S) Measurement tool — point/edge distance — transient viewport
       measurement (click two points/edges, read distance/angle in a
       title-block readout); no persisted reference, so independent of #1.
@@ -350,8 +362,12 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
-- 2026-07-11 — revolve kernel+schema+golden (5a) shipped; authoring UI (5b)
-  pending. [kernel-architect]
+- 2026-07-11 — **Revolve authoring UI 5b shipped (frontend → #5 done):**
+  "Revolve" action + title-block editor (line-entity axis pick, construction
+  centerline default; brass angle handle); save/edit → live annular body;
+  axis/open-profile errors in tree; e2e 5/5 (4500π washer, 360→180 halves).
+  4 features now (extrude+revolve+fillet+chamfer) — Part-modeling re-score
+  candidate. [frontend-builder]
 - 2026-07-11 — **Sketching re-scored, held ❌ (not ➖):** all 6 new
   relational constraints + construction geometry closed the row's named gap,
   but trim/offset/mirror/splines/sketch-fillet — every-session incumbent

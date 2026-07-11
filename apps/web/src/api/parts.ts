@@ -26,6 +26,8 @@ export type FeatureUpdate = components["schemas"]["FeatureUpdate"];
 export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
 export type ExtrudeFeature = components["schemas"]["ExtrudeFeature"];
 export type ExtrudeParams = components["schemas"]["ExtrudeParamsV1"];
+export type RevolveFeature = components["schemas"]["RevolveFeature"];
+export type RevolveParams = components["schemas"]["RevolveParamsV1"];
 
 export type PartCreate = components["schemas"]["PartCreate"];
 
@@ -225,6 +227,39 @@ export function extrudeFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: extrudeFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by revolve create and update. */
+function revolveFeatureEnvelope(params: RevolveParams): RevolveFeature {
+  return { type: "revolve", version: 1, params };
+}
+
+/**
+ * The create payload for a revolve feature: a swept revolution of an EARLIER
+ * sketch's profile about a sketch-line axis (design §4.3, the extrude sibling).
+ * Pure — unit-tested against the generated types, matching `extrudeFeatureCreate`.
+ */
+export function revolveFeatureCreate(
+  name: string,
+  params: RevolveParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: revolveFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing revolve (no rename). */
+export function revolveFeatureUpdate(
+  params: RevolveParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: revolveFeatureEnvelope(params),
   };
 }
 
