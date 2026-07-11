@@ -20,8 +20,10 @@ import math
 import pytest
 from geometry.sketch import (
     CoincidentConstraint,
+    ConcentricConstraint,
     DistanceConstraint,
     EntityPointRef,
+    EqualConstraint,
     FixedConstraint,
     HorizontalConstraint,
     ParallelConstraint,
@@ -36,7 +38,9 @@ from geometry.sketch import (
     SketchDefinitionError,
     SketchEntity,
     SketchLine,
+    SketchPoint,
     SketchSolver,
+    SymmetricConstraint,
     TangentConstraint,
     VerticalConstraint,
 )
@@ -582,4 +586,264 @@ def test_parallel_requires_line_entities() -> None:
         constraints=[ParallelConstraint(kind="parallel", a="e1", b="c1")],
     )
     with pytest.raises(SketchDefinitionError, match="requires a line"):
+        SOLVER.solve(definition)
+
+
+# ---------------------------------------------------------------------------
+# Size/position-relating constraints: equal / symmetric / concentric (#4a)
+# ---------------------------------------------------------------------------
+
+
+def _line_length(line: SketchLine) -> float:
+    return math.hypot(line.end.x - line.start.x, line.end.y - line.start.y)
+
+
+def _solved_circle(result_entities: list[SketchEntity], eid: str) -> SketchCircle:
+    (circle,) = [e for e in result_entities if e.id == eid]
+    assert isinstance(circle, SketchCircle)
+    return circle
+
+
+def test_equal_length_lines_solve_to_equal_length() -> None:
+    """A free line made ``equal`` to a fixed 10 mm line takes on that exact
+    length (|len(a) - len(b)| == 0 at the solution), removing one DOF."""
+    e1, fixings = _fixed_horizontal_reference_line()  # length 10, fully pinned
+    # e2 anchored at (0, 5), drawn at length sqrt(64+4) != 10; equal pulls it.
+    e2 = _line("e2", (0.0, 5.0), (8.0, 7.0))
+    base_constraints: list[SketchConstraint] = [
+        *fixings,
+        FixedConstraint(kind="fixed", point=_ref("e2", "start")),
+    ]
+    base = SketchDefinition(entities=[e1, e2], constraints=base_constraints)
+    with_equal = SketchDefinition(
+        entities=[e1, e2],
+        constraints=[*base_constraints, EqualConstraint(kind="equal", a="e1", b="e2")],
+    )
+
+    base_result = SOLVER.solve(base)
+    result = SOLVER.solve(with_equal)
+
+    assert result.status in ("converged", "underconstrained")
+    assert base_result.dof is not None
+    assert result.dof == base_result.dof - 1  # exactly one DOF removed
+    len_a = _line_length(_solved_line(result.entities, "e1"))
+    len_b = _line_length(_solved_line(result.entities, "e2"))
+    assert abs(len_a - len_b) == pytest.approx(0.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert len_b == pytest.approx(10.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_equal_radius_circles_solve_to_equal_radius() -> None:
+    """A circle made ``equal`` to a fixed radius-10 circle takes radius 10
+    (|r_a - r_b| == 0), removing one DOF."""
+    c1 = SketchCircle(id="c1", kind="circle", center=Point2D(x=0.0, y=0.0), radius=10.0)
+    c2 = SketchCircle(id="c2", kind="circle", center=Point2D(x=30.0, y=0.0), radius=3.0)
+    base_constraints: list[SketchConstraint] = [
+        FixedConstraint(kind="fixed", point=_ref("c1", "center")),
+        RadiusConstraint(kind="radius", entity="c1", value_mm=10.0),
+        FixedConstraint(kind="fixed", point=_ref("c2", "center")),
+    ]
+    base = SketchDefinition(entities=[c1, c2], constraints=base_constraints)
+    with_equal = SketchDefinition(
+        entities=[c1, c2],
+        constraints=[*base_constraints, EqualConstraint(kind="equal", a="c1", b="c2")],
+    )
+
+    base_result = SOLVER.solve(base)
+    result = SOLVER.solve(with_equal)
+
+    assert result.status == "converged"
+    assert base_result.dof is not None
+    assert result.dof == base_result.dof - 1  # exactly one DOF removed
+    r_a = _solved_circle(result.entities, "c1").radius
+    r_b = _solved_circle(result.entities, "c2").radius
+    assert abs(r_a - r_b) == pytest.approx(0.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert r_b == pytest.approx(10.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_symmetric_points_solve_to_mirrored_position() -> None:
+    """Two points made symmetric about a fixed vertical construction centerline
+    at x=5 solve to mirror images: p2.x = 10 - p1.x, p2.y = p1.y. The pair
+    removes two DOF (p2 is fully determined by p1 and the axis)."""
+    axis = SketchLine(
+        id="axis",
+        kind="line",
+        construction=True,  # centerline demo (BACKLOG #2 construction geometry)
+        start=Point2D(x=5.0, y=0.0),
+        end=Point2D(x=5.0, y=10.0),
+    )
+    p1 = SketchPoint(id="p1", kind="point", position=Point2D(x=2.0, y=3.0))
+    p2 = SketchPoint(id="p2", kind="point", position=Point2D(x=7.0, y=1.0))  # sloppy
+    base_constraints: list[SketchConstraint] = [
+        FixedConstraint(kind="fixed", point=_ref("axis", "start")),
+        FixedConstraint(kind="fixed", point=_ref("axis", "end")),
+        FixedConstraint(kind="fixed", point=_ref("p1", "position")),
+    ]
+    base = SketchDefinition(entities=[axis, p1, p2], constraints=base_constraints)
+    with_symmetric = SketchDefinition(
+        entities=[axis, p1, p2],
+        constraints=[
+            *base_constraints,
+            SymmetricConstraint(
+                kind="symmetric",
+                a=_ref("p1", "position"),
+                b=_ref("p2", "position"),
+                line="axis",
+            ),
+        ],
+    )
+
+    base_result = SOLVER.solve(base)
+    result = SOLVER.solve(with_symmetric)
+
+    assert result.status == "converged"
+    assert base_result.dof is not None
+    assert result.dof == base_result.dof - 2  # p2 fully determined -> 2 DOF gone
+    solved_p2 = next(e for e in result.entities if e.id == "p2")
+    assert isinstance(solved_p2, SketchPoint)
+    # Mirror about x=5: p2 = (10 - 2, 3) = (8, 3).
+    assert solved_p2.position.x == pytest.approx(8.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert solved_p2.position.y == pytest.approx(3.0, abs=RECTANGLE_TOLERANCE_MM)
+    # Symmetry directly: equal distance from the axis, shared height.
+    assert (2.0 + solved_p2.position.x) == pytest.approx(
+        10.0, abs=RECTANGLE_TOLERANCE_MM
+    )
+
+
+def test_concentric_circles_solve_to_shared_center() -> None:
+    """A circle made ``concentric`` with a fixed circle centered at the origin
+    moves its center onto the origin (shared center, exactly), removing the two
+    center DOF. Radius is untouched by concentricity."""
+    c1 = SketchCircle(id="c1", kind="circle", center=Point2D(x=0.0, y=0.0), radius=10.0)
+    c2 = SketchCircle(id="c2", kind="circle", center=Point2D(x=5.0, y=5.0), radius=4.0)
+    base_constraints: list[SketchConstraint] = [
+        FixedConstraint(kind="fixed", point=_ref("c1", "center")),
+        RadiusConstraint(kind="radius", entity="c1", value_mm=10.0),
+        RadiusConstraint(kind="radius", entity="c2", value_mm=4.0),
+    ]
+    base = SketchDefinition(entities=[c1, c2], constraints=base_constraints)
+    with_concentric = SketchDefinition(
+        entities=[c1, c2],
+        constraints=[
+            *base_constraints,
+            ConcentricConstraint(kind="concentric", a="c1", b="c2"),
+        ],
+    )
+
+    base_result = SOLVER.solve(base)
+    result = SOLVER.solve(with_concentric)
+
+    assert result.status == "converged"
+    assert base_result.dof is not None
+    assert result.dof == base_result.dof - 2  # two center DOF removed
+    c1_solved = _solved_circle(result.entities, "c1")
+    c2_solved = _solved_circle(result.entities, "c2")
+    assert c2_solved.center.x == pytest.approx(0.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert c2_solved.center.y == pytest.approx(0.0, abs=RECTANGLE_TOLERANCE_MM)
+    # Shared center exactly; radius left alone (still 4).
+    assert c2_solved.center.x == c1_solved.center.x
+    assert c2_solved.center.y == c1_solved.center.y
+    assert c2_solved.radius == pytest.approx(4.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_equal_and_distance_on_same_line_conflict() -> None:
+    """``equal`` forces e2 to e1's length (10 mm) while a driving dimension
+    forces 25 mm: unsatisfiable. Reported ``conflicting`` with the offending
+    caller indices (same diagnosis path as the tangent/perp conflict)."""
+    e1, fixings = _fixed_horizontal_reference_line()  # length 10, pinned
+    e2 = _line("e2", (0.0, 5.0), (8.0, 7.0))
+    definition = SketchDefinition(
+        entities=[e1, e2],
+        constraints=[
+            *fixings,  # indices 0, 1
+            FixedConstraint(kind="fixed", point=_ref("e2", "start")),  # index 2
+            DistanceConstraint(kind="distance", entity="e2", value_mm=25.0),  # index 3
+            EqualConstraint(kind="equal", a="e1", b="e2"),  # index 4
+        ],
+    )
+    result = SOLVER.solve(definition)
+    assert result.status == "conflicting"
+    assert result.conflicting_constraints  # non-empty, mapped to caller indices
+    assert set(result.conflicting_constraints) & {3, 4}  # distance vs equal
+    assert set(result.conflicting_constraints) <= {0, 1, 2, 3, 4}
+
+
+def test_size_position_constraints_solve_deterministically_bitwise() -> None:
+    """equal + symmetric + concentric together preserve the RESEARCH §9
+    determinism gate: two independent solves are bitwise identical."""
+    axis = SketchLine(
+        id="axis",
+        kind="line",
+        construction=True,
+        start=Point2D(x=5.0, y=0.0),
+        end=Point2D(x=5.0, y=10.0),
+    )
+    p1 = SketchPoint(id="p1", kind="point", position=Point2D(x=2.0, y=3.0))
+    p2 = SketchPoint(id="p2", kind="point", position=Point2D(x=7.0, y=1.0))
+    c1 = SketchCircle(id="c1", kind="circle", center=Point2D(x=0.0, y=0.0), radius=10.0)
+    c2 = SketchCircle(id="c2", kind="circle", center=Point2D(x=5.0, y=5.0), radius=3.0)
+    definition = SketchDefinition(
+        entities=[axis, p1, p2, c1, c2],
+        constraints=[
+            FixedConstraint(kind="fixed", point=_ref("axis", "start")),
+            FixedConstraint(kind="fixed", point=_ref("axis", "end")),
+            FixedConstraint(kind="fixed", point=_ref("p1", "position")),
+            SymmetricConstraint(
+                kind="symmetric",
+                a=_ref("p1", "position"),
+                b=_ref("p2", "position"),
+                line="axis",
+            ),
+            FixedConstraint(kind="fixed", point=_ref("c1", "center")),
+            RadiusConstraint(kind="radius", entity="c1", value_mm=10.0),
+            ConcentricConstraint(kind="concentric", a="c1", b="c2"),
+            EqualConstraint(kind="equal", a="c1", b="c2"),
+        ],
+    )
+    first = SOLVER.solve(definition)
+    second = PlanegcsSketchSolver().solve(definition)
+
+    def flatten(entities: list[SketchEntity]) -> list[tuple[float, ...]]:
+        out: list[tuple[float, ...]] = []
+        for e in entities:
+            if isinstance(e, SketchLine):
+                out.append((e.start.x, e.start.y, e.end.x, e.end.y))
+            elif isinstance(e, SketchPoint):
+                out.append((e.position.x, e.position.y))
+            elif isinstance(e, SketchCircle):
+                out.append((e.center.x, e.center.y, e.radius))
+        return out
+
+    assert flatten(first.entities) == flatten(second.entities)
+    assert first.status == second.status
+    assert first.dof == second.dof
+
+
+def test_equal_between_line_and_circle_rejected() -> None:
+    """A line and a circle have no equal-size relation; rejected rather than
+    silently mis-mapped."""
+    definition = SketchDefinition(
+        entities=[
+            _line("e1", (0.0, 0.0), (10.0, 0.0)),
+            SketchCircle(
+                id="c1", kind="circle", center=Point2D(x=0.0, y=5.0), radius=2.0
+            ),
+        ],
+        constraints=[EqualConstraint(kind="equal", a="e1", b="c1")],
+    )
+    with pytest.raises(SketchDefinitionError, match="equal-capable"):
+        SOLVER.solve(definition)
+
+
+def test_concentric_with_a_line_rejected() -> None:
+    """Concentricity needs two centers; a line has none and is rejected."""
+    definition = SketchDefinition(
+        entities=[
+            _line("e1", (0.0, 0.0), (10.0, 0.0)),
+            SketchCircle(
+                id="c1", kind="circle", center=Point2D(x=0.0, y=5.0), radius=2.0
+            ),
+        ],
+        constraints=[ConcentricConstraint(kind="concentric", a="e1", b="c1")],
+    )
+    with pytest.raises(SketchDefinitionError, match="no center"):
         SOLVER.solve(definition)

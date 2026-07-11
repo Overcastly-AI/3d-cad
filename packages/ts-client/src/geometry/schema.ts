@@ -262,6 +262,32 @@ export interface components {
             kind: "coincident";
         };
         /**
+         * ConcentricConstraint
+         * @description Two circles/arcs share a center point.
+         *
+         *     Relates two whole circle/arc entities by id (order immaterial); the solver
+         *     ties their centers together (there is no separate radius relation — use
+         *     :class:`EqualConstraint` for that). Removes two degrees of freedom. Both
+         *     entities must be a circle or an arc; a line has no center and is rejected.
+         */
+        ConcentricConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "concentric";
+        };
+        /**
          * CylinderParams
          * @description Right circular cylinder (mm): base disc centred at the origin in the
          *     XY plane, axis along +Z.
@@ -330,6 +356,34 @@ export interface components {
              * @enum {string}
              */
             point: "start" | "end" | "center" | "position";
+        };
+        /**
+         * EqualConstraint
+         * @description Two entities of the same class have equal size.
+         *
+         *     Two lines get equal length; two circles, two arcs, or a circle-and-arc
+         *     pair get equal radius. Relates two **whole** entities by id (order is
+         *     immaterial — equality is symmetric); the solver dispatches to the matching
+         *     planegcs variant from the resolved entity kinds. A mismatched pair
+         *     (e.g. a line and a circle) has no equal-size relation and is rejected at
+         *     solve time. Removes one degree of freedom.
+         */
+        EqualConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "equal";
         };
         /**
          * EvaluateTreeRequest
@@ -900,7 +954,7 @@ export interface components {
          */
         SketchParamsV1: {
             /** Constraints */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
             /** Entities */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
             /** Plane */
@@ -967,6 +1021,30 @@ export interface components {
              * @enum {string}
              */
             status: "converged" | "underconstrained" | "overconstrained" | "conflicting" | "diverged";
+        };
+        /**
+         * SymmetricConstraint
+         * @description Two points are mirror images about a line.
+         *
+         *     ``a`` and ``b`` name single points (like :class:`CoincidentConstraint`);
+         *     ``line`` is the whole line entity they are symmetric about — cleanest with
+         *     a construction centerline, but any line works. Removes two degrees of
+         *     freedom (the pair collapses to one point's worth of freedom plus a
+         *     reflection). ``line`` must be a line entity.
+         */
+        SymmetricConstraint: {
+            a: components["schemas"]["EntityPointRef"];
+            b: components["schemas"]["EntityPointRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "symmetric";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
         };
         /**
          * TangentConstraint

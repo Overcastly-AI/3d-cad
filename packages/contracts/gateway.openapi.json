@@ -203,6 +203,35 @@
         "title": "CoincidentConstraint",
         "type": "object"
       },
+      "ConcentricConstraint": {
+        "description": "Two circles/arcs share a center point.\n\nRelates two whole circle/arc entities by id (order immaterial); the solver\nties their centers together (there is no separate radius relation \u2014 use\n:class:`EqualConstraint` for that). Removes two degrees of freedom. Both\nentities must be a circle or an arc; a line has no center and is rejected.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "concentric",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "ConcentricConstraint",
+        "type": "object"
+      },
       "CylinderParams": {
         "description": "Right circular cylinder (mm): base disc centred at the origin in the\nXY plane, axis along +Z.",
         "properties": {
@@ -305,6 +334,35 @@
           "point"
         ],
         "title": "EntityPointRef",
+        "type": "object"
+      },
+      "EqualConstraint": {
+        "description": "Two entities of the same class have equal size.\n\nTwo lines get equal length; two circles, two arcs, or a circle-and-arc\npair get equal radius. Relates two **whole** entities by id (order is\nimmaterial \u2014 equality is symmetric); the solver dispatches to the matching\nplanegcs variant from the resolved entity kinds. A mismatched pair\n(e.g. a line and a circle) has no equal-size relation and is rejected at\nsolve time. Removes one degree of freedom.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "equal",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "EqualConstraint",
         "type": "object"
       },
       "EvaluateTreeResult": {
@@ -1447,12 +1505,15 @@
               "discriminator": {
                 "mapping": {
                   "coincident": "#/components/schemas/CoincidentConstraint",
+                  "concentric": "#/components/schemas/ConcentricConstraint",
                   "distance": "#/components/schemas/DistanceConstraint",
+                  "equal": "#/components/schemas/EqualConstraint",
                   "fixed": "#/components/schemas/FixedConstraint",
                   "horizontal": "#/components/schemas/HorizontalConstraint",
                   "parallel": "#/components/schemas/ParallelConstraint",
                   "perpendicular": "#/components/schemas/PerpendicularConstraint",
                   "radius": "#/components/schemas/RadiusConstraint",
+                  "symmetric": "#/components/schemas/SymmetricConstraint",
                   "tangent": "#/components/schemas/TangentConstraint",
                   "vertical": "#/components/schemas/VerticalConstraint"
                 },
@@ -1485,6 +1546,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/TangentConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/EqualConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/SymmetricConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/ConcentricConstraint"
                 }
               ]
             },
@@ -1663,6 +1733,36 @@
           "entities"
         ],
         "title": "SolvedSketchData",
+        "type": "object"
+      },
+      "SymmetricConstraint": {
+        "description": "Two points are mirror images about a line.\n\n``a`` and ``b`` name single points (like :class:`CoincidentConstraint`);\n``line`` is the whole line entity they are symmetric about \u2014 cleanest with\na construction centerline, but any line works. Removes two degrees of\nfreedom (the pair collapses to one point's worth of freedom plus a\nreflection). ``line`` must be a line entity.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          },
+          "b": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          },
+          "kind": {
+            "const": "symmetric",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b",
+          "line"
+        ],
+        "title": "SymmetricConstraint",
         "type": "object"
       },
       "TangentConstraint": {

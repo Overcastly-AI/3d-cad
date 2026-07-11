@@ -22,8 +22,10 @@ from planegcs import SolveStatus as GcsSolveStatus
 
 from geometry.sketch.schemas import (
     CoincidentConstraint,
+    ConcentricConstraint,
     DistanceConstraint,
     EntityPointRef,
+    EqualConstraint,
     FixedConstraint,
     HorizontalConstraint,
     ParallelConstraint,
@@ -38,6 +40,7 @@ from geometry.sketch.schemas import (
     SketchPoint,
     SketchSolveStatus,
     SolvedSketch,
+    SymmetricConstraint,
     TangentConstraint,
     VerticalConstraint,
 )
@@ -252,12 +255,22 @@ class _GcsBuild:
                 )
             case TangentConstraint():
                 tag = self._add_tangent(constraint)
+            case EqualConstraint():
+                tag = self._add_equal(constraint)
+            case SymmetricConstraint():
+                tag = gcs.symmetric_line(
+                    self._resolve_point(constraint.a),
+                    self._resolve_point(constraint.b),
+                    self._resolve_line(constraint.line, "symmetric"),
+                )
+            case ConcentricConstraint():
+                tag = self._add_concentric(constraint)
             case _:  # pragma: no cover — unreachable via the DTO union
                 raise SketchDefinitionError(f"Unsupported constraint: {constraint!r}")
         self.tag_to_index[tag] = index
 
-    def _classify_curve(self, entity_id: str) -> str:
-        """Return ``"line"``/``"circle"``/``"arc"`` for a tangency ref, or raise."""
+    def _classify_curve(self, entity_id: str, constraint_kind: str = "tangent") -> str:
+        """Return ``"line"``/``"circle"``/``"arc"`` for an entity ref, or raise."""
         if entity_id in self._lines:
             return "line"
         if entity_id in self._circles:
@@ -265,8 +278,8 @@ class _GcsBuild:
         if entity_id in self._arcs:
             return "arc"
         raise SketchDefinitionError(
-            f"Constraint 'tangent' references {entity_id!r}, which is not a "
-            "known line, circle, or arc entity"
+            f"Constraint {constraint_kind!r} references {entity_id!r}, which is "
+            "not a known line, circle, or arc entity"
         )
 
     def _add_tangent(self, constraint: TangentConstraint) -> int:
@@ -306,6 +319,63 @@ class _GcsBuild:
                     "Constraint 'tangent' relates a line and a curve, or two "
                     f"curves; {pair} is not a tangency-capable pair"
                 )
+
+    def _add_equal(self, constraint: EqualConstraint) -> int:
+        """Dispatch to the planegcs equal-size variant for the resolved kinds.
+
+        planegcs has no single "equal" constraint: two lines get
+        ``equal_length``; equal *radius* has one native variant per curve-pair
+        shape (``equal_radius_cc``/``equal_radius_aa``/``equal_radius_ca``).
+        Equality is symmetric, so the circle-and-arc pair is reordered to
+        ``equal_radius_ca``'s (circle, arc) argument order. A mismatched pair
+        (a line paired with a circle/arc) has no equal-size relation and is
+        rejected. The (kind, kind) match is fixed by input, so dispatch is
+        deterministic.
+        """
+        gcs = self.gcs
+        a_id, b_id = constraint.a, constraint.b
+        pair = (
+            self._classify_curve(a_id, "equal"),
+            self._classify_curve(b_id, "equal"),
+        )
+        match pair:
+            case ("line", "line"):
+                return gcs.equal_length(self._lines[a_id], self._lines[b_id])
+            case ("circle", "circle"):
+                return gcs.equal_radius_cc(self._circles[a_id], self._circles[b_id])
+            case ("arc", "arc"):
+                return gcs.equal_radius_aa(self._arcs[a_id], self._arcs[b_id])
+            case ("circle", "arc"):
+                return gcs.equal_radius_ca(self._circles[a_id], self._arcs[b_id])
+            case ("arc", "circle"):
+                return gcs.equal_radius_ca(self._circles[b_id], self._arcs[a_id])
+            case _:  # (line, circle/arc) and its mirror — no equal-size relation
+                raise SketchDefinitionError(
+                    "Constraint 'equal' relates two lines (equal length) or two "
+                    f"circles/arcs (equal radius); {pair} is not an equal-capable "
+                    "pair"
+                )
+
+    def _add_concentric(self, constraint: ConcentricConstraint) -> int:
+        """Tie two circle/arc centers together (planegcs has no ``concentric``).
+
+        FreeCAD's concentric constraint is coincident centers; planegcs offers
+        no dedicated method, so ``coincident`` on the two center points is the
+        exact equivalent. Both entities must be a circle or arc (each owns a
+        ``center`` point); a line is rejected.
+        """
+        a_kind = self._classify_curve(constraint.a, "concentric")
+        b_kind = self._classify_curve(constraint.b, "concentric")
+        for entity_id, kind in ((constraint.a, a_kind), (constraint.b, b_kind)):
+            if kind == "line":
+                raise SketchDefinitionError(
+                    "Constraint 'concentric' relates two circles/arcs; "
+                    f"{entity_id!r} is a line and has no center"
+                )
+        return self.gcs.coincident(
+            self._points[(constraint.a, "center")],
+            self._points[(constraint.b, "center")],
+        )
 
     # -- results -------------------------------------------------------------
 

@@ -204,6 +204,11 @@ export function sameConstraint(
         (a.a === other.b && a.b === other.a)
       );
     }
+    // 4a→4b: equal/symmetric/concentric exist in the schema (solver shipped in
+    // 4a) but have no authoring verbs yet; a conservative "never duplicate"
+    // keeps this exhaustive switch green until 4b adds real dedup + glyphs.
+    default:
+      return false;
   }
 }
 

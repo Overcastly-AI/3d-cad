@@ -106,9 +106,11 @@ item below.
       seeds)
 - ⬜ Full sketcher: tangent/perpendicular/parallel (✅ shipped: schema+planegcs
       solver 3a + P/L/T keyboard verbs & ∥/⊥/T glyphs 3b — 3 of the 6 new
-      constraint kinds done; #4 equal/symmetric/concentric completes the
-      Sketching scorecard row — note for vision-steward)/equal/symmetric/
-      concentric constraints (the Sketching scorecard row's named gap),
+      constraint kinds done)/equal/symmetric/concentric (✅ shipped:
+      schema+planegcs solver 4a — equal_length/equal_radius, symmetric_line,
+      coincident-centers; E/S/O keyboard verbs & glyphs are 4b; once 4b lands
+      all 6 new constraint kinds done — note for vision-steward)
+      constraints (the Sketching scorecard row's named gap),
       construction geometry (✅ shipped: schema+solver+profile-exclusion +
       N-verb UI toggle with dashed/muted rendering), trim/extend,
       mirror/pattern, splines, over-constraint diagnostics

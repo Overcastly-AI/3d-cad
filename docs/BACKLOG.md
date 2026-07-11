@@ -119,6 +119,17 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       (equal-radius circles, symmetric rectangle about a centerline,
       concentric circles), conflict diagnostics extended. [src:
       product-auditor, roadmap]
+      _PARTIAL (4a shipped): 3 `ConstraintKind`s (equal/symmetric/concentric)
+      in the typed py-kit schema + planegcs mapping (equal → equal_length /
+      equal_radius_cc/aa/ca dispatched by kind; symmetric → symmetric_line;
+      concentric → coincident centers) + solver tests (equal length & radius
+      to 0.0 diff, symmetric points mirror to (8,3) about x=5 centerline,
+      concentric to shared center, DOF −1/−2 each, equal-vs-distance conflict
+      via `sketch_conflicting`, bitwise determinism, line/mismatch rejections)
+      + contracts/ts-client regen. Forward-compat apps/web stubs only
+      (sameConstraint + glyphAria default branches, 4a→4b). Remaining (4b):
+      keyboard verbs (E/S/O) + glyphs in apps/web — do not tick until 4b
+      lands._
 - [ ] (P1, M) Revolve feature — second core body-affecting feature (Part
       modeling row): revolve a closed sketch profile around an axis (edge or
       line) via build123d, reusing extrude's profile/closed-wire-check
@@ -315,6 +326,8 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — equal/symmetric/concentric schema+solver (4a) shipped; UI verbs
+  (4b) pending. [kernel-architect]
 - 2026-07-11 — **tangent/perp/parallel 3b shipped (frontend → #3 done):**
   P/L/T relational verbs (selection-presence) + ∥/⊥/T glyphs; client-side
   selection validation with hints; worked e2e (parallel, perpendicular,

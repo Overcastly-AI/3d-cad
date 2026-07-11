@@ -7,8 +7,10 @@ protocol). Callers import from this package, never from ``planegcs``.
 from geometry.sketch.planegcs_solver import PlanegcsSketchSolver
 from geometry.sketch.schemas import (
     CoincidentConstraint,
+    ConcentricConstraint,
     DistanceConstraint,
     EntityPointRef,
+    EqualConstraint,
     FixedConstraint,
     HorizontalConstraint,
     ParallelConstraint,
@@ -24,6 +26,7 @@ from geometry.sketch.schemas import (
     SketchPoint,
     SketchSolveStatus,
     SolvedSketch,
+    SymmetricConstraint,
     TangentConstraint,
     VerticalConstraint,
 )
@@ -31,8 +34,10 @@ from geometry.sketch.solver import SketchDefinitionError, SketchSolver
 
 __all__ = [
     "CoincidentConstraint",
+    "ConcentricConstraint",
     "DistanceConstraint",
     "EntityPointRef",
+    "EqualConstraint",
     "FixedConstraint",
     "HorizontalConstraint",
     "ParallelConstraint",
@@ -51,6 +56,7 @@ __all__ = [
     "SketchSolveStatus",
     "SketchSolver",
     "SolvedSketch",
+    "SymmetricConstraint",
     "TangentConstraint",
     "VerticalConstraint",
 ]

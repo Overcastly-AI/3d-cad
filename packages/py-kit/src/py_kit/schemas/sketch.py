@@ -220,6 +220,52 @@ class TangentConstraint(BaseModel):
     b: EntityId
 
 
+class EqualConstraint(BaseModel):
+    """Two entities of the same class have equal size.
+
+    Two lines get equal length; two circles, two arcs, or a circle-and-arc
+    pair get equal radius. Relates two **whole** entities by id (order is
+    immaterial — equality is symmetric); the solver dispatches to the matching
+    planegcs variant from the resolved entity kinds. A mismatched pair
+    (e.g. a line and a circle) has no equal-size relation and is rejected at
+    solve time. Removes one degree of freedom.
+    """
+
+    kind: Literal["equal"]
+    a: EntityId
+    b: EntityId
+
+
+class SymmetricConstraint(BaseModel):
+    """Two points are mirror images about a line.
+
+    ``a`` and ``b`` name single points (like :class:`CoincidentConstraint`);
+    ``line`` is the whole line entity they are symmetric about — cleanest with
+    a construction centerline, but any line works. Removes two degrees of
+    freedom (the pair collapses to one point's worth of freedom plus a
+    reflection). ``line`` must be a line entity.
+    """
+
+    kind: Literal["symmetric"]
+    a: EntityPointRef
+    b: EntityPointRef
+    line: EntityId
+
+
+class ConcentricConstraint(BaseModel):
+    """Two circles/arcs share a center point.
+
+    Relates two whole circle/arc entities by id (order immaterial); the solver
+    ties their centers together (there is no separate radius relation — use
+    :class:`EqualConstraint` for that). Removes two degrees of freedom. Both
+    entities must be a circle or an arc; a line has no center and is rejected.
+    """
+
+    kind: Literal["concentric"]
+    a: EntityId
+    b: EntityId
+
+
 SketchConstraint = Annotated[
     CoincidentConstraint
     | HorizontalConstraint
@@ -229,7 +275,10 @@ SketchConstraint = Annotated[
     | FixedConstraint
     | ParallelConstraint
     | PerpendicularConstraint
-    | TangentConstraint,
+    | TangentConstraint
+    | EqualConstraint
+    | SymmetricConstraint
+    | ConcentricConstraint,
     Field(discriminator="kind"),
 ]
 
