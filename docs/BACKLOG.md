@@ -91,7 +91,7 @@ depends on #2, #3, #4, #7.
       sketch-only pre-extrude state, nothing destroyed). New `SelectField`
       primitive. e2e: UI sketch→extrude→edit-distance→rollback→open-profile
       error, desktop + 1280×800; founder screenshots. [frontend-builder]
-- [ ] (P1, S) Parts home UI — create/list/open/delete parts screens (the
+- [x] (P1, S) Parts home UI — create/list/open/delete parts screens (the
       `/parts/{id}` workspace exists but is only reachable by direct URL;
       e2e creates parts via API today). Composes design primitives;
       independent of #1–#3, needed for the Phase 1 full-flow e2e exit gate (a
@@ -99,6 +99,14 @@ depends on #2, #3, #4, #7.
       Playwright e2e — sign in, create a part from the UI, open it, delete
       it, list reflects each step; WCAG-AA + 1280×800; founder screenshots.
       [src: frontend-builder]
+      Shipped 2026-07-11: `/` is now the parts home — a drawing-register list
+      (scribed sheet numbers, mono metadata, ruled rows; honest about no
+      thumbnails) with a keyboard-first create line (409 `part_name_taken`
+      pinned to the field), inline delete-confirm, and a designed first-run
+      empty state; bench grid + `SheetGrid` shared with sign-in. `Button`
+      gains a `danger` variant; `TextField` forwards a ref. The box demo moved
+      to `/first-light`. e2e create→open→delete→reload-persists, desktop +
+      1280×800; founder screenshots. [frontend-builder]
 - [ ] (P1, M) Fillet feature — round edges of the extruded body via
       build123d; registers in the evaluate-tree dispatcher alongside extrude.
       Ships with its own golden in the same commit (geometry-gates skill) —
@@ -254,6 +262,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #4 shipped: parts home.** `/` is now a drawing-register
+  parts list (create/open/delete, keyboard-first, 409 on-field, empty-state
+  invitation); box demo moved to `/first-light`. e2e + founder screenshots.
+  [frontend-builder]
 - 2026-07-11 — **Ready #3 shipped: extrude authoring + tree edit/rollback.**
   Keyboard-first title-block extrude editor (create/edit), selectable tree
   rows with legible per-feature rebuild errors, and a brass rollback bar that

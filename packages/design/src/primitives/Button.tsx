@@ -3,8 +3,11 @@ import type { ButtonHTMLAttributes } from "react";
 import { cx } from "../cx";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  /** `solid` = the one brass action; `ghost` = quiet chrome action. */
-  variant?: "solid" | "ghost";
+  /**
+   * `solid` = the one brass action; `ghost` = quiet chrome action;
+   * `danger` = a confirmed destructive action (flag, used sparingly).
+   */
+  variant?: "solid" | "ghost" | "danger";
 }
 
 const base =
@@ -17,6 +20,7 @@ const variants = {
   solid: "bg-brass text-carbide hover:bg-brass-hover",
   ghost:
     "bg-transparent text-gauge border border-etch hover:text-mist hover:border-gauge",
+  danger: "bg-flag text-carbide hover:brightness-95 focus-visible:outline-flag",
 } as const;
 
 /** The button. Spend brass on at most one solid button per surface. */

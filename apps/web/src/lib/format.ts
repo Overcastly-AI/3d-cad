@@ -35,6 +35,18 @@ export function formatDroMm(value: number | null): string {
   return `${sign}${Math.abs(value).toFixed(2)}`;
 }
 
+/**
+ * ISO date-time → "2026-07-11" for the parts register. ISO-8601 calendar
+ * form (YYYY-MM-DD) reads as a drawing-register date and stays stable across
+ * locales/timezones; a malformed value passes through as "—" rather than
+ * throwing.
+ */
+export function formatDate(iso: string): string {
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) return "—";
+  return new Date(time).toISOString().slice(0, 10);
+}
+
 /** 12994 → "12.7 KiB". */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${integer.format(bytes)} B`;

@@ -8,6 +8,7 @@ import {
 import { AuthedLayout } from "./routes/AuthedLayout";
 import { ModelerPage } from "./routes/ModelerPage";
 import { PartPage } from "./routes/PartPage";
+import { PartsPage } from "./routes/PartsPage";
 import { SignInPage } from "./routes/SignInPage";
 
 const rootRoute = createRootRoute({
@@ -27,9 +28,20 @@ const authedRoute = createRoute({
   component: AuthedLayout,
 });
 
+/** The landing surface after sign-in: the parts register (create/open/delete). */
 const indexRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/",
+  component: PartsPage,
+});
+
+/**
+ * The tessellation demo ("first light") — the OCCT box round-trip that proved
+ * the viewport pipeline. Kept reachable off the parts home for pipeline smoke.
+ */
+const firstLightRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/first-light",
   component: ModelerPage,
 });
 
@@ -42,7 +54,7 @@ export const partRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  authedRoute.addChildren([indexRoute, partRoute]),
+  authedRoute.addChildren([indexRoute, firstLightRoute, partRoute]),
 ]);
 
 export const router = createRouter({ routeTree });

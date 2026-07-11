@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { SESSION_STORAGE_KEY } from "../src/auth/session";
 import {
-  expectRenderedModel,
   registerViaApi,
   SCREENSHOT_DIR,
   seedStoredSession,
@@ -38,21 +37,18 @@ test.describe("auth v1 — sign-in sheet", () => {
     await page.getByTestId("auth-password").fill(TEST_PASSWORD);
     await page.keyboard.press("Enter");
 
-    // Landed in the authenticated shell: real model + session chrome.
+    // Landed on the parts home: a fresh account's register is empty and
+    // invites the first part (not the box demo — that moved to /first-light).
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByTestId("session-email")).toHaveText(email);
-    await expect(page.getByTestId("prop-volume")).toContainText("6,000", {
-      timeout: 30_000,
-    });
-    await expectRenderedModel(page);
+    await expect(page.getByTestId("parts-register")).toBeVisible();
+    await expect(page.getByTestId("parts-empty")).toBeVisible();
 
     // Refresh keeps the session (localStorage persistence).
     await page.reload();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByTestId("session-email")).toHaveText(email);
-    await expect(page.getByTestId("prop-volume")).toContainText("6,000", {
-      timeout: 30_000,
-    });
+    await expect(page.getByTestId("parts-register")).toBeVisible();
 
     // Sign out: back to the sheet, session gone (no expired notice — this
     // was deliberate), and a reload stays signed out.

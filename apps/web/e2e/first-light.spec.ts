@@ -11,7 +11,7 @@ test.describe("first light", () => {
   test("renders the OCCT-tessellated cube with real mass properties (desktop)", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/first-light");
 
     await expect(page.getByTestId("status-chip")).toHaveText("First light");
     await expect(page.getByRole("heading", { name: "LOFT" })).toBeVisible();
@@ -35,7 +35,7 @@ test.describe("first light", () => {
   test("re-tessellates when dimensions are edited (keyboard-first)", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/first-light");
     await expectRenderedModel(page);
 
     // Per-keystroke typing into the dimension cells, then Enter to apply.
@@ -63,7 +63,7 @@ test.describe("first light", () => {
   test("rejects invalid dimensions with a visible message", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/first-light");
     const field = page.getByTestId("dim-x");
     await field.click();
     await field.fill("");
@@ -79,7 +79,7 @@ test.describe("small laptop (1280×800)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test("shell stays viewport-dominant at 1280×800", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/first-light");
     await expect(page.getByTestId("prop-volume")).toContainText("6,000");
     await expectRenderedModel(page);
     const viewport = page.getByTestId("viewport");

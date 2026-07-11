@@ -1,9 +1,14 @@
+import { createGatewayClient } from "@loft/ts-client/gateway";
 import { describe, expect, it } from "vitest";
 
 import {
+  createPart,
+  deletePart,
   type ExtrudeParams,
   extrudeFeatureCreate,
   extrudeFeatureUpdate,
+  fetchParts,
+  PartNameTakenError,
   sketchFeatureCreate,
   sketchFeatureUpdate,
   type SketchConstraint,
@@ -26,6 +31,100 @@ const constraints: SketchConstraint[] = [
   },
   { kind: "fixed", point: { entity: "e1", point: "start" } },
 ];
+
+/** A typed client whose transport is a canned response — no network. */
+function clientReturning(response: Response) {
+  return createGatewayClient({
+    baseUrl: "http://gateway.test",
+    fetch: () => Promise.resolve(response),
+  });
+}
+
+function json(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+const samplePart = {
+  id: "11111111-1111-1111-1111-111111111111",
+  owner_id: "22222222-2222-2222-2222-222222222222",
+  name: "Bracket plate",
+  created_at: "2026-07-11T10:00:00Z",
+  updated_at: "2026-07-11T10:00:00Z",
+};
+
+describe("fetchParts", () => {
+  it("unwraps the register list (oldest first)", async () => {
+    const client = clientReturning(json({ parts: [samplePart] }, 200));
+    await expect(fetchParts(client)).resolves.toEqual([samplePart]);
+  });
+
+  it("surfaces the envelope message on failure", async () => {
+    const client = clientReturning(
+      json({ error: { code: "upstream_unavailable", message: "down" } }, 502),
+    );
+    await expect(fetchParts(client)).rejects.toThrow(/down/);
+  });
+});
+
+describe("createPart", () => {
+  it("returns the created part on 201", async () => {
+    const client = clientReturning(json(samplePart, 201));
+    await expect(createPart("Bracket plate", client)).resolves.toEqual(
+      samplePart,
+    );
+  });
+
+  it("throws a typed PartNameTakenError on a 409 duplicate name", async () => {
+    const client = clientReturning(
+      json(
+        {
+          error: {
+            code: "part_name_taken",
+            message: 'A part named "Bracket plate" already exists.',
+          },
+        },
+        409,
+      ),
+    );
+    const error = await createPart("Bracket plate", client).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(PartNameTakenError);
+    expect(error).toMatchObject({
+      partName: "Bracket plate",
+      message: 'A part named "Bracket plate" already exists.',
+    });
+  });
+
+  it("surfaces a generic error for other failures", async () => {
+    const client = clientReturning(
+      json({ error: { code: "boom", message: "server exploded" } }, 500),
+    );
+    const error = await createPart("X", client).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(PartNameTakenError);
+    expect((error as Error).message).toMatch(/server exploded/);
+  });
+});
+
+describe("deletePart", () => {
+  it("resolves on a 204 (no body)", async () => {
+    const client = clientReturning(new Response(null, { status: 204 }));
+    await expect(deletePart(samplePart.id, client)).resolves.toBeUndefined();
+  });
+
+  it("surfaces the envelope message on a 404", async () => {
+    const client = clientReturning(
+      json({ error: { code: "part_not_found", message: "no such part" } }, 404),
+    );
+    await expect(deletePart(samplePart.id, client)).rejects.toThrow(
+      /no such part/,
+    );
+  });
+});
 
 describe("sketchFeatureCreate", () => {
   it("maps the buffer (entities + constraints) to the persisted envelope", () => {

@@ -145,8 +145,13 @@ The thinnest vertical slice a working engineer can feel:
       a re-evaluate [§7.8], never a blank viewport. Extrude-authoring UI +
       feature-tree select/edit + rollback-bar shipped 2026-07-11 [BACKLOG #3]:
       selectable rows, a brass rollback "cut line" that winds the build back
-      to the pre-extrude state, per-feature error lines. Face/edge picking
-      pending [Next, blocked on fillet/chamfer #5/#6])
+      to the pre-extrude state, per-feature error lines. Parts home shipped
+      2026-07-11 [BACKLOG #4]: `/` is a drawing-register parts list
+      [create/open/delete, keyboard-first, on-field 409, designed empty state],
+      so a user reaches the workspace without a hand-typed URL — the last
+      navigation gap before the full-flow e2e exit gate; box demo moved to
+      `/first-light`. Face/edge picking pending [Next, blocked on
+      fillet/chamfer #5/#6])
 - ✅ Export: STEP + STL download (shipped 2026-07-10 — byte-deterministic
       STEP/STL geometry endpoint with round-trip gates, gateway proxy, and
       title-block export controls in the web app; QA'd in a real browser:

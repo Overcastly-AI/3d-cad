@@ -6,11 +6,12 @@ import {
   TextField,
 } from "@loft/design";
 import { Navigate, useNavigate } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useState } from "react";
 
 import { login, registerAccount } from "../api/auth";
 import { useSessionStore } from "../auth/session";
 import { LoftMark } from "../components/LoftMark";
+import { SheetGrid } from "../components/SheetGrid";
 import { validateAuthForm, type AuthFormErrors } from "../lib/authForm";
 
 type Mode = "sign-in" | "register";
@@ -38,51 +39,6 @@ export function SignInPage() {
         <AuthTitleBlock />
       </div>
     </div>
-  );
-}
-
-/** The sheet's grid — the same token palette the WebGL viewport grid uses. */
-function SheetGrid() {
-  const id = useId();
-  const minor = `${id}-minor`;
-  const major = `${id}-major`;
-  return (
-    <svg
-      className="absolute inset-0 h-full w-full text-hairline"
-      aria-hidden="true"
-      data-testid="sheet-grid"
-    >
-      <defs>
-        <pattern
-          id={minor}
-          width="24"
-          height="24"
-          patternUnits="userSpaceOnUse"
-        >
-          <path
-            d="M24 0H0V24"
-            fill="none"
-            stroke="currentColor"
-            strokeOpacity="0.3"
-          />
-        </pattern>
-        <pattern
-          id={major}
-          width="120"
-          height="120"
-          patternUnits="userSpaceOnUse"
-        >
-          <path
-            d="M120 0H0V120"
-            fill="none"
-            stroke="currentColor"
-            strokeOpacity="0.65"
-          />
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill={`url(#${minor})`} />
-      <rect width="100%" height="100%" fill={`url(#${major})`} />
-    </svg>
   );
 }
 

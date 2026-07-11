@@ -6,7 +6,7 @@
 import type { components, GatewayClient } from "@loft/ts-client/gateway";
 
 import { gatewayClient } from "./client";
-import { envelopeMessage } from "./envelope";
+import { envelopeCode, envelopeMessage } from "./envelope";
 
 export type PartResponse = components["schemas"]["PartResponse"];
 export type FeatureTreeResponse = components["schemas"]["FeatureTreeResponse"];
@@ -26,6 +26,72 @@ export type FeatureUpdate = components["schemas"]["FeatureUpdate"];
 export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
 export type ExtrudeFeature = components["schemas"]["ExtrudeFeature"];
 export type ExtrudeParams = components["schemas"]["ExtrudeParamsV1"];
+
+export type PartCreate = components["schemas"]["PartCreate"];
+
+/**
+ * The chosen name already belongs to another of the caller's parts (documents
+ * enforces a per-owner unique index → gateway 409 `part_name_taken`). Typed so
+ * the register can surface it on the name field, not as a generic banner —
+ * mirrors `MeshNotFoundError`: a narrowing the OpenAPI schema can't express.
+ */
+export class PartNameTakenError extends Error {
+  constructor(
+    readonly partName: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PartNameTakenError";
+  }
+}
+
+/** The caller's parts, oldest first (register order). */
+export async function fetchParts(
+  client: GatewayClient = gatewayClient,
+): Promise<PartResponse[]> {
+  const { data, error } = await client.GET("/api/v1/parts");
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "Your parts could not be loaded."));
+  }
+  return data.parts;
+}
+
+/**
+ * Create a part owned by the caller (201). A duplicate name is a 409
+ * `part_name_taken` — thrown as a typed `PartNameTakenError` so the form can
+ * pin the message to the name field; every other failure surfaces its message.
+ */
+export async function createPart(
+  name: string,
+  client: GatewayClient = gatewayClient,
+): Promise<PartResponse> {
+  const { data, error } = await client.POST("/api/v1/parts", {
+    body: { name },
+  });
+  if (error !== undefined) {
+    if (envelopeCode(error) === "part_name_taken") {
+      throw new PartNameTakenError(
+        name,
+        envelopeMessage(error, `A part named "${name}" already exists.`),
+      );
+    }
+    throw new Error(envelopeMessage(error, "The part could not be created."));
+  }
+  return data;
+}
+
+/** Delete one of the caller's parts (204; 404 for unknown/foreign ids). */
+export async function deletePart(
+  partId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<void> {
+  const { error } = await client.DELETE("/api/v1/parts/{part_id}", {
+    params: { path: { part_id: partId } },
+  });
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The part could not be deleted."));
+  }
+}
 
 /** One of the caller's parts. */
 export async function fetchPart(
