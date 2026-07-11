@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }) => {
 test("corrupt GLB clears the stale mesh and shows the rejection stamp", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/first-light");
   await expect(page.getByTestId("tessellation-status")).toHaveText(
     "Up to date",
     { timeout: 30_000 },

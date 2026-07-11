@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 
 /** The first-light box must be meshed before its export can mean anything. */
 async function waitForModel(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("/first-light");
   await expect(page.getByTestId("tessellation-status")).toHaveText(
     "Up to date",
     { timeout: 30_000 },

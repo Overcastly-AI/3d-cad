@@ -1,7 +1,11 @@
 import { createGatewayClient } from "@loft/ts-client/gateway";
 import { describe, expect, it } from "vitest";
 
-import { exportBox, parseContentDispositionFilename } from "./exportPart";
+import {
+  exportBox,
+  exportPartTree,
+  parseContentDispositionFilename,
+} from "./exportPart";
 
 describe("parseContentDispositionFilename", () => {
   it("parses the quoted form the gateway sends", () => {
@@ -116,6 +120,49 @@ describe("exportBox", () => {
     );
     await expect(exportBox("step", PARAMS, client)).rejects.toThrow(
       /rejected the STEP export/,
+    );
+  });
+});
+
+const PART_ID = "11111111-1111-1111-1111-111111111111";
+
+describe("exportPartTree", () => {
+  it("streams the tree body and reads the server filename", async () => {
+    const client = clientReturning(
+      new Response("ISO-10303-21;\nHEADER;", {
+        status: 200,
+        headers: {
+          "Content-Type": "model/step",
+          "Content-Disposition": 'attachment; filename="Extrude plate.step"',
+        },
+      }),
+    );
+    const file = await exportPartTree(PART_ID, "step", client);
+    expect(file.filename).toBe("Extrude plate.step");
+    expect(await file.blob.text()).toBe("ISO-10303-21;\nHEADER;");
+  });
+
+  it("falls back to part.<format> when the header is absent", async () => {
+    const client = clientReturning(
+      new Response(new Uint8Array([0, 1, 2, 3]), {
+        status: 200,
+        headers: { "Content-Type": "model/stl" },
+      }),
+    );
+    const file = await exportPartTree(PART_ID, "stl", client);
+    expect(file.filename).toBe("part.stl");
+    expect(file.blob.size).toBe(4);
+  });
+
+  it("throws a labelled error when the gateway rejects the export", async () => {
+    const client = clientReturning(
+      new Response(JSON.stringify({ error: { code: "tree_export_failed" } }), {
+        status: 422,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await expect(exportPartTree(PART_ID, "stl", client)).rejects.toThrow(
+      /rejected the STL export/,
     );
   });
 });

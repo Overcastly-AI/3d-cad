@@ -7,6 +7,7 @@ import {
   formatQuantity,
   formatVec3,
 } from "../lib/format";
+import { PartExportControls } from "./PartExportControls";
 
 /** Solid-render status shown in the title-block footer's Status cell. */
 export type BodyStatus = "up-to-date" | "evaluating" | "regenerating" | "error";
@@ -22,6 +23,8 @@ export interface BodyInspectorProps {
   /** Mass properties of the last-good body, or null when there is none. */
   properties: ShapeProperties | null;
   status: BodyStatus;
+  /** The part this body belongs to — issued by the EXPORT strip. */
+  partId: string;
 }
 
 /**
@@ -30,7 +33,11 @@ export interface BodyInspectorProps {
  * topology). Reuses the design primitives + readout formatters; it renders
  * the numbers the geometry service computed, never its own.
  */
-export function BodyInspector({ properties, status }: BodyInspectorProps) {
+export function BodyInspector({
+  properties,
+  status,
+  partId,
+}: BodyInspectorProps) {
   const props = properties;
   const em = "—";
   return (
@@ -108,6 +115,11 @@ export function BodyInspector({ properties, status }: BodyInspectorProps) {
             </span>
           </div>
         </div>
+
+        {/* Issue the modeled body as a file — the export strip of the title
+            block, always actionable here because the inspector only shows once
+            a body exists. */}
+        <PartExportControls partId={partId} hasBody={props !== null} />
       </Panel>
     </aside>
   );

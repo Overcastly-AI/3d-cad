@@ -80,6 +80,43 @@ export async function exportBox(
   return { blob, filename };
 }
 
+/**
+ * Export the CURRENT part's evaluated feature tree via the gateway
+ * (`POST /api/v1/parts/{id}/export?format=`). Unlike {@link exportBox}, which
+ * exports a bare parametric primitive, this exports the body the engineer
+ * actually modeled — the tree is evaluated (rollback bar applied) and the
+ * last-good solid is streamed as STEP or STL. `client` is injectable for tests.
+ */
+export async function exportPartTree(
+  partId: string,
+  format: ExportFormat,
+  client: GatewayClient = gatewayClient,
+): Promise<ExportedFile> {
+  const { data, error, response } = await client.POST(
+    "/api/v1/parts/{part_id}/export",
+    {
+      params: { path: { part_id: partId }, query: { format } },
+      parseAs: "blob",
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      `The geometry service rejected the ${format.toUpperCase()} export`,
+    );
+  }
+  if (data === undefined) {
+    throw new Error(`${format.toUpperCase()} export returned no file`);
+  }
+  // parseAs:"blob" makes the runtime payload a Blob (openapi-fetch pass-through);
+  // the OpenAPI schema types binary content as string.
+  const blob = data as unknown as Blob;
+  const filename = parseContentDispositionFilename(
+    response.headers.get("Content-Disposition"),
+    `part.${format}`,
+  );
+  return { blob, filename };
+}
+
 /** Hand a blob to the browser as a named file download (blob URL + anchor). */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

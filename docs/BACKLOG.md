@@ -166,14 +166,19 @@ depends on #2, #3, #4, #7.
       gateway e2e over real HTTP. Contracts + ts-client regenerated.
       Web title-block button remains for the frontend (#8 full-flow e2e).
       [src: geometry-qa, roadmap] [kernel-architect]
-- [ ] (P1, M) Full-flow Playwright e2e — login → create part → sketch →
+- [x] (P1, M) Full-flow Playwright e2e — login → create part → sketch →
       extrude → edit param → export, desktop + touch viewport smoke. This is
       the Phase 1 exit gate (docs/ROADMAP.md "Current focus"); closing it is
       the signal to advance to Phase 2. Depends on: #2, #3, #4, #7.
-      Acceptance: one Playwright spec exercises the full loop against the
-      real stack (`scripts/e2e.sh` boot/reuse), green on desktop (1280×800)
-      and a touch viewport profile; founder screenshot set of every step.
-      [src: roadmap]
+      Shipped 2026-07-11: `full-flow.spec.ts` drives the whole loop through
+      the real browser against the real stack (no API shortcuts for the
+      user-facing steps) — register → create part → pick plane → dimensioned
+      40×25 rectangle → extrude → live 10→20 param edit → export STEP (real
+      ISO-10303-21) + STL; green desktop + 1280×800 + a touch-viewport smoke;
+      founder screenshots. Shipped the web part-export strip it needs (`POST
+      /api/v1/parts/{id}/export` via shared `ExportRow`, honest "No body"
+      disabled state). Fixed two box-demo specs left pointing at `/` by #4's
+      move to `/first-light`. [frontend-builder]
 
 ## Next (P2)
 
@@ -290,6 +295,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #8 shipped: full-flow e2e — the Phase 1 exit gate.**
+  `full-flow.spec.ts` proves login → sketch → extrude → edit-param → export
+  end-to-end in a real browser (desktop + 1280×800 + touch smoke); web
+  part-export strip (`POST /api/v1/parts/{id}/export`, shared `ExportRow`,
+  "No body" disabled state) shipped with it. [frontend-builder]
 - 2026-07-11 — **Ready #7 shipped: export-from-tree (closes GEOMETRY-QA gap
   #8).** `POST /api/v1/export/tree` reuses `evaluate_tree` then exports the
   last-good body (shared `export_solid`); no body → 422 `tree_export_failed`.

@@ -1,4 +1,4 @@
-import { Chip } from "@loft/design";
+import { Chip, Panel } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -19,6 +19,7 @@ import {
 import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
+import { PartExportControls } from "../components/PartExportControls";
 import {
   defaultExtrudeForm,
   defaultProfileId,
@@ -553,6 +554,12 @@ export function PartPage() {
   // The inspector appears when there's a body to inspect and we're not
   // sketching — sketch mode keeps the viewport dominant (chrome recedes).
   const showInspector = mode === "off" && bodyProperties !== null;
+  // With a tree but no body (sketch-only / rolled back before the extrude),
+  // still offer the EXPORT strip — disabled and honest about why.
+  const showExportOnly =
+    mode === "off" &&
+    bodyProperties === null &&
+    (tree.data?.features.length ?? 0) > 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -645,7 +652,24 @@ export function PartPage() {
           <SketchScene solved={solvedLayers} />
         </Viewport>
         {showInspector ? (
-          <BodyInspector properties={bodyProperties} status={bodyStatus} />
+          <BodyInspector
+            properties={bodyProperties}
+            status={bodyStatus}
+            partId={partId}
+          />
+        ) : showExportOnly ? (
+          // No body yet (a sketch-only or rolled-back tree), but the part is
+          // modeled enough to have a tree — offer the EXPORT strip in its
+          // honest disabled state so the affordance is discoverable.
+          <aside
+            className="w-full shrink-0 p-3 md:w-inspector"
+            aria-label="Part export"
+            data-testid="part-export-idle"
+          >
+            <Panel>
+              <PartExportControls partId={partId} hasBody={false} />
+            </Panel>
+          </aside>
         ) : null}
       </main>
     </div>

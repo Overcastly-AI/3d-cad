@@ -2,7 +2,11 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 1 — MVP: sketch → extrude → export.**
+**Current focus: Phase 1 — MVP: sketch → extrude → export.** The MVP flow is
+complete end-to-end: the login → sketch → extrude → edit-param → export loop is
+proven in a real browser against the real stack by the `full-flow` exit-gate
+e2e (BACKLOG #8, 2026-07-11). Remaining 🚧 items are depth beyond the exit
+gate; the Phase 2 advance is the groomer's next call.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -183,8 +187,14 @@ The thinnest vertical slice a working engineer can feel:
       chamfer golden shipped 2026-07-11 with BACKLOG #6, all-planar [same
       10/24/1 counts, 48/28 mesh], 1e-9 tolerance, EXACT 0.0-deviation STEP
       round-trip [planar vs the fillet's curved re-approx]; docs/GEOMETRY-QA.md)
-- ⬜ E2E: Playwright — login → sketch → extrude → edit param → export, desktop
-      and touch viewport smoke
+- ✅ E2E: Playwright — login → sketch → extrude → edit param → export, desktop
+      + 1280×800 + a touch-viewport smoke (shipped 2026-07-11, BACKLOG #8 —
+      the Phase 1 exit gate). One `full-flow.spec.ts` drives the whole loop
+      through the real browser against the real stack with no API shortcuts for
+      the user-facing steps: register → create part → pick plane → dimensioned
+      rectangle → extrude → live param edit → export STEP (real ISO-10303-21)
+      + STL. Web part-export strip (`POST /api/v1/parts/{id}/export`, honest
+      "No body" disabled state) shipped alongside.
 
 ## Phase 2 — Parametric core ⬜
 
