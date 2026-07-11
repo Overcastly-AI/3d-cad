@@ -55,7 +55,7 @@ depends on #2, #3, #4, #7.
       Shipped 2026-07-11 (reconciled after a mid-build model switch): route +
       `sha256:` id validation at the gateway, byte-identity e2e proving an
       extruded body's GLB reaches the browser. [backend-builder + orchestrator]
-- [ ] (P1, M) Viewport renders evaluated-tree bodies — the workspace viewport
+- [x] (P1, M) Viewport renders evaluated-tree bodies — the workspace viewport
       fetches `mesh_glb_id` from an evaluate-tree response via #1 and renders
       the resulting body mesh, replacing/augmenting the 2D sketch overlay —
       the extrude loop becomes visible for the first time (VISION.md
@@ -69,6 +69,12 @@ depends on #2, #3, #4, #7.
       `mesh_glb_id: null` (no body-affecting feature yet) by showing the
       sketch only, no error state; WCAG-AA + 1280×800 verified; founder
       screenshots. [src: product-auditor, engineering-auditor]
+      Shipped 2026-07-11: mesh-proxy fetch on evaluate → first-light GLB→mesh
+      render (token aluminium + B-rep edges); title-block body inspector
+      (volume/area/bbox/topology); `mesh_not_found` 404 → re-evaluate, never a
+      blank viewport; profile sketch recedes behind the body. e2e seeds
+      sketch+extrude via API (the #3 authoring UI seam), asserts the solid
+      renders + volume 10000 in the inspector + reload persists. [frontend-builder]
 - [ ] (P1, M) Extrude feature UI — create/edit + feature-tree panel
       edit/rollback — from the workspace, add an extrude feature against a
       closed sketch profile (direction/operation/distance params), edit its
@@ -246,6 +252,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #2 shipped: the extrude loop is visible.** Workspace
+  fetches the evaluate response's `mesh_glb_id` through the gateway proxy and
+  renders the solid; mass properties reach a title-block body inspector; 404 →
+  re-evaluate. e2e green (API-seeded extrude), founder screenshots. [frontend-builder]
 - 2026-07-11 — **Groomed for the Phase 1 wrap-up.** ROADMAP golden count
   fixed (2→3 of 5, `sketch-extrude-40x25x10` was missing). Ready refilled
   toward the exit gate: mesh-fetch gateway proxy + viewport render

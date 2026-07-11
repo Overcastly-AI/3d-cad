@@ -2,6 +2,7 @@ import { Chip } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import {
   createFeature,
   evaluatePart,
@@ -11,6 +12,7 @@ import {
   sketchFeatureUpdate,
   updateFeature,
 } from "../api/parts";
+import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
@@ -77,6 +79,58 @@ export function PartPage() {
     enabled: tree.data !== undefined && tree.data.features.length > 0,
     staleTime: Infinity,
   });
+
+  // ---------------------------------------------------------------------
+  // The body: a body-affecting feature (extrude) evaluates to a content-
+  // addressed GLB. Fetch it through the gateway mesh proxy and render it in
+  // the same GLB→mesh pipeline first light uses. `mesh_glb_id: null` means no
+  // body yet — the sketch renders alone, no error.
+  // ---------------------------------------------------------------------
+  const meshGlbId = evaluation.data?.mesh_glb_id ?? null;
+  const bodyProperties = evaluation.data?.properties ?? null;
+  const body = useQuery({
+    queryKey: ["mesh", partId, meshGlbId],
+    queryFn: () => fetchBodyMesh(meshGlbId as string),
+    enabled: meshGlbId !== null,
+    staleTime: Infinity, // content-addressed: the bytes never change per id
+    retry: (count, error) => !(error instanceof MeshNotFoundError) && count < 2,
+  });
+
+  // Honest failure (§7.8): a `mesh_not_found` 404 means the LRU evicted the
+  // artifact — re-evaluate to regenerate it, then refetch. Guarded per content
+  // address so a genuinely unservable body surfaces an error, never a loop.
+  const regeneratedFor = useRef<Set<string>>(new Set());
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenFailed, setRegenFailed] = useState(false);
+  useEffect(() => {
+    if (!(body.error instanceof MeshNotFoundError) || meshGlbId === null) {
+      return;
+    }
+    if (regeneratedFor.current.has(meshGlbId)) {
+      setRegenerating(false);
+      setRegenFailed(true);
+      return;
+    }
+    regeneratedFor.current.add(meshGlbId);
+    setRegenFailed(false);
+    setRegenerating(true);
+    let cancelled = false;
+    void (async () => {
+      await queryClient.invalidateQueries({ queryKey: ["evaluate", partId] });
+      await queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
+      if (!cancelled) setRegenerating(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [body.error, meshGlbId, partId, queryClient]);
+
+  const retryBody = useCallback(() => {
+    regeneratedFor.current.clear();
+    setRegenFailed(false);
+    void queryClient.invalidateQueries({ queryKey: ["evaluate", partId] });
+    void queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
+  }, [partId, queryClient]);
 
   // ---------------------------------------------------------------------
   // Persistence — one serialized write chain (create binds, update PATCHes;
@@ -327,6 +381,22 @@ export function PartPage() {
   // Leaving the workspace always leaves sketch mode.
   useEffect(() => () => useSketchStore.getState().exit(), []);
 
+  // The body is the hero: once a solid renders, the profile sketch that
+  // defined it recedes (it sits on the body's base face — coincident scribe
+  // ink would only z-fight the solid). It returns, live, on sketch re-entry.
+  const bodyPresent = body.data !== undefined;
+  const solvedLayers = bodyPresent ? [] : solved;
+  const bodyStatus: BodyStatus = regenFailed
+    ? "error"
+    : regenerating || (meshGlbId !== null && !bodyPresent && body.isFetching)
+      ? "regenerating"
+      : evaluation.isFetching
+        ? "evaluating"
+        : "up-to-date";
+  // The inspector appears when there's a body to inspect and we're not
+  // sketching — sketch mode keeps the viewport dominant (chrome recedes).
+  const showInspector = mode === "off" && bodyProperties !== null;
+
   return (
     <div className="flex h-full flex-col">
       <TopBar>
@@ -347,6 +417,7 @@ export function PartPage() {
           }}
         />
         <Viewport
+          glb={body.data}
           rotateEnabled={mode !== "draw"}
           groundGrid={mode !== "draw"}
           hud={
@@ -358,11 +429,48 @@ export function PartPage() {
               />
               <SketchDro solving={syncPending || evaluation.isFetching} />
               <SolveDiagnostic />
+              {regenerating ? (
+                <div
+                  role="status"
+                  data-testid="body-regenerating"
+                  className="absolute left-3 top-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
+                >
+                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                    Regenerating body
+                  </span>
+                  <span className="mt-1 block font-body text-xs text-mist">
+                    The mesh expired from the cache — re-evaluating the tree.
+                  </span>
+                </div>
+              ) : regenFailed ? (
+                <div
+                  role="alert"
+                  data-testid="body-regen-failed"
+                  className="absolute left-3 top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                >
+                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                    Body unavailable
+                  </span>
+                  <span className="mt-1 block font-body text-xs text-mist">
+                    The body mesh could not be regenerated.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={retryBody}
+                    className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                  >
+                    Re-evaluate
+                  </button>
+                </div>
+              ) : null}
             </>
           }
         >
-          <SketchScene solved={solved} />
+          <SketchScene solved={solvedLayers} />
         </Viewport>
+        {showInspector ? (
+          <BodyInspector properties={bodyProperties} status={bodyStatus} />
+        ) : null}
       </main>
     </div>
   );

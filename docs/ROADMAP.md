@@ -130,8 +130,15 @@ The thinnest vertical slice a working engineer can feel:
       `GET /api/v1/meshes/{id}` [feature-tree §7.8 interim]; golden
       `sketch-extrude-40x25x10` through every gate incl. 0.0-deviation STEP
       round-trip — docs/GEOMETRY-QA.md. Fillet/chamfer pending)
-- ⬜ Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of
-      tessellated body, feature-tree panel with edit/rollback
+- 🚧 Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of
+      tessellated body, feature-tree panel with edit/rollback (body render
+      shipped 2026-07-11 [BACKLOG #2]: the workspace fetches an evaluate
+      response's `mesh_glb_id` through the gateway mesh proxy and renders the
+      solid in the first-light GLB→mesh pipeline [token aluminium + B-rep
+      edges]; mass properties surface in a title-block body inspector; the
+      profile sketch recedes behind the body; a `mesh_not_found` 404 triggers
+      a re-evaluate [§7.8], never a blank viewport. Extrude-authoring UI +
+      feature-tree edit/rollback + face/edge picking pending [#3])
 - ✅ Export: STEP + STL download (shipped 2026-07-10 — byte-deterministic
       STEP/STL geometry endpoint with round-trip gates, gateway proxy, and
       title-block export controls in the web app; QA'd in a real browser:
