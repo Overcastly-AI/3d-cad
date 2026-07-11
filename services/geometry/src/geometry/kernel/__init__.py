@@ -19,6 +19,12 @@ from geometry.kernel.extrude import (
     combine_body,
     extrude_face,
 )
+from geometry.kernel.fillet import (
+    FilletError,
+    NoFilletEdgesError,
+    fillet_body,
+    select_fillet_edges,
+)
 from geometry.kernel.properties import measure_shape
 from geometry.kernel.shapes import build_box, build_cylinder
 from geometry.kernel.tessellate import glb_stats, tessellate_glb
@@ -33,6 +39,8 @@ from geometry.schemas import (
 
 __all__ = [
     "BooleanError",
+    "FilletError",
+    "NoFilletEdgesError",
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "build_box",
@@ -45,8 +53,10 @@ __all__ = [
     "export_step_bytes",
     "export_stl_bytes",
     "extrude_face",
+    "fillet_body",
     "glb_stats",
     "measure_shape",
+    "select_fillet_edges",
     "tessellate_glb",
 ]
 

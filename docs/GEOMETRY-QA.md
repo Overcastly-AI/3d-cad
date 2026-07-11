@@ -44,16 +44,112 @@ recorded from harness output.
 | `box-10x20x30` | parametric box build, GProp mass properties, exact AABB, 0.1 mm-deflection tessellation to GLB | 1e-7 (CLAUDE.md kernel linear tolerance; measured deviation 0.0) | 6 / 12 / 1 | 24 / 12 |
 | `cylinder-r10-h25` | FIRST CURVED golden: GProp integration over an analytic quadric, curved-face tessellation deflection, seam-edge topology, STEP re-approximation of curved surfaces | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 4.55e-13) | 3 / 3 / 1 | 506 / 500 |
 | `sketch-extrude-40x25x10` | FIRST FEATURE-TREE golden (design §6 worked example): evaluate-tree path — planegcs solve → profile wire/closed-wire check → face → prism → GProp on the evaluated body → content-addressed GLB | 1e-9 (wire→face→prism ulp accumulation, measured-then-set; observed worst 1.82e-12) | 6 / 12 / 1 | 24 / 12 |
+| `fillet-plate-r5` | FIRST FILLET golden (new curved-topology class): sketch→extrude→fillet tree — the plate's 4 vertical (Z-parallel) edges rounded r=5 via geometric edge selection (design §2.4, not topological naming); GProp over quarter-cylinder fillet surfaces, curved-face tessellation, STEP re-approximation of trimmed cylindrical surfaces | 1e-9 (curved-geometry, measured-then-set; observed worst 1.78e-15) | 10 / 24 / 1 | 544 / 524 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
-export, sketch solve + extrude (add/cut) via evaluate-tree — all covered by
-the inventory. Export-endpoint gates parametrize over **shape** goldens only
-(gap #8); the tree golden's STEP round-trip runs at kernel level. Extrude
-`cut`, `direction: reverse`, circle profiles, and every extrude error path
-are additionally pinned by `tests/test_extrude.py`. No shipped modeling
-capability lacks a golden as of the 2026-07-11 extrude entry (fillet/chamfer
-must ship with theirs).
+export, sketch solve + extrude (add/cut) + fillet via evaluate-tree — all
+covered by the inventory. Export-endpoint gates parametrize over **shape**
+goldens only (gap #8); the tree goldens' STEP round-trip runs at kernel level.
+Extrude `cut`, `direction: reverse`, circle profiles, every extrude error
+path, and every fillet path (both selectors + `no_target_body` /
+`no_fillet_edges` / `fillet_failed`) are additionally pinned by
+`tests/test_extrude.py` / `tests/test_fillet.py`. No shipped modeling
+capability lacks a golden as of the 2026-07-11 fillet entry (chamfer must
+ship with theirs).
+
+---
+
+## 2026-07-11 — First fillet golden: `fillet-plate-r5` (fillet feature, BACKLOG #5)
+
+Environment: dev container, Python 3.12.3, build123d 0.11.1 (OCCT 7.9 via
+OCP), planegcs 0.8.0, pytest 9.1.1. Full geometry suite green; the golden
+flows through every parametrized gate (goldens ×4, kernel-level STEP
+round-trip) with **zero runner changes** — a third feature type in an
+existing tree golden.
+
+Model: the `sketch-extrude-40x25x10` plate with a third feature — a `fillet`
+rounding its **4 vertical edges** (selector `axis_parallel` `axis: "Z"`) at
+radius 5 mm. **Edge selection is a deterministic geometric predicate, NOT
+topological naming** (design §2.4 — v1 limitation, Phase 2 is `SubshapeRef`).
+
+### Gate 1 — mass properties: analytic vs GProp on the filleted body
+
+Hand derivation (full text in the golden's `expected.json`): a convex 90°
+fillet of radius r replaces a square corner with a quarter disk, removing
+`r²(1−π/4)` per unit height. Volume `= 9000 + 250π`; surface area
+`= 2700 + 150π` (caps `1800+50π` + walls `900` + 4 quarter-cylinders `100π`);
+centroid `(20, 12.5, 5)`; AABB `[0,0,0]..[40,25,10]` (fillets tangent to the
+persisting flat faces).
+
+| Quantity | Expected (analytic) | Actual (GProp) | Deviation | Bound |
+| --- | --- | --- | --- | --- |
+| volume | 9000+250π = 9785.398163397449 mm³ | 9785.398163397449 | **0.0** | 1e-9 |
+| surface area | 2700+150π = 3171.238898038469 mm² | 3171.238898038469 | **0.0** | 1e-9 |
+| centroid x/y/z | (20, 12.5, 5) mm | (20, 12.5−1.8e-15, 5−8.9e-16) | ≤ 1.78e-15 | 1e-9 |
+| AABB (6 values) | [0,0,0]..[40,25,10] | min x/y −8.9e-16, else identical | ≤ 8.9e-16 | 1e-9 |
+| faces/edges/shells | 10 / 24 / 1 | 10 / 24 / 1 | — | exact |
+| mesh vertices/triangles | 544 / 524 | 544 / 524 | — | exact |
+
+**Curved-geometry tolerance — measured first, then set (1e-9).** The 4
+quarter-cylinder fillet faces go through OCCT's Gauss-quadrature GProp
+integration; volume and area land exactly (0.0) here, the residual noise is
+ulp-scale on centroid/AABB (worst 1.78e-15). Ceiling 1e-9 matches the cylinder
+and extrude goldens' posture (100× tighter than the planar 1e-7 bound).
+
+**Topology finding:** the filleted plate is **10 faces / 24 edges / 1 shell**
+— top + bottom + 4 narrowed vertical walls + 4 quarter-cylinder fillet faces;
+edges are 8 vertical tangent lines + two 8-edge rings (4 straight + 4 arcs).
+Euler check V−E+F = 16−24+10 = 2 confirms the count. First non-box, non-
+cylinder curved topology in the inventory.
+
+**Mesh derivation (counts pinned exactly):** each fillet quarter-arc (π/2 rad,
+r=5) discretizes to `2·ceil((π/2)/0.1) = 32` segments at 0.1 mm / 0.1 rad —
+the same 2×-angular-estimate behaviour the cylinder golden exhibits (full
+circle → 126). Fillet faces 4×(66 nodes / 64 tris); top+bottom planar faces
+whose boundary now carries 4 fillet arcs 2×(132 / 130); vertical walls
+4×(4 / 2). Totals 544 / 524 (per-face faceted normals).
+
+### Gate 2 — STEP round-trip: first fillet-surface observations
+
+Kernel-level gate against `ROUNDTRIP_TOL` 1e-7 + exact topology:
+
+| Quantity | Original | Re-imported | Deviation |
+| --- | --- | --- | --- |
+| volume | 9785.398163397449 mm³ | +1.26e-10 | **1.26e-10** |
+| surface area | 3171.238898038469 mm² | +2.05e-11 | **2.05e-11** |
+| centroid x/y/z | (20, 12.5, 5) | ≤2.8e-14 apart | ≤ 2.8e-14 |
+| AABB min/max (6 values) | exact | identical | **0.0** |
+| topology F/E/S | 10 / 24 / 1 | 10 / 24 / 1 | preserved |
+
+**Finding (observation, not a defect):** the largest round-trip deviation in
+the project so far — volume moves 1.26e-10 mm³ (~1.3e-14 relative) across STEP
+re-encode of the **trimmed cylindrical fillet surfaces**. STEP stores the
+cylinders analytically so AABB/topology survive exactly; the volume/area
+wobble is re-trimming/reparameterization noise at double-precision scale,
+~800× inside the 1e-7 bound. No action; baseline recorded for regression
+watch. Artifact: 30,733-byte STEP AP214, byte-deterministic (sha256
+`b818b93e3ba8edfb…`, timestamp pinned as in gap #4).
+
+### Gate 3 — determinism
+
+In-process double rebuild AND fresh-interpreter rebuild: identical metadata,
+byte-identical GLB (20,624 bytes, sha256 `7f741d9750e4908d…`). The fillet
+edge selector filters `body.edges()` (OCCT deterministic order) by a pure
+predicate, so the selected set — and the whole evaluate response incl.
+`mesh_glb_id` — is byte-reproducible.
+
+### Gate 4 — performance
+
+Warm evaluate-tree (solve + extrude + **fillet** + GProp + tessellate):
+**~33 ms** over 5 runs — heavier than the extrude tree (~8.3 ms; the OCCT
+fillet plus the denser curved tessellation dominate), far inside the 2 s
+tripwire. Table row added below.
+
+Selector choice + limitation, both error paths, and the harness's
+fail-on-wrong-geometry property are pinned in `tests/test_fillet.py`.
+
+[kernel-architect]
 
 ---
 
@@ -411,6 +507,7 @@ finding, not absorbed into the tolerance.
 | --- | --- | --- | --- |
 | 2026-07-10 | box-10x20x30 | 3.8–4.3 ms | < 2 s (tripwire) |
 | 2026-07-11 | sketch-extrude-40x25x10 (full evaluate-tree: solve + extrude + GProp + tessellate) | ~8.3 ms | < 2 s (tripwire) |
+| 2026-07-11 | fillet-plate-r5 (evaluate-tree: solve + extrude + fillet + GProp + tessellate) | ~33 ms | < 2 s (tripwire) |
 
 ### Gaps / coverage list for future passes
 

@@ -187,6 +187,36 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AllEdgesSelector
+         * @description Every edge of the target body (the whole-body round-over).
+         */
+        AllEdgesSelector: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "all_edges";
+        };
+        /**
+         * AxisParallelEdgesSelector
+         * @description Every straight edge parallel to a world axis (e.g. Z = the vertical
+         *     edges of an upright prism). Curved edges never match — an arc has no
+         *     single direction. Deterministic and rebuild-stable: a geometric predicate,
+         *     not a stored edge id.
+         */
+        AxisParallelEdgesSelector: {
+            /**
+             * Axis
+             * @enum {string}
+             */
+            axis: "X" | "Y" | "Z";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "axis_parallel";
+        };
+        /**
          * CoincidentConstraint
          * @description Two named points share a location.
          */
@@ -288,7 +318,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"];
             /**
              * Id
              * Format: uuid
@@ -349,7 +379,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -409,7 +439,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"];
             /**
              * Id
              * Format: uuid
@@ -468,9 +498,49 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"]) | null;
+            feature?: (components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["FilletFeature"]) | null;
             /** Name */
             name?: string | null;
+        };
+        /**
+         * FilletFeature
+         * @description ``{"type": "fillet", "version": 1, "params": {...}}`` envelope.
+         */
+        FilletFeature: {
+            params: components["schemas"]["FilletParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "fillet";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * FilletParamsV1
+         * @description Round selected edges of the current body chain with a constant radius.
+         *
+         *     ``edges`` is a geometric :class:`EdgeSelector` predicate over the body that
+         *     exists at this feature's point in the tree — NOT a topological-naming
+         *     reference (design §2.4; that is Phase 2). No feature reference: like an
+         *     extrude ``cut``, a fillet operates on the implicit single body chain
+         *     (design §7.6), so its dependency on the prior body-affecting feature is the
+         *     tree order, not a ``FeatureRef``.
+         */
+        FilletParamsV1: {
+            /**
+             * Edges
+             * @description Which edges of the current body to round (geometric predicate, not topological naming — design §2.4)
+             */
+            edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"];
+            /**
+             * Radius Mm
+             * @description Fillet radius (mm)
+             */
+            radius_mm: number;
         };
         /**
          * FixedConstraint

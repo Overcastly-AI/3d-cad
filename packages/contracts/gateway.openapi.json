@@ -1,6 +1,21 @@
 {
   "components": {
     "schemas": {
+      "AllEdgesSelector": {
+        "description": "Every edge of the target body (the whole-body round-over).",
+        "properties": {
+          "kind": {
+            "const": "all_edges",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "AllEdgesSelector",
+        "type": "object"
+      },
       "AuthTokenResponse": {
         "description": "A signed-in identity: the user plus a bearer access token.",
         "properties": {
@@ -30,6 +45,31 @@
           "expires_in"
         ],
         "title": "AuthTokenResponse",
+        "type": "object"
+      },
+      "AxisParallelEdgesSelector": {
+        "description": "Every straight edge parallel to a world axis (e.g. Z = the vertical\nedges of an upright prism). Curved edges never match \u2014 an arc has no\nsingle direction. Deterministic and rebuild-stable: a geometric predicate,\nnot a stored edge id.",
+        "properties": {
+          "axis": {
+            "enum": [
+              "X",
+              "Y",
+              "Z"
+            ],
+            "title": "Axis",
+            "type": "string"
+          },
+          "kind": {
+            "const": "axis_parallel",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "axis"
+        ],
+        "title": "AxisParallelEdgesSelector",
         "type": "object"
       },
       "BoundingBox": {
@@ -407,6 +447,7 @@
             "discriminator": {
               "mapping": {
                 "extrude": "#/components/schemas/ExtrudeFeature",
+                "fillet": "#/components/schemas/FilletFeature",
                 "sketch": "#/components/schemas/SketchFeature"
               },
               "propertyName": "type"
@@ -417,6 +458,9 @@
               },
               {
                 "$ref": "#/components/schemas/ExtrudeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/FilletFeature"
               }
             ],
             "title": "Feature"
@@ -547,6 +591,7 @@
             "discriminator": {
               "mapping": {
                 "extrude": "#/components/schemas/ExtrudeFeature",
+                "fillet": "#/components/schemas/FilletFeature",
                 "sketch": "#/components/schemas/SketchFeature"
               },
               "propertyName": "type"
@@ -557,6 +602,9 @@
               },
               {
                 "$ref": "#/components/schemas/ExtrudeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/FilletFeature"
               }
             ],
             "title": "Feature"
@@ -706,6 +754,7 @@
                 "discriminator": {
                   "mapping": {
                     "extrude": "#/components/schemas/ExtrudeFeature",
+                    "fillet": "#/components/schemas/FilletFeature",
                     "sketch": "#/components/schemas/SketchFeature"
                   },
                   "propertyName": "type"
@@ -716,6 +765,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/ExtrudeFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FilletFeature"
                   }
                 ]
               },
@@ -743,6 +795,67 @@
           "expected_tree_version"
         ],
         "title": "FeatureUpdate",
+        "type": "object"
+      },
+      "FilletFeature": {
+        "description": "``{\"type\": \"fillet\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/FilletParamsV1"
+          },
+          "type": {
+            "const": "fillet",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "FilletFeature",
+        "type": "object"
+      },
+      "FilletParamsV1": {
+        "description": "Round selected edges of the current body chain with a constant radius.\n\n``edges`` is a geometric :class:`EdgeSelector` predicate over the body that\nexists at this feature's point in the tree \u2014 NOT a topological-naming\nreference (design \u00a72.4; that is Phase 2). No feature reference: like an\nextrude ``cut``, a fillet operates on the implicit single body chain\n(design \u00a77.6), so its dependency on the prior body-affecting feature is the\ntree order, not a ``FeatureRef``.",
+        "properties": {
+          "edges": {
+            "description": "Which edges of the current body to round (geometric predicate, not topological naming \u2014 design \u00a72.4)",
+            "discriminator": {
+              "mapping": {
+                "all_edges": "#/components/schemas/AllEdgesSelector",
+                "axis_parallel": "#/components/schemas/AxisParallelEdgesSelector"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AllEdgesSelector"
+              },
+              {
+                "$ref": "#/components/schemas/AxisParallelEdgesSelector"
+              }
+            ],
+            "title": "Edges"
+          },
+          "radius_mm": {
+            "description": "Fillet radius (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Radius Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "edges",
+          "radius_mm"
+        ],
+        "title": "FilletParamsV1",
         "type": "object"
       },
       "FixedConstraint": {

@@ -1,0 +1,33 @@
+{
+  "description": "FIRST FILLET GOLDEN (new curved-topology class beyond the cylinder): the sketch-extrude-40x25x10 plate with its 4 VERTICAL edges (parallel to Z) rounded at radius 5 mm. A three-feature TREE (sketch -> extrude -> fillet) evaluated through the same evaluate-tree path as the extrude golden: planegcs solve -> profile face -> 10 mm prism -> geometric axis-parallel edge selection (design 2.4, NOT topological naming) -> constant-radius OCCT fillet -> GProp on the evaluated body -> tessellation -> content-addressed GLB. Locks: the fillet handler + edge selector, GProp over 4 quarter-cylinder fillet surfaces, curved-face tessellation of the fillets AND of the top/bottom planar faces whose boundary now carries fillet arcs, and (via the parametrized round-trip gate) STEP re-approximation of the trimmed cylindrical fillet surfaces.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). Base body is the 40x25x10 box; the 4 vertical edges (length 10, parallel to Z) are rounded at r=5.",
+    "One convex 90-degree fillet of radius r replaces a square corner (area r^2) with a quarter disk (area pi*r^2/4) in cross-section, removing r^2*(1 - pi/4) of material per unit height. Over the full height h=10 each vertical edge removes h*r^2*(1 - pi/4) = 10*25*(1 - pi/4) = 250*(1 - pi/4).",
+    "volume = 10000 - 4 * 250*(1 - pi/4) = 10000 - 1000*(1 - pi/4) = 9000 + 250*pi = 9785.398163397449 mm^3",
+    "surface_area top+bottom: each of the 2 caps loses 4 corners of r^2*(1 - pi/4)=25*(1 - pi/4): each cap = 40*25 - 100*(1 - pi/4) = 900 + 25*pi; two caps = 1800 + 50*pi",
+    "surface_area vertical walls: the 4 side faces total 1300 mm^2; each of the 4 vertical edges removes a strip r*h=50 from EACH of its 2 adjacent walls, so 4*2*50 = 400 is removed -> walls = 900 mm^2",
+    "surface_area fillets: each vertical fillet is a quarter cylinder r=5, h=10 with lateral area (1/4)*(2*pi*r)*h = pi*r*h/2 = 25*pi; four -> 100*pi",
+    "surface_area = (1800 + 50*pi) + 900 + 100*pi = 2700 + 150*pi = 3171.238898038469 mm^2",
+    "centroid = (20, 12.5, 5) mm: the 4 vertical edges are rounded symmetrically and the fillet is uniform along z, preserving the plate's three mirror symmetries",
+    "bounding_box = [0,0,0]..[40,25,10]: each fillet is tangent to the flat faces at x=0/40 and y=0/25, which persist (narrowed) and still reach the box extents; z is untouched",
+    "topology: 10 faces (top + bottom + 4 narrowed vertical planar walls + 4 quarter-cylinder fillet faces), 24 edges (8 vertical straight tangent lines where each fillet meets its 2 walls + top ring of 4 straight + 4 arcs + bottom ring of 4 straight + 4 arcs), 1 shell. Euler check for a genus-0 solid: V - E + F = 16 - 24 + 10 = 2 (16 vertices = 8 top + 8 bottom).",
+    "mesh (linear 0.1 mm / angular 0.1 rad, isRelative=False): each fillet quarter-arc (pi/2 rad, r=5) discretizes to 2*ceil((pi/2)/0.1) = 2*16 = 32 segments -- the same 2x-angular-estimate rule the cylinder golden exhibits (full circle 2*ceil(2*pi/0.1) = 126). Each fillet face is a 2x33 node grid = 66 nodes, 2*32 = 64 triangles; four -> 264 nodes / 256 triangles.",
+    "mesh top & bottom: each is a planar face whose boundary is 4 straight edges (1 segment each) + 4 fillet arcs (32 segments each); distinct boundary nodes = 8 corner vertices + 4*31 arc-interior = 132, triangulated with no interior node -> 132 - 2 = 130 triangles; two faces -> 264 nodes / 260 triangles",
+    "mesh vertical walls: 4 rectangles, 4 nodes / 2 triangles each -> 16 nodes / 8 triangles",
+    "mesh totals = 264 + 264 + 16 = 544 vertices and 256 + 260 + 8 = 524 triangles (per-face faceted normals, no vertex sharing across faces -- same convention as the box and cylinder goldens)",
+    "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CURVED-GEOMETRY tolerance, measured first, then set (geometry-gates skill: never copy a bound blindly). The 4 quarter-cylinder fillet faces go through OCCT's Gauss-quadrature surface/volume integration in GProp -- converging to machine precision but not exact zero -- and the optimal AABB now picks up ulp-scale noise on the min corner. Measured deviations vs the analytic values (2026-07-11, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 0.0, surface_area 0.0, centroid <= 1.78e-15 mm (y), AABB <= 8.9e-16 mm (min x/y; max exact). Documented ceiling 1e-9 = ~5e5x the observed worst case, headroom for libm/platform variation in the quadrature's transcendental evaluations across CI hosts -- while staying 100x TIGHTER than the standing planar 1e-7 bound, matching the cylinder and extrude goldens' posture. The solver contributes zero error by construction (zero-residual start, solved == input bitwise). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 9785.398163397449,
+    "surface_area": 3171.238898038469,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 10, "edges": 24, "shells": 1 },
+  "mesh": { "vertices": 544, "triangles": 524 }
+}

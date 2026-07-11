@@ -107,7 +107,7 @@ depends on #2, #3, #4, #7.
       gains a `danger` variant; `TextField` forwards a ref. The box demo moved
       to `/first-light`. e2e create→open→delete→reload-persists, desktop +
       1280×800; founder screenshots. [frontend-builder]
-- [ ] (P1, M) Fillet feature — round edges of the extruded body via
+- [x] (P1, M) Fillet feature — round edges of the extruded body via
       build123d; registers in the evaluate-tree dispatcher alongside extrude.
       Ships with its own golden in the same commit (geometry-gates skill) —
       first fillet golden is a new curved-topology class beyond the cylinder;
@@ -118,6 +118,16 @@ depends on #2, #3, #4, #7.
       mesh/determinism/STEP round-trip) at a measured-then-set tolerance; a
       bad-edge-selection error path pinned at the API level; contracts +
       ts-client regenerated. [src: roadmap, product-auditor]
+      Shipped 2026-07-11: `fillet` handler + kernel (`select_fillet_edges` /
+      `fillet_body`), `FilletParamsV1` + `EdgeSelector` union
+      (`all_edges` / `axis_parallel` — deterministic GEOMETRIC selection, NOT
+      topological naming, design §2.4 finalized; Phase 2 `SubshapeRef` becomes
+      an additive `kind`). Golden `fillet-plate-r5` (plate, 4 vertical edges
+      r=5, V=9000+250π) through every gate at 1e-9; `no_target_body` /
+      `no_fillet_edges` (bad selection) / `fillet_failed` pinned API-level.
+      STEP round-trip vol dev 1.26e-10 (project's largest, curved fillet
+      re-approx; 800× inside bound). Contracts + ts-client regenerated.
+      [kernel-architect]
 - [ ] (P1, M) Chamfer feature — bevel edges of the extruded body via
       build123d; registers in the evaluate-tree dispatcher, reusing #5's
       edge-reference plumbing. Ships with its own golden in the same commit;
@@ -262,6 +272,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #5 shipped: fillet feature.** `fillet` handler +
+  kernel via build123d; `EdgeSelector` (`all_edges`/`axis_parallel`) is a
+  deterministic geometric predicate, not topological naming (design §2.4
+  finalized). Golden `fillet-plate-r5` (V=9000+250π, 10/24/1) through every
+  gate at 1e-9; three error paths pinned; contracts regenerated. [kernel-architect]
 - 2026-07-11 — **Ready #4 shipped: parts home.** `/` is now a drawing-register
   parts list (create/open/delete, keyboard-first, 409 on-field, empty-state
   invitation); box demo moved to `/first-light`. e2e + founder screenshots.

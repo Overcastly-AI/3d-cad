@@ -68,6 +68,45 @@ class FeatureRef(BaseModel):
 GeomRef = Annotated[DatumPlaneRef | FeatureRef, Field(discriminator="kind")]
 
 
+# --- §2.4 EdgeSelector — deterministic edge selection (NOT topological naming) ---
+#
+# Body-modifying features (fillet, chamfer) must name edges of the CURRENT body
+# chain. v1 topological naming (design §2.4 ``SubshapeRef``) is a Phase 2 item,
+# so v1 selects edges by a DETERMINISTIC GEOMETRIC PREDICATE over the body,
+# never by an opaque per-feature subshape id. Two honest, rebuild-stable
+# consequences a UI can drive today:
+#
+#   * the predicate is evaluated against whatever body exists at the feature's
+#     point in the tree, so it survives rebuilds without a name map; and
+#   * it is a real limitation, not naming: "the edge I clicked" is Phase 2.
+#     When ``SubshapeRef`` lands it becomes an additive ``kind: "subshape"``
+#     variant of this union (design §2.4 — discriminated on ``kind``, so no
+#     persisted selector changes shape and no ``param_version`` bump is forced).
+
+
+class AllEdgesSelector(BaseModel):
+    """Every edge of the target body (the whole-body round-over)."""
+
+    kind: Literal["all_edges"]
+
+
+class AxisParallelEdgesSelector(BaseModel):
+    """Every straight edge parallel to a world axis (e.g. Z = the vertical
+    edges of an upright prism). Curved edges never match — an arc has no
+    single direction. Deterministic and rebuild-stable: a geometric predicate,
+    not a stored edge id."""
+
+    kind: Literal["axis_parallel"]
+    axis: Literal["X", "Y", "Z"]
+
+
+#: Discriminated edge-selection union for body-modifying features. A
+#: ``subshape`` variant (Phase 2 topological naming, design §2.4) is additive.
+EdgeSelector = Annotated[
+    AllEdgesSelector | AxisParallelEdgesSelector, Field(discriminator="kind")
+]
+
+
 # --- §1.4 Per-type params (current versions) ------------------------------------
 
 
@@ -95,6 +134,24 @@ class ExtrudeParamsV1(BaseModel):
     direction: Literal["normal", "reverse"] = "normal"
 
 
+class FilletParamsV1(BaseModel):
+    """Round selected edges of the current body chain with a constant radius.
+
+    ``edges`` is a geometric :class:`EdgeSelector` predicate over the body that
+    exists at this feature's point in the tree — NOT a topological-naming
+    reference (design §2.4; that is Phase 2). No feature reference: like an
+    extrude ``cut``, a fillet operates on the implicit single body chain
+    (design §7.6), so its dependency on the prior body-affecting feature is the
+    tree order, not a ``FeatureRef``.
+    """
+
+    edges: EdgeSelector = Field(
+        description="Which edges of the current body to round (geometric "
+        "predicate, not topological naming — design §2.4)"
+    )
+    radius_mm: float = Field(gt=0, description="Fillet radius (mm)")
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -114,13 +171,23 @@ class ExtrudeFeature(BaseModel):
     params: ExtrudeParamsV1
 
 
+class FilletFeature(BaseModel):
+    """``{"type": "fillet", "version": 1, "params": {...}}`` envelope."""
+
+    type: Literal["fillet"]
+    version: Literal[1]
+    params: FilletParamsV1
+
+
 #: Discriminated union of the CURRENT version of every feature type — this is
 #: what the OpenAPI contract exports (design §1.4). Older stored versions are
 #: upcast on read via :data:`FEATURE_REGISTRY`.
-Feature = Annotated[SketchFeature | ExtrudeFeature, Field(discriminator="type")]
+Feature = Annotated[
+    SketchFeature | ExtrudeFeature | FilletFeature, Field(discriminator="type")
+]
 
 #: Plain (non-annotated) union alias for type annotations of validated values.
-FeatureEnvelope = SketchFeature | ExtrudeFeature
+FeatureEnvelope = SketchFeature | ExtrudeFeature | FilletFeature
 
 
 # --- §1.4 Registry + upcasts -----------------------------------------------------
@@ -264,6 +331,7 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
 FEATURE_REGISTRY: FeatureTypeRegistry[FeatureEnvelope] = FeatureTypeRegistry()
 FEATURE_REGISTRY.register(SketchFeature)
 FEATURE_REGISTRY.register(ExtrudeFeature)
+FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.validate_chains()
 
 
@@ -328,6 +396,12 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                     "profile", feature.params.profile, frozenset({"sketch"})
                 )
             )
+        case FilletFeature():
+            # No FeatureRef: fillet rounds the implicit single body chain
+            # (design §7.6) and selects edges by a geometric predicate, not by
+            # a per-feature subshape reference (design §2.4). Its ordering
+            # dependency on the prior body-affecting feature is the tree order.
+            pass
         case _:
             assert_never(feature)  # exhaustive: new types must map their slots
 

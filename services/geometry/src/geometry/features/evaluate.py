@@ -11,9 +11,10 @@ subsequent feature ``skipped``, and the artifact fields reflect the
 last-good state.
 
 Dispatch is a ``type → handler`` registry (:data:`FEATURE_HANDLERS`):
-``sketch`` (produces input geometry, not body-affecting) and ``extrude``
-(the first **body-affecting** feature, §4.3 — mutates the part's single
-solid body chain via add/cut booleans). A feature that validates against
+``sketch`` (produces input geometry, not body-affecting), ``extrude`` (the
+first **body-affecting** feature, §4.3 — mutates the part's single solid body
+chain via add/cut booleans) and ``fillet`` (rounds selected edges of that body
+chain; body-affecting). A feature that validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
 ``feature_type_unsupported`` error — never a transport failure (§4.3: the
 py-kit error envelope is reserved for transport/validation failures of the
@@ -49,6 +50,7 @@ from py_kit.schemas.features import (
     FeatureError,
     FeatureRef,
     FeatureResult,
+    FilletFeature,
     SketchFeature,
     SolvedSketchData,
 )
@@ -56,12 +58,16 @@ from py_kit.schemas.geometry import MeshStats, ShapeProperties
 
 from geometry.kernel import (
     BooleanError,
+    FilletError,
+    NoFilletEdgesError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
     build_profile_face,
     combine_body,
     extrude_face,
+    fillet_body,
     measure_shape,
+    select_fillet_edges,
     tessellate_glb,
 )
 from geometry.mesh_store import store_mesh_glb
@@ -237,12 +243,50 @@ def _evaluate_extrude(
     return None
 
 
+def _evaluate_fillet(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Round selected edges of the current body chain (body-affecting, §4.3).
+
+    Fillet operates on the implicit single body (design §7.6), so it needs a
+    prior body-affecting feature (``no_target_body`` otherwise). Edges are
+    resolved by the geometric selector (design §2.4 — NOT topological naming):
+    an empty match is ``no_fillet_edges``; a kernel failure is
+    ``fillet_failed``. ``state.body`` is only replaced on success (strict-prefix
+    rule tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, FilletFeature), "registry dispatches on type='fillet'"
+    params = feature.params
+
+    if state.body is None:
+        return FeatureError(
+            code="no_target_body",
+            message=(
+                "Fillet requires an existing body, but no body-affecting "
+                "feature precedes this one; add an extrude first."
+            ),
+        )
+
+    try:
+        edges = select_fillet_edges(state.body, params.edges)
+    except NoFilletEdgesError as exc:
+        return FeatureError(code="no_fillet_edges", message=str(exc))
+
+    try:
+        state.body = fillet_body(state.body, edges, params.radius_mm)
+    except FilletError as exc:
+        return FeatureError(code="fillet_failed", message=str(exc))
+    return None
+
+
 #: The dispatcher registry (§4): feature ``type`` discriminator → handler.
 #: Consulted by key only; no iteration order participates (RESEARCH §9
-#: determinism). New feature types (fillet, chamfer, …) plug in here.
+#: determinism). New feature types (chamfer, …) plug in here.
 FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "sketch": _evaluate_sketch,
     "extrude": _evaluate_extrude,
+    "fillet": _evaluate_fillet,
 }
 
 

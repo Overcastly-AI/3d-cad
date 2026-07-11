@@ -134,7 +134,13 @@ The thinnest vertical slice a working engineer can feel:
       strict-prefix rule; mesh delivery via content-addressed
       `GET /api/v1/meshes/{id}` [feature-tree §7.8 interim]; golden
       `sketch-extrude-40x25x10` through every gate incl. 0.0-deviation STEP
-      round-trip — docs/GEOMETRY-QA.md. Fillet/chamfer pending)
+      round-trip — docs/GEOMETRY-QA.md.
+      fillet geometry shipped 2026-07-11 [BACKLOG #5]: `fillet` handler rounds
+      the body chain's edges; edges named by a deterministic GEOMETRIC selector
+      [`all_edges` / `axis_parallel`], NOT topological naming [design §2.4 —
+      Phase 2 `SubshapeRef` is an additive `kind`]; `no_target_body` /
+      `no_fillet_edges` / `fillet_failed` pinned per-feature; golden
+      `fillet-plate-r5` through every gate at 1e-9. Chamfer pending)
 - 🚧 Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of
       tessellated body, feature-tree panel with edit/rollback (body render
       shipped 2026-07-11 [BACKLOG #2]: the workspace fetches an evaluate
@@ -157,12 +163,15 @@ The thinnest vertical slice a working engineer can feel:
       title-block export controls in the web app; QA'd in a real browser:
       Playwright downloads `box.step`/`box.stl` through the full stack and
       asserts file contents)
-- 🚧 Golden models: 5 reference parts covering every shipped feature (3 of
+- 🚧 Golden models: 5 reference parts covering every shipped feature (4 of
       5: `box-10x20x30`, `cylinder-r10-h25` — first curved golden, 1e-9
       curved-GProp tolerance, seam-edge topology, curved STEP round-trip
       baseline; `sketch-extrude-40x25x10` — first feature-tree golden
       shipped 2026-07-11 with BACKLOG #6, 1e-9 tolerance, 0.0-deviation STEP
-      round-trip; docs/GEOMETRY-QA.md. Fillet + chamfer goldens pending)
+      round-trip; `fillet-plate-r5` — first fillet golden shipped 2026-07-11
+      with BACKLOG #5, new curved topology [10/24/1], 1e-9 tolerance, STEP
+      round-trip vol dev 1.26e-10 [curved fillet re-approx]; docs/GEOMETRY-QA.md.
+      Chamfer golden pending)
 - ⬜ E2E: Playwright — login → sketch → extrude → edit param → export, desktop
       and touch viewport smoke
 

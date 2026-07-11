@@ -331,6 +331,30 @@ What is explicitly **out of scope here:** selector semantics, persistence of
 generated-name maps, and rebuild-time name resolution. That is the Phase 2
 design doc.
 
+**v1 edge selection for body-modifying features (fillet, 2026-07-11; chamfer
+to follow).** Fillet is the first feature that must name edges of a prior
+body's result — the first would-be user of `SubshapeRef`. Since v1
+topological naming is not built, fillet does **not** use `SubshapeRef`.
+Instead `py_kit.schemas.features.EdgeSelector` is a small discriminated union
+(on `kind`) of **deterministic geometric predicates** over the body that
+exists at the feature's point in the tree:
+
+- `all_edges` — every edge of the body;
+- `axis_parallel` (`axis: "X" | "Y" | "Z"`) — every straight edge parallel to
+  a world axis (the vertical edges of an upright prism are `axis: "Z"`; curved
+  edges never match).
+
+This is honestly limited and **explicitly not naming**: it selects by geometry,
+so it survives rebuilds without a name map, but "the edge I clicked" (a stable
+per-edge identity) is Phase 2. Fillet carries **no `FeatureRef`** — like an
+extrude `cut` it operates on the implicit single body chain (§7.6), so its
+dependency on the prior body-affecting feature is the tree order, not a
+materialized edge (`feature_references()` maps its slots to the empty set).
+When Phase 2 lands, `SubshapeRef` becomes an additive `kind: "subshape"`
+variant of `EdgeSelector` (same union-on-`kind` additivity as the `GeomRef`
+extension above): no persisted v1 selector changes shape, no `param_version`
+bump is forced.
+
 ---
 
 ## 3. Rollback semantics

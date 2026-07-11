@@ -20,6 +20,7 @@ from py_kit.schemas.features import (
     FeatureSchemaError,
     FeatureTypeRegistry,
     FeatureUpdate,
+    FilletFeature,
     SketchFeature,
     SketchParamsV1,
     SolvedSketchData,
@@ -82,7 +83,16 @@ EXTRUDE_PARAMS: dict[str, Any] = {
     "direction": "normal",
 }
 
-FEATURE_ADAPTER: TypeAdapter[SketchFeature | ExtrudeFeature] = TypeAdapter(Feature)
+#: Fillet params — round the vertical (Z-parallel) edges at r=5 (the golden
+#: selector; a geometric predicate, NOT topological naming — design §2.4).
+FILLET_PARAMS: dict[str, Any] = {
+    "edges": {"kind": "axis_parallel", "axis": "Z"},
+    "radius_mm": 5.0,
+}
+
+FEATURE_ADAPTER: TypeAdapter[SketchFeature | ExtrudeFeature | FilletFeature] = (
+    TypeAdapter(Feature)
+)
 
 
 # --- envelopes (§1.3) -------------------------------------------------------------
@@ -113,9 +123,61 @@ def test_worked_example_extrude_round_trips_verbatim() -> None:
     }
 
 
+def test_fillet_round_trips_and_selector_discriminates() -> None:
+    envelope = FEATURE_ADAPTER.validate_python(
+        {"type": "fillet", "version": 1, "params": FILLET_PARAMS}
+    )
+    assert isinstance(envelope, FilletFeature)
+    assert envelope.params.radius_mm == 5.0
+    # EdgeSelector discriminates on ``kind``.
+    assert envelope.params.edges.kind == "axis_parallel"
+    assert envelope.model_dump(mode="json") == {
+        "type": "fillet",
+        "version": 1,
+        "params": FILLET_PARAMS,
+    }
+
+
+def test_fillet_all_edges_selector_round_trips() -> None:
+    envelope = FEATURE_ADAPTER.validate_python(
+        {
+            "type": "fillet",
+            "version": 1,
+            "params": {"edges": {"kind": "all_edges"}, "radius_mm": 2.0},
+        }
+    )
+    assert isinstance(envelope, FilletFeature)
+    assert envelope.params.edges.kind == "all_edges"
+
+
+def test_fillet_requires_positive_radius() -> None:
+    bad = {**FILLET_PARAMS, "radius_mm": 0.0}
+    with pytest.raises(ValidationError):
+        FEATURE_ADAPTER.validate_python({"type": "fillet", "version": 1, "params": bad})
+
+
+def test_fillet_unknown_edge_selector_rejected() -> None:
+    bad = {"edges": {"kind": "teapot"}, "radius_mm": 5.0}
+    with pytest.raises(ValidationError):
+        FEATURE_ADAPTER.validate_python({"type": "fillet", "version": 1, "params": bad})
+
+
+def test_fillet_has_no_feature_references() -> None:
+    """Fillet operates on the implicit body chain (design §7.6) and selects
+    edges geometrically (design §2.4): no FeatureRef, so no dependency edge —
+    the self-check in feature_references() agrees with the schema walk."""
+    envelope = FEATURE_ADAPTER.validate_python(
+        {"type": "fillet", "version": 1, "params": FILLET_PARAMS}
+    )
+    assert feature_references(envelope) == ()
+    assert list(iter_feature_refs(envelope)) == []
+
+
 def test_unknown_feature_type_rejected() -> None:
     with pytest.raises(ValidationError):
-        FEATURE_ADAPTER.validate_python({"type": "fillet", "version": 1, "params": {}})
+        FEATURE_ADAPTER.validate_python(
+            {"type": "no_such_feature_type", "version": 1, "params": {}}
+        )
 
 
 def test_extrude_requires_positive_distance() -> None:
@@ -333,10 +395,11 @@ class _WidgetV2(BaseModel):
 def test_module_registry_serves_current_versions() -> None:
     assert FEATURE_REGISTRY.current_version("sketch") == 1
     assert FEATURE_REGISTRY.current_version("extrude") == 1
+    assert FEATURE_REGISTRY.current_version("fillet") == 1
     loaded = FEATURE_REGISTRY.load("extrude", 1, EXTRUDE_PARAMS)
     assert isinstance(loaded, ExtrudeFeature)
     with pytest.raises(UnknownFeatureVersionError):
-        FEATURE_REGISTRY.current_version("fillet")
+        FEATURE_REGISTRY.current_version("no_such_feature_type")
 
 
 def test_upcast_chain_reaches_current_version() -> None:
