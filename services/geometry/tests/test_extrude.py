@@ -427,3 +427,98 @@ def test_points_only_sketch_has_nothing_to_extrude() -> None:
     error = result.features[1].error
     assert error is not None
     assert error.code == "profile_not_closed"
+
+
+# --- Construction geometry: reference-only, excluded from the profile (BACKLOG #2) ----
+
+
+def rectangle_with_construction_diagonal(feature_id: uuid.UUID) -> dict[str, Any]:
+    """A closed 40x25 rectangle plus a construction diagonal corner-to-corner.
+
+    The diagonal participates in the solve (constrainable/referenceable) but
+    must be EXCLUDED from the profile — the rectangle's four real edges are the
+    extruded loop, exactly as if the diagonal were not there.
+    """
+    sketch = rectangle_sketch(feature_id)
+    diagonal = {**_line("d1", (0.0, 0.0), (40.0, 25.0)), "construction": True}
+    sketch["feature"]["params"]["entities"].append(diagonal)
+    return sketch
+
+
+def test_construction_geometry_is_excluded_from_the_profile() -> None:
+    """A closed rectangle + a construction diagonal extrudes to the rectangle
+    prism: the diagonal is reference-only and ignored (V = 40*25*10 = 10000,
+    the same body as the rectangle alone)."""
+    result = _post(
+        _request(
+            [
+                rectangle_with_construction_diagonal(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(10000.0, abs=EXTRUDE_TOL)
+    assert result.properties.surface_area == pytest.approx(3300.0, abs=EXTRUDE_TOL)
+    # A plain 6-face prism: the diagonal never became a face/edge of the solid.
+    assert result.properties.topology.faces == 6
+    # The construction entity still rides the solved-sketch payload (§7.10) so
+    # the sketcher can render it dashed — reference geometry, not deletion.
+    solved = result.features[0].data
+    assert solved is not None
+    assert {e.id: e.construction for e in solved.entities} == {
+        "e1": False,
+        "e2": False,
+        "e3": False,
+        "e4": False,
+        "d1": True,
+    }
+
+
+def test_construction_edge_opens_the_profile() -> None:
+    """Marking a REAL profile edge construction opens the loop → the profile
+    check fails ``profile_not_closed``. Correct CAD semantics, not a bug."""
+    sketch = rectangle_sketch(SKETCH_ID)
+    for entity in sketch["feature"]["params"]["entities"]:
+        if entity["id"] == "e4":  # the closing edge
+            entity["construction"] = True
+    result = _post(_request([sketch, extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0)]))
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_not_closed"
+    assert error.upstream_feature_id == SKETCH_ID
+
+
+def test_construction_geometry_extrude_is_byte_deterministic() -> None:
+    """Determinism holds with construction geometry in the tree (RESEARCH §9):
+    the filter preserves input order, so the body — and its content-addressed
+    mesh id — is byte-reproducible."""
+    payload = _request(
+        [
+            rectangle_with_construction_diagonal(SKETCH_ID),
+            extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+        ]
+    )
+    first = client.post("/api/v1/evaluate", json=payload)
+    second = client.post("/api/v1/evaluate", json=payload)
+
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
+
+
+def test_only_construction_geometry_has_nothing_to_extrude() -> None:
+    """A sketch of construction curves only is profile_not_closed — the same
+    empty-profile outcome as a points-only sketch (nothing bounds a solid)."""
+    sketch = rectangle_sketch(SKETCH_ID)
+    for entity in sketch["feature"]["params"]["entities"]:
+        entity["construction"] = True
+    result = _post(_request([sketch, extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0)]))
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_not_closed"

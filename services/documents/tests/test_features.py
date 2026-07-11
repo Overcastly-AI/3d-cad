@@ -32,24 +32,28 @@ SKETCH_PARAMS: dict[str, Any] = {
     "plane": {"kind": "datum_plane", "plane": "XY"},
     "entities": [
         {
+            "construction": False,
             "id": "e1",
             "kind": "line",
             "start": {"x": 0.0, "y": 0.0},
             "end": {"x": 40.0, "y": 0.0},
         },
         {
+            "construction": False,
             "id": "e2",
             "kind": "line",
             "start": {"x": 40.0, "y": 0.0},
             "end": {"x": 40.0, "y": 25.0},
         },
         {
+            "construction": False,
             "id": "e3",
             "kind": "line",
             "start": {"x": 40.0, "y": 25.0},
             "end": {"x": 0.0, "y": 25.0},
         },
         {
+            "construction": False,
             "id": "e4",
             "kind": "line",
             "start": {"x": 0.0, "y": 25.0},

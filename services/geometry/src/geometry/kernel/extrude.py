@@ -14,8 +14,12 @@ no iteration over unordered containers participates.
 
 v1 profile rules (documented limits, not accidents):
 
-- ``point`` entities are **construction geometry** — ignored for the profile.
-- All curve entities together must form exactly **one closed wire**. An open
+- Entities flagged ``construction`` are reference-only (centerlines, symmetry
+  axes, diagonals): they solve and can be constrained/referenced upstream, but
+  are **excluded here** — the single profile-exclusion point for every
+  body-affecting feature. ``point`` entities never bound a profile either.
+- All remaining curve entities together must form exactly **one closed wire**.
+  Marking a real profile edge construction opens the loop, so an open
   or broken chain raises :class:`ProfileNotClosedError`; multiple disjoint
   closed loops (including hole-in-profile nesting) raise
   :class:`ProfileUnsupportedError` until a multi-loop face design lands.
@@ -140,12 +144,19 @@ def build_profile_face(
     plane = DATUM_PLANES[plane_name]
     edges: list[Edge] = []
     for entity in entities:
+        # THE single profile-exclusion point (design §2.4 semantics): every
+        # body-affecting feature that consumes a sketch profile builds it via
+        # this function, so construction geometry is dropped here exactly once,
+        # never per-feature. Input list order is preserved (determinism,
+        # RESEARCH §9) — filtering does not reorder.
+        if entity.construction:
+            continue
         edges.extend(_entity_edges(plane, entity))
 
     if not edges:
         raise ProfileNotClosedError(
-            "Sketch contains no profile curves (points are construction "
-            "geometry); nothing to extrude."
+            "Sketch contains no profile curves (only construction geometry "
+            "and/or points); nothing to extrude."
         )
 
     wires = Wire.combine(edges, tol=PROFILE_WIRE_TOLERANCE)

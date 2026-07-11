@@ -1095,6 +1095,12 @@ export interface components {
          */
         SketchArc: {
             center: components["schemas"]["Point2D"];
+            /**
+             * Construction
+             * @description Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.
+             * @default false
+             */
+            construction: boolean;
             end: components["schemas"]["Point2D"];
             /**
              * Id
@@ -1114,6 +1120,12 @@ export interface components {
          */
         SketchCircle: {
             center: components["schemas"]["Point2D"];
+            /**
+             * Construction
+             * @description Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.
+             * @default false
+             */
+            construction: boolean;
             /**
              * Id
              * @description Sketch-local entity id, e.g. 'e1'
@@ -1152,6 +1164,12 @@ export interface components {
          * @description A line segment between two endpoints.
          */
         SketchLine: {
+            /**
+             * Construction
+             * @description Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.
+             * @default false
+             */
+            construction: boolean;
             end: components["schemas"]["Point2D"];
             /**
              * Id
@@ -1188,6 +1206,12 @@ export interface components {
          * @description A free point (construction geometry, arc centers to snap to, …).
          */
         SketchPoint: {
+            /**
+             * Construction
+             * @description Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.
+             * @default false
+             */
+            construction: boolean;
             /**
              * Id
              * @description Sketch-local entity id, e.g. 'e1'

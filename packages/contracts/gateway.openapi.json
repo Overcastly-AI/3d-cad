@@ -1247,6 +1247,12 @@
           "center": {
             "$ref": "#/components/schemas/Point2D"
           },
+          "construction": {
+            "default": false,
+            "description": "Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.",
+            "title": "Construction",
+            "type": "boolean"
+          },
           "end": {
             "$ref": "#/components/schemas/Point2D"
           },
@@ -1280,6 +1286,12 @@
         "properties": {
           "center": {
             "$ref": "#/components/schemas/Point2D"
+          },
+          "construction": {
+            "default": false,
+            "description": "Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.",
+            "title": "Construction",
+            "type": "boolean"
           },
           "id": {
             "description": "Sketch-local entity id, e.g. 'e1'",
@@ -1336,6 +1348,12 @@
       "SketchLine": {
         "description": "A line segment between two endpoints.",
         "properties": {
+          "construction": {
+            "default": false,
+            "description": "Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.",
+            "title": "Construction",
+            "type": "boolean"
+          },
           "end": {
             "$ref": "#/components/schemas/Point2D"
           },
@@ -1462,6 +1480,12 @@
       "SketchPoint": {
         "description": "A free point (construction geometry, arc centers to snap to, \u2026).",
         "properties": {
+          "construction": {
+            "default": false,
+            "description": "Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.",
+            "title": "Construction",
+            "type": "boolean"
+          },
           "id": {
             "description": "Sketch-local entity id, e.g. 'e1'",
             "minLength": 1,

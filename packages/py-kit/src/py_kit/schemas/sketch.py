@@ -43,40 +43,66 @@ class Point2D(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class SketchPoint(BaseModel):
-    """A free point (construction geometry, arc centers to snap to, …)."""
+class SketchEntityBase(BaseModel):
+    """Fields shared by every sketch entity: identity and the construction flag.
+
+    ``construction`` marks **reference-only** geometry — centerlines, symmetry
+    axes, diagonals. A construction entity participates fully in the constraint
+    solve (it can be constrained to/from, and other geometry can reference it),
+    but it is **excluded** from the closed-wire profile that body-affecting
+    features (extrude, revolve, …) consume to build a solid. Marking a *real*
+    profile edge construction therefore opens the loop — the profile check
+    fails ``profile_not_closed``, which is the correct CAD semantics.
+
+    Additive optional field (docs/design/feature-tree.md §1.3 — additive
+    optional fields do **not** bump ``param_version``): sketches persisted
+    before this field lack the key and read as ``construction=False`` via the
+    pydantic default, so the upcast is the identity and totality holds (no
+    stored sketch becomes unreadable).
+    """
 
     id: EntityId
+    construction: bool = Field(
+        default=False,
+        description=(
+            "Reference-only geometry (centerlines, symmetry/mirror axes, "
+            "diagonals): solves and can be constrained/referenced, but is "
+            "excluded from the profile that gates extrude/revolve. Absent in "
+            "pre-construction-field sketches, which read as False."
+        ),
+    )
+
+
+class SketchPoint(SketchEntityBase):
+    """A free point (construction geometry, arc centers to snap to, …)."""
+
     kind: Literal["point"]
     position: Point2D
 
 
-class SketchLine(BaseModel):
+class SketchLine(SketchEntityBase):
     """A line segment between two endpoints."""
 
-    id: EntityId
     kind: Literal["line"]
     start: Point2D
     end: Point2D
 
 
-class SketchCircle(BaseModel):
+class SketchCircle(SketchEntityBase):
     """A full circle."""
 
-    id: EntityId
     kind: Literal["circle"]
     center: Point2D
     radius: float = Field(gt=0, description="Radius (mm)")
 
 
-class SketchArc(BaseModel):
+class SketchArc(SketchEntityBase):
     """A circular arc traversed **counterclockwise** from start to end.
 
     The radius is implied by ``|start - center|``; the solver keeps start and
     end on the circle (they may move to satisfy constraints).
     """
 
-    id: EntityId
     kind: Literal["arc"]
     center: Point2D
     start: Point2D

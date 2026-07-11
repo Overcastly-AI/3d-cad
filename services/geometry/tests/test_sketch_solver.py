@@ -128,6 +128,41 @@ def test_benchmark_rectangle_solves_to_analytic_corners() -> None:
         assert entity.end.y == pytest.approx(ey2, abs=RECTANGLE_TOLERANCE_MM)
 
 
+def test_construction_geometry_participates_in_the_solve() -> None:
+    """A construction line is a first-class solver entity: it is added to the
+    planegcs system, can be constrained (anchored + horizontal + dimensioned),
+    and the solve moves it — yet it stays flagged ``construction`` on the way
+    out (BACKLOG #2: excluded from the *profile* downstream, never from the
+    *solve*)."""
+    diagonal = SketchLine(
+        id="d1",
+        kind="line",
+        construction=True,
+        start=Point2D(x=1.0, y=2.0),
+        end=Point2D(x=30.0, y=9.0),  # sloppy guess the solve squares up
+    )
+    sketch = SketchDefinition(
+        entities=[diagonal],
+        constraints=[
+            FixedConstraint(kind="fixed", point=_ref("d1", "start")),
+            HorizontalConstraint(kind="horizontal", entity="d1"),
+            DistanceConstraint(kind="distance", entity="d1", value_mm=50.0),
+        ],
+    )
+    result = SOLVER.solve(sketch)
+
+    assert result.status == "converged"
+    assert result.dof == 0
+    (solved,) = result.entities
+    assert isinstance(solved, SketchLine)
+    assert solved.construction is True  # the flag survives the solve
+    # Anchored at (1, 2), horizontal, length 50 → end at (51, 2).
+    assert solved.start.x == pytest.approx(1.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert solved.start.y == pytest.approx(2.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert solved.end.x == pytest.approx(51.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert solved.end.y == pytest.approx(2.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
 def test_solve_is_deterministic_bitwise() -> None:
     """Two independent solves of the same definition -> identical floats.
 

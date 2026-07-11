@@ -69,6 +69,13 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       of a rectangle to construction, confirm extrude still succeeds on the
       remaining closed loop; screenshot evidence; `frontend-design` skill
       invoked for the toggle affordance. [src: product-auditor, roadmap]
+      **PARTIAL — 2a shipped 2026-07-11 (backend):** `construction: bool =
+      False` on sketch entities (additive optional field — pre-field rows read
+      False, no `param_version` bump); solver keeps construction entities in
+      the solve (constrainable/referenceable); a single profile-exclusion point
+      (`services/geometry/.../kernel/extrude.py` `build_profile_face`) drops
+      them from the extrude (and future revolve) profile. Leave `[ ]` — 2b (the
+      sketcher UI keyboard-verb toggle + dashed rendering + e2e) finishes it.
 - [ ] (P1, M) Sketch constraints — tangent/perpendicular/parallel — extend
       the planegcs-backed solver + keyboard-first vocabulary
       (H/V/D/R/X/C today) with 3 constraint kinds relating two curves — the
@@ -291,6 +298,8 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — construction-geometry schema+solver+profile-exclusion (2a)
+  shipped; UI toggle (2b) pending. [kernel-architect]
 - 2026-07-11 — **Topological naming design doc landed** (Ready #1 → done).
   `docs/design/topological-naming.md`: staged hybrid (signature-first →
   provenance+signature), additive `SubshapeRef`, strict-prefix failure;

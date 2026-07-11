@@ -244,7 +244,13 @@ class _GcsBuild:
     # -- results -------------------------------------------------------------
 
     def read_back(self) -> list[SketchEntity]:
-        """Solved entities, same ids/kinds/order as the input."""
+        """Solved entities, same ids/kinds/order/construction-flag as input.
+
+        The ``construction`` flag is a property of the entity, not a solve
+        result, so it is carried through unchanged: construction geometry
+        solves like any other entity and stays flagged for the profile builder
+        and the UI (dashed/muted rendering).
+        """
         solved: list[SketchEntity] = []
         for entity in self.sketch.entities:
             match entity:
@@ -252,7 +258,10 @@ class _GcsBuild:
                     x, y = self.gcs.get_point(self._points[(entity.id, "position")])
                     solved.append(
                         SketchPoint(
-                            id=entity.id, kind="point", position=Point2D(x=x, y=y)
+                            id=entity.id,
+                            kind="point",
+                            construction=entity.construction,
+                            position=Point2D(x=x, y=y),
                         )
                     )
                 case SketchLine():
@@ -261,6 +270,7 @@ class _GcsBuild:
                         SketchLine(
                             id=entity.id,
                             kind="line",
+                            construction=entity.construction,
                             start=Point2D(x=info.p1[0], y=info.p1[1]),
                             end=Point2D(x=info.p2[0], y=info.p2[1]),
                         )
@@ -271,6 +281,7 @@ class _GcsBuild:
                         SketchCircle(
                             id=entity.id,
                             kind="circle",
+                            construction=entity.construction,
                             center=Point2D(x=circle.center[0], y=circle.center[1]),
                             radius=circle.radius,
                         )
@@ -281,6 +292,7 @@ class _GcsBuild:
                         SketchArc(
                             id=entity.id,
                             kind="arc",
+                            construction=entity.construction,
                             center=Point2D(x=arc.center[0], y=arc.center[1]),
                             start=Point2D(x=arc.start_point[0], y=arc.start_point[1]),
                             end=Point2D(x=arc.end_point[0], y=arc.end_point[1]),

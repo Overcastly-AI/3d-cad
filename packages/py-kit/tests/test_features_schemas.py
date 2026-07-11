@@ -38,24 +38,28 @@ SKETCH_PARAMS: dict[str, Any] = {
     "plane": {"kind": "datum_plane", "plane": "XY"},
     "entities": [
         {
+            "construction": False,
             "id": "e1",
             "kind": "line",
             "start": {"x": 0.0, "y": 0.0},
             "end": {"x": 40.0, "y": 0.0},
         },
         {
+            "construction": False,
             "id": "e2",
             "kind": "line",
             "start": {"x": 40.0, "y": 0.0},
             "end": {"x": 40.0, "y": 25.0},
         },
         {
+            "construction": False,
             "id": "e3",
             "kind": "line",
             "start": {"x": 40.0, "y": 25.0},
             "end": {"x": 0.0, "y": 25.0},
         },
         {
+            "construction": False,
             "id": "e4",
             "kind": "line",
             "start": {"x": 0.0, "y": 25.0},
@@ -269,6 +273,51 @@ def test_duplicate_entity_ids_rejected_in_sketch_params() -> None:
     bad = {**SKETCH_PARAMS, "entities": SKETCH_PARAMS["entities"] * 2}
     with pytest.raises(ValidationError, match="Duplicate sketch entity id"):
         SketchParamsV1.model_validate(bad)
+
+
+def test_construction_defaults_false_on_pre_field_sketches() -> None:
+    """Totality (design §1.4): a sketch persisted BEFORE the construction
+    field — its entities lack the key — still loads through the registry and
+    reads ``construction=False`` on every entity. ``construction`` is an
+    additive optional field (design §1.3), so there is no ``param_version``
+    bump: the upcast is the pydantic default and no stored sketch is
+    unreadable."""
+    pre_field: dict[str, Any] = {
+        "plane": {"kind": "datum_plane", "plane": "XY"},
+        "entities": [
+            {
+                "id": "e1",
+                "kind": "line",
+                "start": {"x": 0.0, "y": 0.0},
+                "end": {"x": 40.0, "y": 0.0},
+            },
+            {
+                "id": "c1",
+                "kind": "circle",
+                "center": {"x": 0.0, "y": 0.0},
+                "radius": 5.0,
+            },
+        ],
+        "constraints": [],
+    }
+    loaded = FEATURE_REGISTRY.load("sketch", 1, pre_field)
+    assert isinstance(loaded, SketchFeature)
+    assert [entity.construction for entity in loaded.params.entities] == [False, False]
+    # And the dump is canonical — the default is materialized on the wire.
+    dumped = loaded.model_dump(mode="json")["params"]["entities"]
+    assert all(entity["construction"] is False for entity in dumped)
+
+
+def test_construction_flag_round_trips_when_set() -> None:
+    """A construction entity survives validate → dump unchanged (the sketcher
+    reads it back to render the centerline dashed/muted)."""
+    marked = {**SKETCH_PARAMS["entities"][0], "construction": True}
+    params = SketchParamsV1.model_validate(
+        {**SKETCH_PARAMS, "entities": [marked, *SKETCH_PARAMS["entities"][1:]]}
+    )
+    assert params.entities[0].construction is True
+    assert all(entity.construction is False for entity in params.entities[1:])
+    assert params.model_dump(mode="json")["entities"][0]["construction"] is True
 
 
 # --- FeatureResult.data union (§7.10, BACKLOG #3) ------------------------------------
