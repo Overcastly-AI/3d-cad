@@ -48,6 +48,29 @@
         "title": "BoxParams",
         "type": "object"
       },
+      "CoincidentConstraint": {
+        "description": "Two named points share a location.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          },
+          "b": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          },
+          "kind": {
+            "const": "coincident",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "CoincidentConstraint",
+        "type": "object"
+      },
       "CylinderParams": {
         "description": "Right circular cylinder (mm): base disc centred at the origin in the\nXY plane, axis along +Z.",
         "properties": {
@@ -94,6 +117,62 @@
           "plane"
         ],
         "title": "DatumPlaneRef",
+        "type": "object"
+      },
+      "DistanceConstraint": {
+        "description": "Driving dimension: the length of a line (mm).",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "distance",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value_mm": {
+            "description": "Line length (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "entity",
+          "value_mm"
+        ],
+        "title": "DistanceConstraint",
+        "type": "object"
+      },
+      "EntityPointRef": {
+        "description": "Names one point of one entity, e.g. ``{\"entity\": \"e1\", \"point\": \"end\"}``.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "point": {
+            "enum": [
+              "start",
+              "end",
+              "center",
+              "position"
+            ],
+            "title": "Point",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity",
+          "point"
+        ],
+        "title": "EntityPointRef",
         "type": "object"
       },
       "EvaluateTreeRequest": {
@@ -414,6 +493,17 @@
       "FeatureResult": {
         "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first\nfailure is ``error``, every subsequent feature ``skipped``.",
         "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SolvedSketchData"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed per-feature payload for ok features that produce one (\u00a77.10): solved sketch geometry today; future feature types add kind-tagged variants additively."
+          },
           "error": {
             "anyOf": [
               {
@@ -446,6 +536,25 @@
         "title": "FeatureResult",
         "type": "object"
       },
+      "FixedConstraint": {
+        "description": "Anchor a named point at its current (input) coordinates.\n\nEvery fully-constrained sketch needs an anchor \u2014 without one, a rigid\nsolution still floats with two translational degrees of freedom.",
+        "properties": {
+          "kind": {
+            "const": "fixed",
+            "title": "Kind",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          }
+        },
+        "required": [
+          "kind",
+          "point"
+        ],
+        "title": "FixedConstraint",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -457,6 +566,28 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HorizontalConstraint": {
+        "description": "A line is parallel to the sketch X axis.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "horizontal",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "entity"
+        ],
+        "title": "HorizontalConstraint",
         "type": "object"
       },
       "MeshStats": {
@@ -482,6 +613,54 @@
           "glb_bytes"
         ],
         "title": "MeshStats",
+        "type": "object"
+      },
+      "Point2D": {
+        "description": "A point in sketch-plane coordinates (mm).",
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "Point2D",
+        "type": "object"
+      },
+      "RadiusConstraint": {
+        "description": "Driving dimension: the radius of a circle or arc (mm).",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "radius",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value_mm": {
+            "description": "Radius (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "entity",
+          "value_mm"
+        ],
+        "title": "RadiusConstraint",
         "type": "object"
       },
       "ShapeProperties": {
@@ -518,6 +697,73 @@
         "title": "ShapeProperties",
         "type": "object"
       },
+      "SketchArc": {
+        "description": "A circular arc traversed **counterclockwise** from start to end.\n\nThe radius is implied by ``|start - center|``; the solver keeps start and\nend on the circle (they may move to satisfy constraints).",
+        "properties": {
+          "center": {
+            "$ref": "#/components/schemas/Point2D"
+          },
+          "end": {
+            "$ref": "#/components/schemas/Point2D"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "arc",
+            "title": "Kind",
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Point2D"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "center",
+          "start",
+          "end"
+        ],
+        "title": "SketchArc",
+        "type": "object"
+      },
+      "SketchCircle": {
+        "description": "A full circle.",
+        "properties": {
+          "center": {
+            "$ref": "#/components/schemas/Point2D"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "circle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "radius": {
+            "description": "Radius (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Radius",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "center",
+          "radius"
+        ],
+        "title": "SketchCircle",
+        "type": "object"
+      },
       "SketchFeature": {
         "description": "``{\"type\": \"sketch\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -543,23 +789,101 @@
         "title": "SketchFeature",
         "type": "object"
       },
+      "SketchLine": {
+        "description": "A line segment between two endpoints.",
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/Point2D"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Point2D"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "start",
+          "end"
+        ],
+        "title": "SketchLine",
+        "type": "object"
+      },
       "SketchParamsV1": {
-        "description": "Sketch on a plane \u2014 datum planes only in v1 (design \u00a72.1).\n\n``entities``/``constraints`` are structurally-open JSON objects in this\nslice: their final pydantic shapes are owned by the \"Sketch model +\nsolver API\" backlog item (design \u00a71.4). Sketch entities carry\nsketch-local string ids (``\"e1\"``, ...) per design \u00a72.4.",
+        "description": "Sketch on a plane \u2014 datum planes only in v1 (design \u00a72.1).\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
         "properties": {
           "constraints": {
-            "description": "Sketch constraints (shape finalized by the sketch-model item)",
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "discriminator": {
+                "mapping": {
+                  "coincident": "#/components/schemas/CoincidentConstraint",
+                  "distance": "#/components/schemas/DistanceConstraint",
+                  "fixed": "#/components/schemas/FixedConstraint",
+                  "horizontal": "#/components/schemas/HorizontalConstraint",
+                  "radius": "#/components/schemas/RadiusConstraint",
+                  "vertical": "#/components/schemas/VerticalConstraint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CoincidentConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/HorizontalConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/VerticalConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/DistanceConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/RadiusConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/FixedConstraint"
+                }
+              ]
             },
             "title": "Constraints",
             "type": "array"
           },
           "entities": {
-            "description": "Sketch entities (shape finalized by the sketch-model item)",
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
             },
             "title": "Entities",
             "type": "array"
@@ -584,11 +908,123 @@
           }
         },
         "required": [
-          "plane",
           "entities",
-          "constraints"
+          "constraints",
+          "plane"
         ],
         "title": "SketchParamsV1",
+        "type": "object"
+      },
+      "SketchPoint": {
+        "description": "A free point (construction geometry, arc centers to snap to, \u2026).",
+        "properties": {
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "point",
+            "title": "Kind",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Point2D"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "position"
+        ],
+        "title": "SketchPoint",
+        "type": "object"
+      },
+      "SolvedSketchData": {
+        "description": "Per-feature solved-sketch payload (\u00a77.10): the solver's solved entity\npositions, status, and DOF diagnosis for an ``ok`` sketch feature \u2014 what\nthe sketcher UI renders. ``kind`` is the :data:`FeatureData` union tag.",
+        "properties": {
+          "conflicting_constraints": {
+            "description": "Indices into the input constraint list that conflict.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Conflicting Constraints",
+            "type": "array"
+          },
+          "dof": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Remaining degrees of freedom (0 = fully constrained); None when the diagnosis cannot determine it (e.g. conflicting systems).",
+            "title": "Dof"
+          },
+          "entities": {
+            "description": "Same entities (ids, kinds, order) as the input. Positions are solved when the numeric solve succeeded (converged, underconstrained, and consistent overconstrained cases); for conflicting/diverged sketches the input positions are returned unchanged.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "kind": {
+            "const": "solved_sketch",
+            "default": "solved_sketch",
+            "title": "Kind",
+            "type": "string"
+          },
+          "redundant_constraints": {
+            "description": "Indices into the input constraint list that are redundant.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Redundant Constraints",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "converged",
+              "underconstrained",
+              "overconstrained",
+              "conflicting",
+              "diverged"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "entities"
+        ],
+        "title": "SolvedSketchData",
         "type": "object"
       },
       "TessellateRequest": {
@@ -733,6 +1169,28 @@
           "z"
         ],
         "title": "Vec3",
+        "type": "object"
+      },
+      "VerticalConstraint": {
+        "description": "A line is parallel to the sketch Y axis.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "vertical",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "entity"
+        ],
+        "title": "VerticalConstraint",
         "type": "object"
       }
     }

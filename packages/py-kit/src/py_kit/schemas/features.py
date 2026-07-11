@@ -28,6 +28,7 @@ from pydantic import (
 )
 
 from py_kit.schemas.geometry import DEFAULT_LINEAR_DEFLECTION, ShapeProperties
+from py_kit.schemas.sketch import SketchDefinition, SolvedSketch
 
 #: Upper bound for a user-facing feature name ("Sketch1", "Extrude1").
 FEATURE_NAME_MAX_LENGTH = 200
@@ -70,22 +71,17 @@ GeomRef = Annotated[DatumPlaneRef | FeatureRef, Field(discriminator="kind")]
 # --- §1.4 Per-type params (current versions) ------------------------------------
 
 
-class SketchParamsV1(BaseModel):
+class SketchParamsV1(SketchDefinition):
     """Sketch on a plane — datum planes only in v1 (design §2.1).
 
-    ``entities``/``constraints`` are structurally-open JSON objects in this
-    slice: their final pydantic shapes are owned by the "Sketch model +
-    solver API" backlog item (design §1.4). Sketch entities carry
-    sketch-local string ids (``"e1"``, ...) per design §2.4.
+    Extends :class:`py_kit.schemas.sketch.SketchDefinition` (typed
+    ``entities``/``constraints`` — the §1.4 placeholder finalized by the
+    "Sketch model + solver API" item), so a persisted sketch's params ARE
+    valid solver input: same validation (unique sketch-local entity ids per
+    design §2.4) on the documents write path and the geometry request path.
     """
 
     plane: GeomRef
-    entities: list[JsonObject] = Field(
-        description="Sketch entities (shape finalized by the sketch-model item)"
-    )
-    constraints: list[JsonObject] = Field(
-        description="Sketch constraints (shape finalized by the sketch-model item)"
-    )
 
 
 class ExtrudeParamsV1(BaseModel):
@@ -479,6 +475,23 @@ class FeatureError(BaseModel):
     )
 
 
+class SolvedSketchData(SolvedSketch):
+    """Per-feature solved-sketch payload (§7.10): the solver's solved entity
+    positions, status, and DOF diagnosis for an ``ok`` sketch feature — what
+    the sketcher UI renders. ``kind`` is the :data:`FeatureData` union tag."""
+
+    kind: Literal["solved_sketch"] = "solved_sketch"
+
+
+#: The typed per-feature ``FeatureResult.data`` payload (design §7.10).
+#: Every variant carries a ``kind`` literal tag, so when a second feature
+#: type grows a payload this alias becomes the discriminated union
+#: ``Annotated[SolvedSketchData | NewData, Field(discriminator="kind")]`` —
+#: purely additive on the wire (pydantic forbids a discriminator on a
+#: single-member union, hence the plain alias until then).
+FeatureData = SolvedSketchData
+
+
 class FeatureResult(BaseModel):
     """Per-feature evaluation status. Strict-prefix rule (§4.3): the first
     failure is ``error``, every subsequent feature ``skipped``."""
@@ -486,6 +499,12 @@ class FeatureResult(BaseModel):
     feature_id: uuid.UUID
     status: Literal["ok", "error", "skipped"]
     error: FeatureError | None = None
+    data: FeatureData | None = Field(
+        default=None,
+        description="Typed per-feature payload for ok features that produce "
+        "one (§7.10): solved sketch geometry today; future feature types add "
+        "kind-tagged variants additively.",
+    )
 
 
 class EvaluateTreeResult(BaseModel):

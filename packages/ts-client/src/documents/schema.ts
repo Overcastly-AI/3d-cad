@@ -55,6 +55,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/evaluation-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Evaluation Request
+         * @description The evaluation-ready feature list (design §4.2), for the gateway to
+         *     forward to the geometry service verbatim.
+         *
+         *     Documents owns everything geometry must never know about: the rollback
+         *     bar is applied HERE (only the prefix up to and including the bar is
+         *     returned, §3), params are upcast to current versions on read (§1.4), and
+         *     the order is the total ``order_index`` order. ``tree_version`` rides
+         *     along as the cache/correlation key.
+         */
+        get: operations["get_evaluation_request_api_v1_parts__part_id__evaluation_request_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/features": {
         parameters: {
             query?: never;
@@ -160,6 +187,19 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * CoincidentConstraint
+         * @description Two named points share a location.
+         */
+        CoincidentConstraint: {
+            a: components["schemas"]["EntityPointRef"];
+            b: components["schemas"]["EntityPointRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "coincident";
+        };
+        /**
          * DatumPlaneRef
          * @description One of the three origin datum planes.
          */
@@ -174,6 +214,87 @@ export interface components {
              * @enum {string}
              */
             plane: "XY" | "XZ" | "YZ";
+        };
+        /**
+         * DistanceConstraint
+         * @description Driving dimension: the length of a line (mm).
+         */
+        DistanceConstraint: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "distance";
+            /**
+             * Value Mm
+             * @description Line length (mm)
+             */
+            value_mm: number;
+        };
+        /**
+         * EntityPointRef
+         * @description Names one point of one entity, e.g. ``{"entity": "e1", "point": "end"}``.
+         */
+        EntityPointRef: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * Point
+             * @enum {string}
+             */
+            point: "start" | "end" | "center" | "position";
+        };
+        /**
+         * EvaluateTreeRequest
+         * @description Evaluate an ordered, validated, current-version feature list (§4.2).
+         *
+         *     Documents applies the rollback bar BEFORE sending: geometry receives
+         *     exactly the prefix to evaluate and never needs to know rollback exists.
+         */
+        EvaluateTreeRequest: {
+            /**
+             * Features
+             * @description Ordered prefix (rollback already applied)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Linear Deflection
+             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3)
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /**
+             * Tree Version
+             * @description Echoed back; cache/correlation key
+             */
+            tree_version: number;
+        };
+        /**
+         * EvaluatedFeatureInput
+         * @description One ordered entry of an evaluation request.
+         */
+        EvaluatedFeatureInput: {
+            /** Feature */
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"];
+            /**
+             * Id
+             * Format: uuid
+             * @description Feature identity for refs + result keying
+             */
+            id: string;
         };
         /**
          * ExtrudeFeature
@@ -351,10 +472,41 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /**
+         * FixedConstraint
+         * @description Anchor a named point at its current (input) coordinates.
+         *
+         *     Every fully-constrained sketch needs an anchor — without one, a rigid
+         *     solution still floats with two translational degrees of freedom.
+         */
+        FixedConstraint: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fixed";
+            point: components["schemas"]["EntityPointRef"];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HorizontalConstraint
+         * @description A line is parallel to the sketch X axis.
+         */
+        HorizontalConstraint: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "horizontal";
         };
         /**
          * PartCreate
@@ -408,6 +560,37 @@ export interface components {
             updated_at: string;
         };
         /**
+         * Point2D
+         * @description A point in sketch-plane coordinates (mm).
+         */
+        Point2D: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
+         * RadiusConstraint
+         * @description Driving dimension: the radius of a circle or arc (mm).
+         */
+        RadiusConstraint: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "radius";
+            /**
+             * Value Mm
+             * @description Radius (mm)
+             */
+            value_mm: number;
+        };
+        /**
          * RollbackBarMove
          * @description Move the rollback bar (§3): the id of the last included feature, or
          *     null for the tip. Bumps ``tree_version`` (it changes what an evaluation
@@ -418,6 +601,50 @@ export interface components {
             expected_tree_version: number;
             /** Rollback Feature Id */
             rollback_feature_id: string | null;
+        };
+        /**
+         * SketchArc
+         * @description A circular arc traversed **counterclockwise** from start to end.
+         *
+         *     The radius is implied by ``|start - center|``; the solver keeps start and
+         *     end on the circle (they may move to satisfy constraints).
+         */
+        SketchArc: {
+            center: components["schemas"]["Point2D"];
+            end: components["schemas"]["Point2D"];
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "arc";
+            start: components["schemas"]["Point2D"];
+        };
+        /**
+         * SketchCircle
+         * @description A full circle.
+         */
+        SketchCircle: {
+            center: components["schemas"]["Point2D"];
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "circle";
+            /**
+             * Radius
+             * @description Radius (mm)
+             */
+            radius: number;
         };
         /**
          * SketchFeature
@@ -437,31 +664,57 @@ export interface components {
             version: 1;
         };
         /**
+         * SketchLine
+         * @description A line segment between two endpoints.
+         */
+        SketchLine: {
+            end: components["schemas"]["Point2D"];
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line";
+            start: components["schemas"]["Point2D"];
+        };
+        /**
          * SketchParamsV1
          * @description Sketch on a plane — datum planes only in v1 (design §2.1).
          *
-         *     ``entities``/``constraints`` are structurally-open JSON objects in this
-         *     slice: their final pydantic shapes are owned by the "Sketch model +
-         *     solver API" backlog item (design §1.4). Sketch entities carry
-         *     sketch-local string ids (``"e1"``, ...) per design §2.4.
+         *     Extends :class:`py_kit.schemas.sketch.SketchDefinition` (typed
+         *     ``entities``/``constraints`` — the §1.4 placeholder finalized by the
+         *     "Sketch model + solver API" item), so a persisted sketch's params ARE
+         *     valid solver input: same validation (unique sketch-local entity ids per
+         *     design §2.4) on the documents write path and the geometry request path.
          */
         SketchParamsV1: {
-            /**
-             * Constraints
-             * @description Sketch constraints (shape finalized by the sketch-model item)
-             */
-            constraints: {
-                [key: string]: unknown;
-            }[];
-            /**
-             * Entities
-             * @description Sketch entities (shape finalized by the sketch-model item)
-             */
-            entities: {
-                [key: string]: unknown;
-            }[];
+            /** Constraints */
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"])[];
+            /** Entities */
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
             /** Plane */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
+        };
+        /**
+         * SketchPoint
+         * @description A free point (construction geometry, arc centers to snap to, …).
+         */
+        SketchPoint: {
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point";
+            position: components["schemas"]["Point2D"];
         };
         /** ValidationError */
         ValidationError: {
@@ -475,6 +728,22 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * VerticalConstraint
+         * @description A line is parallel to the sketch Y axis.
+         */
+        VerticalConstraint: {
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "vertical";
         };
     };
     responses: never;
@@ -607,6 +876,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_evaluation_request_api_v1_parts__part_id__evaluation_request_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateTreeRequest"];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -16,7 +16,6 @@ anchored corner → DOF 0).
 """
 
 import uuid
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -161,16 +160,15 @@ def test_worked_example_all_sketch_tree_ok() -> None:
     assert result.last_good_feature_id == SKETCH_ID
 
 
-def test_worked_example_solves_to_analytic_corners() -> None:
-    """The evaluator's solved-sketch payload (§7.10 seam, surfaced through the
-    API by BACKLOG #3) carries the analytic corner positions."""
-    request = EvaluateTreeRequest.model_validate(
-        _request([_sketch_input(SKETCH_ID, rectangle_params())])
-    )
-    evaluation = evaluate_tree(request)
+def test_worked_example_solves_to_analytic_corners_in_response_data() -> None:
+    """The §7.10 payload rides the API response: ``FeatureResult.data`` for
+    the ok sketch carries the analytic corner positions at DOF 0."""
+    result = _post(_request([_sketch_input(SKETCH_ID, rectangle_params())]))
 
-    assert evaluation.result.features[0].status == "ok"
-    solved = evaluation.solved_sketches[SKETCH_ID]
+    assert result.features[0].status == "ok"
+    solved = result.features[0].data
+    assert solved is not None
+    assert solved.kind == "solved_sketch"
     assert solved.status == "converged"
     assert solved.dof == 0
     assert [e.id for e in solved.entities] == ["e1", "e2", "e3", "e4"]
@@ -185,18 +183,16 @@ def test_worked_example_solves_to_analytic_corners() -> None:
 
 def test_underconstrained_sketch_is_ok_with_diagnosis() -> None:
     """A sketch that solves with remaining DOF is a usable outcome (ok); the
-    diagnosis rides in the solved payload for the sketcher UI (§7.10)."""
+    diagnosis rides in the ``data`` payload for the sketcher UI (§7.10)."""
     params = rectangle_params()
     params["constraints"] = [
         c for c in params["constraints"] if c["kind"] not in ("distance", "fixed")
     ]
-    request = EvaluateTreeRequest.model_validate(
-        _request([_sketch_input(SKETCH_ID, params)])
-    )
-    evaluation = evaluate_tree(request)
+    result = _post(_request([_sketch_input(SKETCH_ID, params)]))
 
-    assert evaluation.result.features[0].status == "ok"
-    solved = evaluation.solved_sketches[SKETCH_ID]
+    assert result.features[0].status == "ok"
+    solved = result.features[0].data
+    assert solved is not None
     assert solved.status == "underconstrained"
     assert solved.dof == 4
 
@@ -231,7 +227,10 @@ def test_mid_tree_failure_marks_error_then_skips_downstream() -> None:
     assert error.code == "reference_unresolved"
     assert error.upstream_feature_id == SKETCH_ID
     assert result.features[0].error is None
+    assert result.features[0].data is not None  # ok sketch keeps its payload
+    assert result.features[1].data is None
     assert result.features[2].error is None  # skipped carries no error of its own
+    assert result.features[2].data is None
     assert result.last_good_feature_id == SKETCH_ID
     assert result.mesh_glb_id is None
 
@@ -256,35 +255,37 @@ def test_conflicting_sketch_is_feature_error_not_exception() -> None:
     assert result.last_good_feature_id is None
 
 
-def _duplicate_entity_id(params: dict[str, Any]) -> None:
-    """Duplicate entity ids — rejected by SketchDefinition validation."""
-    entities: list[dict[str, Any]] = params["entities"]
-    entities.append(entities[0])
-
-
-def _unknown_entity_reference(params: dict[str, Any]) -> None:
-    """Constraint referencing an unknown entity — SketchDefinitionError
-    from the solver backend."""
+def test_unknown_entity_reference_is_error_not_crash() -> None:
+    """A constraint referencing an unknown entity is only detectable by the
+    solver backend (SketchDefinitionError) — per-feature error, HTTP 200."""
+    params = rectangle_params()
     constraints: list[dict[str, Any]] = params["constraints"]
     constraints.append({"kind": "distance", "entity": "nope", "value_mm": 5.0})
-
-
-@pytest.mark.parametrize(
-    "corrupt",
-    [_duplicate_entity_id, _unknown_entity_reference],
-    ids=["duplicate-entity-id", "unknown-entity-reference"],
-)
-def test_malformed_sketch_definition_is_error_not_crash(
-    corrupt: Callable[[dict[str, Any]], None],
-) -> None:
-    params = rectangle_params()
-    corrupt(params)
     result = _post(_request([_sketch_input(SKETCH_ID, params)]))
 
     assert result.features[0].status == "error"
     error = result.features[0].error
     assert error is not None
     assert error.code == "sketch_invalid"
+    assert result.features[0].data is None  # failed features carry no payload
+
+
+def test_duplicate_entity_ids_rejected_at_request_validation(
+    assert_validation_envelope: Any,
+) -> None:
+    """Statically-malformed sketches never reach dispatch since the typed
+    SketchParamsV1 (BACKLOG #3) — duplicate sketch-local ids are a
+    transport/validation failure of the call itself (§4.3): 422 envelope,
+    same rejection documents applies on the write path (shared model)."""
+    params = rectangle_params()
+    entities: list[dict[str, Any]] = params["entities"]
+    entities.append(entities[0])
+    response = client.post(
+        "/api/v1/evaluate", json=_request([_sketch_input(SKETCH_ID, params)])
+    )
+
+    assert response.status_code == 422
+    assert_validation_envelope(response.json())
 
 
 # --- Dispatcher registry ------------------------------------------------------------

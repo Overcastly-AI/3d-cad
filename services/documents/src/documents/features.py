@@ -27,6 +27,8 @@ from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from py_kit.schemas.features import (
     FEATURE_REGISTRY,
+    EvaluatedFeatureInput,
+    EvaluateTreeRequest,
     FeatureCreate,
     FeatureEnvelope,
     FeatureMutationResponse,
@@ -234,6 +236,42 @@ async def get_feature_tree(
     """The ordered feature tree (uniform 404 for unknown/foreign parts)."""
     part = await get_owned_part(session, owner_id, part_id)
     return await _tree_response(session, part)
+
+
+@router.get("/{part_id}/evaluation-request")
+async def get_evaluation_request(
+    part_id: uuid.UUID, owner_id: Principal, session: SessionDep
+) -> EvaluateTreeRequest:
+    """The evaluation-ready feature list (design §4.2), for the gateway to
+    forward to the geometry service verbatim.
+
+    Documents owns everything geometry must never know about: the rollback
+    bar is applied HERE (only the prefix up to and including the bar is
+    returned, §3), params are upcast to current versions on read (§1.4), and
+    the order is the total ``order_index`` order. ``tree_version`` rides
+    along as the cache/correlation key.
+    """
+    part = await get_owned_part(session, owner_id, part_id)
+    features = await _ordered_features(session, part.id)
+    bar_index = _bar_index(part, features)
+    prefix = [
+        feature
+        for feature in features
+        if bar_index is None or feature.order_index <= bar_index
+    ]
+    return EvaluateTreeRequest(
+        part_id=part.id,
+        tree_version=part.tree_version,
+        features=[
+            EvaluatedFeatureInput(
+                id=feature.id,
+                feature=FEATURE_REGISTRY.load(
+                    feature.type, feature.param_version, feature.params
+                ),
+            )
+            for feature in prefix
+        ],
+    )
 
 
 @router.get("/{part_id}/features/{feature_id}")

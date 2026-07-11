@@ -9,13 +9,23 @@ never hand-duplicated — so request bodies are fully validated at the gateway
 before anything goes upstream, and upstream 404/409/422 envelopes (including
 the ``feature_has_dependents`` conflict and ``stale_tree_version``) are
 re-surfaced verbatim under the gateway's request id.
+
+``POST /{part_id}/evaluate`` is the one two-hop aggregation: documents builds
+the evaluation-ready request (rollback + upcasts applied), the gateway relays
+it to the geometry service, and the typed ``EvaluateTreeResult`` — solved
+sketch payloads included — returns to the caller. This keeps "the web app
+talks only to the gateway" true for feature evaluation without documents ever
+calling geometry itself.
 """
 
 import uuid
 from typing import Annotated
 
+import httpx2 as httpx
 from fastapi import APIRouter, Query, Request, status
 from py_kit.schemas.features import (
+    EvaluateTreeRequest,
+    EvaluateTreeResult,
     FeatureCreate,
     FeatureMutationResponse,
     FeatureReorderRequest,
@@ -27,10 +37,13 @@ from py_kit.schemas.features import (
 
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
-from gateway.upstream import raise_upstream_error
+from gateway.upstream import forward, raise_upstream_error
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Documents"
+
+#: The geometry hop of the evaluate aggregation (error surfaces name it).
+_GEOMETRY = "Geometry"
 
 router = APIRouter(prefix="/api/v1/parts", tags=["features"])
 
@@ -146,6 +159,41 @@ async def reorder_features(
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     return FeatureTreeResponse.model_validate_json(upstream.content)
+
+
+@router.post("/{part_id}/evaluate")
+async def evaluate_part(
+    part_id: uuid.UUID, user: CurrentUser, http_request: Request
+) -> EvaluateTreeResult:
+    """Evaluate the part's current feature tree (feature-tree design §4).
+
+    The full loop behind one authenticated call: documents serves the
+    evaluation-ready list (rollback bar applied, params upcast — §4.2), the
+    gateway forwards it verbatim to the stateless geometry service, and the
+    typed result comes back with per-feature statuses and solved-sketch
+    ``data`` payloads (§7.10). Feature failures are a 200 with per-feature
+    errors (§4.3); the error envelope here means the aggregation itself
+    failed (404 unknown part, 502 unreachable upstream, ...).
+    """
+    upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/parts/{part_id}/evaluation-request"
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    evaluation_request = EvaluateTreeRequest.model_validate_json(upstream.content)
+
+    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
+    evaluated = await forward(
+        geometry_client,
+        http_request,
+        "POST",
+        "/api/v1/evaluate",
+        service=_GEOMETRY,
+        json_content=evaluation_request.model_dump_json(),
+    )
+    if evaluated.status_code != status.HTTP_200_OK:
+        raise_upstream_error(evaluated, service=_GEOMETRY)
+    return EvaluateTreeResult.model_validate_json(evaluated.content)
 
 
 @router.put("/{part_id}/rollback")

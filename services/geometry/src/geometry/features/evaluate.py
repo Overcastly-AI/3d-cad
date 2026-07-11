@@ -40,16 +40,16 @@ from py_kit.schemas.features import (
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     EvaluateTreeResult,
+    FeatureData,
     FeatureError,
     FeatureRef,
     FeatureResult,
     SketchFeature,
+    SolvedSketchData,
 )
-from pydantic import ValidationError
 
 from geometry.sketch import (
     PlanegcsSketchSolver,
-    SketchDefinition,
     SketchDefinitionError,
     SketchSolver,
     SolvedSketch,
@@ -84,20 +84,6 @@ class EvaluationState:
 FeatureHandler = Callable[[EvaluatedFeatureInput, EvaluationState], FeatureError | None]
 
 
-def _sketch_validation_error(exc: ValidationError) -> FeatureError:
-    """Map a pydantic failure on the sketch definition to a feature error.
-
-    ``pydantic`` error ordering is deterministic, so surfacing the first
-    error keeps responses byte-deterministic.
-    """
-    first = exc.errors()[0]
-    location = ".".join(str(part) for part in first["loc"])
-    return FeatureError(
-        code="sketch_invalid",
-        message=f"Sketch definition is invalid at {location}: {first['msg']}",
-    )
-
-
 def _evaluate_sketch(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -128,17 +114,11 @@ def _evaluate_sketch(
         )
 
     try:
-        definition = SketchDefinition.model_validate(
-            {
-                "entities": feature.params.entities,
-                "constraints": feature.params.constraints,
-            }
-        )
-    except ValidationError as exc:
-        return _sketch_validation_error(exc)
-
-    try:
-        solved = _SOLVER.solve(definition)
+        # SketchParamsV1 extends SketchDefinition (py-kit): the validated
+        # params ARE the solver input — statically-malformed sketches never
+        # reach this point, they are 422 request-validation failures (§4.3:
+        # the envelope owns transport/validation failures of the call).
+        solved = _SOLVER.solve(feature.params)
     except SketchDefinitionError as exc:
         # Malformed definition (bad reference, wrong point name, degenerate
         # geometry) — same failure class as a validation error.
@@ -218,15 +198,24 @@ def _dispatch(
         )
 
 
+def _feature_data(feature_id: uuid.UUID, state: EvaluationState) -> FeatureData | None:
+    """The §7.10 payload of an ``ok`` feature: solved sketch geometry, when
+    the feature produced one (body-affecting features produce none today)."""
+    solved = state.solved_sketches.get(feature_id)
+    if solved is None:
+        return None
+    return SolvedSketchData.model_validate(solved.model_dump())
+
+
 @dataclass
 class TreeEvaluation:
     """A full evaluation: the boundary DTO plus service-internal payloads.
 
-    ``result`` is everything that crosses the service boundary today.
-    ``solved_sketches`` (``ok`` sketch features only, evaluation order) is
-    the §7.10 per-feature solved-geometry payload — the "Sketch model +
-    solver API" item (BACKLOG #3) lifts it into the additive
-    ``FeatureResult`` data extension; until then it stays inside the service.
+    ``result`` is everything that crosses the service boundary — including
+    the per-feature solved-sketch payloads on ``FeatureResult.data`` (§7.10,
+    lifted by BACKLOG #3). ``solved_sketches`` (``ok`` sketch features only,
+    evaluation order) stays exposed service-internally as typed solver
+    output: the extrude handler (BACKLOG #6) reads its profile from here.
     """
 
     result: EvaluateTreeResult
@@ -250,7 +239,13 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
             continue
         error = _dispatch(item, state)
         if error is None:
-            results.append(FeatureResult(feature_id=item.id, status="ok"))
+            results.append(
+                FeatureResult(
+                    feature_id=item.id,
+                    status="ok",
+                    data=_feature_data(item.id, state),
+                )
+            )
             last_good_feature_id = item.id
         else:
             results.append(

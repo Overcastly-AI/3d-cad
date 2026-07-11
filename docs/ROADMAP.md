@@ -91,12 +91,19 @@ The thinnest vertical slice a working engineer can feel:
       `POST /api/v1/evaluate` with ordered handler-registry dispatch
       [sketch-only; extrude registers via BACKLOG #6], strict-prefix
       partial results, solver statuses as per-feature errors,
-      byte-deterministic responses; end-to-end wiring → BACKLOG #3)
+      byte-deterministic responses. End-to-end wiring shipped 2026-07-11
+      with BACKLOG #3: documents `evaluation-request` [rollback + upcasts
+      applied] + gateway `POST /api/v1/parts/{id}/evaluate`)
 - 🚧 Sketcher v1: plane selection, line/rect/circle/arc, dimensional +
       geometric constraints (planegcs behind `SketchSolver` interface —
       solver layer shipped 2026-07-10: protocol + planegcs 0.8.0 backend,
       LGPL-2.1 verified, benchmark rectangle at 0.0 deviation,
-      bitwise-deterministic; RESEARCH §2. Sketch persistence/API/UI pending)
+      bitwise-deterministic; RESEARCH §2. Sketch model + solver API shipped
+      2026-07-11: typed entity/constraint schemas in py-kit, solved
+      geometry returned per feature via `FeatureResult.data` [§7.10],
+      §6 rectangle solved at 0.0 deviation / DOF 0 end-to-end over real
+      HTTP through gateway→documents→geometry. Sketcher UI pending —
+      BACKLOG #4/#5)
 - ⬜ Features v1: extrude (add/cut), fillet, chamfer; feature re-evaluation on
       param edit; error surfacing when a feature fails to rebuild
 - ⬜ Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of

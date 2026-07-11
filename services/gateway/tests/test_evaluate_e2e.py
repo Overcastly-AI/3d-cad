@@ -1,0 +1,327 @@
+"""End-to-end sketch flow over REAL HTTP — the BACKLOG #3 acceptance gate.
+
+Boots the actual three-service stack (documents + geometry + gateway, real
+uvicorn servers on loopback ports, SQLite stores) and drives the full loop a
+client sees: register → create part → create a sketch feature → evaluate →
+solved geometry back in ``FeatureResult.data``. No mock transports anywhere —
+the gateway's upstream clients cross real sockets to the other two services.
+
+The sketch is the design doc's §6 worked example (40 x 25 mm rectangle on
+XY), benchmark-constrained as in RESEARCH §2 (all corners coincident,
+horizontal/vertical on all sides, two driving dimensions, one anchor →
+DOF 0). Corner assertions use the documented solver benchmark tolerance
+(1e-9 mm, tests/test_sketch_solver.py in services/geometry) — not an ad-hoc
+epsilon.
+"""
+
+import asyncio
+import socket
+import threading
+import time
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import httpx2 as httpx
+import pytest
+import uvicorn
+from documents.main import DocumentsSettings
+from documents.main import build_app as build_documents_app
+from fastapi import FastAPI
+from gateway.db import Base as GatewayBase
+from gateway.main import GatewaySettings
+from gateway.main import build_app as build_gateway_app
+from geometry.main import build_app as build_geometry_app
+from py_kit.db import async_dsn
+from py_kit.schemas.features import EvaluateTreeResult
+from py_kit.schemas.sketch import SketchLine
+from sqlalchemy.ext.asyncio import create_async_engine
+
+TEST_JWT_SECRET = "e2e-test-jwt-secret-0123456789abcdef"
+
+#: Documented solver benchmark tolerance (mm) — see module docstring.
+RECTANGLE_TOLERANCE_MM = 1e-9
+
+#: Server boot budget; loopback uvicorn starts in well under a second.
+BOOT_TIMEOUT_S = 30.0
+
+
+def _sketch_params() -> dict[str, Any]:
+    """§6 rectangle, benchmark-constrained; entities drawn deliberately
+    sloppily — the solver, not the input, must land the analytic corners."""
+
+    def line(
+        eid: str, start: tuple[float, float], end: tuple[float, float]
+    ) -> dict[str, Any]:
+        return {
+            "id": eid,
+            "kind": "line",
+            "start": {"x": start[0], "y": start[1]},
+            "end": {"x": end[0], "y": end[1]},
+        }
+
+    def coincident(a: tuple[str, str], b: tuple[str, str]) -> dict[str, Any]:
+        return {
+            "kind": "coincident",
+            "a": {"entity": a[0], "point": a[1]},
+            "b": {"entity": b[0], "point": b[1]},
+        }
+
+    return {
+        "plane": {"kind": "datum_plane", "plane": "XY"},
+        "entities": [
+            line("e1", (0.0, 0.0), (38.0, 1.0)),
+            line("e2", (39.0, 0.5), (41.0, 24.0)),
+            line("e3", (40.5, 26.0), (-1.0, 25.5)),
+            line("e4", (0.5, 24.5), (-0.5, 1.0)),
+        ],
+        "constraints": [
+            coincident(("e1", "end"), ("e2", "start")),
+            coincident(("e2", "end"), ("e3", "start")),
+            coincident(("e3", "end"), ("e4", "start")),
+            coincident(("e4", "end"), ("e1", "start")),
+            {"kind": "horizontal", "entity": "e1"},
+            {"kind": "vertical", "entity": "e2"},
+            {"kind": "horizontal", "entity": "e3"},
+            {"kind": "vertical", "entity": "e4"},
+            {"kind": "distance", "entity": "e1", "value_mm": 40.0},
+            {"kind": "distance", "entity": "e2", "value_mm": 25.0},
+            {"kind": "fixed", "point": {"entity": "e1", "point": "start"}},
+        ],
+    }
+
+
+#: Analytic corners of the solved rectangle (see test_sketch_solver.py).
+EXPECTED_CORNERS: dict[str, tuple[tuple[float, float], tuple[float, float]]] = {
+    "e1": ((0.0, 0.0), (40.0, 0.0)),
+    "e2": ((40.0, 0.0), (40.0, 25.0)),
+    "e3": ((40.0, 25.0), (0.0, 25.0)),
+    "e4": ((0.0, 25.0), (0.0, 0.0)),
+}
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+    return port
+
+
+class _Server:
+    """One uvicorn server on a loopback port, run in a daemon thread."""
+
+    def __init__(self, app: FastAPI, port: int) -> None:
+        self.server = uvicorn.Server(
+            uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+        )
+        self.thread = threading.Thread(target=self.server.run, daemon=True)
+
+    def start(self) -> None:
+        self.thread.start()
+        deadline = time.monotonic() + BOOT_TIMEOUT_S
+        while not self.server.started:
+            if time.monotonic() > deadline or not self.thread.is_alive():
+                raise RuntimeError("uvicorn server failed to boot")
+            time.sleep(0.01)
+
+    def stop(self) -> None:
+        self.server.should_exit = True
+        self.thread.join(timeout=BOOT_TIMEOUT_S)
+
+
+async def _create_gateway_schema(url: str) -> None:
+    engine = create_async_engine(async_dsn(url))
+    async with engine.begin() as connection:
+        await connection.run_sync(GatewayBase.metadata.create_all)
+    await engine.dispose()
+
+
+async def _create_documents_schema(url: str) -> None:
+    # Local import: keep the module-level namespace free of a second Base.
+    from documents.db import Base as DocumentsBase
+
+    engine = create_async_engine(async_dsn(url))
+    async with engine.begin() as connection:
+        await connection.run_sync(DocumentsBase.metadata.create_all)
+    await engine.dispose()
+
+
+@pytest.fixture(scope="module")
+def gateway_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    """The booted three-service stack, keyed by the gateway's base URL."""
+    tmp_path: Path = tmp_path_factory.mktemp("evaluate-e2e")
+    documents_db = f"sqlite:///{tmp_path}/documents.db"
+    gateway_db = f"sqlite:///{tmp_path}/gateway.db"
+    asyncio.run(_create_documents_schema(documents_db))
+    asyncio.run(_create_gateway_schema(gateway_db))
+
+    documents_port, geometry_port, gateway_port = (
+        _free_port(),
+        _free_port(),
+        _free_port(),
+    )
+    servers = [
+        _Server(
+            build_documents_app(DocumentsSettings(postgres_url=documents_db)),
+            documents_port,
+        ),
+        _Server(build_geometry_app(), geometry_port),
+        _Server(
+            build_gateway_app(
+                GatewaySettings(
+                    geometry_url=f"http://127.0.0.1:{geometry_port}",
+                    documents_url=f"http://127.0.0.1:{documents_port}",
+                    postgres_url=gateway_db,
+                    loft_env="dev",
+                    jwt_secret=TEST_JWT_SECRET,
+                )
+            ),
+            gateway_port,
+        ),
+    ]
+    try:
+        for server in servers:
+            server.start()
+        yield f"http://127.0.0.1:{gateway_port}"
+    finally:
+        for server in reversed(servers):
+            server.stop()
+
+
+def _assert_solved_rectangle(result: EvaluateTreeResult, width_mm: float) -> None:
+    (feature,) = result.features
+    assert feature.status == "ok", feature
+    solved = feature.data
+    assert solved is not None
+    assert solved.kind == "solved_sketch"
+    assert solved.status == "converged"
+    assert solved.dof == 0
+    assert [entity.id for entity in solved.entities] == ["e1", "e2", "e3", "e4"]
+    scale = width_mm / 40.0
+    for entity in solved.entities:
+        assert isinstance(entity, SketchLine)
+        (ex1, ey1), (ex2, ey2) = EXPECTED_CORNERS[entity.id]
+        assert entity.start.x == pytest.approx(ex1 * scale, abs=RECTANGLE_TOLERANCE_MM)
+        assert entity.start.y == pytest.approx(ey1, abs=RECTANGLE_TOLERANCE_MM)
+        assert entity.end.x == pytest.approx(ex2 * scale, abs=RECTANGLE_TOLERANCE_MM)
+        assert entity.end.y == pytest.approx(ey2, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_sketch_create_update_solve_end_to_end(gateway_url: str) -> None:
+    """create part → add sketch feature → evaluate → solved §6 corners in
+    ``response.data``; then update the sketch and re-evaluate — the solved
+    geometry follows the edit. Every hop is a real HTTP request."""
+    with httpx.Client(base_url=gateway_url, timeout=30.0) as client:
+        register = client.post(
+            "/api/v1/auth/register",
+            json={"email": "eng@example.com", "password": "hunter2-passphrase"},
+        )
+        assert register.status_code == 201, register.text
+        bearer = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+        part = client.post("/api/v1/parts", json={"name": "demo-block"}, headers=bearer)
+        assert part.status_code == 201, part.text
+        part_id = part.json()["id"]
+
+        created = client.post(
+            f"/api/v1/parts/{part_id}/features",
+            json={
+                "name": "Sketch1",
+                "feature": {"type": "sketch", "version": 1, "params": _sketch_params()},
+                "expected_tree_version": 0,
+            },
+            headers=bearer,
+        )
+        assert created.status_code == 201, created.text
+        feature_id = created.json()["feature"]["id"]
+        tree_version = created.json()["tree_version"]
+
+        evaluated = client.post(f"/api/v1/parts/{part_id}/evaluate", headers=bearer)
+        assert evaluated.status_code == 200, evaluated.text
+        result = EvaluateTreeResult.model_validate(evaluated.json())
+        assert result.tree_version == tree_version
+        assert result.last_good_feature_id is not None
+        assert str(result.last_good_feature_id) == feature_id
+        assert result.mesh_glb_id is None  # sketches are not body-affecting
+        _assert_solved_rectangle(result, width_mm=40.0)
+
+        # Update the driving dimension (40 → 60 mm) and solve again: the
+        # sketch API round-trips edits into new solved geometry.
+        params = _sketch_params()
+        params["constraints"][8] = {
+            "kind": "distance",
+            "entity": "e1",
+            "value_mm": 60.0,
+        }
+        updated = client.patch(
+            f"/api/v1/parts/{part_id}/features/{feature_id}",
+            json={
+                "expected_tree_version": tree_version,
+                "feature": {"type": "sketch", "version": 1, "params": params},
+            },
+            headers=bearer,
+        )
+        assert updated.status_code == 200, updated.text
+
+        re_evaluated = client.post(f"/api/v1/parts/{part_id}/evaluate", headers=bearer)
+        assert re_evaluated.status_code == 200, re_evaluated.text
+        _assert_solved_rectangle(
+            EvaluateTreeResult.model_validate(re_evaluated.json()), width_mm=60.0
+        )
+
+
+def test_conflicting_sketch_surfaces_solver_status_not_a_crash(
+    gateway_url: str,
+) -> None:
+    """Acceptance: a conflicting sketch comes back as a per-feature
+    ``FeatureError`` (HTTP 200) through the whole real stack."""
+    with httpx.Client(base_url=gateway_url, timeout=30.0) as client:
+        register = client.post(
+            "/api/v1/auth/register",
+            json={"email": "eng2@example.com", "password": "hunter2-passphrase"},
+        )
+        assert register.status_code == 201, register.text
+        bearer = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+        part = client.post(
+            "/api/v1/parts", json={"name": "broken-block"}, headers=bearer
+        )
+        assert part.status_code == 201, part.text
+        part_id = part.json()["id"]
+
+        conflicting: dict[str, Any] = {
+            "plane": {"kind": "datum_plane", "plane": "XY"},
+            "entities": [
+                {
+                    "id": "e1",
+                    "kind": "line",
+                    "start": {"x": 0.0, "y": 0.0},
+                    "end": {"x": 10.0, "y": 0.0},
+                }
+            ],
+            "constraints": [
+                {"kind": "fixed", "point": {"entity": "e1", "point": "start"}},
+                {"kind": "fixed", "point": {"entity": "e1", "point": "end"}},
+                {"kind": "distance", "entity": "e1", "value_mm": 25.0},
+            ],
+        }
+        created = client.post(
+            f"/api/v1/parts/{part_id}/features",
+            json={
+                "name": "Sketch1",
+                "feature": {"type": "sketch", "version": 1, "params": conflicting},
+                "expected_tree_version": 0,
+            },
+            headers=bearer,
+        )
+        assert created.status_code == 201, created.text
+
+        evaluated = client.post(f"/api/v1/parts/{part_id}/evaluate", headers=bearer)
+        assert evaluated.status_code == 200, evaluated.text
+        result = EvaluateTreeResult.model_validate(evaluated.json())
+        (feature,) = result.features
+        assert feature.status == "error"
+        assert feature.error is not None
+        assert feature.error.code == "sketch_conflicting"
+        assert feature.data is None
+        assert result.last_good_feature_id is None

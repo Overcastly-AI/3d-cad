@@ -16,15 +16,18 @@ from py_kit.schemas.features import (
     Feature,
     FeatureCreate,
     FeatureRef,
+    FeatureResult,
     FeatureSchemaError,
     FeatureTypeRegistry,
     FeatureUpdate,
     SketchFeature,
     SketchParamsV1,
+    SolvedSketchData,
     UnknownFeatureVersionError,
     feature_references,
     iter_feature_refs,
 )
+from py_kit.schemas.sketch import SketchDefinition, SketchLine
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 SKETCH_ID = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000aa")
@@ -160,6 +163,98 @@ def test_feature_create_rejects_negative_expected_version() -> None:
                 "name": "Sketch1",
                 "feature": {"type": "sketch", "version": 1, "params": SKETCH_PARAMS},
                 "expected_tree_version": -1,
+            }
+        )
+
+
+# --- typed sketch params (§1.4 finalized by BACKLOG #3) -----------------------------
+
+
+def test_sketch_params_are_typed_solver_input() -> None:
+    """SketchParamsV1 extends SketchDefinition: persisted params ARE valid
+    solver input, with fully-typed entities/constraints (no open JSON)."""
+    params = SketchParamsV1.model_validate(SKETCH_PARAMS)
+    assert isinstance(params, SketchDefinition)
+    assert [type(entity) for entity in params.entities] == [SketchLine] * 4
+    assert [constraint.kind for constraint in params.constraints] == [
+        "coincident",
+        "horizontal",
+        "vertical",
+        "distance",
+        "distance",
+    ]
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        {"entities": [{"id": "e9", "kind": "hexagon", "sides": 6}]},  # unknown kind
+        {"constraints": [{"kind": "tangent", "entity": "e1"}]},  # unknown constraint
+        {"constraints": [{"kind": "distance", "entity": "e1", "value_mm": -1.0}]},
+    ],
+    ids=["unknown-entity-kind", "unknown-constraint-kind", "negative-dimension"],
+)
+def test_malformed_sketch_bodies_rejected_at_validation(
+    corrupt: dict[str, Any],
+) -> None:
+    with pytest.raises(ValidationError):
+        SketchParamsV1.model_validate({**SKETCH_PARAMS, **corrupt})
+
+
+def test_duplicate_entity_ids_rejected_in_sketch_params() -> None:
+    """The SketchDefinition unique-id rule (design §2.4) applies to persisted
+    params too — documents rejects the write, geometry the request."""
+    bad = {**SKETCH_PARAMS, "entities": SKETCH_PARAMS["entities"] * 2}
+    with pytest.raises(ValidationError, match="Duplicate sketch entity id"):
+        SketchParamsV1.model_validate(bad)
+
+
+# --- FeatureResult.data union (§7.10, BACKLOG #3) ------------------------------------
+
+
+def _solved_sketch_data() -> dict[str, Any]:
+    return {
+        "kind": "solved_sketch",
+        "status": "converged",
+        "entities": SKETCH_PARAMS["entities"],
+        "dof": 0,
+        "conflicting_constraints": [],
+        "redundant_constraints": [],
+    }
+
+
+def test_feature_result_data_round_trips() -> None:
+    wire = {
+        "feature_id": str(SKETCH_ID),
+        "status": "ok",
+        "error": None,
+        "data": _solved_sketch_data(),
+    }
+    result = FeatureResult.model_validate(wire)
+    assert isinstance(result.data, SolvedSketchData)
+    assert result.data.kind == "solved_sketch"
+    assert result.data.dof == 0
+    assert result.model_dump(mode="json") == wire
+
+
+def test_feature_result_data_defaults_to_none() -> None:
+    """Additive: pre-#3 payloads (no ``data`` key) still validate."""
+    result = FeatureResult.model_validate(
+        {"feature_id": str(SKETCH_ID), "status": "skipped"}
+    )
+    assert result.data is None
+    assert result.model_dump(mode="json")["data"] is None
+
+
+def test_feature_result_data_kind_tag_is_enforced() -> None:
+    """The union tag is load-bearing (future variants discriminate on it):
+    a wrong ``kind`` is rejected, never silently coerced."""
+    with pytest.raises(ValidationError):
+        FeatureResult.model_validate(
+            {
+                "feature_id": str(SKETCH_ID),
+                "status": "ok",
+                "data": {**_solved_sketch_data(), "kind": "solved_extrude"},
             }
         )
 

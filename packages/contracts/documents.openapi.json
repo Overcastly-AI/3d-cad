@@ -1,6 +1,29 @@
 {
   "components": {
     "schemas": {
+      "CoincidentConstraint": {
+        "description": "Two named points share a location.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          },
+          "b": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          },
+          "kind": {
+            "const": "coincident",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "CoincidentConstraint",
+        "type": "object"
+      },
       "DatumPlaneRef": {
         "description": "One of the three origin datum planes.",
         "properties": {
@@ -24,6 +47,134 @@
           "plane"
         ],
         "title": "DatumPlaneRef",
+        "type": "object"
+      },
+      "DistanceConstraint": {
+        "description": "Driving dimension: the length of a line (mm).",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "distance",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value_mm": {
+            "description": "Line length (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "entity",
+          "value_mm"
+        ],
+        "title": "DistanceConstraint",
+        "type": "object"
+      },
+      "EntityPointRef": {
+        "description": "Names one point of one entity, e.g. ``{\"entity\": \"e1\", \"point\": \"end\"}``.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "point": {
+            "enum": [
+              "start",
+              "end",
+              "center",
+              "position"
+            ],
+            "title": "Point",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity",
+          "point"
+        ],
+        "title": "EntityPointRef",
+        "type": "object"
+      },
+      "EvaluateTreeRequest": {
+        "description": "Evaluate an ordered, validated, current-version feature list (\u00a74.2).\n\nDocuments applies the rollback bar BEFORE sending: geometry receives\nexactly the prefix to evaluate and never needs to know rollback exists.",
+        "properties": {
+          "features": {
+            "description": "Ordered prefix (rollback already applied)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedFeatureInput"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Presentation parameter (mm), NEVER persisted per feature (design \u00a78.3)",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "tree_version": {
+            "description": "Echoed back; cache/correlation key",
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "features"
+        ],
+        "title": "EvaluateTreeRequest",
+        "type": "object"
+      },
+      "EvaluatedFeatureInput": {
+        "description": "One ordered entry of an evaluation request.",
+        "properties": {
+          "feature": {
+            "discriminator": {
+              "mapping": {
+                "extrude": "#/components/schemas/ExtrudeFeature",
+                "sketch": "#/components/schemas/SketchFeature"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ExtrudeFeature"
+              }
+            ],
+            "title": "Feature"
+          },
+          "id": {
+            "description": "Feature identity for refs + result keying",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "feature"
+        ],
+        "title": "EvaluatedFeatureInput",
         "type": "object"
       },
       "ExtrudeFeature": {
@@ -361,6 +512,25 @@
         "title": "FeatureUpdate",
         "type": "object"
       },
+      "FixedConstraint": {
+        "description": "Anchor a named point at its current (input) coordinates.\n\nEvery fully-constrained sketch needs an anchor \u2014 without one, a rigid\nsolution still floats with two translational degrees of freedom.",
+        "properties": {
+          "kind": {
+            "const": "fixed",
+            "title": "Kind",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          }
+        },
+        "required": [
+          "kind",
+          "point"
+        ],
+        "title": "FixedConstraint",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -372,6 +542,28 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HorizontalConstraint": {
+        "description": "A line is parallel to the sketch X axis.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "horizontal",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "entity"
+        ],
+        "title": "HorizontalConstraint",
         "type": "object"
       },
       "PartCreate": {
@@ -447,6 +639,54 @@
         "title": "PartResponse",
         "type": "object"
       },
+      "Point2D": {
+        "description": "A point in sketch-plane coordinates (mm).",
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "Point2D",
+        "type": "object"
+      },
+      "RadiusConstraint": {
+        "description": "Driving dimension: the radius of a circle or arc (mm).",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "radius",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value_mm": {
+            "description": "Radius (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "entity",
+          "value_mm"
+        ],
+        "title": "RadiusConstraint",
+        "type": "object"
+      },
       "RollbackBarMove": {
         "description": "Move the rollback bar (\u00a73): the id of the last included feature, or\nnull for the tip. Bumps ``tree_version`` (it changes what an evaluation\nof the part means).",
         "properties": {
@@ -475,6 +715,73 @@
         "title": "RollbackBarMove",
         "type": "object"
       },
+      "SketchArc": {
+        "description": "A circular arc traversed **counterclockwise** from start to end.\n\nThe radius is implied by ``|start - center|``; the solver keeps start and\nend on the circle (they may move to satisfy constraints).",
+        "properties": {
+          "center": {
+            "$ref": "#/components/schemas/Point2D"
+          },
+          "end": {
+            "$ref": "#/components/schemas/Point2D"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "arc",
+            "title": "Kind",
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Point2D"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "center",
+          "start",
+          "end"
+        ],
+        "title": "SketchArc",
+        "type": "object"
+      },
+      "SketchCircle": {
+        "description": "A full circle.",
+        "properties": {
+          "center": {
+            "$ref": "#/components/schemas/Point2D"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "circle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "radius": {
+            "description": "Radius (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Radius",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "center",
+          "radius"
+        ],
+        "title": "SketchCircle",
+        "type": "object"
+      },
       "SketchFeature": {
         "description": "``{\"type\": \"sketch\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -500,23 +807,101 @@
         "title": "SketchFeature",
         "type": "object"
       },
+      "SketchLine": {
+        "description": "A line segment between two endpoints.",
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/Point2D"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Point2D"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "start",
+          "end"
+        ],
+        "title": "SketchLine",
+        "type": "object"
+      },
       "SketchParamsV1": {
-        "description": "Sketch on a plane \u2014 datum planes only in v1 (design \u00a72.1).\n\n``entities``/``constraints`` are structurally-open JSON objects in this\nslice: their final pydantic shapes are owned by the \"Sketch model +\nsolver API\" backlog item (design \u00a71.4). Sketch entities carry\nsketch-local string ids (``\"e1\"``, ...) per design \u00a72.4.",
+        "description": "Sketch on a plane \u2014 datum planes only in v1 (design \u00a72.1).\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
         "properties": {
           "constraints": {
-            "description": "Sketch constraints (shape finalized by the sketch-model item)",
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "discriminator": {
+                "mapping": {
+                  "coincident": "#/components/schemas/CoincidentConstraint",
+                  "distance": "#/components/schemas/DistanceConstraint",
+                  "fixed": "#/components/schemas/FixedConstraint",
+                  "horizontal": "#/components/schemas/HorizontalConstraint",
+                  "radius": "#/components/schemas/RadiusConstraint",
+                  "vertical": "#/components/schemas/VerticalConstraint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CoincidentConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/HorizontalConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/VerticalConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/DistanceConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/RadiusConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/FixedConstraint"
+                }
+              ]
             },
             "title": "Constraints",
             "type": "array"
           },
           "entities": {
-            "description": "Sketch entities (shape finalized by the sketch-model item)",
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
             },
             "title": "Entities",
             "type": "array"
@@ -541,11 +926,37 @@
           }
         },
         "required": [
-          "plane",
           "entities",
-          "constraints"
+          "constraints",
+          "plane"
         ],
         "title": "SketchParamsV1",
+        "type": "object"
+      },
+      "SketchPoint": {
+        "description": "A free point (construction geometry, arc centers to snap to, \u2026).",
+        "properties": {
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "point",
+            "title": "Kind",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Point2D"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "position"
+        ],
+        "title": "SketchPoint",
         "type": "object"
       },
       "ValidationError": {
@@ -586,6 +997,28 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VerticalConstraint": {
+        "description": "A line is parallel to the sketch Y axis.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "vertical",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "entity"
+        ],
+        "title": "VerticalConstraint",
         "type": "object"
       }
     }
@@ -820,6 +1253,68 @@
         "summary": "Get Part",
         "tags": [
           "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/evaluation-request": {
+      "get": {
+        "description": "The evaluation-ready feature list (design \u00a74.2), for the gateway to\nforward to the geometry service verbatim.\n\nDocuments owns everything geometry must never know about: the rollback\nbar is applied HERE (only the prefix up to and including the bar is\nreturned, \u00a73), params are upcast to current versions on read (\u00a71.4), and\nthe order is the total ``order_index`` order. ``tree_version`` rides\nalong as the cache/correlation key.",
+        "operationId": "get_evaluation_request_api_v1_parts__part_id__evaluation_request_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateTreeRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Evaluation Request",
+        "tags": [
+          "features"
         ]
       }
     },

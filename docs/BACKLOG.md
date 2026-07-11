@@ -15,11 +15,11 @@ modeling are the active flips this phase — the whole Ready queue below feeds
 them:
 
 - **Sketching & constraints** — solver adopted (planegcs, 0.0-deviation
-  benchmark, commit 3da8f0a) but no sketch API or sketcher UI yet. → Ready
-  #1–#5.
-- **Part modeling (features, history)** — parametric box/cylinder with live
-  param editing only; no feature tree, no history, no real features. → Ready
-  #1, #2, #6.
+  benchmark) and the sketch model + solve API now runs end-to-end (Ready
+  #1–#3 shipped); flips ❌→✅ only when the sketcher UI lands. → Ready #4–#5.
+- **Part modeling (features, history)** — feature tree persisted + evaluated
+  (Ready #1–#3) but no body-affecting feature yet; box/cylinder live-param
+  editing only. → Ready #6.
 - **Interop (STEP/STL)** — half-flipped per VISION's 2026-07-10 re-score
   (export shipped + QA-verified at 0.0 round-trip deviation; import unstarted,
   Phase 4). No Phase 1 item targets it further; stays ❌ until import lands.
@@ -68,7 +68,7 @@ are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
       null` — no body-affecting feature ran), a failing-sketch tree
       (strict-prefix skip demonstrated), byte-deterministic responses;
       contracts + ts-client regenerated. [src: roadmap]
-- [ ] (P1, M) Sketch model + solver API — finalize `SketchEntity`/
+- [x] (P1, M) Sketch model + solver API — finalize `SketchEntity`/
       `SketchConstraint` pydantic shapes in `py_kit.schemas.features` (design
       §1.4 placeholder): line/rect/circle/arc with sketch-local string ids
       (§2.4), the five constraint kinds the planegcs spike benchmarked
@@ -210,6 +210,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #3 shipped: sketch model + solver API.** Typed sketch
+  schemas in py-kit, `FeatureResult.data` (§7.10), documents evaluation-request,
+  gateway evaluate route; §6 rectangle solved over real HTTP. [backend-builder]
 - 2026-07-11 — **Ready #2 shipped: geometry evaluate slice.** Stateless
   `POST /api/v1/evaluate` per design §4: sketch-only handler registry (extrude
   plugs in via #6), strict-prefix rule, byte-deterministic. [kernel-architect]
