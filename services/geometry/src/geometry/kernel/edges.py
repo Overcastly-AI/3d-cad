@@ -36,11 +36,14 @@ _AXIS_DIRECTIONS: dict[str, Vector] = {
     "Z": Vector(0.0, 0.0, 1.0),
 }
 
-#: Parallelism tolerance for the ``axis_parallel`` predicate: a unit edge
-#: tangent counts as parallel to an axis when the perpendicular component is
-#: below this bound. Prism edges are exactly axis-aligned; the bound absorbs
-#: only ulp-scale construction noise (aligned with the kernel linear tolerance,
-#: 1e-7 m — model units are mm).
+#: Parallelism tolerance for the ``axis_parallel`` predicate, compared against
+#: the tangent-axis cross-product magnitude (``sin theta`` for unit vectors) —
+#: an angular (dimensionless)
+#: bound, not a linear one. A unit edge tangent counts as parallel to an axis
+#: when the perpendicular component is below this bound. Prism edges are exactly
+#: axis-aligned; the bound absorbs only ulp-scale construction noise (a tight
+#: angular threshold, numerically the same 1e-7 the kernel uses for linear
+#: tolerance but a distinct quantity).
 _EDGE_DIRECTION_TOLERANCE = 1e-7
 
 

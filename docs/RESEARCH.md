@@ -136,6 +136,17 @@ static bundle behind nginx: cloud-native friendly and simple.
 **Geometry transport:** server-side tessellation → **glTF/GLB** buffers to
 the viewport (Draco compression later). The client never runs the kernel.
 
+**Content-addressed mesh artifacts — standing security constraint (code
+reviewer, 2026-07-11):** evaluated bodies are served by `sha256:` content
+address (`GET /api/v1/geometry/meshes/{id}`), auth-gated but **not**
+tenant-scoped: any authenticated user holding the hash can fetch those
+bytes. This is safe *because* the id is a content hash — knowing it requires
+having produced identical geometry (no enumeration, no oracle), and
+content-addressing is the dedup contract. **Do not reuse this pattern for any
+artifact whose existence or bytes are tenant-sensitive** without adding
+per-owner scoping. The object-storage successor (section 7.8 of the feature-tree
+design) inherits the same rule.
+
 **Design system (`packages/design`) — decided 2026-07-09 (founder):** design
 tokens, UI primitives, and fonts live in a **source-only pnpm workspace
 package**, not inside `apps/web`. Rationale: (a) the UI spans two renderers —
