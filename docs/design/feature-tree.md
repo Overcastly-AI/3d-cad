@@ -304,6 +304,9 @@ The JSONB stays the source of truth for *what* is referenced;
 
 ### 2.4 Forward-compatibility: the Phase 2 topological-naming extension point
 
+> **Phase 2 design:** the mechanism this section reserves is specified in
+> [`docs/design/topological-naming.md`](./topological-naming.md).
+
 Phase 2 features (fillet on *that edge*, sketch on *that face*) need
 references to **subshapes of a feature's result**, stable across rebuilds.
 This design reserves the slot without designing the mechanism:

@@ -41,7 +41,7 @@ parallel with everything else. #2–#4 (sketcher) and #5 (revolve) are
 independent of #1 and of each other — none needs a stable named reference to
 ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
 
-- [ ] (P1, M) Topological naming strategy — design doc — defines how a
+- [x] (P1, M) Topological naming strategy — design doc — defines how a
       `SubshapeRef` (additive `kind` alongside today's geometric `EdgeSelector`,
       design §2.4) identifies a specific face/edge/vertex stably across
       feature-tree re-evaluation: naming scheme (index-based vs.
@@ -291,6 +291,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Topological naming design doc landed** (Ready #1 → done).
+  `docs/design/topological-naming.md`: staged hybrid (signature-first →
+  provenance+signature), additive `SubshapeRef`, strict-prefix failure;
+  unblocks Next-queue face/edge picking. Pending code-reviewer endorsement.
 - 2026-07-11 — **Phase 1 complete; groomed for Phase 2.** ROADMAP Phase 1 →
   ✅ (condensed to one line/item), Current focus → Phase 2. Ready batch 3
   (8 items, the exit-gate chain) archived to one-liners. New Ready queue:
