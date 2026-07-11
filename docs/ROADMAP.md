@@ -102,8 +102,13 @@ The thinnest vertical slice a working engineer can feel:
       2026-07-11: typed entity/constraint schemas in py-kit, solved
       geometry returned per feature via `FeatureResult.data` [§7.10],
       §6 rectangle solved at 0.0 deviation / DOF 0 end-to-end over real
-      HTTP through gateway→documents→geometry. Sketcher UI pending —
-      BACKLOG #4/#5)
+      HTTP through gateway→documents→geometry. Sketcher UI plane + entity
+      authoring shipped 2026-07-11 [BACKLOG #4]: `/parts/{id}` workspace
+      with feature-tree panel, viewport datum-plane pick, L/R/C/A
+      click-to-place line/rect/circle/arc with live preview, 1 mm grid
+      snap + DRO readout, save → evaluate → SOLVED positions rendered;
+      sketch tokens in `@loft/design`; Playwright 19/19 incl. reload
+      persistence + canvas pixel checks. Constraint UI pending — BACKLOG #5)
 - ⬜ Features v1: extrude (add/cut), fillet, chamfer; feature re-evaluation on
       param edit; error surfacing when a feature fails to rebuild
 - ⬜ Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of

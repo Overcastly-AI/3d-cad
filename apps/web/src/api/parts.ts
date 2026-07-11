@@ -1,0 +1,120 @@
+/**
+ * Parts + feature-tree data layer — all types come from the generated
+ * `@loft/ts-client` (pydantic → OpenAPI → TS; CLAUDE.md DRY rule). Errors
+ * surface the server envelope's own message.
+ */
+import type { components, GatewayClient } from "@loft/ts-client/gateway";
+
+import { gatewayClient } from "./client";
+import { envelopeMessage } from "./envelope";
+
+export type PartResponse = components["schemas"]["PartResponse"];
+export type FeatureTreeResponse = components["schemas"]["FeatureTreeResponse"];
+export type FeatureResponse = components["schemas"]["FeatureResponse"];
+export type FeatureCreate = components["schemas"]["FeatureCreate"];
+export type FeatureMutationResponse =
+  components["schemas"]["FeatureMutationResponse"];
+export type EvaluateTreeResult = components["schemas"]["EvaluateTreeResult"];
+export type FeatureResult = components["schemas"]["FeatureResult"];
+export type SolvedSketchData = components["schemas"]["SolvedSketchData"];
+export type SketchFeature = components["schemas"]["SketchFeature"];
+export type SketchEntity =
+  components["schemas"]["SketchParamsV1"]["entities"][number];
+export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
+
+/** One of the caller's parts. */
+export async function fetchPart(
+  partId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<PartResponse> {
+  const { data, error } = await client.GET("/api/v1/parts/{part_id}", {
+    params: { path: { part_id: partId } },
+  });
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The part could not be loaded."));
+  }
+  return data;
+}
+
+/** The part's ordered feature tree + its concurrency token. */
+export async function fetchFeatureTree(
+  partId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureTreeResponse> {
+  const { data, error } = await client.GET("/api/v1/parts/{part_id}/features", {
+    params: { path: { part_id: partId } },
+  });
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The feature tree could not be loaded."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Evaluate the part's current tree; the result carries per-feature statuses
+ * and SOLVED sketch geometry (`FeatureResult.data`) — the sketcher renders
+ * those solved positions, never its own input echo, so constraints (#5)
+ * change the picture without changing this code path.
+ */
+export async function evaluatePart(
+  partId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<EvaluateTreeResult> {
+  const { data, error } = await client.POST(
+    "/api/v1/parts/{part_id}/evaluate",
+    { params: { path: { part_id: partId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The part could not be evaluated."));
+  }
+  return data;
+}
+
+/**
+ * The save payload for a locally buffered sketch: entities persist
+ * unconstrained (constraint authoring is BACKLOG #5), on a v1 datum plane.
+ * Pure — unit-tested against the generated types.
+ */
+export function sketchFeatureCreate(
+  name: string,
+  plane: DatumPlaneName,
+  entities: readonly SketchEntity[],
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: {
+        plane: { kind: "datum_plane", plane },
+        entities: [...entities],
+        constraints: [],
+      },
+    },
+  };
+}
+
+/** Create a feature at the tip of the tree (201; 422 on stale version). */
+export async function createFeature(
+  partId: string,
+  body: FeatureCreate,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureMutationResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/parts/{part_id}/features",
+    { params: { path: { part_id: partId } }, body },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(
+        error,
+        "The sketch could not be saved — reload and try again.",
+      ),
+    );
+  }
+  return data;
+}

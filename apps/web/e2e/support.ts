@@ -64,6 +64,54 @@ export async function seedSession(page: Page): Promise<RegisteredAccount> {
   return account;
 }
 
+/** Create a part via the real gateway, authorized as `token`'s account. */
+export async function createPartViaApi(
+  page: Page,
+  token: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  const response = await page.request.post("/api/v1/parts", {
+    data: { name },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `e2e create part failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return (await response.json()) as { id: string; name: string };
+}
+
+/**
+ * Count bright, cool-tinted canvas pixels — sketch ink. The scribe tokens
+ * (`sketch.scribe`/`scribeSolved`) are the only bright blue-leaning colors
+ * in the scene (brass previews are warm, grid/ground are dark), and sketch
+ * materials render un-tonemapped, so token ink lands near its exact hex.
+ */
+export async function countSketchInkPixels(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      '[data-testid="viewport"] canvas',
+    );
+    if (!canvas) return 0;
+    const probe = document.createElement("canvas");
+    probe.width = canvas.width;
+    probe.height = canvas.height;
+    const ctx = probe.getContext("2d");
+    if (!ctx) return 0;
+    ctx.drawImage(canvas, 0, 0);
+    const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] ?? 0;
+      const g = data[i + 1] ?? 0;
+      const b = data[i + 2] ?? 0;
+      if (r > 120 && b > 140 && b >= r && g >= r) count += 1;
+    }
+    return count;
+  });
+}
+
 /** Count distinct colors on the WebGL canvas — proves a real render. */
 export async function distinctCanvasColors(page: Page): Promise<number> {
   return page.evaluate(() => {

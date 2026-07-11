@@ -7,6 +7,7 @@ import {
 
 import { AuthedLayout } from "./routes/AuthedLayout";
 import { ModelerPage } from "./routes/ModelerPage";
+import { PartPage } from "./routes/PartPage";
 import { SignInPage } from "./routes/SignInPage";
 
 const rootRoute = createRootRoute({
@@ -32,9 +33,16 @@ const indexRoute = createRoute({
   component: ModelerPage,
 });
 
+/** Part workspace: feature tree + viewport + sketch mode. */
+export const partRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/parts/$partId",
+  component: PartPage,
+});
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  authedRoute.addChildren([indexRoute]),
+  authedRoute.addChildren([indexRoute, partRoute]),
 ]);
 
 export const router = createRouter({ routeTree });

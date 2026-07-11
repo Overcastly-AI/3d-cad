@@ -55,6 +55,44 @@ export const viewport = {
   lightFill: "#B9C7D9",
 } as const;
 
+/**
+ * Sketch-scene palette — the 2D authoring layer inside the WebGL viewport.
+ * Committed entities read as scribed bright metal through layout bluing;
+ * the in-progress preview is the working brass accent; datum planes are
+ * quiet steel sheets that take a brass edge when addressed. Opacities live
+ * here too: they are design decisions, not per-mesh magic numbers.
+ */
+export const sketch = {
+  /** Committed sketch entity ink — a scribed line through the bluing. */
+  scribe: "#E9F1F8",
+  /** Persisted-and-solved sketch ink (slightly settled vs. the live buffer). */
+  scribeSolved: "#C4D2DE",
+  /** In-progress preview (rubber band) — dashes in working brass. */
+  preview: color.brass,
+  /** Entity defining points (endpoints, centers). */
+  point: color.brass,
+  /** Snap-cursor crosshair. */
+  cursor: color.brassHover,
+  /** Datum plane fill / edge at rest. */
+  planeFill: color.hairline,
+  planeEdge: color.etch,
+  /** Datum plane under the pointer or keyboard focus. */
+  planeHoverEdge: color.brass,
+  /** The chosen sketch plane while drawing. */
+  planeActiveEdge: color.brass,
+  /** Plane fill opacities (rest / hover / active sketch sheet). */
+  planeFillOpacity: 0.14,
+  planeHoverFillOpacity: 0.28,
+  planeActiveFillOpacity: 0.06,
+  /** Entity defining-point size (px, screen space — sizeAttenuation off). */
+  pointSizePx: 5,
+  /** Snap-cursor crosshair arm length (world mm). */
+  cursorArmMm: 2.5,
+  /** Rubber-band dash pattern (world mm). */
+  previewDashMm: 2,
+  previewGapMm: 1.25,
+} as const;
+
 export const font = {
   /** Display: wordmark + tracked eyebrow labels. Used with restraint. */
   display: '"Fragment Mono", ui-monospace, monospace',

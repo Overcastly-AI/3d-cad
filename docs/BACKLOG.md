@@ -15,8 +15,9 @@ modeling are the active flips this phase — the whole Ready queue below feeds
 them:
 
 - **Sketching & constraints** — solver adopted (planegcs, 0.0-deviation
-  benchmark) and the sketch model + solve API now runs end-to-end (Ready
-  #1–#3 shipped); flips ❌→✅ only when the sketcher UI lands. → Ready #4–#5.
+  benchmark), the sketch model + solve API runs end-to-end (Ready #1–#3),
+  and the sketcher UI authors/persists/renders solved entities (Ready #4);
+  flips ❌→✅ when constraint authoring lands. → Ready #5.
 - **Part modeling (features, history)** — feature tree persisted + evaluated
   (Ready #1–#3) but no body-affecting feature yet; box/cylinder live-param
   editing only. → Ready #6.
@@ -82,7 +83,7 @@ are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
       deviation, DOF 0; underconstrained/conflicting sketches surface solver
       status via `FeatureError`/`data`, never a crash; contracts + ts-client
       regenerated. [src: roadmap]
-- [ ] (P1, S) Sketcher UI — plane + entity authoring — viewport datum-plane
+- [x] (P1, S) Sketcher UI — plane + entity authoring — viewport datum-plane
       selection (XY/XZ/YZ) and raw entity authoring (line/rect/circle/arc)
       wired to the sketch API (#3); no constraint UI yet, entities persist
       unconstrained. `frontend-design` skill mandatory (new viewport
@@ -210,6 +211,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #4 shipped: sketcher UI — plane + entity authoring.**
+  `/parts/{id}` workspace: datum-plane pick, L/R/C/A click-to-place tools,
+  1 mm-snap DRO, save→evaluate→solved render; e2e 19/19. [frontend-builder]
 - 2026-07-11 — **Ready #3 shipped: sketch model + solver API.** Typed sketch
   schemas in py-kit, `FeatureResult.data` (§7.10), documents evaluation-request,
   gateway evaluate route; §6 rectangle solved over real HTTP. [backend-builder]

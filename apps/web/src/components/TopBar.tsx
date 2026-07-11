@@ -1,9 +1,15 @@
 import { Button, Chip, Toolbar } from "@loft/design";
+import type { ReactNode } from "react";
 
 import { useSessionStore } from "../auth/session";
 import { LoftMark } from "./LoftMark";
 
-export function TopBar() {
+export interface TopBarProps {
+  /** Context slot next to the wordmark (defaults to the status chip). */
+  children?: ReactNode;
+}
+
+export function TopBar({ children }: TopBarProps) {
   const user = useSessionStore((state) => state.user);
   const signOut = useSessionStore((state) => state.signOut);
   return (
@@ -14,7 +20,7 @@ export function TopBar() {
           LOFT
         </span>
       </h1>
-      <Chip data-testid="status-chip">First light</Chip>
+      {children ?? <Chip data-testid="status-chip">First light</Chip>}
       <div className="grow" />
       <span className="hidden font-body text-xs text-gauge lg:inline">
         Parametric CAD · tessellated server-side by OCCT

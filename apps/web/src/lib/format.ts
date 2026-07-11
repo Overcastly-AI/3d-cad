@@ -25,6 +25,16 @@ export function formatExtents(min: Vec3, max: Vec3): string {
     .join(" × ");
 }
 
+/**
+ * DRO cell readout: explicit sign + fixed decimals, like a machine readout.
+ * `12.5 → "+12.50"`, `-3 → "-3.00"`, null (pointer off-plane) → "—".
+ */
+export function formatDroMm(value: number | null): string {
+  if (value === null) return "—";
+  const sign = value < 0 ? "-" : "+";
+  return `${sign}${Math.abs(value).toFixed(2)}`;
+}
+
 /** 12994 → "12.7 KiB". */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${integer.format(bytes)} B`;

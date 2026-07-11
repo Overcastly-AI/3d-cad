@@ -1,7 +1,7 @@
 import { viewport } from "@loft/design/tokens";
 import { Grid, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { PerspectiveCamera, Vector3, type BufferGeometry } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
@@ -45,7 +45,15 @@ function FitCamera({ geometry }: { geometry: BufferGeometry | null }) {
 }
 
 export interface ViewportProps {
-  glb: ArrayBuffer | undefined;
+  glb?: ArrayBuffer | undefined;
+  /** Extra scene content rendered inside the Canvas (e.g. the sketch layer). */
+  children?: ReactNode;
+  /** DOM overlays over the canvas (tool strip, DRO) — chrome stays quiet. */
+  hud?: ReactNode;
+  /** Orbit rotate lock — off while sketching (pan/zoom stay live). */
+  rotateEnabled?: boolean;
+  /** The world ground grid; the sketch grid replaces it while drawing. */
+  groundGrid?: boolean;
 }
 
 /**
@@ -53,7 +61,13 @@ export interface ViewportProps {
  * machined-aluminum model, mm grid. Every color comes from
  * `@loft/design/tokens` — one palette, two renderers.
  */
-export function Viewport({ glb }: ViewportProps) {
+export function Viewport({
+  glb,
+  children,
+  hud,
+  rotateEnabled = true,
+  groundGrid = true,
+}: ViewportProps) {
   const reducedMotion = useReducedMotion();
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
   const [parseError, setParseError] = useState<Error | null>(null);
@@ -89,16 +103,18 @@ export function Viewport({ glb }: ViewportProps) {
           position={[-80, 40, -60]}
           intensity={0.45}
         />
-        <Grid
-          position={[0, -0.05, 0]}
-          cellSize={5}
-          sectionSize={25}
-          cellColor={viewport.gridMinor}
-          sectionColor={viewport.gridMajor}
-          fadeDistance={420}
-          fadeStrength={1.2}
-          infiniteGrid
-        />
+        {groundGrid ? (
+          <Grid
+            position={[0, -0.05, 0]}
+            cellSize={5}
+            sectionSize={25}
+            cellColor={viewport.gridMinor}
+            sectionColor={viewport.gridMajor}
+            fadeDistance={420}
+            fadeStrength={1.2}
+            infiniteGrid
+          />
+        ) : null}
         {glb ? (
           <ModelMesh
             glb={glb}
@@ -106,9 +122,15 @@ export function Viewport({ glb }: ViewportProps) {
             onError={handleError}
           />
         ) : null}
+        {children}
         <FitCamera geometry={geometry} />
-        <OrbitControls makeDefault enableDamping={!reducedMotion} />
+        <OrbitControls
+          makeDefault
+          enableDamping={!reducedMotion}
+          enableRotate={rotateEnabled}
+        />
       </Canvas>
+      {hud}
       {/*
         Rejection stamp — shown when the GLB fails to parse. The stale mesh
         has already been cleared (ModelMesh.onError), so the viewport never

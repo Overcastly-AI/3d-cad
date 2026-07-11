@@ -3,13 +3,15 @@
 #
 # Leg 1: geometry golden models + STEP round-trip (docs/GEOMETRY-QA.md).
 # Leg 2: Playwright e2e for @loft/web against the real stack. The specs need
-#         the geometry service (:8002) and gateway (:8000); this script boots
-#         them as background uvicorn processes (PIDs saved, cleaned up on
-#         exit — never killed by pattern) or reuses already-healthy ones, so
-#         it composes with a running `just dev` loop. Playwright's webServer
-#         config starts/reuses the Vite dev server (:5173) itself.
+#         the geometry service (:8002), documents service (:8001), and
+#         gateway (:8000); this script boots them as background uvicorn
+#         processes (PIDs saved, cleaned up on exit — never killed by
+#         pattern) or reuses already-healthy ones, so it composes with a
+#         running `just dev` loop. Playwright's webServer config
+#         starts/reuses the Vite dev server (:5173) itself.
 #
-# Env:    GATEWAY_PORT / GEOMETRY_PORT   override ports (default 8000/8002)
+# Env:    GATEWAY_PORT / DOCUMENTS_PORT / GEOMETRY_PORT
+#                                        override ports (default 8000/8001/8002)
 #         PLAYWRIGHT_BROWSERS_PATH       honored if set; else /opt/pw-browsers
 #                                        when that directory exists
 #
@@ -20,6 +22,7 @@ cd "$(dirname "$0")/.."
 
 HOST=127.0.0.1
 GATEWAY_PORT="${GATEWAY_PORT:-8000}"
+DOCUMENTS_PORT="${DOCUMENTS_PORT:-8001}"
 GEOMETRY_PORT="${GEOMETRY_PORT:-8002}"
 RUN_DIR="$(mktemp -d -t loft-e2e.XXXXXX)"
 STARTED_PIDS=()
@@ -86,33 +89,42 @@ echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
 start_service geometry geometry.main:app "$GEOMETRY_PORT"
 export GEOMETRY_URL="${GEOMETRY_URL:-http://${HOST}:${GEOMETRY_PORT}}"
 
-# Gateway DB plumbing: the auth e2e needs a user store. Without a Postgres
-# daemon (this sandbox), default POSTGRES_URL to the same file-backed
-# aiosqlite database the gateway's own unit suite uses, and apply the
-# migration-equivalent (ORM metadata create) the way its tests do.
+# DB plumbing: the auth e2e needs a user store (gateway) and the sketcher
+# e2e needs parts + features (documents). Without a Postgres daemon (this
+# sandbox), each service gets its OWN file-backed aiosqlite database with
+# the migration-equivalent (ORM metadata create), the way the services' own
+# unit suites do. With POSTGRES_URL preset (a real dev stack), both use it.
 if [[ -z "${POSTGRES_URL:-}" ]]; then
-  export POSTGRES_URL="sqlite+aiosqlite:///${RUN_DIR}/gateway-e2e.db"
-  echo "e2e: POSTGRES_URL unset — using ${POSTGRES_URL}"
-  uv run python - <<'PY'
+  DOCUMENTS_DB="sqlite+aiosqlite:///${RUN_DIR}/documents-e2e.db"
+  GATEWAY_DB="sqlite+aiosqlite:///${RUN_DIR}/gateway-e2e.db"
+  echo "e2e: POSTGRES_URL unset — using per-service sqlite stores in ${RUN_DIR}"
+  uv run python - "$DOCUMENTS_DB" "$GATEWAY_DB" <<'PY'
 import asyncio
-import os
+import sys
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from gateway.db import Base
+from documents.db import Base as DocumentsBase
+from gateway.db import Base as GatewayBase
 from py_kit.db import async_dsn
 
 
 async def main() -> None:
-    engine = create_async_engine(async_dsn(os.environ["POSTGRES_URL"]))
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    await engine.dispose()
+    for url, base in ((sys.argv[1], DocumentsBase), (sys.argv[2], GatewayBase)):
+        engine = create_async_engine(async_dsn(url))
+        async with engine.begin() as connection:
+            await connection.run_sync(base.metadata.create_all)
+        await engine.dispose()
 
 
 asyncio.run(main())
 PY
+  POSTGRES_URL="$DOCUMENTS_DB" start_service documents documents.main:app "$DOCUMENTS_PORT"
+  export POSTGRES_URL="$GATEWAY_DB"
+else
+  start_service documents documents.main:app "$DOCUMENTS_PORT"
 fi
+export DOCUMENTS_URL="${DOCUMENTS_URL:-http://${HOST}:${DOCUMENTS_PORT}}"
 
 # Explicit dev posture: unset LOFT_ENV fails closed on the gateway (JWT
 # secret required outside dev), so this local gate declares itself dev.
