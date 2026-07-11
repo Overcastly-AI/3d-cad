@@ -81,7 +81,13 @@ The thinnest vertical slice a working engineer can feel:
       params + ordered tree) (parts CRUD shipped 2026-07-10: owner-scoped
       create/list/get/delete via alembic `0001_parts` + auth-protected
       gateway aggregation, db/alembic plumbing shared through py-kit.
-      Feature-tree persistence pending, per docs/design/feature-tree.md)
+      Feature-tree persistence shipped 2026-07-11 per
+      docs/design/feature-tree.md §1-3/§5: alembic `0002_feature_tree`
+      [deferred constraints, composite same-part FKs], feature
+      CRUD/reorder/rollback-bar API with reference rules,
+      409-with-dependents, 422-stale-version, versioned param envelopes +
+      upcast registry in py-kit, gateway aggregation; geometry evaluate
+      slice pending → BACKLOG #2)
 - 🚧 Sketcher v1: plane selection, line/rect/circle/arc, dimensional +
       geometric constraints (planegcs behind `SketchSolver` interface —
       solver layer shipped 2026-07-10: protocol + planegcs 0.8.0 backend,

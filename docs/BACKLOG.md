@@ -34,7 +34,7 @@ dependency between them) and can build in parallel; #3 depends on both; #4→#5
 are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
 #4/#5.
 
-- [ ] (P1, M) Feature-tree persistence — documents schema + API slice —
+- [x] (P1, M) Feature-tree persistence — documents schema + API slice —
       implement design doc §1–3, §5 in the documents service: alembic
       `0002_feature_tree` (`features` + `feature_dependencies` tables,
       `tree_version`/`rollback_feature_id` columns per §1.2); feature CRUD API
@@ -210,6 +210,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #1 shipped: feature-tree persistence (documents slice).**
+  Alembic `0002_feature_tree` (§1.2 DDL verbatim), feature CRUD/reorder/rollback
+  with §2.2 rules, 409-dependents, 422-stale; tested on SQLite + real scratch
+  Postgres (migrations applied). [backend-builder]
 - 2026-07-10 — **Groomed for the sketcher/Features-v1 slice.** ROADMAP
   verified against `git log` (35bd7ec..565e337) — already accurate, no edits
   needed. Refilled Ready from Next: feature-tree persistence implementation

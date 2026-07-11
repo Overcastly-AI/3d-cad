@@ -62,11 +62,20 @@ def get_principal(
 Principal = Annotated[uuid.UUID, Depends(get_principal)]
 
 
-async def _get_owned_part(
-    session: AsyncSession, owner_id: uuid.UUID, part_id: uuid.UUID
+async def get_owned_part(
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    part_id: uuid.UUID,
+    *,
+    for_update: bool = False,
 ) -> Part:
-    """The owner's part, or a uniform 404 (unknown id == foreign id)."""
-    part = await session.get(Part, part_id)
+    """The owner's part, or a uniform 404 (unknown id == foreign id).
+
+    ``for_update`` row-locks the part (Postgres) so concurrent tree mutations
+    serialize on the part row — the ``tree_version`` bump is then race-free.
+    SQLAlchemy's SQLite dialect ignores FOR UPDATE (single-writer anyway).
+    """
+    part = await session.get(Part, part_id, with_for_update=for_update or None)
     if part is None or part.owner_id != owner_id:
         raise NotFoundError("Part not found.", code="part_not_found")
     return part
@@ -107,9 +116,7 @@ async def get_part(
     part_id: uuid.UUID, owner_id: Principal, session: SessionDep
 ) -> PartResponse:
     """One owned part (uniform 404 for unknown/foreign ids)."""
-    return PartResponse.model_validate(
-        await _get_owned_part(session, owner_id, part_id)
-    )
+    return PartResponse.model_validate(await get_owned_part(session, owner_id, part_id))
 
 
 @router.delete("/{part_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -118,11 +125,13 @@ async def delete_part(
 ) -> None:
     """Delete an owned part (204; uniform 404 for unknown/foreign ids).
 
-    Once features exist this gains the design doc's 409-with-dependents
-    pre-check (docs/design/feature-tree.md §2.3); today a part has no
-    dependents, so deletion is unconditional.
+    Deletion is unconditional BY DESIGN even when the part has a feature
+    tree: the parts→features CASCADE removes the tree, and the deferred
+    target-side FK on feature_dependencies makes that legal at commit time
+    (docs/design/feature-tree.md §2.3 — the 409-with-dependents pre-check
+    applies to deleting a single FEATURE, never the whole part).
     """
-    part = await _get_owned_part(session, owner_id, part_id)
+    part = await get_owned_part(session, owner_id, part_id)
     await session.delete(part)
     await session.commit()
     _logger.info("part_deleted", part_id=str(part_id), owner_id=str(owner_id))

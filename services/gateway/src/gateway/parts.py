@@ -44,14 +44,19 @@ def create_documents_client(
     )
 
 
-async def _forward(
+async def forward_documents(
     http_request: Request,
     user: User,
     method: str,
     path: str,
     json_content: str | None = None,
+    params: dict[str, str] | None = None,
 ) -> httpx.Response:
-    """Forward to documents with the authenticated principal attached."""
+    """Forward to documents with the authenticated principal attached.
+
+    Shared by the parts and features aggregation routers (DRY) — one place
+    owns the principal-header contract with the documents service.
+    """
     client: httpx.AsyncClient = http_request.app.state.documents_client
     return await forward(
         client,
@@ -61,6 +66,7 @@ async def _forward(
         service=_SERVICE,
         json_content=json_content,
         headers={PRINCIPAL_HEADER: str(user.id)},
+        params=params,
     )
 
 
@@ -69,7 +75,7 @@ async def create_part(
     request: PartCreate, user: CurrentUser, http_request: Request
 ) -> PartResponse:
     """Create a part owned by the caller (201; 409 envelope on duplicate name)."""
-    upstream = await _forward(
+    upstream = await forward_documents(
         http_request, user, "POST", "/api/v1/parts", request.model_dump_json()
     )
     if upstream.status_code != status.HTTP_201_CREATED:
@@ -80,7 +86,7 @@ async def create_part(
 @router.get("")
 async def list_parts(user: CurrentUser, http_request: Request) -> PartListResponse:
     """The caller's parts, oldest first."""
-    upstream = await _forward(http_request, user, "GET", "/api/v1/parts")
+    upstream = await forward_documents(http_request, user, "GET", "/api/v1/parts")
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     return PartListResponse.model_validate_json(upstream.content)
@@ -91,7 +97,9 @@ async def get_part(
     part_id: uuid.UUID, user: CurrentUser, http_request: Request
 ) -> PartResponse:
     """One of the caller's parts (404 envelope for unknown/foreign ids)."""
-    upstream = await _forward(http_request, user, "GET", f"/api/v1/parts/{part_id}")
+    upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/parts/{part_id}"
+    )
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     return PartResponse.model_validate_json(upstream.content)
@@ -102,6 +110,8 @@ async def delete_part(
     part_id: uuid.UUID, user: CurrentUser, http_request: Request
 ) -> None:
     """Delete one of the caller's parts (204; 404 for unknown/foreign ids)."""
-    upstream = await _forward(http_request, user, "DELETE", f"/api/v1/parts/{part_id}")
+    upstream = await forward_documents(
+        http_request, user, "DELETE", f"/api/v1/parts/{part_id}"
+    )
     if upstream.status_code != status.HTTP_204_NO_CONTENT:
         raise_upstream_error(upstream, service=_SERVICE)

@@ -263,6 +263,11 @@ pointing at a sketch feature.
    (extrude's `profile` must reference a `sketch`). Type checks live next to
    the param models in py-kit as validator helpers so documents and any future
    caller enforce identical rules.
+4. *(v1 implementation rule, added with the documents slice)* A feature's
+   `type` is **immutable on update** (`feature_type_immutable`, 422): changing
+   a feature's kind in place would silently invalidate rule-3 checks that
+   dependents already passed against the old type. Delete and recreate to
+   change kind.
 
 ### 2.3 `feature_dependencies` — materialized edges
 

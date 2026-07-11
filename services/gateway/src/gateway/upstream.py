@@ -38,12 +38,14 @@ async def forward(
     service: str,
     json_content: str | None = None,
     headers: dict[str, str] | None = None,
+    params: dict[str, str] | None = None,
 ) -> httpx.Response:
     """Forward to an upstream service, mapping transport failures to 502.
 
     The gateway request id is always propagated so per-service logs
     correlate; ``json_content`` is a pre-serialized DTO body (the routes
-    validate with the shared py-kit models before anything goes upstream).
+    validate with the shared py-kit models before anything goes upstream);
+    ``params`` are query parameters, already validated the same way.
     """
     request_headers: dict[str, str] = {
         REQUEST_ID_HEADER: http_request.state.request_id,
@@ -53,7 +55,11 @@ async def forward(
         request_headers["content-type"] = "application/json"
     try:
         return await client.request(
-            method, path, content=json_content, headers=request_headers
+            method,
+            path,
+            content=json_content,
+            headers=request_headers,
+            params=params,
         )
     except httpx.HTTPError as exc:
         raise UpstreamUnavailableError(

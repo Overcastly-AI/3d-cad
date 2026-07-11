@@ -20,6 +20,7 @@ from py_kit.db import (
     ping,
     postgres_readiness,
 )
+from sqlalchemy.exc import IntegrityError
 
 
 @pytest.mark.parametrize(
@@ -55,6 +56,39 @@ def test_database_state_start_ping_dispose(tmp_path: Path) -> None:
         await database.dispose()
         assert database.engine is None and database.sessionmaker is None
         # Idempotent: disposing an unstarted holder is a no-op.
+        await database.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_start_enables_sqlite_foreign_keys(tmp_path: Path) -> None:
+    """SQLite engines from DatabaseState.start enforce FKs (pragma ON).
+
+    SQLite ships with enforcement OFF per connection; production Postgres
+    always enforces — without the pragma the sanctioned test dialect would
+    silently permit orphans (CASCADE/NO ACTION/deferred semantics untested).
+    """
+
+    async def scenario() -> None:
+        database = DatabaseState()
+        database.start(f"sqlite:///{tmp_path}/fk.db")
+        sessionmaker = database.sessionmaker
+        assert sessionmaker is not None
+        async with sessionmaker() as session:
+            await session.execute(
+                sa.text("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
+            )
+            await session.execute(
+                sa.text(
+                    "CREATE TABLE child (id INTEGER PRIMARY KEY, "
+                    "parent_id INTEGER NOT NULL REFERENCES parent(id))"
+                )
+            )
+            await session.commit()
+            with pytest.raises(IntegrityError):
+                await session.execute(
+                    sa.text("INSERT INTO child (id, parent_id) VALUES (1, 999)")
+                )
         await database.dispose()
 
     asyncio.run(scenario())

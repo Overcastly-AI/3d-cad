@@ -16,10 +16,11 @@ services and the dev group, not here.
 import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 import sqlalchemy as sa
 from fastapi import Depends, Request
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -67,6 +68,7 @@ class DatabaseState:
     def start(self, postgres_url: str) -> None:
         """Create the engine + sessionmaker for *postgres_url* (async driver)."""
         engine = create_async_engine(async_dsn(postgres_url), pool_pre_ping=True)
+        enable_sqlite_foreign_keys(engine)
         self.engine = engine
         self.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -76,6 +78,25 @@ class DatabaseState:
             await self.engine.dispose()
         self.engine = None
         self.sessionmaker = None
+
+
+def enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
+    """Turn ON foreign-key enforcement for SQLite engines (no-op elsewhere).
+
+    SQLite ships with FK enforcement OFF per connection; Postgres (production)
+    always enforces. SQLite is the sanctioned unit-test dialect (each
+    service's test module states the split), so without this pragma the test
+    dialect would silently permit orphans that Postgres rejects — CASCADE,
+    NO ACTION, and deferred FK semantics would all go untested.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _fk_pragma(dbapi_connection: Any, _record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 async def ping(engine: AsyncEngine, timeout_s: float = DB_PING_TIMEOUT_S) -> None:

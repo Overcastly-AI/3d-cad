@@ -1,10 +1,10 @@
 """Documents app — boots on the py-kit factory (probes, logging, envelope).
 
-``/api/v1`` surface: parts CRUD (:mod:`documents.parts`), backed by Postgres
-via the shared :mod:`py_kit.db` plumbing with the schema owned by
-``services/documents/alembic``. The feature tree lands next per
-docs/design/feature-tree.md. This service never imports kernel code
-(CLAUDE.md service boundaries) — geometry artifacts are referenced by
+``/api/v1`` surface: parts CRUD (:mod:`documents.parts`) and the ordered
+feature tree (:mod:`documents.features`, per docs/design/feature-tree.md),
+backed by Postgres via the shared :mod:`py_kit.db` plumbing with the schema
+owned by ``services/documents/alembic``. This service never imports kernel
+code (CLAUDE.md service boundaries) — geometry artifacts are referenced by
 object-storage id only.
 """
 
@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
 from py_kit.db import DatabaseState, postgres_readiness
 
+from documents.features import router as features_router
 from documents.parts import router as parts_router
 
 TITLE = "Loft Documents"
@@ -64,6 +65,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(parts_router)
+    app.include_router(features_router)
     return app
 
 

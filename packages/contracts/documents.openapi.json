@@ -1,6 +1,366 @@
 {
   "components": {
     "schemas": {
+      "DatumPlaneRef": {
+        "description": "One of the three origin datum planes.",
+        "properties": {
+          "kind": {
+            "const": "datum_plane",
+            "title": "Kind",
+            "type": "string"
+          },
+          "plane": {
+            "enum": [
+              "XY",
+              "XZ",
+              "YZ"
+            ],
+            "title": "Plane",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "plane"
+        ],
+        "title": "DatumPlaneRef",
+        "type": "object"
+      },
+      "ExtrudeFeature": {
+        "description": "``{\"type\": \"extrude\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/ExtrudeParamsV1"
+          },
+          "type": {
+            "const": "extrude",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "ExtrudeFeature",
+        "type": "object"
+      },
+      "ExtrudeParamsV1": {
+        "description": "Linear extrusion of an earlier sketch feature's profile.",
+        "properties": {
+          "direction": {
+            "default": "normal",
+            "enum": [
+              "normal",
+              "reverse"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "distance_mm": {
+            "description": "Extrusion depth (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Distance Mm",
+            "type": "number"
+          },
+          "operation": {
+            "enum": [
+              "add",
+              "cut"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "Must resolve to an EARLIER sketch feature (design \u00a72.2)"
+          }
+        },
+        "required": [
+          "profile",
+          "distance_mm",
+          "operation"
+        ],
+        "title": "ExtrudeParamsV1",
+        "type": "object"
+      },
+      "FeatureCreate": {
+        "description": "Create a feature. Appends at the tip; while rolled back, inserts\nimmediately after the bar and moves the bar to the new feature (\u00a73).",
+        "properties": {
+          "expected_tree_version": {
+            "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "feature": {
+            "discriminator": {
+              "mapping": {
+                "extrude": "#/components/schemas/ExtrudeFeature",
+                "sketch": "#/components/schemas/SketchFeature"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ExtrudeFeature"
+              }
+            ],
+            "title": "Feature"
+          },
+          "name": {
+            "description": "User-facing name (\"Sketch1\")",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "feature",
+          "expected_tree_version"
+        ],
+        "title": "FeatureCreate",
+        "type": "object"
+      },
+      "FeatureMutationResponse": {
+        "description": "Result of a single-feature mutation: the affected feature + the new\ntree version (the client's next ``expected_tree_version``).",
+        "properties": {
+          "feature": {
+            "$ref": "#/components/schemas/FeatureResponse"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "feature",
+          "tree_version"
+        ],
+        "title": "FeatureMutationResponse",
+        "type": "object"
+      },
+      "FeatureRef": {
+        "description": "A whole earlier feature of the same part (e.g. a sketch).",
+        "properties": {
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "feature",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "feature_id"
+        ],
+        "title": "FeatureRef",
+        "type": "object"
+      },
+      "FeatureReorderRequest": {
+        "description": "Reorder the whole tree: the complete permutation of feature ids in the\ndesired evaluation order. Backward-only references (design \u00a72.2 rule 2)\nare re-checked under the new order.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "order": {
+            "description": "ALL feature ids of the part, in the desired order",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Order",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_tree_version",
+          "order"
+        ],
+        "title": "FeatureReorderRequest",
+        "type": "object"
+      },
+      "FeatureResponse": {
+        "description": "A feature as stored, with the envelope reassembled (design \u00a71.3) and\nparams already upcast to the current version (design \u00a71.4).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "feature": {
+            "discriminator": {
+              "mapping": {
+                "extrude": "#/components/schemas/ExtrudeFeature",
+                "sketch": "#/components/schemas/SketchFeature"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ExtrudeFeature"
+              }
+            ],
+            "title": "Feature"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "order_index": {
+            "description": "Dense 0..n-1 evaluation order; only relative position is meaningful to clients (design \u00a71.2)",
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "rolled_back": {
+            "description": "True when the feature sits after the rollback bar (\u00a73)",
+            "title": "Rolled Back",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "part_id",
+          "order_index",
+          "name",
+          "feature",
+          "rolled_back",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FeatureResponse",
+        "type": "object"
+      },
+      "FeatureTreeResponse": {
+        "description": "The ordered feature tree of a part plus its concurrency token.",
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureResponse"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "rollback_feature_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last INCLUDED feature; null = bar at the tip (\u00a73)",
+            "title": "Rollback Feature Id"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "rollback_feature_id",
+          "features"
+        ],
+        "title": "FeatureTreeResponse",
+        "type": "object"
+      },
+      "FeatureUpdate": {
+        "description": "Rename and/or replace a feature's param envelope (both bump\n``tree_version`` \u2014 any mutation bumps, design \u00a71.2). The feature ``type``\nis immutable \u2014 replace the feature to change its kind.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "extrude": "#/components/schemas/ExtrudeFeature",
+                    "sketch": "#/components/schemas/SketchFeature"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SketchFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ExtrudeFeature"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "expected_tree_version"
+        ],
+        "title": "FeatureUpdate",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -85,6 +445,107 @@
           "updated_at"
         ],
         "title": "PartResponse",
+        "type": "object"
+      },
+      "RollbackBarMove": {
+        "description": "Move the rollback bar (\u00a73): the id of the last included feature, or\nnull for the tip. Bumps ``tree_version`` (it changes what an evaluation\nof the part means).",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "rollback_feature_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rollback Feature Id"
+          }
+        },
+        "required": [
+          "expected_tree_version",
+          "rollback_feature_id"
+        ],
+        "title": "RollbackBarMove",
+        "type": "object"
+      },
+      "SketchFeature": {
+        "description": "``{\"type\": \"sketch\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/SketchParamsV1"
+          },
+          "type": {
+            "const": "sketch",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "SketchFeature",
+        "type": "object"
+      },
+      "SketchParamsV1": {
+        "description": "Sketch on a plane \u2014 datum planes only in v1 (design \u00a72.1).\n\n``entities``/``constraints`` are structurally-open JSON objects in this\nslice: their final pydantic shapes are owned by the \"Sketch model +\nsolver API\" backlog item (design \u00a71.4). Sketch entities carry\nsketch-local string ids (``\"e1\"``, ...) per design \u00a72.4.",
+        "properties": {
+          "constraints": {
+            "description": "Sketch constraints (shape finalized by the sketch-model item)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "entities": {
+            "description": "Sketch entities (shape finalized by the sketch-model item)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "plane": {
+            "discriminator": {
+              "mapping": {
+                "datum_plane": "#/components/schemas/DatumPlaneRef",
+                "feature": "#/components/schemas/FeatureRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumPlaneRef"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureRef"
+              }
+            ],
+            "title": "Plane"
+          }
+        },
+        "required": [
+          "plane",
+          "entities",
+          "constraints"
+        ],
+        "title": "SketchParamsV1",
         "type": "object"
       },
       "ValidationError": {
@@ -249,7 +710,7 @@
     },
     "/api/v1/parts/{part_id}": {
       "delete": {
-        "description": "Delete an owned part (204; uniform 404 for unknown/foreign ids).\n\nOnce features exist this gains the design doc's 409-with-dependents\npre-check (docs/design/feature-tree.md \u00a72.3); today a part has no\ndependents, so deletion is unconditional.",
+        "description": "Delete an owned part (204; uniform 404 for unknown/foreign ids).\n\nDeletion is unconditional BY DESIGN even when the part has a feature\ntree: the parts\u2192features CASCADE removes the tree, and the deferred\ntarget-side FK on feature_dependencies makes that legal at commit time\n(docs/design/feature-tree.md \u00a72.3 \u2014 the 409-with-dependents pre-check\napplies to deleting a single FEATURE, never the whole part).",
         "operationId": "delete_part_api_v1_parts__part_id__delete",
         "parameters": [
           {
@@ -359,6 +820,516 @@
         "summary": "Get Part",
         "tags": [
           "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/features": {
+      "get": {
+        "description": "The ordered feature tree (uniform 404 for unknown/foreign parts).",
+        "operationId": "get_feature_tree_api_v1_parts__part_id__features_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Feature Tree",
+        "tags": [
+          "features"
+        ]
+      },
+      "post": {
+        "description": "Append a feature \u2014 or, while rolled back, insert it immediately after\nthe bar and move the bar to it (design \u00a73).",
+        "operationId": "create_feature_api_v1_parts__part_id__features_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Feature",
+        "tags": [
+          "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/features/order": {
+      "put": {
+        "description": "Apply a full permutation of the tree, re-checking backward-only refs\n(\u00a72.2 rule 2) under the new order before renumbering.",
+        "operationId": "reorder_features_api_v1_parts__part_id__features_order_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureReorderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reorder Features",
+        "tags": [
+          "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/features/{feature_id}": {
+      "delete": {
+        "description": "Delete a feature; 409 listing dependents when it is still referenced.\n\nThe friendly conflict comes from documents' pre-check on the materialized\nedges (design \u00a72.3); the deferred target-side FK remains the DB backstop.\nReturns the renumbered tree (the client's new ``tree_version``).",
+        "operationId": "delete_feature_api_v1_parts__part_id__features__feature_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Feature Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optimistic-concurrency guard (see FeatureCreate)",
+            "in": "query",
+            "name": "expected_tree_version",
+            "required": true,
+            "schema": {
+              "description": "Optimistic-concurrency guard (see FeatureCreate)",
+              "minimum": 0,
+              "title": "Expected Tree Version",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Feature",
+        "tags": [
+          "features"
+        ]
+      },
+      "get": {
+        "description": "One feature of an owned part.",
+        "operationId": "get_feature_api_v1_parts__part_id__features__feature_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Feature Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Feature",
+        "tags": [
+          "features"
+        ]
+      },
+      "patch": {
+        "description": "Rename and/or replace params. ANY mutation bumps ``tree_version``\n(uniform rule, design \u00a71.2) \u2014 including a name-only change.",
+        "operationId": "update_feature_api_v1_parts__part_id__features__feature_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Feature Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Feature",
+        "tags": [
+          "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/rollback": {
+      "put": {
+        "description": "Move the rollback bar (design \u00a73). Nothing below the bar is deleted or\nmutated; features after it are only MARKED rolled back.",
+        "operationId": "move_rollback_bar_api_v1_parts__part_id__rollback_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackBarMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Rollback Bar",
+        "tags": [
+          "features"
         ]
       }
     }
