@@ -86,8 +86,12 @@ The thinnest vertical slice a working engineer can feel:
       [deferred constraints, composite same-part FKs], feature
       CRUD/reorder/rollback-bar API with reference rules,
       409-with-dependents, 422-stale-version, versioned param envelopes +
-      upcast registry in py-kit, gateway aggregation; geometry evaluate
-      slice pending → BACKLOG #2)
+      upcast registry in py-kit, gateway aggregation. Geometry evaluate
+      slice shipped 2026-07-11 per design §4: stateless
+      `POST /api/v1/evaluate` with ordered handler-registry dispatch
+      [sketch-only; extrude registers via BACKLOG #6], strict-prefix
+      partial results, solver statuses as per-feature errors,
+      byte-deterministic responses; end-to-end wiring → BACKLOG #3)
 - 🚧 Sketcher v1: plane selection, line/rect/circle/arc, dimensional +
       geometric constraints (planegcs behind `SketchSolver` interface —
       solver layer shipped 2026-07-10: protocol + planegcs 0.8.0 backend,

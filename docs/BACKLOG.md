@@ -52,7 +52,7 @@ are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
       rollback-bar move + `SET NULL` on bar-feature delete; contracts +
       ts-client regenerated (`just gen-check` green); documents still imports
       no kernel code. [src: roadmap]
-- [ ] (P1, M) Feature-tree persistence — geometry evaluate slice — implement
+- [x] (P1, M) Feature-tree persistence — geometry evaluate slice — implement
       the stateless `EvaluateTreeRequest`/`EvaluateTreeResult` contract
       (design §4) as a new geometry-service endpoint: ordered per-feature
       dispatch, strict-prefix partial-result rule (§4.3 — first failure marks
@@ -210,6 +210,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #2 shipped: geometry evaluate slice.** Stateless
+  `POST /api/v1/evaluate` per design §4: sketch-only handler registry (extrude
+  plugs in via #6), strict-prefix rule, byte-deterministic. [kernel-architect]
 - 2026-07-11 — **Ready #1 shipped: feature-tree persistence (documents slice).**
   Alembic `0002_feature_tree` (§1.2 DDL verbatim), feature CRUD/reorder/rollback
   with §2.2 rules, 409-dependents, 422-stale; tested on SQLite + real scratch

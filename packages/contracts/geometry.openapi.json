@@ -71,6 +71,171 @@
         "title": "CylinderParams",
         "type": "object"
       },
+      "DatumPlaneRef": {
+        "description": "One of the three origin datum planes.",
+        "properties": {
+          "kind": {
+            "const": "datum_plane",
+            "title": "Kind",
+            "type": "string"
+          },
+          "plane": {
+            "enum": [
+              "XY",
+              "XZ",
+              "YZ"
+            ],
+            "title": "Plane",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "plane"
+        ],
+        "title": "DatumPlaneRef",
+        "type": "object"
+      },
+      "EvaluateTreeRequest": {
+        "description": "Evaluate an ordered, validated, current-version feature list (\u00a74.2).\n\nDocuments applies the rollback bar BEFORE sending: geometry receives\nexactly the prefix to evaluate and never needs to know rollback exists.",
+        "properties": {
+          "features": {
+            "description": "Ordered prefix (rollback already applied)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedFeatureInput"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Presentation parameter (mm), NEVER persisted per feature (design \u00a78.3)",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "tree_version": {
+            "description": "Echoed back; cache/correlation key",
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "features"
+        ],
+        "title": "EvaluateTreeRequest",
+        "type": "object"
+      },
+      "EvaluateTreeResult": {
+        "description": "Statuses plus object-storage references \u2014 never kernel types, never\ninline meshes (\u00a74.1). A feature failure is a 200 with per-feature errors;\nthe envelope stays reserved for transport/validation failures (\u00a74.3).",
+        "properties": {
+          "features": {
+            "description": "Same order as the request",
+            "items": {
+              "$ref": "#/components/schemas/FeatureResult"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "last_good_feature_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which feature the artifact reflects",
+            "title": "Last Good Feature Id"
+          },
+          "mesh_glb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Object-storage key of the LAST-GOOD body mesh",
+            "title": "Mesh Glb Id"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "properties": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShapeProperties"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mass properties of the last-good body"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "features",
+          "mesh_glb_id",
+          "properties",
+          "last_good_feature_id"
+        ],
+        "title": "EvaluateTreeResult",
+        "type": "object"
+      },
+      "EvaluatedFeatureInput": {
+        "description": "One ordered entry of an evaluation request.",
+        "properties": {
+          "feature": {
+            "discriminator": {
+              "mapping": {
+                "extrude": "#/components/schemas/ExtrudeFeature",
+                "sketch": "#/components/schemas/SketchFeature"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SketchFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ExtrudeFeature"
+              }
+            ],
+            "title": "Feature"
+          },
+          "id": {
+            "description": "Feature identity for refs + result keying",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "feature"
+        ],
+        "title": "EvaluatedFeatureInput",
+        "type": "object"
+      },
       "ExportRequest": {
         "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; its quality fields default\nto the tessellation defaults so the exported mesh matches what the\nviewport shows.",
         "properties": {
@@ -125,6 +290,160 @@
           "format"
         ],
         "title": "ExportRequest",
+        "type": "object"
+      },
+      "ExtrudeFeature": {
+        "description": "``{\"type\": \"extrude\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/ExtrudeParamsV1"
+          },
+          "type": {
+            "const": "extrude",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "ExtrudeFeature",
+        "type": "object"
+      },
+      "ExtrudeParamsV1": {
+        "description": "Linear extrusion of an earlier sketch feature's profile.",
+        "properties": {
+          "direction": {
+            "default": "normal",
+            "enum": [
+              "normal",
+              "reverse"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "distance_mm": {
+            "description": "Extrusion depth (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Distance Mm",
+            "type": "number"
+          },
+          "operation": {
+            "enum": [
+              "add",
+              "cut"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "Must resolve to an EARLIER sketch feature (design \u00a72.2)"
+          }
+        },
+        "required": [
+          "profile",
+          "distance_mm",
+          "operation"
+        ],
+        "title": "ExtrudeParamsV1",
+        "type": "object"
+      },
+      "FeatureError": {
+        "description": "Why one feature failed to evaluate (\u00a74.3).",
+        "properties": {
+          "code": {
+            "description": "Machine-readable: \"profile_not_closed\", \"boolean_failed\", \"reference_unresolved\", ...",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Human-readable, kernel detail sanitized",
+            "title": "Message",
+            "type": "string"
+          },
+          "upstream_feature_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the root cause is an earlier feature's output",
+            "title": "Upstream Feature Id"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FeatureError",
+        "type": "object"
+      },
+      "FeatureRef": {
+        "description": "A whole earlier feature of the same part (e.g. a sketch).",
+        "properties": {
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "feature",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "feature_id"
+        ],
+        "title": "FeatureRef",
+        "type": "object"
+      },
+      "FeatureResult": {
+        "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first\nfailure is ``error``, every subsequent feature ``skipped``.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature_id",
+          "status"
+        ],
+        "title": "FeatureResult",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -197,6 +516,79 @@
           "topology"
         ],
         "title": "ShapeProperties",
+        "type": "object"
+      },
+      "SketchFeature": {
+        "description": "``{\"type\": \"sketch\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/SketchParamsV1"
+          },
+          "type": {
+            "const": "sketch",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "SketchFeature",
+        "type": "object"
+      },
+      "SketchParamsV1": {
+        "description": "Sketch on a plane \u2014 datum planes only in v1 (design \u00a72.1).\n\n``entities``/``constraints`` are structurally-open JSON objects in this\nslice: their final pydantic shapes are owned by the \"Sketch model +\nsolver API\" backlog item (design \u00a71.4). Sketch entities carry\nsketch-local string ids (``\"e1\"``, ...) per design \u00a72.4.",
+        "properties": {
+          "constraints": {
+            "description": "Sketch constraints (shape finalized by the sketch-model item)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "entities": {
+            "description": "Sketch entities (shape finalized by the sketch-model item)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "plane": {
+            "discriminator": {
+              "mapping": {
+                "datum_plane": "#/components/schemas/DatumPlaneRef",
+                "feature": "#/components/schemas/FeatureRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumPlaneRef"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureRef"
+              }
+            ],
+            "title": "Plane"
+          }
+        },
+        "required": [
+          "plane",
+          "entities",
+          "constraints"
+        ],
+        "title": "SketchParamsV1",
         "type": "object"
       },
       "TessellateRequest": {
@@ -351,6 +743,48 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/evaluate": {
+      "post": {
+        "description": "Evaluate an ordered feature-tree prefix (feature-tree design \u00a74).\n\nStateless: documents sends the full ordered, validated, current-version\nfeature list (rollback bar already applied); the response is per-feature\nstatuses plus object-storage artifact references, under the strict-prefix\nrule (\u00a74.3 \u2014 first failure ``error``, the rest ``skipped``). A feature\nfailure is a **200 with per-feature errors**; the py-kit error envelope\nstays reserved for transport/validation failures of this call itself.",
+        "operationId": "evaluate_api_v1_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateTreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateTreeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
     "/api/v1/export": {
       "post": {
         "description": "Build a parametric shape and export it as a STEP or STL download.",

@@ -1,6 +1,33 @@
 // GENERATED — do not edit; run `just gen`.
 // Types for the geometry service (source contract: packages/contracts/geometry.openapi.json).
 export interface paths {
+    "/api/v1/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Evaluate
+         * @description Evaluate an ordered feature-tree prefix (feature-tree design §4).
+         *
+         *     Stateless: documents sends the full ordered, validated, current-version
+         *     feature list (rollback bar already applied); the response is per-feature
+         *     statuses plus object-storage artifact references, under the strict-prefix
+         *     rule (§4.3 — first failure ``error``, the rest ``skipped``). A feature
+         *     failure is a **200 with per-feature errors**; the py-kit error envelope
+         *     stays reserved for transport/validation failures of this call itself.
+         */
+        post: operations["evaluate_api_v1_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/export": {
         parameters: {
             query?: never;
@@ -112,6 +139,98 @@ export interface components {
             radius: number;
         };
         /**
+         * DatumPlaneRef
+         * @description One of the three origin datum planes.
+         */
+        DatumPlaneRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "datum_plane";
+            /**
+             * Plane
+             * @enum {string}
+             */
+            plane: "XY" | "XZ" | "YZ";
+        };
+        /**
+         * EvaluateTreeRequest
+         * @description Evaluate an ordered, validated, current-version feature list (§4.2).
+         *
+         *     Documents applies the rollback bar BEFORE sending: geometry receives
+         *     exactly the prefix to evaluate and never needs to know rollback exists.
+         */
+        EvaluateTreeRequest: {
+            /**
+             * Features
+             * @description Ordered prefix (rollback already applied)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Linear Deflection
+             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3)
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /**
+             * Tree Version
+             * @description Echoed back; cache/correlation key
+             */
+            tree_version: number;
+        };
+        /**
+         * EvaluateTreeResult
+         * @description Statuses plus object-storage references — never kernel types, never
+         *     inline meshes (§4.1). A feature failure is a 200 with per-feature errors;
+         *     the envelope stays reserved for transport/validation failures (§4.3).
+         */
+        EvaluateTreeResult: {
+            /**
+             * Features
+             * @description Same order as the request
+             */
+            features: components["schemas"]["FeatureResult"][];
+            /**
+             * Last Good Feature Id
+             * @description Which feature the artifact reflects
+             */
+            last_good_feature_id: string | null;
+            /**
+             * Mesh Glb Id
+             * @description Object-storage key of the LAST-GOOD body mesh
+             */
+            mesh_glb_id: string | null;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /** @description Mass properties of the last-good body */
+            properties: components["schemas"]["ShapeProperties"] | null;
+            /** Tree Version */
+            tree_version: number;
+        };
+        /**
+         * EvaluatedFeatureInput
+         * @description One ordered entry of an evaluation request.
+         */
+        EvaluatedFeatureInput: {
+            /** Feature */
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"];
+            /**
+             * Id
+             * Format: uuid
+             * @description Feature identity for refs + result keying
+             */
+            id: string;
+        };
+        /**
          * ExportRequest
          * @description Build a parametric shape and export it as a downloadable CAD file.
          *
@@ -150,6 +269,102 @@ export interface components {
              * @enum {string}
              */
             shape: "box" | "cylinder";
+        };
+        /**
+         * ExtrudeFeature
+         * @description ``{"type": "extrude", "version": 1, "params": {...}}`` envelope.
+         */
+        ExtrudeFeature: {
+            params: components["schemas"]["ExtrudeParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "extrude";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * ExtrudeParamsV1
+         * @description Linear extrusion of an earlier sketch feature's profile.
+         */
+        ExtrudeParamsV1: {
+            /**
+             * Direction
+             * @default normal
+             * @enum {string}
+             */
+            direction: "normal" | "reverse";
+            /**
+             * Distance Mm
+             * @description Extrusion depth (mm)
+             */
+            distance_mm: number;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "add" | "cut";
+            /** @description Must resolve to an EARLIER sketch feature (design §2.2) */
+            profile: components["schemas"]["FeatureRef"];
+        };
+        /**
+         * FeatureError
+         * @description Why one feature failed to evaluate (§4.3).
+         */
+        FeatureError: {
+            /**
+             * Code
+             * @description Machine-readable: "profile_not_closed", "boolean_failed", "reference_unresolved", ...
+             */
+            code: string;
+            /**
+             * Message
+             * @description Human-readable, kernel detail sanitized
+             */
+            message: string;
+            /**
+             * Upstream Feature Id
+             * @description Set when the root cause is an earlier feature's output
+             */
+            upstream_feature_id?: string | null;
+        };
+        /**
+         * FeatureRef
+         * @description A whole earlier feature of the same part (e.g. a sketch).
+         */
+        FeatureRef: {
+            /**
+             * Feature Id
+             * Format: uuid
+             */
+            feature_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "feature";
+        };
+        /**
+         * FeatureResult
+         * @description Per-feature evaluation status. Strict-prefix rule (§4.3): the first
+         *     failure is ``error``, every subsequent feature ``skipped``.
+         */
+        FeatureResult: {
+            error?: components["schemas"]["FeatureError"] | null;
+            /**
+             * Feature Id
+             * Format: uuid
+             */
+            feature_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "error" | "skipped";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -190,6 +405,50 @@ export interface components {
              * @description Volume (mm^3)
              */
             volume: number;
+        };
+        /**
+         * SketchFeature
+         * @description ``{"type": "sketch", "version": 1, "params": {...}}`` envelope.
+         */
+        SketchFeature: {
+            params: components["schemas"]["SketchParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sketch";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SketchParamsV1
+         * @description Sketch on a plane — datum planes only in v1 (design §2.1).
+         *
+         *     ``entities``/``constraints`` are structurally-open JSON objects in this
+         *     slice: their final pydantic shapes are owned by the "Sketch model +
+         *     solver API" backlog item (design §1.4). Sketch entities carry
+         *     sketch-local string ids (``"e1"``, ...) per design §2.4.
+         */
+        SketchParamsV1: {
+            /**
+             * Constraints
+             * @description Sketch constraints (shape finalized by the sketch-model item)
+             */
+            constraints: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Entities
+             * @description Sketch entities (shape finalized by the sketch-model item)
+             */
+            entities: {
+                [key: string]: unknown;
+            }[];
+            /** Plane */
+            plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
         };
         /**
          * TessellateRequest
@@ -272,6 +531,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    evaluate_api_v1_evaluate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateTreeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateTreeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_api_v1_export_post: {
         parameters: {
             query?: never;

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Response
 
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
+from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
@@ -19,6 +20,7 @@ from py_kit.schemas.geometry import (
     tessellate_responses,
 )
 
+from geometry.features import evaluate_tree
 from geometry.kernel import evaluate_export, evaluate_tessellation
 from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
 
@@ -55,6 +57,20 @@ def tessellate_meta(request: TessellateRequest) -> TessellationMetadata:
     """JSON twin of ``/tessellate``: mass properties + mesh stats, no mesh."""
     _glb, metadata = evaluate_tessellation(request)
     return metadata
+
+
+@router.post("/evaluate")
+def evaluate(request: EvaluateTreeRequest) -> EvaluateTreeResult:
+    """Evaluate an ordered feature-tree prefix (feature-tree design §4).
+
+    Stateless: documents sends the full ordered, validated, current-version
+    feature list (rollback bar already applied); the response is per-feature
+    statuses plus object-storage artifact references, under the strict-prefix
+    rule (§4.3 — first failure ``error``, the rest ``skipped``). A feature
+    failure is a **200 with per-feature errors**; the py-kit error envelope
+    stays reserved for transport/validation failures of this call itself.
+    """
+    return evaluate_tree(request).result
 
 
 @router.post("/export", response_class=Response, responses=_EXPORT_RESPONSES)
