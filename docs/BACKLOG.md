@@ -337,6 +337,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Sketching re-scored, held ❌ (not ➖):** all 6 new
+  relational constraints + construction geometry closed the row's named gap,
+  but trim/offset/mirror/splines/sketch-fillet — every-session incumbent
+  tools — are still unbuilt. [vision-steward]
 - 2026-07-11 — **equal/symmetric/concentric 4b shipped (frontend → #4 done):**
   E/S/O verbs + =/⟷/◎ glyphs; validation+hints; worked e2e (equal/concentric
   circles, symmetric-about-centerline) moved geometry. All 6 constraints done —
