@@ -1762,6 +1762,58 @@
         ]
       }
     },
+    "/api/v1/geometry/meshes/{mesh_glb_id}": {
+      "get": {
+        "description": "Fetch an evaluated body's GLB artifact through the gateway.\n\nAuth-protected (the artifact comes from a signed-in user's part\nevaluation); the geometry hop itself stays identity-free, so the\nprincipal never goes upstream. Upstream 404 ``mesh_not_found`` is the\nclient's re-evaluate signal and is re-surfaced verbatim (\u00a77.8).",
+        "operationId": "fetch_mesh_api_v1_geometry_meshes__mesh_glb_id__get",
+        "parameters": [
+          {
+            "description": "Content address of the GLB artifact (`sha256:<hex>`), from `EvaluateTreeResult.mesh_glb_id`.",
+            "in": "path",
+            "name": "mesh_glb_id",
+            "required": true,
+            "schema": {
+              "description": "Content address of the GLB artifact (`sha256:<hex>`), from `EvaluateTreeResult.mesh_glb_id`.",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Mesh Glb Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Binary glTF (GLB) mesh addressed by an `EvaluateTreeResult.mesh_glb_id` content hash (`sha256:<hex>`), proxied byte-exact from the geometry service. A 404 `mesh_not_found` envelope means evicted or unknown: re-evaluate the tree to regenerate the artifact (feature-tree design \u00a74.4/\u00a77.8)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Fetch Mesh",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
     "/api/v1/geometry/tessellate": {
       "post": {
         "description": "Build + tessellate on the geometry service; pass the GLB through.",

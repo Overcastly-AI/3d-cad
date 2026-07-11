@@ -81,6 +81,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/geometry/meshes/{mesh_glb_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch Mesh
+         * @description Fetch an evaluated body's GLB artifact through the gateway.
+         *
+         *     Auth-protected (the artifact comes from a signed-in user's part
+         *     evaluation); the geometry hop itself stays identity-free, so the
+         *     principal never goes upstream. Upstream 404 ``mesh_not_found`` is the
+         *     client's re-evaluate signal and is re-surfaced verbatim (§7.8).
+         */
+        get: operations["fetch_mesh_api_v1_geometry_meshes__mesh_glb_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/tessellate": {
         parameters: {
             query?: never;
@@ -1298,6 +1323,38 @@ export interface operations {
                 content: {
                     "model/step": string;
                     "model/stl": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fetch_mesh_api_v1_geometry_meshes__mesh_glb_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Content address of the GLB artifact (`sha256:<hex>`), from `EvaluateTreeResult.mesh_glb_id`. */
+                mesh_glb_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Binary glTF (GLB) mesh addressed by an `EvaluateTreeResult.mesh_glb_id` content hash (`sha256:<hex>`), proxied byte-exact from the geometry service. A 404 `mesh_not_found` envelope means evicted or unknown: re-evaluate the tree to regenerate the artifact (feature-tree design §4.4/§7.8). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "model/gltf-binary": string;
                 };
             };
             /** @description Validation Error */

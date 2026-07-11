@@ -1,4 +1,5 @@
-"""Gateway → geometry proxy (``/api/v1/geometry/*``): tessellation + export.
+"""Gateway → geometry proxy (``/api/v1/geometry/*``): tessellation, export,
+mesh fetch.
 
 apps/web talks ONLY to the gateway (CLAUDE.md service boundaries), so the
 geometry API is surfaced here. Routes are typed with the shared py-kit DTOs —
@@ -8,10 +9,10 @@ using the shared :mod:`gateway.upstream` plumbing (502 on transport failure,
 upstream envelopes re-surfaced).
 """
 
-from typing import NoReturn
+from typing import Annotated, Any, NoReturn
 
 import httpx2 as httpx
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Path, Request, Response
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
@@ -24,6 +25,7 @@ from py_kit.schemas.geometry import (
     tessellate_responses,
 )
 
+from gateway.auth import CurrentUser
 from gateway.upstream import create_upstream_client, forward, raise_upstream_error
 
 #: Upstream call budget — tessellation is CPU-bound and may take a while.
@@ -99,6 +101,59 @@ async def tessellate_meta(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return TessellationMetadata.model_validate_json(upstream.content)
+
+
+#: Exact shape of a ``mesh_glb_id`` content address (feature-tree design
+#: §4.4/§7.8: ``sha256:<hex digest of the GLB bytes>``). Enforced at the
+#: gateway so malformed ids are rejected here (422) and never go upstream —
+#: same posture as the DTO-validated POST routes.
+MESH_GLB_ID_PATTERN = r"^sha256:[0-9a-f]{64}$"
+
+_MESH_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {
+        "content": {GLB_MEDIA_TYPE: {"schema": {"type": "string", "format": "binary"}}},
+        "description": (
+            "Binary glTF (GLB) mesh addressed by an `EvaluateTreeResult."
+            "mesh_glb_id` content hash (`sha256:<hex>`), proxied byte-exact "
+            "from the geometry service. A 404 `mesh_not_found` envelope "
+            "means evicted or unknown: re-evaluate the tree to regenerate "
+            "the artifact (feature-tree design §4.4/§7.8)."
+        ),
+    }
+}
+
+
+@router.get("/meshes/{mesh_glb_id}", response_class=Response, responses=_MESH_RESPONSES)
+async def fetch_mesh(
+    mesh_glb_id: Annotated[
+        str,
+        Path(
+            pattern=MESH_GLB_ID_PATTERN,
+            description="Content address of the GLB artifact (`sha256:<hex>`), "
+            "from `EvaluateTreeResult.mesh_glb_id`.",
+        ),
+    ],
+    user: CurrentUser,
+    http_request: Request,
+) -> Response:
+    """Fetch an evaluated body's GLB artifact through the gateway.
+
+    Auth-protected (the artifact comes from a signed-in user's part
+    evaluation); the geometry hop itself stays identity-free, so the
+    principal never goes upstream. Upstream 404 ``mesh_not_found`` is the
+    client's re-evaluate signal and is re-surfaced verbatim (§7.8).
+    """
+    client: httpx.AsyncClient = http_request.app.state.geometry_client
+    upstream = await forward(
+        client,
+        http_request,
+        "GET",
+        f"/api/v1/meshes/{mesh_glb_id}",
+        service=_SERVICE,
+    )
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return Response(content=upstream.content, media_type=GLB_MEDIA_TYPE)
 
 
 _EXPORT_RESPONSES = export_responses(

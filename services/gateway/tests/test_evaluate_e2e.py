@@ -20,7 +20,7 @@ import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx2 as httpx
 import pytest
@@ -146,9 +146,17 @@ async def _create_documents_schema(url: str) -> None:
     await engine.dispose()
 
 
+class Stack(NamedTuple):
+    """Base URLs of the booted stack (geometry exposed for byte-identity
+    checks against the gateway's mesh proxy — never for product traffic)."""
+
+    gateway_url: str
+    geometry_url: str
+
+
 @pytest.fixture(scope="module")
-def gateway_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    """The booted three-service stack, keyed by the gateway's base URL."""
+def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
+    """The booted three-service stack (real uvicorn servers on loopback)."""
     tmp_path: Path = tmp_path_factory.mktemp("evaluate-e2e")
     documents_db = f"sqlite:///{tmp_path}/documents.db"
     gateway_db = f"sqlite:///{tmp_path}/gateway.db"
@@ -182,7 +190,10 @@ def gateway_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     try:
         for server in servers:
             server.start()
-        yield f"http://127.0.0.1:{gateway_port}"
+        yield Stack(
+            gateway_url=f"http://127.0.0.1:{gateway_port}",
+            geometry_url=f"http://127.0.0.1:{geometry_port}",
+        )
     finally:
         for server in reversed(servers):
             server.stop()
@@ -207,11 +218,11 @@ def _assert_solved_rectangle(result: EvaluateTreeResult, width_mm: float) -> Non
         assert entity.end.y == pytest.approx(ey2, abs=RECTANGLE_TOLERANCE_MM)
 
 
-def test_sketch_create_update_solve_end_to_end(gateway_url: str) -> None:
+def test_sketch_create_update_solve_end_to_end(stack: Stack) -> None:
     """create part → add sketch feature → evaluate → solved §6 corners in
     ``response.data``; then update the sketch and re-evaluate — the solved
     geometry follows the edit. Every hop is a real HTTP request."""
-    with httpx.Client(base_url=gateway_url, timeout=30.0) as client:
+    with httpx.Client(base_url=stack.gateway_url, timeout=30.0) as client:
         register = client.post(
             "/api/v1/auth/register",
             json={"email": "eng@example.com", "password": "hunter2-passphrase"},
@@ -271,11 +282,11 @@ def test_sketch_create_update_solve_end_to_end(gateway_url: str) -> None:
 
 
 def test_conflicting_sketch_surfaces_solver_status_not_a_crash(
-    gateway_url: str,
+    stack: Stack,
 ) -> None:
     """Acceptance: a conflicting sketch comes back as a per-feature
     ``FeatureError`` (HTTP 200) through the whole real stack."""
-    with httpx.Client(base_url=gateway_url, timeout=30.0) as client:
+    with httpx.Client(base_url=stack.gateway_url, timeout=30.0) as client:
         register = client.post(
             "/api/v1/auth/register",
             json={"email": "eng2@example.com", "password": "hunter2-passphrase"},
@@ -325,3 +336,77 @@ def test_conflicting_sketch_surfaces_solver_status_not_a_crash(
         assert feature.error.code == "sketch_conflicting"
         assert feature.data is None
         assert result.last_good_feature_id is None
+
+
+def test_extruded_body_mesh_reaches_browser_through_gateway(stack: Stack) -> None:
+    """The extrude closes the loop to the viewport: sketch → extrude →
+    evaluate yields a ``mesh_glb_id``, and the gateway mesh proxy serves the
+    exact bytes the geometry service holds (§7.8 content-addressed GLB). This
+    is the path that was computed-but-invisible before the proxy landed."""
+    with httpx.Client(base_url=stack.gateway_url, timeout=30.0) as client:
+        register = client.post(
+            "/api/v1/auth/register",
+            json={"email": "eng3@example.com", "password": "hunter2-passphrase"},
+        )
+        assert register.status_code == 201, register.text
+        bearer = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+        part = client.post("/api/v1/parts", json={"name": "solid"}, headers=bearer)
+        assert part.status_code == 201, part.text
+        part_id = part.json()["id"]
+
+        sketch = client.post(
+            f"/api/v1/parts/{part_id}/features",
+            json={
+                "name": "Sketch1",
+                "feature": {"type": "sketch", "version": 1, "params": _sketch_params()},
+                "expected_tree_version": 0,
+            },
+            headers=bearer,
+        )
+        assert sketch.status_code == 201, sketch.text
+        sketch_id = sketch.json()["feature"]["id"]
+        tree_version = sketch.json()["tree_version"]
+
+        extruded = client.post(
+            f"/api/v1/parts/{part_id}/features",
+            json={
+                "name": "Extrude1",
+                "feature": {
+                    "type": "extrude",
+                    "version": 1,
+                    "params": {
+                        "profile": {"kind": "feature", "feature_id": sketch_id},
+                        "distance_mm": 10.0,
+                        "operation": "add",
+                        "direction": "normal",
+                    },
+                },
+                "expected_tree_version": tree_version,
+            },
+            headers=bearer,
+        )
+        assert extruded.status_code == 201, extruded.text
+
+        evaluated = client.post(f"/api/v1/parts/{part_id}/evaluate", headers=bearer)
+        assert evaluated.status_code == 200, evaluated.text
+        result = EvaluateTreeResult.model_validate(evaluated.json())
+        assert result.mesh_glb_id is not None  # a body was produced
+        assert result.mesh_glb_id.startswith("sha256:")
+        assert result.properties is not None
+        # §6 worked example: 40x25 profile extruded 10 mm.
+        assert result.properties.volume == pytest.approx(10_000.0, abs=1e-6)
+
+        # The gateway proxy serves the browser a valid GLB...
+        via_gateway = client.get(
+            f"/api/v1/geometry/meshes/{result.mesh_glb_id}", headers=bearer
+        )
+        assert via_gateway.status_code == 200, via_gateway.text
+        assert via_gateway.content[:4] == b"glTF"
+
+    # ...and it is byte-identical to what the geometry service itself holds
+    # (the proxy adds auth + routing, never re-encodes the artifact).
+    with httpx.Client(base_url=stack.geometry_url, timeout=30.0) as geometry:
+        direct = geometry.get(f"/api/v1/meshes/{result.mesh_glb_id}")
+        assert direct.status_code == 200, direct.text
+    assert via_gateway.content == direct.content

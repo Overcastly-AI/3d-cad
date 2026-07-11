@@ -38,7 +38,7 @@ and can build in parallel with it. #7 (export-from-tree) is independent of
 #1–#6 and can start immediately. #8 (full-flow e2e) is the exit gate and
 depends on #2, #3, #4, #7.
 
-- [ ] (P1, S) Gateway mesh-fetch proxy — add
+- [x] (P1, S) Gateway mesh-fetch proxy — add
       `GET /api/v1/geometry/meshes/{mesh_glb_id}` to the gateway, proxying
       geometry's already-shipped content-addressed mesh endpoint (feature-tree
       design §7.8 interim decision: `mesh_glb_id` is a `sha256:` content
@@ -52,6 +52,9 @@ depends on #2, #3, #4, #7.
       `mesh_not_found` 404 envelope unchanged; auth-protected like sibling
       geometry routes; integration test hits it over real HTTP
       gateway→geometry. [src: geometry-qa, product-auditor]
+      Shipped 2026-07-11 (reconciled after a mid-build model switch): route +
+      `sha256:` id validation at the gateway, byte-identity e2e proving an
+      extruded body's GLB reaches the browser. [backend-builder + orchestrator]
 - [ ] (P1, M) Viewport renders evaluated-tree bodies — the workspace viewport
       fetches `mesh_glb_id` from an evaluate-tree response via #1 and renders
       the resulting body mesh, replacing/augmenting the 2D sketch overlay —
