@@ -119,6 +119,10 @@ are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
 
 ## Next (P2)
 
+- [ ] (P2, S) Parts home UI — create/list/open/delete parts screens (the
+      `/parts/{id}` workspace exists but is only reachable by direct URL;
+      e2e creates parts via API). Composes design primitives; needed for
+      the Phase 1 full-flow e2e exit gate. [src: frontend-builder]
 - [ ] (P2, M) Fillet + chamfer — each with a golden in the same commit;
       curved-surface STEP round-trip observations recorded in GEOMETRY-QA.
       Depends on extrude existing. [src: roadmap]
