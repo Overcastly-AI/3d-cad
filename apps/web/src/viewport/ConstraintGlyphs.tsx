@@ -41,11 +41,12 @@ function glyphAria(glyph: ConstraintGlyph): string {
       return `Distance ${glyph.label} mm — edit`;
     case "radius":
       return `Radius ${glyph.label.slice(1)} mm — edit`;
-    // parallel/perpendicular/tangent (backend item 3a) get no glyph until the
-    // authoring UI lands (frontend item 3b); `constraintGlyphs` emits none for
-    // them today, so this branch is unreachable at runtime.
-    default:
-      return "Constraint";
+    case "parallel":
+      return "Parallel constraint";
+    case "perpendicular":
+      return "Perpendicular constraint";
+    case "tangent":
+      return "Tangent constraint";
   }
 }
 

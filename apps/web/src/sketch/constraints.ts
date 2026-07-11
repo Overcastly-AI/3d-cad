@@ -18,9 +18,25 @@ export type SolveStatus = components["schemas"]["SolvedSketchData"]["status"];
 
 /** Constraint verbs — the keyboard-first strip actions. */
 export type ConstraintAction =
-  "horizontal" | "vertical" | "distance" | "radius" | "fixed" | "coincident";
+  | "horizontal"
+  | "vertical"
+  | "distance"
+  | "radius"
+  | "fixed"
+  | "coincident"
+  | "parallel"
+  | "perpendicular"
+  | "tangent";
 
-/** Key → verb while the selection is non-empty (see `resolveSketchKey`). */
+/**
+ * Key → verb while the selection is non-empty (see `resolveSketchKey`).
+ *
+ * The relational verbs relating two whole curves: **P** parallel (∥), **T**
+ * tangent, and **L** perpendicular (⊥ — the right angle reads as an "L", and
+ * L is the line-tool key reused in the constraint vocabulary, the same
+ * cross-vocabulary reuse H/V/D/R/X/C already lean on). Chosen to leave E/S/O
+ * free for the next slice's equal/symmetric/concentric verbs.
+ */
 export const CONSTRAINT_SHORTCUTS: Readonly<Record<string, ConstraintAction>> =
   {
     h: "horizontal",
@@ -29,6 +45,9 @@ export const CONSTRAINT_SHORTCUTS: Readonly<Record<string, ConstraintAction>> =
     r: "radius",
     x: "fixed",
     c: "coincident",
+    p: "parallel",
+    l: "perpendicular",
+    t: "tangent",
   };
 
 /**
@@ -42,8 +61,9 @@ export const CONSTRUCTION_SHORTCUT = "n";
 /**
  * One keyboard, two vocabularies: with an EMPTY selection the letters arm
  * drawing tools (L/R/C/A); with a selection they are constraint verbs
- * (H/V/D/R/X/C) plus the construction toggle (N). Selection presence is the
- * mode — deterministic, no chords.
+ * (H/V/D/R/X/C plus P/L/T for parallel/perpendicular/tangent) plus the
+ * construction toggle (N). Selection presence is the mode — deterministic,
+ * no chords.
  */
 export function resolveSketchKey(
   key: string,
@@ -131,6 +151,23 @@ function selectedLineIds(
   return ids;
 }
 
+/** Selected whole-entity picks, resolved to `{ id, kind }`, in click order. */
+function selectedEntities(
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+): Array<{ id: string; kind: SketchEntity["kind"] }> {
+  const byId = new Map(entities.map((e) => [e.id, e]));
+  const out: Array<{ id: string; kind: SketchEntity["kind"] }> = [];
+  for (const pick of selection) {
+    if (pick.kind !== "entity") continue;
+    const entity = byId.get(pick.id);
+    if (entity !== undefined && !out.some((o) => o.id === entity.id)) {
+      out.push({ id: entity.id, kind: entity.kind });
+    }
+  }
+  return out;
+}
+
 const sameRef = (a: EntityPointRef, b: EntityPointRef): boolean =>
   a.entity === b.entity && a.point === b.point;
 
@@ -156,12 +193,17 @@ export function sameConstraint(
         (sameRef(a.a, other.b) && sameRef(a.b, other.a))
       );
     }
-    // parallel/perpendicular/tangent exist in the schema (backend item 3a) but
-    // have no authoring verb yet — the UI half is frontend item 3b, which
-    // replaces this stub with structural equality per kind. They cannot be
-    // created here today, so treating them as never-duplicate is inert.
-    default:
-      return false;
+    // parallel/perpendicular/tangent relate two whole entities by id; each is
+    // symmetric (order immaterial), so an unordered id-pair match dedupes them.
+    case "parallel":
+    case "perpendicular":
+    case "tangent": {
+      const other = b as typeof a;
+      return (
+        (a.a === other.a && a.b === other.b) ||
+        (a.a === other.b && a.b === other.a)
+      );
+    }
   }
 }
 
@@ -296,6 +338,42 @@ export function applyConstraintAction(
       }
       return { outcome: "added", constraints: [constraint] };
     }
+    case "parallel":
+    case "perpendicular": {
+      const lines = selectedLineIds(selection, entities);
+      const [a, b] = lines;
+      if (lines.length !== 2 || a === undefined || b === undefined) {
+        return hint(`Select two lines to make ${action}.`);
+      }
+      const constraint: SketchConstraint = { kind: action, a, b };
+      if (constraints.some((c) => sameConstraint(c, constraint))) {
+        return hint(`Already ${action}.`);
+      }
+      return { outcome: "added", constraints: [constraint] };
+    }
+    case "tangent": {
+      const curves = selectedEntities(selection, entities).filter(
+        (e) => e.kind === "line" || e.kind === "circle" || e.kind === "arc",
+      );
+      const [a, b] = curves;
+      if (curves.length !== 2 || a === undefined || b === undefined) {
+        return hint(
+          "Select two curves — a line and an arc/circle, or two curves — to make tangent.",
+        );
+      }
+      if (a.kind === "line" && b.kind === "line") {
+        return hint("Two lines can't be tangent — pick an arc or circle.");
+      }
+      const constraint: SketchConstraint = {
+        kind: "tangent",
+        a: a.id,
+        b: b.id,
+      };
+      if (constraints.some((c) => sameConstraint(c, constraint))) {
+        return hint("Already tangent.");
+      }
+      return { outcome: "added", constraints: [constraint] };
+    }
   }
 }
 
@@ -397,6 +475,26 @@ function radiusAnchor(entity: SketchEntity, offsetMm: number): Point2D {
   return { x: 0, y: 0 };
 }
 
+/** A representative annotation anchor near any entity's ink (lines: midpoint
+ * normal; rounds: the radius mark) — where a relational glyph (∥/⊥/T) sits. */
+function entityGlyphAnchor(entity: SketchEntity, offsetMm: number): Point2D {
+  if (entity.kind === "line") return lineAnnotationAnchor(entity, offsetMm);
+  if (entity.kind === "circle" || entity.kind === "arc") {
+    return radiusAnchor(entity, offsetMm);
+  }
+  return { x: entity.position.x + offsetMm, y: entity.position.y + offsetMm };
+}
+
+/** Relational-constraint glyph text — engineering-drawing marks. */
+const RELATIONAL_LABEL: Record<
+  "parallel" | "perpendicular" | "tangent",
+  string
+> = {
+  parallel: "∥",
+  perpendicular: "⊥",
+  tangent: "T",
+};
+
 /**
  * Constraints → annotation glyphs at their current (solved) geometry.
  * Letters and numbers only — Fragment Mono native, no icon font, no badge.
@@ -466,6 +564,21 @@ export function constraintGlyphs(
           kind: "coincident",
           label: "C",
           anchor: { x: at.x + offsetMm, y: at.y + offsetMm },
+          editable: false,
+        });
+        return;
+      }
+      case "parallel":
+      case "perpendicular":
+      case "tangent": {
+        // Anchor on the first entity of the pair; skip if it's gone mid-edit.
+        const entity = byId.get(constraint.a);
+        if (entity === undefined) return;
+        glyphs.push({
+          index,
+          kind: constraint.kind,
+          label: RELATIONAL_LABEL[constraint.kind],
+          anchor: entityGlyphAnchor(entity, offsetMm),
           editable: false,
         });
         return;

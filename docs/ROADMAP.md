@@ -104,8 +104,10 @@ item below.
       gates any feature/UI that lets a user pick and persist a reference to
       a specific face/edge — face/edge picking, hole placement, pattern
       seeds)
-- ⬜ Full sketcher: tangent/perpendicular/parallel (schema+planegcs
-      mapping+solver ✅ shipped 3a; keyboard verbs 3b pending)/equal/symmetric/
+- ⬜ Full sketcher: tangent/perpendicular/parallel (✅ shipped: schema+planegcs
+      solver 3a + P/L/T keyboard verbs & ∥/⊥/T glyphs 3b — 3 of the 6 new
+      constraint kinds done; #4 equal/symmetric/concentric completes the
+      Sketching scorecard row — note for vision-steward)/equal/symmetric/
       concentric constraints (the Sketching scorecard row's named gap),
       construction geometry (✅ shipped: schema+solver+profile-exclusion +
       N-verb UI toggle with dashed/muted rendering), trim/extend,

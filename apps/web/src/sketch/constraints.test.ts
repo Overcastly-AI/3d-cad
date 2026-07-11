@@ -68,7 +68,23 @@ describe("resolveSketchKey — one keyboard, two vocabularies", () => {
       type: "constraint",
       action: "coincident",
     });
-    expect(resolveSketchKey("l", true)).toBeNull();
+    expect(resolveSketchKey("p", true)).toEqual({
+      type: "constraint",
+      action: "parallel",
+    });
+    expect(resolveSketchKey("l", true)).toEqual({
+      type: "constraint",
+      action: "perpendicular",
+    });
+    expect(resolveSketchKey("t", true)).toEqual({
+      type: "constraint",
+      action: "tangent",
+    });
+    // The relational letters still arm/return nothing with an empty selection
+    // (P/T aren't tools; L is the line tool).
+    expect(resolveSketchKey("l", false)).toEqual({ type: "tool" });
+    expect(resolveSketchKey("p", false)).toBeNull();
+    expect(resolveSketchKey("t", false)).toBeNull();
   });
 
   it("N toggles construction only while something is selected", () => {
@@ -232,6 +248,73 @@ describe("applyConstraintAction", () => {
       ),
     ).toMatchObject({ outcome: "hint" });
   });
+
+  it("parallel/perpendicular relate exactly two selected lines", () => {
+    for (const action of ["parallel", "perpendicular"] as const) {
+      expect(
+        applyConstraintAction(
+          action,
+          [pickLine("e1"), pickLine("e2")],
+          entities,
+          [],
+        ),
+      ).toEqual({
+        outcome: "added",
+        constraints: [{ kind: action, a: "e1", b: "e2" }],
+      });
+      // One line, or a line + a circle: not two lines.
+      expect(
+        applyConstraintAction(action, [pickLine("e1")], entities, []),
+      ).toMatchObject({ outcome: "hint" });
+      expect(
+        applyConstraintAction(
+          action,
+          [pickLine("e1"), pickLine("e3")],
+          entities,
+          [],
+        ),
+      ).toMatchObject({ outcome: "hint" });
+    }
+  });
+
+  it("refuses a duplicate parallel regardless of entity order", () => {
+    expect(
+      applyConstraintAction(
+        "parallel",
+        [pickLine("e1"), pickLine("e2")],
+        entities,
+        [{ kind: "parallel", a: "e2", b: "e1" }],
+      ),
+    ).toMatchObject({ outcome: "hint" });
+  });
+
+  it("tangent needs a curve — a line + arc/circle or two curves, never two lines", () => {
+    // line + circle: valid.
+    expect(
+      applyConstraintAction(
+        "tangent",
+        [pickLine("e1"), pickLine("e3")],
+        entities,
+        [],
+      ),
+    ).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "tangent", a: "e1", b: "e3" }],
+    });
+    // two lines: rejected with a guiding hint.
+    expect(
+      applyConstraintAction(
+        "tangent",
+        [pickLine("e1"), pickLine("e2")],
+        entities,
+        [],
+      ),
+    ).toMatchObject({ outcome: "hint" });
+    // one entity: rejected.
+    expect(
+      applyConstraintAction("tangent", [pickLine("e3")], entities, []),
+    ).toMatchObject({ outcome: "hint" });
+  });
 });
 
 describe("sameConstraint", () => {
@@ -284,6 +367,37 @@ describe("constraintGlyphs — engineering notation", () => {
     // e1 runs +x from the origin: left-hand normal is +y.
     expect(h).toEqual({ x: 20, y: 3.5 });
     expect(dim).toEqual({ x: 20, y: -3.5 });
+  });
+
+  it("renders the relational marks (∥ / ⊥ / T) near their first entity", () => {
+    const glyphs = constraintGlyphs(
+      [
+        { kind: "parallel", a: "e1", b: "e2" },
+        { kind: "perpendicular", a: "e1", b: "e2" },
+        { kind: "tangent", a: "e1", b: "e3" },
+      ],
+      entities,
+      3.5,
+    );
+    expect(glyphs.map((g) => g.label)).toEqual(["∥", "⊥", "T"]);
+    expect(glyphs.map((g) => g.kind)).toEqual([
+      "parallel",
+      "perpendicular",
+      "tangent",
+    ]);
+    expect(glyphs.every((g) => !g.editable)).toBe(true);
+    // Anchored on entity `a` (e1 midpoint normal), not at the origin.
+    expect(glyphs[0]?.anchor).toEqual({ x: 20, y: 3.5 });
+  });
+
+  it("skips a relational constraint whose first entity is gone", () => {
+    expect(
+      constraintGlyphs(
+        [{ kind: "parallel", a: "missing", b: "e2" }],
+        entities,
+        3.5,
+      ),
+    ).toEqual([]);
   });
 
   it("skips constraints whose entity is gone (mid-edit safety)", () => {

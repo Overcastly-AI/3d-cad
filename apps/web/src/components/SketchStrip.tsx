@@ -3,7 +3,7 @@
  * the viewport. Plane-pick step: the three datum planes (keyboard path,
  * hover-synced with the 3D sheets). Draw step: tools with their shortcut
  * letters, the buffer count, SAVE and EXIT — plus a second ruled row, the
- * CONSTRAIN strip: the six constraint verbs and the live selection readout.
+ * CONSTRAIN strip: the constraint verbs and the live selection readout.
  * One keyboard, two vocabularies: with nothing selected the letters arm
  * tools; with a selection they are constraint verbs. Quiet chrome; the
  * viewport keeps the pixels.
@@ -72,6 +72,24 @@ const CONSTRAINTS: ReadonlyArray<{
     label: "Coinc",
     keyHint: "C",
     name: "Coincident constraint (C, on two selected points)",
+  },
+  {
+    action: "parallel",
+    label: "Paral",
+    keyHint: "P",
+    name: "Parallel constraint (P, on two selected lines)",
+  },
+  {
+    action: "perpendicular",
+    label: "Perp",
+    keyHint: "L",
+    name: "Perpendicular constraint (L, on two selected lines)",
+  },
+  {
+    action: "tangent",
+    label: "Tang",
+    keyHint: "T",
+    name: "Tangent constraint (T, on a selected line and arc/circle, or two curves)",
   },
 ];
 

@@ -76,7 +76,7 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       renderers; flag round-trips through the sketch feature save; e2e draws a
       rectangle + construction diagonal, extrudes to 10,000 mm³ (diagonal
       excluded), reload persists. `frontend-design` skill invoked.
-- [ ] (P1, M) Sketch constraints — tangent/perpendicular/parallel — extend
+- [x] (P1, M) Sketch constraints — tangent/perpendicular/parallel — extend
       the planegcs-backed solver + keyboard-first vocabulary
       (H/V/D/R/X/C today) with 3 constraint kinds relating two curves — the
       Sketching row's #1 named gap ("no tangent/perpendicular/parallel... —
@@ -96,6 +96,16 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       DOF −1 each, parallel+perp conflict via `sketch_conflicting`) +
       contracts/ts-client regen. Remaining (3b): keyboard verbs + glyphs in
       apps/web — do not tick until 3b lands._
+      **DONE — 3b (frontend, 2026-07-11):** relational verbs on the
+      selection-presence keyboard — **P** parallel (∥), **L** perpendicular
+      (⊥), **T** tangent (T) — each validates the selection client-side
+      (parallel/perp = two lines; tangent = a line+arc/circle or two curves)
+      with a guiding `role=status` hint, maps to the whole-entity a/b payload,
+      and renders its engineering mark near the geometry; conflict flags reuse
+      the existing solve path. Worked e2e: two parallel lines, two
+      perpendicular lines, line+circle tangent — each asserts the solved
+      geometry moved. `frontend-design` skill invoked (verbs documented,
+      E/S/O left free for #4).
 - [ ] (P1, M) Sketch constraints — equal/symmetric/concentric — second
       constraint-vocabulary slice, same pattern as the item above: equal
       (length/radius), symmetric (about a line — cleanest with a
@@ -305,6 +315,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **tangent/perp/parallel 3b shipped (frontend → #3 done):**
+  P/L/T relational verbs (selection-presence) + ∥/⊥/T glyphs; client-side
+  selection validation with hints; worked e2e (parallel, perpendicular,
+  line+circle tangent) proving solved geometry moved; screenshots. [frontend-builder]
 - 2026-07-11 — tangent/perp/parallel schema+solver (3a) shipped; UI verbs (3b)
   pending. [kernel-architect]
 - 2026-07-11 — **Construction geometry 2b shipped (frontend → #2 done):** `N`

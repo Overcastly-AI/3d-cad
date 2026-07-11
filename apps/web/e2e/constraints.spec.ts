@@ -24,6 +24,8 @@ interface SolvedEntity {
   kind: string;
   start?: SolvedPoint;
   end?: SolvedPoint;
+  center?: SolvedPoint;
+  radius?: number;
 }
 interface EvaluateBody {
   features: Array<{
@@ -65,6 +67,55 @@ function lineLength(entities: SolvedEntity[], id: string): number | null {
   const line = entities.find((e) => e.id === id);
   if (line?.start === undefined || line.end === undefined) return null;
   return Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y);
+}
+
+/** Direction vector of a solved line (unnormalised), or null. */
+function lineDir(
+  entities: SolvedEntity[],
+  id: string,
+): { x: number; y: number } | null {
+  const line = entities.find((e) => e.id === id);
+  if (line?.start === undefined || line.end === undefined) return null;
+  return { x: line.end.x - line.start.x, y: line.end.y - line.start.y };
+}
+
+/** Normalised angle-independent cross / dot of two solved line directions. */
+function unitCrossDot(
+  entities: SolvedEntity[],
+  a: string,
+  b: string,
+): { cross: number; dot: number } | null {
+  const u = lineDir(entities, a);
+  const v = lineDir(entities, b);
+  if (u === null || v === null) return null;
+  const lu = Math.hypot(u.x, u.y);
+  const lv = Math.hypot(v.x, v.y);
+  if (lu === 0 || lv === 0) return null;
+  const ux = u.x / lu;
+  const uy = u.y / lu;
+  const vx = v.x / lv;
+  const vy = v.y / lv;
+  return { cross: ux * vy - uy * vx, dot: ux * vx + uy * vy };
+}
+
+/** Perpendicular distance from a circle centre to a solved line (mm). */
+function centreToLineGap(
+  entities: SolvedEntity[],
+  lineId: string,
+  circleId: string,
+): number | null {
+  const line = entities.find((e) => e.id === lineId);
+  const circle = entities.find((e) => e.id === circleId);
+  if (line?.start === undefined || line.end === undefined) return null;
+  if (circle?.center === undefined || circle.radius === undefined) return null;
+  const { center } = circle;
+  const dx = line.end.x - line.start.x;
+  const dy = line.end.y - line.start.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return null;
+  // |(p - a) × dir| / |dir|.
+  const cross = (center.x - line.start.x) * dy - (center.y - line.start.y) * dx;
+  return Math.abs(cross) / len;
 }
 
 async function enterSketch(page: Page, plane: "XY" | "XZ" | "YZ") {
@@ -370,6 +421,235 @@ test.describe("sketcher constraints", () => {
     );
     await expect(page.getByTestId("solve-diagnostic")).toHaveCount(0);
     await expect(page.getByTestId("eval-status")).toHaveText("Solved");
+  });
+});
+
+/**
+ * Relational constraints (BACKLOG #3, frontend 3b): the three verbs that
+ * relate two whole curves — P parallel (∥), L perpendicular (⊥), T tangent
+ * (T). Each worked case draws deliberately UN-satisfying geometry, applies
+ * the verb, and proves from the intercepted evaluate payload that the solver
+ * MOVED the geometry to satisfy the relation, and that the glyph renders.
+ */
+test.describe("sketcher relational constraints", () => {
+  /** Dimensionless bound for parallel/perpendicular (unit cross/dot). */
+  const ANGLE_TOLERANCE = 1e-4;
+  /** Millimetre bound for tangency (centre-to-line gap vs radius). */
+  const TANGENT_TOLERANCE_MM = 1e-3;
+
+  const displacement = (
+    solved: SolvedEntity | undefined,
+    start: SolvedPoint,
+    end: SolvedPoint,
+  ): number => {
+    if (solved?.start === undefined || solved.end === undefined) return 0;
+    return Math.max(
+      Math.hypot(solved.start.x - start.x, solved.start.y - start.y),
+      Math.hypot(solved.end.x - end.x, solved.end.y - end.y),
+    );
+  };
+
+  test("two parallel lines: the slanted line rotates parallel", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Parallel part");
+    const evaluations = collectEvaluations(page, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    // e1 horizontal, e2 clearly slanted — not parallel.
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await clickPlane(page, at, { x: 40, y: 0 });
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 0, y: 12 });
+    await clickPlane(page, at, { x: 35, y: -3 });
+    await page.keyboard.press("Escape");
+
+    await clickPlane(page, at, { x: 20, y: 0 }); // e1 body
+    await clickPlane(page, at, { x: 17.5, y: 4.5 }); // e2 body (midpoint)
+    await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
+    await page.keyboard.press("p");
+    await expect(page.getByTestId("glyph-0")).toHaveText("∥");
+
+    await expect
+      .poll(() => {
+        const sketch = latestSketch(evaluations);
+        if (sketch?.data == null) return null;
+        const cd = unitCrossDot(sketch.data.entities, "e1", "e2");
+        const moved = displacement(
+          sketch.data.entities.find((e) => e.id === "e2"),
+          { x: 0, y: 12 },
+          { x: 35, y: -3 },
+        );
+        return cd === null
+          ? null
+          : {
+              parallel: Math.abs(cd.cross) < ANGLE_TOLERANCE,
+              moved: moved > 1,
+            };
+      })
+      .toEqual({ parallel: true, moved: true });
+  });
+
+  test("two perpendicular lines: the slanted line rotates to 90°", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Perp part");
+    const evaluations = collectEvaluations(page, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    // e1 horizontal, e2 slanted (not 90° to e1).
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await clickPlane(page, at, { x: 40, y: 0 });
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 10, y: 5 });
+    await clickPlane(page, at, { x: 35, y: 25 });
+    await page.keyboard.press("Escape");
+
+    await clickPlane(page, at, { x: 20, y: 0 }); // e1 body
+    await clickPlane(page, at, { x: 22.5, y: 15 }); // e2 body (midpoint)
+    await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
+    await page.keyboard.press("l"); // L = perpendicular in the constraint vocab
+    await expect(page.getByTestId("glyph-0")).toHaveText("⊥");
+
+    await expect
+      .poll(() => {
+        const sketch = latestSketch(evaluations);
+        if (sketch?.data == null) return null;
+        const cd = unitCrossDot(sketch.data.entities, "e1", "e2");
+        const moved = displacement(
+          sketch.data.entities.find((e) => e.id === "e2"),
+          { x: 10, y: 5 },
+          { x: 35, y: 25 },
+        );
+        return cd === null
+          ? null
+          : { perp: Math.abs(cd.dot) < ANGLE_TOLERANCE, moved: moved > 1 };
+      })
+      .toEqual({ perp: true, moved: true });
+  });
+
+  test("line + circle tangent: the line slides in to touch the circle; founder screenshot", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Tangent part");
+    const evaluations = collectEvaluations(page, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    // A circle (r10 at origin) and a vertical line 20 mm off — a 10 mm gap.
+    await page.keyboard.press("c");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await clickPlane(page, at, { x: 10, y: 0 });
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 20, y: -15 });
+    await clickPlane(page, at, { x: 20, y: 15 });
+    await page.keyboard.press("Escape");
+
+    await clickPlane(page, at, { x: 20, y: 0 }); // e2 line body
+    await clickPlane(page, at, { x: 0, y: 10 }); // e1 circle body (top)
+    await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
+    await page.keyboard.press("t");
+    await expect(page.getByTestId("glyph-0")).toHaveText("T");
+
+    await expect
+      .poll(() => {
+        const sketch = latestSketch(evaluations);
+        if (sketch?.data == null) return null;
+        const gap = centreToLineGap(sketch.data.entities, "e2", "e1");
+        const line = sketch.data.entities.find((e) => e.id === "e2");
+        const circle = sketch.data.entities.find((e) => e.id === "e1");
+        if (gap === null || circle?.radius === undefined) return null;
+        // Tangent: gap == radius. Moved: the line left x = 20.
+        return {
+          tangent: Math.abs(gap - circle.radius) < TANGENT_TOLERANCE_MM,
+          moved: Math.abs((line?.start?.x ?? 20) - 20) > 1,
+        };
+      })
+      .toEqual({ tangent: true, moved: true });
+
+    // Founder screenshot: the tangent T glyph on the solved line-arc pair.
+    await page.mouse.move(1400, 900);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/constraints-tangent-perp-parallel-desktop.png`,
+    });
+  });
+});
+
+test.describe("sketcher relational constraints small laptop (1280×800)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("perpendicular + tangent stay usable; founder screenshot", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(
+      page,
+      account.token,
+      "Relational laptop",
+    );
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 640, y: 560 },
+      { x: 940, y: 380 },
+    );
+
+    // A perpendicular pair…
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await clickPlane(page, at, { x: 40, y: 0 });
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 10, y: 5 });
+    await clickPlane(page, at, { x: 35, y: 25 });
+    await page.keyboard.press("Escape");
+    await clickPlane(page, at, { x: 20, y: 0 });
+    await clickPlane(page, at, { x: 22.5, y: 15 });
+    await page.keyboard.press("l");
+    await expect(page.getByTestId("glyph-0")).toHaveText("⊥");
+
+    // …and a tangent line-arc, for a two-glyph founder shot.
+    await page.keyboard.press("c");
+    await clickPlane(page, at, { x: 30, y: -20 });
+    await clickPlane(page, at, { x: 38, y: -20 });
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 5, y: -30 });
+    await clickPlane(page, at, { x: 45, y: -30 });
+    await page.keyboard.press("Escape");
+    await clickPlane(page, at, { x: 25, y: -30 }); // line body
+    await clickPlane(page, at, { x: 30, y: -12 }); // circle body (top)
+    await page.keyboard.press("t");
+    await expect(page.getByTestId("glyph-1")).toHaveText("T");
+
+    const viewport = page.getByTestId("viewport");
+    const box = await viewport.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThan(640);
+    await page.mouse.move(1100, 700);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/constraints-tangent-perp-parallel-laptop.png`,
+    });
   });
 });
 
