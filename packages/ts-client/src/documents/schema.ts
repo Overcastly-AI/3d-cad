@@ -623,6 +623,31 @@ export interface components {
             kind: "horizontal";
         };
         /**
+         * ParallelConstraint
+         * @description Two lines have equal direction.
+         *
+         *     Relates two **whole** line entities (by id, not by endpoint) — contrast
+         *     with :class:`CoincidentConstraint`, whose ``a``/``b`` name single points.
+         *     Removes one rotational degree of freedom. Both entities must be lines.
+         */
+        ParallelConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "parallel";
+        };
+        /**
          * PartCreate
          * @description Create a part owned by the calling user.
          */
@@ -672,6 +697,30 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * PerpendicularConstraint
+         * @description Two lines are orthogonal (their directions differ by 90°).
+         *
+         *     Relates two whole line entities by id; removes one rotational degree of
+         *     freedom. Both entities must be lines.
+         */
+        PerpendicularConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "perpendicular";
         };
         /**
          * Point2D
@@ -825,7 +874,7 @@ export interface components {
          */
         SketchParamsV1: {
             /** Constraints */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"])[];
             /** Entities */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
             /** Plane */
@@ -853,6 +902,32 @@ export interface components {
              */
             kind: "point";
             position: components["schemas"]["Point2D"];
+        };
+        /**
+         * TangentConstraint
+         * @description Two curves touch with a common tangent at the contact point.
+         *
+         *     Relates a line and an arc/circle, or two arcs/circles, by whole-entity id.
+         *     A line-and-line pair is not tangency-capable and is rejected at solve time.
+         *     Order is immaterial (tangency is symmetric); the solver dispatches to the
+         *     matching planegcs variant from the resolved entity kinds.
+         */
+        TangentConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tangent";
         };
         /** ValidationError */
         ValidationError: {

@@ -89,6 +89,13 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       count reflects each constraint; conflict diagnostics extend to the new
       kinds (reuses `sketch_conflicting` surfacing). [src: product-auditor,
       roadmap]
+      _PARTIAL (3a shipped): 3 `ConstraintKind`s (parallel/perpendicular/
+      tangent) in the typed py-kit schema + planegcs mapping
+      (parallel/perpendicular/tangent_line_arc & the arc/circle variants) +
+      solver tests (line-arc tangency at 0.0 deviation, 90°/parallel solves,
+      DOF −1 each, parallel+perp conflict via `sketch_conflicting`) +
+      contracts/ts-client regen. Remaining (3b): keyboard verbs + glyphs in
+      apps/web — do not tick until 3b lands._
 - [ ] (P1, M) Sketch constraints — equal/symmetric/concentric — second
       constraint-vocabulary slice, same pattern as the item above: equal
       (length/radius), symmetric (about a line — cleanest with a
@@ -298,6 +305,8 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — tangent/perp/parallel schema+solver (3a) shipped; UI verbs (3b)
+  pending. [kernel-architect]
 - 2026-07-11 — **Construction geometry 2b shipped (frontend → #2 done):** `N`
   keyboard-verb toggle (selection-presence) + CONSTR strip cell; muted/dashed
   design token in both renderers; e2e rect+construction-diagonal → extrude

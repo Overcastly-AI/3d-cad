@@ -11,6 +11,8 @@ from geometry.sketch.schemas import (
     EntityPointRef,
     FixedConstraint,
     HorizontalConstraint,
+    ParallelConstraint,
+    PerpendicularConstraint,
     Point2D,
     RadiusConstraint,
     SketchArc,
@@ -22,6 +24,7 @@ from geometry.sketch.schemas import (
     SketchPoint,
     SketchSolveStatus,
     SolvedSketch,
+    TangentConstraint,
     VerticalConstraint,
 )
 from geometry.sketch.solver import SketchDefinitionError, SketchSolver
@@ -32,6 +35,8 @@ __all__ = [
     "EntityPointRef",
     "FixedConstraint",
     "HorizontalConstraint",
+    "ParallelConstraint",
+    "PerpendicularConstraint",
     "PlanegcsSketchSolver",
     "Point2D",
     "RadiusConstraint",
@@ -46,5 +51,6 @@ __all__ = [
     "SketchSolveStatus",
     "SketchSolver",
     "SolvedSketch",
+    "TangentConstraint",
     "VerticalConstraint",
 ]

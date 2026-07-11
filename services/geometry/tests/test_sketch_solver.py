@@ -15,6 +15,8 @@ kernel-relevant error. Determinism assertions are bitwise (``==``) on
 purpose — determinism takes no tolerance.
 """
 
+import math
+
 import pytest
 from geometry.sketch import (
     CoincidentConstraint,
@@ -22,9 +24,12 @@ from geometry.sketch import (
     EntityPointRef,
     FixedConstraint,
     HorizontalConstraint,
+    ParallelConstraint,
+    PerpendicularConstraint,
     PlanegcsSketchSolver,
     Point2D,
     RadiusConstraint,
+    SketchArc,
     SketchCircle,
     SketchConstraint,
     SketchDefinition,
@@ -32,6 +37,7 @@ from geometry.sketch import (
     SketchEntity,
     SketchLine,
     SketchSolver,
+    TangentConstraint,
     VerticalConstraint,
 )
 
@@ -315,3 +321,265 @@ def test_duplicate_entity_ids_rejected_at_validation() -> None:
             ],
             constraints=[],
         )
+
+
+# ---------------------------------------------------------------------------
+# Curve-relating constraints: parallel / perpendicular / tangent (BACKLOG #3a)
+# ---------------------------------------------------------------------------
+
+
+def _line_dir(line: SketchLine) -> tuple[float, float]:
+    return (line.end.x - line.start.x, line.end.y - line.start.y)
+
+
+def _cross(u: tuple[float, float], v: tuple[float, float]) -> float:
+    return u[0] * v[1] - u[1] * v[0]
+
+
+def _dot(u: tuple[float, float], v: tuple[float, float]) -> float:
+    return u[0] * v[0] + u[1] * v[1]
+
+
+def _dist_point_to_line(cx: float, cy: float, line: SketchLine) -> float:
+    """Perpendicular distance from ``(cx, cy)`` to the infinite line."""
+    (x1, y1), (x2, y2) = (line.start.x, line.start.y), (line.end.x, line.end.y)
+    length = math.hypot(x2 - x1, y2 - y1)
+    return abs((x2 - x1) * (y1 - cy) - (x1 - cx) * (y2 - y1)) / length
+
+
+def _solved_line(result_entities: list[SketchEntity], eid: str) -> SketchLine:
+    (line,) = [e for e in result_entities if e.id == eid]
+    assert isinstance(line, SketchLine)
+    return line
+
+
+def _fixed_horizontal_reference_line() -> tuple[SketchLine, list[SketchConstraint]]:
+    """e1 = the fully-pinned horizontal reference (0,0)->(10,0)."""
+    e1 = _line("e1", (0.0, 0.0), (10.0, 0.0))
+    fixings: list[SketchConstraint] = [
+        FixedConstraint(kind="fixed", point=_ref("e1", "start")),
+        FixedConstraint(kind="fixed", point=_ref("e1", "end")),
+    ]
+    return e1, fixings
+
+
+def test_parallel_lines_solve_to_equal_direction() -> None:
+    """A free line made parallel to a fixed horizontal line becomes horizontal
+    (cross product of the two direction vectors -> 0), and the constraint
+    removes exactly one degree of freedom."""
+    e1, fixings = _fixed_horizontal_reference_line()
+    # e2 anchored at (0, 5), drawn sloping; parallel(e1, e2) should flatten it.
+    e2 = _line("e2", (0.0, 5.0), (8.0, 7.0))
+    base_constraints: list[SketchConstraint] = [
+        *fixings,
+        FixedConstraint(kind="fixed", point=_ref("e2", "start")),
+    ]
+    base = SketchDefinition(entities=[e1, e2], constraints=base_constraints)
+    with_parallel = SketchDefinition(
+        entities=[e1, e2],
+        constraints=[
+            *base_constraints,
+            ParallelConstraint(kind="parallel", a="e1", b="e2"),
+        ],
+    )
+
+    base_result = SOLVER.solve(base)
+    result = SOLVER.solve(with_parallel)
+
+    assert result.status in ("converged", "underconstrained")
+    assert base_result.dof is not None
+    assert result.dof == base_result.dof - 1  # exactly one DOF removed
+    solved_e2 = _solved_line(result.entities, "e2")
+    d1, d2 = _line_dir(_solved_line(result.entities, "e1")), _line_dir(solved_e2)
+    assert _cross(d1, d2) == pytest.approx(0.0, abs=RECTANGLE_TOLERANCE_MM)
+    # Parallel to a horizontal reference => e2 is horizontal (end.y == start.y).
+    assert solved_e2.end.y == pytest.approx(5.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_perpendicular_lines_solve_to_ninety_degrees() -> None:
+    """A free line made perpendicular to a fixed horizontal line becomes
+    vertical (direction dot product -> 0), removing one degree of freedom."""
+    e1, fixings = _fixed_horizontal_reference_line()
+    e2 = _line("e2", (0.0, 0.0), (8.0, 2.0))
+    base_constraints: list[SketchConstraint] = [
+        *fixings,
+        FixedConstraint(kind="fixed", point=_ref("e2", "start")),
+    ]
+    base = SketchDefinition(entities=[e1, e2], constraints=base_constraints)
+    with_perp = SketchDefinition(
+        entities=[e1, e2],
+        constraints=[
+            *base_constraints,
+            PerpendicularConstraint(kind="perpendicular", a="e1", b="e2"),
+        ],
+    )
+
+    base_result = SOLVER.solve(base)
+    result = SOLVER.solve(with_perp)
+
+    assert result.status in ("converged", "underconstrained")
+    assert base_result.dof is not None
+    assert result.dof == base_result.dof - 1
+    solved_e2 = _solved_line(result.entities, "e2")
+    d1, d2 = _line_dir(_solved_line(result.entities, "e1")), _line_dir(solved_e2)
+    assert _dot(d1, d2) == pytest.approx(0.0, abs=RECTANGLE_TOLERANCE_MM)
+    # Perpendicular to horizontal => vertical: end.x == start.x (== 0).
+    assert solved_e2.end.x == pytest.approx(0.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_line_arc_tangent_touches_circle_at_one_point() -> None:
+    """The worked acceptance case: a horizontal line dropped onto a quarter
+    arc of radius 10 by a tangent constraint. At the solution the line grazes
+    the arc's circle — the perpendicular distance from the arc center to the
+    line equals the radius (single contact point). One DOF removed."""
+    # Arc a1: center (0,0), start (10,0), end (0,10) -> radius 10, pinned.
+    arc = SketchArc(
+        id="a1",
+        kind="arc",
+        center=Point2D(x=0.0, y=0.0),
+        start=Point2D(x=10.0, y=0.0),
+        end=Point2D(x=0.0, y=10.0),
+    )
+    # Line e1 above the arc (guess y=12), horizontal; tangent pulls it to y=10.
+    e1 = _line("e1", (-5.0, 12.0), (5.0, 12.0))
+    # Fixing center + start pins the arc's circle (center + radius=10); the end
+    # is left free on the circle, so no arc-rule redundancy is introduced.
+    arc_fixings: list[SketchConstraint] = [
+        FixedConstraint(kind="fixed", point=_ref("a1", "center")),
+        FixedConstraint(kind="fixed", point=_ref("a1", "start")),
+    ]
+    base_constraints: list[SketchConstraint] = [
+        *arc_fixings,
+        HorizontalConstraint(kind="horizontal", entity="e1"),
+    ]
+    base = SketchDefinition(entities=[arc, e1], constraints=base_constraints)
+    with_tangent = SketchDefinition(
+        entities=[arc, e1],
+        constraints=[
+            *base_constraints,
+            TangentConstraint(kind="tangent", a="e1", b="a1"),
+        ],
+    )
+
+    base_result = SOLVER.solve(base)
+    result = SOLVER.solve(with_tangent)
+
+    assert result.status in ("converged", "underconstrained")
+    assert base_result.dof is not None
+    assert result.dof == base_result.dof - 1
+    solved_line = _solved_line(result.entities, "e1")
+    solved_arc = next(e for e in result.entities if e.id == "a1")
+    assert isinstance(solved_arc, SketchArc)
+    radius = math.hypot(
+        solved_arc.start.x - solved_arc.center.x,
+        solved_arc.start.y - solved_arc.center.y,
+    )
+    distance = _dist_point_to_line(
+        solved_arc.center.x, solved_arc.center.y, solved_line
+    )
+    # The tangency: center-to-line distance == radius (grazes at one point).
+    assert distance == pytest.approx(radius, abs=RECTANGLE_TOLERANCE_MM)
+    assert distance == pytest.approx(10.0, abs=RECTANGLE_TOLERANCE_MM)
+    # Line dropped from y=12 to the near tangent line y=10.
+    assert solved_line.start.y == pytest.approx(10.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_parallel_and_perpendicular_on_same_pair_conflict() -> None:
+    """Asserting a pair of lines is both parallel and perpendicular is
+    unsatisfiable: reported as ``conflicting`` with the offending constraint
+    indices (same diagnosis path as the distance-vs-fixed conflict)."""
+    e1, fixings = _fixed_horizontal_reference_line()
+    e2 = _line("e2", (0.0, 5.0), (8.0, 7.0))
+    definition = SketchDefinition(
+        entities=[e1, e2],
+        constraints=[
+            *fixings,  # indices 0, 1
+            FixedConstraint(kind="fixed", point=_ref("e2", "start")),  # index 2
+            # A driving length keeps e2 from collapsing to a point (which would
+            # satisfy both direction constraints vacuously); now the pair is
+            # genuinely unsatisfiable.
+            DistanceConstraint(kind="distance", entity="e2", value_mm=5.0),  # index 3
+            ParallelConstraint(kind="parallel", a="e1", b="e2"),  # index 4
+            PerpendicularConstraint(kind="perpendicular", a="e1", b="e2"),  # index 5
+        ],
+    )
+    result = SOLVER.solve(definition)
+    assert result.status == "conflicting"
+    assert result.conflicting_constraints  # non-empty, mapped to caller indices
+    # The parallel/perpendicular pair is the impossible combination.
+    assert set(result.conflicting_constraints) & {4, 5}
+    assert set(result.conflicting_constraints) <= {0, 1, 2, 3, 4, 5}
+
+
+def test_curve_constraints_solve_deterministically_bitwise() -> None:
+    """The new constraint kinds preserve the RESEARCH §9 determinism gate:
+    two independent solves of a tangent+perpendicular sketch are bitwise
+    identical (== , no tolerance)."""
+    arc = SketchArc(
+        id="a1",
+        kind="arc",
+        center=Point2D(x=0.0, y=0.0),
+        start=Point2D(x=10.0, y=0.0),
+        end=Point2D(x=0.0, y=10.0),
+    )
+    e1 = _line("e1", (-5.0, 12.0), (5.0, 12.0))
+    e2 = _line("e2", (0.0, 0.0), (8.0, 2.0))
+    definition = SketchDefinition(
+        entities=[arc, e1, e2],
+        constraints=[
+            FixedConstraint(kind="fixed", point=_ref("a1", "center")),
+            FixedConstraint(kind="fixed", point=_ref("a1", "start")),
+            FixedConstraint(kind="fixed", point=_ref("a1", "end")),
+            HorizontalConstraint(kind="horizontal", entity="e1"),
+            TangentConstraint(kind="tangent", a="e1", b="a1"),
+            FixedConstraint(kind="fixed", point=_ref("e2", "start")),
+            PerpendicularConstraint(kind="perpendicular", a="e1", b="e2"),
+        ],
+    )
+    first = SOLVER.solve(definition)
+    second = PlanegcsSketchSolver().solve(definition)
+
+    def flatten(entities: list[SketchEntity]) -> list[tuple[float, ...]]:
+        out: list[tuple[float, ...]] = []
+        for e in entities:
+            if isinstance(e, SketchLine):
+                out.append((e.start.x, e.start.y, e.end.x, e.end.y))
+            elif isinstance(e, SketchArc):
+                out.append(
+                    (e.center.x, e.center.y, e.start.x, e.start.y, e.end.x, e.end.y)
+                )
+        return out
+
+    assert flatten(first.entities) == flatten(second.entities)
+    assert first.status == second.status
+    assert first.dof == second.dof
+
+
+def test_tangent_between_two_lines_rejected() -> None:
+    """Two lines have no common-tangent relation; the solver rejects the
+    definition rather than silently mis-mapping it."""
+    definition = SketchDefinition(
+        entities=[
+            _line("e1", (0.0, 0.0), (10.0, 0.0)),
+            _line("e2", (0.0, 1.0), (10.0, 1.0)),
+        ],
+        constraints=[TangentConstraint(kind="tangent", a="e1", b="e2")],
+    )
+    with pytest.raises(SketchDefinitionError, match="tangency-capable"):
+        SOLVER.solve(definition)
+
+
+def test_parallel_requires_line_entities() -> None:
+    """Parallel between a line and a circle is a definition error (parallel
+    relates two lines)."""
+    definition = SketchDefinition(
+        entities=[
+            _line("e1", (0.0, 0.0), (10.0, 0.0)),
+            SketchCircle(
+                id="c1", kind="circle", center=Point2D(x=0.0, y=5.0), radius=2.0
+            ),
+        ],
+        constraints=[ParallelConstraint(kind="parallel", a="e1", b="c1")],
+    )
+    with pytest.raises(SketchDefinitionError, match="requires a line"):
+        SOLVER.solve(definition)

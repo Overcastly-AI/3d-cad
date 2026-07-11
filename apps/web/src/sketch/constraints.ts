@@ -156,6 +156,12 @@ export function sameConstraint(
         (sameRef(a.a, other.b) && sameRef(a.b, other.a))
       );
     }
+    // parallel/perpendicular/tangent exist in the schema (backend item 3a) but
+    // have no authoring verb yet — the UI half is frontend item 3b, which
+    // replaces this stub with structural equality per kind. They cannot be
+    // created here today, so treating them as never-duplicate is inert.
+    default:
+      return false;
   }
 }
 

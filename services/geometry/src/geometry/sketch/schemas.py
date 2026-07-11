@@ -15,6 +15,8 @@ from py_kit.schemas.sketch import (
     EntityPointRef,
     FixedConstraint,
     HorizontalConstraint,
+    ParallelConstraint,
+    PerpendicularConstraint,
     Point2D,
     PointName,
     RadiusConstraint,
@@ -28,6 +30,7 @@ from py_kit.schemas.sketch import (
     SketchPoint,
     SketchSolveStatus,
     SolvedSketch,
+    TangentConstraint,
     VerticalConstraint,
 )
 
@@ -38,6 +41,8 @@ __all__ = [
     "EntityPointRef",
     "FixedConstraint",
     "HorizontalConstraint",
+    "ParallelConstraint",
+    "PerpendicularConstraint",
     "Point2D",
     "PointName",
     "RadiusConstraint",
@@ -51,5 +56,6 @@ __all__ = [
     "SketchPoint",
     "SketchSolveStatus",
     "SolvedSketch",
+    "TangentConstraint",
     "VerticalConstraint",
 ]

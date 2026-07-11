@@ -1034,6 +1034,35 @@
         "title": "MeshStats",
         "type": "object"
       },
+      "ParallelConstraint": {
+        "description": "Two lines have equal direction.\n\nRelates two **whole** line entities (by id, not by endpoint) \u2014 contrast\nwith :class:`CoincidentConstraint`, whose ``a``/``b`` name single points.\nRemoves one rotational degree of freedom. Both entities must be lines.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "parallel",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "ParallelConstraint",
+        "type": "object"
+      },
       "PartCreate": {
         "description": "Create a part owned by the calling user.",
         "properties": {
@@ -1105,6 +1134,35 @@
           "updated_at"
         ],
         "title": "PartResponse",
+        "type": "object"
+      },
+      "PerpendicularConstraint": {
+        "description": "Two lines are orthogonal (their directions differ by 90\u00b0).\n\nRelates two whole line entities by id; removes one rotational degree of\nfreedom. Both entities must be lines.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "perpendicular",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "PerpendicularConstraint",
         "type": "object"
       },
       "Point2D": {
@@ -1392,7 +1450,10 @@
                   "distance": "#/components/schemas/DistanceConstraint",
                   "fixed": "#/components/schemas/FixedConstraint",
                   "horizontal": "#/components/schemas/HorizontalConstraint",
+                  "parallel": "#/components/schemas/ParallelConstraint",
+                  "perpendicular": "#/components/schemas/PerpendicularConstraint",
                   "radius": "#/components/schemas/RadiusConstraint",
+                  "tangent": "#/components/schemas/TangentConstraint",
                   "vertical": "#/components/schemas/VerticalConstraint"
                 },
                 "propertyName": "kind"
@@ -1415,6 +1476,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/FixedConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/ParallelConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/PerpendicularConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/TangentConstraint"
                 }
               ]
             },
@@ -1593,6 +1663,35 @@
           "entities"
         ],
         "title": "SolvedSketchData",
+        "type": "object"
+      },
+      "TangentConstraint": {
+        "description": "Two curves touch with a common tangent at the contact point.\n\nRelates a line and an arc/circle, or two arcs/circles, by whole-entity id.\nA line-and-line pair is not tangency-capable and is rejected at solve time.\nOrder is immaterial (tangency is symmetric); the solver dispatches to the\nmatching planegcs variant from the resolved entity kinds.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "tangent",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "TangentConstraint",
         "type": "object"
       },
       "TessellateRequest": {

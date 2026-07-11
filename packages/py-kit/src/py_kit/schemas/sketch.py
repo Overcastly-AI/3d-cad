@@ -181,13 +181,55 @@ class FixedConstraint(BaseModel):
     point: EntityPointRef
 
 
+class ParallelConstraint(BaseModel):
+    """Two lines have equal direction.
+
+    Relates two **whole** line entities (by id, not by endpoint) — contrast
+    with :class:`CoincidentConstraint`, whose ``a``/``b`` name single points.
+    Removes one rotational degree of freedom. Both entities must be lines.
+    """
+
+    kind: Literal["parallel"]
+    a: EntityId
+    b: EntityId
+
+
+class PerpendicularConstraint(BaseModel):
+    """Two lines are orthogonal (their directions differ by 90°).
+
+    Relates two whole line entities by id; removes one rotational degree of
+    freedom. Both entities must be lines.
+    """
+
+    kind: Literal["perpendicular"]
+    a: EntityId
+    b: EntityId
+
+
+class TangentConstraint(BaseModel):
+    """Two curves touch with a common tangent at the contact point.
+
+    Relates a line and an arc/circle, or two arcs/circles, by whole-entity id.
+    A line-and-line pair is not tangency-capable and is rejected at solve time.
+    Order is immaterial (tangency is symmetric); the solver dispatches to the
+    matching planegcs variant from the resolved entity kinds.
+    """
+
+    kind: Literal["tangent"]
+    a: EntityId
+    b: EntityId
+
+
 SketchConstraint = Annotated[
     CoincidentConstraint
     | HorizontalConstraint
     | VerticalConstraint
     | DistanceConstraint
     | RadiusConstraint
-    | FixedConstraint,
+    | FixedConstraint
+    | ParallelConstraint
+    | PerpendicularConstraint
+    | TangentConstraint,
     Field(discriminator="kind"),
 ]
 
