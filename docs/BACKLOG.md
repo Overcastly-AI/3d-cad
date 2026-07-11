@@ -14,178 +14,148 @@ Every row is ❌ except Price/freedom (✅ structurally). See VISION.md's table
 for current row text — the vision-steward re-scores it independently each
 pass; this note only points the queue at it, no duplication:
 
-- **Part modeling row** — extrude is real geometry (golden-verified) but the
-  daily-driver loop is still broken per the row's own language: the extruded
-  body doesn't render (mesh-fetch proxy unshipped), no way to create/edit an
-  extrude from the UI, no feature-tree edit/rollback UI, no fillet/chamfer,
-  no parts-home UI. Ready #1–#6 below close these gaps in dependency order.
-- **Sketching row** — no Phase 1 items target it further this pass (Phase 2:
-  tangent/perpendicular/parallel/equal/symmetric/concentric, trim/offset,
-  mirror/pattern, construction geometry).
-- **Interop row** — half-flipped (export shipped, import Phase 4).
-  Export-from-tree shipped 2026-07-11 (Ready #7, GEOMETRY-QA gap #8 closed):
-  an engineer can export the part they just extruded/filleted, not just bare
-  primitives — via `POST /api/v1/parts/{id}/export?format=`.
+- **Sketching row** — real authoring/constraint/solve loop shipped in Phase 1
+  (6 constraint kinds), but missing the vocabulary most real parts need:
+  tangent/perpendicular/parallel/equal/symmetric/concentric, construction
+  geometry, trim/extend. Ready #2–#4 close this.
+- **Part modeling row** — full sketch→extrude→fillet/chamfer→edit→rollback→
+  render→export loop is real and QA-verified (Phase 1 exit gate), but only 3
+  features exist (no revolve/hole/pattern/shell/draft) and edge selection is
+  predicate-only (`all_edges`/`axis_parallel`), not click-a-specific-edge.
+  Ready #1 (topological naming design doc) is the prerequisite for
+  click-specific selection; Ready #5 (revolve) widens feature breadth.
+- **Interop row** — half-flipped (export now covers modeled trees, not just
+  bare primitives; import is still Phase 4). No Phase 2 items target it
+  further this pass.
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
-  access — later phases; no Phase 1 items target them.
+  access — later phases; no Phase 2 Ready items target them this pass
+  (performance benchmark suite is filed in Next, not yet Ready).
 
 ## Ready (top of queue)
 
-Sequenced toward the Phase 1 exit gate (roadmap: login → sketch → extrude →
-edit param → export). #1→#2→#3 is the mesh-visibility + extrude-UI chain
-(each depends on the previous). #4 (parts home) and #5→#6 (fillet, chamfer)
-are independent of that chain and of each other's predecessors beyond #5→#6,
-and can build in parallel with it. #7 (export-from-tree) is independent of
-#1–#6 and can start immediately. #8 (full-flow e2e) is the exit gate and
-depends on #2, #3, #4, #7.
+Phase 2 queue. #1 (topological naming design doc) is a prerequisite for the
+Next-queue face/edge-picking item and any future feature that lets a user
+pick and persist a reference to a specific face/edge (hole placement,
+pattern-by-edge, click-specific fillet/chamfer) — start it immediately, in
+parallel with everything else. #2–#4 (sketcher) and #5 (revolve) are
+independent of #1 and of each other — none needs a stable named reference to
+ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
 
-- [x] (P1, S) Gateway mesh-fetch proxy — add
-      `GET /api/v1/geometry/meshes/{mesh_glb_id}` to the gateway, proxying
-      geometry's already-shipped content-addressed mesh endpoint (feature-tree
-      design §7.8 interim decision: `mesh_glb_id` is a `sha256:` content
-      address served from an in-process LRU). Same `_forward` proxy pattern as
-      the existing tessellate/export routes (`services/gateway/src/gateway/
-      geometry.py`) — CLAUDE.md service boundary: the web app never talks to
-      geometry directly. Depends on: nothing new (mesh endpoint shipped
-      2026-07-11 with extrude).
-      Acceptance: gateway route returns byte-identical GLB + media type as
-      geometry's endpoint on a hit; a miss passes through the py-kit
-      `mesh_not_found` 404 envelope unchanged; auth-protected like sibling
-      geometry routes; integration test hits it over real HTTP
-      gateway→geometry. [src: geometry-qa, product-auditor]
-      Shipped 2026-07-11 (reconciled after a mid-build model switch): route +
-      `sha256:` id validation at the gateway, byte-identity e2e proving an
-      extruded body's GLB reaches the browser. [backend-builder + orchestrator]
-- [x] (P1, M) Viewport renders evaluated-tree bodies — the workspace viewport
-      fetches `mesh_glb_id` from an evaluate-tree response via #1 and renders
-      the resulting body mesh, replacing/augmenting the 2D sketch overlay —
-      the extrude loop becomes visible for the first time (VISION.md
-      Part-modeling row: "an engineer extrudes and sees nothing" today).
-      `frontend-design` skill mandatory (new 3D body render layer; extend
-      `packages/design` shading/material tokens if needed — one palette
-      across DOM + WebGL). Depends on: #1.
-      Acceptance: Playwright e2e — solve a rectangle sketch, extrude it (via
-      API is fine for this item; UI authoring is #3), reload the workspace,
-      see the extruded body rendered (screenshot evidence); handles
-      `mesh_glb_id: null` (no body-affecting feature yet) by showing the
-      sketch only, no error state; WCAG-AA + 1280×800 verified; founder
-      screenshots. [src: product-auditor, engineering-auditor]
-      Shipped 2026-07-11: mesh-proxy fetch on evaluate → first-light GLB→mesh
-      render (token aluminium + B-rep edges); title-block body inspector
-      (volume/area/bbox/topology); `mesh_not_found` 404 → re-evaluate, never a
-      blank viewport; profile sketch recedes behind the body. e2e seeds
-      sketch+extrude via API (the #3 authoring UI seam), asserts the solid
-      renders + volume 10000 in the inspector + reload persists. [frontend-builder]
-- [x] (P1, M) Extrude feature UI — create/edit + feature-tree panel
-      edit/rollback — from the workspace, add an extrude feature against a
-      closed sketch profile (direction/operation/distance params), edit its
-      params, and use the feature-tree panel to select any feature and move
-      the rollback bar (documents API already supports this). Scoped slice of
-      the roadmap's "Viewport v1" item — face/edge picking stays out of scope
-      (filed separately in Next, blocked on #5/#6). Depends on: #2 (so the
-      new UI's output is immediately visible and testable).
-      Shipped 2026-07-11: title-block extrude editor (top-left HUD, keyboard-
-      first — brass distance handle, Enter/Esc, add/cut + normal/reverse
-      toggles, profile select); selectable tree rows, per-feature error lines
-      (`profile_not_closed` legible under the row), and a brass rollback
-      "cut line" whose slots wind the build back (extrude excluded → the
-      sketch-only pre-extrude state, nothing destroyed). New `SelectField`
-      primitive. e2e: UI sketch→extrude→edit-distance→rollback→open-profile
-      error, desktop + 1280×800; founder screenshots. [frontend-builder]
-- [x] (P1, S) Parts home UI — create/list/open/delete parts screens (the
-      `/parts/{id}` workspace exists but is only reachable by direct URL;
-      e2e creates parts via API today). Composes design primitives;
-      independent of #1–#3, needed for the Phase 1 full-flow e2e exit gate (a
-      user must reach the workspace without a hand-typed URL). Acceptance:
-      Playwright e2e — sign in, create a part from the UI, open it, delete
-      it, list reflects each step; WCAG-AA + 1280×800; founder screenshots.
-      [src: frontend-builder]
-      Shipped 2026-07-11: `/` is now the parts home — a drawing-register list
-      (scribed sheet numbers, mono metadata, ruled rows; honest about no
-      thumbnails) with a keyboard-first create line (409 `part_name_taken`
-      pinned to the field), inline delete-confirm, and a designed first-run
-      empty state; bench grid + `SheetGrid` shared with sign-in. `Button`
-      gains a `danger` variant; `TextField` forwards a ref. The box demo moved
-      to `/first-light`. e2e create→open→delete→reload-persists, desktop +
-      1280×800; founder screenshots. [frontend-builder]
-- [x] (P1, M) Fillet feature — round edges of the extruded body via
-      build123d; registers in the evaluate-tree dispatcher alongside extrude.
-      Ships with its own golden in the same commit (geometry-gates skill) —
-      first fillet golden is a new curved-topology class beyond the cylinder;
-      STEP round-trip observations recorded in GEOMETRY-QA. Edge-selection
-      references reuse the design doc's `GeomRef` conventions. Depends on:
-      extrude (shipped).
-      Acceptance: golden passes every parametrized gate (mass props/topology/
-      mesh/determinism/STEP round-trip) at a measured-then-set tolerance; a
-      bad-edge-selection error path pinned at the API level; contracts +
-      ts-client regenerated. [src: roadmap, product-auditor]
-      Shipped 2026-07-11: `fillet` handler + kernel (`select_fillet_edges` /
-      `fillet_body`), `FilletParamsV1` + `EdgeSelector` union
-      (`all_edges` / `axis_parallel` — deterministic GEOMETRIC selection, NOT
-      topological naming, design §2.4 finalized; Phase 2 `SubshapeRef` becomes
-      an additive `kind`). Golden `fillet-plate-r5` (plate, 4 vertical edges
-      r=5, V=9000+250π) through every gate at 1e-9; `no_target_body` /
-      `no_fillet_edges` (bad selection) / `fillet_failed` pinned API-level.
-      STEP round-trip vol dev 1.26e-10 (project's largest, curved fillet
-      re-approx; 800× inside bound). Contracts + ts-client regenerated.
-      [kernel-architect]
-- [x] (P1, M) Chamfer feature — bevel edges of the extruded body via
-      build123d; registers in the evaluate-tree dispatcher, reusing #5's
-      edge-reference plumbing. Ships with its own golden in the same commit;
-      STEP round-trip observations recorded in GEOMETRY-QA. Depends on: #5
-      (edge-reference plumbing).
-      Acceptance: golden passes every parametrized gate at a documented
-      tolerance; bad-edge-selection error path pinned; contracts + ts-client
-      regenerated. [src: roadmap, product-auditor]
-      Shipped 2026-07-11: `chamfer` handler + kernel (`chamfer_body`) reusing
-      the SAME `EdgeSelector`; fillet's `select_fillet_edges`/`NoFilletEdgesError`
-      extracted to shared `geometry.kernel.edges` (`select_edges`/
-      `NoEdgesSelectedError` — DRY second consumer). `ChamferParamsV1` +
-      `ChamferFeature` in the discriminated union. Golden `chamfer-plate-d5`
-      (plate, 4 vertical edges d=5, V=9500, all-planar) through every gate at
-      1e-9; `no_target_body` / `no_chamfer_edges` / `chamfer_failed` pinned
-      API-level. STEP round-trip vol/area dev **0.0** (planar — tighter than
-      fillet's curved 1.26e-10). Contracts + ts-client regenerated.
-      [kernel-architect]
-- [x] (P1, M) Export-from-tree — extend export to accept an evaluated feature
-      tree (part id, optionally a rollback point), not just a bare
-      `ShapeRequest` (closes GEOMETRY-QA gap #8: `POST /api/v1/export` speaks
-      shapes only today, so an engineer cannot export the part they just
-      extruded). Gateway route + web title-block wiring so export works from
-      the part workspace. Depends on: evaluate-tree, documents feature-tree
-      API (both shipped).
-      Shipped 2026-07-11: `POST /api/v1/export/tree` (`ExportTreeRequest` =
-      `EvaluateTreeRequest` + `format`/`angular_deflection`) reuses
-      `evaluate_tree` verbatim then exports the last-good body via the shared
-      `export_solid` dispatch; no body → clean 422 `tree_export_failed`
-      (strict-prefix `FeatureError` in details, §4.3). Gateway
-      `POST /api/v1/parts/{id}/export?format=step|stl` (evaluate's export
-      twin: documents `evaluation-request` → geometry `export/tree` → stream).
-      Export gates parametrize all 3 tree goldens (endpoint STEP round-trip:
-      extrude/chamfer 0.0, fillet 1.26e-10; STEP/STL byte-deterministic);
-      gateway e2e over real HTTP. Contracts + ts-client regenerated.
-      Web title-block button remains for the frontend (#8 full-flow e2e).
-      [src: geometry-qa, roadmap] [kernel-architect]
-- [x] (P1, M) Full-flow Playwright e2e — login → create part → sketch →
-      extrude → edit param → export, desktop + touch viewport smoke. This is
-      the Phase 1 exit gate (docs/ROADMAP.md "Current focus"); closing it is
-      the signal to advance to Phase 2. Depends on: #2, #3, #4, #7.
-      Shipped 2026-07-11: `full-flow.spec.ts` drives the whole loop through
-      the real browser against the real stack (no API shortcuts for the
-      user-facing steps) — register → create part → pick plane → dimensioned
-      40×25 rectangle → extrude → live 10→20 param edit → export STEP (real
-      ISO-10303-21) + STL; green desktop + 1280×800 + a touch-viewport smoke;
-      founder screenshots. Shipped the web part-export strip it needs (`POST
-      /api/v1/parts/{id}/export` via shared `ExportRow`, honest "No body"
-      disabled state). Fixed two box-demo specs left pointing at `/` by #4's
-      move to `/first-light`. [frontend-builder]
+- [ ] (P1, M) Topological naming strategy — design doc — defines how a
+      `SubshapeRef` (additive `kind` alongside today's geometric `EdgeSelector`,
+      design §2.4) identifies a specific face/edge/vertex stably across
+      feature-tree re-evaluation: naming scheme (index-based vs.
+      geometric-hash vs. OCCT history API), versioning/migration path from
+      v1's `all_edges`/`axis_parallel` selectors, and failure semantics when
+      a named ref can't resolve after an upstream edit (mirrors the §4.3
+      strict-prefix error rule). Design-only, same pattern as
+      `docs/design/feature-tree.md`. Depends on: nothing.
+      Acceptance: `docs/design/topological-naming.md` lands with a concrete
+      worked example per naming approach considered, an explicit
+      decision + rejected-alternatives section, and code-reviewer
+      endorsement (resolution log if a request-changes round happens);
+      unblocks the Next-queue "face/edge picking" item. [src: roadmap,
+      engineering-auditor]
+- [ ] (P1, S) Sketch: construction geometry — mark sketch lines/circles/arcs
+      as construction (reference-only, not part of the solid profile): a
+      `construction: bool` field on sketch entities (py-kit schema + upcast
+      registry per feature-tree §5) and a sketcher UI toggle. Construction
+      entities solve and render (dashed/muted token) but are excluded from
+      the closed-wire/profile check that gates extrude. Prereq for the
+      symmetry axes and mirror lines most real parts need. Depends on:
+      nothing (extends the shipped sketch schema + UI).
+      Acceptance: versioned entity-schema field; keyboard-verb UI toggle
+      (same pattern as the shipped H/V/D/R/X/C set); e2e — toggle one edge
+      of a rectangle to construction, confirm extrude still succeeds on the
+      remaining closed loop; screenshot evidence; `frontend-design` skill
+      invoked for the toggle affordance. [src: product-auditor, roadmap]
+- [ ] (P1, M) Sketch constraints — tangent/perpendicular/parallel — extend
+      the planegcs-backed solver + keyboard-first vocabulary
+      (H/V/D/R/X/C today) with 3 constraint kinds relating two curves — the
+      Sketching row's #1 named gap ("no tangent/perpendicular/parallel... —
+      most real parts need these"). Depends on: nothing (extends shipped
+      constraint plumbing).
+      Acceptance: 3 new `ConstraintKind`s in the typed py-kit schema with a
+      planegcs mapping; new keyboard verbs (selection-presence pattern, same
+      as existing); worked e2e (line-arc tangent, two perpendicular lines,
+      two parallel lines) proving the solve moves geometry correctly; DOF
+      count reflects each constraint; conflict diagnostics extend to the new
+      kinds (reuses `sketch_conflicting` surfacing). [src: product-auditor,
+      roadmap]
+- [ ] (P1, M) Sketch constraints — equal/symmetric/concentric — second
+      constraint-vocabulary slice, same pattern as the item above: equal
+      (length/radius), symmetric (about a line — cleanest with a
+      construction line from the item above, but works with any line),
+      concentric (shared center). Completes the Sketching row's 6-constraint
+      gap. Depends on: nothing as code (symmetric doesn't require
+      construction geometry); sequence after/alongside construction geometry
+      for a clean centerline demo.
+      Acceptance: same shape as the tangent/perpendicular/parallel item —
+      3 new constraint kinds, keyboard verbs, DOF-correct solve, worked e2e
+      (equal-radius circles, symmetric rectangle about a centerline,
+      concentric circles), conflict diagnostics extended. [src:
+      product-auditor, roadmap]
+- [ ] (P1, M) Revolve feature — second core body-affecting feature (Part
+      modeling row): revolve a closed sketch profile around an axis (edge or
+      line) via build123d, reusing extrude's profile/closed-wire-check
+      plumbing and registering in the evaluate-tree dispatcher alongside
+      extrude/fillet/chamfer. Independent of #1–#4 — no picked sub-geometry
+      reference needed, only a sketch-plane axis. Depends on: nothing new.
+      Acceptance: golden `revolve-<name>` (new curved-topology class) through
+      every gate — mass props at a measured-then-set tolerance, exact
+      topology/mesh, determinism, STEP round-trip; bad-axis/open-profile/
+      axis-intersects-profile error paths pinned per-feature (strict-prefix
+      rule); contracts + ts-client regenerated; extrude's title-block
+      authoring-UI pattern extended for revolve params (axis pick, angle).
+      [src: roadmap, product-auditor]
+- [ ] (P2, S) Measurement tool — point/edge distance — transient viewport
+      measurement (click two points/edges, read distance/angle in a
+      title-block readout); no persisted reference, so independent of #1.
+      Depends on: nothing (reuses the body inspector's B-rep edge-overlay
+      hover/click primitives).
+      Acceptance: stateless kernel-side distance endpoint (point-point,
+      point-edge nearest, edge-edge nearest); title-block readout in
+      engineering notation (reuses the sketch DRO component); e2e — measure
+      two corners of the `box-10x20x30` golden, assert the readout matches
+      the analytic distance. [src: product-auditor]
+- [ ] (P2, M) Linear/circular pattern — repeat a feature (or a contiguous
+      run of features) N times along a vector or around an axis; operates on
+      whole features, not picked sub-geometry, so independent of #1.
+      Depends on: nothing new.
+      Acceptance: `PatternFeature` (linear: direction/spacing/count;
+      circular: axis/angle/count) in the discriminated feature union;
+      registers in the evaluate-tree dispatcher, boolean-unions repeated
+      instances into the body chain; golden through every gate; bad-count/
+      zero-spacing error paths pinned; contracts regenerated. [src: roadmap,
+      product-auditor]
 
 ## Next (P2)
 
-- [ ] (P2, M) Viewport v1 — face/edge picking — needed for in-UI edge
-      selection when authoring fillet/chamfer (Ready #5/#6 ship the
-      API-level `GeomRef` edge references; UI picking is separate). Depends
-      on Ready #5/#6. [src: roadmap]
+- [ ] (P2, M) Viewport v1 — face/edge picking — in-UI selection of a
+      specific face/edge for feature authoring (today's fillet/chamfer use
+      geometric selectors, not user picks). Depends on Ready #1
+      (topological naming design doc) — a picked reference needs a stable
+      way to survive rebuilds before it's worth wiring into the UI.
+      [src: roadmap]
+- [ ] (P2, M) Hole feature — face-based placement (point on a face + depth,
+      optionally counterbore/countersink), distinct from a sketched-circle
+      extrude cut. Depends on Ready #1 + face/edge picking above (needs a
+      stable face reference). [src: roadmap, product-auditor]
+- [ ] (P2, M) Shell feature — hollow a body, removing selected faces.
+      Depends on Ready #1 + face/edge picking (face selection to remove).
+      [src: roadmap]
+- [ ] (P2, M) Draft feature — angle selected faces relative to a pull
+      direction. Depends on Ready #1 + face/edge picking. [src: roadmap]
+- [ ] (P2, S) Units system — mm-only today; a per-part or per-workspace unit
+      preference (in/mm) with display-layer conversion (kernel stays mm
+      internally per CLAUDE.md tolerances). Independent. [src: roadmap]
+- [ ] (P2, M) Undo/redo across feature operations — UI-level action history,
+      distinct from the rollback bar (which moves the build point, not an
+      action stack). Independent. [src: roadmap]
+- [ ] (P2, M) Performance benchmark suite with CI budgets — formalize the
+      ad-hoc per-golden warm-rebuild numbers already in GEOMETRY-QA.md
+      (3.8 ms–33 ms today) into a tracked suite with committed budgets and a
+      CI regression gate (GEOMETRY-QA gap #7). [src: geometry-qa]
 - [ ] (P3, S) Structured conflict indices — promote conflicting/redundant
       constraint indices from the `sketch_conflicting` error message into a
       typed `FeatureError` field (geometry + py-kit); frontend currently
@@ -293,55 +263,43 @@ Full evidence for every line below lives in `CHANGELOG.md`.
       golden `sketch-extrude-40x25x10`, strict-prefix error rule, §7.8
       interim mesh endpoint. [src: roadmap]
 
+### Phase 1 — Ready batch 3 / exit gate (through commit ff6b226)
+
+- [x] (P1, S) Gateway mesh-fetch proxy — content-addressed GLB proxy,
+      auth-protected, byte-identical to geometry's endpoint. [src: geometry-qa,
+      product-auditor]
+- [x] (P1, M) Viewport renders evaluated-tree bodies — extruded bodies
+      visible for the first time (aluminium + B-rep edges, title-block
+      inspector). [src: product-auditor, engineering-auditor]
+- [x] (P1, M) Extrude feature UI + feature-tree edit/rollback — title-block
+      authoring editor, selectable tree rows, brass rollback bar.
+      [src: frontend-builder]
+- [x] (P1, S) Parts home UI — drawing-register create/list/open/delete,
+      closes the last navigation gap before the exit gate. [src: frontend-builder]
+- [x] (P1, M) Fillet feature — geometric edge selection, golden
+      `fillet-plate-r5` (first curved-topology-class fillet) at 1e-9.
+      [src: roadmap, product-auditor]
+- [x] (P1, M) Chamfer feature — reuses fillet's shared `select_edges`, golden
+      `chamfer-plate-d5` (all-planar, exact 0.0 STEP round-trip).
+      [src: roadmap, product-auditor]
+- [x] (P1, M) Export-from-tree — `POST /api/v1/export/tree` +
+      `POST /api/v1/parts/{id}/export`, closes GEOMETRY-QA gap #8.
+      [src: geometry-qa, roadmap]
+- [x] (P1, M) Full-flow Playwright e2e — the Phase 1 exit gate: login →
+      sketch → extrude → edit param → export, desktop + 1280×800 + touch
+      smoke. [src: frontend-builder]
+
 ## Changelog
 
+- 2026-07-11 — **Phase 1 complete; groomed for Phase 2.** ROADMAP Phase 1 →
+  ✅ (condensed to one line/item), Current focus → Phase 2. Ready batch 3
+  (8 items, the exit-gate chain) archived to one-liners. New Ready queue:
+  topological naming design doc first (gates click-specific edge selection),
+  3 independent sketcher/feature items (construction geometry, two
+  constraint-vocabulary slices, revolve), 2 P2 support items (measurement
+  tool, pattern). [backlog-groomer]
 - 2026-07-11 — **Scorecard re-scored post-exit-gate.** Part modeling stays ❌
   (real sketch→extrude→fillet/chamfer→edit→rollback→render→export loop,
   but only 3 features + predicate edge selection, no revolve/hole/pattern);
   Interop stays ❌ (export now covers the modeled tree, import still Phase
   4); Sketching unchanged. [vision-steward]
-- 2026-07-11 — **Ready #8 shipped: full-flow e2e — the Phase 1 exit gate.**
-  `full-flow.spec.ts` proves login → sketch → extrude → edit-param → export
-  end-to-end in a real browser (desktop + 1280×800 + touch smoke); web
-  part-export strip (`POST /api/v1/parts/{id}/export`, shared `ExportRow`,
-  "No body" disabled state) shipped with it. [frontend-builder]
-- 2026-07-11 — **Ready #7 shipped: export-from-tree (closes GEOMETRY-QA gap
-  #8).** `POST /api/v1/export/tree` reuses `evaluate_tree` then exports the
-  last-good body (shared `export_solid`); no body → 422 `tree_export_failed`.
-  Gateway `POST /api/v1/parts/{id}/export?format=`. Tree goldens endpoint-
-  round-tripped; contracts regenerated. [kernel-architect]
-- 2026-07-11 — **Ready #6 shipped: chamfer feature.** `chamfer` handler +
-  kernel reusing fillet's `EdgeSelector`; edge selection extracted to shared
-  `geometry.kernel.edges.select_edges` (DRY). Golden `chamfer-plate-d5`
-  (V=9500, all-planar, 10/24/1, 48/28) through every gate at 1e-9; STEP
-  round-trip 0.0 dev (planar vs fillet's curved 1.26e-10); 3 error paths
-  pinned; contracts regenerated. [kernel-architect]
-- 2026-07-11 — **Ready #5 shipped: fillet feature.** `fillet` handler +
-  kernel via build123d; `EdgeSelector` (`all_edges`/`axis_parallel`) is a
-  deterministic geometric predicate, not topological naming (design §2.4
-  finalized). Golden `fillet-plate-r5` (V=9000+250π, 10/24/1) through every
-  gate at 1e-9; three error paths pinned; contracts regenerated. [kernel-architect]
-- 2026-07-11 — **Ready #4 shipped: parts home.** `/` is now a drawing-register
-  parts list (create/open/delete, keyboard-first, 409 on-field, empty-state
-  invitation); box demo moved to `/first-light`. e2e + founder screenshots.
-  [frontend-builder]
-- 2026-07-11 — **Ready #3 shipped: extrude authoring + tree edit/rollback.**
-  Keyboard-first title-block extrude editor (create/edit), selectable tree
-  rows with legible per-feature rebuild errors, and a brass rollback bar that
-  winds the build back to the pre-extrude sketch. e2e + founder screenshots.
-  [frontend-builder]
-- 2026-07-11 — **Ready #2 shipped: the extrude loop is visible.** Workspace
-  fetches the evaluate response's `mesh_glb_id` through the gateway proxy and
-  renders the solid; mass properties reach a title-block body inspector; 404 →
-  re-evaluate. e2e green (API-seeded extrude), founder screenshots. [frontend-builder]
-- 2026-07-11 — **Groomed for the Phase 1 wrap-up.** ROADMAP golden count
-  fixed (2→3 of 5, `sketch-extrude-40x25x10` was missing). Ready refilled
-  toward the exit gate: mesh-fetch gateway proxy + viewport render
-  (VISION Part-modeling row's "invisible extrude" gap), extrude feature UI +
-  feature-tree edit/rollback, parts home, fillet/chamfer split into
-  independently-golden'd items, export-from-tree (GEOMETRY-QA gap #8),
-  full-flow e2e as the exit gate. Ready batch 2 (6 items) archived to
-  one-liners; prior Changelog entries moved to `CHANGELOG.md`. [backlog-groomer]
-- 2026-07-11 — **VISION.md re-scored: Sketching + Part modeling stay ❌.**
-  Both have real shipped, QA-verified capability but neither closes the
-  daily-driver loop yet — see scorecard notes for the precise gaps. [vision-steward]

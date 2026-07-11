@@ -2,11 +2,13 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 1 — MVP: sketch → extrude → export.** The MVP flow is
-complete end-to-end: the login → sketch → extrude → edit-param → export loop is
-proven in a real browser against the real stack by the `full-flow` exit-gate
-e2e (BACKLOG #8, 2026-07-11). Remaining 🚧 items are depth beyond the exit
-gate; the Phase 2 advance is the groomer's next call.
+**Current focus: Phase 2 — Parametric core.** Phase 1 is complete: the
+login → sketch → extrude → edit-param → export loop is proven end-to-end in a
+real browser against the real stack by the `full-flow` exit-gate e2e (commit
+ff6b226, 2026-07-11). Phase 2 widens the sketch constraint vocabulary (the
+Sketching scorecard row's named gap) and adds core modeling features (revolve
+first), gated by a topological-naming design doc where features need stable
+face/edge references. See `docs/BACKLOG.md` Ready queue.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -37,7 +39,7 @@ carry forward as blocked board items.
       web-shell item)
 - ⬜ Verify full `docker compose up` on a Docker-capable host (this sandbox
       has no docker daemon — images and stack runtime are unproven).
-      **Environment-blocked**, does not gate the Phase 1 advance; first
+      **Environment-blocked**, does not gate phase advances; first
       Docker-capable session picks it up
 - ✅ Contract pipeline: OpenAPI generated from pydantic → committed to
       `packages/contracts` → `packages/ts-client` generated (`just gen`);
@@ -68,142 +70,46 @@ carry forward as blocked board items.
       CODE_OF_CONDUCT, bug/feature issue templates + PR template
 - ⬜ Watchdog: stall-recovery routine armed per `docs/AUTONOMOUS-LOOP.md` §1.4
       (blocked on the loop actually running unattended — armed when batch
-      chaining starts; does not gate the Phase 1 advance)
+      chaining starts; does not gate phase advances)
 
-## Phase 1 — MVP: sketch → extrude → export 🚧
+## Phase 1 — MVP: sketch → extrude → export ✅
 
-The thinnest vertical slice a working engineer can feel:
+Complete 2026-07-11 — the `full-flow` Playwright e2e (commit ff6b226) proves
+the whole vertical slice end-to-end in a real browser against the real stack:
+register → create part → sketch → extrude → edit param → export STEP/STL.
+Full evidence lives in `CHANGELOG.md` and `docs/GEOMETRY-QA.md`; one line per
+item below.
 
-- ✅ Auth: email/password, JWT via gateway; single-workspace (backend
-      shipped 2026-07-10: argon2id + HS256 register/login/me under
-      `/api/v1/auth/*`, users via alembic `0001_users`, fail-fast JWT_SECRET
-      posture, hard postgres readiness. Web sign-in shipped 2026-07-10:
-      drawing-sheet sign-in/register, localStorage session, global
-      invalid-token expiry → quiet notice; e2e-verified
-      register→login→refresh→logout, 15/15 Playwright green)
-- 🚧 Documents: create/list parts; parametric feature tree persisted (JSONB
-      params + ordered tree) (parts CRUD shipped 2026-07-10: owner-scoped
-      create/list/get/delete via alembic `0001_parts` + auth-protected
-      gateway aggregation, db/alembic plumbing shared through py-kit.
-      Feature-tree persistence shipped 2026-07-11 per
-      docs/design/feature-tree.md §1-3/§5: alembic `0002_feature_tree`
-      [deferred constraints, composite same-part FKs], feature
-      CRUD/reorder/rollback-bar API with reference rules,
-      409-with-dependents, 422-stale-version, versioned param envelopes +
-      upcast registry in py-kit, gateway aggregation. Geometry evaluate
-      slice shipped 2026-07-11 per design §4: stateless
-      `POST /api/v1/evaluate` with ordered handler-registry dispatch
-      [sketch-only; extrude registers via BACKLOG #6], strict-prefix
-      partial results, solver statuses as per-feature errors,
-      byte-deterministic responses. End-to-end wiring shipped 2026-07-11
-      with BACKLOG #3: documents `evaluation-request` [rollback + upcasts
-      applied] + gateway `POST /api/v1/parts/{id}/evaluate`)
-- ✅ Sketcher v1: plane selection, line/rect/circle/arc, dimensional +
-      geometric constraints (planegcs behind `SketchSolver` interface —
-      solver layer shipped 2026-07-10: protocol + planegcs 0.8.0 backend,
-      LGPL-2.1 verified, benchmark rectangle at 0.0 deviation,
-      bitwise-deterministic; RESEARCH §2. Sketch model + solver API shipped
-      2026-07-11: typed entity/constraint schemas in py-kit, solved
-      geometry returned per feature via `FeatureResult.data` [§7.10],
-      §6 rectangle solved at 0.0 deviation / DOF 0 end-to-end over real
-      HTTP through gateway→documents→geometry. Sketcher UI plane + entity
-      authoring shipped 2026-07-11 [BACKLOG #4]: `/parts/{id}` workspace
-      with feature-tree panel, viewport datum-plane pick, L/R/C/A
-      click-to-place line/rect/circle/arc with live preview, 1 mm grid
-      snap + DRO readout, save → evaluate → SOLVED positions rendered;
-      sketch tokens in `@loft/design`; Playwright incl. reload
-      persistence + canvas pixel checks. Constraints + solve feedback
-      shipped 2026-07-11 [BACKLOG #5]: precise point/curve picking with
-      hover + click-through at stacked corners, keyboard-first constraint
-      verbs [H/V/D/R/X/C — selection presence switches the letter
-      vocabulary], in-viewport engineering-notation glyphs with inline
-      dimension editing, debounced live save→solve→adopt loop, DRO
-      DOF/status cell, conflict/over-constrained diagnostics with flagged
-      glyph indices; §6 worked example e2e-verified [40→60 moves the
-      solved corners]. Sketching scorecard row is now a re-score
-      candidate for the vision-steward. Remaining sketcher depth —
-      splines, patterns, construction geometry — is Phase 2)
-- 🚧 Features v1: extrude (add/cut), fillet, chamfer; feature re-evaluation on
-      param edit; error surfacing when a feature fails to rebuild
-      (extrude authoring UI shipped 2026-07-11 [BACKLOG #3]: create/edit an
-      extrude from the workspace — keyboard-first title-block editor
-      [distance/operation/direction, profile by feature reference], live
-      re-evaluate on param edit, per-feature rebuild errors surfaced legibly
-      in the tree panel.
-      extrude geometry shipped 2026-07-11 [BACKLOG #6]: first body-affecting feature
-      — solved profile → closed-wire check → prism along the plane normal
-      [normal/reverse] → add/cut boolean, single body chain; per-feature
-      rebuild errors [`profile_not_closed`, `boolean_failed`,
-      `no_prior_body`, …] pinned to the failing feature under the
-      strict-prefix rule; mesh delivery via content-addressed
-      `GET /api/v1/meshes/{id}` [feature-tree §7.8 interim]; golden
-      `sketch-extrude-40x25x10` through every gate incl. 0.0-deviation STEP
-      round-trip — docs/GEOMETRY-QA.md.
-      fillet + chamfer geometry shipped 2026-07-11 [BACKLOG #5/#6]: the three
-      core features [extrude, fillet, chamfer] are now geometry-complete.
-      `fillet` rounds the body chain's edges; `chamfer` bevels them — both
-      name edges by the SAME deterministic GEOMETRIC selector
-      [`all_edges` / `axis_parallel`], NOT topological naming [design §2.4 —
-      Phase 2 `SubshapeRef` is an additive `kind`], resolved through one shared
-      `geometry.kernel.edges.select_edges` helper [DRY]; `no_target_body` /
-      `no_{fillet,chamfer}_edges` / `{fillet,chamfer}_failed` pinned
-      per-feature; goldens `fillet-plate-r5` [curved] and `chamfer-plate-d5`
-      [all-planar] through every gate at 1e-9)
-- 🚧 Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of
-      tessellated body, feature-tree panel with edit/rollback (body render
-      shipped 2026-07-11 [BACKLOG #2]: the workspace fetches an evaluate
-      response's `mesh_glb_id` through the gateway mesh proxy and renders the
-      solid in the first-light GLB→mesh pipeline [token aluminium + B-rep
-      edges]; mass properties surface in a title-block body inspector; the
-      profile sketch recedes behind the body; a `mesh_not_found` 404 triggers
-      a re-evaluate [§7.8], never a blank viewport. Extrude-authoring UI +
-      feature-tree select/edit + rollback-bar shipped 2026-07-11 [BACKLOG #3]:
-      selectable rows, a brass rollback "cut line" that winds the build back
-      to the pre-extrude state, per-feature error lines. Parts home shipped
-      2026-07-11 [BACKLOG #4]: `/` is a drawing-register parts list
-      [create/open/delete, keyboard-first, on-field 409, designed empty state],
-      so a user reaches the workspace without a hand-typed URL — the last
-      navigation gap before the full-flow e2e exit gate; box demo moved to
-      `/first-light`. Face/edge picking pending [Next, blocked on
-      fillet/chamfer #5/#6])
-- ✅ Export: STEP + STL download (shipped 2026-07-10 — byte-deterministic
-      STEP/STL geometry endpoint with round-trip gates, gateway proxy, and
-      title-block export controls in the web app; QA'd in a real browser:
-      Playwright downloads `box.step`/`box.stl` through the full stack and
-      asserts file contents). Export-from-tree shipped 2026-07-11 (BACKLOG #7,
-      GEOMETRY-QA gap #8): `POST /api/v1/export/tree` evaluates a feature tree
-      and exports the last-good body; gateway
-      `POST /api/v1/parts/{id}/export?format=step|stl` streams the modeled
-      part; tree goldens endpoint-round-tripped (extrude/chamfer 0.0, fillet
-      1.26e-10). Web title-block wiring folds into the full-flow e2e below)
-- ✅ Golden models: 5 reference parts covering every shipped feature
-      (`box-10x20x30`; `cylinder-r10-h25` — first curved golden, 1e-9
-      curved-GProp tolerance, seam-edge topology, curved STEP round-trip
-      baseline; `sketch-extrude-40x25x10` — first feature-tree golden
-      shipped 2026-07-11, 1e-9 tolerance, 0.0-deviation STEP round-trip;
-      `fillet-plate-r5` — first fillet golden shipped 2026-07-11 with
-      BACKLOG #5, curved topology [10/24/1], 1e-9 tolerance, STEP round-trip
-      vol dev 1.26e-10 [curved fillet re-approx]; `chamfer-plate-d5` — first
-      chamfer golden shipped 2026-07-11 with BACKLOG #6, all-planar [same
-      10/24/1 counts, 48/28 mesh], 1e-9 tolerance, EXACT 0.0-deviation STEP
-      round-trip [planar vs the fillet's curved re-approx]; docs/GEOMETRY-QA.md)
-- ✅ E2E: Playwright — login → sketch → extrude → edit param → export, desktop
-      + 1280×800 + a touch-viewport smoke (shipped 2026-07-11, BACKLOG #8 —
-      the Phase 1 exit gate). One `full-flow.spec.ts` drives the whole loop
-      through the real browser against the real stack with no API shortcuts for
-      the user-facing steps: register → create part → pick plane → dimensioned
-      rectangle → extrude → live param edit → export STEP (real ISO-10303-21)
-      + STL. Web part-export strip (`POST /api/v1/parts/{id}/export`, honest
-      "No body" disabled state) shipped alongside.
+- ✅ Auth — email/password JWT via gateway, single-workspace
+- ✅ Documents — parts CRUD + feature-tree persistence (create/list/get/
+      delete, reorder, rollback-bar, versioned param envelopes)
+- ✅ Sketcher v1 — plane pick, line/rect/circle/arc, 6 constraint kinds
+      (coincident/horizontal/vertical/distance/radius/fixed) with
+      keyboard-first verbs, DOF readout, conflict diagnostics
+- ✅ Features v1 — extrude (add/cut), fillet, chamfer; per-feature rebuild
+      errors surfaced legibly in the tree panel under the strict-prefix rule
+- ✅ Viewport v1 — orbit/pan/zoom, evaluated-body render, feature-tree panel
+      with select/edit/rollback (face/edge picking deferred — see Phase 2,
+      gated on the topological-naming design doc)
+- ✅ Export — STEP + STL, from bare shapes and from evaluated feature trees
+- ✅ Golden models — 5 reference parts (`box-10x20x30`, `cylinder-r10-h25`,
+      `sketch-extrude-40x25x10`, `fillet-plate-r5`, `chamfer-plate-d5`);
+      every shipped feature is golden-covered at 1e-9, STEP round-trips
+      0.0–1.26e-10
+- ✅ E2E — `full-flow.spec.ts`: desktop + 1280×800 + a touch-viewport smoke
 
-## Phase 2 — Parametric core ⬜
+## Phase 2 — Parametric core 🚧
 
-- ⬜ Full sketcher: splines, mirror/pattern, construction geometry, DOF
-      display, over-constraint diagnostics
-- ⬜ Features: revolve, sweep, loft, shell, draft, holes, linear/circular
-      patterns, boolean between bodies, datum planes/axes
-- ⬜ Named references that survive rebuilds (topological naming strategy —
-      the hard CAD problem; design doc required before build)
+- ⬜ Topological naming strategy — design doc first (the hard CAD problem;
+      gates any feature/UI that lets a user pick and persist a reference to
+      a specific face/edge — face/edge picking, hole placement, pattern
+      seeds)
+- ⬜ Full sketcher: tangent/perpendicular/parallel/equal/symmetric/concentric
+      constraints (the Sketching scorecard row's named gap), construction
+      geometry, trim/extend, mirror/pattern, splines, over-constraint
+      diagnostics
+- ⬜ Features: revolve (first, unblocked), sweep, loft, shell, draft, holes,
+      linear/circular patterns, boolean between bodies, datum planes/axes
 - ⬜ Measurement tools, mass properties panel, units system
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations

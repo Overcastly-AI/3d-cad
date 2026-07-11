@@ -246,7 +246,34 @@ feature-tree.md`: features table vs JSONB tradeoff, versioned param
   body-affecting feature; golden `sketch-extrude-40x25x10` (1e-9 tolerance,
   0.0-dev STEP round-trip), strict-prefix broken-profile case, §7.8 interim
   content-addressed mesh endpoint.
-- **docs(board): groom for Phase 1 wrap-up** (this pass) — ROADMAP golden
+- **docs(board): groom for Phase 1 wrap-up** (35bd7ec) — ROADMAP golden
   count fixed (2→3 of 5); Ready refilled toward the exit gate: mesh-fetch
   gateway proxy + viewport render, extrude UI, parts home, fillet/chamfer
   split, export-from-tree, full-flow e2e. [backlog-groomer]
+
+## [Phase 1: MVP complete — exit-gate batch] — 2026-07-11
+
+- **feat(gateway): mesh-fetch proxy** (8680502) — content-addressed GLB
+  proxy, byte-identical to geometry's endpoint, auth-protected.
+- **feat(web): render evaluated-tree bodies** (90f813f) — the extrude loop
+  becomes visible: aluminium + B-rep edges, title-block body inspector.
+- **feat(web): extrude authoring UI + feature-tree edit/rollback** (e80e378)
+  — title-block extrude editor, selectable tree rows, brass rollback bar.
+- **feat(web): parts home** (6a9a885, 4bdc27f) — drawing-register
+  create/list/open/delete; box demo moved to `/first-light`.
+- **feat(geometry): fillet feature** (56eebb0) — geometric edge selection
+  (`EdgeSelector`, design §2.4), golden `fillet-plate-r5` at 1e-9.
+- **feat(geometry): chamfer feature** (02b6e9c) — reuses fillet's shared
+  `select_edges` (DRY), golden `chamfer-plate-d5`, exact 0.0 STEP round-trip.
+- **feat(geometry): export-from-tree** (aad27d9) — `POST /api/v1/export/tree`
+  - gateway `POST /api/v1/parts/{id}/export`; closes GEOMETRY-QA gap #8.
+- **feat(web): full-flow e2e — the Phase 1 exit gate** (ff6b226) — login →
+  sketch → extrude → edit param → export proven in a real browser, desktop +
+  1280×800 + touch smoke; web part-export strip shipped alongside.
+- **docs(vision): re-score post-exit-gate** (8a67e93) — Part modeling and
+  Interop deepen but stay ❌ (3 features/predicate edge selection; export
+  covers modeled trees but import is still Phase 4); Sketching unchanged.
+- **docs(board): groom for Phase 2** (this pass) — ROADMAP Phase 1 → ✅,
+  Current focus → Phase 2; Ready batch 3 archived; new Phase 2 Ready queue
+  (topological naming design doc, sketch constraints, revolve, measurement,
+  pattern). [backlog-groomer]
