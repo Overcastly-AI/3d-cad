@@ -130,7 +130,14 @@ export function Viewport({
           enableRotate={rotateEnabled}
         />
       </Canvas>
-      {hud}
+      {/*
+        HUD strips sit above the in-canvas annotation overlays (drei Html,
+        zIndexRange [20, 0] in ConstraintGlyphs). The wrapper is inert;
+        each strip re-enables its own pointer events.
+      */}
+      <div className="pointer-events-none absolute inset-0 z-40 [&>*]:pointer-events-auto">
+        {hud}
+      </div>
       {/*
         Rejection stamp — shown when the GLB fails to parse. The stale mesh
         has already been cleared (ModelMesh.onError), so the viewport never

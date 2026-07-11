@@ -22,7 +22,9 @@ import { useReducedMotion } from "../lib/useReducedMotion";
 import {
   definingPointPositions,
   entitySegmentPositions,
+  pickedPointPositions,
 } from "../sketch/geometry";
+import { pickCandidates, samePick, PICK_TOLERANCE_PX } from "../sketch/pick";
 import {
   DATUM_PLANES,
   PLANE_BASES,
@@ -34,6 +36,7 @@ import {
 } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
 import { previewEntities, type SketchEntity } from "../sketch/tools";
+import { ConstraintGlyphs } from "./ConstraintGlyphs";
 
 /** Datum sheet half-extent feels like stock on the table (mm). */
 const PLANE_SIZE_MM = 90;
@@ -119,9 +122,11 @@ function InkSegments({ positions, color, dashed = false }: InkSegmentsProps) {
 function InkPoints({
   positions,
   color,
+  sizePx = sketch.pointSizePx,
 }: {
   positions: Float32Array;
   color: string;
+  sizePx?: number;
 }) {
   const geometry = usePositionsGeometry(positions);
   if (positions.length === 0) return null;
@@ -129,7 +134,7 @@ function InkPoints({
     <points geometry={geometry} frustumCulled={false}>
       <pointsMaterial
         color={color}
-        size={sketch.pointSizePx}
+        size={sizePx}
         sizeAttenuation={false}
         toneMapped={false}
       />
@@ -210,31 +215,79 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
   );
 }
 
-/** Invisible raycast target: pointer position + click-to-place, in plane mm. */
+/**
+ * Invisible raycast target: pointer position + click-to-place (drawing
+ * tools) or click-to-pick (select tool), in plane mm. Picking uses the RAW
+ * pointer point (snap would jump off fine targets) with a screen-pixel
+ * tolerance converted to plane mm at the event's camera distance.
+ */
 function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
   const setCursor = useSketchStore((state) => state.setCursor);
   const snap = useSketchStore((state) => state.snap);
   const placeAt = useSketchStore((state) => state.placeAt);
+  const selectAt = useSketchStore((state) => state.selectAt);
+  const setHoverPick = useSketchStore((state) => state.setHoverPick);
   const invalidate = useThree((state) => state.invalidate);
+  const camera = useThree((state) => state.camera);
+  const heightPx = useThree((state) => state.size.height);
   const quaternion = useMemo(() => planeQuaternion(plane), [plane]);
 
-  const toPlane = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) =>
-    snap(worldToPlane(plane, [e.point.x, e.point.y, e.point.z]));
+  const rawPlanePoint = (
+    e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>,
+  ) => worldToPlane(plane, [e.point.x, e.point.y, e.point.z]);
+
+  /** Screen px → plane mm at this event's depth (perspective camera). */
+  const toleranceMm = (
+    e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>,
+  ) => {
+    const fov =
+      "fov" in camera && typeof camera.fov === "number" ? camera.fov : 40;
+    const worldPerPx =
+      (2 * e.distance * Math.tan((fov * Math.PI) / 360)) / heightPx;
+    return PICK_TOLERANCE_PX * worldPerPx;
+  };
 
   return (
     <mesh
       quaternion={quaternion}
       onPointerMove={(e) => {
-        setCursor(toPlane(e));
+        const raw = rawPlanePoint(e);
+        setCursor(snap(raw));
+        // Read the tool at EVENT time: the render-subscribed value is a
+        // stale closure for the frame right after a keyboard tool switch
+        // (zustand commit → React render → r3f handler swap), which loses
+        // the first click of a fast key-then-click sequence.
+        if (useSketchStore.getState().tool === "select") {
+          const candidate =
+            pickCandidates(
+              useSketchStore.getState().entities,
+              raw,
+              toleranceMm(e),
+            )[0] ?? null;
+          const previous = useSketchStore.getState().hoverPick;
+          if (
+            (candidate === null) !== (previous === null) ||
+            (candidate !== null &&
+              previous !== null &&
+              !samePick(candidate, previous))
+          ) {
+            setHoverPick(candidate);
+          }
+        }
         invalidate();
       }}
       onPointerOut={() => {
         setCursor(null);
+        setHoverPick(null);
         invalidate();
       }}
       onClick={(e) => {
         if (e.delta > CLICK_SLOP_PX) return; // a pan, not a placement
-        placeAt(toPlane(e));
+        if (useSketchStore.getState().tool === "select") {
+          selectAt(rawPlanePoint(e), toleranceMm(e));
+        } else {
+          placeAt(snap(rawPlanePoint(e)));
+        }
         invalidate();
       }}
     >
@@ -287,16 +340,54 @@ function SketchGrid({ plane }: { plane: DatumPlaneName }) {
   );
 }
 
-/** The local (unsaved) buffer plus the live rubber band. */
+/**
+ * The live sketch: buffered entities (solved positions once persisted), the
+ * rubber band, selection/hover ink (brass — the viewport selection tokens),
+ * and the constraint annotation layer.
+ */
 function DrawLayer({ plane }: { plane: DatumPlaneName }) {
   const entities = useSketchStore((state) => state.entities);
   const pending = useSketchStore((state) => state.pending);
   const tool = useSketchStore((state) => state.tool);
   const cursor = useSketchStore((state) => state.cursor);
+  const selection = useSketchStore((state) => state.selection);
+  const hoverPick = useSketchStore((state) => state.hoverPick);
+
+  const selectedIds = useMemo(
+    () =>
+      new Set(
+        selection.flatMap((pick) => (pick.kind === "entity" ? [pick.id] : [])),
+      ),
+    [selection],
+  );
+  const hoveredId =
+    hoverPick?.kind === "entity" && !selectedIds.has(hoverPick.id)
+      ? hoverPick.id
+      : null;
 
   const bufferPositions = useMemo(
-    () => entitySegmentPositions(entities, plane),
-    [entities, plane],
+    () =>
+      entitySegmentPositions(
+        entities.filter((e) => !selectedIds.has(e.id) && e.id !== hoveredId),
+        plane,
+      ),
+    [entities, selectedIds, hoveredId, plane],
+  );
+  const selectedPositions = useMemo(
+    () =>
+      entitySegmentPositions(
+        entities.filter((e) => selectedIds.has(e.id)),
+        plane,
+      ),
+    [entities, selectedIds, plane],
+  );
+  const hoveredPositions = useMemo(
+    () =>
+      entitySegmentPositions(
+        entities.filter((e) => e.id === hoveredId),
+        plane,
+      ),
+    [entities, hoveredId, plane],
   );
   const pointPositions = useMemo(() => {
     const anchors = definingPointPositions(entities, plane);
@@ -308,6 +399,17 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
     });
     return merged;
   }, [entities, pending, plane]);
+  const selectedPointPositions = useMemo(
+    () => pickedPointPositions(selection, entities, plane),
+    [selection, entities, plane],
+  );
+  const hoveredPointPositions = useMemo(
+    () =>
+      hoverPick !== null && hoverPick.kind === "point"
+        ? pickedPointPositions([hoverPick], entities, plane)
+        : new Float32Array(0),
+    [hoverPick, entities, plane],
+  );
   const preview = useMemo(
     () =>
       cursor === null
@@ -319,9 +421,22 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
   return (
     <group>
       <InkSegments positions={bufferPositions} color={sketch.scribe} />
+      <InkSegments positions={hoveredPositions} color={sketch.hoverInk} />
+      <InkSegments positions={selectedPositions} color={sketch.selectedInk} />
       <InkPoints positions={pointPositions} color={sketch.point} />
+      <InkPoints
+        positions={hoveredPointPositions}
+        color={sketch.hoverInk}
+        sizePx={sketch.pickedPointSizePx}
+      />
+      <InkPoints
+        positions={selectedPointPositions}
+        color={sketch.selectedInk}
+        sizePx={sketch.pickedPointSizePx}
+      />
       <InkSegments positions={preview} color={sketch.preview} dashed />
       <Crosshair plane={plane} />
+      <ConstraintGlyphs plane={plane} />
     </group>
   );
 }

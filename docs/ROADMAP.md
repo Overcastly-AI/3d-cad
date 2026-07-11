@@ -94,7 +94,7 @@ The thinnest vertical slice a working engineer can feel:
       byte-deterministic responses. End-to-end wiring shipped 2026-07-11
       with BACKLOG #3: documents `evaluation-request` [rollback + upcasts
       applied] + gateway `POST /api/v1/parts/{id}/evaluate`)
-- 🚧 Sketcher v1: plane selection, line/rect/circle/arc, dimensional +
+- ✅ Sketcher v1: plane selection, line/rect/circle/arc, dimensional +
       geometric constraints (planegcs behind `SketchSolver` interface —
       solver layer shipped 2026-07-10: protocol + planegcs 0.8.0 backend,
       LGPL-2.1 verified, benchmark rectangle at 0.0 deviation,
@@ -107,8 +107,18 @@ The thinnest vertical slice a working engineer can feel:
       with feature-tree panel, viewport datum-plane pick, L/R/C/A
       click-to-place line/rect/circle/arc with live preview, 1 mm grid
       snap + DRO readout, save → evaluate → SOLVED positions rendered;
-      sketch tokens in `@loft/design`; Playwright 19/19 incl. reload
-      persistence + canvas pixel checks. Constraint UI pending — BACKLOG #5)
+      sketch tokens in `@loft/design`; Playwright incl. reload
+      persistence + canvas pixel checks. Constraints + solve feedback
+      shipped 2026-07-11 [BACKLOG #5]: precise point/curve picking with
+      hover + click-through at stacked corners, keyboard-first constraint
+      verbs [H/V/D/R/X/C — selection presence switches the letter
+      vocabulary], in-viewport engineering-notation glyphs with inline
+      dimension editing, debounced live save→solve→adopt loop, DRO
+      DOF/status cell, conflict/over-constrained diagnostics with flagged
+      glyph indices; §6 worked example e2e-verified [40→60 moves the
+      solved corners]. Sketching scorecard row is now a re-score
+      candidate for the vision-steward. Remaining sketcher depth —
+      splines, patterns, construction geometry — is Phase 2)
 - ⬜ Features v1: extrude (add/cut), fillet, chamfer; feature re-evaluation on
       param edit; error surfacing when a feature fails to rebuild
 - ⬜ Viewport v1: orbit/pan/zoom, face/edge picking, section-free display of

@@ -84,8 +84,25 @@ export const sketch = {
   planeFillOpacity: 0.14,
   planeHoverFillOpacity: 0.28,
   planeActiveFillOpacity: 0.06,
+  /** Selected entity ink — brass, matching `viewport.selection`. */
+  selectedInk: color.brass,
+  /** Hovered pick (entity or point) — matching `viewport.hover`. */
+  hoverInk: color.brassHover,
+  /**
+   * Constraint glyph ink — engineering-drawing annotation, quiet by default.
+   * Driving dimensions carry brass (they are THE parametric handles);
+   * conflicting/redundant constraints flip to flag ink.
+   */
+  glyph: color.gauge,
+  glyphDimension: color.brass,
+  glyphConflict: color.flag,
+  /** Constraint glyph type size (px) and offset from the geometry (mm). */
+  glyphSizePx: 11,
+  glyphOffsetMm: 3.5,
   /** Entity defining-point size (px, screen space — sizeAttenuation off). */
   pointSizePx: 5,
+  /** Selected/hovered defining points render larger — the finer target. */
+  pickedPointSizePx: 8,
   /** Snap-cursor crosshair arm length (world mm). */
   cursorArmMm: 2.5,
   /** Rubber-band dash pattern (world mm). */

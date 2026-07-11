@@ -8,6 +8,7 @@
 import type { components } from "@loft/ts-client/gateway";
 
 import { planeToWorld, type DatumPlaneName, type Point2D } from "./plane";
+import { namedPoints, type SketchPick } from "./pick";
 import type { SketchEntity } from "./tools";
 
 export type SolvedSketchData = components["schemas"]["SolvedSketchData"];
@@ -126,6 +127,28 @@ export function entitySegmentPositions(
       }
     }
   }
+  return positions;
+}
+
+/** Point picks of the selection/hover → world-space xyz buffer. */
+export function pickedPointPositions(
+  picks: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+  plane: DatumPlaneName,
+): Float32Array {
+  const byId = new Map(entities.map((e) => [e.id, e]));
+  const points: Point2D[] = [];
+  for (const pick of picks) {
+    if (pick.kind !== "point") continue;
+    const entity = byId.get(pick.entity);
+    if (entity === undefined) continue;
+    const named = namedPoints(entity).find((n) => n.point === pick.point);
+    if (named !== undefined) points.push(named.at);
+  }
+  const positions = new Float32Array(points.length * 3);
+  points.forEach((point, i) => {
+    positions.set(planeToWorld(plane, point), i * 3);
+  });
   return positions;
 }
 

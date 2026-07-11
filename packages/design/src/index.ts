@@ -14,5 +14,6 @@ export type {
   PanelActionCellProps,
 } from "./primitives/Panel";
 export { Toolbar, Chip } from "./primitives/Toolbar";
+export { SketchGlyph, type SketchGlyphProps } from "./primitives/SketchGlyph";
 export { NumberField, type NumberFieldProps } from "./primitives/NumberField";
 export { TextField, type TextFieldProps } from "./primitives/TextField";

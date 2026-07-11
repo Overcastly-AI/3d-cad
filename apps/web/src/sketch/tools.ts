@@ -222,13 +222,22 @@ export function previewEntities(
 }
 
 /** What Escape does next, given the drawing state (cascade, most-local first). */
-export type EscapeAction = "cancel-placement" | "reset-tool" | "exit";
+export type EscapeAction =
+  | "close-editor"
+  | "cancel-placement"
+  | "reset-tool"
+  | "clear-selection"
+  | "exit";
 
 export function escapeAction(
   tool: SketchTool,
   pendingCount: number,
+  hasSelection = false,
+  editorOpen = false,
 ): EscapeAction {
+  if (editorOpen) return "close-editor";
   if (pendingCount > 0) return "cancel-placement";
   if (tool !== "select") return "reset-tool";
+  if (hasSelection) return "clear-selection";
   return "exit";
 }

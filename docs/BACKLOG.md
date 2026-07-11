@@ -16,8 +16,9 @@ them:
 
 - **Sketching & constraints** — solver adopted (planegcs, 0.0-deviation
   benchmark), the sketch model + solve API runs end-to-end (Ready #1–#3),
-  and the sketcher UI authors/persists/renders solved entities (Ready #4);
-  flips ❌→✅ when constraint authoring lands. → Ready #5.
+  the sketcher UI authors/persists/renders solved entities (Ready #4), and
+  constraint authoring + live solve feedback shipped (Ready #5, 2026-07-11).
+  Re-score candidate for the vision-steward (VISION.md scorecard row).
 - **Part modeling (features, history)** — feature tree persisted + evaluated
   (Ready #1–#3) but no body-affecting feature yet; box/cylinder live-param
   editing only. → Ready #6.
@@ -92,7 +93,7 @@ are the sketcher UI split; #6 depends on #2 and #3 and can proceed alongside
       Acceptance: Playwright e2e — select a plane, draw a rectangle, reload
       and see it persisted; WCAG-AA + visible focus + 1280×800 verified;
       founder screenshots. [src: roadmap]
-- [ ] (P1, M) Sketcher UI — constraints + solve feedback — constraint
+- [x] (P1, M) Sketcher UI — constraints + solve feedback — constraint
       toolbar (coincident/horizontal/vertical/distance/radius/fixed) plus a
       live solved-geometry render loop consuming the #2/#3 solved payload,
       and a DOF/status indicator (converged/under/over-constrained/
@@ -215,6 +216,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #5 shipped: sketcher constraints + solve feedback.**
+  Picking + H/V/D/R/X/C verbs, in-viewport glyphs with inline dimension edit,
+  live save→solve loop, DRO DOF cell, conflict diagnostics; e2e 25/25. [frontend-builder]
 - 2026-07-11 — **Ready #4 shipped: sketcher UI — plane + entity authoring.**
   `/parts/{id}` workspace: datum-plane pick, L/R/C/A click-to-place tools,
   1 mm-snap DRO, save→evaluate→solved render; e2e 19/19. [frontend-builder]
