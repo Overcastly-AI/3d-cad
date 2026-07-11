@@ -14,12 +14,14 @@ const line: SketchEntity = {
   kind: "line",
   start: { x: 0, y: 0 },
   end: { x: 40, y: 0 },
+  construction: false,
 };
 const circle: SketchEntity = {
   id: "e2",
   kind: "circle",
   center: { x: 10, y: 10 },
   radius: 5,
+  construction: false,
 };
 const quarterArc: SketchEntity = {
   id: "e3",
@@ -27,6 +29,7 @@ const quarterArc: SketchEntity = {
   center: { x: 0, y: 0 },
   start: { x: 10, y: 0 },
   end: { x: 0, y: 10 },
+  construction: false,
 };
 
 describe("entityPolylines", () => {
@@ -61,6 +64,7 @@ describe("entityPolylines", () => {
       id: "e9",
       kind: "point",
       position: { x: 1, y: 2 },
+      construction: false,
     };
     expect(entityPolylines(point)).toEqual([]);
     expect(definingPoints(point)).toEqual([{ x: 1, y: 2 }]);

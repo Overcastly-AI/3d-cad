@@ -106,8 +106,9 @@ item below.
       seeds)
 - ⬜ Full sketcher: tangent/perpendicular/parallel/equal/symmetric/concentric
       constraints (the Sketching scorecard row's named gap), construction
-      geometry, trim/extend, mirror/pattern, splines, over-constraint
-      diagnostics
+      geometry (✅ shipped: schema+solver+profile-exclusion + N-verb UI toggle
+      with dashed/muted rendering), trim/extend, mirror/pattern, splines,
+      over-constraint diagnostics
 - ⬜ Features: revolve (first, unblocked), sweep, loft, shell, draft, holes,
       linear/circular patterns, boolean between bodies, datum planes/axes
 - ⬜ Measurement tools, mass properties panel, units system

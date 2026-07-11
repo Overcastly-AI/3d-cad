@@ -21,7 +21,13 @@ describe("placePoint — line", () => {
     expect(second.pending).toEqual([]);
     expect(second.nextIdIndex).toBe(2);
     expect(second.entities).toEqual([
-      { id: "e1", kind: "line", start: p(0, 0), end: p(40, 0) },
+      {
+        id: "e1",
+        kind: "line",
+        start: p(0, 0),
+        end: p(40, 0),
+        construction: false,
+      },
     ]);
   });
 
@@ -41,10 +47,34 @@ describe("placePoint — rect", () => {
     expect(second.nextIdIndex).toBe(5);
     expect(second.entities.map((e) => e.id)).toEqual(["e1", "e2", "e3", "e4"]);
     expect(second.entities).toEqual([
-      { id: "e1", kind: "line", start: p(0, 0), end: p(40, 0) },
-      { id: "e2", kind: "line", start: p(40, 0), end: p(40, 25) },
-      { id: "e3", kind: "line", start: p(40, 25), end: p(0, 25) },
-      { id: "e4", kind: "line", start: p(0, 25), end: p(0, 0) },
+      {
+        id: "e1",
+        kind: "line",
+        start: p(0, 0),
+        end: p(40, 0),
+        construction: false,
+      },
+      {
+        id: "e2",
+        kind: "line",
+        start: p(40, 0),
+        end: p(40, 25),
+        construction: false,
+      },
+      {
+        id: "e3",
+        kind: "line",
+        start: p(40, 25),
+        end: p(0, 25),
+        construction: false,
+      },
+      {
+        id: "e4",
+        kind: "line",
+        start: p(0, 25),
+        end: p(0, 0),
+        construction: false,
+      },
     ]);
   });
 
@@ -63,7 +93,13 @@ describe("placePoint — circle", () => {
     const first = placePoint("circle", [], p(10, 10), 7);
     const second = placePoint("circle", first.pending, p(15, 10), 7);
     expect(second.entities).toEqual([
-      { id: "e7", kind: "circle", center: p(10, 10), radius: 5 },
+      {
+        id: "e7",
+        kind: "circle",
+        center: p(10, 10),
+        radius: 5,
+        construction: false,
+      },
     ]);
     expect(second.nextIdIndex).toBe(8);
   });
@@ -113,7 +149,13 @@ describe("previewEntities", () => {
 
   it("rubber-bands a line to the cursor", () => {
     expect(previewEntities("line", [p(0, 0)], p(9, 9))).toEqual([
-      { id: "preview", kind: "line", start: p(0, 0), end: p(9, 9) },
+      {
+        id: "preview",
+        kind: "line",
+        start: p(0, 0),
+        end: p(9, 9),
+        construction: false,
+      },
     ]);
   });
 
@@ -126,7 +168,13 @@ describe("previewEntities", () => {
   it("previews the arc radius spoke, then the arc itself", () => {
     const spoke = previewEntities("arc", [p(0, 0)], p(10, 0));
     expect(spoke).toEqual([
-      { id: "preview", kind: "line", start: p(0, 0), end: p(10, 0) },
+      {
+        id: "preview",
+        kind: "line",
+        start: p(0, 0),
+        end: p(10, 0),
+        construction: false,
+      },
     ]);
     const arc = previewEntities("arc", [p(0, 0), p(10, 0)], p(0, 25));
     expect(arc[0]).toMatchObject({ kind: "arc", end: p(0, 10) });

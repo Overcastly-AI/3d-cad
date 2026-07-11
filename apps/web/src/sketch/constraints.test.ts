@@ -10,7 +10,9 @@ import {
   parseConflictIndices,
   resolveSketchKey,
   sameConstraint,
+  selectionAllConstruction,
   solveDiagnostic,
+  toggleConstruction,
   type SketchConstraint,
 } from "./constraints";
 import type { SketchPick } from "./pick";
@@ -21,18 +23,21 @@ const line: SketchEntity = {
   kind: "line",
   start: { x: 0, y: 0 },
   end: { x: 40, y: 0 },
+  construction: false,
 };
 const line2: SketchEntity = {
   id: "e2",
   kind: "line",
   start: { x: 40, y: 0 },
   end: { x: 40, y: 25 },
+  construction: false,
 };
 const circle: SketchEntity = {
   id: "e3",
   kind: "circle",
   center: { x: 100, y: 0 },
   radius: 10,
+  construction: false,
 };
 const entities = [line, line2, circle];
 
@@ -64,6 +69,48 @@ describe("resolveSketchKey — one keyboard, two vocabularies", () => {
       action: "coincident",
     });
     expect(resolveSketchKey("l", true)).toBeNull();
+  });
+
+  it("N toggles construction only while something is selected", () => {
+    expect(resolveSketchKey("n", true)).toEqual({ type: "construction" });
+    expect(resolveSketchKey("N", true)).toEqual({ type: "construction" });
+    expect(resolveSketchKey("n", false)).toBeNull(); // not a draw tool
+  });
+});
+
+describe("construction geometry", () => {
+  it("marks the selected entities construction; ignores point picks", () => {
+    const next = toggleConstruction([pickLine("e1")], entities);
+    expect(next).not.toBeNull();
+    expect(next?.find((e) => e.id === "e1")?.construction).toBe(true);
+    expect(next?.filter((e) => e.construction)).toHaveLength(1);
+  });
+
+  it("reverts the whole group when every selected entity is construction", () => {
+    const marked = toggleConstruction(
+      [pickLine("e1"), pickLine("e2")],
+      entities,
+    ) as SketchEntity[];
+    const reverted = toggleConstruction(
+      [pickLine("e1"), pickLine("e2")],
+      marked,
+    );
+    expect(reverted?.some((e) => e.construction)).toBe(false);
+  });
+
+  it("returns null when the selection addresses no entity", () => {
+    expect(toggleConstruction([], entities)).toBeNull();
+    expect(toggleConstruction([pickPoint("e1", "start")], entities)).toBeNull();
+  });
+
+  it("selectionAllConstruction drives the toggle's pressed state", () => {
+    const marked = toggleConstruction(
+      [pickLine("e1")],
+      entities,
+    ) as SketchEntity[];
+    expect(selectionAllConstruction([pickLine("e1")], marked)).toBe(true);
+    expect(selectionAllConstruction([pickLine("e2")], marked)).toBe(false);
+    expect(selectionAllConstruction([], marked)).toBe(false);
   });
 });
 

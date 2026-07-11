@@ -15,12 +15,14 @@ const line: SketchEntity = {
   kind: "line",
   start: { x: 0, y: 0 },
   end: { x: 40, y: 0 },
+  construction: false,
 };
 const circle: SketchEntity = {
   id: "e2",
   kind: "circle",
   center: { x: 100, y: 0 },
   radius: 10,
+  construction: false,
 };
 const arc: SketchEntity = {
   id: "e3",
@@ -28,6 +30,7 @@ const arc: SketchEntity = {
   center: { x: 0, y: 100 },
   start: { x: 10, y: 100 }, // 0°
   end: { x: 0, y: 110 }, // 90°, CCW quarter
+  construction: false,
 };
 
 describe("namedPoints", () => {
@@ -90,6 +93,7 @@ describe("pickCandidates", () => {
       kind: "line",
       start: { x: 40, y: 0 },
       end: { x: 40, y: 25 },
+      construction: false,
     };
     const picks = pickCandidates([line, l2], { x: 40, y: 0 }, 1);
     expect(picks[0]).toEqual({ kind: "point", entity: "e1", point: "end" });

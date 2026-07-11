@@ -14,6 +14,7 @@ import { create } from "zustand";
 
 import {
   applyConstraintAction,
+  toggleConstruction,
   type ConstraintAction,
   type DimensionEditorTarget,
   type SketchConstraint,
@@ -86,6 +87,8 @@ export interface SketchState {
   clearSelection: () => void;
   /** Apply a constraint verb to the selection (H/V/X/C add; D/R edit). */
   applyConstraint: (action: ConstraintAction) => void;
+  /** Toggle the selected entities between profile and construction (N). */
+  toggleConstruction: () => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
   editDimension: (constraintIndex: number) => void;
   /** Commit the open dimension editor with a validated value (mm). */
@@ -199,6 +202,18 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
         set({ hint: result.hint });
         return;
     }
+  },
+
+  toggleConstruction: () => {
+    const { selection, entities, revision } = get();
+    const next = toggleConstruction(selection, entities);
+    if (next === null) {
+      set({ hint: "Select an entity to toggle construction." });
+      return;
+    }
+    // Clear the selection so the toggled entities read in their construction
+    // ink (selected entities render in brass, which would mask the dash).
+    set({ entities: next, revision: revision + 1, selection: [], hint: null });
   },
 
   editDimension: (constraintIndex) => {

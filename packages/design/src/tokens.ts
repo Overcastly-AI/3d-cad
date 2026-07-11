@@ -67,6 +67,16 @@ export const sketch = {
   scribe: "#E9F1F8",
   /** Persisted-and-solved sketch ink (slightly settled vs. the live buffer). */
   scribeSolved: "#C4D2DE",
+  /**
+   * Construction (reference-only) geometry ink — centerlines, mirror axes,
+   * diagonals: solved and constrainable but excluded from the extrude/revolve
+   * profile, so it reads muted (dimmer than both scribe inks) and dashes fine
+   * to say "reference, not profile".
+   */
+  constructionInk: color.gauge,
+  /** Construction dash pattern (world mm) — finer than the preview rubber band. */
+  constructionDashMm: 1.4,
+  constructionGapMm: 1,
   /** In-progress preview (rubber band) — dashes in working brass. */
   preview: color.brass,
   /** Entity defining points (endpoints, centers). */

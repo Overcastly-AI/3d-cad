@@ -134,6 +134,44 @@ describe("constraints", () => {
   });
 });
 
+describe("construction toggle", () => {
+  it("marks the selected entity construction, bumps revision, clears selection", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    const before = store().revision;
+    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
+    store().toggleConstruction();
+    const e1 = store().entities.find((e) => e.id === "e1");
+    expect(e1?.construction).toBe(true);
+    // Only the addressed entity flips; the other three stay profile.
+    expect(store().entities.filter((e) => e.construction)).toHaveLength(1);
+    expect(store().revision).toBe(before + 1);
+    expect(store().selection).toEqual([]); // deselected so the dash shows
+  });
+
+  it("toggles a construction entity back to profile geometry", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().toggleConstruction();
+    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().toggleConstruction();
+    expect(store().entities.find((e) => e.id === "e1")?.construction).toBe(
+      false,
+    );
+    expect(store().entities.some((e) => e.construction)).toBe(false);
+  });
+
+  it("hints (no revision bump) when no entity is selected", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    const before = store().revision;
+    store().toggleConstruction();
+    expect(store().hint).toMatch(/select an entity/i);
+    expect(store().revision).toBe(before);
+  });
+});
+
 describe("adoptSolved — the loop terminator", () => {
   it("merges solved positions by id without bumping revision", () => {
     rectangleAt();
@@ -144,6 +182,7 @@ describe("adoptSolved — the loop terminator", () => {
       kind: "line",
       start: { x: 1, y: 2 },
       end: { x: 41, y: 2 },
+      construction: false,
     };
     store().adoptSolved([solvedLine], {
       status: "underconstrained",

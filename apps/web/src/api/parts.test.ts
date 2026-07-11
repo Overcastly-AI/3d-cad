@@ -16,8 +16,21 @@ import {
 } from "./parts";
 
 const entities: SketchEntity[] = [
-  { id: "e1", kind: "line", start: { x: 0, y: 0 }, end: { x: 40, y: 0 } },
-  { id: "e2", kind: "circle", center: { x: 20, y: 12 }, radius: 4 },
+  {
+    id: "e1",
+    kind: "line",
+    start: { x: 0, y: 0 },
+    end: { x: 40, y: 0 },
+    construction: false,
+  },
+  // A construction circle — reference-only geometry excluded from the profile.
+  {
+    id: "e2",
+    kind: "circle",
+    center: { x: 20, y: 12 },
+    radius: 4,
+    construction: true,
+  },
 ];
 
 const constraints: SketchConstraint[] = [
@@ -151,6 +164,16 @@ describe("sketchFeatureCreate", () => {
     expect(body.feature.params.entities).toEqual(entities);
     expect(body.feature.params.constraints).not.toBe(constraints);
     expect(body.feature.params.constraints).toEqual(constraints);
+  });
+
+  it("carries each entity's construction flag through to the payload", () => {
+    const body = sketchFeatureCreate("Sketch1", "XY", entities, constraints, 1);
+    if (body.feature.type !== "sketch") throw new Error("expected a sketch");
+    const byId = new Map(
+      body.feature.params.entities.map((e) => [e.id, e.construction]),
+    );
+    expect(byId.get("e1")).toBe(false); // profile line
+    expect(byId.get("e2")).toBe(true); // construction circle
   });
 });
 

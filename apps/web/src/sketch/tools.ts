@@ -73,7 +73,13 @@ export function placePoint(
       return {
         pending: [],
         entities: [
-          { id: entityId(nextIdIndex), kind: "line", start, end: point },
+          {
+            id: entityId(nextIdIndex),
+            kind: "line",
+            start,
+            end: point,
+            construction: false,
+          },
         ],
         nextIdIndex: nextIdIndex + 1,
       };
@@ -98,7 +104,13 @@ export function placePoint(
       return {
         pending: [],
         entities: [
-          { id: entityId(nextIdIndex), kind: "circle", center, radius },
+          {
+            id: entityId(nextIdIndex),
+            kind: "circle",
+            center,
+            radius,
+            construction: false,
+          },
         ],
         nextIdIndex: nextIdIndex + 1,
       };
@@ -117,7 +129,14 @@ export function placePoint(
       return {
         pending: [],
         entities: [
-          { id: entityId(nextIdIndex), kind: "arc", center, start, end },
+          {
+            id: entityId(nextIdIndex),
+            kind: "arc",
+            center,
+            start,
+            end,
+            construction: false,
+          },
         ],
         nextIdIndex: nextIdIndex + 1,
       };
@@ -146,6 +165,7 @@ function rectangleLines(
     kind: "line" as const,
     start,
     end: corners[(i + 1) % 4] as Point2D,
+    construction: false,
   }));
 }
 
@@ -188,7 +208,15 @@ export function previewEntities(
     case "line": {
       const [start] = pending;
       if (start === undefined) return [];
-      return [{ id: "preview", kind: "line", start, end: cursor }];
+      return [
+        {
+          id: "preview",
+          kind: "line",
+          start,
+          end: cursor,
+          construction: false,
+        },
+      ];
     }
     case "rect": {
       const [corner] = pending;
@@ -204,7 +232,9 @@ export function previewEntities(
       if (center === undefined) return [];
       const radius = distance(center, cursor);
       if (radius < DEGENERATE_MM) return [];
-      return [{ id: "preview", kind: "circle", center, radius }];
+      return [
+        { id: "preview", kind: "circle", center, radius, construction: false },
+      ];
     }
     case "arc": {
       const [center, start] = pending;
@@ -212,11 +242,21 @@ export function previewEntities(
       if (start === undefined) {
         // Radius rubber band: a spoke from center to cursor.
         if (distance(center, cursor) < DEGENERATE_MM) return [];
-        return [{ id: "preview", kind: "line", start: center, end: cursor }];
+        return [
+          {
+            id: "preview",
+            kind: "line",
+            start: center,
+            end: cursor,
+            construction: false,
+          },
+        ];
       }
       const end = arcEndPoint(center, start, cursor);
       if (end === null) return [];
-      return [{ id: "preview", kind: "arc", center, start, end }];
+      return [
+        { id: "preview", kind: "arc", center, start, end, construction: false },
+      ];
     }
   }
 }

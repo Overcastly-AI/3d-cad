@@ -56,7 +56,7 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       endorsement (resolution log if a request-changes round happens);
       unblocks the Next-queue "face/edge picking" item. [src: roadmap,
       engineering-auditor]
-- [ ] (P1, S) Sketch: construction geometry — mark sketch lines/circles/arcs
+- [x] (P1, S) Sketch: construction geometry — mark sketch lines/circles/arcs
       as construction (reference-only, not part of the solid profile): a
       `construction: bool` field on sketch entities (py-kit schema + upcast
       registry per feature-tree §5) and a sketcher UI toggle. Construction
@@ -69,13 +69,13 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       of a rectangle to construction, confirm extrude still succeeds on the
       remaining closed loop; screenshot evidence; `frontend-design` skill
       invoked for the toggle affordance. [src: product-auditor, roadmap]
-      **PARTIAL — 2a shipped 2026-07-11 (backend):** `construction: bool =
-      False` on sketch entities (additive optional field — pre-field rows read
-      False, no `param_version` bump); solver keeps construction entities in
-      the solve (constrainable/referenceable); a single profile-exclusion point
-      (`services/geometry/.../kernel/extrude.py` `build_profile_face`) drops
-      them from the extrude (and future revolve) profile. Leave `[ ]` — 2b (the
-      sketcher UI keyboard-verb toggle + dashed rendering + e2e) finishes it.
+      **DONE — 2a (backend, 313c44f) + 2b (frontend, 2026-07-11):** the `N`
+      (coNstruction) keyboard verb toggles the selected entities via the
+      selection-presence pattern (CONSTR cell on the CONSTRAIN strip); a
+      `construction`/dash design token renders them muted+dashed in both
+      renderers; flag round-trips through the sketch feature save; e2e draws a
+      rectangle + construction diagonal, extrudes to 10,000 mm³ (diagonal
+      excluded), reload persists. `frontend-design` skill invoked.
 - [ ] (P1, M) Sketch constraints — tangent/perpendicular/parallel — extend
       the planegcs-backed solver + keyboard-first vocabulary
       (H/V/D/R/X/C today) with 3 constraint kinds relating two curves — the
@@ -298,6 +298,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Construction geometry 2b shipped (frontend → #2 done):** `N`
+  keyboard-verb toggle (selection-presence) + CONSTR strip cell; muted/dashed
+  design token in both renderers; e2e rect+construction-diagonal → extrude
+  10,000 mm³, flag persists; screenshots. [frontend-builder]
 - 2026-07-11 — **Toponaming design doc revised** (code-reviewer request-changes):
   stage-1 "never silent retarget" → best-effort (structural = stage 2); typed
   selector union, precise `feature_id`, helper-wiring flag, §8 log. [kernel-architect]

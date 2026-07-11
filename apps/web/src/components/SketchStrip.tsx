@@ -12,6 +12,7 @@ import { Panel, PanelActionCell } from "@loft/design";
 
 import {
   describeSelection,
+  selectionAllConstruction,
   type ConstraintAction,
 } from "../sketch/constraints";
 import { DATUM_PLANES } from "../sketch/plane";
@@ -91,7 +92,11 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
   const entityCount = useSketchStore((state) => state.entities.length);
   const constraintCount = useSketchStore((state) => state.constraints.length);
   const selection = useSketchStore((state) => state.selection);
+  const entities = useSketchStore((state) => state.entities);
   const applyConstraint = useSketchStore((state) => state.applyConstraint);
+  const toggleConstruction = useSketchStore(
+    (state) => state.toggleConstruction,
+  );
   const hint = useSketchStore((state) => state.hint);
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
@@ -205,6 +210,14 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
               onClick={() => applyConstraint(action)}
             />
           ))}
+          <PanelActionCell
+            label="Constr"
+            caption="N"
+            selected={selectionAllConstruction(selection, entities)}
+            data-testid="sketch-construction"
+            aria-label="Toggle construction geometry (N, on selected entities) — reference-only, excluded from the extrude profile"
+            onClick={toggleConstruction}
+          />
         </Panel>
       ) : null}
 

@@ -384,6 +384,10 @@ export function PartPage() {
         store.applyConstraint(resolved.action);
         return;
       }
+      if (resolved.type === "construction") {
+        store.toggleConstruction();
+        return;
+      }
       const tool = TOOL_SHORTCUTS[key];
       if (tool !== undefined) setTool(tool);
     };

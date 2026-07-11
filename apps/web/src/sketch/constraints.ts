@@ -32,20 +32,68 @@ export const CONSTRAINT_SHORTCUTS: Readonly<Record<string, ConstraintAction>> =
   };
 
 /**
+ * Construction toggle verb — N (coNstruction), same selection-presence
+ * pattern as the constraint verbs. Flips the selected entities between
+ * profile geometry (the closed loop extrude/revolve consume) and
+ * reference-only construction geometry (centerlines, mirror axes, diagonals).
+ */
+export const CONSTRUCTION_SHORTCUT = "n";
+
+/**
  * One keyboard, two vocabularies: with an EMPTY selection the letters arm
  * drawing tools (L/R/C/A); with a selection they are constraint verbs
- * (H/V/D/R/X/C). Selection presence is the mode — deterministic, no chords.
+ * (H/V/D/R/X/C) plus the construction toggle (N). Selection presence is the
+ * mode — deterministic, no chords.
  */
 export function resolveSketchKey(
   key: string,
   hasSelection: boolean,
-): { type: "constraint"; action: ConstraintAction } | { type: "tool" } | null {
+):
+  | { type: "constraint"; action: ConstraintAction }
+  | { type: "construction" }
+  | { type: "tool" }
+  | null {
   const lower = key.toLowerCase();
   if (hasSelection) {
+    if (lower === CONSTRUCTION_SHORTCUT) return { type: "construction" };
     const action = CONSTRAINT_SHORTCUTS[lower];
     return action === undefined ? null : { type: "constraint", action };
   }
   return "lrca".includes(lower) && lower.length === 1 ? { type: "tool" } : null;
+}
+
+/**
+ * Toggle construction on the selection's entities (points address no curve,
+ * so they are ignored). If every selected entity is already construction the
+ * group reverts to profile geometry; otherwise the whole group becomes
+ * construction — the familiar toggle-group rule. Returns the next entity
+ * array, or null when the selection addresses no entity (the caller hints).
+ */
+export function toggleConstruction(
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+): SketchEntity[] | null {
+  const ids = new Set(
+    selection.flatMap((pick) => (pick.kind === "entity" ? [pick.id] : [])),
+  );
+  if (ids.size === 0) return null;
+  const selected = entities.filter((e) => ids.has(e.id));
+  const target = !selected.every((e) => e.construction);
+  return entities.map((e) =>
+    ids.has(e.id) ? { ...e, construction: target } : e,
+  );
+}
+
+/** Whether the selection is non-empty and every addressed entity is construction. */
+export function selectionAllConstruction(
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+): boolean {
+  const ids = new Set(
+    selection.flatMap((pick) => (pick.kind === "entity" ? [pick.id] : [])),
+  );
+  if (ids.size === 0) return false;
+  return entities.filter((e) => ids.has(e.id)).every((e) => e.construction);
 }
 
 /** A dimension editor request: which value the inline mm field is driving. */

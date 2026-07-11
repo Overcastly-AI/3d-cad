@@ -91,10 +91,19 @@ interface InkSegmentsProps {
   positions: Float32Array;
   color: string;
   dashed?: boolean;
+  /** Dash geometry (world mm); defaults to the rubber-band preview pattern. */
+  dashSize?: number;
+  gapSize?: number;
 }
 
 /** One layer of sketch ink — a single LineSegments draw call. */
-function InkSegments({ positions, color, dashed = false }: InkSegmentsProps) {
+function InkSegments({
+  positions,
+  color,
+  dashed = false,
+  dashSize = sketch.previewDashMm,
+  gapSize = sketch.previewGapMm,
+}: InkSegmentsProps) {
   const ref = useRef<LineSegments>(null);
   const geometry = usePositionsGeometry(positions);
   // LineDashedMaterial needs per-vertex line distances.
@@ -107,8 +116,8 @@ function InkSegments({ positions, color, dashed = false }: InkSegmentsProps) {
       {dashed ? (
         <lineDashedMaterial
           color={color}
-          dashSize={sketch.previewDashMm}
-          gapSize={sketch.previewGapMm}
+          dashSize={dashSize}
+          gapSize={gapSize}
           toneMapped={false}
         />
       ) : (
@@ -116,6 +125,19 @@ function InkSegments({ positions, color, dashed = false }: InkSegmentsProps) {
       )}
     </lineSegments>
   );
+}
+
+/** Split entities into profile (solid scribe) and construction (dashed) sets. */
+function partitionConstruction(entities: readonly SketchEntity[]): {
+  profile: SketchEntity[];
+  construction: SketchEntity[];
+} {
+  const profile: SketchEntity[] = [];
+  const construction: SketchEntity[] = [];
+  for (const entity of entities) {
+    (entity.construction ? construction : profile).push(entity);
+  }
+  return { profile, construction };
 }
 
 /** Defining points (endpoints, centers) — screen-space brass dots. */
@@ -365,13 +387,23 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
       ? hoverPick.id
       : null;
 
-  const bufferPositions = useMemo(
+  // The idle buffer (not selected, not hovered) splits into profile ink
+  // (solid scribe) and construction ink (muted, dashed) — selection/hover
+  // brass wins over both while a pick is live.
+  const buffer = useMemo(
     () =>
-      entitySegmentPositions(
+      partitionConstruction(
         entities.filter((e) => !selectedIds.has(e.id) && e.id !== hoveredId),
-        plane,
       ),
-    [entities, selectedIds, hoveredId, plane],
+    [entities, selectedIds, hoveredId],
+  );
+  const bufferPositions = useMemo(
+    () => entitySegmentPositions(buffer.profile, plane),
+    [buffer, plane],
+  );
+  const constructionPositions = useMemo(
+    () => entitySegmentPositions(buffer.construction, plane),
+    [buffer, plane],
   );
   const selectedPositions = useMemo(
     () =>
@@ -421,6 +453,13 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
   return (
     <group>
       <InkSegments positions={bufferPositions} color={sketch.scribe} />
+      <InkSegments
+        positions={constructionPositions}
+        color={sketch.constructionInk}
+        dashed
+        dashSize={sketch.constructionDashMm}
+        gapSize={sketch.constructionGapMm}
+      />
       <InkSegments positions={hoveredPositions} color={sketch.hoverInk} />
       <InkSegments positions={selectedPositions} color={sketch.selectedInk} />
       <InkPoints positions={pointPositions} color={sketch.point} />
@@ -443,11 +482,27 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
 
 /** Persisted sketches, rendered from the SOLVED evaluate payload. */
 function SolvedLayer({ layer }: { layer: SolvedSketchLayer }) {
-  const positions = useMemo(
-    () => entitySegmentPositions(layer.entities, layer.plane),
-    [layer],
+  const parts = useMemo(() => partitionConstruction(layer.entities), [layer]);
+  const profilePositions = useMemo(
+    () => entitySegmentPositions(parts.profile, layer.plane),
+    [parts, layer.plane],
   );
-  return <InkSegments positions={positions} color={sketch.scribeSolved} />;
+  const constructionPositions = useMemo(
+    () => entitySegmentPositions(parts.construction, layer.plane),
+    [parts, layer.plane],
+  );
+  return (
+    <>
+      <InkSegments positions={profilePositions} color={sketch.scribeSolved} />
+      <InkSegments
+        positions={constructionPositions}
+        color={sketch.constructionInk}
+        dashed
+        dashSize={sketch.constructionDashMm}
+        gapSize={sketch.constructionGapMm}
+      />
+    </>
+  );
 }
 
 /**
