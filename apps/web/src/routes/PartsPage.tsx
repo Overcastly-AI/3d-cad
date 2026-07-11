@@ -261,7 +261,7 @@ function PartRow({ part, index }: { part: PartResponse; index: number }) {
           onClick={() => setConfirming(true)}
           data-testid="part-delete"
           aria-label={`Delete ${part.name}`}
-          className="rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge opacity-0 outline-none transition-opacity duration-fast hover:text-flag focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass group-hover:opacity-100"
+          className="rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none transition-colors duration-fast hover:text-flag focus-visible:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
         >
           Delete
         </button>
