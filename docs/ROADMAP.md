@@ -166,7 +166,12 @@ The thinnest vertical slice a working engineer can feel:
       STEP/STL geometry endpoint with round-trip gates, gateway proxy, and
       title-block export controls in the web app; QA'd in a real browser:
       Playwright downloads `box.step`/`box.stl` through the full stack and
-      asserts file contents)
+      asserts file contents). Export-from-tree shipped 2026-07-11 (BACKLOG #7,
+      GEOMETRY-QA gap #8): `POST /api/v1/export/tree` evaluates a feature tree
+      and exports the last-good body; gateway
+      `POST /api/v1/parts/{id}/export?format=step|stl` streams the modeled
+      part; tree goldens endpoint-round-tripped (extrude/chamfer 0.0, fillet
+      1.26e-10). Web title-block wiring folds into the full-flow e2e below)
 - ✅ Golden models: 5 reference parts covering every shipped feature
       (`box-10x20x30`; `cylinder-r10-h25` — first curved golden, 1e-9
       curved-GProp tolerance, seam-edge topology, curved STEP round-trip

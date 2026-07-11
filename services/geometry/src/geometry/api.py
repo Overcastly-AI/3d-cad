@@ -9,11 +9,16 @@ queue path (``geometry.worker``) calls the same core function.
 from typing import Any
 
 from fastapi import APIRouter, Response
-from py_kit.errors import NotFoundError
+from py_kit.errors import NotFoundError, ValidationApiError
 
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
-from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
+from py_kit.schemas.features import (
+    EvaluateTreeRequest,
+    EvaluateTreeResult,
+    ExportTreeRequest,
+    export_tree_filename,
+)
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
@@ -24,7 +29,7 @@ from py_kit.schemas.geometry import (
 )
 
 from geometry.features import evaluate_tree
-from geometry.kernel import evaluate_export, evaluate_tessellation
+from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
 from geometry.mesh_store import fetch_mesh_glb
 from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
 
@@ -116,5 +121,67 @@ def export(request: ExportRequest) -> Response:
         media_type=EXPORT_MEDIA_TYPES[request.format],
         headers={
             "Content-Disposition": f'attachment; filename="{export_filename(request)}"'
+        },
+    )
+
+
+def _tree_export_error(result: EvaluateTreeResult) -> ValidationApiError:
+    """A clean 422 for an export whose tree produced no body (never a 500).
+
+    Reuses the strict-prefix ``FeatureError`` semantics (§4.3): if a feature
+    failed, its code/message/upstream id ride in the envelope ``details`` so
+    the caller learns exactly why (e.g. ``profile_not_closed``); a tree with
+    no body-affecting feature at all is the honest ``no_body`` case.
+    """
+    failed = next(
+        (feature for feature in result.features if feature.status == "error"), None
+    )
+    if failed is not None and failed.error is not None:
+        return ValidationApiError(
+            "The feature tree could not be evaluated to a body, so there is "
+            "nothing to export.",
+            code="tree_export_failed",
+            details={
+                "feature_id": str(failed.feature_id),
+                "feature_error": failed.error.model_dump(mode="json"),
+            },
+        )
+    return ValidationApiError(
+        "The feature tree evaluated with no body-affecting feature, so there "
+        "is nothing to export; add an extrude first.",
+        code="tree_export_failed",
+        details={"reason": "no_body"},
+    )
+
+
+@router.post("/export/tree", response_class=Response, responses=_EXPORT_RESPONSES)
+def export_tree(request: ExportTreeRequest) -> Response:
+    """Evaluate a feature tree and export its LAST-GOOD body as STEP/STL.
+
+    Reuses the evaluate-tree machinery verbatim (``evaluate_tree`` — the same
+    ordered dispatch + strict-prefix rule as ``POST /api/v1/evaluate``, no
+    duplicated logic), then exports the resulting kernel body through the
+    SAME format dispatch parametric shapes use (``export_solid``). A tree that
+    produces no body — a strict-prefix failure or a body-less tree — is a
+    clean 422 ``tree_export_failed`` envelope (never a 500, never a partial
+    file); the failing ``FeatureError`` rides in the envelope details.
+    Deterministic: the STEP timestamp is pinned exactly as on the shape path.
+    """
+    evaluation = evaluate_tree(request)
+    if evaluation.body is None:
+        raise _tree_export_error(evaluation.result)
+    data = export_solid(
+        evaluation.body,
+        request.format,
+        request.linear_deflection,
+        request.angular_deflection,
+    )
+    return Response(
+        content=data,
+        media_type=EXPORT_MEDIA_TYPES[request.format],
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{export_tree_filename(request)}"'
+            )
         },
     )

@@ -50,8 +50,10 @@ recorded from harness output.
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
 export, sketch solve + extrude (add/cut) + fillet via evaluate-tree — all
-covered by the inventory. Export-endpoint gates parametrize over **shape**
-goldens only (gap #8); the tree goldens' STEP round-trip runs at kernel level.
+covered by the inventory. Export-endpoint gates parametrize over **both** shape
+goldens (`POST /api/v1/export`) and tree goldens (`POST /api/v1/export/tree`,
+closed gap #8); the tree goldens' STEP round-trip runs at kernel AND endpoint
+level.
 Extrude `cut`, `direction: reverse`, circle profiles, every extrude error
 path, and every fillet/chamfer path (both selectors + `no_target_body` /
 `no_fillet_edges`|`no_chamfer_edges` / `fillet_failed`|`chamfer_failed`) are
@@ -59,6 +61,67 @@ additionally pinned by `tests/test_extrude.py` / `tests/test_fillet.py` /
 `tests/test_chamfer.py`. No shipped modeling capability lacks a golden as of
 the 2026-07-11 chamfer entry — the three core features (extrude, fillet,
 chamfer) are all golden-covered.
+
+---
+
+## 2026-07-11 — Export-from-tree: evaluated feature trees are endpoint-exportable (closes gap #8, BACKLOG #7)
+
+Environment: dev container, Python 3.12.3, build123d 0.11.1 (OCCT 7.9 via
+OCP), planegcs 0.8.0, pytest 9.1.1. Full geometry + gateway suites green.
+
+**Contract.** A second export route, `POST /api/v1/export/tree`, takes an
+`ExportTreeRequest` — `EvaluateTreeRequest` (the SAME ordered, rollback-applied
+feature list `/evaluate` takes) extended with `format` + `angular_deflection`.
+It **reuses `evaluate_tree` verbatim** (no duplicated dispatch/strict-prefix
+logic), then exports the resulting last-good body through the SAME
+`export_solid` format dispatch parametric shapes use. The shape route
+(`POST /api/v1/export`) is unchanged — shape goldens still exercise it. A tree
+that yields no body is a clean **422 `tree_export_failed`** envelope (never a
+500, never a partial file): a strict-prefix failure carries the failing
+`FeatureError` (code/message/`upstream_feature_id`) in `details.feature_error`;
+a body-less tree carries `details.reason = "no_body"`.
+
+### Gate — endpoint-level STEP round-trip over evaluated trees
+
+Every tree golden now flows through the endpoint export gate
+(`tests/test_export.py`, parametrized over the tree inventory): HTTP
+`POST /api/v1/export/tree {format:"step"}` → `import_step` → re-measure →
+compared against the body rebuilt through the full evaluate-tree path
+(`build_model_solid`), shared `assert_roundtrip_preserved` fixture (1e-7
+`ROUNDTRIP_TOL` + exact topology).
+
+| Tree golden | STEP bytes | Δvolume | Δarea | Topology | Determinism (sha256) |
+| --- | --- | --- | --- | --- | --- |
+| `sketch-extrude-40x25x10` | 15,397 | **0.0** | **0.0** | preserved 6/12/1 | `66e78986123a…` |
+| `fillet-plate-r5` | 30,733 | 1.26e-10 | 2.05e-11 | preserved 10/24/1 | `b818b93e3ba8…` |
+| `chamfer-plate-d5` | 29,663 | **0.0** | **0.0** | preserved 10/24/1 | `bbec86443315…` |
+
+**Finding (not a defect):** the endpoint STEP artifacts are **byte-identical**
+to the kernel-level round-trip artifacts (fillet `b818b93e3ba8…`/30,733 B and
+chamfer 29,663 B match the entries below) — the tree path shares
+`export_step_bytes` and its pinned `STEP_EXPORT_TIMESTAMP`, so the HTTP export
+carries the same double-precision curved re-approximation (fillet 1.26e-10,
+the project's largest) and the same exact planar survival (extrude/chamfer 0.0)
+already characterized at kernel level. Both formats are byte-deterministic
+in-process on both routes.
+
+### Behavior pinned
+
+- **Happy path** (`tests/test_export.py`): media type + `Content-Disposition`
+  (`part-<id>.<fmt>`) for STEP and STL over every tree golden; non-empty body.
+- **Error semantics:** sketch-only tree → 422 `tree_export_failed`
+  (`reason: no_body`); broken profile reference → 422 with
+  `details.feature_error.code = reference_unresolved` (strict-prefix §4.3
+  reused, not a 500).
+- **Gateway e2e** (`services/gateway/tests/test_evaluate_e2e.py`, real
+  three-service HTTP stack): register → create part → sketch + extrude →
+  `POST /api/v1/parts/{id}/export?format=step|stl` streams a valid STEP AP214 /
+  binary STL of the **modeled** body; no-bearer → 401; sketch-only part →
+  422 `tree_export_failed` re-surfaced through the gateway. The gateway route
+  is the export twin of `/evaluate` (documents `evaluation-request` →
+  geometry `export/tree`).
+
+[kernel-architect]
 
 ---
 
@@ -636,12 +699,13 @@ finding, not absorbed into the tolerance.
 7. **Performance tracking is a single coarse tripwire.** Start per-golden
    budget rows in the table above as the inventory grows; >10% regression
    inside budget is still a filed defect.
-8. **Evaluated trees are not endpoint-exportable.** `POST /api/v1/export`
-   speaks `ShapeRequest` only, so the export gates parametrize over shape
-   goldens; the tree golden's STEP round-trip runs at kernel level
-   (`test_step_roundtrip.py` via `geometry.harness.build_model_solid`).
-   Close when part export (export an evaluated feature tree over HTTP) lands
-   — the Phase 1 full-flow e2e will need it.
+8. ~~**Evaluated trees are not endpoint-exportable.**~~ **Closed 2026-07-11**
+   — `POST /api/v1/export/tree` evaluates a feature tree (reusing the
+   `evaluate_tree` dispatch verbatim) and exports the last-good body; the
+   export gates now parametrize the tree goldens too (endpoint-level STEP
+   round-trip + STEP/STL byte-determinism), and the gateway
+   `POST /api/v1/parts/{id}/export?format=` streams the modeled part. Entry
+   below.
 
 Findings filed this pass: none red — all shipped capabilities have golden
 coverage and all gates are green with zero measured deviation. Gaps above

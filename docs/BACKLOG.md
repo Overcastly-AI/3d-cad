@@ -22,9 +22,10 @@ pass; this note only points the queue at it, no duplication:
 - **Sketching row** — no Phase 1 items target it further this pass (Phase 2:
   tangent/perpendicular/parallel/equal/symmetric/concentric, trim/offset,
   mirror/pattern, construction geometry).
-- **Interop row** — half-flipped (export shipped, import Phase 4). Ready #7
-  closes the export-from-tree gap (GEOMETRY-QA gap #8) so an engineer can
-  export the part they just extruded, not just bare primitives.
+- **Interop row** — half-flipped (export shipped, import Phase 4).
+  Export-from-tree shipped 2026-07-11 (Ready #7, GEOMETRY-QA gap #8 closed):
+  an engineer can export the part they just extruded/filleted, not just bare
+  primitives — via `POST /api/v1/parts/{id}/export?format=`.
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
   access — later phases; no Phase 1 items target them.
 
@@ -146,18 +147,25 @@ depends on #2, #3, #4, #7.
       API-level. STEP round-trip vol/area dev **0.0** (planar — tighter than
       fillet's curved 1.26e-10). Contracts + ts-client regenerated.
       [kernel-architect]
-- [ ] (P1, M) Export-from-tree — extend export to accept an evaluated feature
+- [x] (P1, M) Export-from-tree — extend export to accept an evaluated feature
       tree (part id, optionally a rollback point), not just a bare
       `ShapeRequest` (closes GEOMETRY-QA gap #8: `POST /api/v1/export` speaks
       shapes only today, so an engineer cannot export the part they just
       extruded). Gateway route + web title-block wiring so export works from
       the part workspace. Depends on: evaluate-tree, documents feature-tree
       API (both shipped).
-      Acceptance: export gates parametrize the `sketch-extrude-40x25x10` tree
-      golden (STEP + STL, byte-deterministic, endpoint-level round-trip)
-      alongside the existing shape goldens; the workspace's export button
-      downloads the current evaluated body; contracts + ts-client
-      regenerated. [src: geometry-qa, roadmap]
+      Shipped 2026-07-11: `POST /api/v1/export/tree` (`ExportTreeRequest` =
+      `EvaluateTreeRequest` + `format`/`angular_deflection`) reuses
+      `evaluate_tree` verbatim then exports the last-good body via the shared
+      `export_solid` dispatch; no body → clean 422 `tree_export_failed`
+      (strict-prefix `FeatureError` in details, §4.3). Gateway
+      `POST /api/v1/parts/{id}/export?format=step|stl` (evaluate's export
+      twin: documents `evaluation-request` → geometry `export/tree` → stream).
+      Export gates parametrize all 3 tree goldens (endpoint STEP round-trip:
+      extrude/chamfer 0.0, fillet 1.26e-10; STEP/STL byte-deterministic);
+      gateway e2e over real HTTP. Contracts + ts-client regenerated.
+      Web title-block button remains for the frontend (#8 full-flow e2e).
+      [src: geometry-qa, roadmap] [kernel-architect]
 - [ ] (P1, M) Full-flow Playwright e2e — login → create part → sketch →
       extrude → edit param → export, desktop + touch viewport smoke. This is
       the Phase 1 exit gate (docs/ROADMAP.md "Current focus"); closing it is
@@ -282,6 +290,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-11 — **Ready #7 shipped: export-from-tree (closes GEOMETRY-QA gap
+  #8).** `POST /api/v1/export/tree` reuses `evaluate_tree` then exports the
+  last-good body (shared `export_solid`); no body → 422 `tree_export_failed`.
+  Gateway `POST /api/v1/parts/{id}/export?format=`. Tree goldens endpoint-
+  round-tripped; contracts regenerated. [kernel-architect]
 - 2026-07-11 — **Ready #6 shipped: chamfer feature.** `chamfer` handler +
   kernel reusing fillet's `EdgeSelector`; edge selection extracted to shared
   `geometry.kernel.edges.select_edges` (DRY). Golden `chamfer-plate-d5`

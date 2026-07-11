@@ -410,3 +410,120 @@ def test_extruded_body_mesh_reaches_browser_through_gateway(stack: Stack) -> Non
         direct = geometry.get(f"/api/v1/meshes/{result.mesh_glb_id}")
         assert direct.status_code == 200, direct.text
     assert via_gateway.content == direct.content
+
+
+def _seed_extruded_part(client: httpx.Client, email: str) -> tuple[dict[str, str], str]:
+    """Register, create a part, and add sketch + extrude — returns (auth, id)."""
+    register = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "hunter2-passphrase"},
+    )
+    assert register.status_code == 201, register.text
+    bearer = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+    part = client.post("/api/v1/parts", json={"name": "exportable"}, headers=bearer)
+    assert part.status_code == 201, part.text
+    part_id = part.json()["id"]
+
+    sketch = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Sketch1",
+            "feature": {"type": "sketch", "version": 1, "params": _sketch_params()},
+            "expected_tree_version": 0,
+        },
+        headers=bearer,
+    )
+    assert sketch.status_code == 201, sketch.text
+    sketch_id = sketch.json()["feature"]["id"]
+    tree_version = sketch.json()["tree_version"]
+
+    extruded = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Extrude1",
+            "feature": {
+                "type": "extrude",
+                "version": 1,
+                "params": {
+                    "profile": {"kind": "feature", "feature_id": sketch_id},
+                    "distance_mm": 10.0,
+                    "operation": "add",
+                    "direction": "normal",
+                },
+            },
+            "expected_tree_version": tree_version,
+        },
+        headers=bearer,
+    )
+    assert extruded.status_code == 201, extruded.text
+    return bearer, part_id
+
+
+def test_part_export_downloads_evaluated_body_through_gateway(stack: Stack) -> None:
+    """Export-from-tree end to end: sketch + extrude a part, then download it
+    as STEP and STL through the gateway. The gateway aggregates documents
+    (evaluation-ready tree) → geometry (tree export) and streams the file the
+    engineer modeled — not a bare primitive. Every hop is real HTTP."""
+    with httpx.Client(base_url=stack.gateway_url, timeout=30.0) as client:
+        bearer, part_id = _seed_extruded_part(client, "export@example.com")
+
+        step = client.post(
+            f"/api/v1/parts/{part_id}/export", params={"format": "step"}, headers=bearer
+        )
+        assert step.status_code == 200, step.text
+        assert step.headers["content-type"] == "model/step"
+        assert "attachment; filename=" in step.headers["content-disposition"]
+        # A valid STEP AP214 part 21 file (the exact B-rep of the modeled body).
+        assert step.content.startswith(b"ISO-10303-21")
+
+        stl = client.post(
+            f"/api/v1/parts/{part_id}/export", params={"format": "stl"}, headers=bearer
+        )
+        assert stl.status_code == 200, stl.text
+        assert stl.headers["content-type"] == "model/stl"
+        # Binary STL: 84-byte header (80 + uint32 count) + 50 bytes per facet.
+        assert len(stl.content) >= 84
+
+    # Auth is enforced: no bearer → 401, never a leaked download.
+    with httpx.Client(base_url=stack.gateway_url, timeout=30.0) as anon:
+        unauth = anon.post(f"/api/v1/parts/{part_id}/export", params={"format": "step"})
+        assert unauth.status_code == 401, unauth.text
+
+
+def test_part_export_sketch_only_is_clean_error_through_gateway(stack: Stack) -> None:
+    """A part with no body-affecting feature exports as a 422
+    ``tree_export_failed`` envelope re-surfaced through the gateway — never a
+    500 or a partial file."""
+    with httpx.Client(base_url=stack.gateway_url, timeout=30.0) as client:
+        register = client.post(
+            "/api/v1/auth/register",
+            json={"email": "export2@example.com", "password": "hunter2-passphrase"},
+        )
+        assert register.status_code == 201, register.text
+        bearer = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+        part = client.post("/api/v1/parts", json={"name": "sketchy"}, headers=bearer)
+        assert part.status_code == 201, part.text
+        part_id = part.json()["id"]
+
+        sketch = client.post(
+            f"/api/v1/parts/{part_id}/features",
+            json={
+                "name": "Sketch1",
+                "feature": {
+                    "type": "sketch",
+                    "version": 1,
+                    "params": _sketch_params(),
+                },
+                "expected_tree_version": 0,
+            },
+            headers=bearer,
+        )
+        assert sketch.status_code == 201, sketch.text
+
+        exported = client.post(
+            f"/api/v1/parts/{part_id}/export", params={"format": "step"}, headers=bearer
+        )
+        assert exported.status_code == 422, exported.text
+        assert exported.json()["error"]["code"] == "tree_export_failed"

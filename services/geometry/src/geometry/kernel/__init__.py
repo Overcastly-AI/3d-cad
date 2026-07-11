@@ -28,6 +28,7 @@ from geometry.kernel.tessellate import glb_stats, tessellate_glb
 from geometry.schemas import (
     BoxParams,
     CylinderParams,
+    ExportFormat,
     ExportRequest,
     ShapeRequest,
     TessellateRequest,
@@ -49,6 +50,7 @@ __all__ = [
     "combine_body",
     "evaluate_export",
     "evaluate_tessellation",
+    "export_solid",
     "export_step_bytes",
     "export_stl_bytes",
     "extrude_face",
@@ -91,6 +93,29 @@ def evaluate_tessellation(
     return glb, TessellationMetadata(properties=properties, mesh=mesh)
 
 
+def export_solid(
+    shape: Solid,
+    fmt: ExportFormat,
+    linear_deflection: float,
+    angular_deflection: float,
+) -> bytes:
+    """Export an already-built solid in *fmt* — the shared format dispatch.
+
+    Single source of the format→bytes mapping (CLAUDE.md DRY rule): the
+    parametric-shape export path (:func:`evaluate_export`) and the
+    evaluated-feature-tree export path (``geometry.api.export_tree``) both go
+    through here, so a filleted part and a primitive box export identically.
+    STEP ignores the deflection arguments (exact B-rep); STL uses both.
+    Deterministic (RESEARCH §9; :mod:`geometry.kernel.export` pins the STEP
+    timestamp).
+    """
+    match fmt:
+        case "step":
+            return export_step_bytes(shape)
+        case "stl":
+            return export_stl_bytes(shape, linear_deflection, angular_deflection)
+
+
 def evaluate_export(request: ExportRequest) -> bytes:
     """Build the requested shape and export it in the requested format.
 
@@ -99,10 +124,6 @@ def evaluate_export(request: ExportRequest) -> bytes:
     pinning that makes this true).
     """
     shape = build_shape(request)
-    match request.format:
-        case "step":
-            return export_step_bytes(shape)
-        case "stl":
-            return export_stl_bytes(
-                shape, request.linear_deflection, request.angular_deflection
-            )
+    return export_solid(
+        shape, request.format, request.linear_deflection, request.angular_deflection
+    )

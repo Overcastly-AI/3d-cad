@@ -2303,6 +2303,85 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/export": {
+      "post": {
+        "description": "Export the part's current evaluated body as a STEP or STL download.\n\nThe export twin of :func:`evaluate_part` and the same two-hop aggregation:\ndocuments serves the evaluation-ready feature list (rollback bar applied,\nparams upcast \u2014 \u00a74.2), the gateway wraps it with the requested format into\nan ``ExportTreeRequest`` and relays it to the stateless geometry service's\ntree-export route, and the file bytes stream back byte-exact. Auth-scoped\nlike every parts route (the principal reaches documents, never geometry).\nA tree with no body is the geometry service's 422 ``tree_export_failed``\nenvelope, re-surfaced verbatim.",
+        "operationId": "export_part_api_v1_parts__part_id__export_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Export file format: STEP or STL",
+            "in": "query",
+            "name": "format",
+            "required": true,
+            "schema": {
+              "description": "Export file format: STEP or STL",
+              "enum": [
+                "step",
+                "stl"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "model/step": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/stl": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The exported CAD file of the part's current evaluated body, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. A tree that evaluates to no body is a 422 `tree_export_failed` envelope.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"<shape>.<format>\"",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Part",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/features": {
       "get": {
         "description": "The part's ordered feature tree (404 for unknown/foreign parts).",

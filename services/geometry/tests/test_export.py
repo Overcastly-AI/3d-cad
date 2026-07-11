@@ -20,15 +20,21 @@ Parametrized over the golden inventory (``goldens/*/model.json``, mirroring
 ``test_step_roundtrip.py`` — importlib import mode keeps test modules from
 importing each other), so every future golden gets export coverage for free.
 
-Scope: **shape goldens only** (``model.json`` carrying a ``ShapeRequest``).
-The export endpoint's request vocabulary is parametric shapes — evaluated
-feature trees cannot be exported over HTTP yet (that lands with the
-part-export item; gap recorded in docs/GEOMETRY-QA.md). Tree goldens still
-get STEP round-trip coverage at kernel level via ``test_step_roundtrip.py``,
-which rebuilds them through the full evaluate-tree path.
+Two export request vocabularies, both endpoint-covered here (closing
+docs/GEOMETRY-QA.md gap #8):
+
+* **Shape goldens** (``model.json`` carrying a ``ShapeRequest``) → the
+  parametric ``POST /api/v1/export`` route.
+* **Feature-tree goldens** (``model.json`` carrying an ``EvaluateTreeRequest``)
+  → the ``POST /api/v1/export/tree`` route, which evaluates the tree through
+  the SAME machinery as ``/evaluate`` and exports the last-good body. The
+  endpoint-level STEP round-trip now covers evaluated bodies (e.g. the
+  extrude/fillet/chamfer trees), not just primitives; a tree that produces no
+  body is a clean 422 ``tree_export_failed`` envelope.
 """
 
 import hashlib
+import json
 import math
 import struct
 import subprocess
@@ -47,6 +53,7 @@ from build123d import (
     import_stl,  # pyright: ignore[reportUnknownVariableType]
 )
 from fastapi.testclient import TestClient
+from geometry.harness import build_model_solid, load_model_request
 from geometry.kernel import build_shape, evaluate_tessellation, measure_shape
 from geometry.kernel.export import (
     STEP_MAGIC,
@@ -60,6 +67,11 @@ from geometry.schemas import (
     ShapeProperties,
     TessellateRequest,
 )
+from py_kit.schemas.features import (
+    EvaluateTreeRequest,
+    ExportTreeRequest,
+    export_tree_filename,
+)
 from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, export_filename
 
 client = TestClient(app)
@@ -69,10 +81,8 @@ GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
 
 def _is_shape_golden(model_path: Path) -> bool:
     """True for goldens the export endpoint can speak (ShapeRequest models);
-    feature-tree goldens carry a ``features`` list instead (see module
-    docstring for why they are out of endpoint-export scope for now)."""
-    import json
-
+    feature-tree goldens carry a ``features`` list instead and export through
+    the ``/export/tree`` route."""
     return "shape" in json.loads(model_path.read_text(encoding="utf-8"))
 
 
@@ -80,8 +90,20 @@ MODEL_FILES = [
     path for path in sorted(GOLDENS_DIR.glob("*/model.json")) if _is_shape_golden(path)
 ]
 
+#: Feature-tree goldens (``EvaluateTreeRequest`` models) — the tree-export
+#: (``POST /api/v1/export/tree``) inventory. Complements the shape inventory
+#: above; every future tree golden gets endpoint export coverage for free.
+TREE_MODEL_FILES = [
+    path
+    for path in sorted(GOLDENS_DIR.glob("*/model.json"))
+    if not _is_shape_golden(path)
+]
+
 each_model = pytest.mark.parametrize(
     "model_path", MODEL_FILES, ids=[path.parent.name for path in MODEL_FILES]
+)
+each_tree_model = pytest.mark.parametrize(
+    "model_path", TREE_MODEL_FILES, ids=[path.parent.name for path in TREE_MODEL_FILES]
 )
 each_format = pytest.mark.parametrize("fmt", ["step", "stl"])
 
@@ -399,3 +421,145 @@ def test_export_rejects_invalid_requests_with_envelope(
 
     assert response.status_code == 422
     assert_validation_envelope(response.json())
+
+
+# --- Feature-tree export (POST /api/v1/export/tree) — gap #8 -----------------------
+
+
+def _tree_export_request(model_path: Path, fmt: ExportFormat) -> ExportTreeRequest:
+    """Derive a tree-export request from a golden's ``EvaluateTreeRequest``."""
+    tree = EvaluateTreeRequest.model_validate_json(
+        model_path.read_text(encoding="utf-8")
+    )
+    return ExportTreeRequest.model_validate(
+        {**tree.model_dump(mode="json"), "format": fmt}
+    )
+
+
+def _post_tree_export(request: ExportTreeRequest) -> httpx.Response:
+    return client.post("/api/v1/export/tree", json=request.model_dump(mode="json"))
+
+
+def test_tree_export_inventory_is_nonempty() -> None:
+    """Discovery breakage must fail the gate, never skip it silently."""
+    assert TREE_MODEL_FILES, f"no feature-tree goldens discovered under {GOLDENS_DIR}"
+
+
+@each_tree_model
+@each_format
+def test_tree_export_response_headers(model_path: Path, fmt: ExportFormat) -> None:
+    """Correct media type + attachment filename for each format and tree."""
+    request = _tree_export_request(model_path, fmt)
+    response = _post_tree_export(request)
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == EXPORT_MEDIA_TYPES[fmt]
+    assert (
+        response.headers["content-disposition"]
+        == f'attachment; filename="{export_tree_filename(request)}"'
+    )
+    assert len(response.content) > 0
+
+
+@each_tree_model
+def test_tree_step_export_endpoint_roundtrip(
+    model_path: Path,
+    tmp_path: Path,
+    assert_roundtrip_preserved: Callable[[str, ShapeProperties, ShapeProperties], None],
+) -> None:
+    """Gap #8: HTTP tree STEP export → re-import → geometry preserved.
+
+    The evaluated body is exported over HTTP, re-imported, and re-measured
+    against the SAME body rebuilt through the evaluate-tree path
+    (``build_model_solid``): mass properties within ``ROUNDTRIP_TOL``,
+    topology exact — the shape-golden round-trip gate, now over trees.
+    """
+    name = model_path.parent.name
+    request = _tree_export_request(model_path, "step")
+    response = _post_tree_export(request)
+
+    assert response.status_code == 200, response.text
+    assert response.content.startswith(STEP_MAGIC), f"{name}: not a STEP part 21 file"
+
+    step_path = tmp_path / f"{name}.step"
+    step_path.write_bytes(response.content)
+    imported = import_step(step_path)
+    solids = imported.solids()
+    assert len(solids) == 1, f"{name}: expected 1 solid after import, got {len(solids)}"
+    reimported = measure_shape(solids[0])
+
+    original = measure_shape(
+        build_model_solid(load_model_request(model_path.read_text(encoding="utf-8")))
+    )
+    assert_roundtrip_preserved(name, reimported, original)
+
+
+@each_tree_model
+@each_format
+def test_tree_export_is_byte_deterministic_in_process(
+    model_path: Path, fmt: ExportFormat
+) -> None:
+    """Same tree-export request twice → byte-identical file (RESEARCH §9).
+
+    The STEP timestamp is pinned on the tree path exactly as on the shape path
+    (both go through ``export_solid`` → ``export_step_bytes``); a flake is P0.
+    """
+    request = _tree_export_request(model_path, fmt)
+    first = _post_tree_export(request)
+    second = _post_tree_export(request)
+
+    assert first.content == second.content, (
+        f"{model_path.parent.name}: {fmt} tree-export bytes differ between runs"
+    )
+
+
+def test_tree_export_no_body_feature_returns_envelope(
+    assert_validation_envelope: Callable[[dict[str, Any]], None],
+) -> None:
+    """A tree with no body-affecting feature → clean 422, not a partial file.
+
+    Truncate the extrude golden to its sketch alone: the strict-prefix rule
+    leaves no body, so export is a ``tree_export_failed`` envelope (`no_body`),
+    never a 500 or a zero-byte download.
+    """
+    tree_path = TREE_MODEL_FILES[0]
+    tree = EvaluateTreeRequest.model_validate_json(
+        tree_path.read_text(encoding="utf-8")
+    )
+    sketch_only = tree.model_copy(update={"features": tree.features[:1]})
+    request = ExportTreeRequest.model_validate(
+        {**sketch_only.model_dump(mode="json"), "format": "step"}
+    )
+    response = _post_tree_export(request)
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["error"]["code"] == "tree_export_failed"
+    assert body["error"]["details"] == {"reason": "no_body"}
+
+
+def test_tree_export_strict_prefix_failure_surfaces_feature_error() -> None:
+    """A strict-prefix failure → 422 carrying the failing ``FeatureError``.
+
+    Point the extrude at a non-existent profile: evaluation fails on that
+    feature (``reference_unresolved``), so there is no body to export and the
+    envelope details carry the per-feature error code — the §4.3 semantics
+    reused, not a 500.
+    """
+    tree_path = TREE_MODEL_FILES[0]
+    payload = json.loads(tree_path.read_text(encoding="utf-8"))
+    # Find an extrude feature and break its profile reference.
+    for entry in payload["features"]:
+        params = entry["feature"]["params"]
+        if entry["feature"]["type"] == "extrude":
+            params["profile"]["feature_id"] = "00000000-0000-0000-0000-0000deadbeef"
+            break
+    else:
+        pytest.skip("no extrude feature in the first tree golden to break")
+
+    response = client.post("/api/v1/export/tree", json={**payload, "format": "step"})
+
+    assert response.status_code == 422, response.text
+    error = response.json()["error"]
+    assert error["code"] == "tree_export_failed"
+    assert error["details"]["feature_error"]["code"] == "reference_unresolved"

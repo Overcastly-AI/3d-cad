@@ -22,10 +22,11 @@ import uuid
 from typing import Annotated
 
 import httpx2 as httpx
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, Query, Request, Response, status
 from py_kit.schemas.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
+    ExportTreeRequest,
     FeatureCreate,
     FeatureMutationResponse,
     FeatureReorderRequest,
@@ -34,6 +35,7 @@ from py_kit.schemas.features import (
     FeatureUpdate,
     RollbackBarMove,
 )
+from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, export_responses
 
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
@@ -194,6 +196,66 @@ async def evaluate_part(
     if evaluated.status_code != status.HTTP_200_OK:
         raise_upstream_error(evaluated, service=_GEOMETRY)
     return EvaluateTreeResult.model_validate_json(evaluated.content)
+
+
+_EXPORT_RESPONSES = export_responses(
+    "The exported CAD file of the part's current evaluated body, proxied "
+    "byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, "
+    "exact B-rep) or binary STL (`model/stl`, faceted mesh). "
+    "`Content-Disposition` carries the suggested download filename. A tree "
+    "that evaluates to no body is a 422 `tree_export_failed` envelope."
+)
+
+
+@router.post("/{part_id}/export", response_class=Response, responses=_EXPORT_RESPONSES)
+async def export_part(
+    part_id: uuid.UUID,
+    format: Annotated[
+        ExportFormat, Query(description="Export file format: STEP or STL")
+    ],
+    user: CurrentUser,
+    http_request: Request,
+) -> Response:
+    """Export the part's current evaluated body as a STEP or STL download.
+
+    The export twin of :func:`evaluate_part` and the same two-hop aggregation:
+    documents serves the evaluation-ready feature list (rollback bar applied,
+    params upcast — §4.2), the gateway wraps it with the requested format into
+    an ``ExportTreeRequest`` and relays it to the stateless geometry service's
+    tree-export route, and the file bytes stream back byte-exact. Auth-scoped
+    like every parts route (the principal reaches documents, never geometry).
+    A tree with no body is the geometry service's 422 ``tree_export_failed``
+    envelope, re-surfaced verbatim.
+    """
+    upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/parts/{part_id}/evaluation-request"
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    evaluation_request = EvaluateTreeRequest.model_validate_json(upstream.content)
+    export_request = ExportTreeRequest.model_validate(
+        {**evaluation_request.model_dump(mode="json"), "format": format}
+    )
+
+    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
+    exported = await forward(
+        geometry_client,
+        http_request,
+        "POST",
+        "/api/v1/export/tree",
+        service=_GEOMETRY,
+        json_content=export_request.model_dump_json(),
+    )
+    if exported.status_code != status.HTTP_200_OK:
+        raise_upstream_error(exported, service=_GEOMETRY)
+    headers: dict[str, str] = {}
+    if "content-disposition" in exported.headers:
+        headers["Content-Disposition"] = exported.headers["content-disposition"]
+    return Response(
+        content=exported.content,
+        media_type=EXPORT_MEDIA_TYPES[format],
+        headers=headers,
+    )
 
 
 @router.put("/{part_id}/rollback")

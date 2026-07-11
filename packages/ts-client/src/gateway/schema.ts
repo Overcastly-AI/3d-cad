@@ -222,6 +222,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Part
+         * @description Export the part's current evaluated body as a STEP or STL download.
+         *
+         *     The export twin of :func:`evaluate_part` and the same two-hop aggregation:
+         *     documents serves the evaluation-ready feature list (rollback bar applied,
+         *     params upcast — §4.2), the gateway wraps it with the requested format into
+         *     an ``ExportTreeRequest`` and relays it to the stateless geometry service's
+         *     tree-export route, and the file bytes stream back byte-exact. Auth-scoped
+         *     like every parts route (the principal reaches documents, never geometry).
+         *     A tree with no body is the geometry service's 422 ``tree_export_failed``
+         *     envelope, re-surfaced verbatim.
+         */
+        post: operations["export_part_api_v1_parts__part_id__export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/features": {
         parameters: {
             query?: never;
@@ -1681,6 +1710,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluateTreeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_part_api_v1_parts__part_id__export_post: {
+        parameters: {
+            query: {
+                /** @description Export file format: STEP or STL */
+                format: "step" | "stl";
+            };
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exported CAD file of the part's current evaluated body, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. A tree that evaluates to no body is a 422 `tree_export_failed` envelope. */
+            200: {
+                headers: {
+                    /** @description attachment; filename="<shape>.<format>" */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "model/step": string;
+                    "model/stl": string;
                 };
             };
             /** @description Validation Error */

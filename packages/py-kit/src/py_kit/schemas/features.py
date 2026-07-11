@@ -27,7 +27,12 @@ from pydantic import (
     model_validator,
 )
 
-from py_kit.schemas.geometry import DEFAULT_LINEAR_DEFLECTION, ShapeProperties
+from py_kit.schemas.geometry import (
+    DEFAULT_ANGULAR_DEFLECTION,
+    DEFAULT_LINEAR_DEFLECTION,
+    ExportFormat,
+    ShapeProperties,
+)
 from py_kit.schemas.sketch import SketchDefinition, SolvedSketch
 
 #: Upper bound for a user-facing feature name ("Sketch1", "Extrude1").
@@ -571,6 +576,48 @@ class EvaluateTreeRequest(BaseModel):
         description="Presentation parameter (mm), NEVER persisted per feature "
         "(design §8.3)",
     )
+
+
+class ExportTreeRequest(EvaluateTreeRequest):
+    """Evaluate a feature tree and export its LAST-GOOD body as a CAD file.
+
+    Extends :class:`EvaluateTreeRequest` — the SAME ordered, rollback-applied
+    feature list the evaluate endpoint takes (DRY: one tree contract,
+    evaluated then exported) — with the export format selection. The geometry
+    service reuses the evaluate-tree dispatch to produce the body, then exports
+    THAT body (never a re-modelled shape).
+
+    STEP exports the exact B-rep, so the deflection fields are meaningless for
+    it and ignored. STL is a faceted approximation; ``linear_deflection``
+    (inherited) and ``angular_deflection`` default to the tessellation defaults
+    so the exported mesh matches what the viewport shows.
+
+    If the tree produces no body — a strict-prefix failure (§4.3) or a tree
+    with no body-affecting feature — export is a clean error, never a file:
+    the geometry service answers a 422 ``tree_export_failed`` envelope, not a
+    partial download.
+    """
+
+    format: ExportFormat = Field(
+        description="Export file format: STEP (exact B-rep) or STL (faceted mesh)"
+    )
+    angular_deflection: float = Field(
+        default=DEFAULT_ANGULAR_DEFLECTION,
+        gt=0,
+        description=(
+            "STL facet angular deflection (rad) between adjacent segments; "
+            "ignored for STEP (exact B-rep)"
+        ),
+    )
+
+
+def export_tree_filename(request: ExportTreeRequest) -> str:
+    """Deterministic download filename for a tree export (Content-Disposition).
+
+    The part id keys the file to its part and stays byte-stable across
+    identical requests (determinism is a feature, RESEARCH §9).
+    """
+    return f"part-{request.part_id}.{request.format}"
 
 
 class FeatureError(BaseModel):

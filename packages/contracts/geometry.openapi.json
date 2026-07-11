@@ -480,6 +480,60 @@
         "title": "ExportRequest",
         "type": "object"
       },
+      "ExportTreeRequest": {
+        "description": "Evaluate a feature tree and export its LAST-GOOD body as a CAD file.\n\nExtends :class:`EvaluateTreeRequest` \u2014 the SAME ordered, rollback-applied\nfeature list the evaluate endpoint takes (DRY: one tree contract,\nevaluated then exported) \u2014 with the export format selection. The geometry\nservice reuses the evaluate-tree dispatch to produce the body, then exports\nTHAT body (never a re-modelled shape).\n\nSTEP exports the exact B-rep, so the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; ``linear_deflection``\n(inherited) and ``angular_deflection`` default to the tessellation defaults\nso the exported mesh matches what the viewport shows.\n\nIf the tree produces no body \u2014 a strict-prefix failure (\u00a74.3) or a tree\nwith no body-affecting feature \u2014 export is a clean error, never a file:\nthe geometry service answers a 422 ``tree_export_failed`` envelope, not a\npartial download.",
+        "properties": {
+          "angular_deflection": {
+            "default": 0.1,
+            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)",
+            "exclusiveMinimum": 0.0,
+            "title": "Angular Deflection",
+            "type": "number"
+          },
+          "features": {
+            "description": "Ordered prefix (rollback already applied)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedFeatureInput"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "format": {
+            "description": "Export file format: STEP (exact B-rep) or STL (faceted mesh)",
+            "enum": [
+              "step",
+              "stl"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Presentation parameter (mm), NEVER persisted per feature (design \u00a78.3)",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "tree_version": {
+            "description": "Echoed back; cache/correlation key",
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "features",
+          "format"
+        ],
+        "title": "ExportTreeRequest",
+        "type": "object"
+      },
       "ExtrudeFeature": {
         "description": "``{\"type\": \"extrude\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -1465,6 +1519,63 @@
           }
         },
         "summary": "Export",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/export/tree": {
+      "post": {
+        "description": "Evaluate a feature tree and export its LAST-GOOD body as STEP/STL.\n\nReuses the evaluate-tree machinery verbatim (``evaluate_tree`` \u2014 the same\nordered dispatch + strict-prefix rule as ``POST /api/v1/evaluate``, no\nduplicated logic), then exports the resulting kernel body through the\nSAME format dispatch parametric shapes use (``export_solid``). A tree that\nproduces no body \u2014 a strict-prefix failure or a body-less tree \u2014 is a\nclean 422 ``tree_export_failed`` envelope (never a 500, never a partial\nfile); the failing ``FeatureError`` rides in the envelope details.\nDeterministic: the STEP timestamp is pinned exactly as on the shape path.",
+        "operationId": "export_tree_api_v1_export_tree_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportTreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "model/step": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/stl": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"<shape>.<format>\"",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Tree",
         "tags": [
           "geometry"
         ]
