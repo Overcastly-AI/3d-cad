@@ -80,6 +80,25 @@ polish the re-score flagged; independent of #1–#3 and of each other.
       at sketch-create), viewport offset-origin plane math, e2e
       sketch→offset-plane→extrude + screenshots.
       [src: product-auditor, engineering-auditor, roadmap]
+- [x] (P1, M) #2b Offset/datum-plane picker UI — **SHIPPED** (this commit).
+      The one-click origin case is preserved (XY/XZ/YZ stay the primary
+      picker choice); offset planes are additive/opt-in via an inline
+      **"+ Offset plane"** affordance in the SAME picker (base + signed
+      offset NumberField + normal flip → creates a `datum` feature, seats the
+      sketch on it via a `FeatureRef`), plus a standalone **Datum** tool
+      (`tool-datum`) that adds a reusable datum row to the feature tree.
+      `apps/web/src/sketch/plane.ts` generalized from the hardcoded 3-datum
+      enum to a placed `PlaneBasis` (origin datum OR datum-feature offset;
+      flip negates normal+v) — the ONE plane-math source both DOM and WebGL
+      read, mirroring the kernel `resolve_sketch_plane`. Viewport draws the
+      grid/entities/solved ink AT the offset (a sketch on XY+30 renders at
+      z=30, translucent datum hint sheet). Gates: `pnpm lint` +
+      `pnpm typecheck` green; 377 vitest (offset+flip basis math, datum-create
+      builder); `datum-plane.spec.ts` e2e (XY+30 sketch → rectangle → extrude
+      → **body bbox z ≈ 30..40 end-to-end**; plain one-click XY unchanged;
+      standalone datum reuse) + sketcher/extrude/constraints/offset/mirror
+      suites green; founder before/after screenshots (`docs/screenshots/
+      datum-plane-*.png`). [src: frontend-builder]
 - [ ] (P1, M) Viewport v1 — face/edge picking — in-UI selection of a
       specific face/edge for feature authoring, per
       `docs/design/topological-naming.md` (`SubshapeRef`, shipped
@@ -134,11 +153,12 @@ polish the re-score flagged; independent of #1–#3 and of each other.
 
 ## Next (P2)
 
-- [ ] (P1, S) #8b Loft authoring UI — **UNBLOCKED** (offset/datum-plane
-      BACKEND shipped 2026-07-12): parallel sections are now authorable, proven
-      by the `loft-cylinder-offset-r10-h30` golden (two parallel offset circles
-      → cylinder). Startable once the #2b plane-picker UI lands so a user can
-      place the two section sketches on offset planes. Scope once unblocked:
+- [ ] (P1, S) #8b Loft authoring UI — **FULLY UNBLOCKED, STARTABLE NOW**
+      (offset/datum-plane BACKEND shipped 2026-07-12; **#2b plane-picker UI
+      landed** — a user can place section sketches on offset planes via the
+      picker's "+ Offset plane" / Datum tool): parallel sections are authorable,
+      proven by the `loft-cylinder-offset-r10-h30` golden (two parallel offset
+      circles → cylinder). Scope:
       multi-section feature-reference picker (ordered ≥2 sketch sections +
       apex points), title-block seat, Add/Cut toggle, v1 scope note; e2e
       proving a lofted body renders at the expected volume; screenshots;
@@ -365,6 +385,12 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-12 — **#2b offset/datum-plane picker UI shipped.** One-click origin
+  planes preserved; inline "+ Offset plane" + standalone Datum tool create a
+  `datum` feature the sketch seats on via `FeatureRef`. `plane.ts` generalized
+  to a placed `PlaneBasis` (one plane-math source, DOM+WebGL). e2e proof: XY+30
+  sketch→extrude → body bbox z≈30..40. #8b loft UI now fully unblocked.
+  [frontend-builder]
 - 2026-07-12 — **Offset/datum planes — BACKEND shipped.** `DatumFeature` in the
   Feature union + registry; sketch-on-datum via the widened `FeatureRef` plane
   slot; `resolve_sketch_plane` DRY funnel → resolved `Plane`. Goldens: offset

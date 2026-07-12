@@ -6,6 +6,9 @@ import {
   chamferFeatureCreate,
   chamferFeatureUpdate,
   createPart,
+  type DatumParams,
+  datumFeatureCreate,
+  datumFeatureUpdate,
   deletePart,
   type ExtrudeParams,
   extrudeFeatureCreate,
@@ -156,7 +159,13 @@ describe("deletePart", () => {
 
 describe("sketchFeatureCreate", () => {
   it("maps the buffer (entities + constraints) to the persisted envelope", () => {
-    const body = sketchFeatureCreate("Sketch1", "XZ", entities, constraints, 3);
+    const body = sketchFeatureCreate(
+      "Sketch1",
+      { kind: "datum_plane", plane: "XZ" },
+      entities,
+      constraints,
+      3,
+    );
     expect(body).toEqual({
       name: "Sketch1",
       expected_tree_version: 3,
@@ -172,8 +181,29 @@ describe("sketchFeatureCreate", () => {
     });
   });
 
+  it("carries a datum FeatureRef plane through (sketch on an offset plane)", () => {
+    const body = sketchFeatureCreate(
+      "Sketch1",
+      { kind: "feature", feature_id: "f-p001" },
+      entities,
+      constraints,
+      3,
+    );
+    if (body.feature.type !== "sketch") throw new Error("expected a sketch");
+    expect(body.feature.params.plane).toEqual({
+      kind: "feature",
+      feature_id: "f-p001",
+    });
+  });
+
   it("copies both lists so later buffer edits cannot mutate the payload", () => {
-    const body = sketchFeatureCreate("Sketch1", "XY", entities, constraints, 1);
+    const body = sketchFeatureCreate(
+      "Sketch1",
+      { kind: "datum_plane", plane: "XY" },
+      entities,
+      constraints,
+      1,
+    );
     if (body.feature.type !== "sketch") throw new Error("expected a sketch");
     expect(body.feature.params.entities).not.toBe(entities);
     expect(body.feature.params.entities).toEqual(entities);
@@ -182,7 +212,13 @@ describe("sketchFeatureCreate", () => {
   });
 
   it("carries each entity's construction flag through to the payload", () => {
-    const body = sketchFeatureCreate("Sketch1", "XY", entities, constraints, 1);
+    const body = sketchFeatureCreate(
+      "Sketch1",
+      { kind: "datum_plane", plane: "XY" },
+      entities,
+      constraints,
+      1,
+    );
     if (body.feature.type !== "sketch") throw new Error("expected a sketch");
     const byId = new Map(
       body.feature.params.entities.map((e) => [e.id, e.construction]),
@@ -194,7 +230,12 @@ describe("sketchFeatureCreate", () => {
 
 describe("sketchFeatureUpdate", () => {
   it("wraps the same envelope for the live-loop PATCH (no rename)", () => {
-    const body = sketchFeatureUpdate("XY", entities, constraints, 7);
+    const body = sketchFeatureUpdate(
+      { kind: "datum_plane", plane: "XY" },
+      entities,
+      constraints,
+      7,
+    );
     expect(body).toEqual({
       expected_tree_version: 7,
       feature: {
@@ -206,6 +247,31 @@ describe("sketchFeatureUpdate", () => {
           constraints,
         },
       },
+    });
+    expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+const datumParams: DatumParams = { base: "XY", offset_mm: 30, flip: false };
+
+describe("datumFeatureCreate", () => {
+  it("wraps the params in the {type, version, params} create envelope", () => {
+    const body = datumFeatureCreate("Plane1", datumParams, 2);
+    expect(body).toEqual({
+      name: "Plane1",
+      expected_tree_version: 2,
+      feature: { type: "datum", version: 1, params: datumParams },
+    });
+  });
+});
+
+describe("datumFeatureUpdate", () => {
+  it("wraps the re-parametrized envelope for the PATCH (no rename)", () => {
+    const flipped: DatumParams = { base: "XZ", offset_mm: -10, flip: true };
+    const body = datumFeatureUpdate(flipped, 9);
+    expect(body).toEqual({
+      expected_tree_version: 9,
+      feature: { type: "datum", version: 1, params: flipped },
     });
     expect(body).not.toHaveProperty("name", expect.anything());
   });

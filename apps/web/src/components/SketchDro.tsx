@@ -10,6 +10,7 @@ import { GridSnapIcon, Panel, PanelActionCell } from "@loft/design";
 
 import { formatDroMm } from "../lib/format";
 import { formatSolveCell } from "../sketch/constraints";
+import { describePlane } from "../sketch/plane";
 import { SNAP_STEP_MM, useSketchStore } from "../sketch/store";
 
 const SOLVE_TONE_CLASS = {
@@ -68,7 +69,12 @@ export function SketchDro({ solving }: SketchDroProps) {
         <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
           Plane
         </span>
-        <span className="block font-data text-md text-mist">{plane}</span>
+        <span
+          className="block font-data text-md text-mist"
+          data-testid="dro-plane"
+        >
+          {describePlane(plane)}
+        </span>
       </div>
       {bound || solve !== null ? (
         <div className="px-3 py-2">

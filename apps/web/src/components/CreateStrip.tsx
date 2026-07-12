@@ -15,6 +15,7 @@
  */
 import {
   ChamferIcon,
+  DatumIcon,
   ExtrudeIcon,
   FilletIcon,
   MeasureIcon,
@@ -31,6 +32,8 @@ export interface CreateStripProps {
   treeReady: boolean;
   /** Enter sketch mode — pick a plane, then L / R / C / A. */
   onNewSketch: () => void;
+  /** Author a standalone datum (construction) plane the tree can reuse. */
+  onNewDatum?: () => void;
   /** True when a solved sketch exists to extrude. */
   canExtrude: boolean;
   onNewExtrude: () => void;
@@ -65,6 +68,7 @@ export interface CreateStripProps {
 export function CreateStrip({
   treeReady,
   onNewSketch,
+  onNewDatum,
   canExtrude,
   onNewExtrude,
   canRevolve,
@@ -98,6 +102,15 @@ export function CreateStrip({
           aria-label="New sketch — pick a plane, then L / R / C / A"
           disabled={!treeReady}
           onClick={onNewSketch}
+        />
+        <ToolButton
+          icon={<DatumIcon />}
+          showLabel
+          label="Datum"
+          data-testid="tool-datum"
+          aria-label="Datum plane — a construction plane a sketch can sit on"
+          disabled={!treeReady || onNewDatum === undefined}
+          onClick={onNewDatum}
         />
         <ToolButton
           icon={<ExtrudeIcon />}

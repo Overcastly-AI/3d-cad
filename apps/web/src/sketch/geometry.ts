@@ -7,7 +7,7 @@
  */
 import type { components } from "@loft/ts-client/gateway";
 
-import { planeToWorld, type DatumPlaneName, type Point2D } from "./plane";
+import { planeToWorld, type PlaneBasis, type Point2D } from "./plane";
 import { namedPoints, type SketchPick } from "./pick";
 import { sampleSpline } from "./spline";
 import type { SketchEntity } from "./tools";
@@ -163,7 +163,7 @@ export function definingPoints(entity: SketchEntity): Point2D[] {
  */
 export function entitySegmentPositions(
   entities: readonly SketchEntity[],
-  plane: DatumPlaneName,
+  basis: PlaneBasis,
 ): Float32Array {
   let segmentCount = 0;
   const polylinesPerEntity: Point2D[][][] = [];
@@ -179,8 +179,8 @@ export function entitySegmentPositions(
   for (const polylines of polylinesPerEntity) {
     for (const polyline of polylines) {
       for (let i = 0; i + 1 < polyline.length; i += 1) {
-        const a = planeToWorld(plane, polyline[i] as Point2D);
-        const b = planeToWorld(plane, polyline[i + 1] as Point2D);
+        const a = planeToWorld(basis, polyline[i] as Point2D);
+        const b = planeToWorld(basis, polyline[i + 1] as Point2D);
         positions.set(a, offset);
         positions.set(b, offset + 3);
         offset += 6;
@@ -194,7 +194,7 @@ export function entitySegmentPositions(
 export function pickedPointPositions(
   picks: readonly SketchPick[],
   entities: readonly SketchEntity[],
-  plane: DatumPlaneName,
+  basis: PlaneBasis,
 ): Float32Array {
   const byId = new Map(entities.map((e) => [e.id, e]));
   const points: Point2D[] = [];
@@ -207,7 +207,7 @@ export function pickedPointPositions(
   }
   const positions = new Float32Array(points.length * 3);
   points.forEach((point, i) => {
-    positions.set(planeToWorld(plane, point), i * 3);
+    positions.set(planeToWorld(basis, point), i * 3);
   });
   return positions;
 }
@@ -215,7 +215,7 @@ export function pickedPointPositions(
 /** All defining points of one layer → world-space xyz buffer for THREE.Points. */
 export function definingPointPositions(
   entities: readonly SketchEntity[],
-  plane: DatumPlaneName,
+  basis: PlaneBasis,
 ): Float32Array {
   const points: Point2D[] = [];
   for (const entity of entities) {
@@ -223,7 +223,7 @@ export function definingPointPositions(
   }
   const positions = new Float32Array(points.length * 3);
   points.forEach((point, i) => {
-    positions.set(planeToWorld(plane, point), i * 3);
+    positions.set(planeToWorld(basis, point), i * 3);
   });
   return positions;
 }

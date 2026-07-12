@@ -23,7 +23,7 @@ import {
 } from "./constraints";
 import { toggleCornerPick, type CornerOp } from "./corner";
 import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
-import type { DatumPlaneName, Point2D } from "./plane";
+import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import { snapPoint } from "./plane";
 import { pickCandidates, toggleSelection, type SketchPick } from "./pick";
 import {
@@ -41,8 +41,11 @@ export type SketchMode = "off" | "plane" | "draw";
 
 export interface SketchState {
   mode: SketchMode;
-  /** Chosen datum plane (set on entering `draw`). */
-  plane: DatumPlaneName | null;
+  /**
+   * Chosen sketch plane (set on entering `draw`) — an origin datum OR an
+   * authored offset datum feature. Null until a plane is picked.
+   */
+  plane: SketchPlaneSpec | null;
   tool: SketchTool;
   /** Points of the in-progress placement sequence (plane mm, snapped). */
   pending: Point2D[];
@@ -140,7 +143,10 @@ export interface SketchState {
 
   /** Enter sketch mode at the plane-pick step. */
   begin: () => void;
+  /** One-click: sketch on one of the three origin datums (the common case). */
   choosePlane: (plane: DatumPlaneName) => void;
+  /** Sketch on an already-resolved plane spec (origin OR authored offset). */
+  choosePlaneSpec: (spec: SketchPlaneSpec) => void;
   setTool: (tool: SketchTool) => void;
   setHoveredPlane: (plane: DatumPlaneName | null) => void;
   setCursor: (point: Point2D | null) => void;
@@ -276,7 +282,14 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
 
   begin: () => set({ ...INITIAL, mode: "plane" }),
   choosePlane: (plane) =>
-    set({ mode: "draw", plane, hoveredPlane: null, cursor: null }),
+    set({
+      mode: "draw",
+      plane: { kind: "origin", base: plane },
+      hoveredPlane: null,
+      cursor: null,
+    }),
+  choosePlaneSpec: (spec) =>
+    set({ mode: "draw", plane: spec, hoveredPlane: null, cursor: null }),
   setTool: (tool) =>
     set({
       tool,

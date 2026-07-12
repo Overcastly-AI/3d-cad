@@ -24,6 +24,11 @@ export type SketchConstraint =
   components["schemas"]["SketchParamsV1"]["constraints"][number];
 export type FeatureUpdate = components["schemas"]["FeatureUpdate"];
 export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
+/** The sketch `plane` slot on the wire: an origin datum OR a datum FeatureRef. */
+export type SketchPlaneRef = SketchParamsV1["plane"];
+export type SketchParamsV1 = components["schemas"]["SketchParamsV1"];
+export type DatumFeature = components["schemas"]["DatumFeature"];
+export type DatumParams = components["schemas"]["DatumParamsV1"];
 export type ExtrudeFeature = components["schemas"]["ExtrudeFeature"];
 export type ExtrudeParams = components["schemas"]["ExtrudeParamsV1"];
 export type RevolveFeature = components["schemas"]["RevolveFeature"];
@@ -162,7 +167,7 @@ export async function evaluatePart(
 
 /** The `{type, version, params}` envelope shared by create and update. */
 function sketchFeatureEnvelope(
-  plane: DatumPlaneName,
+  plane: SketchPlaneRef,
   entities: readonly SketchEntity[],
   constraints: readonly SketchConstraint[],
 ): SketchFeature {
@@ -170,7 +175,7 @@ function sketchFeatureEnvelope(
     type: "sketch",
     version: 1,
     params: {
-      plane: { kind: "datum_plane", plane },
+      plane,
       entities: [...entities],
       constraints: [...constraints],
     },
@@ -178,12 +183,14 @@ function sketchFeatureEnvelope(
 }
 
 /**
- * The save payload for a locally buffered sketch (entities + constraints)
- * on a v1 datum plane. Pure — unit-tested against the generated types.
+ * The save payload for a locally buffered sketch (entities + constraints).
+ * `plane` is the resolved `GeomRef` — an origin `DatumPlaneRef` (the one-click
+ * common case) OR a `FeatureRef` to an authored offset `datum` feature (#2b).
+ * Pure — unit-tested against the generated types.
  */
 export function sketchFeatureCreate(
   name: string,
-  plane: DatumPlaneName,
+  plane: SketchPlaneRef,
   entities: readonly SketchEntity[],
   constraints: readonly SketchConstraint[],
   expectedTreeVersion: number,
@@ -201,7 +208,7 @@ export function sketchFeatureCreate(
  * feature `type` is immutable; params are replaced wholesale).
  */
 export function sketchFeatureUpdate(
-  plane: DatumPlaneName,
+  plane: SketchPlaneRef,
   entities: readonly SketchEntity[],
   constraints: readonly SketchConstraint[],
   expectedTreeVersion: number,
@@ -209,6 +216,40 @@ export function sketchFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: sketchFeatureEnvelope(plane, entities, constraints),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by datum create and update. */
+function datumFeatureEnvelope(params: DatumParams): DatumFeature {
+  return { type: "datum", version: 1, params };
+}
+
+/**
+ * The create payload for a datum feature: a construction plane parallel to an
+ * origin datum, offset a signed distance along its normal (docs/design/
+ * datum-planes.md §3). Non-body-affecting — it produces a plane a later sketch
+ * sits on via a `FeatureRef`. Pure — unit-tested against the generated types.
+ */
+export function datumFeatureCreate(
+  name: string,
+  params: DatumParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: datumFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing datum plane (no rename). */
+export function datumFeatureUpdate(
+  params: DatumParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: datumFeatureEnvelope(params),
   };
 }
 

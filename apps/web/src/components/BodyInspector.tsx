@@ -65,10 +65,10 @@ export function BodyInspector({
               ? formatExtents(props.bounding_box.min, props.bounding_box.max)
               : em}
           </PanelRow>
-          <PanelRow label="Min" unit="mm">
+          <PanelRow label="Min" unit="mm" data-testid="prop-bbox-min">
             {props ? formatVec3(props.bounding_box.min) : em}
           </PanelRow>
-          <PanelRow label="Max" unit="mm">
+          <PanelRow label="Max" unit="mm" data-testid="prop-bbox-max">
             {props ? formatVec3(props.bounding_box.max) : em}
           </PanelRow>
         </PanelSection>

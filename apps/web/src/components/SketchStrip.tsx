@@ -25,6 +25,7 @@ import {
   CoincidentIcon,
   ConcentricIcon,
   ConstructionIcon,
+  DatumIcon,
   DistanceIcon,
   EqualIcon,
   ExtendIcon,
@@ -35,11 +36,15 @@ import {
   HorizontalIcon,
   LineIcon,
   MirrorIcon,
+  NumberField,
   OffsetIcon,
+  Panel,
   ParallelIcon,
   PerpendicularIcon,
   RadiusIcon,
   RectIcon,
+  SegmentedControl,
+  type SegmentOption,
   SplineIcon,
   SymmetricIcon,
   TangentIcon,
@@ -48,14 +53,29 @@ import {
   ToolGroup,
   VerticalIcon,
 } from "@loft/design";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
+import type { DatumParams } from "../api/parts";
 import {
   describeSelection,
   selectionAllConstruction,
   type ConstraintAction,
 } from "../sketch/constraints";
-import { DATUM_PLANES } from "../sketch/plane";
+import {
+  buildDatumParams,
+  canSubmitDatum,
+  DATUM_BASES,
+  defaultDatumForm,
+  type DatumForm,
+  offsetError,
+} from "../features/datum";
+import {
+  DATUM_PLANES,
+  type DatumPlaneName,
+  describePlane,
+  offsetSpecFromDatum,
+  type SketchPlaneSpec,
+} from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
 import type { SketchTool } from "../sketch/tools";
 
@@ -294,10 +314,160 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
   },
 ];
 
+/** A reusable datum plane already in the feature tree. */
+export interface DatumPlaneOption {
+  id: string;
+  name: string;
+  params: DatumParams;
+}
+
 export interface SketchStripProps {
   onSave: () => void;
   saving: boolean;
   saveError: string | null;
+  /** Datum features already in the tree, offered as reusable sketch planes. */
+  datumPlanes?: readonly DatumPlaneOption[];
+  /** Sketch on an already-authored plane (an origin datum OR an existing datum). */
+  onChoosePlaneSpec?: (spec: SketchPlaneSpec) => void;
+  /**
+   * Author a NEW offset plane inline (the primary "sketch 30 mm up" path):
+   * creates a `datum` feature, then starts this sketch on it. Async — the
+   * strip shows a pending state while the feature write is in flight.
+   */
+  onAuthorOffsetPlane?: (params: DatumParams) => void;
+  /** True while an inline offset-plane create is in flight. */
+  authoringOffset?: boolean;
+  /** Inline offset-plane authoring failure, or null. */
+  offsetPlaneError?: string | null;
+}
+
+const OFFSET_BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
+  DATUM_BASES.map((b) => ({
+    value: b.id,
+    label: b.label,
+    "data-testid": `offset-plane-base-${b.id}`,
+    "aria-label": `Offset from the ${b.label} datum`,
+  }));
+
+const OFFSET_FLIP_OPTIONS: ReadonlyArray<SegmentOption<"keep" | "flip">> = [
+  {
+    value: "keep",
+    label: "Normal",
+    "data-testid": "offset-plane-flip-keep",
+    "aria-label": "Keep the plane normal",
+  },
+  {
+    value: "flip",
+    label: "Flipped",
+    "data-testid": "offset-plane-flip-flip",
+    "aria-label": "Reverse the plane normal",
+  },
+];
+
+/**
+ * The inline "+ Offset plane" authoring panel, hung from the band into the
+ * viewport during the plane-pick step. Base datum · signed offset · normal
+ * flip · "Sketch here" — a machinist height gauge. Keeps the common case one
+ * click (the origin buttons above); this is the opt-in "sketch at a height"
+ * path (docs/design/datum-planes.md §8/§10.1). Keyboard-first: the offset
+ * field autofocuses, Enter authors, Escape collapses.
+ */
+function OffsetPlanePanel({
+  onAuthor,
+  onClose,
+  busy,
+  error,
+}: {
+  onAuthor: (params: DatumParams) => void;
+  onClose: () => void;
+  busy: boolean;
+  error: string | null;
+}) {
+  const [form, setForm] = useState<DatumForm>(defaultDatumForm());
+  const canSubmit = canSubmitDatum(form) && !busy;
+
+  const author = () => {
+    const params = buildDatumParams(form);
+    if (params === null) return;
+    onAuthor(params);
+  };
+
+  return (
+    <div
+      className="w-72 max-w-full"
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (canSubmit) author();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          onClose();
+        }
+      }}
+    >
+      <Panel aria-label="Offset plane" data-testid="offset-plane-panel">
+        <div className="flex flex-col gap-2 px-3 py-3">
+          <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+            Offset plane
+          </h2>
+          <SegmentedControl
+            label="Offset from"
+            value={form.base}
+            options={OFFSET_BASE_OPTIONS}
+            onChange={(base) => setForm((f) => ({ ...f, base }))}
+          />
+          <NumberField
+            label="Distance"
+            unit="mm"
+            data-testid="offset-plane-offset"
+            autoFocus
+            value={form.offsetInput}
+            error={offsetError(form.offsetInput)}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, offsetInput: e.target.value }))
+            }
+            onFocus={(e) => e.currentTarget.select()}
+            aria-label="Offset distance (mm, signed)"
+          />
+          <SegmentedControl
+            label="Normal"
+            value={form.flip ? "flip" : "keep"}
+            options={OFFSET_FLIP_OPTIONS}
+            onChange={(v) => setForm((f) => ({ ...f, flip: v === "flip" }))}
+          />
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              className="font-display text-2xs uppercase tracking-[0.14em] text-gauge hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+              data-testid="offset-plane-cancel"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="font-display text-2xs uppercase tracking-[0.14em] text-brass hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-40"
+              data-testid="offset-plane-confirm"
+              aria-busy={busy}
+              disabled={!canSubmit}
+              onClick={author}
+            >
+              {busy ? "Creating…" : "Sketch here"}
+            </button>
+          </div>
+        </div>
+      </Panel>
+      {error ? (
+        <p
+          role="alert"
+          data-testid="offset-plane-error"
+          className="mt-2 border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
+        >
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -450,12 +620,22 @@ function SplinePrompt({ count }: { count: number }) {
   );
 }
 
-export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
+export function SketchStrip({
+  onSave,
+  saving,
+  saveError,
+  datumPlanes = [],
+  onChoosePlaneSpec,
+  onAuthorOffsetPlane,
+  authoringOffset = false,
+  offsetPlaneError = null,
+}: SketchStripProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
   const tool = useSketchStore((state) => state.tool);
   const setTool = useSketchStore((state) => state.setTool);
   const choosePlane = useSketchStore((state) => state.choosePlane);
+  const [offsetOpen, setOffsetOpen] = useState(false);
   const setHoveredPlane = useSketchStore((state) => state.setHoveredPlane);
   const hoveredPlane = useSketchStore((state) => state.hoveredPlane);
   const entityCount = useSketchStore((state) => state.entities.length);
@@ -494,7 +674,7 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
             className={mode === "plane" ? "text-mist" : "text-mist"}
             data-testid="sketch-step"
           >
-            {mode === "plane" ? "Pick a plane" : `On ${plane ?? "—"}`}
+            {mode === "plane" ? "Pick a plane" : `On ${describePlane(plane)}`}
           </span>
           {mode === "draw" ? (
             <>
@@ -510,28 +690,69 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
         </StatusCell>
 
         {mode === "plane" ? (
-          <ToolGroup aria-label="Datum plane">
-            {DATUM_PLANES.map((name) => (
-              <ToolButton
-                key={name}
-                icon={
-                  <span className="font-display text-2xs tracking-[0.08em]">
-                    {name}
-                  </span>
-                }
-                label={`${name} plane`}
-                showLabel={false}
-                active={hoveredPlane === name}
-                data-testid={`plane-${name}`}
-                aria-label={`Sketch on the ${name} plane`}
-                onClick={() => choosePlane(name)}
-                onMouseEnter={() => setHoveredPlane(name)}
-                onMouseLeave={() => setHoveredPlane(null)}
-                onFocus={() => setHoveredPlane(name)}
-                onBlur={() => setHoveredPlane(null)}
-              />
-            ))}
-          </ToolGroup>
+          <>
+            <ToolGroup aria-label="Datum plane">
+              {DATUM_PLANES.map((name) => (
+                <ToolButton
+                  key={name}
+                  icon={
+                    <span className="font-display text-2xs tracking-[0.08em]">
+                      {name}
+                    </span>
+                  }
+                  label={`${name} plane`}
+                  showLabel={false}
+                  active={hoveredPlane === name}
+                  data-testid={`plane-${name}`}
+                  aria-label={`Sketch on the ${name} plane`}
+                  onClick={() => choosePlane(name)}
+                  onMouseEnter={() => setHoveredPlane(name)}
+                  onMouseLeave={() => setHoveredPlane(null)}
+                  onFocus={() => setHoveredPlane(name)}
+                  onBlur={() => setHoveredPlane(null)}
+                />
+              ))}
+            </ToolGroup>
+
+            {/* Reusable datum features already in the tree (a standalone datum
+                plane picked once can seat many sketches — DRY at the model
+                level). */}
+            {datumPlanes.length > 0 ? (
+              <ToolGroup aria-label="Datum planes in the tree">
+                {datumPlanes.map((datum) => (
+                  <ToolButton
+                    key={datum.id}
+                    icon={<DatumIcon />}
+                    label={datum.name}
+                    showLabel
+                    data-testid={`plane-datum-${datum.id}`}
+                    aria-label={`Sketch on ${datum.name}`}
+                    onClick={() =>
+                      onChoosePlaneSpec?.(
+                        offsetSpecFromDatum(datum.id, datum.params),
+                      )
+                    }
+                  />
+                ))}
+              </ToolGroup>
+            ) : null}
+
+            {/* The inline "sketch at a height" path — additive, opt-in; the
+                three origin datums above stay the one-click common case. */}
+            {onAuthorOffsetPlane ? (
+              <ToolGroup aria-label="Offset plane">
+                <ToolButton
+                  icon={<DatumIcon />}
+                  label="Offset plane"
+                  showLabel
+                  active={offsetOpen}
+                  data-testid="datum-offset-plane"
+                  aria-label="Author an offset plane — sketch at a height"
+                  onClick={() => setOffsetOpen((open) => !open)}
+                />
+              </ToolGroup>
+            ) : null}
+          </>
         ) : null}
 
         {mode === "draw" ? (
@@ -631,6 +852,19 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
           </>
         ) : null}
       </div>
+
+      {/* The inline offset-plane authoring panel hangs from the band during
+          the plane-pick step, so the origin buttons stay one-click above. */}
+      {mode === "plane" && offsetOpen && onAuthorOffsetPlane ? (
+        <div className="absolute left-3 top-full z-20 mt-2">
+          <OffsetPlanePanel
+            onAuthor={onAuthorOffsetPlane}
+            onClose={() => setOffsetOpen(false)}
+            busy={authoringOffset}
+            error={offsetPlaneError}
+          />
+        </div>
+      ) : null}
 
       {/* Transient readouts hang from the band's bottom edge into the
           viewport's top-left, so the band itself stays one thin row. */}

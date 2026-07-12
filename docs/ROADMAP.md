@@ -13,8 +13,12 @@ offset a signed distance from an origin datum, + optional normal flip), lifting
 the "3 origin datum planes only" limitation that had forced loft's golden to
 fall back to loft-to-apex. Proven by two goldens — an analytic-exact offset
 extrude and **the two-parallel-circles → cylinder loft the loft note deferred**.
-This **unblocks loft UI (#8b)** and sketch-on-a-height; the paired plane-picker
-UI (#2b) is the remaining follow-up. Next foundational unlock is face/edge
+The paired **plane-picker UI (#2b) shipped 2026-07-12**: the one-click origin
+planes are preserved, offset planes are an additive inline "+ Offset plane"
+affordance (plus a standalone Datum tool), and the viewport draws the sketch at
+the offset — proven end-to-end by `datum-plane.spec.ts` (an XY+30 sketch
+extrudes to a body sitting at z≈30..40). This **fully unblocks loft UI (#8b)**
+and delivers sketch-on-a-height. Next foundational unlock is face/edge
 picking (the other big Part-modeling parity gap). VISION.md's 2026-07-12
 re-score flipped the Sketching scorecard row ❌→➖; Part modeling stays ❌ with
 face/edge picking now its sharpest gap. See `docs/BACKLOG.md` Ready queue.
@@ -133,7 +137,11 @@ item:
       through profile/path/loft/revolve. Goldens: analytic-exact offset extrude
       + the two-parallel-circles→cylinder loft (π·r²·h) the loft note deferred.
       Removes limitation (b) below; **unblocks loft UI (#8b)** + sketch-on-a-
-      height; #2b plane-picker UI is the follow-up. Part-modeling row **stays
+      height. **#2b plane-picker UI shipped (2026-07-12):** origin planes stay
+      one-click, offset planes are an inline "+ Offset plane" affordance + a
+      standalone Datum tool; `plane.ts` generalized to a placed `PlaneBasis`
+      (one plane-math source for DOM+WebGL); e2e proves an XY+30 sketch extrudes
+      to a body at z≈30..40. Part-modeling row **stays
       ❌** on (a) edge selection still predicate-only — face/edge picking is now
       the top Part-modeling parity gap (startable, its design-doc blocker
       shipped).

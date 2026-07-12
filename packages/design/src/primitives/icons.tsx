@@ -318,6 +318,20 @@ export const SweepIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Datum = a construction plane parallel to a base datum, held off it by an
+ * offset. A dashed base quad (the origin datum) with a solid parallel quad
+ * above it and a short offset tick between — the "sketch on a plane at a
+ * height" glyph, in the same parallelogram vocabulary the extrude face speaks.
+ */
+export const DatumIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 17 L9 13 H21 L15 17 Z" strokeDasharray="2.4 2" />
+    <path d="M3 9 L9 5 H21 L15 9 Z" />
+    <path d="M12 15 V7" strokeDasharray="1.5 1.5" />
+  </Icon>
+);
+
 // --- Modify features --------------------------------------------------------
 
 /** Fillet = a rounded inner corner (the radius arc rounds the vertex). */

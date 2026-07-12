@@ -21,6 +21,36 @@ beforeEach(() => {
   useSketchStore.getState().exit();
 });
 
+describe("plane choice", () => {
+  it("choosePlane keeps the one-click origin path (kind: origin)", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XZ");
+    expect(store().mode).toBe("draw");
+    expect(store().plane).toEqual({ kind: "origin", base: "XZ" });
+  });
+
+  it("choosePlaneSpec seats a sketch on an authored offset plane", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlaneSpec({
+      kind: "offset",
+      base: "XY",
+      offsetMm: 30,
+      flip: false,
+      datumFeatureId: "f-p001",
+    });
+    expect(store().mode).toBe("draw");
+    expect(store().plane).toEqual({
+      kind: "offset",
+      base: "XY",
+      offsetMm: 30,
+      flip: false,
+      datumFeatureId: "f-p001",
+    });
+  });
+});
+
 describe("selection", () => {
   it("selectAt toggles picks and clears on empty clicks", () => {
     rectangleAt();

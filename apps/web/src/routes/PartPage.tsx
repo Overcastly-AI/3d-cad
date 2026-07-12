@@ -20,6 +20,9 @@ import {
   chamferFeatureCreate,
   chamferFeatureUpdate,
   createFeature,
+  type DatumParams,
+  datumFeatureCreate,
+  datumFeatureUpdate,
   evaluatePart,
   type ExtrudeParams,
   extrudeFeatureCreate,
@@ -50,6 +53,7 @@ import {
 import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CreateStrip } from "../components/CreateStrip";
+import { DatumEditor } from "../components/DatumEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
@@ -57,6 +61,11 @@ import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
 import { RevolveEditor } from "../components/RevolveEditor";
 import { SweepEditor } from "../components/SweepEditor";
+import {
+  defaultDatumForm,
+  type DatumForm,
+  formFromDatumParams,
+} from "../features/datum";
 import {
   defaultExtrudeForm,
   defaultProfileId,
@@ -104,6 +113,13 @@ import {
   resolveSketchKey,
   type SolveInfo,
 } from "../sketch/constraints";
+import {
+  offsetBasis,
+  offsetSpecFromDatum,
+  originBasis,
+  planeRefFromSpec,
+  type PlaneBasis,
+} from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
 import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
 import { partRoute } from "../router";
@@ -335,13 +351,14 @@ export function PartPage() {
       inFlight.current += 1;
       setSyncPending(true);
       chain.current = chain.current.then(async () => {
+        const planeRef = planeRefFromSpec(payload.plane);
         const attempt = (version: number) =>
           payload.featureId === null
             ? createFeature(
                 partId,
                 sketchFeatureCreate(
                   `Sketch${sketchCount + 1}`,
-                  payload.plane,
+                  planeRef,
                   payload.entities,
                   payload.constraints,
                   version,
@@ -351,7 +368,7 @@ export function PartPage() {
                 partId,
                 payload.featureId,
                 sketchFeatureUpdate(
-                  payload.plane,
+                  planeRef,
                   payload.entities,
                   payload.constraints,
                   version,
@@ -468,6 +485,17 @@ export function PartPage() {
     }
   }, [mode, featureId, evaluation.data]);
 
+  /** Datum feature params by id — the sketch→datum plane resolution table. */
+  const datumParamsById = useMemo(() => {
+    const map = new Map<string, DatumParams>();
+    for (const feature of tree.data?.features ?? []) {
+      if (feature.feature.type === "datum") {
+        map.set(feature.id, feature.feature.params);
+      }
+    }
+    return map;
+  }, [tree.data]);
+
   /** Solved sketch layers: tree feature (plane) × evaluate result (geometry). */
   const solved = useMemo<SolvedSketchLayer[]>(() => {
     if (tree.data === undefined || evaluation.data === undefined) return [];
@@ -480,20 +508,33 @@ export function PartPage() {
       // The bound feature renders through the live draw layer while
       // sketching — never twice.
       if (mode === "draw" && feature.id === featureId) continue;
+      // Resolve the plane ref to a placed basis: an origin datum draws at the
+      // world frame; a datum FeatureRef draws at that datum's offset (so a
+      // sketch on XY+30 renders its solved ink at z=30). Mirrors the kernel's
+      // resolve_sketch_plane so overlay + body agree.
       const plane = feature.feature.params.plane;
-      if (plane.kind !== "datum_plane") continue; // v1: datum planes only
+      let basis: PlaneBasis | null = null;
+      if (plane.kind === "datum_plane") {
+        basis = originBasis(plane.plane);
+      } else {
+        const datum = datumParamsById.get(plane.feature_id);
+        if (datum !== undefined) {
+          basis = offsetBasis(datum.base, datum.offset_mm, datum.flip);
+        }
+      }
+      if (basis === null) continue; // unresolved plane (rolled back / deleted)
       const result = results.get(feature.id);
       if (result?.status !== "ok" || result.data?.kind !== "solved_sketch") {
         continue;
       }
       layers.push({
         featureId: feature.id,
-        plane: plane.plane,
+        basis,
         entities: result.data.entities,
       });
     }
     return layers;
-  }, [tree.data, evaluation.data, mode, featureId]);
+  }, [tree.data, evaluation.data, mode, featureId, datumParamsById]);
 
   // Keyboard-first: Escape cascade always; tools, snap, constraint verbs and
   // Delete while drawing. One keyboard, two vocabularies — selection
@@ -724,6 +765,17 @@ export function PartPage() {
   // ---------------------------------------------------------------------
   const features = tree.data?.features ?? [];
   const sketchProfiles = useMemo(() => profileOptions(features), [features]);
+  // Datum features already in the tree, offered as reusable sketch planes in
+  // the plane picker (a standalone datum seats many sketches — DRY).
+  const datumPlaneOptions = useMemo(
+    () =>
+      features.flatMap((f) =>
+        f.feature.type === "datum"
+          ? [{ id: f.id, name: f.name, params: f.feature.params }]
+          : [],
+      ),
+    [features],
+  );
   // Axis line-entity choices per profile sketch — the revolve editor scopes its
   // axis picker to the selected profile's own lines.
   const axesByProfile = useMemo(() => {
@@ -781,6 +833,12 @@ export function PartPage() {
         initial: ChamferForm;
         featureId?: string;
       }
+    | {
+        kind: "datum";
+        mode: "create" | "edit";
+        initial: DatumForm;
+        featureId?: string;
+      }
     | null
   >(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
@@ -789,6 +847,9 @@ export function PartPage() {
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState(false);
+  // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
+  const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
+  const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
 
   /** Latest tree version, refetched if the query has none yet. */
   const freshTreeVersion = useCallback(async (): Promise<number> => {
@@ -942,6 +1003,15 @@ export function PartPage() {
     });
   }, []);
 
+  // A datum plane needs no sketch/body — it's a construction plane parallel to
+  // an origin datum. Available as soon as the tree exists (its own feature row).
+  const openCreateDatum = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({ kind: "datum", mode: "create", initial: defaultDatumForm() });
+  }, []);
+
   const selectFeature = useCallback((feature: FeatureResponse) => {
     useMeasureStore.getState().deactivate();
     setSelectedFeatureId(feature.id);
@@ -987,6 +1057,13 @@ export function PartPage() {
         mode: "edit",
         featureId: feature.id,
         initial: formFromChamferParams(feature.feature.params),
+      });
+    } else if (feature.feature.type === "datum") {
+      setEditor({
+        kind: "datum",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromDatumParams(feature.feature.params),
       });
     } else {
       setEditor(null);
@@ -1150,6 +1227,67 @@ export function PartPage() {
     [editor, features, runFeatureSave],
   );
 
+  const submitDatum = useCallback(
+    (params: DatumParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "datum") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "datum").length + 1;
+      runFeatureSave(
+        (version) => datumFeatureCreate(`Plane${nextIndex}`, params, version),
+        (version) => datumFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The datum plane could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  // The inline "sketch at a height" path: author a datum feature, then enter
+  // the sketcher on it. One extra field, not a separate multi-step ritual —
+  // the datum write returns the feature id the sketch's plane FeatureRef needs.
+  const authorOffsetPlane = useCallback(
+    (params: DatumParams) => {
+      const nextIndex =
+        features.filter((f) => f.feature.type === "datum").length + 1;
+      setOffsetPlaneBusy(true);
+      setOffsetPlaneError(null);
+      void (async () => {
+        try {
+          const create = (version: number) =>
+            createFeature(
+              partId,
+              datumFeatureCreate(`Plane${nextIndex}`, params, version),
+            );
+          let response;
+          try {
+            response = await create(await freshTreeVersion());
+          } catch {
+            response = await create(
+              (await fetchFeatureTree(partId)).tree_version,
+            );
+          }
+          await queryClient.invalidateQueries({
+            queryKey: ["features", partId],
+          });
+          useSketchStore
+            .getState()
+            .choosePlaneSpec(offsetSpecFromDatum(response.feature.id, params));
+        } catch (error) {
+          setOffsetPlaneError(
+            error instanceof Error
+              ? error.message
+              : "The offset plane could not be created.",
+          );
+        } finally {
+          setOffsetPlaneBusy(false);
+        }
+      })();
+    },
+    [partId, features, freshTreeVersion, queryClient],
+  );
+
   const moveRollback = useCallback(
     (rollbackFeatureId: string | null) => {
       // Moving the bar rebuilds the body → the measure overlay refetches
@@ -1249,6 +1387,7 @@ export function PartPage() {
           <CreateStrip
             treeReady={tree.data !== undefined}
             onNewSketch={handleNewSketch}
+            onNewDatum={openCreateDatum}
             canExtrude={hasSolvedSketch}
             onNewExtrude={openCreateExtrude}
             canRevolve={hasSolvedSketch}
@@ -1268,6 +1407,13 @@ export function PartPage() {
             onSave={finishSketch}
             saving={syncPending}
             saveError={syncError}
+            datumPlanes={datumPlaneOptions}
+            onChoosePlaneSpec={(spec) =>
+              useSketchStore.getState().choosePlaneSpec(spec)
+            }
+            onAuthorOffsetPlane={authorOffsetPlane}
+            authoringOffset={offsetPlaneBusy}
+            offsetPlaneError={offsetPlaneError}
           />
         )}
       </TopToolbar>
@@ -1342,11 +1488,20 @@ export function PartPage() {
                     saving={editorSaving}
                     error={editorError}
                   />
-                ) : (
+                ) : editor.kind === "chamfer" ? (
                   <ChamferEditor
                     mode={editor.mode}
                     initial={editor.initial}
                     onSubmit={submitChamfer}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
+                ) : (
+                  <DatumEditor
+                    mode={editor.mode}
+                    initial={editor.initial}
+                    onSubmit={submitDatum}
                     onCancel={closeEditor}
                     saving={editorSaving}
                     error={editorError}

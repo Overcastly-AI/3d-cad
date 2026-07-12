@@ -7,6 +7,7 @@ import {
   entityPolylines,
   entitySegmentPositions,
 } from "./geometry";
+import { offsetBasis, originBasis } from "./plane";
 import type { SketchEntity } from "./tools";
 
 const line: SketchEntity = {
@@ -99,22 +100,30 @@ describe("entityPolylines", () => {
 
 describe("world-space buffers", () => {
   it("builds segment pairs on the chosen plane (XZ maps v to +Z)", () => {
-    const positions = entitySegmentPositions([line], "XZ");
+    const positions = entitySegmentPositions([line], originBasis("XZ"));
     expect(Array.from(positions)).toEqual([0, 0, 0, 40, 0, 0]);
     const vertical = entitySegmentPositions(
       [{ ...line, start: { x: 0, y: 0 }, end: { x: 0, y: 25 } }],
-      "XZ",
+      originBasis("XZ"),
     );
     expect(Array.from(vertical)).toEqual([0, 0, 0, 0, 0, 25]);
   });
 
+  it("places ink at an offset plane's height (XY +30 → z=30)", () => {
+    const positions = entitySegmentPositions(
+      [line],
+      offsetBasis("XY", 30, false),
+    );
+    expect(Array.from(positions)).toEqual([0, 0, 30, 40, 0, 30]);
+  });
+
   it("sizes the buffer from all entities' chords", () => {
-    const positions = entitySegmentPositions([line, circle], "XY");
+    const positions = entitySegmentPositions([line, circle], originBasis("XY"));
     expect(positions.length).toBe((1 + CIRCLE_SEGMENTS) * 6);
   });
 
   it("collects defining points across entities", () => {
-    const positions = definingPointPositions([line, circle], "XY");
+    const positions = definingPointPositions([line, circle], originBasis("XY"));
     expect(Array.from(positions)).toEqual([0, 0, 0, 40, 0, 0, 10, 10, 0]);
   });
 });

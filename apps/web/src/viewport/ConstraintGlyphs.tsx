@@ -29,7 +29,7 @@ import {
 } from "../sketch/constraints";
 import { cornerPoint } from "../sketch/corner";
 import { entityAnchor } from "../sketch/geometry";
-import { planeToWorld, type DatumPlaneName } from "../sketch/plane";
+import { planeToWorld, type PlaneBasis } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
 
 /** Keep annotation overlays under the HUD strips (Viewport hud sits at z-40). */
@@ -65,7 +65,7 @@ function glyphAria(glyph: ConstraintGlyph): string {
 }
 
 /** The inline mm field a dimension glyph opens into. */
-function DimensionEditor({ plane }: { plane: DatumPlaneName }) {
+function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const target = useSketchStore((state) => state.dimensionEdit);
   const entities = useSketchStore((state) => state.entities);
   const commitDimension = useSketchStore((state) => state.commitDimension);
@@ -104,7 +104,7 @@ function DimensionEditor({ plane }: { plane: DatumPlaneName }) {
 
   return (
     <Html
-      position={planeToWorld(plane, anchor)}
+      position={planeToWorld(basis, anchor)}
       center
       zIndexRange={GLYPH_Z_RANGE}
     >
@@ -165,7 +165,7 @@ const DEFAULT_OFFSET_MM = 2;
  * applies; "Flip side" negates; Escape dismisses. Mirrors the dimension
  * editor's in-canvas idiom so the two read as one annotation language.
  */
-function OffsetEditor({ plane }: { plane: DatumPlaneName }) {
+function OffsetEditor({ basis }: { basis: PlaneBasis }) {
   const draft = useSketchStore((state) => state.offsetDraft);
   const entities = useSketchStore((state) => state.entities);
   const armOffset = useSketchStore((state) => state.armOffset);
@@ -216,7 +216,7 @@ function OffsetEditor({ plane }: { plane: DatumPlaneName }) {
 
   return (
     <Html
-      position={planeToWorld(plane, anchor)}
+      position={planeToWorld(basis, anchor)}
       center
       zIndexRange={GLYPH_Z_RANGE}
     >
@@ -273,7 +273,7 @@ const DEFAULT_CORNER_MM = 2;
  * three read as one annotation language. Enter applies; Escape dismisses (the
  * store's Escape cascade clears the picks). v1 is line-line corners only.
  */
-function CornerEditor({ plane }: { plane: DatumPlaneName }) {
+function CornerEditor({ basis }: { basis: PlaneBasis }) {
   const corner = useSketchStore((state) => state.corner);
   const entities = useSketchStore((state) => state.entities);
   const armCorner = useSketchStore((state) => state.armCorner);
@@ -330,7 +330,7 @@ function CornerEditor({ plane }: { plane: DatumPlaneName }) {
 
   return (
     <Html
-      position={planeToWorld(plane, anchor)}
+      position={planeToWorld(basis, anchor)}
       center
       zIndexRange={GLYPH_Z_RANGE}
     >
@@ -370,7 +370,7 @@ function CornerEditor({ plane }: { plane: DatumPlaneName }) {
   );
 }
 
-export function ConstraintGlyphs({ plane }: { plane: DatumPlaneName }) {
+export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
   const constraints = useSketchStore((state) => state.constraints);
   const entities = useSketchStore((state) => state.entities);
   const selectedConstraint = useSketchStore(
@@ -404,7 +404,7 @@ export function ConstraintGlyphs({ plane }: { plane: DatumPlaneName }) {
         return (
           <Html
             key={glyph.index}
-            position={planeToWorld(plane, glyph.anchor)}
+            position={planeToWorld(basis, glyph.anchor)}
             center
             zIndexRange={GLYPH_Z_RANGE}
           >
@@ -428,9 +428,9 @@ export function ConstraintGlyphs({ plane }: { plane: DatumPlaneName }) {
           </Html>
         );
       })}
-      <DimensionEditor plane={plane} />
-      <OffsetEditor plane={plane} />
-      <CornerEditor plane={plane} />
+      <DimensionEditor basis={basis} />
+      <OffsetEditor basis={basis} />
+      <CornerEditor basis={basis} />
     </group>
   );
 }

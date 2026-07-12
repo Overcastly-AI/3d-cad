@@ -27,12 +27,14 @@ import {
 import { pickCandidates, samePick, PICK_TOLERANCE_PX } from "../sketch/pick";
 import {
   DATUM_PLANES,
-  PLANE_BASES,
+  originBasis,
   planeCameraPose,
   planeToWorld,
+  resolveSpecBasis,
   worldToPlane,
   type CameraPose,
   type DatumPlaneName,
+  type PlaneBasis,
 } from "../sketch/plane";
 import { axisLinePoints, reflectEntity } from "../sketch/mirror";
 import { useSketchStore } from "../sketch/store";
@@ -48,16 +50,16 @@ const PICK_CAMERA_DISTANCE_MM = 230;
 /** r3f click filter: pointer travel above this (px) is a drag, not a click. */
 const CLICK_SLOP_PX = 4;
 
-/** One solved sketch feature, ready to render. */
+/** One solved sketch feature, ready to render (on its resolved plane basis). */
 export interface SolvedSketchLayer {
   featureId: string;
-  plane: DatumPlaneName;
+  basis: PlaneBasis;
   entities: SketchEntity[];
 }
 
-/** Quaternion orienting local XY (+Z normal) onto the datum plane basis. */
-function planeQuaternion(plane: DatumPlaneName): Quaternion {
-  const { u, v, normal } = PLANE_BASES[plane];
+/** Quaternion orienting local XY (+Z normal) onto the plane basis. */
+function planeQuaternion(basis: PlaneBasis): Quaternion {
+  const { u, v, normal } = basis;
   const matrix = new Matrix4().makeBasis(
     new Vector3(...u),
     new Vector3(...v),
@@ -67,8 +69,8 @@ function planeQuaternion(plane: DatumPlaneName): Quaternion {
 }
 
 /** Quaternion orienting drei's Grid (local XZ, +Y normal) onto the plane. */
-function gridQuaternion(plane: DatumPlaneName): Quaternion {
-  const { u, normal } = PLANE_BASES[plane];
+function gridQuaternion(basis: PlaneBasis): Quaternion {
+  const { u, normal } = basis;
   const x = new Vector3(...u);
   const y = new Vector3(...normal);
   const z = x.clone().cross(y);
@@ -175,7 +177,8 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
   useCursor(pointerOver);
   const hovered = hoveredPlane === plane;
 
-  const quaternion = useMemo(() => planeQuaternion(plane), [plane]);
+  const basis = useMemo(() => originBasis(plane), [plane]);
+  const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
   const edgePositions = useMemo(() => {
     const s = PLANE_SIZE_MM / 2;
     const corners = [
@@ -187,11 +190,11 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
     const positions = new Float32Array(4 * 6);
     corners.forEach((corner, i) => {
       const next = corners[(i + 1) % 4] ?? corner;
-      positions.set(planeToWorld(plane, corner), i * 6);
-      positions.set(planeToWorld(plane, next), i * 6 + 3);
+      positions.set(planeToWorld(basis, corner), i * 6);
+      positions.set(planeToWorld(basis, next), i * 6 + 3);
     });
     return positions;
-  }, [plane]);
+  }, [basis]);
   const edgeGeometry = usePositionsGeometry(edgePositions);
 
   // Hover state changes must draw a frame under frameloop="demand".
@@ -244,7 +247,7 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
  * pointer point (snap would jump off fine targets) with a screen-pixel
  * tolerance converted to plane mm at the event's camera distance.
  */
-function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
+function PointerCatcher({ basis }: { basis: PlaneBasis }) {
   const setCursor = useSketchStore((state) => state.setCursor);
   const snap = useSketchStore((state) => state.snap);
   const placeAt = useSketchStore((state) => state.placeAt);
@@ -253,11 +256,11 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
   const invalidate = useThree((state) => state.invalidate);
   const camera = useThree((state) => state.camera);
   const heightPx = useThree((state) => state.size.height);
-  const quaternion = useMemo(() => planeQuaternion(plane), [plane]);
+  const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
 
   const rawPlanePoint = (
     e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>,
-  ) => worldToPlane(plane, [e.point.x, e.point.y, e.point.z]);
+  ) => worldToPlane(basis, [e.point.x, e.point.y, e.point.z]);
 
   /** Screen px → plane mm at this event's depth (perspective camera). */
   const toleranceMm = (
@@ -272,6 +275,7 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
 
   return (
     <mesh
+      position={[basis.origin[0], basis.origin[1], basis.origin[2]]}
       quaternion={quaternion}
       onPointerMove={(e) => {
         const raw = rawPlanePoint(e);
@@ -395,7 +399,7 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
 }
 
 /** Snap-cursor crosshair (brass, world-mm arms). */
-function Crosshair({ plane }: { plane: DatumPlaneName }) {
+function Crosshair({ basis }: { basis: PlaneBasis }) {
   const cursor = useSketchStore((state) => state.cursor);
   const positions = useMemo(() => {
     if (cursor === null) return new Float32Array(0);
@@ -412,19 +416,20 @@ function Crosshair({ plane }: { plane: DatumPlaneName }) {
     ];
     const out = new Float32Array(12);
     arms.forEach((arm, i) => {
-      out.set(planeToWorld(plane, arm[0] ?? { x: 0, y: 0 }), i * 6);
-      out.set(planeToWorld(plane, arm[1] ?? { x: 0, y: 0 }), i * 6 + 3);
+      out.set(planeToWorld(basis, arm[0] ?? { x: 0, y: 0 }), i * 6);
+      out.set(planeToWorld(basis, arm[1] ?? { x: 0, y: 0 }), i * 6 + 3);
     });
     return out;
-  }, [cursor, plane]);
+  }, [cursor, basis]);
   return <InkSegments positions={positions} color={sketch.cursor} />;
 }
 
 /** The mm grid on the active sketch plane (cell = the 1 mm snap step). */
-function SketchGrid({ plane }: { plane: DatumPlaneName }) {
-  const quaternion = useMemo(() => gridQuaternion(plane), [plane]);
+function SketchGrid({ basis }: { basis: PlaneBasis }) {
+  const quaternion = useMemo(() => gridQuaternion(basis), [basis]);
   return (
     <Grid
+      position={[basis.origin[0], basis.origin[1], basis.origin[2]]}
       quaternion={quaternion}
       cellSize={1}
       sectionSize={10}
@@ -442,7 +447,7 @@ function SketchGrid({ plane }: { plane: DatumPlaneName }) {
  * rubber band, selection/hover ink (brass — the viewport selection tokens),
  * and the constraint annotation layer.
  */
-function DrawLayer({ plane }: { plane: DatumPlaneName }) {
+function DrawLayer({ basis }: { basis: PlaneBasis }) {
   const entities = useSketchStore((state) => state.entities);
   const pending = useSketchStore((state) => state.pending);
   const tool = useSketchStore((state) => state.tool);
@@ -484,8 +489,8 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
     const ghosts = targets.map((entity, i) =>
       reflectEntity(entity, axis.a, axis.b, `ghost-${i}`),
     );
-    return entitySegmentPositions(ghosts, plane);
-  }, [mirror, hoveredId, entities, plane]);
+    return entitySegmentPositions(ghosts, basis);
+  }, [mirror, hoveredId, entities, basis]);
 
   // The idle buffer (not selected, not hovered) splits into profile ink
   // (solid scribe) and construction ink (muted, dashed) — selection/hover
@@ -498,56 +503,56 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
     [entities, selectedIds, hoveredId],
   );
   const bufferPositions = useMemo(
-    () => entitySegmentPositions(buffer.profile, plane),
-    [buffer, plane],
+    () => entitySegmentPositions(buffer.profile, basis),
+    [buffer, basis],
   );
   const constructionPositions = useMemo(
-    () => entitySegmentPositions(buffer.construction, plane),
-    [buffer, plane],
+    () => entitySegmentPositions(buffer.construction, basis),
+    [buffer, basis],
   );
   const selectedPositions = useMemo(
     () =>
       entitySegmentPositions(
         entities.filter((e) => selectedIds.has(e.id)),
-        plane,
+        basis,
       ),
-    [entities, selectedIds, plane],
+    [entities, selectedIds, basis],
   );
   const hoveredPositions = useMemo(
     () =>
       entitySegmentPositions(
         entities.filter((e) => e.id === hoveredId),
-        plane,
+        basis,
       ),
-    [entities, hoveredId, plane],
+    [entities, hoveredId, basis],
   );
   const pointPositions = useMemo(() => {
-    const anchors = definingPointPositions(entities, plane);
+    const anchors = definingPointPositions(entities, basis);
     if (pending.length === 0) return anchors;
     const merged = new Float32Array(anchors.length + pending.length * 3);
     merged.set(anchors, 0);
     pending.forEach((point, i) => {
-      merged.set(planeToWorld(plane, point), anchors.length + i * 3);
+      merged.set(planeToWorld(basis, point), anchors.length + i * 3);
     });
     return merged;
-  }, [entities, pending, plane]);
+  }, [entities, pending, basis]);
   const selectedPointPositions = useMemo(
-    () => pickedPointPositions(selection, entities, plane),
-    [selection, entities, plane],
+    () => pickedPointPositions(selection, entities, basis),
+    [selection, entities, basis],
   );
   const hoveredPointPositions = useMemo(
     () =>
       hoverPick !== null && hoverPick.kind === "point"
-        ? pickedPointPositions([hoverPick], entities, plane)
+        ? pickedPointPositions([hoverPick], entities, basis)
         : new Float32Array(0),
-    [hoverPick, entities, plane],
+    [hoverPick, entities, basis],
   );
   const preview = useMemo(
     () =>
       cursor === null
         ? new Float32Array(0)
-        : entitySegmentPositions(previewEntities(tool, pending, cursor), plane),
-    [tool, pending, cursor, plane],
+        : entitySegmentPositions(previewEntities(tool, pending, cursor), basis),
+    [tool, pending, cursor, basis],
   );
 
   return (
@@ -575,8 +580,57 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
       />
       <InkSegments positions={preview} color={sketch.preview} dashed />
       <InkSegments positions={ghostPositions} color={sketch.preview} dashed />
-      <Crosshair plane={plane} />
-      <ConstraintGlyphs plane={plane} />
+      <Crosshair basis={basis} />
+      <ConstraintGlyphs basis={basis} />
+    </group>
+  );
+}
+
+/**
+ * A quiet translucent datum sheet marking an OFFSET plane's position — the
+ * "sketch at a height" cue. Bounded quad in the datum-plane tokens, drawn at
+ * the plane's basis so it sits at the offset (origin datums draw at z=0 and
+ * are already the world frame, so this only appears for offset planes).
+ */
+function DatumHintSheet({ basis }: { basis: PlaneBasis }) {
+  const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
+  const edgePositions = useMemo(() => {
+    const s = PLANE_SIZE_MM / 2;
+    const corners = [
+      { x: -s, y: -s },
+      { x: s, y: -s },
+      { x: s, y: s },
+      { x: -s, y: s },
+    ];
+    const positions = new Float32Array(4 * 6);
+    corners.forEach((corner, i) => {
+      const next = corners[(i + 1) % 4] ?? corner;
+      positions.set(planeToWorld(basis, corner), i * 6);
+      positions.set(planeToWorld(basis, next), i * 6 + 3);
+    });
+    return positions;
+  }, [basis]);
+  const edgeGeometry = usePositionsGeometry(edgePositions);
+  const position: [number, number, number] = [
+    basis.origin[0],
+    basis.origin[1],
+    basis.origin[2],
+  ];
+  return (
+    <group>
+      <mesh position={position} quaternion={quaternion}>
+        <planeGeometry args={[PLANE_SIZE_MM, PLANE_SIZE_MM]} />
+        <meshBasicMaterial
+          color={sketch.planeFill}
+          transparent
+          opacity={sketch.planeActiveFillOpacity}
+          depthWrite={false}
+          side={2 /* DoubleSide */}
+        />
+      </mesh>
+      <lineSegments geometry={edgeGeometry} frustumCulled={false}>
+        <lineBasicMaterial color={sketch.planeActiveEdge} toneMapped={false} />
+      </lineSegments>
     </group>
   );
 }
@@ -585,12 +639,12 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
 function SolvedLayer({ layer }: { layer: SolvedSketchLayer }) {
   const parts = useMemo(() => partitionConstruction(layer.entities), [layer]);
   const profilePositions = useMemo(
-    () => entitySegmentPositions(parts.profile, layer.plane),
-    [parts, layer.plane],
+    () => entitySegmentPositions(parts.profile, layer.basis),
+    [parts, layer.basis],
   );
   const constructionPositions = useMemo(
-    () => entitySegmentPositions(parts.construction, layer.plane),
-    [parts, layer.plane],
+    () => entitySegmentPositions(parts.construction, layer.basis),
+    [parts, layer.basis],
   );
   return (
     <>
@@ -628,7 +682,10 @@ function SketchCameraRig() {
   useEffect(() => {
     let pose: CameraPose | null = null;
     if (mode === "draw" && plane !== null) {
-      pose = planeCameraPose(plane, SKETCH_CAMERA_DISTANCE_MM);
+      pose = planeCameraPose(
+        resolveSpecBasis(plane),
+        SKETCH_CAMERA_DISTANCE_MM,
+      );
     } else if (mode === "plane") {
       const direction = new Vector3(1, 0.68, 1.35)
         .normalize()
@@ -700,6 +757,10 @@ export interface SketchSceneProps {
 export function SketchScene({ solved }: SketchSceneProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
+  const basis = useMemo(
+    () => (plane === null ? null : resolveSpecBasis(plane)),
+    [plane],
+  );
   return (
     <group>
       {solved.map((layer) => (
@@ -708,11 +769,12 @@ export function SketchScene({ solved }: SketchSceneProps) {
       {mode === "plane"
         ? DATUM_PLANES.map((name) => <DatumSheet key={name} plane={name} />)
         : null}
-      {mode === "draw" && plane !== null ? (
+      {mode === "draw" && plane !== null && basis !== null ? (
         <group>
-          <SketchGrid plane={plane} />
-          <PointerCatcher plane={plane} />
-          <DrawLayer plane={plane} />
+          {plane.kind === "offset" ? <DatumHintSheet basis={basis} /> : null}
+          <SketchGrid basis={basis} />
+          <PointerCatcher basis={basis} />
+          <DrawLayer basis={basis} />
         </group>
       ) : null}
       <SketchCameraRig />
