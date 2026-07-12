@@ -48,6 +48,7 @@ recorded from harness output.
 | `chamfer-plate-d5` | FIRST CHAMFER golden (all-planar): sketch→extrude→chamfer tree — the plate's 4 vertical (Z-parallel) edges beveled d=5 (45°) via the SAME `EdgeSelector` plumbing fillet uses (shared `select_edges` helper, design §2.4); GProp over 4 PLANAR bevel faces + octagonal caps, EXACT STEP survival (0.0 vs fillet's curved 1.26e-10) | 1e-9 (all-planar, measured-then-set; volume/area exact, residual worst 3.55e-15) | 10 / 24 / 1 | 48 / 28 |
 | `revolve-annulus-r10-20-h15` | FIRST REVOLVE golden (solid of revolution): sketch→revolve tree — a rectangle [r 10..20]×[h 0..15] revolved 360° about a CONSTRUCTION centerline into an annular cylinder; shares extrude's `build_profile_face`/`combine_body`; GProp over two coaxial cylinders + two annular caps, periodic seam-edge topology, STEP re-approximation of the revolved cylinders | 1e-9 (curved-geometry, measured-then-set; observed worst 1.82e-12 on volume) | 4 / 6 / 1 | 1012 / 1008 |
 | `pattern-linear-3x-bar` | FIRST PATTERN golden (linear pattern, #7): sketch→extrude→pattern tree — a unit cube LINEAR-patterned +X (spacing 6, count 3, overlapping) so the copies fuse into a connected bar [0,22]×[0,10]×[0,10]; locks the pattern handler + placement math (unit dir × spacing × k) + variadic fuse + single-solid finalize (§7.6), and STEP round-trip of the patterned body | 1e-9 (all-planar union, measured-then-set; volume/area/centroid/AABB EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
+| `pattern-circular-4x-quadrant-box` | FIRST CIRCULAR-PATTERN golden (audit **F4** — the trig-heaviest body op, previously with only an in-process volume unit test and NO cross-interpreter determinism gate): sketch→extrude→circular-pattern tree — the quadrant-1 unit prism [0,10]³ CIRCULAR-patterned about +Z through the origin (angle 360°, count 4, step 90°) so the four copies TILE the four quadrants and fuse into one clean box [-10,10]×[-10,10]×[0,10]; locks the circular handler + rotation placement (Axis rotate 90/180/270°) + fuse + single-solid finalize (§7.6) + clean() seam collapse, and puts the trig-heaviest op on the **interpreter-restart byte-determinism** gate. Analytic V = 4·1000 = 4000 mm³ (quadrants share only zero-measure faces → no volume overlap, unlike the linear golden), centroid on-axis (0,0,5) by 4-fold symmetry | 1e-9 (rotation-placed union, measured-then-set; 90/180/270° cos/sin NOT fp-exact → worst residual 1.1e-12 on volume, centroid.x 3.9e-16 on-axis, AABB ≤ 2e-15) | 6 / 12 / 1 | 24 / 12 |
 | `sweep-circle-r8-h30` | FIRST SWEEP golden (first NON-PRISMATIC feature, #7): sketch→sketch→sweep tree — an r=8 circle profile swept along a SECOND sketch's straight 30 mm OPEN path (vertical line on XZ) into a right circular cylinder; locks the sweep handler + two-sketch FeatureRef resolution (profile + open path wire) + open-wire assembly (shared per-entity edge builder) + `Solid.sweep`; cross-checks that `Solid.sweep` reproduces `build_cylinder`'s exact B-rep/mesh by a different code path | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 1.44e-15 on centroid, vol/area/AABB EXACTLY 0.0) | 3 / 3 / 1 | 506 / 500 |
 | `sketch-spline-extrude` | FIRST FREE-FORM golden (fit-point spline, #6): sketch→extrude tree with a closed profile of 3 lines + 1 interpolating C2 B-spline (`Edge.make_spline`) closing the loop through 4 fit points; locks the non-constrained-spline solver pass-through, the spline profile edge, GProp/tessellation over a B-spline-bounded face, and STEP round-trip. A spline region has NO closed-form mass properties → **measured-then-set** (not analytic) | 1e-6 (measured-then-set, non-analytic curved boundary; on-host deviation 0.0 by byte-determinism gate; 1e-6 = cross-host libm headroom, still 100× tighter than kernel 1e-4 mm) | 6 / 12 / 1 | 372 / 448 |
 | `loft-pyramid-sq20-h30` | FIRST LOFT golden (second NON-PRISMATIC feature, #8): sketch→sketch→loft tree — a 20×20 square section on XY ruled-lofted to a single APEX point 30 mm up +Z into a right square pyramid; locks the loft handler + per-section ordered FeatureRef resolution + loft-to-a-point (a point section → `Vertex`) + `Solid.make_loft(ruled=True)`; analytic pyramid volume a²·h/3 = 4000 mm³, all faces PLANAR so mesh is hand-derivable. NB: a cylinder/frustum golden needs two PARALLEL offset sections (unauthorable — datums are origin-only + mutually perpendicular), hence the apex pyramid | 2e-7 (AABB-padding-limited: ThruSections faces carry OCCT ~1e-7 modeling tolerance → optimal AABB padded ~1e-7; ceiling = 2× kernel linear tol; vol worst 1.82e-12, area EXACTLY 0.0, centroid ≤ 3.7e-16) | 5 / 8 / 1 | 16 / 6 |
@@ -78,6 +79,60 @@ the <2-section 422) is additionally pinned by `tests/test_loft.py`. No shipped
 modeling capability lacks a golden as of the 2026-07-12 loft entry — the seven
 body-affecting features (extrude, revolve, sweep, loft, fillet, chamfer,
 pattern) are all golden-covered.
+
+---
+
+## 2026-07-12 — Circular-pattern determinism golden (engineering-audit **F4**, first slice): `pattern-circular-4x-quadrant-box`
+
+**Finding closed (first slice).** F4 flagged that `circular_pattern` — the one
+shipped body-affecting op with only an in-process volume/bbox unit test
+(`test_pattern.py`) and **NO golden**, hence no cross-interpreter
+determinism/topology gate — and, being the rotation/trig-heaviest op, the
+likeliest to drift across BLAS/interpreter. It now rides the same automated
+gates every other feature does. (F4's cut and revolve/sweep-on-offset slices
+remain open.)
+
+**Golden `pattern-circular-4x-quadrant-box`** (sketch→extrude→circular-pattern):
+the quadrant-1 unit prism `[0,10]³` (linear golden's exact sketch+extrude,
+seed at the origin corner) circular-patterned about **+Z through the origin**,
+`angle=360°`, `count=4` → step `90°`. The closing instance at 360° is
+EXCLUSIVE, so the four copies land in the four coordinate quadrants and **tile**
+the square `[-10,10]×[-10,10]×[0,10]`, meeting face-to-face on the `x=0`/`y=0`
+planes. The fuse connects them into ONE solid and `clean()` collapses the seams
+into a clean box — a disjoint result would be `pattern_disjoint`, an unmerged
+union would show interior walls. HAND-DERIVED expectations:
+
+| Quantity | Expected (analytic) | Measured deviation |
+| --- | --- | --- |
+| volume | 4·1000 = **4000 mm³** (quadrants share only zero-measure faces → NO volume overlap, unlike the linear golden's overlapping bar) | **1.1e-12** |
+| surface_area | 2·(20·20)+4·(20·10) = **1600 mm²** | 4.5e-13 |
+| centroid | **(0, 0, 5)** — on-axis by 4-fold symmetry | x 3.9e-16 (on-axis), z 9e-16 |
+| AABB | `[-10,-10,0]..[10,10,10]` | ≤ 2e-15 |
+| topology (F/E/S) | **6 / 12 / 1** (clean box) | exact |
+| mesh (V/T) | **24 / 12** | exact |
+
+**Tolerance 1e-9 — measured-then-set, DIFFERENT justification from the linear
+golden.** The linear pattern's `+X` translation is fp-exact (deviations 0.0);
+the circular pattern places copies via `90/180/270°` rotations whose `cos/sin`
+are NOT fp-exact, so a small residual is expected and honest. Worst measured
+residual is **1.1e-12** (volume); centroid stays on the axis to 3.9e-16.
+Ceiling 1e-9 covers that with ~1000× headroom for libm/BLAS/platform trig
+variation across CI hosts while staying 100× tighter than the standing planar
+1e-7 kernel bound. Topology/mesh carry no tolerance (exact-match).
+
+**Determinism verdict (the point of F4): GREEN, no bug.** The new golden passes
+mass-props, exact topology, in-process determinism, **interpreter-restart
+byte-determinism**, and STEP round-trip (`pytest ... -k circular` → 5 passed;
+the restart leg verified explicitly). The trig-heaviest op produces
+byte-identical GLB + metadata across a fresh interpreter — no unordered set
+feeds its topology, confirming the F4 worry does NOT materialize. Root-cause of
+the prior gap: pure coverage (no golden authored when the op shipped), not a
+kernel defect.
+
+**Value derivation cross-checked empirically** through the real evaluate-tree
+path before pinning (build123d 0.11.1 / OCCT 7.9): the four face-adjacent
+quadrant prisms DO fuse into one connected solid and `clean()` yields the box's
+6/12/1 topology — the analytic box, not measured-from-buggy-output.
 
 ---
 
