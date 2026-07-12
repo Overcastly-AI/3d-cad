@@ -16,7 +16,15 @@ export type SketchEntity =
   components["schemas"]["SketchParamsV1"]["entities"][number];
 
 export type SketchTool =
-  "select" | "line" | "rect" | "circle" | "arc" | "trim" | "extend" | "offset";
+  | "select"
+  | "line"
+  | "rect"
+  | "circle"
+  | "arc"
+  | "trim"
+  | "extend"
+  | "offset"
+  | "mirror";
 
 /**
  * Keyboard tool switching — case-insensitive at the call site. Draw tools take
@@ -26,7 +34,8 @@ export type SketchTool =
  * home-row keys with no mnemonic collision rather than shadow an accelerator.
  * J·K·F sit left-to-right on the home row, mirroring Trim·Extend·Offset in the
  * toolbar; F is the free index-finger key (the offset mnemonic O is taken by
- * concentric).
+ * concentric). Mirror's mnemonic M is measure's; it claims I instead — a free
+ * key whose vertical bar reads as the mirror axis it pivots about.
  */
 export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   l: "line",
@@ -36,6 +45,7 @@ export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   j: "trim",
   k: "extend",
   f: "offset",
+  i: "mirror",
 };
 
 /** Coordinates closer than this (mm) are the same point — degenerate. */
@@ -83,6 +93,7 @@ export function placePoint(
     case "trim":
     case "extend":
     case "offset":
+    case "mirror":
       return keep(pending, nextIdIndex);
     case "line": {
       const [start] = pending;
@@ -229,6 +240,7 @@ export function previewEntities(
     case "trim":
     case "extend":
     case "offset":
+    case "mirror":
       return [];
     case "line": {
       const [start] = pending;

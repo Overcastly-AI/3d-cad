@@ -34,6 +34,7 @@ import {
   type CameraPose,
   type DatumPlaneName,
 } from "../sketch/plane";
+import { axisLinePoints, reflectEntity } from "../sketch/mirror";
 import { useSketchStore } from "../sketch/store";
 import { previewEntities, type SketchEntity } from "../sketch/tools";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
@@ -284,16 +285,18 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
           aimTool === "select" ||
           aimTool === "trim" ||
           aimTool === "extend" ||
-          aimTool === "offset"
+          aimTool === "offset" ||
+          aimTool === "mirror"
         ) {
           const all = pickCandidates(
             useSketchStore.getState().entities,
             raw,
             toleranceMm(e),
           );
-          // Trim/extend address a whole curve — the aim affordance highlights
-          // the hovered target only (points are irrelevant to them); select
-          // keeps its finer point-first grain.
+          // Trim/extend/offset/mirror address a whole curve — the aim affordance
+          // highlights the hovered target only (points are irrelevant to them);
+          // select keeps its finer point-first grain. In the mirror axis phase
+          // the hovered line drives the live reflection ghost (DrawLayer).
           const candidate =
             (aimTool === "select"
               ? all[0]
@@ -345,6 +348,17 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
           store.beginOffset(
             target !== null && target.kind === "entity" ? target.id : null,
           );
+        } else if (clickTool === "mirror") {
+          // Two-phase: click entities to build the target set, then (axis
+          // phase) click a line to reflect them about it.
+          const raw = rawPlanePoint(e);
+          const target =
+            pickCandidates(store.entities, raw, toleranceMm(e)).find(
+              (pick) => pick.kind === "entity",
+            ) ?? null;
+          const id = target?.kind === "entity" ? target.id : null;
+          if (store.mirror?.phase === "axis") store.pickMirrorAxis(id);
+          else store.toggleMirrorTarget(id);
         } else {
           placeAt(snap(rawPlanePoint(e)));
         }
@@ -412,18 +426,40 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
   const cursor = useSketchStore((state) => state.cursor);
   const selection = useSketchStore((state) => state.selection);
   const hoverPick = useSketchStore((state) => state.hoverPick);
+  const mirror = useSketchStore((state) => state.mirror);
 
-  const selectedIds = useMemo(
-    () =>
-      new Set(
-        selection.flatMap((pick) => (pick.kind === "entity" ? [pick.id] : [])),
-      ),
-    [selection],
-  );
+  // Mirror targets read as "picked" (brass), the same affordance as a
+  // selection — merged so the idle buffer never double-draws them.
+  const selectedIds = useMemo(() => {
+    const ids = new Set(
+      selection.flatMap((pick) => (pick.kind === "entity" ? [pick.id] : [])),
+    );
+    for (const id of mirror?.targets ?? []) ids.add(id);
+    return ids;
+  }, [selection, mirror]);
   const hoveredId =
     hoverPick?.kind === "entity" && !selectedIds.has(hoverPick.id)
       ? hoverPick.id
       : null;
+
+  // The live reflection ghost: while picking the axis, the hovered line drives
+  // a local reflection of the target set so the user sees exactly where the
+  // copies land before committing (the backend stays the source of truth).
+  const ghostPositions = useMemo(() => {
+    if (mirror?.phase !== "axis" || hoveredId === null) {
+      return new Float32Array(0);
+    }
+    const axis = axisLinePoints(entities, hoveredId);
+    if (axis === null) return new Float32Array(0); // hovered a non-line
+    const targets = mirror.targets.flatMap((id) => {
+      const entity = entities.find((e) => e.id === id);
+      return entity ? [entity] : [];
+    });
+    const ghosts = targets.map((entity, i) =>
+      reflectEntity(entity, axis.a, axis.b, `ghost-${i}`),
+    );
+    return entitySegmentPositions(ghosts, plane);
+  }, [mirror, hoveredId, entities, plane]);
 
   // The idle buffer (not selected, not hovered) splits into profile ink
   // (solid scribe) and construction ink (muted, dashed) — selection/hover
@@ -512,6 +548,7 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
         sizePx={sketch.pickedPointSizePx}
       />
       <InkSegments positions={preview} color={sketch.preview} dashed />
+      <InkSegments positions={ghostPositions} color={sketch.preview} dashed />
       <Crosshair plane={plane} />
       <ConstraintGlyphs plane={plane} />
     </group>

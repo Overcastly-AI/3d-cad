@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import { fetchOverlay, measureTargets } from "../api/measure";
-import { editSketch, offsetSketch, SketchEditError } from "../api/sketchEdit";
+import {
+  editSketch,
+  mirrorSketch,
+  offsetSketch,
+  SketchEditError,
+} from "../api/sketchEdit";
 import { buildEvaluateTree, buildMeasureRequest } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
@@ -120,6 +125,7 @@ export function PartPage() {
   const mode = useSketchStore((state) => state.mode);
   const edit = useSketchStore((state) => state.edit);
   const offset = useSketchStore((state) => state.offset);
+  const mirrorRequest = useSketchStore((state) => state.mirrorRequest);
   const revision = useSketchStore((state) => state.revision);
   const featureId = useSketchStore((state) => state.featureId);
   const constraintCount = useSketchStore((state) => state.constraints.length);
@@ -485,6 +491,12 @@ export function PartPage() {
       const store = useSketchStore.getState();
       if (event.key === "Escape") {
         event.preventDefault();
+        // Mirror runs its own cascade (axis → targets → drop tool) and never
+        // exits the sketch mid-flow.
+        if (store.mirror !== null) {
+          store.escape();
+          return;
+        }
         const action = escapeAction(
           store.tool,
           store.pending.length,
@@ -496,6 +508,15 @@ export function PartPage() {
         return;
       }
       if (mode !== "draw") return;
+      // Enter advances the mirror draft from collecting targets to the axis
+      // pick — the keyboard-first path the "Choose axis" button mirrors.
+      if (event.key === "Enter") {
+        if (store.mirror?.phase === "targets") {
+          event.preventDefault();
+          store.advanceMirror();
+        }
+        return;
+      }
       if (event.key === "Delete" || event.key === "Backspace") {
         if (store.selectedConstraint !== null) {
           event.preventDefault();
@@ -589,6 +610,41 @@ export function PartPage() {
       }
     })();
   }, [offset]);
+
+  // Mirror: the axis pick arms a mirror request; this effect owns the one
+  // network hop and APPENDS the reflected copies (sources unchanged — mirror
+  // adds, never rewrites). Like offset, the revision bump then re-solves a
+  // bound sketch; an unbound buffer just re-renders. The nonce guards a double
+  // fire (React strict mode / re-render).
+  const mirrorNonceRef = useRef(0);
+  useEffect(() => {
+    if (
+      mirrorRequest === null ||
+      mirrorRequest.nonce === mirrorNonceRef.current
+    )
+      return;
+    mirrorNonceRef.current = mirrorRequest.nonce;
+    const { targets, axis } = mirrorRequest;
+    void (async () => {
+      try {
+        const result = await mirrorSketch({
+          entities: useSketchStore.getState().entities,
+          targets,
+          axis,
+        });
+        const store = useSketchStore.getState();
+        if (store.mode === "draw") store.applyMirrorResult(result.entities);
+      } catch (error) {
+        useSketchStore
+          .getState()
+          .failMirror(
+            error instanceof SketchEditError
+              ? error.message
+              : "The mirror could not be applied — try a different axis.",
+          );
+      }
+    })();
+  }, [mirrorRequest]);
 
   // Leaving the workspace always leaves sketch mode.
   useEffect(() => () => useSketchStore.getState().exit(), []);

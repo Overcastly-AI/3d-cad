@@ -155,16 +155,27 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       swap) + endpoint gates + gateway proxy + determinism + fresh-id-collision.
       Contracts/ts-client regenerated. GEOMETRY-QA entry 2026-07-12.
       [src: product-auditor, competitive, roadmap]
-- [ ] (P1, S) #4b Sketch: mirror UI — wire the shipped mirror backend into the
-      sketch editor: new keyboard verb (avoid assigned letters) + multi-select
-      of targets + an axis pick (a line entity, defaulting to a construction
-      centerline), call the gateway `/geometry/sketch/mirror` proxy with
-      `{entities, targets, axis}`, append the returned copies to the sketch, and
-      re-solve. Reuse the trim/offset selection-presence pattern. Depends on: #4
-      backend (done). Acceptance: worked e2e — mirror an L-shaped profile about
-      a centerline, confirm the resulting closed profile extrudes to double the
-      source volume (symmetric part); screenshots; `frontend-design` skill
-      invoked. [src: product-auditor, competitive, roadmap]
+- [x] (P1, S) #4b Sketch: mirror UI — DONE 2026-07-12, closes #4 end-to-end
+      (backend + UI both shipped). Mirror tool on the sketch strip beside
+      Trim/Extend/Offset (accelerator **I** — free key; M is measure's). Two-
+      phase pick: click entities to build the target set (whole-entity toggle,
+      brass), then Enter / "Choose axis" → click a line entity (the construction-
+      centerline case) as the axis. **Signature element: a live reflection ghost**
+      — hovering a candidate axis reflects the target set client-side (dashed
+      preview, arc start/end swapped like the backend) so you see where the
+      copies land before committing. Calls the gateway `/geometry/sketch/mirror`
+      proxy with `{entities, targets, axis: {kind:"entity", entity}}`, APPENDS
+      the returned copies (`applyMirrorResult`; sources unchanged, no constraint
+      reconciliation), re-solves. Honest copy: "reflects geometry only" (no auto
+      symmetric constraints). Legible 422s (`sketch_mirror_axis_not_line` pre-
+      empted client-side; `_target_not_found`, `_degenerate_axis`). Esc cascade
+      axis→targets→drop-tool (never exits mid-flow). Testids `tool-mirror`,
+      `mirror-prompt`/`mirror-advance`/`mirror-count`. Evidence: 315 vitest (+26),
+      3 mirror e2e green on the real stack (reflected coords asserted vs. request,
+      3→5 append, solves; Esc cascade; laptop reach), 25 adjacent sketch e2e still
+      green. Before/after/ghost + laptop screenshots under docs/screenshots/.
+      `frontend-design` skill invoked. Two-point axis + symmetric-constraint
+      linking still deferred. [src: product-auditor, competitive, roadmap]
 - [x] (P1, S) Sketch: fillet/chamfer (corner round) — BACKEND shipped
       2026-07-12. Server-side geometry ops (RESEARCH §3: the tangent-point/
       bisector math is kernel-owned, never reimplemented in the frontend).

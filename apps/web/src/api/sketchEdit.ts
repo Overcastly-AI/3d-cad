@@ -14,6 +14,8 @@ export type SketchEditRequest = components["schemas"]["SketchEditRequest"];
 export type SketchEditResult = components["schemas"]["SketchEditResult"];
 export type SketchOffsetRequest = components["schemas"]["SketchOffsetRequest"];
 export type SketchOffsetResult = components["schemas"]["SketchOffsetResult"];
+export type SketchMirrorRequest = components["schemas"]["SketchMirrorRequest"];
+export type SketchMirrorResult = components["schemas"]["SketchMirrorResult"];
 
 /** The two clean-up edits — a trim (cut at intersection) or an extend. */
 export type SketchEditOp = "trim" | "extend";
@@ -77,6 +79,30 @@ export async function offsetSketch(
     throw new SketchEditError(
       envelopeCode(error) ?? "sketch_offset_failed",
       envelopeMessage(error, "The offset could not be applied."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Mirror the `targets` about `axis`, ADDING one reflected copy per target.
+ * `request.entities` is the whole sketch (so each copy gets a fresh,
+ * collision-free id and a `MirrorAxisEntity` axis can be resolved); the result
+ * carries ONLY the new copies, which the caller appends. Like offset, mirror
+ * never rewrites the sources. 422 codes: `sketch_target_not_found`,
+ * `sketch_mirror_axis_not_line`, `sketch_mirror_degenerate_axis`.
+ */
+export async function mirrorSketch(
+  request: SketchMirrorRequest,
+  client = gatewayClient,
+): Promise<SketchMirrorResult> {
+  const { data, error } = await client.POST("/api/v1/geometry/sketch/mirror", {
+    body: request,
+  });
+  if (error !== undefined) {
+    throw new SketchEditError(
+      envelopeCode(error) ?? "sketch_mirror_failed",
+      envelopeMessage(error, "The mirror could not be applied."),
     );
   }
   return data;

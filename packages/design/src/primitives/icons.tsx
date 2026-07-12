@@ -127,6 +127,24 @@ export const OffsetIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Mirror = reflect across a centerline: a dashed axis with an L-bend scribe on
+ * the left and its mirror image on the right — one shape flipped about the
+ * line. The dashed axis (the construction centerline this pairs with) plus a
+ * true reflected copy reads as "add the symmetric half", distinct from the
+ * Symmetric CONSTRAINT glyph (arrows tying two points), because Mirror creates
+ * geometry rather than relating existing points.
+ */
+export const MirrorIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3 V21" strokeDasharray="2.4 2" />
+    <path d="M8 6 V14 H4" />
+    <path d="M16 6 V14 H20" />
+    <Node cx={4} cy={14} />
+    <Node cx={20} cy={14} />
+  </Icon>
+);
+
 // --- Geometric constraints --------------------------------------------------
 
 export const HorizontalIcon = (p: IconProps) => (

@@ -134,16 +134,21 @@ evidence in `CHANGELOG.md`. One line per item:
       NEW entity is APPENDED (source unchanged, no reconciliation) then
       re-solved; degenerate/zero/unsupported 422s read as clean hints. 3 e2e
       green on the real stack. Single-entity v1; chain offset deferred.
-- ✅ Sketch mirror — BACKEND (2026-07-12): stateless server-side geometry op
-      `POST /api/v1/sketch/mirror` (gateway-proxied), exact analytic reflection
-      (rational foot-of-perpendicular; no sqrt/trig) of point/line/circle/arc
-      about an axis line — axis given as a line-entity id OR two points
-      (discriminated union). ADDS fresh copies (construction inherited),
-      deterministic, legible 422s. Arc CCW-from-start invariant preserved by
-      swapping reflected start/end (reflection reverses orientation). Distinct
-      from the `symmetric` CONSTRAINT (creates geometry, doesn't enforce
-      symmetry); v1 does not auto-pair source↔copy. Sketch-UI wiring is BACKLOG
-      #4b; the Sketching row holds ❌ until the session-tool cluster's UI lands.
+- ✅ Sketch mirror — BACKEND + UI (2026-07-12, closes #4): stateless
+      server-side geometry op `POST /api/v1/sketch/mirror` (gateway-proxied),
+      exact analytic reflection (rational foot-of-perpendicular; no sqrt/trig)
+      of point/line/circle/arc about an axis line — axis given as a line-entity
+      id OR two points (discriminated union). ADDS fresh copies (construction
+      inherited), deterministic, legible 422s. Arc CCW-from-start invariant
+      preserved by swapping reflected start/end. Distinct from the `symmetric`
+      CONSTRAINT (creates geometry, doesn't enforce symmetry); v1 does not
+      auto-pair source↔copy. UI (#4b): Mirror joins Trim/Extend/Offset in the
+      sketch strip's MODIFY group (accelerator **I**); two-phase pick (build the
+      target set → click a line/construction centerline as the axis), with a
+      live client-side reflection ghost as the signature affordance, APPENDS the
+      returned copies + re-solves. 315 vitest + 3 mirror e2e green on the real
+      stack; before/after/ghost screenshots. Line-entity axis is the shipped
+      path; two-point axis deferred.
 - ✅ Sketch fillet/chamfer — BACKEND (2026-07-12): stateless server-side
       geometry ops `POST /api/v1/sketch/{fillet,chamfer}` (gateway-proxied),
       exact closed-form corner round (tangent arc) / bevel (straight line): both

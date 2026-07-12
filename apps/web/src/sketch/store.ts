@@ -21,6 +21,7 @@ import {
   type SketchConstraint,
   type SolveInfo,
 } from "./constraints";
+import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import type { DatumPlaneName, Point2D } from "./plane";
 import { snapPoint } from "./plane";
 import { pickCandidates, toggleSelection, type SketchPick } from "./pick";
@@ -98,6 +99,20 @@ export interface SketchState {
    * `edit`, offset ADDS geometry — the result is APPENDED, never swapped.
    */
   offset: { target: string; distance: number; nonce: number } | null;
+  /**
+   * The Mirror tool's two-phase draft: first collect the entities to reflect
+   * (`targets`), then pick the axis line. Null unless the Mirror tool is armed.
+   * Held separately from `selection` so the general select grain (points +
+   * curves) never mixes with mirror's whole-entity picks.
+   */
+  mirror: { phase: "targets" | "axis"; targets: string[] } | null;
+  /**
+   * A pending mirror the axis pick armed; PartPage owns the network effect that
+   * consumes it (the store stays side-effect-free), reads the live entity list,
+   * and appends the reflected copies. Like `offset` (and unlike `edit`), mirror
+   * ADDS geometry. The `nonce` fires the request exactly once.
+   */
+  mirrorRequest: { targets: string[]; axis: MirrorAxis; nonce: number } | null;
 
   /** Enter sketch mode at the plane-pick step. */
   begin: () => void;
@@ -147,6 +162,22 @@ export interface SketchState {
   applyOffsetResult: (entities: readonly SketchEntity[]) => void;
   /** Fail the in-flight offset with a surfaced message. */
   failOffset: (message: string) => void;
+  /**
+   * Toggle an entity into/out of the mirror target set (targets phase).
+   * `id` null means the click missed every curve — a hint, no change.
+   */
+  toggleMirrorTarget: (id: string | null) => void;
+  /** Advance the mirror draft from collecting targets to picking the axis. */
+  advanceMirror: () => void;
+  /**
+   * Pick the axis line and arm the mirror (axis phase). `id` null (a miss) or a
+   * non-line entity hints instead of firing; a valid line arms one request.
+   */
+  pickMirrorAxis: (id: string | null) => void;
+  /** Apply a mirror result: APPEND the reflected copies, re-solve, re-arm. */
+  applyMirrorResult: (entities: readonly SketchEntity[]) => void;
+  /** Fail the in-flight mirror with a surfaced message (axis phase survives). */
+  failMirror: (message: string) => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
   editDimension: (constraintIndex: number) => void;
   /** Commit the open dimension editor with a validated value (mm). */
@@ -191,6 +222,8 @@ const INITIAL = {
   editNote: null,
   offsetDraft: null,
   offset: null,
+  mirror: null,
+  mirrorRequest: null,
 };
 
 export const useSketchStore = create<SketchState>()((set, get) => ({
@@ -208,6 +241,10 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
       selectedConstraint: null,
       dimensionEdit: null,
       offsetDraft: null,
+      // Arming Mirror opens its target-collection phase; any other tool clears
+      // the draft. The armed `mirrorRequest` is left alone — its nonce guards a
+      // late in-flight response from re-firing.
+      mirror: tool === "mirror" ? { phase: "targets", targets: [] } : null,
       hint: null,
       editNote: null,
     }),
@@ -393,6 +430,83 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
   failOffset: (message) =>
     set({ offset: null, offsetDraft: null, editBusy: false, hint: message }),
 
+  toggleMirrorTarget: (id) => {
+    const { mirror } = get();
+    if (mirror === null || mirror.phase !== "targets") return;
+    if (id === null) {
+      set({ hint: "Click an entity to add it to the mirror." });
+      return;
+    }
+    set({
+      mirror: {
+        phase: "targets",
+        targets: toggleMirrorTarget(mirror.targets, id),
+      },
+      hint: null,
+    });
+  },
+
+  advanceMirror: () => {
+    const { mirror } = get();
+    if (mirror === null || mirror.phase !== "targets") return;
+    if (mirror.targets.length === 0) {
+      set({ hint: "Select at least one entity to mirror." });
+      return;
+    }
+    set({ mirror: { phase: "axis", targets: mirror.targets }, hint: null });
+  },
+
+  pickMirrorAxis: (id) => {
+    const { mirror, entities, editBusy, mirrorRequest } = get();
+    if (mirror === null || mirror.phase !== "axis" || editBusy) return;
+    if (id === null) {
+      set({ hint: "Aim at a line to mirror about." });
+      return;
+    }
+    const axisEntity = entities.find((e) => e.id === id);
+    if (axisEntity === undefined || axisEntity.kind !== "line") {
+      // Pre-empt the backend's `sketch_mirror_axis_not_line` with an aim hint —
+      // only a line (construction or profile) is a valid axis.
+      set({
+        hint: "The mirror axis must be a line — pick a line or centerline.",
+      });
+      return;
+    }
+    set({
+      mirrorRequest: {
+        targets: mirror.targets,
+        axis: { kind: "entity", entity: id },
+        nonce: (mirrorRequest?.nonce ?? 0) + 1,
+      },
+      editBusy: true,
+      hint: null,
+      editNote: null,
+    });
+  },
+
+  applyMirrorResult: (added) => {
+    const { mirrorRequest, entities, revision } = get();
+    if (mirrorRequest === null) return;
+    // Mirror ADDS: append the reflected copies (fresh backend ids, sources
+    // untouched). No constraint reconciliation — nothing was deleted or split,
+    // so no existing reference can dangle. Re-arm a fresh targets phase so the
+    // user can mirror another group without re-selecting the tool.
+    const count = added.length;
+    set({
+      entities: [...entities, ...added],
+      revision: revision + 1,
+      mirrorRequest: null,
+      mirror: { phase: "targets", targets: [] },
+      editBusy: false,
+      editNote: count === 1 ? "Mirrored." : `Mirrored. ${count} copies added.`,
+      hoverPick: null,
+    });
+  },
+
+  failMirror: (message) =>
+    // Keep the draft in its axis phase so the user can pick a different line.
+    set({ mirrorRequest: null, editBusy: false, hint: message }),
+
   editDimension: (constraintIndex) => {
     const constraint = get().constraints[constraintIndex];
     if (constraint?.kind !== "distance" && constraint?.kind !== "radius") {
@@ -469,7 +583,25 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
   },
 
   escape: () => {
-    const { tool, pending, selection, dimensionEdit, offsetDraft } = get();
+    const { tool, pending, selection, dimensionEdit, offsetDraft, mirror } =
+      get();
+    // Mirror's own cascade, most-local first: axis phase → back to targets;
+    // targets with picks → clear the picks; empty targets → drop the tool.
+    if (mirror !== null) {
+      if (mirror.phase === "axis") {
+        set({
+          mirror: { phase: "targets", targets: mirror.targets },
+          hint: null,
+        });
+        return;
+      }
+      if (mirror.targets.length > 0) {
+        set({ mirror: { phase: "targets", targets: [] }, hint: null });
+        return;
+      }
+      set({ tool: "select", mirror: null, hint: null });
+      return;
+    }
     switch (
       escapeAction(
         tool,

@@ -32,6 +32,7 @@ import {
   type FlyoutItem,
   HorizontalIcon,
   LineIcon,
+  MirrorIcon,
   OffsetIcon,
   ParallelIcon,
   PerpendicularIcon,
@@ -126,6 +127,13 @@ const MODIFY_TOOLS: ReadonlyArray<{
     keyHint: "F",
     name: "Offset tool (F) — click a curve, then set a signed distance to add a parallel copy",
     icon: <OffsetIcon />,
+  },
+  {
+    tool: "mirror",
+    label: "Mirror",
+    keyHint: "I",
+    name: "Mirror tool (I) — pick entities, then a line, to add their reflected copies",
+    icon: <MirrorIcon />,
   },
 ];
 
@@ -279,6 +287,62 @@ function StatusCell({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * The Mirror tool's two-phase guide, hung from the band into the viewport.
+ * Targets phase: a live count and the "Choose axis" step (Enter also advances).
+ * Axis phase: the instruction to click a line, with the reflection ghost doing
+ * the real talking in the viewport. Keyboard-first, honest about what v1 does
+ * (geometry only — no symmetric constraints are added).
+ */
+function MirrorPrompt({
+  mirror,
+  onAdvance,
+}: {
+  mirror: NonNullable<ReturnType<typeof useSketchStore.getState>["mirror"]>;
+  onAdvance: () => void;
+}) {
+  const count = mirror.targets.length;
+  const noun = count === 1 ? "entity" : "entities";
+  return (
+    <div
+      role="status"
+      data-testid="mirror-prompt"
+      data-phase={mirror.phase}
+      className="border border-hairline bg-anvil px-3 py-2 font-body text-xs text-gauge"
+    >
+      {mirror.phase === "targets" ? (
+        <div className="flex items-center gap-3">
+          <span>
+            Pick entities to mirror
+            {count > 0 ? (
+              <>
+                {" · "}
+                <span className="text-mist" data-testid="mirror-count">
+                  {count} {noun}
+                </span>
+              </>
+            ) : null}
+          </span>
+          <button
+            type="button"
+            className="font-display text-2xs uppercase tracking-[0.14em] text-brass hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-40"
+            disabled={count === 0}
+            data-testid="mirror-advance"
+            onClick={onAdvance}
+          >
+            Choose axis ↵
+          </button>
+        </div>
+      ) : (
+        <span data-testid="mirror-count">
+          Click a line to mirror {count} {noun} about it · reflects geometry
+          only
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
@@ -297,6 +361,8 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
   );
   const hint = useSketchStore((state) => state.hint);
   const editNote = useSketchStore((state) => state.editNote);
+  const mirror = useSketchStore((state) => state.mirror);
+  const advanceMirror = useSketchStore((state) => state.advanceMirror);
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
 
@@ -459,8 +525,11 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
 
       {/* Transient readouts hang from the band's bottom edge into the
           viewport's top-left, so the band itself stays one thin row. */}
-      {hint || saveError || editNote ? (
+      {mirror !== null || hint || saveError || editNote ? (
         <div className="absolute left-3 top-full z-20 mt-2 flex max-w-sm flex-col gap-2">
+          {mirror !== null ? (
+            <MirrorPrompt mirror={mirror} onAdvance={advanceMirror} />
+          ) : null}
           {editNote ? (
             <p
               role="status"

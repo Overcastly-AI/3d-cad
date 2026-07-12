@@ -395,6 +395,129 @@ describe("offset — appends a parallel copy, no reconciliation", () => {
   });
 });
 
+describe("mirror — two-phase pick, appends reflected copies", () => {
+  it("arming Mirror opens the targets phase; targets toggle in and out", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("mirror");
+    expect(store().mirror).toEqual({ phase: "targets", targets: [] });
+
+    store().toggleMirrorTarget("e1");
+    store().toggleMirrorTarget("e3");
+    expect(store().mirror).toEqual({ phase: "targets", targets: ["e1", "e3"] });
+    store().toggleMirrorTarget("e1"); // re-click removes
+    expect(store().mirror).toEqual({ phase: "targets", targets: ["e3"] });
+
+    store().toggleMirrorTarget(null); // a miss hints, no change
+    expect(store().hint).toMatch(/click an entity/i);
+    expect(store().mirror?.targets).toEqual(["e3"]);
+  });
+
+  it("advanceMirror needs at least one target; then reaches the axis phase", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("mirror");
+    store().advanceMirror(); // empty → hint, stay in targets
+    expect(store().mirror?.phase).toBe("targets");
+    expect(store().hint).toMatch(/at least one/i);
+
+    store().toggleMirrorTarget("e1");
+    store().advanceMirror();
+    expect(store().mirror).toEqual({ phase: "axis", targets: ["e1"] });
+  });
+
+  it("pickMirrorAxis rejects a non-line and a miss; arms on a line", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    // Add a circle (e5) so a non-line axis pick is testable.
+    store().setTool("circle");
+    store().placeAt({ x: 60, y: 60 });
+    store().placeAt({ x: 70, y: 60 });
+
+    store().setTool("mirror");
+    store().toggleMirrorTarget("e1");
+    store().advanceMirror();
+
+    store().pickMirrorAxis(null); // miss
+    expect(store().mirrorRequest).toBeNull();
+    expect(store().hint).toMatch(/aim at a line/i);
+
+    store().pickMirrorAxis("e5"); // circle → not a valid axis
+    expect(store().mirrorRequest).toBeNull();
+    expect(store().hint).toMatch(/must be a line/i);
+
+    store().pickMirrorAxis("e2"); // e2 is a rectangle line
+    expect(store().mirrorRequest).toMatchObject({
+      targets: ["e1"],
+      axis: { kind: "entity", entity: "e2" },
+      nonce: 1,
+    });
+    expect(store().editBusy).toBe(true);
+  });
+
+  it("applyMirrorResult APPENDS the copies, re-solves, re-arms targets phase", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("mirror");
+    store().toggleMirrorTarget("e1");
+    store().advanceMirror();
+    store().pickMirrorAxis("e2");
+    const before = store().entities.length;
+    const revision = store().revision;
+
+    const added: SketchEntity = {
+      id: "e1.2",
+      kind: "line",
+      start: { x: 80, y: 0 },
+      end: { x: 120, y: 0 },
+      construction: false,
+    };
+    store().applyMirrorResult([added]);
+
+    expect(store().entities).toHaveLength(before + 1);
+    expect(store().entities.at(-1)).toEqual(added);
+    expect(store().revision).toBe(revision + 1);
+    expect(store().editBusy).toBe(false);
+    expect(store().mirrorRequest).toBeNull();
+    // Re-armed for another mirror, still on the tool.
+    expect(store().mirror).toEqual({ phase: "targets", targets: [] });
+    expect(store().editNote).toMatch(/mirrored/i);
+  });
+
+  it("failMirror surfaces the message and keeps the axis phase for a retry", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("mirror");
+    store().toggleMirrorTarget("e1");
+    store().advanceMirror();
+    store().pickMirrorAxis("e2");
+    store().failMirror("The mirror axis must be a line.");
+    expect(store().mirrorRequest).toBeNull();
+    expect(store().editBusy).toBe(false);
+    expect(store().hint).toMatch(/must be a line/i);
+    expect(store().mirror?.phase).toBe("axis"); // survives for another pick
+  });
+
+  it("Escape cascades axis → targets → drop tool", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("mirror");
+    store().toggleMirrorTarget("e1");
+    store().advanceMirror();
+    expect(store().mirror?.phase).toBe("axis");
+
+    store().escape(); // axis → back to targets (picks kept)
+    expect(store().mirror).toEqual({ phase: "targets", targets: ["e1"] });
+
+    store().escape(); // targets with picks → clear picks
+    expect(store().mirror).toEqual({ phase: "targets", targets: [] });
+
+    store().escape(); // empty targets → drop the tool
+    expect(store().mirror).toBeNull();
+    expect(store().tool).toBe("select");
+  });
+});
+
 describe("bind + revision bookkeeping", () => {
   it("placing entities bumps revision; bind records the feature", () => {
     rectangleAt();
