@@ -21,6 +21,7 @@ import {
   PatternIcon,
   RevolveIcon,
   SketchIcon,
+  SweepIcon,
   ToolButton,
   ToolGroup,
 } from "@loft/design";
@@ -36,6 +37,12 @@ export interface CreateStripProps {
   /** True when a solved sketch exists to revolve (same gate as extrude). */
   canRevolve: boolean;
   onNewRevolve: () => void;
+  /**
+   * True when ≥2 sketch features exist to designate as a sweep's profile and
+   * path (a sweep references two earlier sketches, not the implicit one).
+   */
+  canSweep: boolean;
+  onNewSweep: () => void;
   /**
    * A solid body exists to modify. When false — or when a Modify handler is
    * not yet wired (the kernel op hasn't landed) — that Modify tool is disabled.
@@ -62,6 +69,8 @@ export function CreateStrip({
   onNewExtrude,
   canRevolve,
   onNewRevolve,
+  canSweep,
+  onNewSweep,
   canModify = false,
   onFillet,
   onChamfer,
@@ -115,6 +124,20 @@ export function CreateStrip({
           }
           disabled={!canRevolve || !treeReady}
           onClick={onNewRevolve}
+        />
+        <ToolButton
+          icon={<SweepIcon />}
+          showLabel
+          label="Sweep"
+          shortcut="S"
+          data-testid="new-sweep"
+          aria-label={
+            canSweep
+              ? "Sweep — carry a profile sketch along an open path sketch (S)"
+              : "Sweep — draw a profile sketch and a path sketch first"
+          }
+          disabled={!canSweep || !treeReady}
+          onClick={onNewSweep}
         />
       </ToolGroup>
 

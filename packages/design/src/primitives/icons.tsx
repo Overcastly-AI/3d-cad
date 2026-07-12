@@ -288,6 +288,20 @@ export const RevolveIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Sweep = a closed profile section carried along an open path. A small square
+ * (the profile) sits at the tail of a curved trajectory that arcs up-and-away
+ * with an arrowhead — the section follows the path. Its square section ties it
+ * to the same title-block vocabulary the extrude/revolve glyphs speak.
+ */
+export const SweepIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={3} y={13} width={6} height={6} />
+    <path d="M6 16 C 6 8 14 6 20 6" />
+    <path d="M20 6 L17.4 4.9 M20 6 L18.3 8.5" />
+  </Icon>
+);
+
 // --- Modify features --------------------------------------------------------
 
 /** Fillet = a rounded inner corner (the radius arc rounds the vertex). */

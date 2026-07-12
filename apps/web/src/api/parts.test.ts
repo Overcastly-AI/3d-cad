@@ -25,6 +25,9 @@ import {
   sketchFeatureUpdate,
   type SketchConstraint,
   type SketchEntity,
+  type SweepParams,
+  sweepFeatureCreate,
+  sweepFeatureUpdate,
 } from "./parts";
 
 const entities: SketchEntity[] = [
@@ -280,6 +283,41 @@ describe("revolveFeatureUpdate", () => {
     expect(body).toEqual({
       expected_tree_version: 9,
       feature: { type: "revolve", version: 1, params: half },
+    });
+    expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+const sweepParams: SweepParams = {
+  profile: {
+    kind: "feature",
+    feature_id: "11111111-1111-1111-1111-111111111111",
+  },
+  path: {
+    kind: "feature",
+    feature_id: "33333333-3333-3333-3333-333333333333",
+  },
+  operation: "add",
+};
+
+describe("sweepFeatureCreate", () => {
+  it("wraps the two FeatureRefs in the {type, version, params} create envelope", () => {
+    const body = sweepFeatureCreate("Sweep1", sweepParams, 5);
+    expect(body).toEqual({
+      name: "Sweep1",
+      expected_tree_version: 5,
+      feature: { type: "sweep", version: 1, params: sweepParams },
+    });
+  });
+});
+
+describe("sweepFeatureUpdate", () => {
+  it("wraps the re-parametrized envelope for the PATCH (no rename)", () => {
+    const cut: SweepParams = { ...sweepParams, operation: "cut" };
+    const body = sweepFeatureUpdate(cut, 11);
+    expect(body).toEqual({
+      expected_tree_version: 11,
+      feature: { type: "sweep", version: 1, params: cut },
     });
     expect(body).not.toHaveProperty("name", expect.anything());
   });

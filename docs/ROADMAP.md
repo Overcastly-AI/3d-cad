@@ -168,13 +168,16 @@ evidence in `CHANGELOG.md`. One line per item:
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
       held ❌: edge selection is still predicate-only, and sweep/loft/shell/
       draft/hole are unbuilt — see BACKLOG Ready + Next.
-- ✅ Sweep BACKEND (Ready #7) — first NON-PRISMATIC feature: `SweepFeature`
-      sweeps a closed profile along a SECOND sketch's open path wire (add/cut),
-      reusing the FeatureRef-to-sketch mechanism (path = whole feature, not a
-      sub-edge → independent of topological naming). Golden
+- ✅ Sweep (Ready #7 + #7b) — first NON-PRISMATIC feature, now end-to-end:
+      `SweepFeature` sweeps a closed profile along a SECOND sketch's open path
+      wire (add/cut), reusing the FeatureRef-to-sketch mechanism (path = whole
+      feature, not a sub-edge → independent of topological naming). Golden
       `sweep-circle-r8-h30` (analytic cylinder π·r²·h) through every gate; 6
-      body-affecting features now. **UI pending (#7b).** v1: no twist/scale/
-      guide-rails; anchored at the profile.
+      body-affecting features now. **UI (#7b):** `SweepEditor` with a double
+      feature-reference picker (Profile + Path selects over the tree's
+      sketches), Sweep tool + `S` accel gated on ≥2 solved sketches, rebuild
+      errors surfaced in the tree; `sweep.spec.ts` real-stack green. v1: no
+      twist/scale/guide-rails; anchored at the profile.
 - ✅ Fillet/Chamfer authoring UI (Ready #1) — FilletEditor + ChamferEditor
       wired into PartPage (create/edit/submit), CreateStrip buttons live on a
       body; predicate edge selector + brass radius/distance handle. A user can
@@ -189,7 +192,7 @@ evidence in `CHANGELOG.md`. One line per item:
       mass-properties panel, units system (BACKLOG Next).
 - 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
       2026-07-12 (commit e022114); feeds this groom's Ready restock.
-- 🚧 Part-modeling breadth — sweep BACKEND shipped (UI #7b pending); loft,
+- 🚧 Part-modeling breadth — sweep shipped end-to-end (#7 + #7b); loft,
       shell, draft, dedicated hole, feature-scoped patterns, multi-body
       boolean, datum planes/axes still unbuilt (see BACKLOG Ready + Next).
 - ⬜ Performance benchmark suite with budgets in CI

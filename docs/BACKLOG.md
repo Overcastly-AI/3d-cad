@@ -27,8 +27,9 @@ pass; this note only points the queue at it, no duplication:
   pattern) but stays ❌: (a) fillet/chamfer authoring UI **shipped** (Ready
   #1 done) — a user can now round/bevel a body through the product via the
   predicate edge selector; click-specific edge picking remains Ready #9; (b)
-  sweep BACKEND shipped (#7 — shafts/ribs now modelable via the API; UI #7b
-  pending); loft/shell/draft/hole still make whole part classes unmodelable —
+  sweep shipped end-to-end (#7 backend + #7b authoring UI — shafts/ribs now
+  modelable in the product); loft/shell/draft/hole still make whole part
+  classes unmodelable —
   Ready #8 (loft), hole/shell/draft stay in Next (gated on face/edge picking); (c)
   edge selection is still predicate-only — Ready #9 (face/edge picking) is
   now startable, its design-doc blocker shipped 2026-07-11.
@@ -250,10 +251,14 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       `sweep_path_not_connected`, `sweep_path_empty`, `no_prior_body`,
       `sweep_failed`); contracts+ts-client regen. v1: no twist/scale/guide-
       rails, anchored at the profile. [src: roadmap, product-auditor]
-- [ ] (P1, S) #7b Sweep authoring UI — profile+path pick, title-block seat;
-      e2e proving a swept body renders at the expected volume; screenshots;
-      `frontend-design` skill invoked. Backend (#7) is live. [src: roadmap,
-      competitive]
+- [x] (P1, S) #7b Sweep authoring UI — `SweepEditor` in the title-block seat
+      with a DOUBLE feature-reference picker (Profile + Path ruled selects over
+      the tree's sketch features, path list excludes the profile), Add/Cut
+      toggle, honest v1 scope note; `SweepIcon` + Sweep tool (accel `S`) gated
+      on ≥2 solved sketches; rebuild errors (`sweep_path_closed`, …) surface in
+      the tree. `sweep.spec.ts` real-stack: circle→30 mm path → π·64·30 mm³
+      cylinder renders + lands in tree, closed-path → `sweep_path_closed`.
+      `frontend-design` invoked. [src: roadmap, competitive]
 - [ ] (P1, M) Loft feature — blend a transitional solid between two or more
       profile sketches. Named alongside sweep in the Part-modeling ❌ notes
       ("lofted surfaces... can't be modeled at all"). Same two-slice pattern

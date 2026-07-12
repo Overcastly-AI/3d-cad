@@ -40,6 +40,9 @@ import {
   type RevolveParams,
   revolveFeatureCreate,
   revolveFeatureUpdate,
+  type SweepParams,
+  sweepFeatureCreate,
+  sweepFeatureUpdate,
   sketchFeatureCreate,
   sketchFeatureUpdate,
   updateFeature,
@@ -53,6 +56,7 @@ import { FilletEditor } from "../components/FilletEditor";
 import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
 import { RevolveEditor } from "../components/RevolveEditor";
+import { SweepEditor } from "../components/SweepEditor";
 import {
   defaultExtrudeForm,
   defaultProfileId,
@@ -73,6 +77,15 @@ import {
   formFromPatternParams,
   type PatternForm,
 } from "../features/pattern";
+import {
+  defaultSweepForm,
+  defaultSweepPathId,
+  defaultSweepProfileId,
+  formFromSweepParams,
+  pathOptions,
+  type ProfileOption,
+  type SweepForm,
+} from "../features/sweep";
 import {
   type ChamferForm,
   defaultChamferForm,
@@ -713,6 +726,15 @@ export function PartPage() {
     }
     return map;
   }, [sketchProfiles, features]);
+  // Path choices per profile sketch — the sweep editor scopes its path picker
+  // to every OTHER sketch (a sketch fills one slot: closed profile OR open path).
+  const pathsByProfile = useMemo(() => {
+    const map: Record<string, ProfileOption[]> = {};
+    for (const profile of sketchProfiles) {
+      map[profile.id] = pathOptions(features, profile.id);
+    }
+    return map;
+  }, [sketchProfiles, features]);
   // The authoring seat holds one editor at a time — an extrude OR a revolve —
   // so they share the saving/error state and the viewport top-left anchor.
   const [editor, setEditor] = useState<
@@ -726,6 +748,12 @@ export function PartPage() {
         kind: "revolve";
         mode: "create" | "edit";
         initial: RevolveForm;
+        featureId?: string;
+      }
+    | {
+        kind: "sweep";
+        mode: "create" | "edit";
+        initial: SweepForm;
         featureId?: string;
       }
     | {
@@ -855,6 +883,24 @@ export function PartPage() {
     });
   }, [tree.data]);
 
+  // A sweep references TWO earlier sketches (a closed profile + an open path),
+  // so it seeds both slots from the tree — the first sketch as the profile, the
+  // first other sketch as the path — and the user retargets either in the form.
+  const openCreateSweep = useCallback(() => {
+    const featureList = tree.data?.features ?? [];
+    const profileId = defaultSweepProfileId(featureList);
+    const pathId = defaultSweepPathId(featureList, profileId);
+    if (profileId === "" || pathId === "") return;
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "sweep",
+      mode: "create",
+      initial: defaultSweepForm(profileId, pathId),
+    });
+  }, [tree.data]);
+
   // A pattern needs no sketch profile — it repeats the current BODY — so it
   // only requires a solid to exist (canModify), unlike extrude/revolve.
   const openCreatePattern = useCallback(() => {
@@ -906,6 +952,13 @@ export function PartPage() {
         mode: "edit",
         featureId: feature.id,
         initial: formFromRevolveParams(feature.feature.params),
+      });
+    } else if (feature.feature.type === "sweep") {
+      setEditor({
+        kind: "sweep",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromSweepParams(feature.feature.params),
       });
     } else if (feature.feature.type === "pattern") {
       setEditor({
@@ -1020,6 +1073,23 @@ export function PartPage() {
     [editor, features, runFeatureSave],
   );
 
+  const submitSweep = useCallback(
+    (params: SweepParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "sweep") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sweep").length + 1;
+      runFeatureSave(
+        (version) => sweepFeatureCreate(`Sweep${nextIndex}`, params, version),
+        (version) => sweepFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The sweep could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
   const submitPattern = useCallback(
     (params: PatternParams) => {
       const current = editor;
@@ -1106,26 +1176,35 @@ export function PartPage() {
       (f) => f.status === "ok" && f.data?.kind === "solved_sketch",
     ) ??
       false);
+  // A sweep needs TWO sketch features to reference (a profile + a path), both
+  // solved so their wires exist — hence ≥2 sketches AND a solve has landed.
+  const canSweep = sketchProfiles.length >= 2 && hasSolvedSketch;
 
   // Sketch mode owns the viewport; leaving/entering it dismisses the editor.
   useEffect(() => {
     if (mode !== "off") setEditor(null);
   }, [mode]);
 
-  // Modify accelerator: P adds a pattern to the current body (mode off, a body
-  // exists) — the same guard grammar as the Measure M accelerator.
+  // Create/Modify accelerators (mode off): P patterns the current body (needs a
+  // body); S sweeps a profile along a path (needs two solved sketches) — the
+  // same guard grammar as the Measure M accelerator.
   useEffect(() => {
     if (mode !== "off") return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
-      if (event.key.toLowerCase() !== "p" || !hasBody) return;
-      event.preventDefault();
-      openCreatePattern();
+      const key = event.key.toLowerCase();
+      if (key === "p" && hasBody) {
+        event.preventDefault();
+        openCreatePattern();
+      } else if (key === "s" && canSweep) {
+        event.preventDefault();
+        openCreateSweep();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, hasBody, openCreatePattern]);
+  }, [mode, hasBody, canSweep, openCreatePattern, openCreateSweep]);
 
   // The body is the hero: once a solid renders, the profile sketch that
   // defined it recedes (it sits on the body's base face — coincident scribe
@@ -1167,6 +1246,8 @@ export function PartPage() {
             onNewExtrude={openCreateExtrude}
             canRevolve={hasSolvedSketch}
             onNewRevolve={openCreateRevolve}
+            canSweep={canSweep}
+            onNewSweep={openCreateSweep}
             canModify={hasBody}
             onFillet={openCreateFillet}
             onChamfer={openCreateChamfer}
@@ -1221,6 +1302,17 @@ export function PartPage() {
                     axesByProfile={axesByProfile}
                     initial={editor.initial}
                     onSubmit={submitRevolve}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
+                ) : editor.kind === "sweep" ? (
+                  <SweepEditor
+                    mode={editor.mode}
+                    profiles={sketchProfiles}
+                    pathsByProfile={pathsByProfile}
+                    initial={editor.initial}
+                    onSubmit={submitSweep}
                     onCancel={closeEditor}
                     saving={editorSaving}
                     error={editorError}

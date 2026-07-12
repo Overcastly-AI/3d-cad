@@ -28,6 +28,8 @@ export type ExtrudeFeature = components["schemas"]["ExtrudeFeature"];
 export type ExtrudeParams = components["schemas"]["ExtrudeParamsV1"];
 export type RevolveFeature = components["schemas"]["RevolveFeature"];
 export type RevolveParams = components["schemas"]["RevolveParamsV1"];
+export type SweepFeature = components["schemas"]["SweepFeature"];
+export type SweepParams = components["schemas"]["SweepParamsV1"];
 export type FilletFeature = components["schemas"]["FilletFeature"];
 export type FilletParams = components["schemas"]["FilletParamsV1"];
 export type ChamferFeature = components["schemas"]["ChamferFeature"];
@@ -273,6 +275,40 @@ export function revolveFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: revolveFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by sweep create and update. */
+function sweepFeatureEnvelope(params: SweepParams): SweepFeature {
+  return { type: "sweep", version: 1, params };
+}
+
+/**
+ * The create payload for a sweep feature: sweep an EARLIER sketch's closed
+ * profile along a SECOND earlier sketch's open path (design §4.3, the
+ * revolve sibling — but with a second `FeatureRef`). Pure — unit-tested
+ * against the generated types, matching `revolveFeatureCreate`.
+ */
+export function sweepFeatureCreate(
+  name: string,
+  params: SweepParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: sweepFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing sweep (no rename). */
+export function sweepFeatureUpdate(
+  params: SweepParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: sweepFeatureEnvelope(params),
   };
 }
 
