@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import { fetchOverlay, measureTargets } from "../api/measure";
+import { editSketch, SketchEditError } from "../api/sketchEdit";
 import { buildEvaluateTree, buildMeasureRequest } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
@@ -117,6 +118,7 @@ export function PartPage() {
   const queryClient = useQueryClient();
 
   const mode = useSketchStore((state) => state.mode);
+  const edit = useSketchStore((state) => state.edit);
   const revision = useSketchStore((state) => state.revision);
   const featureId = useSketchStore((state) => state.featureId);
   const constraintCount = useSketchStore((state) => state.constraints.length);
@@ -523,6 +525,38 @@ export function PartPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, finishSketch, setTool, toggleSnap]);
+
+  // Trim/extend: the scene arms an edit on a target click; this effect owns
+  // the one network hop (the store stays side-effect-free). On success the
+  // result's entity set is adopted and constraints are reconciled in the store
+  // (dangling refs dropped) — the revision bump then re-solves through the
+  // live loop for a bound sketch; an unbound buffer just re-renders locally.
+  // The nonce guards against a double fire (React strict mode / re-render).
+  const editNonceRef = useRef(0);
+  useEffect(() => {
+    if (edit === null || edit.nonce === editNonceRef.current) return;
+    editNonceRef.current = edit.nonce;
+    const { op, target, pick } = edit;
+    void (async () => {
+      try {
+        const result = await editSketch(op, {
+          entities: useSketchStore.getState().entities,
+          target,
+          pick,
+        });
+        const store = useSketchStore.getState();
+        if (store.mode === "draw") store.applyEditResult(op, result.entities);
+      } catch (error) {
+        useSketchStore
+          .getState()
+          .failEdit(
+            error instanceof SketchEditError
+              ? error.message
+              : "The edit could not be applied — try a different spot.",
+          );
+      }
+    })();
+  }, [edit]);
 
   // Leaving the workspace always leaves sketch mode.
   useEffect(() => () => useSketchStore.getState().exit(), []);

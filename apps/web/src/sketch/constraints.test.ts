@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyConstraintAction,
+  constraintEntityRefs,
   constraintGlyphs,
   describeSelection,
   dimensionEditorAnchor,
   formatDimensionMm,
   formatSolveCell,
   parseConflictIndices,
+  reconcileConstraints,
   resolveSketchKey,
   sameConstraint,
   selectionAllConstruction,
@@ -70,7 +72,15 @@ describe("resolveSketchKey — one keyboard, two vocabularies", () => {
   it("letters arm tools while nothing is selected", () => {
     expect(resolveSketchKey("r", false)).toEqual({ type: "tool" });
     expect(resolveSketchKey("c", false)).toEqual({ type: "tool" });
+    // J/K arm the modify tools (trim/extend) — also empty-selection tools.
+    expect(resolveSketchKey("j", false)).toEqual({ type: "tool" });
+    expect(resolveSketchKey("k", false)).toEqual({ type: "tool" });
     expect(resolveSketchKey("h", false)).toBeNull();
+  });
+
+  it("J/K are not constraint verbs when a selection exists", () => {
+    expect(resolveSketchKey("j", true)).toBeNull();
+    expect(resolveSketchKey("k", true)).toBeNull();
   });
 
   it("letters become constraint verbs once something is selected", () => {
@@ -721,5 +731,92 @@ describe("solve feedback", () => {
     expect(describeSelection([pickLine("e1"), pickPoint("e1", "start")])).toBe(
       "1 ent · 1 pt",
     );
+  });
+});
+
+describe("constraint reconciliation after trim/extend", () => {
+  it("lists every entity id a constraint binds to", () => {
+    expect(constraintEntityRefs({ kind: "horizontal", entity: "e1" })).toEqual([
+      "e1",
+    ]);
+    expect(
+      constraintEntityRefs({
+        kind: "fixed",
+        point: { entity: "e2", point: "start" },
+      }),
+    ).toEqual(["e2"]);
+    expect(
+      constraintEntityRefs({ kind: "parallel", a: "e1", b: "e2" }),
+    ).toEqual(["e1", "e2"]);
+    expect(
+      constraintEntityRefs({
+        kind: "symmetric",
+        a: { entity: "e1", point: "start" },
+        b: { entity: "e2", point: "end" },
+        line: "e6",
+      }),
+    ).toEqual(["e1", "e2", "e6"]);
+  });
+
+  it("keeps every constraint when nothing was deleted (a shortened trim)", () => {
+    const before: SketchConstraint[] = [
+      { kind: "horizontal", entity: "e1" },
+      { kind: "distance", entity: "e1", value_mm: 40 },
+    ];
+    // A shortened/split trim keeps e1 (first piece keeps the target id).
+    const result = reconcileConstraints(before, entities);
+    expect(result.removed).toBe(0);
+    expect(result.constraints).toEqual(before);
+  });
+
+  it("drops a constraint on a whole-curve-deleted target", () => {
+    const before: SketchConstraint[] = [
+      { kind: "horizontal", entity: "e1" },
+      { kind: "radius", entity: "e3", value_mm: 10 },
+    ];
+    // e3 (the circle) is gone from the result → its radius dim is dangling.
+    const after = entities.filter((e) => e.id !== "e3");
+    const result = reconcileConstraints(before, after);
+    expect(result.removed).toBe(1);
+    expect(result.constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
+  });
+
+  it("drops a relational constraint when EITHER referenced entity vanished", () => {
+    const before: SketchConstraint[] = [
+      { kind: "parallel", a: "e1", b: "e2" },
+      {
+        kind: "coincident",
+        a: { entity: "e1", point: "end" },
+        b: { entity: "e2", point: "start" },
+      },
+    ];
+    // e2 disappears (e.g. a split dropped the second, unidentified piece).
+    const after = entities.filter((e) => e.id !== "e2");
+    const result = reconcileConstraints(before, after);
+    expect(result.removed).toBe(2);
+    expect(result.constraints).toEqual([]);
+  });
+
+  it("binds a survivor to the first split piece (v1 rule): {target}.n gets no constraints", () => {
+    // Split of e1 → first piece keeps "e1", second becomes "e1.2" (fresh id,
+    // nothing referenced it before). The distance dim on e1 stays, bound to
+    // the first piece; the new piece carries none.
+    const before: SketchConstraint[] = [
+      { kind: "distance", entity: "e1", value_mm: 40 },
+    ];
+    const after: SketchEntity[] = [
+      { ...line }, // "e1", shortened first piece
+      {
+        id: "e1.2",
+        kind: "line",
+        start: { x: 30, y: 0 },
+        end: { x: 40, y: 0 },
+        construction: false,
+      },
+      line2,
+    ];
+    const result = reconcileConstraints(before, after);
+    expect(result.removed).toBe(0);
+    expect(result.constraints).toEqual(before);
   });
 });

@@ -9,7 +9,7 @@ import type { components } from "@loft/ts-client/gateway";
 
 import type { Point2D } from "./plane";
 import type { SketchPick } from "./pick";
-import type { SketchEntity } from "./tools";
+import { TOOL_SHORTCUTS, type SketchEntity } from "./tools";
 
 export type SketchConstraint =
   components["schemas"]["SketchParamsV1"]["constraints"][number];
@@ -88,7 +88,72 @@ export function resolveSketchKey(
     const action = CONSTRAINT_SHORTCUTS[lower];
     return action === undefined ? null : { type: "constraint", action };
   }
-  return "lrca".includes(lower) && lower.length === 1 ? { type: "tool" } : null;
+  return TOOL_SHORTCUTS[lower] !== undefined ? { type: "tool" } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Constraint reconciliation — after a stateless trim/extend rewrite
+// ---------------------------------------------------------------------------
+
+/**
+ * Every entity id a constraint binds to. All ids listed here MUST exist in the
+ * sketch for the constraint to solve — a reference to a missing id is a
+ * dangling constraint the solver rejects.
+ */
+export function constraintEntityRefs(constraint: SketchConstraint): string[] {
+  switch (constraint.kind) {
+    case "horizontal":
+    case "vertical":
+    case "distance":
+    case "radius":
+      return [constraint.entity];
+    case "fixed":
+      return [constraint.point.entity];
+    case "coincident":
+      return [constraint.a.entity, constraint.b.entity];
+    case "parallel":
+    case "perpendicular":
+    case "tangent":
+    case "equal":
+    case "concentric":
+      return [constraint.a, constraint.b];
+    case "symmetric":
+      return [constraint.a.entity, constraint.b.entity, constraint.line];
+  }
+}
+
+export interface ReconcileResult {
+  /** The surviving constraints, original order preserved. */
+  constraints: SketchConstraint[];
+  /** How many constraints were dropped (for the "N removed" readout). */
+  removed: number;
+}
+
+/**
+ * Reconcile the sketch's constraints against the entity set a trim/extend
+ * returned. The geometry endpoint is stateless and constraint-FREE — it
+ * rewrites geometry only — so a trim that DELETES an entity, or drops the
+ * second (`{target}.{n}`) piece of a split, would otherwise leave constraints
+ * pointing at ids that no longer exist and the next solve would error on the
+ * dangling reference.
+ *
+ * v1 rule (pragmatic, and stated honestly in the UI copy): a constraint
+ * survives iff EVERY entity id it references is still present in the result;
+ * any constraint touching a vanished id is dropped. A split keeps the first
+ * piece's id, so constraints on the original stay bound to that first piece —
+ * we do NOT try to re-attach them to the new second piece (that would need
+ * geometric intent we don't have here). Constraints do not magically follow
+ * the cut; the removed count is surfaced to the user.
+ */
+export function reconcileConstraints(
+  constraints: readonly SketchConstraint[],
+  entities: readonly SketchEntity[],
+): ReconcileResult {
+  const ids = new Set(entities.map((e) => e.id));
+  const kept = constraints.filter((c) =>
+    constraintEntityRefs(c).every((id) => ids.has(id)),
+  );
+  return { constraints: kept, removed: constraints.length - kept.length };
 }
 
 /**

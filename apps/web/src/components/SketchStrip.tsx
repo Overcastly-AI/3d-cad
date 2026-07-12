@@ -26,6 +26,7 @@ import {
   ConstructionIcon,
   DistanceIcon,
   EqualIcon,
+  ExtendIcon,
   FixedIcon,
   Flyout,
   type FlyoutItem,
@@ -37,6 +38,7 @@ import {
   RectIcon,
   SymmetricIcon,
   TangentIcon,
+  TrimIcon,
   ToolButton,
   ToolGroup,
   VerticalIcon,
@@ -86,6 +88,35 @@ const TOOLS: ReadonlyArray<{
     keyHint: "A",
     name: "Arc tool (A)",
     icon: <ArcIcon />,
+  },
+];
+
+/**
+ * The modify (clean-up) tools — the "draw rough, then tidy" pair. Trim cuts a
+ * curve at its intersections and deletes the picked piece; Extend grows the
+ * picked end to the nearest neighbor. Both arm like draw tools (empty
+ * selection), then the next click on a curve does the edit.
+ */
+const MODIFY_TOOLS: ReadonlyArray<{
+  tool: SketchTool;
+  label: string;
+  keyHint: string;
+  name: string;
+  icon: ReactNode;
+}> = [
+  {
+    tool: "trim",
+    label: "Trim",
+    keyHint: "J",
+    name: "Trim tool (J) — click a curve to cut it at its intersections",
+    icon: <TrimIcon />,
+  },
+  {
+    tool: "extend",
+    label: "Extend",
+    keyHint: "K",
+    name: "Extend tool (K) — click near a curve's end to grow it to the nearest neighbor",
+    icon: <ExtendIcon />,
   },
 ];
 
@@ -256,6 +287,7 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
     (state) => state.toggleConstruction,
   );
   const hint = useSketchStore((state) => state.hint);
+  const editNote = useSketchStore((state) => state.editNote);
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
 
@@ -322,6 +354,21 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
           <>
             <ToolGroup aria-label="Sketch tools">
               {TOOLS.map(({ tool: t, keyHint, name, icon }) => (
+                <ToolButton
+                  key={t}
+                  icon={icon}
+                  label={name}
+                  shortcut={keyHint}
+                  active={tool === t}
+                  data-testid={`tool-${t}`}
+                  aria-label={name}
+                  onClick={() => setTool(t)}
+                />
+              ))}
+            </ToolGroup>
+
+            <ToolGroup aria-label="Modify">
+              {MODIFY_TOOLS.map(({ tool: t, keyHint, name, icon }) => (
                 <ToolButton
                   key={t}
                   icon={icon}
@@ -403,8 +450,17 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
 
       {/* Transient readouts hang from the band's bottom edge into the
           viewport's top-left, so the band itself stays one thin row. */}
-      {hint || saveError ? (
+      {hint || saveError || editNote ? (
         <div className="absolute left-3 top-full z-20 mt-2 flex max-w-sm flex-col gap-2">
+          {editNote ? (
+            <p
+              role="status"
+              data-testid="sketch-edit-note"
+              className="border border-hairline bg-anvil px-3 py-2 font-body text-xs text-gauge"
+            >
+              {editNote}
+            </p>
+          ) : null}
           {hint ? (
             <p
               role="status"

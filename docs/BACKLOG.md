@@ -76,18 +76,23 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       kind) and circle/point extend (no free end). Tests: analytic unit +
       endpoint gates + gateway proxy + determinism. Contracts/ts-client
       regenerated. GEOMETRY-QA entry 2026-07-12.
-- [ ] (P1, M) #2b Sketch: trim/extend UI — wire the shipped trim/extend
-      backend into the sketch editor: new keyboard verb(s) + selection-
-      presence pattern (avoid the 13 already-assigned letters: H V D R X C P
-      L T E S O N), call the gateway `/geometry/sketch/{trim,extend}` proxies
-      with the entity set + target + pick point, apply the returned entity
-      list (re-map any constraints that referenced a split/removed id — the
-      geometry op is constraint-free by design). Depends on: #2 backend
-      (done). Acceptance: worked e2e — trim two overlapping lines at their
-      intersection and confirm the resulting wire still closes and extrudes;
-      extend a short line to meet its neighbor and confirm the closed-loop
-      check now passes; screenshots; `frontend-design` skill invoked. [src:
-      product-auditor, competitive, roadmap]
+- [x] (P1, M) #2b Sketch: trim/extend UI — DONE 2026-07-12, closes #2 end-to-
+      end. Trim/Extend added to the sketch strip as a MODIFY group (own scribed
+      icons) with free home-row accelerators J/K (every draw + constraint
+      letter H V D R X C P L T E S O N preserved). Armed like a draw tool; the
+      next click on a curve sends `{entities, target, pick}` (raw, unsnapped)
+      to the gateway `/geometry/sketch/{trim,extend}` proxy, replaces the
+      buffer with the result, and re-solves. Hovered target gets brass aim ink.
+      CONSTRAINT RECONCILIATION (the load-bearing correctness concern): a pure
+      `reconcileConstraints(before,after)` drops every constraint referencing a
+      vanished id (deleted / split-dropped piece); v1 rule = a split keeps the
+      first piece's id so its constraints bind there, the fresh `{target}.n`
+      piece carries none — stated honestly in code + the "N constraints
+      removed" note (no silent solver mutation). Gates: typecheck+lint clean,
+      281 vitest (reconcile + store edit unit tests), 3 e2e green on the real
+      stack (trim shortens + solves, extend endpoint moves + solves, tools
+      reachable @1280×800); before/after screenshots under docs/screenshots/.
+      `frontend-design` skill invoked. [src: product-auditor, competitive]
 - [x] (P1, S) Sketch: offset — BACKEND shipped 2026-07-12. Server-side
       geometry op (RESEARCH §3: offset math is kernel-owned, never
       reimplemented in the frontend). Stateless endpoint

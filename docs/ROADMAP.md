@@ -114,11 +114,14 @@ evidence in `CHANGELOG.md`. One line per item:
       geometry. Sketching row re-scored, held ❌ — the remaining named gap is
       the session-tool cluster (trim/extend, offset, mirror, splines, sketch
       fillet/chamfer) — see BACKLOG Ready.
-- ✅ Sketch trim/extend — BACKEND (2026-07-12): stateless server-side
+- ✅ Sketch trim/extend — BACKEND + UI (2026-07-12): stateless server-side
       geometry ops `POST /api/v1/sketch/{trim,extend}` (gateway-proxied),
       exact analytic line/arc/circle trim (Onshape "cut at intersection") +
-      extend-to-neighbor, deterministic, legible 422 error codes. Sketch-UI
-      wiring is BACKLOG #2b; the Sketching row holds ❌ until that lands.
+      extend-to-neighbor, deterministic, legible 422 error codes. UI (#2b,
+      closes #2): Trim/Extend on the sketch strip as a MODIFY group (J/K),
+      click-a-curve to edit through the proxy, buffer swap + re-solve, and
+      constraint reconciliation (dangling refs on a deleted/split id dropped,
+      surfaced as an "N removed" note). 3 e2e green on the real stack.
 - ✅ Sketch offset — BACKEND (2026-07-12): stateless server-side geometry op
       `POST /api/v1/sketch/offset` (gateway-proxied), exact closed-form
       line/arc/circle offset (parallel copy at a signed distance; +distance =

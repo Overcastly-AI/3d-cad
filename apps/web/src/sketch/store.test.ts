@@ -242,6 +242,75 @@ describe("escape cascade", () => {
   });
 });
 
+describe("trim/extend edit + constraint reconciliation", () => {
+  it("requestEdit arms one edit, blocks re-entry while busy, hints on a miss", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().requestEdit("trim", "e1", { x: 20, y: 0 });
+    expect(store().edit).toMatchObject({ op: "trim", target: "e1", nonce: 1 });
+    expect(store().editBusy).toBe(true);
+    // A second arm while busy is ignored (one edit in flight at a time).
+    store().requestEdit("trim", "e2", { x: 40, y: 12 });
+    expect(store().edit?.target).toBe("e1");
+    // A miss (null target) never arms a request — it hints instead.
+    store().failEdit("reset");
+    store().requestEdit("extend", null, { x: 99, y: 99 });
+    expect(store().edit).toBeNull();
+    expect(store().hint).toMatch(/aim at a curve to extend/i);
+  });
+
+  it("applyEditResult swaps entities, drops dangling constraints, notes the count", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    // Constrain e1 (bottom) horizontal, e2 (right) vertical.
+    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().applyConstraint("horizontal");
+    store().selectAt({ x: 40, y: 12 }, 2);
+    store().applyConstraint("vertical");
+    expect(store().constraints).toHaveLength(2);
+
+    store().requestEdit("trim", "e2", { x: 40, y: 12 });
+    const revision = store().revision;
+    // The result deletes e2 entirely (whole-curve trim) — its vertical
+    // constraint is now dangling and must be dropped.
+    const kept = store().entities.filter((e) => e.id !== "e2");
+    store().applyEditResult("trim", kept);
+
+    expect(store().entities.map((e) => e.id)).toEqual(["e1", "e3", "e4"]);
+    expect(store().constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
+    expect(store().revision).toBe(revision + 1);
+    expect(store().editBusy).toBe(false);
+    expect(store().edit).toBeNull();
+    expect(store().editNote).toMatch(/trimmed\. 1 constraint removed/i);
+  });
+
+  it("a clean extend notes the verb without a removed count", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().requestEdit("extend", "e1", { x: 0, y: 0 });
+    const grown = store().entities.map((e) =>
+      e.id === "e1" && e.kind === "line"
+        ? { ...e, start: { x: -10, y: 0 } }
+        : e,
+    );
+    store().applyEditResult("extend", grown);
+    expect(store().editNote).toBe("Extended.");
+    expect(store().constraints).toEqual([]);
+    const e1 = store().entities.find((e) => e.id === "e1");
+    expect(e1?.kind === "line" ? e1.start : null).toEqual({ x: -10, y: 0 });
+  });
+
+  it("switching tools clears the edit note", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().requestEdit("trim", "e1", { x: 20, y: 0 });
+    store().applyEditResult("trim", store().entities);
+    expect(store().editNote).not.toBeNull();
+    store().setTool("line");
+    expect(store().editNote).toBeNull();
+  });
+});
+
 describe("bind + revision bookkeeping", () => {
   it("placing entities bumps revision; bind records the feature", () => {
     rectangleAt();

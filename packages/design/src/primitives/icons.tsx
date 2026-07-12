@@ -79,6 +79,37 @@ export const ArcIcon = (p: IconProps) => (
   </Icon>
 );
 
+// --- Modify sketch (clean-up) -----------------------------------------------
+
+/**
+ * Trim = cut at intersection: a scribe line crossed by a second curve, the
+ * far segment struck through with the "delete" hatch. The X mark reads as
+ * "this piece goes" — the standard cut-at-intersection gesture, in the
+ * title-block hatch idiom rather than a generic scissors.
+ */
+export const TrimIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 15 H20" />
+    <path d="M12 5 V19" />
+    <path d="M14 12 L18 12 M15 10 L17 14 M17 10 L15 14" />
+    <Node cx={4} cy={15} />
+  </Icon>
+);
+
+/**
+ * Extend = grow to meet: a short scribe with an arrow reaching its support
+ * line up to a barrier wall (the vertical stop it lands on). The arrow into
+ * the wall says "lengthen until it meets", the mirror of trim.
+ */
+export const ExtendIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 12 H15" />
+    <path d="M15 12 L11.5 9 M15 12 L11.5 15" />
+    <path d="M19 5 V19" />
+    <Node cx={4} cy={12} />
+  </Icon>
+);
+
 // --- Geometric constraints --------------------------------------------------
 
 export const HorizontalIcon = (p: IconProps) => (

@@ -15,14 +15,24 @@ import type { Point2D } from "./plane";
 export type SketchEntity =
   components["schemas"]["SketchParamsV1"]["entities"][number];
 
-export type SketchTool = "select" | "line" | "rect" | "circle" | "arc";
+export type SketchTool =
+  "select" | "line" | "rect" | "circle" | "arc" | "trim" | "extend";
 
-/** Keyboard tool switching — L/R/C/A (case-insensitive at the call site). */
+/**
+ * Keyboard tool switching — case-insensitive at the call site. Draw tools take
+ * their initials (L/R/C/A); the "clean-up" modify pair (trim/extend) takes the
+ * free adjacent home-row keys J/K — every draw-tool AND constraint-verb letter
+ * (H/V/D/R/X/C/P/L/T/E/S/O/N) is already spoken for, so trim/extend claim two
+ * keys with no mnemonic collision rather than shadow an existing accelerator.
+ * J left of K mirrors Trim left of Extend in the toolbar.
+ */
 export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   l: "line",
   r: "rect",
   c: "circle",
   a: "arc",
+  j: "trim",
+  k: "extend",
 };
 
 /** Coordinates closer than this (mm) are the same point — degenerate. */
@@ -61,8 +71,13 @@ export function placePoint(
   point: Point2D,
   nextIdIndex: number,
 ): PlacementResult {
+  // Trim/extend never PLACE geometry — a click rewrites the picked target
+  // through the stateless geometry service (handled in the scene), so the
+  // placement sequence is a no-op for them (as it is for select).
   switch (tool) {
     case "select":
+    case "trim":
+    case "extend":
       return keep(pending, nextIdIndex);
     case "line": {
       const [start] = pending;
@@ -202,8 +217,12 @@ export function previewEntities(
   pending: Point2D[],
   cursor: Point2D,
 ): SketchEntity[] {
+  // No rubber band for the modify tools — aim feedback is the hovered target
+  // curve highlight, not a placement preview (same as select).
   switch (tool) {
     case "select":
+    case "trim":
+    case "extend":
       return [];
     case "line": {
       const [start] = pending;

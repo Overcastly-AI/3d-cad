@@ -14,6 +14,7 @@ import { create } from "zustand";
 
 import {
   applyConstraintAction,
+  reconcileConstraints,
   toggleConstruction,
   type ConstraintAction,
   type DimensionEditorTarget,
@@ -69,6 +70,21 @@ export interface SketchState {
   solve: SolveInfo | null;
   /** Transient strip hint (invalid constraint action, duplicates, …). */
   hint: string | null;
+  /**
+   * A pending trim/extend the scene armed on a target click; PartPage owns the
+   * network effect that consumes it (the store stays side-effect-free). The
+   * `nonce` lets that effect fire exactly once per request.
+   */
+  edit: {
+    op: "trim" | "extend";
+    target: string;
+    pick: Point2D;
+    nonce: number;
+  } | null;
+  /** True while a trim/extend request is in flight (blocks re-entry). */
+  editBusy: boolean;
+  /** Transient confirmation after an edit ("Trimmed. 2 constraints removed."). */
+  editNote: string | null;
 
   /** Enter sketch mode at the plane-pick step. */
   begin: () => void;
@@ -89,6 +105,22 @@ export interface SketchState {
   applyConstraint: (action: ConstraintAction) => void;
   /** Toggle the selected entities between profile and construction (N). */
   toggleConstruction: () => void;
+  /**
+   * Arm a trim/extend on the target under the pick (raw plane mm). `target`
+   * null means the click missed every curve — a hint, no request.
+   */
+  requestEdit: (
+    op: "trim" | "extend",
+    target: string | null,
+    pick: Point2D,
+  ) => void;
+  /** Apply a trim/extend result: swap the entity set, reconcile constraints. */
+  applyEditResult: (
+    op: "trim" | "extend",
+    entities: readonly SketchEntity[],
+  ) => void;
+  /** Fail the in-flight edit with a surfaced message. */
+  failEdit: (message: string) => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
   editDimension: (constraintIndex: number) => void;
   /** Commit the open dimension editor with a validated value (mm). */
@@ -128,6 +160,9 @@ const INITIAL = {
   revision: 0,
   solve: null,
   hint: null,
+  edit: null,
+  editBusy: false,
+  editNote: null,
 };
 
 export const useSketchStore = create<SketchState>()((set, get) => ({
@@ -145,6 +180,7 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
       selectedConstraint: null,
       dimensionEdit: null,
       hint: null,
+      editNote: null,
     }),
   setHoveredPlane: (hoveredPlane) => set({ hoveredPlane }),
   setCursor: (cursor) => set({ cursor }),
@@ -215,6 +251,53 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
     // ink (selected entities render in brass, which would mask the dash).
     set({ entities: next, revision: revision + 1, selection: [], hint: null });
   },
+
+  requestEdit: (op, target, pick) => {
+    const { editBusy, edit } = get();
+    if (editBusy) return;
+    if (target === null) {
+      set({ hint: `Aim at a curve to ${op}.` });
+      return;
+    }
+    set({
+      edit: { op, target, pick, nonce: (edit?.nonce ?? 0) + 1 },
+      editBusy: true,
+      selection: [],
+      hoverPick: null,
+      selectedConstraint: null,
+      hint: null,
+      editNote: null,
+    });
+  },
+
+  applyEditResult: (op, entities) => {
+    const { edit, constraints, revision } = get();
+    if (edit === null) return;
+    // Reconcile: the stateless edit rewrote geometry only, so a delete/split
+    // can strand constraints on ids that no longer exist. Drop the danglers
+    // BEFORE the revision bump re-triggers the solve — an unreconciled trim
+    // that leaves a dangling constraint would throw on the next evaluate.
+    const { constraints: kept, removed } = reconcileConstraints(
+      constraints,
+      entities,
+    );
+    const verb = op === "trim" ? "Trimmed" : "Extended";
+    const note =
+      removed > 0
+        ? `${verb}. ${removed} ${removed === 1 ? "constraint" : "constraints"} removed.`
+        : `${verb}.`;
+    set({
+      entities: [...entities],
+      constraints: kept,
+      revision: revision + 1,
+      edit: null,
+      editBusy: false,
+      editNote: note,
+      hoverPick: null,
+    });
+  },
+
+  failEdit: (message) => set({ edit: null, editBusy: false, hint: message }),
 
   editDimension: (constraintIndex) => {
     const constraint = get().constraints[constraintIndex];

@@ -279,13 +279,24 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
         // stale closure for the frame right after a keyboard tool switch
         // (zustand commit → React render → r3f handler swap), which loses
         // the first click of a fast key-then-click sequence.
-        if (useSketchStore.getState().tool === "select") {
+        const aimTool = useSketchStore.getState().tool;
+        if (
+          aimTool === "select" ||
+          aimTool === "trim" ||
+          aimTool === "extend"
+        ) {
+          const all = pickCandidates(
+            useSketchStore.getState().entities,
+            raw,
+            toleranceMm(e),
+          );
+          // Trim/extend address a whole curve — the aim affordance highlights
+          // the hovered target only (points are irrelevant to them); select
+          // keeps its finer point-first grain.
           const candidate =
-            pickCandidates(
-              useSketchStore.getState().entities,
-              raw,
-              toleranceMm(e),
-            )[0] ?? null;
+            (aimTool === "select"
+              ? all[0]
+              : all.find((pick) => pick.kind === "entity")) ?? null;
           const previous = useSketchStore.getState().hoverPick;
           if (
             (candidate === null) !== (previous === null) ||
@@ -305,8 +316,23 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
       }}
       onClick={(e) => {
         if (e.delta > CLICK_SLOP_PX) return; // a pan, not a placement
-        if (useSketchStore.getState().tool === "select") {
+        const store = useSketchStore.getState();
+        const clickTool = store.tool;
+        if (clickTool === "select") {
           selectAt(rawPlanePoint(e), toleranceMm(e));
+        } else if (clickTool === "trim" || clickTool === "extend") {
+          // Trim/extend send the RAW pick (unsnapped): the backend uses it to
+          // choose the segment/end, and snapping would jump off a fine target.
+          const raw = rawPlanePoint(e);
+          const target =
+            pickCandidates(store.entities, raw, toleranceMm(e)).find(
+              (pick) => pick.kind === "entity",
+            ) ?? null;
+          store.requestEdit(
+            clickTool,
+            target !== null && target.kind === "entity" ? target.id : null,
+            raw,
+          );
         } else {
           placeAt(snap(rawPlanePoint(e)));
         }
