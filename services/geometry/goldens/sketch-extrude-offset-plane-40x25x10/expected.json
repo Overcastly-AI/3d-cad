@@ -1,0 +1,29 @@
+{
+  "description": "OFFSET-DATUM-PLANE GOLDEN (docs/design/datum-planes.md §11.2): the sketch-extrude-40x25x10 golden's 40 x 25 mm rectangle, but sketched on a DATUM feature — XY offset +30 mm along its normal (base='XY', offset_mm=30, flip=false) — then extruded 10 mm additively. The body is the XY-extrude translated +30 in Z, proving the offset lands EXACTLY where the math says (resolve_sketch_plane -> Plane.XY.offset(30)). Locks the full datum path: datum handler resolves the plane, the sketch's plane FeatureRef resolves to it, profile/face/prism build on the offset plane's origin, GProp measures the translated body. The origin-datum extrude path is unchanged (offset_mm=0 would reproduce Plane.XY byte-for-byte), so this is a strict superset, not a behavioural change.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "datum plane = Plane.XY.offset(30): origin (0,0,30), x_dir (1,0,0), y_dir (0,1,0), normal z_dir (0,0,1) — an origin datum slid +30 along its own normal, orientation unchanged (build123d Plane.offset shifts origin by z_dir*amount, preserving x_dir/z_dir)",
+    "profile: the rectangle spans u in [0,40], v in [0,25] in sketch coords; on the offset plane u->world X, v->world Y, and the plane origin adds +30 Z, so the profile sits at x in [0,40], y in [0,25], z = 30 (the offset only translates the origin, adding no in-plane distortion)",
+    "the 5 constraints (identical to the base sketch-extrude golden) have zero residual at the drawn positions, so the solved profile is exactly the drawn rectangle (solver contributes zero error by construction; verified against the base golden)",
+    "volume = 40 * 25 * 10 = 10000 mm^3 (profile area 1000 mm^2 x 10 mm depth) — translation does not change volume",
+    "surface_area = 2*(40*25) + 2*(40*10) + 2*(25*10) = 2000 + 800 + 500 = 3300 mm^2 (identical to the base golden)",
+    "centroid = (40/2, 25/2, 30 + 10/2) = (20, 12.5, 35) mm — the base golden's (20,12.5,5) translated +30 in Z; extrude direction 'normal' on the offset plane is its +Z normal, so z spans [30, 40]",
+    "bounding_box = [0,0,30]..[40,25,40]: the base golden's [0,0,0]..[40,25,10] translated +30 in Z, confirming the offset plane places the body 30 mm above XY",
+    "topology: a rectangular prism is 6 planar faces, 12 straight edges, 1 closed shell — identical to the base golden; the plane offset is a rigid translation, so topology is untouched",
+    "mesh: each planar rectangular face tessellates to exactly 2 triangles (6 * 2 = 12); faceted per-face normals mean no vertex sharing across faces, so 6 faces * 4 corners = 24 vertices (identical to the base golden)",
+    "GLB byte size is deliberately NOT pinned here: asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). A datum offset is a rigid translation of an exact origin-datum extrude, so it inherits the base sketch-extrude golden's error posture EXACTLY. Measured deviations vs the analytic values (2026-07-12, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 1.82e-12 mm^3 (~2e-16 relative, one-ulp scale at 1e4), surface_area exactly 0.0, centroid <= 3.6e-15 mm, AABB exactly 0.0 on all six bounds (the offset plane's origin is exact in double precision, so the translated bounds are exact too). Documented ceiling 1e-9 = ~500x the observed worst case, matching the base golden's bound and posture (100x TIGHTER than the standing planar 1e-7 bound). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 10000.0,
+    "surface_area": 3300.0,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 35.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 30.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 40.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}

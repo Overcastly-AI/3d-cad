@@ -116,8 +116,47 @@ EdgeSelector = Annotated[
 # --- §1.4 Per-type params (current versions) ------------------------------------
 
 
+class DatumParamsV1(BaseModel):
+    """A datum plane parallel to an origin datum, offset along its normal.
+
+    v1 is the face-free slice (docs/design/datum-planes.md §3): ``base`` is one
+    of the three stable origin datums, ``offset_mm`` slides the plane along that
+    datum's normal, and ``flip`` optionally reverses the normal. No picked
+    geometry, no reference to another feature's output — so this is independent
+    of topological naming (#1), exactly like revolve's world-axis or a pattern's
+    world-vector. A datum is NOT body-affecting: it produces a plane, contributes
+    no body, and is TOTAL — any finite ``offset_mm`` yields a valid plane, so a
+    datum feature never carries an ``error`` status (§3b). A non-finite offset is
+    a parse-time 422 (``allow_inf_nan=False``), never a rebuild error.
+    """
+
+    base: Literal["XY", "XZ", "YZ"] = Field(
+        description="Origin datum this plane is parallel to (its orientation)."
+    )
+    offset_mm: float = Field(
+        allow_inf_nan=False,
+        description="Signed distance along `base`'s normal (mm). 0 coincides "
+        "with the origin datum; +/- selects side. Any finite value is valid.",
+    )
+    flip: bool = Field(
+        default=False,
+        description="Reverse the plane normal (negate z_dir, keeping x_dir so "
+        "sketch +u is unchanged and +v flips). Additive-optional; absent reads "
+        "as False. Position is fully covered by signed `offset_mm`; `flip` only "
+        "chooses which way 'normal' points for authoring/extrude-side.",
+    )
+
+
 class SketchParamsV1(SketchDefinition):
-    """Sketch on a plane — datum planes only in v1 (design §2.1).
+    """Sketch on a plane — an origin datum, or a ``datum`` feature (design §2.1).
+
+    ``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the
+    three origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier
+    ``datum`` feature (an offset/parallel plane — docs/design/datum-planes.md).
+    The ``FeatureRef`` variant is now accepted when it resolves to a ``datum``
+    feature (widened in :func:`feature_references` from no acceptable target to
+    ``{datum}``); the stored shape is unchanged, so this is purely additive — no
+    ``param_version`` bump.
 
     Extends :class:`py_kit.schemas.sketch.SketchDefinition` (typed
     ``entities``/``constraints`` — the §1.4 placeholder finalized by the
@@ -475,6 +514,19 @@ class PatternParamsV1(BaseModel):
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
+class DatumFeature(BaseModel):
+    """``{"type": "datum", "version": 1, "params": {...}}`` envelope.
+
+    A non-body-affecting feature that produces a plane a later sketch sits on
+    (docs/design/datum-planes.md §2b). Additive to the union exactly as
+    sweep/loft/pattern were — no ``param_version`` bump anywhere.
+    """
+
+    type: Literal["datum"]
+    version: Literal[1]
+    params: DatumParamsV1
+
+
 class SketchFeature(BaseModel):
     """``{"type": "sketch", "version": 1, "params": {...}}`` envelope."""
 
@@ -543,7 +595,8 @@ class PatternFeature(BaseModel):
 #: what the OpenAPI contract exports (design §1.4). Older stored versions are
 #: upcast on read via :data:`FEATURE_REGISTRY`.
 Feature = Annotated[
-    SketchFeature
+    DatumFeature
+    | SketchFeature
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
@@ -556,7 +609,8 @@ Feature = Annotated[
 
 #: Plain (non-annotated) union alias for type annotations of validated values.
 FeatureEnvelope = (
-    SketchFeature
+    DatumFeature
+    | SketchFeature
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
@@ -706,6 +760,7 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
 
 #: The module-level registry — sketch + extrude, both at v1.
 FEATURE_REGISTRY: FeatureTypeRegistry[FeatureEnvelope] = FeatureTypeRegistry()
+FEATURE_REGISTRY.register(DatumFeature)
 FEATURE_REGISTRY.register(SketchFeature)
 FEATURE_REGISTRY.register(ExtrudeFeature)
 FEATURE_REGISTRY.register(RevolveFeature)
@@ -764,13 +819,22 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
     """
     references: list[FeatureReference] = []
     match feature:
+        case DatumFeature():
+            # A v1 datum carries NO FeatureRef (design §5): `base` is an
+            # origin-datum enum, `offset_mm`/`flip` are scalars. It is not
+            # body-affecting — it only produces a plane a later sketch sits on.
+            pass
         case SketchFeature():
             if isinstance(feature.params.plane, FeatureRef):
-                # v1 sketches sit on datum planes only; no feature type
-                # produces a sketchable plane yet, so a FeatureRef here is
-                # always invalid.
+                # A sketch-plane FeatureRef is accepted iff it points at a
+                # `datum` feature (design §4): the only feature type that
+                # produces a sketchable plane. This widened `allowed_types`
+                # (was empty) is the entire write-time acceptance change —
+                # documents' §2.2 rule-3 check then permits it.
                 references.append(
-                    FeatureReference("plane", feature.params.plane, frozenset())
+                    FeatureReference(
+                        "plane", feature.params.plane, frozenset({"datum"})
+                    )
                 )
         case ExtrudeFeature() | RevolveFeature():
             # Both take a single sketch profile ref; revolve's axis is a

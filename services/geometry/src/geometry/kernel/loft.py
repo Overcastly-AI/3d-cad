@@ -50,9 +50,8 @@ identical inputs — no unordered iteration participates.
 """
 
 from collections.abc import Sequence
-from typing import Literal
 
-from build123d import Solid, Vertex, Wire
+from build123d import Plane, Solid, Vertex, Wire
 from py_kit.schemas.sketch import SketchEntity, SketchPoint
 
 from geometry.kernel.extrude import (
@@ -71,9 +70,7 @@ class LoftError(RuntimeError):
     sections, or a skin that is not exactly one solid."""
 
 
-def build_loft_section(
-    plane_name: Literal["XY", "XZ", "YZ"], entities: Sequence[SketchEntity]
-) -> LoftSection:
+def build_loft_section(plane: Plane, entities: Sequence[SketchEntity]) -> LoftSection:
     """Assemble one section sketch's solved entities into a loft rail.
 
     Returns the section's single closed profile wire (the OUTER wire of the
@@ -99,11 +96,11 @@ def build_loft_section(
         # and validates the single closed loop) and take its outer boundary as
         # the loft rail. A stray point entity contributes no edge, so a
         # circle+point section is a wire section, never an apex.
-        return build_profile_face(plane_name, entities).outer_wire()
+        return build_profile_face(plane, entities).outer_wire()
 
     points = [entity for entity in non_construction if isinstance(entity, SketchPoint)]
     if len(points) == 1:
-        world = plane_point_to_world(plane_name, points[0].position)
+        world = plane_point_to_world(plane, points[0].position)
         return Vertex(world.X, world.Y, world.Z)
 
     raise ProfileNotClosedError(

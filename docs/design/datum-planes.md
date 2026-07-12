@@ -1,6 +1,8 @@
 # Offset / Datum-Plane Representation — Design
 
-Status: **design only** — no code, no contracts, no `param_version` change.
+Status: **BACKEND IMPLEMENTED** 2026-07-12 (backend slice: DTOs, kernel,
+documents, goldens — see GEOMETRY-QA; plane-picker UI #2b is the follow-up).
+Purely additive — no `param_version` change, no migration.
 Scope: how an **offset (parallel) datum plane** enters the architecture so a
 sketch can sit somewhere other than the three origin datum planes, and so the
 follow-up implementation item ("Offset/datum planes — implementation",
@@ -243,8 +245,13 @@ The two variants split cleanly by role:
 **The change is purely additive — no `param_version` bump for sketch.** The
 `GeomRef` union already contains `FeatureRef`; we are **widening the set of
 accepted `FeatureRef` targets** (from none to `{datum}`), not changing the
-stored shape. Concretely, the migration is three edits, none of which touches
-the wire format:
+stored shape. Concretely, the *reference-graph* delta is three edits, none of
+which touches the wire format (NB — these three are only the reference-graph
+change; the FULL implementation also includes the `DatumParamsV1`/`DatumFeature`
+DTOs (§3), the `_evaluate_datum` handler + `assert_never` `case DatumFeature()`
+arm, the `resolve_sketch_plane` kernel refactor to a resolved `Plane` (§3a/§11.3),
+and the two goldens + determinism gates (§5/§9/§11.2) — implemented 2026-07-12,
+see GEOMETRY-QA):
 
 1. **`feature_references()` SketchFeature case:** the sketch-plane `FeatureRef`
    slot rule changes `frozenset()` → `frozenset({"datum"})`. That is the entire

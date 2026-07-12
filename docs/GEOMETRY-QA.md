@@ -51,6 +51,8 @@ recorded from harness output.
 | `sweep-circle-r8-h30` | FIRST SWEEP golden (first NON-PRISMATIC feature, #7): sketch→sketch→sweep tree — an r=8 circle profile swept along a SECOND sketch's straight 30 mm OPEN path (vertical line on XZ) into a right circular cylinder; locks the sweep handler + two-sketch FeatureRef resolution (profile + open path wire) + open-wire assembly (shared per-entity edge builder) + `Solid.sweep`; cross-checks that `Solid.sweep` reproduces `build_cylinder`'s exact B-rep/mesh by a different code path | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 1.44e-15 on centroid, vol/area/AABB EXACTLY 0.0) | 3 / 3 / 1 | 506 / 500 |
 | `sketch-spline-extrude` | FIRST FREE-FORM golden (fit-point spline, #6): sketch→extrude tree with a closed profile of 3 lines + 1 interpolating C2 B-spline (`Edge.make_spline`) closing the loop through 4 fit points; locks the non-constrained-spline solver pass-through, the spline profile edge, GProp/tessellation over a B-spline-bounded face, and STEP round-trip. A spline region has NO closed-form mass properties → **measured-then-set** (not analytic) | 1e-6 (measured-then-set, non-analytic curved boundary; on-host deviation 0.0 by byte-determinism gate; 1e-6 = cross-host libm headroom, still 100× tighter than kernel 1e-4 mm) | 6 / 12 / 1 | 372 / 448 |
 | `loft-pyramid-sq20-h30` | FIRST LOFT golden (second NON-PRISMATIC feature, #8): sketch→sketch→loft tree — a 20×20 square section on XY ruled-lofted to a single APEX point 30 mm up +Z into a right square pyramid; locks the loft handler + per-section ordered FeatureRef resolution + loft-to-a-point (a point section → `Vertex`) + `Solid.make_loft(ruled=True)`; analytic pyramid volume a²·h/3 = 4000 mm³, all faces PLANAR so mesh is hand-derivable. NB: a cylinder/frustum golden needs two PARALLEL offset sections (unauthorable — datums are origin-only + mutually perpendicular), hence the apex pyramid | 2e-7 (AABB-padding-limited: ThruSections faces carry OCCT ~1e-7 modeling tolerance → optimal AABB padded ~1e-7; ceiling = 2× kernel linear tol; vol worst 1.82e-12, area EXACTLY 0.0, centroid ≤ 3.7e-16) | 5 / 8 / 1 | 16 / 6 |
+| `sketch-extrude-offset-plane-40x25x10` | FIRST OFFSET-DATUM golden (offset/datum planes): datum→sketch→extrude tree — the `sketch-extrude` rectangle sketched on an XY-offset-**+30** `datum` feature, extruded 10 mm → the base box translated +30 Z, proving `resolve_sketch_plane`→`Plane.XY.offset(30)` lands the body where the math says; origin-datum path unchanged (offset 0 reproduces `Plane.XY` byte-for-byte) | 1e-9 (rigid translation of an exact origin-datum extrude, measured-then-set; vol worst 1.82e-12, area/AABB EXACTLY 0.0, centroid ≤ 3.6e-15) | 6 / 12 / 1 | 24 / 12 |
+| `loft-cylinder-offset-r10-h30` | **THE LOFT THE LOFT NOTE DEFERRED** (two-parallel-circles → cylinder, now authorable via offset planes): datum→datum→sketch→sketch→loft tree — two equal r=10 circles on XY-offset-0 and XY-offset-30 datums ruled-lofted into a right circular cylinder; analytic V = π·r²·h = 3000π, true-cylinder topology 3/3/1, mesh matches the primitive `cylinder-r10-h25` (same r → 126-segment circle) | 2e-7 (AABB-padding-limited, SAME class as `loft-pyramid`: the lofted lateral surface carries OCCT ~1e-7 tol → optimal AABB padded ~1e-7; vol EXACTLY 0.0, area 4.55e-13, centroid ≤ 1.8e-15) | 3 / 3 / 1 | 506 / 500 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
@@ -76,6 +78,64 @@ the <2-section 422) is additionally pinned by `tests/test_loft.py`. No shipped
 modeling capability lacks a golden as of the 2026-07-12 loft entry — the seven
 body-affecting features (extrude, revolve, sweep, loft, fillet, chamfer,
 pattern) are all golden-covered.
+
+---
+
+## 2026-07-12 — Offset/datum planes — BACKEND (BACKLOG Ready #2): sketch-on-an-offset-plane, and the loft the loft note deferred
+
+**What shipped.** A `datum` feature (`DatumParamsV1{base: XY|XZ|YZ, offset_mm
+(allow_inf_nan=False), flip=False}`) joins the `Feature` union + registry
+additively (no `param_version` bump, no migration). A sketch sits on it through
+the existing `FeatureRef` plane slot, whose `allowed_types` widened `frozenset()`
+→ `frozenset({"datum"})` — the only reference-graph change (design §4). One
+`resolve_sketch_plane(ref, state)` funnel maps an origin `DatumPlaneRef` name OR
+a resolved datum-feature `Plane` to a concrete `build123d.Plane`, and every
+downstream kernel builder (`build_profile_face`, `plane_point_to_world`,
+`extrude_face`, `revolve_face`, `build_path_wire`, `build_loft_section`) now
+takes a resolved `Plane` instead of the `"XY"|"XZ"|"YZ"` name literal — the DRY
+refactor *removes* the `DATUM_PLANES[name]` lookup that was repeated per caller.
+The origin-datum path is byte-identical (`offset_mm=0, flip=False` reproduces
+`Plane.XY/.XZ/.YZ` exactly), so every existing golden is unchanged.
+
+**Determinism + goldens.** Plane resolution is a pure function of
+`(base, offset_mm, flip)`; `Plane.offset` is deterministic; no iteration order
+participates (RESEARCH §9). Two new goldens, both passing the golden harness
+(mass props within documented tolerance, topology/mesh exact), STEP round-trip,
+and byte-determinism **including interpreter restart**:
+
+- `sketch-extrude-offset-plane-40x25x10` — the `sketch-extrude` rectangle on an
+  XY-offset-**+30** datum, extruded → the base box translated +30 Z (analytic
+  vol 10000, AABB [0,0,30]..[40,25,40] EXACT). Tolerance 1e-9 (a rigid
+  translation of an exact origin-datum extrude adds no error; worst dev 1.82e-12
+  on volume, AABB exactly 0.0). Proves the offset lands where the math says.
+- `loft-cylinder-offset-r10-h30` — **the two-parallel-circles → cylinder the
+  loft note (`LoftParamsV1` docstring, the `loft-pyramid` golden NB) deferred for
+  lack of a second parallel plane, now authorable.** Two equal r=10 circles on
+  XY-offset-0 and XY-offset-30 datums ruled-lofted into a right circular cylinder:
+  analytic V = π·r²·h = 3000π (dev EXACTLY 0.0), surface 800π (dev 4.55e-13),
+  true-cylinder topology 3/3/1, mesh 506/500 (same r → same 126-segment circle
+  as the primitive `cylinder-r10-h25`, an independent cross-check). Tolerance
+  2e-7 = the SAME AABB-padding class as `loft-pyramid`: a lofted (non-primitive)
+  lateral surface carries OCCT's ~1e-7 mm confusion tolerance, which
+  `bounding_box(optimal=True)` includes, padding each analytic bound by ~1e-7;
+  the single per-model tolerance must cover it (2× the kernel confusion tol,
+  still 500× tighter than the 1e-7 m kernel linear tolerance). Mass properties
+  themselves round-trip near machine precision.
+
+**Revolve/sweep ride the same path.** They already take the resolved `Plane`
+through the same funnel, so a revolve or sweep on an offset plane needs no extra
+code; the offset-extrude + loft goldens exercise the shared resolution, and
+`test_evaluate_tree.py` adds a `flip`-reverses-normal check plus the
+`reference_unresolved` error paths (datum-after-sketch, absent/deleted datum).
+
+**Error paths (never a 500).** A datum is TOTAL — any finite offset is a valid
+plane, so it never carries an `error` status; a non-finite offset is a parse-time
+422. Every failure around a datum is the *sketch's* `reference_unresolved`
+(datum referenced before defined / deleted / rolled back / a non-datum feature),
+pinned to the referenced id under the strict-prefix rule. Documents drives the
+same widened `feature_references()` rule: a sketch-on-datum write is now ACCEPTED
+and edge-materialized (delete-with-dependents → 409), and datum-before-sketch
+order is enforced at write + reorder (`test_features.py`).
 
 ---
 

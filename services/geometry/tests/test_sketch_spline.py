@@ -201,5 +201,5 @@ def test_closed_profile_with_a_spline_edge_builds_a_face() -> None:
         ),
         _spline("e4", [(30.0, 25.0), (15.0, 30.0), (5.0, 20.0), (0.0, 0.0)]),
     ]
-    face = build_profile_face("XY", entities)
+    face = build_profile_face(Plane.XY, entities)
     assert face.area > 0.0

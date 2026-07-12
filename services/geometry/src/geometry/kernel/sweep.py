@@ -35,13 +35,11 @@ are pure functions of their inputs — no unordered iteration participates.
 """
 
 from collections.abc import Sequence
-from typing import Literal
 
-from build123d import Face, Solid, Wire
+from build123d import Face, Plane, Solid, Wire
 from py_kit.schemas.sketch import SketchEntity
 
 from geometry.kernel.extrude import (
-    DATUM_PLANES,
     PROFILE_WIRE_TOLERANCE,
     entity_edges,
 )
@@ -67,22 +65,20 @@ class SweepError(RuntimeError):
     corner tighter than the profile, sweeping material through itself)."""
 
 
-def build_path_wire(
-    plane_name: Literal["XY", "XZ", "YZ"], entities: Sequence[SketchEntity]
-) -> Wire:
+def build_path_wire(plane: Plane, entities: Sequence[SketchEntity]) -> Wire:
     """Assemble a path sketch's solved entities into a single OPEN wire.
 
     The open-wire sibling of :func:`geometry.kernel.extrude.build_profile_face`:
     it collects edges through the SAME per-entity builder (construction geometry
     excluded, input order preserved for determinism) but requires the result to
-    be exactly one **open** chain — the sweep trajectory.
+    be exactly one **open** chain — the sweep trajectory. *plane* is the resolved
+    sketch plane (origin datum or offset ``datum`` feature).
 
     Raises:
         PathEmptyError: no curve entities (only construction geometry/points).
         PathNotConnectedError: the edges form more than one disjoint wire.
         PathClosedError: the single wire is closed (a sweep path must be open).
     """
-    plane = DATUM_PLANES[plane_name]
     edges = [
         edge
         for entity in entities

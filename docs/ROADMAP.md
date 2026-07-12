@@ -6,18 +6,18 @@ Status legend: ✅ done · 🚧 in progress · ⬜ planned
 shipped in full through commit 1e3d422 (2026-07-12): trim/extend, offset,
 mirror, sketch fillet/chamfer, and splines (Fit-Point v1, non-constrained),
 each backend + UI end-to-end. Sweep shipped full-stack (profile along a
-second sketch's open path). **Loft's BACKEND shipped** (ruled loft through
-≥2 ordered sections incl. loft-to-apex) but surfaced a foundational blocker:
-sketches can only sit on the 3 mutually-perpendicular origin datum planes, so
-loft's own golden had to fall back to loft-to-apex for lack of a second
-parallel section — **loft UI (#8b) is explicitly blocked on offset/datum
-planes landing**, not queued as Ready. Offset/datum planes (design note then
-implementation) is now the single highest-leverage foundational unlock —
-top of `docs/BACKLOG.md`'s Ready queue, ranked just above face/edge picking
-(the other big Part-modeling parity gap, now startable on its own shipped
-design-doc blocker). VISION.md's 2026-07-12 re-score flipped the Sketching
-scorecard row ❌→➖; Part modeling stays ❌ with the plane limitation named
-as its sharpest gap. See `docs/BACKLOG.md` Ready queue.
+second sketch's open path). Loft's backend shipped (ruled loft through ≥2
+ordered sections incl. loft-to-apex). **Offset/datum planes — BACKEND shipped**
+(2026-07-12): sketches can now sit on offset/parallel planes (a `datum` feature
+offset a signed distance from an origin datum, + optional normal flip), lifting
+the "3 origin datum planes only" limitation that had forced loft's golden to
+fall back to loft-to-apex. Proven by two goldens — an analytic-exact offset
+extrude and **the two-parallel-circles → cylinder loft the loft note deferred**.
+This **unblocks loft UI (#8b)** and sketch-on-a-height; the paired plane-picker
+UI (#2b) is the remaining follow-up. Next foundational unlock is face/edge
+picking (the other big Part-modeling parity gap). VISION.md's 2026-07-12
+re-score flipped the Sketching scorecard row ❌→➖; Part modeling stays ❌ with
+face/edge picking now its sharpest gap. See `docs/BACKLOG.md` Ready queue.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -124,15 +124,18 @@ item:
       BACKLOG Ready (over-constraint classification, dimension expressions,
       constrainable splines).
 - ✅ Revolve + linear/circular pattern + sweep (backend+UI) + loft BACKEND —
-      8 body-affecting features now. Part-modeling row **stays ❌**: (a) edge
-      selection still predicate-only; (b) **sketches can only sit on the 3
-      origin datum planes** — confirmed in code
-      (`apps/web/src/sketch/plane.ts`, `evaluate.py`), which is also why loft
-      shipped with no UI (#8b) — its own golden had to fall back to
-      loft-to-apex for lack of a second parallel section. Offset/datum
-      planes is now the top-ranked BACKLOG Ready item (unblocks #8b +
-      sketch-on-a-height + is a prerequisite for sketch-on-a-face); face/edge
-      picking ranks a close second (startable now, its design-doc blocker
+      8 body-affecting features now.
+- ✅ Offset/datum planes — BACKEND (2026-07-12): a `datum` feature (offset
+      from an origin datum by a signed distance + optional normal flip) joins
+      the Feature union additively; a sketch sits on it via the existing
+      `FeatureRef` plane slot (widened to accept `datum`), and one
+      `resolve_sketch_plane` funnel threads a resolved `build123d.Plane`
+      through profile/path/loft/revolve. Goldens: analytic-exact offset extrude
+      + the two-parallel-circles→cylinder loft (π·r²·h) the loft note deferred.
+      Removes limitation (b) below; **unblocks loft UI (#8b)** + sketch-on-a-
+      height; #2b plane-picker UI is the follow-up. Part-modeling row **stays
+      ❌** on (a) edge selection still predicate-only — face/edge picking is now
+      the top Part-modeling parity gap (startable, its design-doc blocker
       shipped).
 - ✅ Fillet/Chamfer authoring UI — predicate edge selector, first
       body-affecting authoring UI beyond extrude/revolve.

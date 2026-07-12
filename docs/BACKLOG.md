@@ -63,18 +63,22 @@ polish the re-score flagged; independent of #1–#3 and of each other.
       by `code-reviewer` (endorsed, like the topo-naming precedent) before
       the implementation item starts. [src: product-auditor,
       engineering-auditor, roadmap]
-- [ ] (P1, M) Offset/datum planes — implementation. The single highest-
-      leverage foundational unlock right now: unblocks #8b loft UI (no
-      parallel/height sections today), sketch-on-a-height, and is a
-      prerequisite for sketch-on-a-face. Depends on the design note above
-      landing. v1 scope = offset-from-origin-datum-by-distance only (on-a-
-      face deferred, tracked separately once face picking lands). Acceptance:
-      new plane kind selectable at sketch-create time (offset value + base
-      datum XY/XZ/YZ); a sketch on an offset plane solves/extrudes/persists
-      through rollback; golden model — two parallel offset-plane sections
-      lofted into a frustum (closes the DESIGN NOTE gap on #8's own golden,
-      which had to fall back to loft-to-apex for lack of a second parallel
-      plane); e2e sketch→offset-plane→extrude; screenshots.
+- [x] (P1, M) Offset/datum planes — **BACKEND SHIPPED** (this commit). The
+      single highest-leverage foundational unlock: unblocks #8b loft UI,
+      sketch-on-a-height, and is a prerequisite for sketch-on-a-face. v1 scope
+      = offset-from-origin-datum-by-distance (+ optional normal flip); on-a-face
+      deferred to v2 (gated on face picking). Shipped: `DatumFeature`/
+      `DatumParamsV1` in the `Feature` union + registry; a sketch references a
+      datum via the existing `FeatureRef` plane slot (widened `allowed_types`
+      → `{datum}`, so documents now ACCEPTS + edge-materializes sketch-on-datum
+      and enforces datum-before-sketch order); `resolve_sketch_plane` DRY funnel
+      threads a resolved `build123d.Plane` through profile/path/loft/revolve.
+      Goldens: `sketch-extrude-offset-plane-40x25x10` (analytic-exact box +30 Z)
+      and `loft-cylinder-offset-r10-h30` (**the two-parallel-circles → cylinder
+      the loft note deferred** — π·r²·h, 3/3/1 topology, STEP round-trip,
+      determinism). **Remaining → follow-up #2b:** plane-picker UI (offset+base
+      at sketch-create), viewport offset-origin plane math, e2e
+      sketch→offset-plane→extrude + screenshots.
       [src: product-auditor, engineering-auditor, roadmap]
 - [ ] (P1, M) Viewport v1 — face/edge picking — in-UI selection of a
       specific face/edge for feature authoring, per
@@ -130,11 +134,11 @@ polish the re-score flagged; independent of #1–#3 and of each other.
 
 ## Next (P2)
 
-- [ ] (P1, S) #8b Loft authoring UI — **BLOCKED on offset/datum planes**
-      (Ready, above): a loft UI can't produce a useful loft until parallel
-      sections are authorable — v1's only analytic golden had to fall back
-      to loft-to-apex for lack of a second parallel plane. Do not start
-      until the planes implementation item lands. Scope once unblocked:
+- [ ] (P1, S) #8b Loft authoring UI — **UNBLOCKED** (offset/datum-plane
+      BACKEND shipped 2026-07-12): parallel sections are now authorable, proven
+      by the `loft-cylinder-offset-r10-h30` golden (two parallel offset circles
+      → cylinder). Startable once the #2b plane-picker UI lands so a user can
+      place the two section sketches on offset planes. Scope once unblocked:
       multi-section feature-reference picker (ordered ≥2 sketch sections +
       apex points), title-block seat, Add/Cut toggle, v1 scope note; e2e
       proving a lofted body renders at the expected volume; screenshots;
@@ -361,6 +365,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-12 — **Offset/datum planes — BACKEND shipped.** `DatumFeature` in the
+  Feature union + registry; sketch-on-datum via the widened `FeatureRef` plane
+  slot; `resolve_sketch_plane` DRY funnel → resolved `Plane`. Goldens: offset
+  extrude + the two-parallel-circles→cylinder loft. Ready #2 backend done; #8b
+  loft UI unblocked; #2b plane-picker UI is follow-up. [kernel-architect]
 - 2026-07-12 — **Datum-planes design note landed** (`docs/design/datum-planes.md`):
   datum-plane-as-feature (vs inline spec); v1 = offset-from-origin-datum by
   signed distance; additive backward-compat (no `param_version` bump). Ticks

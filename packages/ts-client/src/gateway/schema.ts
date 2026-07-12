@@ -782,6 +782,60 @@ export interface components {
             radius: number;
         };
         /**
+         * DatumFeature
+         * @description ``{"type": "datum", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A non-body-affecting feature that produces a plane a later sketch sits on
+         *     (docs/design/datum-planes.md §2b). Additive to the union exactly as
+         *     sweep/loft/pattern were — no ``param_version`` bump anywhere.
+         */
+        DatumFeature: {
+            params: components["schemas"]["DatumParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "datum";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * DatumParamsV1
+         * @description A datum plane parallel to an origin datum, offset along its normal.
+         *
+         *     v1 is the face-free slice (docs/design/datum-planes.md §3): ``base`` is one
+         *     of the three stable origin datums, ``offset_mm`` slides the plane along that
+         *     datum's normal, and ``flip`` optionally reverses the normal. No picked
+         *     geometry, no reference to another feature's output — so this is independent
+         *     of topological naming (#1), exactly like revolve's world-axis or a pattern's
+         *     world-vector. A datum is NOT body-affecting: it produces a plane, contributes
+         *     no body, and is TOTAL — any finite ``offset_mm`` yields a valid plane, so a
+         *     datum feature never carries an ``error`` status (§3b). A non-finite offset is
+         *     a parse-time 422 (``allow_inf_nan=False``), never a rebuild error.
+         */
+        DatumParamsV1: {
+            /**
+             * Base
+             * @description Origin datum this plane is parallel to (its orientation).
+             * @enum {string}
+             */
+            base: "XY" | "XZ" | "YZ";
+            /**
+             * Flip
+             * @description Reverse the plane normal (negate z_dir, keeping x_dir so sketch +u is unchanged and +v flips). Additive-optional; absent reads as False. Position is fully covered by signed `offset_mm`; `flip` only chooses which way 'normal' points for authoring/extrude-side.
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * Offset Mm
+             * @description Signed distance along `base`'s normal (mm). 0 coincides with the origin datum; +/- selects side. Any finite value is valid.
+             */
+            offset_mm: number;
+        };
+        /**
          * DatumPlaneRef
          * @description One of the three origin datum planes.
          */
@@ -953,7 +1007,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Id
              * Format: uuid
@@ -1054,7 +1108,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -1135,7 +1189,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Id
              * Format: uuid
@@ -1214,7 +1268,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -2271,7 +2325,15 @@ export interface components {
         };
         /**
          * SketchParamsV1
-         * @description Sketch on a plane — datum planes only in v1 (design §2.1).
+         * @description Sketch on a plane — an origin datum, or a ``datum`` feature (design §2.1).
+         *
+         *     ``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the
+         *     three origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier
+         *     ``datum`` feature (an offset/parallel plane — docs/design/datum-planes.md).
+         *     The ``FeatureRef`` variant is now accepted when it resolves to a ``datum``
+         *     feature (widened in :func:`feature_references` from no acceptable target to
+         *     ``{datum}``); the stored shape is unchanged, so this is purely additive — no
+         *     ``param_version`` bump.
          *
          *     Extends :class:`py_kit.schemas.sketch.SketchDefinition` (typed
          *     ``entities``/``constraints`` — the §1.4 placeholder finalized by the

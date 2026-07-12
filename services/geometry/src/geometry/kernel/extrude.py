@@ -59,6 +59,26 @@ DATUM_PLANES: dict[str, Plane] = {
 PROFILE_WIRE_TOLERANCE = 1e-4
 
 
+def build_datum_plane(
+    base: Literal["XY", "XZ", "YZ"], offset_mm: float, flip: bool
+) -> Plane:
+    """Resolve an offset ``datum`` feature's params to a concrete plane.
+
+    The v1 datum plane (docs/design/datum-planes.md §3a): an origin datum slid
+    along its OWN normal by ``offset_mm`` (``Plane.offset`` shifts ``origin`` by
+    ``z_dir * amount``, preserving ``x_dir``/``z_dir``), with an optional normal
+    ``flip`` that negates ``z_dir`` while keeping ``x_dir`` (so sketch +u is
+    unchanged and +v flips) — a valid orthonormal frame. ``offset_mm = 0`` and
+    ``flip = False`` reproduce the origin datum exactly, so an existing
+    origin-datum sketch resolves to the byte-identical plane. Pure function of
+    ``(base, offset_mm, flip)`` — deterministic, naming-free (RESEARCH §9).
+    """
+    plane = DATUM_PLANES[base].offset(offset_mm)
+    if flip:
+        return Plane(origin=plane.origin, x_dir=plane.x_dir, z_dir=-plane.z_dir)
+    return plane
+
+
 class ProfileNotClosedError(ValueError):
     """The sketch's curve entities do not form a closed wire."""
 
@@ -76,18 +96,18 @@ def _to_world(plane: Plane, point: Point2D) -> Vector:
     return plane.origin + plane.x_dir * point.x + plane.y_dir * point.y
 
 
-def plane_point_to_world(
-    plane_name: Literal["XY", "XZ", "YZ"], point: Point2D
-) -> Vector:
-    """Map a solved sketch (x, y) mm onto its datum plane in world coordinates.
+def plane_point_to_world(plane: Plane, point: Point2D) -> Vector:
+    """Map a solved sketch (x, y) mm onto its sketch *plane* in world coordinates.
 
     The single public entry to the plane→world mapping the profile builder uses
     internally, so a feature that needs a sketch point in world space (e.g.
     revolve's axis endpoints) shares the EXACT mapping the profile is built with
     (CLAUDE.md DRY rule) — the axis and the profile can never disagree on where
-    the sketch plane sits in the world.
+    the sketch plane sits in the world. *plane* is the resolved
+    :class:`~build123d.Plane` (origin datum or offset ``datum`` feature —
+    docs/design/datum-planes.md §3a), so an offset plane's origin is honoured.
     """
-    return _to_world(DATUM_PLANES[plane_name], point)
+    return _to_world(plane, point)
 
 
 def entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
@@ -176,10 +196,13 @@ def entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
             ]
 
 
-def build_profile_face(
-    plane_name: Literal["XY", "XZ", "YZ"], entities: Sequence[SketchEntity]
-) -> Face:
+def build_profile_face(plane: Plane, entities: Sequence[SketchEntity]) -> Face:
     """Assemble solved sketch entities into the single closed profile face.
+
+    *plane* is the resolved sketch :class:`~build123d.Plane` (origin datum or
+    offset ``datum`` feature — docs/design/datum-planes.md §3a); the name→Plane
+    lookup lives up in the feature layer's ``resolve_sketch_plane`` funnel now,
+    so every body-affecting builder takes a concrete plane.
 
     Raises:
         ProfileNotClosedError: no curve entities, or the chained edges do not
@@ -187,7 +210,6 @@ def build_profile_face(
         ProfileUnsupportedError: more than one closed loop (v1 supports a
             single-loop profile; holes/multi-loop faces are a later item).
     """
-    plane = DATUM_PLANES[plane_name]
     edges: list[Edge] = []
     for entity in entities:
         # THE single profile-exclusion point (design §2.4 semantics): every
@@ -222,17 +244,19 @@ def build_profile_face(
 
 def extrude_face(
     face: Face,
-    plane_name: Literal["XY", "XZ", "YZ"],
+    plane: Plane,
     distance_mm: float,
     reverse: bool,
 ) -> Solid:
-    """Linear-extrude *face* along the sketch plane normal (mm).
+    """Linear-extrude *face* along the sketch *plane* normal (mm).
 
     ``reverse`` extrudes along the negative normal (``direction: "reverse"``).
+    *plane* is the resolved sketch plane, so an offset datum's normal (and, with
+    ``flip``, its reversed sense) drives the extrusion direction.
     """
     if distance_mm <= 0:
         raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
-    normal = DATUM_PLANES[plane_name].z_dir
+    normal = plane.z_dir
     direction = normal * (-distance_mm if reverse else distance_mm)
     return Solid.extrude(face, direction)
 

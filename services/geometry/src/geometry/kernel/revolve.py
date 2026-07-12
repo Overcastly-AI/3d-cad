@@ -36,9 +36,8 @@ pure algorithms on identical inputs — no unordered iteration participates.
 
 import math
 from collections.abc import Sequence
-from typing import Literal
 
-from build123d import Axis, Face, Solid
+from build123d import Axis, Face, Plane, Solid
 from py_kit.schemas.sketch import (
     SketchArc,
     SketchCircle,
@@ -198,16 +197,17 @@ def check_axis_clears_profile(
 def revolve_face(
     face: Face,
     axis: SketchLine,
-    plane_name: Literal["XY", "XZ", "YZ"],
+    plane: Plane,
     angle_deg: float,
     reverse: bool,
 ) -> Solid:
     """Revolve *face* about the sketch-plane *axis* line by *angle_deg*.
 
     The axis is built from the line's two endpoints mapped to world space
-    through the profile's datum plane (shared mapping — the axis and profile
-    agree on plane placement). ``reverse`` sweeps the opposite way about the
-    axis (visible only for a partial angle; a full 360° is handed either way).
+    through the profile's resolved sketch *plane* (shared mapping — the axis and
+    profile agree on plane placement, including on an offset ``datum`` plane).
+    ``reverse`` sweeps the opposite way about the axis (visible only for a
+    partial angle; a full 360° is handed either way).
 
     Raises:
         RevolveError: the OCCT revolve failed or left other than exactly one
@@ -216,8 +216,8 @@ def revolve_face(
     if not 0.0 < angle_deg <= 360.0:
         raise ValueError(f"angle_deg must be in (0, 360], got {angle_deg}")
 
-    origin = plane_point_to_world(plane_name, axis.start)
-    direction = plane_point_to_world(plane_name, axis.end) - origin
+    origin = plane_point_to_world(plane, axis.start)
+    direction = plane_point_to_world(plane, axis.end) - origin
     if reverse:
         direction = -direction
     revolution_axis = Axis(origin, direction)

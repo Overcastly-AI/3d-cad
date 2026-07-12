@@ -78,6 +78,22 @@ def _sketch_envelope() -> dict[str, Any]:
     return {"type": "sketch", "version": 1, "params": SKETCH_PARAMS}
 
 
+def _datum_envelope(offset_mm: float = 30.0, flip: bool = False) -> dict[str, Any]:
+    #: An offset datum plane (docs/design/datum-planes.md §3): non-body-affecting.
+    return {
+        "type": "datum",
+        "version": 1,
+        "params": {"base": "XY", "offset_mm": offset_mm, "flip": flip},
+    }
+
+
+def _sketch_on_feature_envelope(datum_id: str) -> dict[str, Any]:
+    #: A sketch whose plane references a datum feature by id (the widened
+    #: FeatureRef acceptance — datum-planes §4).
+    params = {**SKETCH_PARAMS, "plane": {"kind": "feature", "feature_id": datum_id}}
+    return {"type": "sketch", "version": 1, "params": params}
+
+
 def _extrude_envelope(sketch_id: str) -> dict[str, Any]:
     #: §6 — extrude params, verbatim (profile id substituted).
     return {
@@ -393,7 +409,7 @@ def test_reorder_violating_backward_only_refs_rejected(client: TestClient) -> No
 
 def test_type_incompatible_reference_rejected(client: TestClient) -> None:
     part_id = _create_part(client)
-    sketch_id, extrude_id = _sketch_and_extrude(client, part_id)
+    _sketch_id, extrude_id = _sketch_and_extrude(client, part_id)
     response = client.post(
         f"/api/v1/parts/{part_id}/features",
         json={
@@ -408,6 +424,88 @@ def test_type_incompatible_reference_rejected(client: TestClient) -> None:
     assert error["code"] == "reference_type_invalid"
     assert error["details"]["actual_type"] == "extrude"
     assert error["details"]["allowed_types"] == ["sketch"]
+
+
+def test_sketch_on_datum_plane_accepted_and_edge_materialized(
+    client: TestClient, any_db_url: str
+) -> None:
+    """The datum-planes unlock at the write layer (§4): a datum feature first,
+    then a sketch whose plane FeatureRef points at it — now ACCEPTED (the slot's
+    allowed_types widened to {'datum'}) and materialized as a sketch->datum
+    dependency edge, so deleting the datum becomes a 409-with-dependents."""
+    part_id = _create_part(client)
+    datum = _create_feature(client, part_id, "Plane1", _datum_envelope(), 0)
+    datum_id: str = datum["feature"]["id"]
+    sketch = _create_feature(
+        client, part_id, "Sketch1", _sketch_on_feature_envelope(datum_id), 1
+    )
+    sketch_id: str = sketch["feature"]["id"]
+
+    edges = asyncio.run(
+        _fetch_all(
+            any_db_url,
+            sa.select(
+                FeatureDependency.feature_id,
+                FeatureDependency.references_feature_id,
+            ),
+        )
+    )
+    assert [(str(e[0]), str(e[1])) for e in edges] == [(sketch_id, datum_id)]
+
+    # The materialized edge protects the datum from a lone delete (§2.3).
+    response = client.delete(
+        f"/api/v1/parts/{part_id}/features/{datum_id}?expected_tree_version=2",
+        headers=_headers(),
+    )
+    assert response.status_code == 409
+    assert _envelope_error(response.json())["code"] == "feature_has_dependents"
+
+
+def test_sketch_before_its_datum_rejected_not_earlier(client: TestClient) -> None:
+    """Strict-backward still holds for the new edge (§5): a sketch cannot
+    reference a datum that comes later. Here the sketch is created first, so a
+    forward FeatureRef to a not-yet-existing datum is reference_not_found; the
+    ordering guarantee that a datum evaluates before its sketch is what the
+    geometry eval-time backstop relies on."""
+    part_id = _create_part(client)
+    # Reference an id that does not (yet) exist earlier in the tree.
+    phantom_datum = str(uuid.uuid4())
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Sketch1",
+            "feature": _sketch_on_feature_envelope(phantom_datum),
+            "expected_tree_version": 0,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _envelope_error(response.json())["code"] == "reference_not_found"
+
+
+def test_reorder_sketch_before_datum_rejected(client: TestClient) -> None:
+    """A reorder that moves a sketch before the datum it sits on is rejected by
+    the strict-backward re-check on the materialized sketch->datum edge (§5)."""
+    part_id = _create_part(client)
+    datum = _create_feature(client, part_id, "Plane1", _datum_envelope(), 0)
+    datum_id: str = datum["feature"]["id"]
+    sketch = _create_feature(
+        client, part_id, "Sketch1", _sketch_on_feature_envelope(datum_id), 1
+    )
+    sketch_id: str = sketch["feature"]["id"]
+
+    response = client.put(
+        f"/api/v1/parts/{part_id}/features/order",
+        json={"expected_tree_version": 2, "order": [sketch_id, datum_id]},
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    error = _envelope_error(response.json())
+    assert error["code"] == "reference_not_earlier"
+    assert error["details"] == {
+        "feature_id": sketch_id,
+        "references_feature_id": datum_id,
+    }
     assert sketch_id  # (fixture part is intact)
 
 

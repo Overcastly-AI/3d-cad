@@ -11,7 +11,9 @@ subsequent feature ``skipped``, and the artifact fields reflect the
 last-good state.
 
 Dispatch is a ``type → handler`` registry (:data:`FEATURE_HANDLERS`):
-``sketch`` (produces input geometry, not body-affecting), ``extrude`` (the
+``datum`` (resolves an offset/parallel plane a later sketch sits on — not
+body-affecting, total; docs/design/datum-planes.md), ``sketch`` (produces
+input geometry, not body-affecting), ``extrude`` (the
 first **body-affecting** feature, §4.3 — mutates the part's single solid body
 chain via add/cut booleans), ``revolve`` (sweeps a profile about a sketch-line
 axis, sharing extrude's profile + boolean plumbing), ``sweep`` (the first
@@ -46,10 +48,11 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from build123d import Face, Solid, Vertex, Wire
+from build123d import Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
     ChamferFeature,
+    DatumFeature,
     DatumPlaneRef,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
@@ -71,6 +74,7 @@ from py_kit.schemas.features import (
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
 
 from geometry.kernel import (
+    DATUM_PLANES,
     AxisIntersectsProfileError,
     BooleanError,
     ChamferError,
@@ -92,6 +96,7 @@ from geometry.kernel import (
     ProfileUnsupportedError,
     RevolveError,
     SweepError,
+    build_datum_plane,
     build_loft_section,
     build_path_wire,
     build_profile_face,
@@ -130,20 +135,27 @@ class EvaluationState:
 
     ``solved_sketches``/``sketch_planes`` are keyed by feature id and
     insertion-ordered by evaluation order (deterministic); the extrude
-    handler reads its profile from them. ``body`` is the part's single solid
-    body chain (design §7.6) — a kernel type held strictly service-internal,
-    mutated only by body-affecting handlers **on success** (so after a
-    failure it is exactly the last-good body the strict-prefix rule
-    tessellates, §4.3).
+    handler reads its profile from them. ``sketch_planes`` holds the RESOLVED
+    :class:`~build123d.Plane` each ok sketch sits on (origin datum or offset
+    ``datum`` feature — docs/design/datum-planes.md §3a), so every downstream
+    builder takes a concrete plane. ``datum_planes`` holds the resolved
+    :class:`~build123d.Plane` of each ok ``datum`` feature, keyed by its id, so
+    a later sketch's plane FeatureRef resolves against it. Both hold kernel
+    types strictly service-internal (never serialized), exactly like ``body``.
+    ``body`` is the part's single solid body chain (design §7.6) — a kernel type
+    held strictly service-internal, mutated only by body-affecting handlers **on
+    success** (so after a failure it is exactly the last-good body the
+    strict-prefix rule tessellates, §4.3).
     """
 
     linear_deflection: float
     solved_sketches: dict[uuid.UUID, SolvedSketch] = field(
         default_factory=dict[uuid.UUID, SolvedSketch]
     )
-    sketch_planes: dict[uuid.UUID, DatumPlaneRef] = field(
-        default_factory=dict[uuid.UUID, DatumPlaneRef]
+    sketch_planes: dict[uuid.UUID, Plane] = field(
+        default_factory=dict[uuid.UUID, Plane]
     )
+    datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
     body: Solid | None = None
 
 
@@ -152,6 +164,58 @@ class EvaluationState:
 #: outcomes are values, never exceptions. Handlers mutate ``state`` only on
 #: the success path.
 FeatureHandler = Callable[[EvaluatedFeatureInput, EvaluationState], FeatureError | None]
+
+
+def resolve_sketch_plane(
+    ref: DatumPlaneRef | FeatureRef, state: EvaluationState
+) -> Plane | FeatureError:
+    """Map a sketch's plane reference to one concrete :class:`~build123d.Plane`.
+
+    The DRY funnel (docs/design/datum-planes.md §3a): a :class:`DatumPlaneRef`
+    (one of the three origin datums) maps by name through :data:`DATUM_PLANES`;
+    a :class:`FeatureRef` resolves to a ``datum`` feature's plane recorded
+    earlier in this pass. Every downstream builder (profile/path/loft rail,
+    revolve axis) takes the resolved plane, so the name→Plane lookup lives here
+    once instead of per caller. A FeatureRef that does not resolve to a datum
+    plane of this prefix (defined later, deleted, rolled back, or a non-datum
+    feature) is a ``reference_unresolved`` error pinned to the referenced
+    feature (§6) — documents rejects it at write time, but geometry re-checks
+    because it must not trust its callers.
+    """
+    if isinstance(ref, DatumPlaneRef):
+        return DATUM_PLANES[ref.plane]
+    plane = state.datum_planes.get(ref.feature_id)
+    if plane is None:
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                "Sketch plane must reference an earlier datum feature of this "
+                "tree; the referenced feature is not a resolved datum plane."
+            ),
+            upstream_feature_id=ref.feature_id,
+        )
+    return plane
+
+
+def _evaluate_datum(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Resolve one offset datum plane (not body-affecting, TOTAL — §3b).
+
+    The v1 datum feature (docs/design/datum-planes.md §3): an origin datum slid
+    ``offset_mm`` along its own normal, with an optional normal ``flip``. It
+    produces a plane, contributes no body, and is TOTAL — any finite offset is a
+    valid plane, so it never returns an error (a non-finite offset is rejected at
+    parse time by ``allow_inf_nan=False``). The resolved plane is recorded under
+    the feature id for a later sketch's plane FeatureRef to resolve against.
+    """
+    feature = item.feature
+    assert isinstance(feature, DatumFeature), "registry dispatches on type='datum'"
+    params = feature.params
+    state.datum_planes[item.id] = build_datum_plane(
+        params.base, params.offset_mm, params.flip
+    )
+    return None
 
 
 def _evaluate_sketch(
@@ -164,24 +228,17 @@ def _evaluate_sketch(
     overconstrained) are ``ok`` — the diagnosis rides in the solved payload
     for the sketcher UI (§7.10) — while statuses with no usable solution
     (conflicting / diverged) map to per-feature errors, never exceptions.
+
+    The sketch's plane reference (an origin datum or a ``datum`` feature) is
+    resolved to a concrete plane through :func:`resolve_sketch_plane` FIRST — a
+    bad plane reference is a ``reference_unresolved`` error before the solve.
     """
     feature = item.feature
     assert isinstance(feature, SketchFeature), "registry dispatches on type='sketch'"
 
-    plane = feature.params.plane
-    if isinstance(plane, FeatureRef):
-        # v1 sketches sit on datum planes only (§2.1); no feature type
-        # produces a sketchable plane yet. Documents rejects this at write
-        # time — geometry re-checks because it must not trust its callers
-        # for correctness.
-        return FeatureError(
-            code="reference_unresolved",
-            message=(
-                "Sketch planes must be datum planes (XY/XZ/YZ) in v1; the "
-                "referenced feature does not provide a sketch plane."
-            ),
-            upstream_feature_id=plane.feature_id,
-        )
+    plane = resolve_sketch_plane(feature.params.plane, state)
+    if isinstance(plane, FeatureError):
+        return plane
 
     try:
         # SketchParamsV1 extends SketchDefinition (py-kit): the validated
@@ -218,7 +275,7 @@ def _evaluate_sketch(
 
 def _resolve_profile_face(
     profile: FeatureRef, state: EvaluationState
-) -> tuple[Face, DatumPlaneRef, SolvedSketch] | FeatureError:
+) -> tuple[Face, Plane, SolvedSketch] | FeatureError:
     """Resolve a profile FeatureRef to its ``(face, plane, solved sketch)``.
 
     The shared front half of every body-affecting feature that consumes a
@@ -245,7 +302,7 @@ def _resolve_profile_face(
             upstream_feature_id=profile_id,
         )
     try:
-        face = build_profile_face(plane.plane, solved.entities)
+        face = build_profile_face(plane, solved.entities)
     except ProfileNotClosedError as exc:
         return FeatureError(
             code="profile_not_closed", message=str(exc), upstream_feature_id=profile_id
@@ -288,9 +345,7 @@ def _evaluate_extrude(
             ),
         )
 
-    tool = extrude_face(
-        face, plane.plane, params.distance_mm, params.direction == "reverse"
-    )
+    tool = extrude_face(face, plane, params.distance_mm, params.direction == "reverse")
     try:
         state.body = combine_body(state.body, tool, params.operation)
     except BooleanError as exc:
@@ -353,7 +408,7 @@ def _evaluate_revolve(
         tool = revolve_face(
             face,
             axis_line,
-            plane.plane,
+            plane,
             params.angle_deg,
             params.direction == "reverse",
         )
@@ -390,7 +445,7 @@ def _resolve_path_wire(path: FeatureRef, state: EvaluationState) -> Wire | Featu
             upstream_feature_id=path_id,
         )
     try:
-        return build_path_wire(plane.plane, solved.entities)
+        return build_path_wire(plane, solved.entities)
     except PathEmptyError as exc:
         return FeatureError(
             code="sweep_path_empty", message=str(exc), upstream_feature_id=path_id
@@ -483,7 +538,7 @@ def _resolve_loft_section(
             upstream_feature_id=section_id,
         )
     try:
-        return build_loft_section(plane.plane, solved.entities)
+        return build_loft_section(plane, solved.entities)
     except ProfileNotClosedError as exc:
         return FeatureError(
             code="profile_not_closed", message=str(exc), upstream_feature_id=section_id
@@ -692,6 +747,7 @@ def _evaluate_pattern(
 #: Consulted by key only; no iteration order participates (RESEARCH §9
 #: determinism). New feature types plug in here.
 FEATURE_HANDLERS: dict[str, FeatureHandler] = {
+    "datum": _evaluate_datum,
     "sketch": _evaluate_sketch,
     "extrude": _evaluate_extrude,
     "revolve": _evaluate_revolve,

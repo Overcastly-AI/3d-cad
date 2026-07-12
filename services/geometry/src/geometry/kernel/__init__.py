@@ -14,9 +14,11 @@ from geometry.kernel.chamfer import ChamferError, chamfer_body
 from geometry.kernel.edges import NoEdgesSelectedError, select_edges
 from geometry.kernel.export import export_step_bytes, export_stl_bytes
 from geometry.kernel.extrude import (
+    DATUM_PLANES,
     BooleanError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
+    build_datum_plane,
     build_profile_face,
     combine_body,
     extrude_face,
@@ -66,6 +68,7 @@ from geometry.schemas import (
 )
 
 __all__ = [
+    "DATUM_PLANES",
     "AxisIntersectsProfileError",
     "BooleanError",
     "ChamferError",
@@ -91,6 +94,7 @@ __all__ = [
     "SweepError",
     "build_box",
     "build_cylinder",
+    "build_datum_plane",
     "build_loft_section",
     "build_path_wire",
     "build_profile_face",

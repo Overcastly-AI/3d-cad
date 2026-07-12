@@ -261,6 +261,63 @@
         "title": "CylinderParams",
         "type": "object"
       },
+      "DatumFeature": {
+        "description": "``{\"type\": \"datum\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA non-body-affecting feature that produces a plane a later sketch sits on\n(docs/design/datum-planes.md \u00a72b). Additive to the union exactly as\nsweep/loft/pattern were \u2014 no ``param_version`` bump anywhere.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/DatumParamsV1"
+          },
+          "type": {
+            "const": "datum",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "DatumFeature",
+        "type": "object"
+      },
+      "DatumParamsV1": {
+        "description": "A datum plane parallel to an origin datum, offset along its normal.\n\nv1 is the face-free slice (docs/design/datum-planes.md \u00a73): ``base`` is one\nof the three stable origin datums, ``offset_mm`` slides the plane along that\ndatum's normal, and ``flip`` optionally reverses the normal. No picked\ngeometry, no reference to another feature's output \u2014 so this is independent\nof topological naming (#1), exactly like revolve's world-axis or a pattern's\nworld-vector. A datum is NOT body-affecting: it produces a plane, contributes\nno body, and is TOTAL \u2014 any finite ``offset_mm`` yields a valid plane, so a\ndatum feature never carries an ``error`` status (\u00a73b). A non-finite offset is\na parse-time 422 (``allow_inf_nan=False``), never a rebuild error.",
+        "properties": {
+          "base": {
+            "description": "Origin datum this plane is parallel to (its orientation).",
+            "enum": [
+              "XY",
+              "XZ",
+              "YZ"
+            ],
+            "title": "Base",
+            "type": "string"
+          },
+          "flip": {
+            "default": false,
+            "description": "Reverse the plane normal (negate z_dir, keeping x_dir so sketch +u is unchanged and +v flips). Additive-optional; absent reads as False. Position is fully covered by signed `offset_mm`; `flip` only chooses which way 'normal' points for authoring/extrude-side.",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "offset_mm": {
+            "description": "Signed distance along `base`'s normal (mm). 0 coincides with the origin datum; +/- selects side. Any finite value is valid.",
+            "title": "Offset Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "base",
+          "offset_mm"
+        ],
+        "title": "DatumParamsV1",
+        "type": "object"
+      },
       "DatumPlaneRef": {
         "description": "One of the three origin datum planes.",
         "properties": {
@@ -505,6 +562,7 @@
             "discriminator": {
               "mapping": {
                 "chamfer": "#/components/schemas/ChamferFeature",
+                "datum": "#/components/schemas/DatumFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
                 "loft": "#/components/schemas/LoftFeature",
@@ -516,6 +574,9 @@
               "propertyName": "type"
             },
             "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumFeature"
+              },
               {
                 "$ref": "#/components/schemas/SketchFeature"
               },
@@ -2240,7 +2301,7 @@
         "type": "object"
       },
       "SketchParamsV1": {
-        "description": "Sketch on a plane \u2014 datum planes only in v1 (design \u00a72.1).\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
+        "description": "Sketch on a plane \u2014 an origin datum, or a ``datum`` feature (design \u00a72.1).\n\n``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the\nthree origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier\n``datum`` feature (an offset/parallel plane \u2014 docs/design/datum-planes.md).\nThe ``FeatureRef`` variant is now accepted when it resolves to a ``datum``\nfeature (widened in :func:`feature_references` from no acceptable target to\n``{datum}``); the stored shape is unchanged, so this is purely additive \u2014 no\n``param_version`` bump.\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
         "properties": {
           "constraints": {
             "items": {

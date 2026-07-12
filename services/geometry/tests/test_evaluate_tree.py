@@ -204,8 +204,9 @@ def test_mid_tree_failure_marks_error_then_skips_downstream() -> None:
     """First failure → error with upstream_feature_id; everything after →
     skipped; last_good_feature_id stays at the last ok feature."""
     bad = rectangle_params()
-    # A FeatureRef plane is unresolvable in v1 (datum planes only, §2.1):
-    # the root cause is an earlier feature's output.
+    # A sketch-plane FeatureRef that resolves to a NON-datum feature (here an
+    # earlier sketch) is unresolvable (datum-planes §6): the plane slot accepts
+    # only a datum feature, so the root cause is that earlier feature's output.
     bad["plane"] = {"kind": "feature", "feature_id": str(SKETCH_ID)}
     result = _post(
         _request(
@@ -347,6 +348,144 @@ def test_unknown_feature_type_rejected_at_validation(
 
     assert response.status_code == 422
     assert_validation_envelope(response.json())
+
+
+# --- Offset / datum planes (docs/design/datum-planes.md) --------------------------
+
+DATUM_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d1")
+
+
+def _datum_input(
+    feature_id: uuid.UUID, base: str, offset_mm: float, flip: bool = False
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "datum",
+            "version": 1,
+            "params": {"base": base, "offset_mm": offset_mm, "flip": flip},
+        },
+    }
+
+
+def _extrude_input(feature_id: uuid.UUID, profile_id: uuid.UUID) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "extrude",
+            "version": 1,
+            "params": {
+                "profile": {"kind": "feature", "feature_id": str(profile_id)},
+                "distance_mm": 10.0,
+                "operation": "add",
+                "direction": "normal",
+            },
+        },
+    }
+
+
+def _sketch_on(feature_id: uuid.UUID, plane_ref: dict[str, Any]) -> dict[str, Any]:
+    params = rectangle_params()
+    params["plane"] = plane_ref
+    return _sketch_input(feature_id, params)
+
+
+def _feature_ref(feature_id: uuid.UUID) -> dict[str, Any]:
+    return {"kind": "feature", "feature_id": str(feature_id)}
+
+
+def test_datum_plane_is_ok_and_not_body_affecting() -> None:
+    """A lone datum feature evaluates ok, carries no payload, and produces no
+    body (it is a plane, not a solid — datum-planes §2b/§3b): artifact fields
+    stay honestly null, but last_good_feature_id still names it."""
+    result = _post(_request([_datum_input(DATUM_ID, "XY", 30.0)]))
+
+    assert [(r.feature_id, r.status, r.error) for r in result.features] == [
+        (DATUM_ID, "ok", None)
+    ]
+    assert result.features[0].data is None
+    assert result.mesh_glb_id is None
+    assert result.properties is None
+    assert result.last_good_feature_id == DATUM_ID
+
+
+def test_sketch_on_offset_datum_extrudes_translated_body() -> None:
+    """The unlock: a sketch on an XY-offset-30 datum, extruded, is the XY
+    extrude translated +30 in Z (resolve_sketch_plane -> Plane.XY.offset(30));
+    the golden asserts the full mass properties, this asserts the eval path."""
+    result = _post(
+        _request(
+            [
+                _datum_input(DATUM_ID, "XY", 30.0),
+                _sketch_on(SKETCH_ID, _feature_ref(DATUM_ID)),
+                _extrude_input(MID_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    props = result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(10000.0, abs=1e-6)
+    assert props.bounding_box.min.z == pytest.approx(30.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert props.bounding_box.max.z == pytest.approx(40.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert props.centroid.z == pytest.approx(35.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_flip_reverses_the_datum_normal() -> None:
+    """`flip` negates the plane normal (datum-planes §3a): on an XY-offset-30
+    datum with flip=true the +Z normal becomes -Z, so a 'normal' extrude builds
+    DOWNWARD from z=30 into z in [20,30] instead of [30,40]."""
+    result = _post(
+        _request(
+            [
+                _datum_input(DATUM_ID, "XY", 30.0, flip=True),
+                _sketch_on(SKETCH_ID, _feature_ref(DATUM_ID)),
+                _extrude_input(MID_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    props = result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(10000.0, abs=1e-6)
+    assert props.bounding_box.min.z == pytest.approx(20.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert props.bounding_box.max.z == pytest.approx(30.0, abs=RECTANGLE_TOLERANCE_MM)
+
+
+def test_sketch_referencing_later_datum_is_reference_unresolved() -> None:
+    """Eval-time backstop for the strict-backward rule (datum-planes §6): a
+    sketch that references a datum defined AFTER it (documents forbids this at
+    write time) fails to resolve its plane — reference_unresolved pinned to the
+    datum id — and everything after is skipped."""
+    result = _post(
+        _request(
+            [
+                _sketch_on(SKETCH_ID, _feature_ref(DATUM_ID)),
+                _datum_input(DATUM_ID, "XY", 30.0),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["error", "skipped"]
+    error = result.features[0].error
+    assert error is not None
+    assert error.code == "reference_unresolved"
+    assert error.upstream_feature_id == DATUM_ID
+
+
+def test_sketch_referencing_absent_datum_is_reference_unresolved() -> None:
+    """A sketch whose plane FeatureRef points at a datum not in the prefix
+    (deleted or rolled back — datum-planes §6) is the same one honest error:
+    reference_unresolved pinned to the missing datum id."""
+    result = _post(_request([_sketch_on(SKETCH_ID, _feature_ref(DATUM_ID))]))
+
+    assert result.features[0].status == "error"
+    error = result.features[0].error
+    assert error is not None
+    assert error.code == "reference_unresolved"
+    assert error.upstream_feature_id == DATUM_ID
 
 
 # --- Rollback = prefix (§4.2) -------------------------------------------------------
