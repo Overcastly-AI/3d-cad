@@ -454,6 +454,21 @@ class SketchEditResult(BaseModel):
         "for how the target is rewritten and how split ids are assigned)."
     )
 
+    @model_validator(mode="after")
+    def _unique_entity_ids(self) -> "SketchEditResult":
+        # Defense in depth: a split-piece id must never collide with an
+        # existing entity id. The edit op seeds its id generator from the whole
+        # sketch to guarantee this; enforcing it on the result too means a
+        # regression fails loudly at the boundary instead of silently
+        # corrupting the sketch (the frontend diffs these ids to reconcile
+        # constraints, so a duplicate would make that diff ambiguous).
+        seen: set[str] = set()
+        for entity in self.entities:
+            if entity.id in seen:
+                raise ValueError(f"Duplicate sketch entity id: {entity.id!r}")
+            seen.add(entity.id)
+        return self
+
 
 # ---------------------------------------------------------------------------
 # Sketch editing — offset (BACKLOG #3, backend)
@@ -543,5 +558,16 @@ class SketchOffsetResult(BaseModel):
     entities: list[SketchEntity] = Field(
         description="The newly created offset entities (source entities are "
         "unchanged and NOT echoed here). One entity in v1 (single-entity "
-        "offset); fresh id `f\"{target}.{n}\"`, construction flag inherited."
+        'offset); fresh id `f"{target}.{n}"`, construction flag inherited.'
     )
+
+    @model_validator(mode="after")
+    def _unique_entity_ids(self) -> "SketchOffsetResult":
+        # Internal-uniqueness guard for the returned batch (trivial at one
+        # entity in v1; future-proofs chain offset, which returns several).
+        seen: set[str] = set()
+        for entity in self.entities:
+            if entity.id in seen:
+                raise ValueError(f"Duplicate sketch entity id: {entity.id!r}")
+            seen.add(entity.id)
+        return self

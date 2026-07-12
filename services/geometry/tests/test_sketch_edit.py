@@ -125,6 +125,33 @@ def test_trim_line_middle_splits_into_two_with_fresh_id() -> None:
     approx_point(second.end, 10.0, 0.0)
 
 
+def test_trim_split_id_skips_preexisting_entity_id() -> None:
+    """A split must not mint an id that already exists elsewhere in the sketch.
+
+    Regression: the fresh-id generator seeds from the WHOLE sketch, so when
+    ``L.2`` is already taken by an unrelated entity the second split piece
+    becomes ``L.3`` — never a duplicate ``L.2`` (which would break the
+    id-uniqueness invariant the frontend's constraint reconciliation relies
+    on when it diffs before/after ids).
+    """
+    entities: list[SketchEntity] = [
+        line("L", 0.0, 0.0, 10.0, 0.0),
+        line("A", 3.0, -5.0, 3.0, 5.0),  # cutter at x=3
+        line("B", 7.0, -5.0, 7.0, 5.0),  # cutter at x=7
+        line("L.2", 0.0, 5.0, 10.0, 5.0),  # unrelated parallel line — never a cutter
+    ]
+    result = trim_sketch(entities, "L", pick(5.0, 0.0))
+
+    ids = [e.id for e in result]
+    assert len(ids) == len(set(ids)), f"duplicate ids: {ids}"
+    assert ids == ["L", "L.3", "A", "B", "L.2"]
+    # the pre-existing L.2 is untouched (still the horizontal parallel line)
+    preexisting = by_id(result, "L.2")
+    assert isinstance(preexisting, SketchLine)
+    approx_point(preexisting.start, 0.0, 5.0)
+    approx_point(preexisting.end, 10.0, 5.0)
+
+
 def test_trim_line_no_intersection_deletes_whole() -> None:
     """No cutter crossing -> the whole target is deleted (Onshape semantics)."""
     entities: list[SketchEntity] = [line("L", 0.0, 0.0, 10.0, 0.0)]
@@ -256,6 +283,20 @@ def test_extend_arc_end_to_radial_line() -> None:
     approx_point(grown.start, 5.0, 0.0)  # start unchanged
     approx_point(
         grown.end, 5.0 * math.cos(3 * math.pi / 4), 5.0 * math.sin(3 * math.pi / 4)
+    )
+
+
+def test_extend_arc_start_to_radial_line() -> None:
+    """Quarter arc extended past its START (before 0deg, clockwise) to a radial
+    line at -45deg -- exercises the negative-offset start branch of _extend_arc."""
+    a = arc("A", 0.0, 0.0, 5.0, 0.0, 0.0, 5.0)  # 0deg -> 90deg
+    cutter = line("C", 0.0, 0.0, 10.0, -10.0)  # y=-x ray, meets circle at -45deg
+    result = extend_sketch([a, cutter], "A", pick(5.0, 0.0))  # pick the start end
+    grown = by_id(result, "A")
+    assert isinstance(grown, SketchArc)
+    approx_point(grown.end, 0.0, 5.0)  # end unchanged
+    approx_point(
+        grown.start, 5.0 * math.cos(-math.pi / 4), 5.0 * math.sin(-math.pi / 4)
     )
 
 

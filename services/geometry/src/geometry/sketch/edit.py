@@ -323,7 +323,10 @@ def _neighbors(
 
 
 def _trim_line(
-    entity: SketchLine, pick: _V, cutters: list[SketchEntity]
+    entity: SketchLine,
+    pick: _V,
+    cutters: list[SketchEntity],
+    existing_ids: set[str],
 ) -> list[SketchEntity]:
     p = _line_param(entity, pick)
     if p < -_TOL or p > 1.0 + _TOL:
@@ -354,11 +357,16 @@ def _trim_line(
             end=_point2d(_point_on_line(entity, t1)),
         )
 
-    return _rebuild(entity, pieces, lambda seg, ident: make(seg[0], seg[1], ident))
+    return _rebuild(
+        entity, pieces, lambda seg, ident: make(seg[0], seg[1], ident), existing_ids
+    )
 
 
 def _trim_arc(
-    entity: SketchArc, pick: _V, cutters: list[SketchEntity]
+    entity: SketchArc,
+    pick: _V,
+    cutters: list[SketchEntity],
+    existing_ids: set[str],
 ) -> list[SketchEntity]:
     c, r, a0, sweep = _arc_geometry(entity)
     p = _arc_offset(entity, pick)
@@ -393,7 +401,9 @@ def _trim_arc(
             end=_point2d(_point_on_circle(c, r, a0 + off1)),
         )
 
-    return _rebuild(entity, pieces, lambda seg, ident: make(seg[0], seg[1], ident))
+    return _rebuild(
+        entity, pieces, lambda seg, ident: make(seg[0], seg[1], ident), existing_ids
+    )
 
 
 def _trim_circle(
@@ -433,9 +443,16 @@ def _rebuild(
     target: SketchEntity,
     pieces: list[tuple[float, float]],
     build: Callable[[tuple[float, float], str], SketchEntity],
+    existing_ids: set[str],
 ) -> list[SketchEntity]:
-    """Turn parameter-segments into entities: first keeps the target id."""
-    used = {target.id}
+    """Turn parameter-segments into entities: first keeps the target id.
+
+    ``existing_ids`` is every id already present in the sketch, so a split
+    piece's ``f"{target}.{n}"`` id can never collide with an unrelated
+    entity (e.g. a pre-existing ``"L.2"``) — the sketch's id-uniqueness
+    invariant is preserved across the trim.
+    """
+    used = set(existing_ids)
     out: list[SketchEntity] = []
     for seg in pieces:
         if seg[1] - seg[0] <= _TOL:
@@ -456,14 +473,15 @@ def trim_sketch(
     the target in place (see :class:`py_kit.schemas.sketch.SketchEditResult`).
     """
     target = _find_target(entities, target_id)
+    existing_ids = {e.id for e in entities}
     cutters: list[SketchEntity] = [
         e for e in entities if e.id != target_id and not isinstance(e, SketchPoint)
     ]
     pv = _pt(pick)
     if isinstance(target, SketchLine):
-        replacement = _trim_line(target, pv, cutters)
+        replacement = _trim_line(target, pv, cutters, existing_ids)
     elif isinstance(target, SketchArc):
-        replacement = _trim_arc(target, pv, cutters)
+        replacement = _trim_arc(target, pv, cutters, existing_ids)
     elif isinstance(target, SketchCircle):
         replacement = _trim_circle(target, pv, cutters)
     else:
