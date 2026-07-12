@@ -2,13 +2,15 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 2 — Parametric core.** Phase 1 is complete: the
-login → sketch → extrude → edit-param → export loop is proven end-to-end in a
-real browser against the real stack by the `full-flow` exit-gate e2e (commit
-ff6b226, 2026-07-11). Phase 2 widens the sketch constraint vocabulary (the
-Sketching scorecard row's named gap) and adds core modeling features (revolve
-first), gated by a topological-naming design doc where features need stable
-face/edge references. See `docs/BACKLOG.md` Ready queue.
+**Current focus: Phase 2 — Parametric core.** Ready batch 1 (topological
+naming design doc, all 12 sketch constraint kinds, revolve, measurement,
+linear/circular pattern) shipped in full through commit 5777656 (2026-07-12).
+Current target: the Sketching row's remaining named gap — trim/extend,
+offset, sketch mirror, splines, sketch fillet/chamfer — corroborated by
+`docs/COMPETITIVE.md`'s first Fusion 360/Plasticity discovery pass; plus
+sweep/loft (Part-modeling breadth), face/edge picking (now unblocked), and
+wiring the existing-but-disabled solid Fillet/Chamfer authoring UI. See
+`docs/BACKLOG.md` Ready queue.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -100,64 +102,33 @@ item below.
 
 ## Phase 2 — Parametric core 🚧
 
-- ⬜ Topological naming strategy — design doc first (the hard CAD problem;
-      gates any feature/UI that lets a user pick and persist a reference to
-      a specific face/edge — face/edge picking, hole placement, pattern
-      seeds)
-- ⬜ Full sketcher: tangent/perpendicular/parallel (✅ shipped: schema+planegcs
-      solver 3a + P/L/T keyboard verbs & ∥/⊥/T glyphs 3b — 3 of the 6 new
-      constraint kinds done)/equal/symmetric/concentric (✅ shipped:
-      schema+planegcs solver 4a + E/S/O keyboard verbs & =/⟷/◎ glyphs 4b —
-      the remaining 3). **All 6 new constraint kinds are now done** (H/V/D/R/X/C
-      base + P/L/T + E/S/O); the Sketching scorecard row is a re-score
-      candidate — vision-steward to reassess.
-      constraints (the Sketching scorecard row's named gap),
-      construction geometry (✅ shipped: schema+solver+profile-exclusion +
-      N-verb UI toggle with dashed/muted rendering), trim/extend,
-      mirror/pattern, splines, over-constraint diagnostics
-- ⬜ Features: revolve (✅ shipped — 5a kernel+schema+golden
-      `revolve-annulus-r10-20-h15` + 5b authoring UI: title-block editor with
-      line-entity axis pick & brass angle handle, live edit, tree errors);
-      linear/circular pattern (✅ shipped — 7 kernel+schema+golden
-      `pattern-linear-3x-bar`: `PatternFeature` v1 replicates the current body
-      and boolean-unions the copies into the single body chain, world-space
-      direction/axis (no topo naming), all error paths pinned; 7b authoring UI:
-      `PatternEditor` (linear⇄circular toggle, world-axis presets, brass count
-      handle) in the Modify group, live edit, tree errors, e2e widens-the-bar).
-      **5 body-affecting features now
-      (extrude+revolve+fillet+chamfer+pattern)** — the Part-modeling scorecard
-      row is a re-score candidate (vision-steward to reassess; still
-      predicate-only edge selection, whole-body pattern only, no hole/shell/
-      draft). Next: sweep, loft, shell, draft, holes, feature-scoped patterns,
-      boolean between bodies, datum planes/axes
-- ⬜ Design system: grouped-icon toolbar + flyouts (✅ shipped — icon layer
-      for the growing tool count: `ToolButton`/`ToolGroup`/`Flyout`/`Kbd` +
-      hand-drawn scribed CAD icon set in `packages/design`; sketch tool +
-      constraint toolbar (Geometric/Dimensional/Relational flyouts) and the
-      feature Create toolbar converted; every keyboard shortcut preserved as a
-      tooltip accelerator; full e2e green. Density revision 2026-07-12:
-      collapsed to a single thin row (~110→26 px) — viewport is the hero.
-      Layout revision 2026-07-12: promoted to a full-width `TopToolbar` band
-      under the brand bar (edge-to-edge, mode-aware SketchStrip ⇄ CreateStrip,
-      fixed 32 px `h-band`) — the viewport gained the width + top-right space.
-      Doc: `docs/design/toolbar-system.md`).
-      Conversion follow-up shipped 2026-07-12: the remaining text-idiom
-      surfaces are now icon-forward — DRO snap toggle (scribed grid glyph),
-      Extrude/Revolve operation+direction toggles (new `SegmentedControl`
-      primitive with add/cut/normal/reverse glyphs), and STEP/STL export cells
-      (cube/mesh glyphs on an enriched `PanelActionCell`). Added a Create▸Modify
-      split to the top band — a Modify group homing Fillet/Chamfer (scribed
-      round/bevel glyphs), disabled until the kernel ops land, accelerators
-      pre-engraved. Every test hook preserved; full e2e green (54 specs).
-      Next: wire Fillet/Chamfer once the geometry ops land + a sketch-tool
-      overflow flyout (slot/polygon/spline)
-- 🚧 Measurement tools, mass properties panel, units system — distance
-      measurement SHIPPED (BACKLOG #6): Measure tool (Inspect group, M) fetches
-      the body's pickable overlay, user picks two vertices/edges, and a brass
-      dimension line + title-block readout report the exact distance + Δx/Δy/Δz +
-      angle (real-stack e2e reads the box golden √1400 ≈ 37.42 mm). Still
-      pending in this bundle: a dedicated mass-properties panel expansion and a
-      units system (currently mm-only)
+Ready batch 1 shipped in full (commits 2531850…5777656, 2026-07-11–12); full
+evidence in `CHANGELOG.md`. One line per item:
+
+- ✅ Topological naming strategy — design doc (`docs/design/
+      topological-naming.md`), code-reviewer-endorsed; unblocks face/edge
+      picking (BACKLOG Ready).
+- ✅ Full sketch constraint vocabulary — all 12 kinds (base 6 + tangent/
+      perpendicular/parallel/equal/symmetric/concentric) + construction
+      geometry. Sketching row re-scored, held ❌ — the remaining named gap is
+      the session-tool cluster (trim/extend, offset, mirror, splines, sketch
+      fillet/chamfer) — see BACKLOG Ready.
+- ✅ Revolve + linear/circular pattern — 5 body-affecting features now
+      (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
+      held ❌: fillet/chamfer have no authoring UI (buttons wired disabled
+      since 5625610), edge selection is still predicate-only, and sweep/
+      loft/shell/draft/hole are unbuilt — see BACKLOG Ready + Next.
+- ✅ Design system: grouped-icon toolbar + flyouts, full text-idiom
+      conversion, Create▸Modify split. Doc: `docs/design/toolbar-system.md`.
+      Remaining follow-up: sketch-tool overflow flyout (slot/polygon/spline),
+      once splines ship.
+- 🚧 Measurement — distance/angle tool shipped (BACKLOG archive). Pending:
+      mass-properties panel, units system (BACKLOG Next).
+- 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
+      2026-07-12 (commit e022114); feeds this groom's Ready restock.
+- ⬜ Part-modeling breadth — sweep, loft, shell, draft, dedicated hole,
+      feature-scoped patterns, multi-body boolean, datum planes/axes (see
+      BACKLOG Ready + Next).
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
 

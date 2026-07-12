@@ -277,3 +277,43 @@ feature-tree.md`: features table vs JSONB tradeoff, versioned param
   Current focus → Phase 2; Ready batch 3 archived; new Phase 2 Ready queue
   (topological naming design doc, sketch constraints, revolve, measurement,
   pattern). [backlog-groomer]
+
+## [Phase 2: Ready batch 1 — parametric core widens] — 2026-07-11 to 2026-07-12
+
+- **docs(design): topological naming strategy** (2531850, revised 2d60185) —
+  `docs/design/topological-naming.md`: staged hybrid signature+provenance,
+  additive `SubshapeRef`, strict-prefix failure; code-reviewer-endorsed.
+- **feat(geometry+web): sketch construction geometry** (313c44f, 8592ae2) —
+  `construction: bool` field + `N` keyboard toggle, dashed/muted render,
+  excluded from the extrude profile check.
+- **feat(geometry+web): tangent/perpendicular/parallel constraints**
+  (d214c9d, d41d51a) — 3 planegcs-backed `ConstraintKind`s + P/L/T verbs +
+  ∥/⊥/T glyphs, worked e2e proves the solve moves geometry.
+- **feat(geometry+web): equal/symmetric/concentric constraints** (a968dbe,
+  9554273) — the remaining 3 kinds + E/S/O verbs + =/⟷/◎ glyphs; all 12
+  constraint kinds now shipped.
+- **feat(geometry+web): revolve feature** (cd7a3e5, 0cff166) — second
+  body-affecting feature, golden `revolve-annulus-r10-20-h15`, title-block
+  axis-pick + angle editor.
+- **feat(web): grouped-icon toolbar + flyouts** (f086fc6, 764ed1a, fe2befa,
+  5625610) — icon layer + hand-drawn CAD icon set, full-width `TopToolbar`
+  band, remaining text-idiom surfaces converted; Modify group added
+  (Fillet/Chamfer buttons wired disabled — UI wiring itself deferred, see
+  BACKLOG Ready). Doc: `docs/design/toolbar-system.md`.
+- **feat(geometry+web): measurement — distance/angle tool** (0bdc434,
+  ee8f89f, 79f0945, 47a4188) — `/measure` + `/overlay` endpoints, viewport
+  pick-and-read UI, brass dimension line + title-block readout.
+- **feat(geometry+web): linear/circular pattern** (ec3f4f7, 5777656) —
+  `PatternFeature` v1 (world-space direction/axis, boolean-union into the
+  body chain) + `PatternEditor` authoring UI; 5th body-affecting feature.
+- **chore+docs(agents): competitive feature-discovery mandate** (2c44fdb,
+  e022114) — `docs/COMPETITIVE.md` living feature-map, first Fusion
+  360/Plasticity discovery pass (WebSearch-sourced after a proxy policy
+  denial on direct doc fetches).
+- **docs(board): groom for Phase 2 restock** (this pass, 2026-07-12) —
+  Ready batch 1 (7 items above) archived; scorecard notes updated (Sketching
+  held ❌ — session-tool cluster now the explicit blocker; Part modeling
+  held ❌ — fillet/chamfer UI gap discovered + sweep/loft/face-picking
+  named); new 10-item Ready queue restocked from COMPETITIVE.md + a
+  code-inspection finding (fillet/chamfer buttons wired but never connected).
+  [backlog-groomer]

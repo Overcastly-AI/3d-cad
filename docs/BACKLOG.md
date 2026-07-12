@@ -1,8 +1,9 @@
 # Dev Board (Backlog)
 
 Single prioritized board maintained by the **backlog-groomer**, fed by the two
-independent auditors (`docs/AUDIT-PRODUCT.md`, `docs/AUDIT-ENGINEERING.md`),
-QA reviews (`docs/UI-REVIEW.md`, `docs/GEOMETRY-QA.md`), and the roadmap. The
+independent auditors (`docs/AUDIT-PRODUCT.md`, `docs/AUDIT-ENGINEERING.md` —
+not yet generated this cycle), QA reviews (`docs/UI-REVIEW.md`,
+`docs/GEOMETRY-QA.md`), `docs/COMPETITIVE.md`, and the roadmap. The
 autonomous build loop pulls from **Ready (top of queue)** only.
 
 Format: `- [ ] (P1, M) title — description [src]` · P0 critical / P1 now /
@@ -14,285 +15,209 @@ Every row is ❌ except Price/freedom (✅ structurally). See VISION.md's table
 for current row text — the vision-steward re-scores it independently each
 pass; this note only points the queue at it, no duplication:
 
-- **Sketching row** — real authoring/constraint/solve loop shipped in Phase 1
-  (6 constraint kinds), but missing the vocabulary most real parts need:
-  tangent/perpendicular/parallel/equal/symmetric/concentric, construction
-  geometry, trim/extend. Ready #2–#4 close this.
-- **Part modeling row** — full sketch→extrude→fillet/chamfer→edit→rollback→
-  render→export loop is real and QA-verified (Phase 1 exit gate), but only 3
-  features exist (no revolve/hole/pattern/shell/draft) and edge selection is
-  predicate-only (`all_edges`/`axis_parallel`), not click-a-specific-edge.
-  Ready #1 (topological naming design doc) is the prerequisite for
-  click-specific selection; Ready #5 (revolve) widens feature breadth.
-- **Interop row** — half-flipped (export now covers modeled trees, not just
-  bare primitives; import is still Phase 4). No Phase 2 items target it
-  further this pass.
+- **Sketching row** — all 12 constraint kinds shipped (Phase 1 base 6 +
+  Phase 2 relational 6: tangent/perpendicular/parallel/equal/symmetric/
+  concentric), but the row stays ❌: the session-every-time authoring/editing
+  tools engineers reach for in every real sketch — trim/extend, offset,
+  sketch mirror, splines, sketch fillet/chamfer — are still entirely
+  unbuilt (VISION.md's own words: "flatly impossible," "hard capability
+  gap"). `docs/COMPETITIVE.md` independently corroborates all 5 across
+  Fusion/Onshape/Plasticity. Ready #2–#6 close this cluster.
+- **Part modeling row** — 5 features now (extrude/revolve/fillet/chamfer/
+  pattern) but stays ❌: (a) fillet/chamfer have **no authoring UI** — the
+  CreateStrip buttons are wired disabled since commit 5625610 (`onFillet`/
+  `onChamfer` never passed to `PartPage`), so an engineer cannot fillet or
+  chamfer through the product today despite the kernel supporting both
+  since Phase 1 — Ready #1 closes this, cheap and backend-complete; (b)
+  sweep/loft/shell/draft/hole still make whole part classes ("shafts,
+  ribs, lofted surfaces") unmodelable — Ready #7–#8 start the widest-named
+  gaps, hole/shell/draft stay in Next (gated on face/edge picking); (c)
+  edge selection is still predicate-only — Ready #9 (face/edge picking) is
+  now startable, its design-doc blocker shipped 2026-07-11.
+- **Interop row** — unchanged from last pass: export covers modeled trees,
+  import is still Phase 4. No Ready items target it this pass.
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
-  access — later phases; no Phase 2 Ready items target them this pass
-  (performance benchmark suite is filed in Next, not yet Ready).
+  access — later phases; untouched this pass.
 
 ## Ready (top of queue)
 
-Phase 2 queue. #1 (topological naming design doc) is a prerequisite for the
-Next-queue face/edge-picking item and any future feature that lets a user
-pick and persist a reference to a specific face/edge (hole placement,
-pattern-by-edge, click-specific fillet/chamfer) — start it immediately, in
-parallel with everything else. #2–#4 (sketcher) and #5 (revolve) are
-independent of #1 and of each other — none needs a stable named reference to
-ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
+Phase 2 restock — the previous batch (topological naming, construction
+geometry, 6-constraint vocabulary, revolve, measurement, pattern) shipped in
+full and is archived below. #1 (fillet/chamfer UI) is the cheapest,
+highest-leverage item: kernel-complete, only needs a title-block editor.
+#2–#6 (sketch profile tools) are independent of each other and of #1, but
+touch the same sketch-entity/wire-manipulation code path — coordinate to
+avoid collisions if run in parallel. #7–#8 (sweep, loft) are independent of
+everything else. #9 (face/edge picking) is now startable — its blocker
+(`docs/design/topological-naming.md`) shipped 2026-07-11 (commit 2531850); it
+unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
 
-- [x] (P1, M) Topological naming strategy — design doc — defines how a
-      `SubshapeRef` (additive `kind` alongside today's geometric `EdgeSelector`,
-      design §2.4) identifies a specific face/edge/vertex stably across
-      feature-tree re-evaluation: naming scheme (index-based vs.
-      geometric-hash vs. OCCT history API), versioning/migration path from
-      v1's `all_edges`/`axis_parallel` selectors, and failure semantics when
-      a named ref can't resolve after an upstream edit (mirrors the §4.3
-      strict-prefix error rule). Design-only, same pattern as
-      `docs/design/feature-tree.md`. Depends on: nothing.
-      Acceptance: `docs/design/topological-naming.md` lands with a concrete
-      worked example per naming approach considered, an explicit
-      decision + rejected-alternatives section, and code-reviewer
-      endorsement (resolution log if a request-changes round happens);
-      unblocks the Next-queue "face/edge picking" item. [src: roadmap,
-      engineering-auditor]
-- [x] (P1, S) Sketch: construction geometry — mark sketch lines/circles/arcs
-      as construction (reference-only, not part of the solid profile): a
-      `construction: bool` field on sketch entities (py-kit schema + upcast
-      registry per feature-tree §5) and a sketcher UI toggle. Construction
-      entities solve and render (dashed/muted token) but are excluded from
-      the closed-wire/profile check that gates extrude. Prereq for the
-      symmetry axes and mirror lines most real parts need. Depends on:
-      nothing (extends the shipped sketch schema + UI).
-      Acceptance: versioned entity-schema field; keyboard-verb UI toggle
-      (same pattern as the shipped H/V/D/R/X/C set); e2e — toggle one edge
-      of a rectangle to construction, confirm extrude still succeeds on the
-      remaining closed loop; screenshot evidence; `frontend-design` skill
-      invoked for the toggle affordance. [src: product-auditor, roadmap]
-      **DONE — 2a (backend, 313c44f) + 2b (frontend, 2026-07-11):** the `N`
-      (coNstruction) keyboard verb toggles the selected entities via the
-      selection-presence pattern (CONSTR cell on the CONSTRAIN strip); a
-      `construction`/dash design token renders them muted+dashed in both
-      renderers; flag round-trips through the sketch feature save; e2e draws a
-      rectangle + construction diagonal, extrudes to 10,000 mm³ (diagonal
-      excluded), reload persists. `frontend-design` skill invoked.
-- [x] (P1, M) Sketch constraints — tangent/perpendicular/parallel — extend
-      the planegcs-backed solver + keyboard-first vocabulary
-      (H/V/D/R/X/C today) with 3 constraint kinds relating two curves — the
-      Sketching row's #1 named gap ("no tangent/perpendicular/parallel... —
-      most real parts need these"). Depends on: nothing (extends shipped
-      constraint plumbing).
-      Acceptance: 3 new `ConstraintKind`s in the typed py-kit schema with a
-      planegcs mapping; new keyboard verbs (selection-presence pattern, same
-      as existing); worked e2e (line-arc tangent, two perpendicular lines,
-      two parallel lines) proving the solve moves geometry correctly; DOF
-      count reflects each constraint; conflict diagnostics extend to the new
-      kinds (reuses `sketch_conflicting` surfacing). [src: product-auditor,
-      roadmap]
-      _PARTIAL (3a shipped): 3 `ConstraintKind`s (parallel/perpendicular/
-      tangent) in the typed py-kit schema + planegcs mapping
-      (parallel/perpendicular/tangent_line_arc & the arc/circle variants) +
-      solver tests (line-arc tangency at 0.0 deviation, 90°/parallel solves,
-      DOF −1 each, parallel+perp conflict via `sketch_conflicting`) +
-      contracts/ts-client regen. Remaining (3b): keyboard verbs + glyphs in
-      apps/web — do not tick until 3b lands._
-      **DONE — 3b (frontend, 2026-07-11):** relational verbs on the
-      selection-presence keyboard — **P** parallel (∥), **L** perpendicular
-      (⊥), **T** tangent (T) — each validates the selection client-side
-      (parallel/perp = two lines; tangent = a line+arc/circle or two curves)
-      with a guiding `role=status` hint, maps to the whole-entity a/b payload,
-      and renders its engineering mark near the geometry; conflict flags reuse
-      the existing solve path. Worked e2e: two parallel lines, two
-      perpendicular lines, line+circle tangent — each asserts the solved
-      geometry moved. `frontend-design` skill invoked (verbs documented,
-      E/S/O left free for #4).
-- [x] (P1, M) Sketch constraints — equal/symmetric/concentric — second
-      constraint-vocabulary slice, same pattern as the item above: equal
-      (length/radius), symmetric (about a line — cleanest with a
-      construction line from the item above, but works with any line),
-      concentric (shared center). Completes the Sketching row's 6-constraint
-      gap. Depends on: nothing as code (symmetric doesn't require
-      construction geometry); sequence after/alongside construction geometry
-      for a clean centerline demo.
-      Acceptance: same shape as the tangent/perpendicular/parallel item —
-      3 new constraint kinds, keyboard verbs, DOF-correct solve, worked e2e
-      (equal-radius circles, symmetric rectangle about a centerline,
-      concentric circles), conflict diagnostics extended. [src:
-      product-auditor, roadmap]
-      _PARTIAL (4a shipped): 3 `ConstraintKind`s (equal/symmetric/concentric)
-      in the typed py-kit schema + planegcs mapping (equal → equal_length /
-      equal_radius_cc/aa/ca dispatched by kind; symmetric → symmetric_line;
-      concentric → coincident centers) + solver tests (equal length & radius
-      to 0.0 diff, symmetric points mirror to (8,3) about x=5 centerline,
-      concentric to shared center, DOF −1/−2 each, equal-vs-distance conflict
-      via `sketch_conflicting`, bitwise determinism, line/mismatch rejections)
-      + contracts/ts-client regen. Forward-compat apps/web stubs only
-      (sameConstraint + glyphAria default branches, 4a→4b). Remaining (4b):
-      keyboard verbs (E/S/O) + glyphs in apps/web — do not tick until 4b
-      lands._
-      **DONE — 4b (frontend, 2026-07-11):** size/shape verbs on the
-      selection-presence keyboard — **E** equal (=), **S** symmetric (⟷ about
-      an axis), **O** cOncentric (◎) — each validates the selection client-side
-      (equal = two lines or two circles/arcs, never mixed; symmetric = two
-      points + a line; concentric = two circles/arcs) with a `role=status`
-      hint, maps to the schema payload, and renders its engineering mark near
-      the geometry; conflict flags reuse the existing solve path. Worked e2e:
-      equal-radius circles converge, concentric circles share a center,
-      rectangle made symmetric about a construction centerline — each asserts
-      the solved geometry moved. `frontend-design` skill invoked. Completes the
-      Sketching row's 6-constraint vocabulary (re-score candidate).
-- [x] (P1, M) Revolve feature — second core body-affecting feature (Part
-      modeling row): revolve a closed sketch profile around an axis (edge or
-      line) via build123d, reusing extrude's profile/closed-wire-check
-      plumbing and registering in the evaluate-tree dispatcher alongside
-      extrude/fillet/chamfer. Independent of #1–#4 — no picked sub-geometry
-      reference needed, only a sketch-plane axis. Depends on: nothing new.
-      Acceptance: golden `revolve-<name>` (new curved-topology class) through
-      every gate — mass props at a measured-then-set tolerance, exact
-      topology/mesh, determinism, STEP round-trip; bad-axis/open-profile/
-      axis-intersects-profile error paths pinned per-feature (strict-prefix
-      rule); contracts + ts-client regenerated; extrude's title-block
-      authoring-UI pattern extended for revolve params (axis pick, angle).
-      [src: roadmap, product-auditor]
-      _PARTIAL (5a shipped): `RevolveParamsV1` (profile ref + `RevolveAxis`
-      sketch-line ref + angle_deg + add/cut + direction) in the typed py-kit
-      schema + registry/union; revolve handler in the evaluate-tree dispatcher
-      reusing extrude's `build_profile_face`/`combine_body`; golden
-      `revolve-annulus-r10-20-h15` (annular cylinder, hand-derived
-      V=4500π/A=1500π) through every gate — mass props @1e-9, exact
-      topology 4/6/1, mesh 1012/1008, byte-determinism (incl. interpreter
-      restart), STEP round-trip (curved, ≤1.04e-10, topology exact); error
-      paths `profile_not_closed`/`no_axis`/`axis_intersects_profile`/
-      `no_prior_body`/`reference_unresolved` pinned; contracts+ts-client
-      regen. No apps/web stub needed (no exhaustive Feature switch). Remaining
-      (5b): revolve authoring UI (axis pick + angle title-block) in apps/web —
-      do not tick until 5b lands._
-      **DONE — 5b (frontend, 2026-07-11):** a "Revolve" feature action beside
-      Extrude opens the revolve editor in the shared title-block seat (mutually
-      exclusive with sketch/extrude). Axis pick = a ruled select of the
-      profile sketch's line entities, construction centerline ranked first &
-      default (keyboard-first, testable — no viewport-pick layer); angle is the
-      brass parametric handle (360° default). Save→evaluate renders the
-      annular body; editing the angle re-evaluates live; per-feature
-      `axis_intersects_profile`/`profile_not_closed` errors surface in the
-      tree. Worked e2e (5/5): seeded offset-from-centerline sketch, revolve via
-      UI → 4500π mm³ washer, angle 360→180 halves the body, both bad-axis/
-      open-profile errors. `frontend-design` skill invoked; screenshots
-      desktop + 1280×800.
-- [x] (P2, S) Measurement tool — point/edge distance — transient viewport
-      measurement (click two points/edges, read distance/angle in a
-      title-block readout); no persisted reference, so independent of #1.
-      Acceptance MET: measure two corners of the `box-10x20x30` golden →
-      readout reads √1400 ≈ 37.42 mm (real-stack e2e `measure.spec.ts`).
-      _SHIPPED (6a): stateless exact-distance endpoints — `POST /measure`
-      (geometry) + gateway proxy over `MeasureRequest`/`MeasureResult`; POINT
-      (exact world coords) or EDGE (transient `body.edges()` index against a
-      supplied `tree`). EXACT for every case via OCCT `BRepExtrema_DistShapeShape`;
-      returns distance + (dx,dy,dz) + witness points + acute line-line angle.
-      422s: `edge_index_out_of_range`/`measure_failed`/`tree_measure_failed`._
-      _SHIPPED (overlay): `POST /overlay` (geometry) + gateway proxy over
-      `OverlayRequest`/`OverlayResult` — the pickability half. Recomputes the
-      tree and returns `vertices` (echoed back as `PointTarget`s) + `edges` in
-      `body.edges()` order (the SAME enumeration `/measure` resolves indices
-      against), each with a kind tag + a polyline sampled at the tree's
-      `linear_deflection`. Indices TRANSIENT (topological naming is Phase 2).
-      422s: `tree_overlay_failed`/`overlay_failed`._
-      _SHIPPED (6b UI): Measure tool in the toolbar's new Inspect group (M,
-      aria-pressed, disabled until a body exists). Arming it fetches the overlay
-      and renders keyboard-navigable, screen-reader-named pick nodes (drei `Html`
-      buttons: round=vertex, diamond=edge) placed by the Z-up→Y-up transform
-      that matches the GLB, so they land on the body. Second pick calls
-      `/measure`; the result draws a brass dimension line + witness marks in the
-      viewport (always-on-top) and a title-block readout (Fragment Mono):
-      distance (hero), Δx/Δy/Δz, angle when two straight edges. Esc clears then
-      exits; 422 envelopes surface legibly. New shared primitive `PickNode` +
-      `measure` tokens + `MeasureIcon`; pure logic unit-tested; e2e ties the UI
-      to the golden. Deferred to a later slice of this bundle: mass-properties
-      panel additions + a units system (still mm-only)._
-- [x] (P2, M) Linear/circular pattern — repeat a feature (or a contiguous
-      run of features) N times along a vector or around an axis; operates on
-      whole features, not picked sub-geometry, so independent of #1.
+- [ ] (P1, S) Fillet/Chamfer authoring UI — wire the existing (disabled)
+      CreateStrip Fillet/Chamfer buttons to a title-block editor, same seat
+      as Extrude/Revolve/Pattern: predicate selector (`all_edges`/
+      `axis_parallel`, matching the kernel's shipped `EdgeSelector`) +
+      radius (fillet) / distance (chamfer). No schema/backend change — both
+      features have shipped goldens since Phase 1 (56eebb0/02b6e9c); this is
+      pure UI wiring closing a real usability gap. Depends on: nothing.
+      Acceptance: `onFillet`/`onChamfer` wired in `PartPage`; Save creates
+      the feature via the existing endpoint; tree row + per-feature errors
+      (`no_fillet_edges`/`fillet_failed`/chamfer equivalents) surface like
+      every other feature; worked e2e — sketch→extrude→fillet via UI on a
+      box, confirm rounded edges render and mass properties change as
+      expected; chamfer variant likewise; screenshots (desktop + 1280×800);
+      `frontend-design` skill invoked. [src: roadmap]
+- [ ] (P1, M) Sketch: trim/extend — trim cuts a curve at its nearest
+      intersection with another sketch curve; extend lengthens a curve to
+      meet neighboring geometry. The Sketching row's #1 named blocker
+      ("draw rough, then clean up" is the incumbents' default workflow —
+      today every vertex must be placed exactly). Depends on: nothing new.
+      Acceptance: new sketch-editing operation(s) (splits/shortens/
+      lengthens curve entities, re-numbers dependent constraints — not a
+      solver constraint kind); new keyboard verb(s), selection-presence
+      pattern (avoid the 13 already-assigned letters: H V D R X C P L T E S
+      O N); worked e2e — trim two overlapping lines at their intersection
+      and confirm the resulting wire still closes and extrudes; extend a
+      short line to meet its neighbor and confirm the closed-loop check now
+      passes; screenshots; `frontend-design` skill invoked. [src:
+      product-auditor, competitive, roadmap]
+- [ ] (P1, S) Sketch: offset — parallel copy of a selected curve/chain at a
+      signed distance (ribs, webs, wall profiles — used constantly).
       Depends on: nothing new.
-      Acceptance: `PatternFeature` (linear: direction/spacing/count;
-      circular: axis/angle/count) in the discriminated feature union;
-      registers in the evaluate-tree dispatcher, boolean-unions repeated
-      instances into the body chain; golden through every gate; bad-count/
-      zero-spacing error paths pinned; contracts regenerated. [src: roadmap,
-      product-auditor]
-      _SHIPPED (7 BACKEND): `PatternFeature` v1 in the feature union +
-      evaluate-tree dispatcher. DESIGN DECISION (option B, GEOMETRY-QA
-      2026-07-12): a pattern replicates the CURRENT body and boolean-UNIONS the
-      copies into the single body chain (§7.6) — instance 0 is the seed (never
-      double-counted); linear places copies at `spacing*k` along a world unit
-      direction, circular every `angle/count` about a world axis (closing
-      instance EXCLUSIVE, so 360° = clean ring). Discriminated `params.pattern`
-      (linear|circular), world-space `Vec3` direction/axis (no sketch ref → no
-      topo naming). Limitations (honest): arrays the WHOLE body (base dragged to
-      each placement — feature-scoped patterning is future work), additive-union
-      only, and copies must merge into ONE connected solid (disjoint →
-      `pattern_disjoint`). Golden `pattern-linear-3x-bar` (1×3 overlapping cubes
-      → bar, vol 2200 mm³, 6/12/1, EXACT 0.0 dev) green through every gate incl.
-      determinism (in-proc + interpreter-restart) + STEP round-trip. Error paths
-      pinned as per-feature rebuild errors (strict-prefix, last-good preserved):
-      `no_target_body`, `pattern_bad_count`/`_spacing`/`_direction`/`_axis`/
-      `_angle`, `pattern_disjoint`. Contracts + ts-client regenerated._
-      _SHIPPED (7b UI): `PatternEditor` in the title-block seat (LINEAR⇄CIRCULAR
-      SegmentedControl; COUNT wears brass + the seed-inclusive note; linear =
-      +direction/spacing, circular = axis point/axis/angle), a Pattern action in
-      the CreateStrip **Modify** group (P accelerator, gated on a body like
-      fillet/chamfer) + `features/pattern.ts` (world-axis presets, form↔param
-      mapping) + `api/parts.ts` builders — all types from the generated client.
-      Rebuild errors (`no_target_body`, `pattern_bad_*`, `pattern_disjoint`)
-      surface through the existing per-feature tree error row. e2e
-      `pattern.spec.ts`: real stack, sketch→extrude→linear pattern count 3
-      spacing 6 → feature lands in the tree AND the body re-renders as the wider
-      bar (X-extent grows). Unit tests for the module + builders (253 web unit
-      green). Founder before/after screenshots (desktop + 1280×800)._
+      Acceptance: new offset operation (typed distance param, works on a
+      line/arc/circle chain); keyboard verb; worked e2e — offset a
+      rectangle edge inward by a set distance, confirm the new entity
+      exists at the expected offset and a closed profile built from it
+      extrudes to the expected volume; screenshots; `frontend-design`
+      skill invoked. [src: product-auditor, competitive, roadmap]
+- [ ] (P1, M) Sketch: mirror — duplicate selected entities reflected about
+      a chosen line (any line, not just construction). v1 scope: a one-shot
+      duplicate, not a live-linked op (explicit scoping call — revisit if
+      the founder wants a live mirror later); sketch-level rectangular/
+      circular array is explicitly out of scope for this item. Depends on:
+      nothing new.
+      Acceptance: new mirror operation; keyboard verb; worked e2e — mirror
+      an L-shaped profile about a centerline, confirm the resulting closed
+      profile extrudes to double the source volume (symmetric part);
+      screenshots; `frontend-design` skill invoked. [src: product-auditor,
+      competitive, roadmap]
+- [ ] (P1, S) Sketch: fillet/chamfer (corner round) — select two sketch
+      lines sharing an endpoint + a radius/distance; replace the corner
+      with a tangent arc (fillet) or bevel line (chamfer), trimming both
+      lines to the new tangent/bevel points. Reuses trim's segment-
+      shortening math (sequence after or alongside the trim/extend item
+      above). Name-collision note: distinct from the SOLID fillet/chamfer
+      (Ready #1) — give it a visually distinct icon/label. Depends on:
+      nothing new (may share code with trim/extend — coordinate).
+      Acceptance: new sketch-corner operation; keyboard verb; worked e2e —
+      round a rectangle's corner, confirm the profile still closes and
+      extrudes to the expected (reduced) volume; screenshots; `frontend-
+      design` skill invoked. [src: product-auditor, competitive, roadmap]
+- [ ] (P1, M) Sketch: splines (Fit-Point v1) — a free-form curve through
+      placed points. Closes the last "flatly impossible" Sketching gap (no
+      organic/free-form profiles at all today). Control-Point/NURBS variant
+      explicitly deferred. Depends on: nothing new, but the planegcs
+      solver's spline support (or lack of it) needs a first-look spike —
+      record the decision (solved vs. rendered-only curve) in the commit
+      message or a GEOMETRY-QA entry.
+      Acceptance: new spline entity type in the typed sketch schema,
+      participates in the closed-wire/profile check; documented per-model
+      tolerance for spline-bounded golden mass properties (CLAUDE.md
+      tolerance rule — no ad-hoc epsilons); worked e2e — draw a 3-point
+      spline, close a profile with two lines, extrude, confirm volume
+      matches a hand/CAD-cross-checked expectation within the documented
+      tolerance; screenshots; `frontend-design` skill invoked. [src:
+      product-auditor, competitive, roadmap]
+- [ ] (P1, M) Sweep feature — sweep a closed profile along a path
+      (edge/line chain) via build123d; add/cut. Named in the Part-modeling
+      ❌ notes ("shafts, ribs... can't be modeled at all"). Same two-slice
+      pattern as revolve/pattern (kernel+schema+golden, then authoring UI —
+      don't tick until both land). Depends on: nothing new.
+      Acceptance: golden `sweep-<name>` through every gate (mass props,
+      exact topology/mesh, determinism, STEP round-trip); open-profile/
+      open-path/self-intersecting-sweep error paths pinned (strict-prefix
+      rule); contracts+ts-client regen; authoring UI (profile+path pick,
+      title-block seat) with e2e proving a swept body renders at the
+      expected volume; screenshots. [src: roadmap, product-auditor,
+      competitive]
+- [ ] (P1, M) Loft feature — blend a transitional solid between two or more
+      profile sketches. Named alongside sweep in the Part-modeling ❌ notes
+      ("lofted surfaces... can't be modeled at all"). Same two-slice pattern
+      as revolve/pattern/sweep. Depends on: nothing new.
+      Acceptance: golden `loft-<name>` through every gate; mismatched-
+      profile-count/non-planar-profile error paths pinned; contracts+
+      ts-client regen; authoring UI (multi-profile pick, title-block seat)
+      with e2e proving a lofted body renders at the expected volume;
+      screenshots. [src: roadmap, product-auditor, competitive]
+- [ ] (P2, M) Viewport v1 — face/edge picking — in-UI selection of a
+      specific face/edge for feature authoring, per
+      `docs/design/topological-naming.md` (`SubshapeRef`, shipped
+      2026-07-11, commit 2531850 — this item's blocker is now clear). Feeds
+      fillet/chamfer's existing selector plumbing as an additive option
+      alongside today's `EdgeSelector` predicates. Unblocks hole/shell/draft
+      below in Next. Depends on: nothing further.
+      Acceptance: raycasting in the r3f viewport resolves a click to a
+      stable face/edge `SubshapeRef` per the design doc's naming scheme;
+      worked e2e — click a specific edge, apply fillet, confirm only that
+      edge rounds (vs. today's all-edges predicate); the reference persists
+      correctly across a rebuild per the design doc's failure semantics
+      (§4.3 strict-prefix rule); screenshots. [src: roadmap,
+      engineering-auditor]
+- [ ] (P2, M) Sketch dimension expressions / driving vs. driven — a
+      dimension value field accepts a literal, a reference to another
+      dimension, or a math expression; each dimension gets a `driving: bool`
+      flag (driving = feeds the solver, driven = read-only/informational).
+      New gap this pass — grep of `apps/web/src` confirms no expression/
+      driven-dimension handling exists today. Depends on: nothing new.
+      Acceptance: expression parser (+,-,*,/, parens, dimension-name refs);
+      `driving` flag on the typed dimension-constraint schema; worked e2e —
+      set width=20, height="width/2", confirm height solves to 10; toggle a
+      dimension to driven, edit geometry directly, confirm the readout
+      updates without feeding the solver; screenshots; `frontend-design`
+      skill invoked for the expression-entry field. [src: competitive]
 
 ## Next (P2)
 
-- [ ] (P2, M) Viewport v1 — face/edge picking — in-UI selection of a
-      specific face/edge for feature authoring (today's fillet/chamfer use
-      geometric selectors, not user picks). Depends on Ready #1
-      (topological naming design doc) — a picked reference needs a stable
-      way to survive rebuilds before it's worth wiring into the UI.
-      [src: roadmap]
 - [ ] (P2, M) Hole feature — face-based placement (point on a face + depth,
       optionally counterbore/countersink), distinct from a sketched-circle
-      extrude cut. Depends on Ready #1 + face/edge picking above (needs a
-      stable face reference). [src: roadmap, product-auditor]
+      extrude cut. Depends on Ready #9 (face/edge picking) landing — needs a
+      stable face reference. [src: roadmap, product-auditor, competitive]
 - [ ] (P2, M) Shell feature — hollow a body, removing selected faces.
-      Depends on Ready #1 + face/edge picking (face selection to remove).
-      [src: roadmap]
+      Depends on Ready #9 (face selection to remove). [src: roadmap,
+      competitive]
 - [ ] (P2, M) Draft feature — angle selected faces relative to a pull
-      direction. Depends on Ready #1 + face/edge picking. [src: roadmap]
+      direction. Depends on Ready #9. [src: roadmap, competitive]
+- [ ] (P2, M) Datum planes/axes — first-class construction references off
+      the default XY/XZ/YZ planes, for sketches/features that need an
+      arbitrary reference plane. [src: competitive]
 - [ ] (P2, S) Units system — mm-only today; a per-part or per-workspace unit
       preference (in/mm) with display-layer conversion (kernel stays mm
       internally per CLAUDE.md tolerances). Independent. [src: roadmap]
 - [ ] (P2, M) Undo/redo across feature operations — UI-level action history,
       distinct from the rollback bar (which moves the build point, not an
-      action stack). Independent. [src: roadmap]
+      action stack). Independent. [src: roadmap, competitive]
 - [ ] (P2, M) Performance benchmark suite with CI budgets — formalize the
       ad-hoc per-golden warm-rebuild numbers already in GEOMETRY-QA.md
       (3.8 ms–33 ms today) into a tracked suite with committed budgets and a
       CI regression gate (GEOMETRY-QA gap #7). [src: geometry-qa]
-- [~] (P2, S) Toolbar system rollout — DONE (2026-07-12): the DRO snap toggle,
-      Extrude/Revolve op/direction toggles (new `SegmentedControl` primitive),
-      and STEP/STL export cells are icon-forward; a Create▸Modify split homes
-      Fillet/Chamfer (disabled until the ops land). Remaining: wire Fillet/
-      Chamfer when the geometry ops land + a sketch-tool overflow flyout
-      (slot/polygon/spline). Doc: `docs/design/toolbar-system.md`.
+- [ ] (P2, S) Toolbar: sketch-tool overflow flyout — slot/polygon/spline
+      tools, once splines (Ready #6) lands. Toolbar system itself shipped
+      (`docs/design/toolbar-system.md`); this is its last open follow-up.
       [src: frontend-builder]
-- [ ] (P3, S) Structured conflict indices — promote conflicting/redundant
-      constraint indices from the `sketch_conflicting` error message into a
-      typed `FeatureError` field (geometry + py-kit); frontend currently
-      parses the message (documented). [src: frontend-builder]
 - [ ] (P2, M) arq/redis queue runtime — move geometry evaluation from
       sync-inline to the real queue path; geometry gates gain queue-path
       coverage (GEOMETRY-QA gap #2). [src: roadmap, geometry-qa]
 - [ ] (P2, M) Rate limiting + request-size caps on unauthenticated auth
       endpoints (py-kit middleware — DRY home) — pre-deploy hardening.
       [src: code-reviewer]
+- [ ] (P3, S) Structured conflict indices — promote conflicting/redundant
+      constraint indices from the `sketch_conflicting` error message into a
+      typed `FeatureError` field (geometry + py-kit); frontend currently
+      parses the message (documented). [src: frontend-builder]
+- [ ] (P3, M) Thread feature — cosmetic/modeled threads on a hole/cylinder,
+      driven by a thread-standard library. Pairs with the hole feature
+      above. [src: competitive]
+- [ ] (P3, M) Multi-body boolean — join/cut/intersect between solid bodies.
+      [src: competitive]
 
 ## Later (P3)
 
@@ -305,6 +230,10 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
 - [ ] (P3, S) geometry worker: move import-time settings read to lazy/DI —
       cosmetic; deferred 🟢 from the Phase 0 review-fix batch.
       [src: code-reviewer]
+- [ ] (P3/P4, L) Parametric ⇄ direct-modeling mode toggle — Plasticity's
+      core wedge, but explicitly not urgent: doesn't flip a current ❌ row
+      since Loft's parametric core isn't finished yet. Revisit once Part
+      modeling is closer to parity. [src: competitive]
 
 ## Blocked (environment/timing — not build-blocked)
 
@@ -416,82 +345,39 @@ Full evidence for every line below lives in `CHANGELOG.md`.
       sketch → extrude → edit param → export, desktop + 1280×800 + touch
       smoke. [src: frontend-builder]
 
+### Phase 2 — Ready batch 1 (through commit 5777656)
+
+- [x] (P1, M) Topological naming strategy — design doc —
+      `docs/design/topological-naming.md`, staged hybrid signature+
+      provenance, additive `SubshapeRef`; code-reviewer-endorsed. [src:
+      roadmap, engineering-auditor]
+- [x] (P1, S) Sketch: construction geometry — `construction: bool` field +
+      `N` keyboard toggle, dashed/muted render, excluded from the extrude
+      profile check. [src: product-auditor, roadmap]
+- [x] (P1, M) Sketch constraints — tangent/perpendicular/parallel — 3
+      planegcs `ConstraintKind`s + P/L/T verbs + ∥/⊥/T glyphs, worked e2e.
+      [src: product-auditor, roadmap]
+- [x] (P1, M) Sketch constraints — equal/symmetric/concentric — the
+      remaining 3 kinds + E/S/O verbs + =/⟷/◎ glyphs; all 12 constraint
+      kinds shipped. [src: product-auditor, roadmap]
+- [x] (P1, M) Revolve feature — second body-affecting feature, golden
+      `revolve-annulus-r10-20-h15`, title-block axis-pick + angle editor.
+      [src: roadmap, product-auditor]
+- [x] (P2, S) Measurement tool — point/edge distance — `/measure` +
+      `/overlay` endpoints, viewport pick-and-read UI, brass dimension line
+      + title-block readout; e2e reads the box golden √1400 ≈ 37.42 mm.
+      [src: product-auditor]
+- [x] (P2, M) Linear/circular pattern — `PatternFeature` v1 (world-space
+      direction/axis, boolean-union into the body chain) + `PatternEditor`
+      authoring UI; 5th body-affecting feature. [src: roadmap,
+      product-auditor]
+
 ## Changelog
 
-- 2026-07-12 — measurement pick-and-read UI (6b) shipped → #6 DONE: Measure tool
-  (Inspect group, M), drei-`Html` pick nodes, brass dimension line + title-block
-  readout; e2e reads the golden √1400 ≈ 37.42. New `PickNode` primitive +
-  `measure` tokens. Deferred: mass-props panel + units system. [frontend-builder]
-- 2026-07-12 — selection-overlay endpoint (6b enabling half): `POST /overlay`
-  (geometry) + gated gateway proxy over new `OverlayRequest`/`OverlayResult`
-  DTOs. Exact vertices + `body.edges()`-ordered edges; order-equality gate
-  proves `overlay.edges[i]` == measure's `EdgeTarget(index=i)`. Transient
-  indices; contracts+ts-client regen (web typecheck clean). [kernel-architect]
-- 2026-07-12 — measure "never a 500" gap closed (code-review 🟡): a RAW OCCT/std
-  raise from the kernel (degenerate recomputed edge) now maps to a 422
-  `measure_failed`, sanitized to the exception class name, via a shared
-  belt-and-braces helper (`geometry.faults`). [kernel-architect]
-- 2026-07-12 — measure endpoint + gateway proxy (6a) shipped; viewport pick UI
-  (6b) pending. Exact B-rep nearest distance (point/edge targets, recompute-
-  from-tree edges), analytic-verified, contracts+ts-client regen. [kernel-architect]
-- 2026-07-12 — **Full-width top toolbar band (frontend, founder feedback):**
-  toolbar → edge-to-edge `TopToolbar` band under the brand bar, mode-aware
-  (SketchStrip ⇄ CreateStrip); fixed 32 px `h-band` (no canvas reflow); hooks
-  preserved, 54 e2e green. [frontend-builder]
-- 2026-07-12 — **Toolbar density revision (frontend, founder feedback):**
-  sketch toolbar collapsed two-panel stack (~110 px) → single thin row (~26 px):
-  label cells flattened, SAVE/EXIT/Construction icon-only, `ToolButton`/`Flyout`
-  padding trimmed at the primitive. Shortcuts + hooks preserved; 54 e2e green. [frontend-builder]
-- 2026-07-11 — **Toolbar system shipped (frontend, design-system evolution):**
-  grouped-icon toolbar + keyboard-navigable flyouts + hand-drawn scribed CAD
-  icon set in `packages/design`; sketch tool+constraint toolbar (Geometric/
-  Dimensional/Relational flyouts) + feature Create toolbar converted; every
-  shortcut preserved as a tooltip accelerator; 54 e2e green.
-  Doc: `docs/design/toolbar-system.md`. Follow-up in Next. [frontend-builder]
-- 2026-07-11 — **Revolve authoring UI 5b shipped (frontend → #5 done):**
-  "Revolve" action + title-block editor (line-entity axis pick, construction
-  centerline default; brass angle handle); save/edit → live annular body;
-  axis/open-profile errors in tree; e2e 5/5 (4500π washer, 360→180 halves).
-  4 features now (extrude+revolve+fillet+chamfer) — Part-modeling re-score
-  candidate. [frontend-builder]
-- 2026-07-11 — **Sketching re-scored, held ❌ (not ➖):** all 6 new
-  relational constraints + construction geometry closed the row's named gap,
-  but trim/offset/mirror/splines/sketch-fillet — every-session incumbent
-  tools — are still unbuilt. [vision-steward]
-- 2026-07-11 — **equal/symmetric/concentric 4b shipped (frontend → #4 done):**
-  E/S/O verbs + =/⟷/◎ glyphs; validation+hints; worked e2e (equal/concentric
-  circles, symmetric-about-centerline) moved geometry. All 6 constraints done —
-  Sketching row re-score candidate. [frontend-builder]
-- 2026-07-11 — equal/symmetric/concentric schema+solver (4a) shipped; UI verbs
-  (4b) pending. [kernel-architect]
-- 2026-07-11 — **tangent/perp/parallel 3b shipped (frontend → #3 done):**
-  P/L/T relational verbs (selection-presence) + ∥/⊥/T glyphs; client-side
-  selection validation with hints; worked e2e (parallel, perpendicular,
-  line+circle tangent) proving solved geometry moved; screenshots. [frontend-builder]
-- 2026-07-11 — tangent/perp/parallel schema+solver (3a) shipped; UI verbs (3b)
-  pending. [kernel-architect]
-- 2026-07-11 — **Construction geometry 2b shipped (frontend → #2 done):** `N`
-  keyboard-verb toggle (selection-presence) + CONSTR strip cell; muted/dashed
-  design token in both renderers; e2e rect+construction-diagonal → extrude
-  10,000 mm³, flag persists; screenshots. [frontend-builder]
-- 2026-07-11 — **Toponaming design doc revised** (code-reviewer request-changes):
-  stage-1 "never silent retarget" → best-effort (structural = stage 2); typed
-  selector union, precise `feature_id`, helper-wiring flag, §8 log. [kernel-architect]
-- 2026-07-11 — construction-geometry schema+solver+profile-exclusion (2a)
-  shipped; UI toggle (2b) pending. [kernel-architect]
-- 2026-07-11 — **Topological naming design doc landed** (Ready #1 → done).
-  `docs/design/topological-naming.md`: staged hybrid (signature-first →
-  provenance+signature), additive `SubshapeRef`, strict-prefix failure;
-  unblocks Next-queue face/edge picking. Pending code-reviewer endorsement.
-- 2026-07-11 — **Phase 1 complete; groomed for Phase 2.** ROADMAP Phase 1 →
-  ✅ (condensed to one line/item), Current focus → Phase 2. Ready batch 3
-  (8 items, the exit-gate chain) archived to one-liners. New Ready queue:
-  topological naming design doc first (gates click-specific edge selection),
-  3 independent sketcher/feature items (construction geometry, two
-  constraint-vocabulary slices, revolve), 2 P2 support items (measurement
-  tool, pattern). [backlog-groomer]
-- 2026-07-11 — **Scorecard re-scored post-exit-gate.** Part modeling stays ❌
-  (real sketch→extrude→fillet/chamfer→edit→rollback→render→export loop,
-  but only 3 features + predicate edge selection, no revolve/hole/pattern);
-  Interop stays ❌ (export now covers the modeled tree, import still Phase
-  4); Sketching unchanged. [vision-steward]
+- 2026-07-12 — **Groomed for Phase 2 restock.** Ready batch 1 (7 items:
+  topological naming, construction geometry, 6-constraint vocabulary,
+  revolve, measurement, pattern) archived; older changelog entries moved to
+  `CHANGELOG.md`. New 10-item Ready queue from `docs/COMPETITIVE.md`'s first
+  discovery pass + a code-inspection finding (Fillet/Chamfer buttons wired
+  but never connected — `PartPage` never passes `onFillet`/`onChamfer`).
+  [backlog-groomer]
