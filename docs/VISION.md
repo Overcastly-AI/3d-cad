@@ -69,7 +69,7 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 | Dimension | Status | Notes |
 |---|---|---|
 | Sketching & constraints | ➖ | **Flipped ❌→➖ this pass**: the profile-authoring/editing-tool cluster this row's own prior Notes named as the remaining blocker now ships end-to-end, each independently code-reviewed APPROVE with a real-stack e2e. Trim/extend (backend `3710ee9`, UI `79fee47`, e2e `sketch-trim-extend.spec.ts`) ends "every vertex must be placed exactly." Offset (backend `6036200`, UI `fa97a14`, e2e `sketch-offset.spec.ts`) adds the parallel-curve-at-distance used for ribs/webs/walls. Mirror (backend `7c7dbc5`, UI `0768977`, e2e `sketch-mirror.spec.ts`) replaces hand-adding one `symmetric` constraint per point-pair. Sketch fillet/chamfer corner tools (backend `a0302e4` + non-90° coverage `97f9bbb`, UI `7297e1b`, e2e `sketch-fillet-chamfer.spec.ts`) make a rounded corner one click instead of a manually-placed-and-twice-constrained tangent arc. Splines (backend `18fe6a8`, UI `f88df01`, e2e `sketch-spline.spec.ts`) close what the prior pass called "a hard capability gap, not an ergonomics one": an interpolating C2 B-spline through fit points that extrudes into a real curved B-rep face. An id-collision fix (`e9e4450`) hardened trim under reuse. Combined with last pass's full relational-constraint set (tangent/perpendicular/parallel/equal/symmetric/concentric) and construction geometry, a working engineer can now run a complete real sketch session — rough-draw, trim/clean-up, offset a wall, mirror a symmetric half, round a corner, drop in a free-form curve, constrain it — without hitting a flatly-impossible operation. That earns parity, not ✅: two gaps remain, both real but narrower than "half the toolkit is missing." (1) Over-constraint *diagnosis* is still index-only (`sketch_conflicting` reports raw constraint indices; `planegcs_solver.py` does carry `redundant` internally but it isn't surfaced as the incumbents' redundant-vs-conflicting classification with a suggested fix) — an engineer debugging a bad sketch gets a list of numbers, not a diagnosis. (2) Sketch dimensions take only a literal value — no expressions (`width/2`) and no driving-vs-driven distinction (COMPETITIVE.md, unbuilt) — so parametric relationships between dimensions must be hand-solved instead of typed. (3) Splines are v1 non-constrained (fixed geometry once drawn; `18fe6a8`'s own commit message: "planegcs has no spline primitive"). None of these three block *drawing and extruding a real profile* the way the missing tools did; they block *editing it fluently over a session*, which is why this is ➖ (real parity on session tooling) and not ✅ (incumbents still out-diagnose and out-parameterize us). |
-| Part modeling (features, history) | ❌ | Feature breadth roughly doubled this pass — now 8 body-affecting features (extrude, revolve, fillet, chamfer, linear/circular pattern, sweep, loft) against the prior pass's 3, each golden-covered and reviewed: pattern (backend `ec3f4f7`, UI `5777656`), sweep — profile along an open path wire (backend `e1a8a1e`, UI `e2b8532`, e2e `sweep.spec.ts`), loft — solid through ≥2 ordered sections including loft-to-apex (backend `f287aa1`, golden `loft-pyramid-sq20-h30`). Still ❌, and the gap is now sharper than "few features": (1) edge selection is still predicate-only (`all_edges`/`axis_parallel`), not click-a-specific-edge — gated on topological naming (Phase 2), so an engineer still can't selectively round one edge and leave its neighbor sharp; (2) no hole/shell/draft feature and single-body only, no booleans between independent bodies; (3) a newly-surfaced foundational limit blocks most real multi-plane parts: sketches can only be placed on the 3 origin datum planes — confirmed in code, `apps/web/src/sketch/plane.ts`'s `DATUM_PLANES` is hardcoded to `["XY","XZ","YZ"]`, and `services/geometry/src/geometry/features/evaluate.py` explicitly rejects a feature-referenced sketch plane ("Sketch planes must be datum planes (XY/XZ/YZ) in v1"). No offset or on-face plane exists, which is also *why loft shipped with no UI this pass* — you can't sketch the second/third section anywhere a real loft needs it (offset from the base, or on a face) without this. A pyramid running through the three origin planes proves the kernel op; a real loft (e.g. a duct transition between two non-coplanar faces) still can't be authored end-to-end. The core loop (sketch→extrude→fillet/chamfer→edit→rollback→export) plus the wider feature set are real and usable for parts built entirely on the 3 origin planes; anything requiring an offset/face-based sketch plane — most real parts — cannot be modeled today. |
+| Part modeling (features, history) | ➖ | **Flipped ❌→➖ this pass**: the two blockers the prior pass named as sharpest — no hole feature, and sketches locked to the 3 origin planes — are both closed with QA evidence. **Holes**: multi-loop closed profiles (outer boundary + inner loops = through-holes) now feed all 4 body-affecting features that consume a profile (`a36e436`, reviewed), golden `sketch-extrude-plate-2holes-40x25x10` (GEOMETRY-QA 2026-07-12, volume/area/topology exact), and proven through the real UI end-to-end (`998736f`: sketch outer rect + 2 circles → extrude → 8-face bolt-plate, holes persist across reload) — the product audit's #1 named daily-driver gap (a bolt circle) is closed. **Multi-plane sketching**: offset datum planes (`df308e4` backend + `125672f` UI) replaced the hardcoded 3-origin-plane limit — `apps/web/src/sketch/plane.ts`'s `DATUM_PLANES` is now one of several plane sources, not the only one — proven by golden `loft-cylinder-offset-r10-h30` (the two-parallel-circles loft the prior pass's own note deferred, now authorable) and the loft authoring UI (`18d1eaa`). **Sketch-on-a-face** — the harder win — also landed: a picked planar face of the current body becomes a sketch plane via a stage-1 topological-naming signature (normal+centroid+area, `f3202c6`, reviewed APPROVE with the stability limit honestly scoped in the same review — best-effort, not structurally non-retargeting), resolved deterministically across a rebuild (golden `boss-on-face-40x40x10-20x20x10`), with a real "Pick a face" viewport UI (`8c1b9cc`, e2e `sketch-on-face.spec.ts`: box → pick top face → boss extrude → body spans z 0..20, persists across reload). A working engineer can now build a bracket with bolt holes, a boss-on-a-shoulder second feature, and a duct-style loft between two planes — real multi-feature parts, not just single-plane primitives. **Held short of ✅, and this is the honest line, not aspiration:** (1) edge/face selection for fillet/chamfer/sketch-plane-picking is still **predicate-only** for edges specifically (`all_edges`/`axis_parallel`) — an engineer still can't click one specific edge and round it while leaving its neighbor sharp, though the `SubshapeRef` signature machinery the face-pick UI proved this pass now exists and is the direct on-ramp (edges just need their own signature scheme, stage-1 faces already show the pattern); (2) no shell, no draft, no dedicated hole feature (multi-loop cut covers the common case but not counterbores/countersinks/thread callouts); (3) single-body only — no booleans between independently-built bodies, so multi-part assemblies-of-one-file aren't modelable. Those three are real gaps against the incumbents, not a "few features missing" hand-wave — but they no longer block a real engineer from completing a real bracket-class part end-to-end, which is what kept this row at ❌ last pass. That's parity, not superiority: SolidWorks/Fusion/Onshape still out-select, out-shell, and out-assemble us. |
 | Assemblies & mates | ❌ | Not started (Phase 3) |
 | Interop (STEP/IGES/STL) | ❌ | Half-flipped, deepened but not flipped. EXPORT now covers what an engineer actually MODELS, not just bare primitives: `POST /api/v1/export/tree` (gateway `POST /api/v1/parts/{id}/export?format=`) evaluates a sketch→extrude→fillet/chamfer tree and exports the last-good body, byte-deterministic, tree goldens round-tripped at 0.0 (extrude/chamfer) and 1.26e-10 (fillet), the download proven through a real browser in the Phase 1 exit-gate e2e (commits aad27d9/ff6b226, GEOMETRY-QA 2026-07-11). IMPORT still doesn't exist (Phase 4) — an engineer cannot bring a real STEP/IGES file from another tool IN, only export what was built here. No IGES either direction. ➖ requires both directions; the flip is gated entirely on import. |
 | Drawings & documentation | ❌ | Not started (Phase 4) |
@@ -82,40 +82,59 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 Every row starts ❌ except the structural one. That's the honest baseline;
 the loop's job is to flip rows and never let this table go stale.
 
-Last re-scored 2026-07-12 (vision-steward), third pass this cycle, against
-git log through `1e3d422` (splines draw tool + screenshot refresh) plus
-`docs/GEOMETRY-QA.md` and the worked e2e suite (`sketch-trim-extend.spec.ts`,
-`sketch-offset.spec.ts`, `sketch-mirror.spec.ts`, `sketch-fillet-chamfer.spec.ts`,
-`sketch-spline.spec.ts`, `sweep.spec.ts`, `pattern.spec.ts`). **Sketching
-flipped ❌→➖**: the profile-authoring/editing-tool cluster the row itself
-named as its blocker last pass — trim/extend, offset, mirror, sketch fillet/
-chamfer, splines — is now fully shipped, each backend independently
-code-reviewed APPROVE and each with a UI + real-stack e2e (commits `3710ee9`/
-`79fee47`, `6036200`/`fa97a14`, `7c7dbc5`/`0768977`, `a0302e4`/`7297e1b`,
-`18fe6a8`/`f88df01`, id-collision fix `e9e4450`). Combined with last pass's
-relational-constraint set and construction geometry, a working engineer can
-now run a full real sketch session — draw rough, trim, offset, mirror, round
-a corner, drop a spline, constrain — without hitting an impossible operation.
-Held short of ✅: over-constraint diagnosis is still index-only (no
-redundant-vs-conflicting classification), sketch dimensions have no
-expressions or driving-vs-driven distinction (unbuilt, filed in
-COMPETITIVE.md), and splines are non-constrained v1 fixed geometry. **Part
-modeling re-scored, held at ❌** despite feature count roughly doubling (3→8:
-+pattern, +sweep, +loft — commits `ec3f4f7`/`5777656`, `e1a8a1e`/`e2b8532`,
-`f287aa1`): still predicate-only edge selection (gated on topological
-naming), no hole/shell/draft, single-body-only, and a newly-surfaced
-foundational blocker — sketches can only be placed on the 3 origin datum
-planes (`apps/web/src/sketch/plane.ts` `DATUM_PLANES`; `evaluate.py` rejects
-any feature-referenced plane), which is why loft shipped backend-only with no
-UI this pass and why most real multi-plane parts still can't be authored.
-Interop and Measurement: export-only interop is unchanged (➖ still gated on
-import, Phase 4); the transient distance/angle measure tool (commits
-`0bdc434`/`ee8f89f`/`47a4188`) shipped full-stack but measurement isn't a
-scorecard row of its own — it's read into the Part modeling/Sketching
-narrative above as workflow-support evidence, not a row flip. Nearest flips
-for Phase 2: over-constraint classification + dimension expressions on
-Sketching (➖→✅ candidates); offset/face datum planes + click-specific edge
-selection on Part modeling (❌→➖ candidates); Interop-import (Phase 4).
+Last re-scored 2026-07-12 (vision-steward), fourth pass this cycle, against
+git log through `8c1b9cc` (sketch-on-a-picked-face UI) plus
+`docs/GEOMETRY-QA.md` and the e2e suite (`extrude-holes.spec.ts`,
+`sketch-on-face.spec.ts`, `datum-plane.spec.ts`, `loft.spec.ts`,
+`pattern.spec.ts`, plus the sketching-cluster specs from the prior pass).
+**Part modeling flipped ❌→➖**: the two blockers the prior pass named as
+sharpest — no hole feature, and sketches locked to the 3 origin planes — are
+both closed with QA evidence this pass. Multi-loop closed profiles give every
+body feature through-holes for free (`a36e436`, e2e-proven `998736f`: outer
+rect + 2 circles → 8-face bolt-plate, holes survive reload) — the product
+audit's #1 named daily-driver gap, closed. Offset datum planes (`df308e4`/
+`125672f`) replaced the hardcoded origin-only limit, unblocking the loft the
+prior pass's own golden note deferred (`loft-cylinder-offset-r10-h30`) and
+shipping the loft UI (`18d1eaa`). Sketch-on-a-model-face landed as a real
+stage-1 topological-naming reference — a picked planar face resolves
+deterministically across a rebuild via a normal+centroid+area signature
+(`f3202c6`, reviewed APPROVE with the stability limit honestly scoped: best-
+effort, not structurally non-retargeting) — with a working "Pick a face"
+viewport UI (`8c1b9cc`, e2e box→top-face→boss→z 0..20). A working engineer
+can now build a bracket with bolt holes and a boss-on-a-shoulder second
+feature, or a duct-style loft between two planes — real multi-feature parts,
+not single-plane primitives only. Held short of ✅: edge selection for
+fillet/chamfer is still predicate-only (`all_edges`/`axis_parallel`, not
+click-a-specific-edge — though the `SubshapeRef` signature machinery the
+face-pick UI just proved is the direct on-ramp for edges too), no shell/
+draft/dedicated-hole feature, and single-body-only (no cross-body booleans).
+**Sketching held at ➖** (unchanged this pass — no sketching-cluster commits
+landed since the last re-score; see prior paragraph below for its own
+flip rationale, still current). Interop and Measurement unchanged: export-
+only interop stays ❌ (gated on import, Phase 4; no import commits this
+pass); the measure tool remains workflow-support evidence, not its own row.
+Nearest flips for Phase 2: click-specific edge selection (now cheap — the
+`SubshapeRef` scheme exists, just needs an edge signature) + shell/draft +
+multi-body booleans on Part modeling (➖→✅ candidates); over-constraint
+classification + dimension expressions on Sketching (➖→✅ candidates);
+Interop-import (Phase 4).
+
+---
+
+Prior pass (2026-07-12, third pass this cycle, against git log through
+`1e3d422`): **Sketching flipped ❌→➖** — the profile-authoring/editing-tool
+cluster the row itself named as its blocker last pass — trim/extend, offset,
+mirror, sketch fillet/chamfer, splines — shipped fully, each backend
+independently code-reviewed APPROVE and each with a UI + real-stack e2e
+(commits `3710ee9`/`79fee47`, `6036200`/`fa97a14`, `7c7dbc5`/`0768977`,
+`a0302e4`/`7297e1b`, `18fe6a8`/`f88df01`, id-collision fix `e9e4450`).
+Combined with the constraint set and construction geometry from the pass
+before, a working engineer can run a full real sketch session — draw rough,
+trim, offset, mirror, round a corner, drop a spline, constrain — without
+hitting an impossible operation. Held short of ✅: over-constraint diagnosis
+is still index-only (no redundant-vs-conflicting classification), sketch
+dimensions have no expressions or driving-vs-driven distinction (unbuilt,
+filed in COMPETITIVE.md), and splines are non-constrained v1 fixed geometry.
 
 ## Design mandate (founder, 2026-07-09)
 
