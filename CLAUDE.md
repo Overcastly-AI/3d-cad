@@ -87,7 +87,7 @@ packages/ts-client  Generated TypeScript client (never hand-edited)
 packages/design     Design system: tokens (Tailwind preset + TS constants),
                     UI primitives, fonts (source-only; RESEARCH §5)
 deploy/             Docker/Helm assets
-docs/               VISION, RESEARCH, ROADMAP, BACKLOG, audits, QA reviews
+docs/               VISION, RESEARCH, ROADMAP, BACKLOG, COMPETITIVE, audits, QA reviews
 .claude/            Agents, skills, workflows
 ```
 

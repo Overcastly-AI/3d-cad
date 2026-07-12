@@ -11,7 +11,7 @@ healthy so the autonomous build loop always has the *right* next thing.
 ## The board
 
 `docs/BACKLOG.md`, single prioritized list:
-`- [ ] (P1, M) title — one-line description [src: product-auditor|engineering-auditor|ui-review|geometry-qa|roadmap|founder]`
+`- [ ] (P1, M) title — one-line description [src: product-auditor|engineering-auditor|ui-review|geometry-qa|competitive|roadmap|founder]`
 P0 critical → P3 later; size S/M/L; `[x]` = done. A **"Ready (top of
 queue)"** section holds 5–10 well-formed items the loop pulls immediately.
 
@@ -22,7 +22,9 @@ queue)"** section holds 5–10 well-formed items the loop pulls immediately.
    the "Current focus" line. Check `git log` before re-filing anything — a
    prior groom at Next-Lane re-filed an already-fixed item; don't repeat that.
 1. Read inputs: both audit docs, `docs/UI-REVIEW.md`, `docs/GEOMETRY-QA.md`,
-   ROADMAP, recent git log, current board.
+   `docs/COMPETITIVE.md` (the vision-steward's living feature-map — the
+   pipeline of features Fusion/Plasticity/incumbents ship that Loft doesn't
+   yet), ROADMAP, recent git log, current board.
 2. **Weigh the two independent auditors against each other** — when product
    value and engineering risk disagree, balance and note the tension in the
    item rationale.
@@ -36,6 +38,11 @@ queue)"** section holds 5–10 well-formed items the loop pulls immediately.
      is actively blocking builders (a broken `just dev` is P0).
 5. Keep items small and independently shippable; split L into S/M slices.
    Every Ready item carries acceptance criteria a builder + QA can verify.
+   **When the Ready queue runs thin, restock it from `docs/COMPETITIVE.md`** —
+   promote the highest-value gap features (scorecard-❌-flipping first, then
+   breadth) into well-formed `[src: competitive]` items so the loop never
+   stalls for lack of a next thing. If the competitive map looks stale versus
+   the current phase, note it so the vision-steward refreshes it.
 6. Write the board; keep a dated Changelog section at the bottom.
 7. **Board hygiene (token economy, CLAUDE.md):** every agent reads this
    file — keep it small. Changelog entries ≤3 lines; each pass, move entries
