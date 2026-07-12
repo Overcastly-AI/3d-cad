@@ -241,11 +241,12 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       ad-hoc per-golden warm-rebuild numbers already in GEOMETRY-QA.md
       (3.8 ms–33 ms today) into a tracked suite with committed budgets and a
       CI regression gate (GEOMETRY-QA gap #7). [src: geometry-qa]
-- [ ] (P2, S) Toolbar system rollout — convert the remaining text-idiom
-      surfaces to the shipped `ToolButton`/`Flyout` primitives (DRO,
-      Extrude/Revolve editor op/direction toggles, ExportControls) and add a
-      Modify group + a sketch-tool overflow flyout as fillet/chamfer/sweep/
-      slot/polygon/spline land. Doc: `docs/design/toolbar-system.md`.
+- [~] (P2, S) Toolbar system rollout — DONE (2026-07-12): the DRO snap toggle,
+      Extrude/Revolve op/direction toggles (new `SegmentedControl` primitive),
+      and STEP/STL export cells are icon-forward; a Create▸Modify split homes
+      Fillet/Chamfer (disabled until the ops land). Remaining: wire Fillet/
+      Chamfer when the geometry ops land + a sketch-tool overflow flyout
+      (slot/polygon/spline). Doc: `docs/design/toolbar-system.md`.
       [src: frontend-builder]
 - [ ] (P3, S) Structured conflict indices — promote conflicting/redundant
       constraint indices from the `sketch_conflicting` error message into a

@@ -222,6 +222,88 @@ export const RevolveIcon = (p: IconProps) => (
   </Icon>
 );
 
+// --- Modify features --------------------------------------------------------
+
+/** Fillet = a rounded inner corner (the radius arc rounds the vertex). */
+export const FilletIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 4 V12 A7 7 0 0 0 13 19 H20" />
+    <path d="M6 19 H20 M6 19 V4" strokeDasharray="2.4 2" />
+  </Icon>
+);
+
+/** Chamfer = a beveled (flat-cut) corner — the anti-fillet, a straight facet. */
+export const ChamferIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 4 V12 L13 19 H20" />
+    <path d="M6 19 H20 M6 19 V4" strokeDasharray="2.4 2" />
+  </Icon>
+);
+
+// --- Feature operations (add / cut, direction) ------------------------------
+
+/** Add = material joined onto the body. */
+export const AddIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5 V19" />
+    <path d="M5 12 H19" />
+  </Icon>
+);
+
+/** Cut = material removed from the body. */
+export const CutIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 12 H19" />
+  </Icon>
+);
+
+/** Normal = the feature grows along the face normal (arrow off the face). */
+export const NormalIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 19 H20" />
+    <path d="M12 19 V6" />
+    <path d="M12 6 L8 10 M12 6 L16 10" />
+  </Icon>
+);
+
+/** Reverse = the feature grows against the normal (arrow into the face). */
+export const ReverseIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 5 H20" />
+    <path d="M12 5 V18" />
+    <path d="M12 18 L8 14 M12 18 L16 14" />
+  </Icon>
+);
+
+// --- DRO --------------------------------------------------------------------
+
+/** Grid snap = a ruled grid with one punched intersection (the snapped node). */
+export const GridSnapIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 10 H20 M4 14 H20 M10 4 V20 M14 4 V20" />
+    <Node cx={10} cy={14} />
+  </Icon>
+);
+
+// --- Export -----------------------------------------------------------------
+
+/** STEP = an exact B-rep solid (an isometric cube — every edge is real). */
+export const StepIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 8 L12 4 L20 8 L12 12 Z" />
+    <path d="M4 8 V16 L12 20 V12" />
+    <path d="M20 8 V16 L12 20" />
+  </Icon>
+);
+
+/** STL = a faceted mesh (a triangulated strip — the approximation). */
+export const StlIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 17 L8 7 L12 17 L16 7 L20 17 Z" />
+    <path d="M8 7 L16 7" />
+  </Icon>
+);
+
 // --- Chrome -----------------------------------------------------------------
 
 export const CaretDownIcon = (p: IconProps) => (

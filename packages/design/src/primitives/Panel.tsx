@@ -65,6 +65,13 @@ export interface PanelActionCellProps extends ButtonHTMLAttributes<HTMLButtonEle
    * brass and `aria-pressed` is set. Leave undefined for plain actions.
    */
   selected?: boolean;
+  /**
+   * Optional scribed glyph, rendered aria-hidden to the left of the
+   * label/caption stack — ties title-block actions (export formats, the DRO
+   * snap toggle) into the toolbar's icon language. Inherits the label's ink
+   * (brass when selected), one palette.
+   */
+  icon?: ReactNode;
 }
 
 /**
@@ -78,6 +85,7 @@ export function PanelActionCell({
   label,
   caption,
   selected,
+  icon,
   className,
   type,
   ...rest
@@ -95,17 +103,34 @@ export function PanelActionCell({
       )}
       {...rest}
     >
-      <span
-        className={cx(
-          "block font-display text-2xs uppercase tracking-[0.14em]",
-          selected ? "text-brass" : "text-mist",
-        )}
-      >
-        {label}
+      <span className="flex items-center gap-2">
+        {icon ? (
+          <span
+            aria-hidden
+            className={cx(
+              "flex shrink-0 items-center",
+              selected ? "text-brass" : "text-gauge",
+            )}
+          >
+            {icon}
+          </span>
+        ) : null}
+        <span className="min-w-0">
+          <span
+            className={cx(
+              "block font-display text-2xs uppercase tracking-[0.14em]",
+              selected ? "text-brass" : "text-mist",
+            )}
+          >
+            {label}
+          </span>
+          {caption ? (
+            <span className="block font-data text-xs text-gauge">
+              {caption}
+            </span>
+          ) : null}
+        </span>
       </span>
-      {caption ? (
-        <span className="block font-data text-xs text-gauge">{caption}</span>
-      ) : null}
     </button>
   );
 }

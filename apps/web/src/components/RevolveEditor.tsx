@@ -7,7 +7,18 @@
  * field autofocuses, Enter commits, Escape cancels — the sketcher's dimension
  * grammar. Angle wears brass because it is THE parametric handle of the turn.
  */
-import { NumberField, Panel, PanelActionCell, SelectField } from "@loft/design";
+import {
+  AddIcon,
+  CutIcon,
+  NormalIcon,
+  NumberField,
+  Panel,
+  PanelActionCell,
+  ReverseIcon,
+  SegmentedControl,
+  type SegmentOption,
+  SelectField,
+} from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import type { RevolveParams } from "../api/parts";
@@ -40,14 +51,38 @@ export interface RevolveEditorProps {
   error: string | null;
 }
 
-const OPERATIONS: ReadonlyArray<{ value: RevolveOperation; label: string }> = [
-  { value: "add", label: "Add" },
-  { value: "cut", label: "Cut" },
+const OPERATIONS: ReadonlyArray<SegmentOption<RevolveOperation>> = [
+  {
+    value: "add",
+    label: "Add",
+    icon: <AddIcon />,
+    "data-testid": "revolve-op-add",
+    "aria-label": "Operation: Add",
+  },
+  {
+    value: "cut",
+    label: "Cut",
+    icon: <CutIcon />,
+    "data-testid": "revolve-op-cut",
+    "aria-label": "Operation: Cut",
+  },
 ];
 
-const DIRECTIONS: ReadonlyArray<{ value: RevolveDirection; label: string }> = [
-  { value: "normal", label: "Normal" },
-  { value: "reverse", label: "Reverse" },
+const DIRECTIONS: ReadonlyArray<SegmentOption<RevolveDirection>> = [
+  {
+    value: "normal",
+    label: "Normal",
+    icon: <NormalIcon />,
+    "data-testid": "revolve-dir-normal",
+    "aria-label": "Direction: Normal",
+  },
+  {
+    value: "reverse",
+    label: "Reverse",
+    icon: <ReverseIcon />,
+    "data-testid": "revolve-dir-reverse",
+    "aria-label": "Direction: Reverse",
+  },
 ];
 
 export function RevolveEditor({
@@ -177,45 +212,19 @@ export function RevolveEditor({
               onFocus={(e) => e.currentTarget.select()}
             />
 
-            <div
-              role="group"
-              aria-label="Operation"
-              className="flex flex-col gap-0.5"
-            >
-              <span className="font-body text-xs text-gauge">Operation</span>
-              <div className="grid grid-cols-2 divide-x divide-hairline rounded-sm border border-etch">
-                {OPERATIONS.map(({ value, label }) => (
-                  <PanelActionCell
-                    key={value}
-                    label={label}
-                    selected={form.operation === value}
-                    data-testid={`revolve-op-${value}`}
-                    aria-label={`Operation: ${label}`}
-                    onClick={() => setForm((f) => ({ ...f, operation: value }))}
-                  />
-                ))}
-              </div>
-            </div>
+            <SegmentedControl
+              label="Operation"
+              value={form.operation}
+              options={OPERATIONS}
+              onChange={(operation) => setForm((f) => ({ ...f, operation }))}
+            />
 
-            <div
-              role="group"
-              aria-label="Direction"
-              className="flex flex-col gap-0.5"
-            >
-              <span className="font-body text-xs text-gauge">Direction</span>
-              <div className="grid grid-cols-2 divide-x divide-hairline rounded-sm border border-etch">
-                {DIRECTIONS.map(({ value, label }) => (
-                  <PanelActionCell
-                    key={value}
-                    label={label}
-                    selected={form.direction === value}
-                    data-testid={`revolve-dir-${value}`}
-                    aria-label={`Direction: ${label}`}
-                    onClick={() => setForm((f) => ({ ...f, direction: value }))}
-                  />
-                ))}
-              </div>
-            </div>
+            <SegmentedControl
+              label="Direction"
+              value={form.direction}
+              options={DIRECTIONS}
+              onChange={(direction) => setForm((f) => ({ ...f, direction }))}
+            />
           </div>
         </div>
 

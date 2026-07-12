@@ -134,8 +134,16 @@ item below.
       under the brand bar (edge-to-edge, mode-aware SketchStrip ⇄ CreateStrip,
       fixed 32 px `h-band`) — the viewport gained the width + top-right space.
       Doc: `docs/design/toolbar-system.md`).
-      Next: convert the remaining text-idiom surfaces (DRO, editor toggles,
-      export) + a Modify group as fillet/chamfer/sweep land
+      Conversion follow-up shipped 2026-07-12: the remaining text-idiom
+      surfaces are now icon-forward — DRO snap toggle (scribed grid glyph),
+      Extrude/Revolve operation+direction toggles (new `SegmentedControl`
+      primitive with add/cut/normal/reverse glyphs), and STEP/STL export cells
+      (cube/mesh glyphs on an enriched `PanelActionCell`). Added a Create▸Modify
+      split to the top band — a Modify group homing Fillet/Chamfer (scribed
+      round/bevel glyphs), disabled until the kernel ops land, accelerators
+      pre-engraved. Every test hook preserved; full e2e green (54 specs).
+      Next: wire Fillet/Chamfer once the geometry ops land + a sketch-tool
+      overflow flyout (slot/polygon/spline)
 - ⬜ Measurement tools, mass properties panel, units system
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations

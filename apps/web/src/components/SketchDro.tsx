@@ -6,7 +6,7 @@
  * own readout. This is the title-block signature extended into the viewport;
  * it earns its pixels with live precision.
  */
-import { Panel, PanelActionCell } from "@loft/design";
+import { GridSnapIcon, Panel, PanelActionCell } from "@loft/design";
 
 import { formatDroMm } from "../lib/format";
 import { formatSolveCell } from "../sketch/constraints";
@@ -56,6 +56,7 @@ export function SketchDro({ solving }: SketchDroProps) {
         </div>
       ))}
       <PanelActionCell
+        icon={<GridSnapIcon />}
         label="Snap"
         caption={snapEnabled ? `${SNAP_STEP_MM} mm · G` : "off · G"}
         selected={snapEnabled}

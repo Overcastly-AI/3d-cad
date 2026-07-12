@@ -7,7 +7,18 @@
  * because it is THE parametric handle of the feature, matching the sketcher's
  * driving dimensions.
  */
-import { NumberField, Panel, PanelActionCell, SelectField } from "@loft/design";
+import {
+  AddIcon,
+  CutIcon,
+  NormalIcon,
+  NumberField,
+  Panel,
+  PanelActionCell,
+  ReverseIcon,
+  SegmentedControl,
+  type SegmentOption,
+  SelectField,
+} from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import type { ExtrudeParams } from "../api/parts";
@@ -36,14 +47,38 @@ export interface ExtrudeEditorProps {
   error: string | null;
 }
 
-const OPERATIONS: ReadonlyArray<{ value: ExtrudeOperation; label: string }> = [
-  { value: "add", label: "Add" },
-  { value: "cut", label: "Cut" },
+const OPERATIONS: ReadonlyArray<SegmentOption<ExtrudeOperation>> = [
+  {
+    value: "add",
+    label: "Add",
+    icon: <AddIcon />,
+    "data-testid": "extrude-op-add",
+    "aria-label": "Operation: Add",
+  },
+  {
+    value: "cut",
+    label: "Cut",
+    icon: <CutIcon />,
+    "data-testid": "extrude-op-cut",
+    "aria-label": "Operation: Cut",
+  },
 ];
 
-const DIRECTIONS: ReadonlyArray<{ value: ExtrudeDirection; label: string }> = [
-  { value: "normal", label: "Normal" },
-  { value: "reverse", label: "Reverse" },
+const DIRECTIONS: ReadonlyArray<SegmentOption<ExtrudeDirection>> = [
+  {
+    value: "normal",
+    label: "Normal",
+    icon: <NormalIcon />,
+    "data-testid": "extrude-dir-normal",
+    "aria-label": "Direction: Normal",
+  },
+  {
+    value: "reverse",
+    label: "Reverse",
+    icon: <ReverseIcon />,
+    "data-testid": "extrude-dir-reverse",
+    "aria-label": "Direction: Reverse",
+  },
 ];
 
 export function ExtrudeEditor({
@@ -134,45 +169,19 @@ export function ExtrudeEditor({
               onFocus={(e) => e.currentTarget.select()}
             />
 
-            <div
-              role="group"
-              aria-label="Operation"
-              className="flex flex-col gap-0.5"
-            >
-              <span className="font-body text-xs text-gauge">Operation</span>
-              <div className="grid grid-cols-2 divide-x divide-hairline rounded-sm border border-etch">
-                {OPERATIONS.map(({ value, label }) => (
-                  <PanelActionCell
-                    key={value}
-                    label={label}
-                    selected={form.operation === value}
-                    data-testid={`extrude-op-${value}`}
-                    aria-label={`Operation: ${label}`}
-                    onClick={() => setForm((f) => ({ ...f, operation: value }))}
-                  />
-                ))}
-              </div>
-            </div>
+            <SegmentedControl
+              label="Operation"
+              value={form.operation}
+              options={OPERATIONS}
+              onChange={(operation) => setForm((f) => ({ ...f, operation }))}
+            />
 
-            <div
-              role="group"
-              aria-label="Direction"
-              className="flex flex-col gap-0.5"
-            >
-              <span className="font-body text-xs text-gauge">Direction</span>
-              <div className="grid grid-cols-2 divide-x divide-hairline rounded-sm border border-etch">
-                {DIRECTIONS.map(({ value, label }) => (
-                  <PanelActionCell
-                    key={value}
-                    label={label}
-                    selected={form.direction === value}
-                    data-testid={`extrude-dir-${value}`}
-                    aria-label={`Direction: ${label}`}
-                    onClick={() => setForm((f) => ({ ...f, direction: value }))}
-                  />
-                ))}
-              </div>
-            </div>
+            <SegmentedControl
+              label="Direction"
+              value={form.direction}
+              options={DIRECTIONS}
+              onChange={(direction) => setForm((f) => ({ ...f, direction }))}
+            />
           </div>
         </div>
 

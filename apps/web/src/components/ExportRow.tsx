@@ -1,4 +1,5 @@
-import { PanelActionCell } from "@loft/design";
+import { PanelActionCell, StepIcon, StlIcon } from "@loft/design";
+import type { ReactNode } from "react";
 import { useState } from "react";
 
 import {
@@ -12,18 +13,21 @@ const FORMATS: ReadonlyArray<{
   label: string;
   caption: string;
   name: string;
+  icon: ReactNode;
 }> = [
   {
     format: "step",
     label: "STEP",
     caption: "B-rep",
     name: "Export STEP (exact B-rep)",
+    icon: <StepIcon />,
   },
   {
     format: "stl",
     label: "STL",
     caption: "Mesh",
     name: "Export STL (faceted mesh)",
+    icon: <StlIcon />,
   },
 ];
 
@@ -100,9 +104,10 @@ export function ExportRow({
             {status}
           </span>
         </div>
-        {FORMATS.map(({ format, label, caption, name }) => (
+        {FORMATS.map(({ format, label, caption, name, icon }) => (
           <PanelActionCell
             key={format}
+            icon={icon}
             label={label}
             caption={busy === format ? "Writing…" : caption}
             aria-label={name}

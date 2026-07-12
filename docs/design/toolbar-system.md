@@ -150,10 +150,34 @@ gained queryable `constraint-{action}` hooks on flyout rows and
 `constraint-group-{geometric,dimensional,relational}` on the triggers. Full
 `just e2e` (54 Playwright specs + geometry gates) stays green.
 
-## Follow-up (not in this slice)
+## Conversion follow-up (shipped 2026-07-12)
 
-The other authoring surfaces still use the pre-icon text idiom and can convert
-in a follow-up: the DRO, ExtrudeEditor/RevolveEditor op/direction toggles,
-ExportControls, and the eventual Modify group (fillet/chamfer) + a sketch-tool
-overflow flyout (slot/polygon/spline). Scope here is the toolbar system + the
-two crowded surfaces so it stays reviewable.
+The remaining authoring surfaces are now on the grouped-icon system, and the
+Create toolbar gained its Modify group:
+
+- **DRO snap toggle** — a scribed `GridSnapIcon` on the `dro-snap` cell, so the
+  digital readout reads as one instrument with the toolbar (numerics stay
+  Fragment Mono / brass). The DRO is bottom-anchored, so the cell stays a
+  `PanelActionCell` (no top-anchored tooltip to clip); the primitive gained an
+  optional `icon` slot rather than restyling the instance.
+- **Extrude / Revolve op + direction toggles** — a new **`SegmentedControl`**
+  primitive (`packages/design`): a hairline-ruled, mutually-exclusive toggle in
+  the ToolButton idiom (scribed icon + brass active scribe, `aria-pressed`
+  intact). Glyphs added: `AddIcon`/`CutIcon` (material +/−) and
+  `NormalIcon`/`ReverseIcon` (arrow off / into the face). `extrude-op-*`,
+  `extrude-dir-*`, `revolve-op-*`, `revolve-dir-*` hooks preserved.
+- **STEP / STL export** — the `ExportRow` cells are icon-forward via the same
+  enriched `PanelActionCell`, with new `StepIcon` (iso B-rep cube) and
+  `StlIcon` (faceted mesh) format glyphs. Cells stay visible (not folded into a
+  flyout) so the direct-click e2e and the status readout (`Ready`/`Writing…`/
+  `Failed`) are unchanged.
+- **Modify group** — Fusion's Create/Modify split lands on the top band as a
+  second `ToolGroup` (hairline-divided from Create, no eyebrow so the 32 px
+  band height holds). Homes **Fillet** (`FilletIcon`, rounded corner) and
+  **Chamfer** (`ChamferIcon`, bevelled corner); both stay honestly disabled
+  until a solid body exists AND the kernel op is wired (optional
+  `canModify`/`onFillet`/`onChamfer` props), matching how Extrude greys out
+  until a sketch solves. `new-fillet` / `new-chamfer` hooks added.
+
+Still pending: wiring Fillet/Chamfer to real geometry ops when they land, and a
+sketch-tool overflow flyout (slot/polygon/spline).

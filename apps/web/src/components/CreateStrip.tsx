@@ -5,9 +5,18 @@
  * row — grouped like Fusion's Create — moved up so the top band is always the
  * command surface. Every test hook is preserved: `new-sketch`, `new-extrude`,
  * `new-revolve` keep their ids, labels, and disabled semantics.
+ *
+ * Fusion's Create / Modify split is the growth path: the sketch-consuming verbs
+ * live in Create, the body-editing verbs (fillet, chamfer; sweep/shell to come)
+ * in a sibling **Modify** group. A Modify tool needs a solid body AND a landed
+ * kernel op — until both are true its button stays honestly disabled (the
+ * accelerator is engraved in the tooltip so it teaches the keyboard the moment
+ * it lights up), matching how Extrude greys out until a sketch is solved.
  */
 import {
+  ChamferIcon,
   ExtrudeIcon,
+  FilletIcon,
   RevolveIcon,
   SketchIcon,
   ToolButton,
@@ -25,6 +34,15 @@ export interface CreateStripProps {
   /** True when a solved sketch exists to revolve (same gate as extrude). */
   canRevolve: boolean;
   onNewRevolve: () => void;
+  /**
+   * A solid body exists to modify. When false — or when a Modify handler is
+   * not yet wired (the kernel op hasn't landed) — that Modify tool is disabled.
+   */
+  canModify?: boolean;
+  /** Round the selected edges (arrives with the geometry fillet op). */
+  onFillet?: () => void;
+  /** Bevel the selected edges (arrives with the geometry chamfer op). */
+  onChamfer?: () => void;
 }
 
 export function CreateStrip({
@@ -34,7 +52,13 @@ export function CreateStrip({
   onNewExtrude,
   canRevolve,
   onNewRevolve,
+  canModify = false,
+  onFillet,
+  onChamfer,
 }: CreateStripProps) {
+  const filletReady = canModify && treeReady && onFillet !== undefined;
+  const chamferReady = canModify && treeReady && onChamfer !== undefined;
+
   return (
     <div
       aria-label="Create"
@@ -76,6 +100,35 @@ export function CreateStrip({
           }
           disabled={!canRevolve || !treeReady}
           onClick={onNewRevolve}
+        />
+      </ToolGroup>
+
+      <ToolGroup aria-label="Modify">
+        <ToolButton
+          icon={<FilletIcon />}
+          showLabel
+          label="Fillet"
+          data-testid="new-fillet"
+          aria-label={
+            filletReady
+              ? "Fillet — round the selected edges"
+              : "Fillet — select a body edge first"
+          }
+          disabled={!filletReady}
+          onClick={onFillet}
+        />
+        <ToolButton
+          icon={<ChamferIcon />}
+          showLabel
+          label="Chamfer"
+          data-testid="new-chamfer"
+          aria-label={
+            chamferReady
+              ? "Chamfer — bevel the selected edges"
+              : "Chamfer — select a body edge first"
+          }
+          disabled={!chamferReady}
+          onClick={onChamfer}
         />
       </ToolGroup>
     </div>

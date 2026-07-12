@@ -22,6 +22,11 @@ export {
   type ToolGroupProps,
 } from "./primitives/ToolButton";
 export { Flyout, type FlyoutProps, type FlyoutItem } from "./primitives/Flyout";
+export {
+  SegmentedControl,
+  type SegmentedControlProps,
+  type SegmentOption,
+} from "./primitives/SegmentedControl";
 export * from "./primitives/icons";
 export { SketchGlyph, type SketchGlyphProps } from "./primitives/SketchGlyph";
 export { NumberField, type NumberFieldProps } from "./primitives/NumberField";
