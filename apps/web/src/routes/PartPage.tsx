@@ -9,6 +9,9 @@ import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
 import { MeasureOverlay } from "../viewport/MeasureOverlay";
 import {
+  type ChamferParams,
+  chamferFeatureCreate,
+  chamferFeatureUpdate,
   createFeature,
   evaluatePart,
   type ExtrudeParams,
@@ -20,6 +23,9 @@ import {
   type FeatureUpdate,
   fetchFeatureTree,
   fetchPart,
+  type FilletParams,
+  filletFeatureCreate,
+  filletFeatureUpdate,
   moveRollbackBar,
   type PatternParams,
   patternFeatureCreate,
@@ -32,9 +38,11 @@ import {
   updateFeature,
 } from "../api/parts";
 import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
+import { ChamferEditor } from "../components/ChamferEditor";
 import { CreateStrip } from "../components/CreateStrip";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
+import { FilletEditor } from "../components/FilletEditor";
 import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
 import { RevolveEditor } from "../components/RevolveEditor";
@@ -58,6 +66,14 @@ import {
   formFromPatternParams,
   type PatternForm,
 } from "../features/pattern";
+import {
+  type ChamferForm,
+  defaultChamferForm,
+  defaultFilletForm,
+  type FilletForm,
+  formFromChamferParams,
+  formFromFilletParams,
+} from "../features/modify";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -556,6 +572,18 @@ export function PartPage() {
         initial: PatternForm;
         featureId?: string;
       }
+    | {
+        kind: "fillet";
+        mode: "create" | "edit";
+        initial: FilletForm;
+        featureId?: string;
+      }
+    | {
+        kind: "chamfer";
+        mode: "create" | "edit";
+        initial: ChamferForm;
+        featureId?: string;
+      }
     | null
   >(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
@@ -678,6 +706,27 @@ export function PartPage() {
     });
   }, []);
 
+  // Fillet/chamfer, like a pattern, act on the current BODY via a geometric
+  // edge-selector predicate (no sketch profile) — they only need a solid to
+  // exist (canModify), so they mirror openCreatePattern's guard.
+  const openCreateFillet = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({ kind: "fillet", mode: "create", initial: defaultFilletForm() });
+  }, []);
+
+  const openCreateChamfer = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "chamfer",
+      mode: "create",
+      initial: defaultChamferForm(),
+    });
+  }, []);
+
   const selectFeature = useCallback((feature: FeatureResponse) => {
     useMeasureStore.getState().deactivate();
     setSelectedFeatureId(feature.id);
@@ -702,6 +751,20 @@ export function PartPage() {
         mode: "edit",
         featureId: feature.id,
         initial: formFromPatternParams(feature.feature.params),
+      });
+    } else if (feature.feature.type === "fillet") {
+      setEditor({
+        kind: "fillet",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromFilletParams(feature.feature.params),
+      });
+    } else if (feature.feature.type === "chamfer") {
+      setEditor({
+        kind: "chamfer",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromChamferParams(feature.feature.params),
       });
     } else {
       setEditor(null);
@@ -813,6 +876,41 @@ export function PartPage() {
     [editor, features, runFeatureSave],
   );
 
+  const submitFillet = useCallback(
+    (params: FilletParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "fillet") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "fillet").length + 1;
+      runFeatureSave(
+        (version) => filletFeatureCreate(`Fillet${nextIndex}`, params, version),
+        (version) => filletFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The fillet could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitChamfer = useCallback(
+    (params: ChamferParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "chamfer") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "chamfer").length + 1;
+      runFeatureSave(
+        (version) =>
+          chamferFeatureCreate(`Chamfer${nextIndex}`, params, version),
+        (version) => chamferFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The chamfer could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
   const moveRollback = useCallback(
     (rollbackFeatureId: string | null) => {
       // Moving the bar rebuilds the body → the measure overlay refetches
@@ -908,6 +1006,8 @@ export function PartPage() {
             canRevolve={hasSolvedSketch}
             onNewRevolve={openCreateRevolve}
             canModify={hasBody}
+            onFillet={openCreateFillet}
+            onChamfer={openCreateChamfer}
             onPattern={openCreatePattern}
             canMeasure={hasBody}
             measuring={measureActive}
@@ -963,11 +1063,29 @@ export function PartPage() {
                     saving={editorSaving}
                     error={editorError}
                   />
-                ) : (
+                ) : editor.kind === "pattern" ? (
                   <PatternEditor
                     mode={editor.mode}
                     initial={editor.initial}
                     onSubmit={submitPattern}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
+                ) : editor.kind === "fillet" ? (
+                  <FilletEditor
+                    mode={editor.mode}
+                    initial={editor.initial}
+                    onSubmit={submitFillet}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
+                ) : (
+                  <ChamferEditor
+                    mode={editor.mode}
+                    initial={editor.initial}
+                    onSubmit={submitChamfer}
                     onCancel={closeEditor}
                     saving={editorSaving}
                     error={editorError}

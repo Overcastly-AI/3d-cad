@@ -24,11 +24,9 @@ pass; this note only points the queue at it, no duplication:
   gap"). `docs/COMPETITIVE.md` independently corroborates all 5 across
   Fusion/Onshape/Plasticity. Ready #2–#6 close this cluster.
 - **Part modeling row** — 5 features now (extrude/revolve/fillet/chamfer/
-  pattern) but stays ❌: (a) fillet/chamfer have **no authoring UI** — the
-  CreateStrip buttons are wired disabled since commit 5625610 (`onFillet`/
-  `onChamfer` never passed to `PartPage`), so an engineer cannot fillet or
-  chamfer through the product today despite the kernel supporting both
-  since Phase 1 — Ready #1 closes this, cheap and backend-complete; (b)
+  pattern) but stays ❌: (a) fillet/chamfer authoring UI **shipped** (Ready
+  #1 done) — a user can now round/bevel a body through the product via the
+  predicate edge selector; click-specific edge picking remains Ready #9; (b)
   sweep/loft/shell/draft/hole still make whole part classes ("shafts,
   ribs, lofted surfaces") unmodelable — Ready #7–#8 start the widest-named
   gaps, hole/shell/draft stay in Next (gated on face/edge picking); (c)
@@ -52,19 +50,14 @@ everything else. #9 (face/edge picking) is now startable — its blocker
 (`docs/design/topological-naming.md`) shipped 2026-07-11 (commit 2531850); it
 unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
 
-- [ ] (P1, S) Fillet/Chamfer authoring UI — wire the existing (disabled)
-      CreateStrip Fillet/Chamfer buttons to a title-block editor, same seat
-      as Extrude/Revolve/Pattern: predicate selector (`all_edges`/
-      `axis_parallel`, matching the kernel's shipped `EdgeSelector`) +
-      radius (fillet) / distance (chamfer). No schema/backend change — both
-      features have shipped goldens since Phase 1 (56eebb0/02b6e9c); this is
-      pure UI wiring closing a real usability gap. Depends on: nothing.
-      Acceptance: `onFillet`/`onChamfer` wired in `PartPage`; Save creates
-      the feature via the existing endpoint; tree row + per-feature errors
-      (`no_fillet_edges`/`fillet_failed`/chamfer equivalents) surface like
-      every other feature; worked e2e — sketch→extrude→fillet via UI on a
-      box, confirm rounded edges render and mass properties change as
-      expected; chamfer variant likewise; screenshots (desktop + 1280×800);
+- [x] (P1, S) Fillet/Chamfer authoring UI — FilletEditor + ChamferEditor
+      (twins of the Extrude/Revolve/Pattern title-block seat): brass radius/
+      distance handle + honest predicate edge selector (All edges / Edges
+      parallel to X/Y/Z, the kernel's shipped `EdgeSelector`). `onFillet`/
+      `onChamfer` wired in PartPage (openCreate + selectFeature edit +
+      submit), CreateStrip buttons now light up on a body. Worked e2e —
+      cube→fillet(all,r5) and →chamfer(all): feature lands, body re-renders
+      with less volume; +16 unit tests; screenshots (desktop + 1280×800).
       `frontend-design` skill invoked. [src: roadmap]
 - [ ] (P1, M) Sketch: trim/extend — trim cuts a curve at its nearest
       intersection with another sketch curve; extend lengthens a curve to
@@ -374,6 +367,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — **Ready #1 (Fillet/Chamfer authoring UI) shipped** +
+  reopened #6 P1 fixed: measure pick-marks now hit-test by real click/tap
+  (edge marks at true midpoint, vertex z-priority, visible reticle nodes).
+  [frontend-builder]
 - 2026-07-12 — **Groomed for Phase 2 restock.** Ready batch 1 (7 items:
   topological naming, construction geometry, 6-constraint vocabulary,
   revolve, measurement, pattern) archived; older changelog entries moved to

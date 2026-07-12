@@ -28,6 +28,12 @@ export type ExtrudeFeature = components["schemas"]["ExtrudeFeature"];
 export type ExtrudeParams = components["schemas"]["ExtrudeParamsV1"];
 export type RevolveFeature = components["schemas"]["RevolveFeature"];
 export type RevolveParams = components["schemas"]["RevolveParamsV1"];
+export type FilletFeature = components["schemas"]["FilletFeature"];
+export type FilletParams = components["schemas"]["FilletParamsV1"];
+export type ChamferFeature = components["schemas"]["ChamferFeature"];
+export type ChamferParams = components["schemas"]["ChamferParamsV1"];
+/** The shared fillet/chamfer edge-selector predicate (all-edges / axis-parallel). */
+export type EdgeSelector = FilletParams["edges"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =
@@ -267,6 +273,73 @@ export function revolveFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: revolveFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by fillet create and update. */
+function filletFeatureEnvelope(params: FilletParams): FilletFeature {
+  return { type: "fillet", version: 1, params };
+}
+
+/**
+ * The create payload for a fillet feature: round selected edges of the current
+ * body chain with a constant radius (design §7.6, the extrude-cut sibling — no
+ * `FeatureRef`, it acts on the implicit body chain at its point in the tree).
+ * Pure — unit-tested against the generated types.
+ */
+export function filletFeatureCreate(
+  name: string,
+  params: FilletParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: filletFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing fillet (no rename). */
+export function filletFeatureUpdate(
+  params: FilletParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: filletFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by chamfer create and update. */
+function chamferFeatureEnvelope(params: ChamferParams): ChamferFeature {
+  return { type: "chamfer", version: 1, params };
+}
+
+/**
+ * The create payload for a chamfer feature: bevel selected edges of the current
+ * body chain with a symmetric distance (the fillet twin — same `EdgeSelector`
+ * plumbing, same implicit-body-chain dependency). Pure.
+ */
+export function chamferFeatureCreate(
+  name: string,
+  params: ChamferParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: chamferFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing chamfer (no rename). */
+export function chamferFeatureUpdate(
+  params: ChamferParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: chamferFeatureEnvelope(params),
   };
 }
 

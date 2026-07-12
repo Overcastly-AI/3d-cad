@@ -2,12 +2,18 @@ import { createGatewayClient } from "@loft/ts-client/gateway";
 import { describe, expect, it } from "vitest";
 
 import {
+  type ChamferParams,
+  chamferFeatureCreate,
+  chamferFeatureUpdate,
   createPart,
   deletePart,
   type ExtrudeParams,
   extrudeFeatureCreate,
   extrudeFeatureUpdate,
   fetchParts,
+  type FilletParams,
+  filletFeatureCreate,
+  filletFeatureUpdate,
   PartNameTakenError,
   type PatternParams,
   patternFeatureCreate,
@@ -314,6 +320,60 @@ describe("patternFeatureUpdate", () => {
     expect(body).toEqual({
       expected_tree_version: 12,
       feature: { type: "pattern", version: 1, params: circular },
+    });
+    expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+const filletParams: FilletParams = {
+  radius_mm: 5,
+  edges: { kind: "all_edges" },
+};
+
+describe("filletFeatureCreate", () => {
+  it("wraps the params in the {type, version, params} create envelope", () => {
+    const body = filletFeatureCreate("Fillet1", filletParams, 3);
+    expect(body).toEqual({
+      name: "Fillet1",
+      expected_tree_version: 3,
+      feature: { type: "fillet", version: 1, params: filletParams },
+    });
+  });
+});
+
+describe("filletFeatureUpdate", () => {
+  it("wraps the re-parametrized envelope for the PATCH (no rename)", () => {
+    const body = filletFeatureUpdate(filletParams, 7);
+    expect(body).toEqual({
+      expected_tree_version: 7,
+      feature: { type: "fillet", version: 1, params: filletParams },
+    });
+    expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+const chamferParams: ChamferParams = {
+  distance_mm: 2,
+  edges: { kind: "axis_parallel", axis: "Z" },
+};
+
+describe("chamferFeatureCreate", () => {
+  it("wraps the params in the {type, version, params} create envelope", () => {
+    const body = chamferFeatureCreate("Chamfer1", chamferParams, 4);
+    expect(body).toEqual({
+      name: "Chamfer1",
+      expected_tree_version: 4,
+      feature: { type: "chamfer", version: 1, params: chamferParams },
+    });
+  });
+});
+
+describe("chamferFeatureUpdate", () => {
+  it("wraps the re-parametrized envelope for the PATCH (no rename)", () => {
+    const body = chamferFeatureUpdate(chamferParams, 9);
+    expect(body).toEqual({
+      expected_tree_version: 9,
+      feature: { type: "chamfer", version: 1, params: chamferParams },
     });
     expect(body).not.toHaveProperty("name", expect.anything());
   });

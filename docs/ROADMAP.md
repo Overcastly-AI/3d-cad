@@ -5,12 +5,13 @@ Status legend: ✅ done · 🚧 in progress · ⬜ planned
 **Current focus: Phase 2 — Parametric core.** Ready batch 1 (topological
 naming design doc, all 12 sketch constraint kinds, revolve, measurement,
 linear/circular pattern) shipped in full through commit 5777656 (2026-07-12).
-Current target: the Sketching row's remaining named gap — trim/extend,
-offset, sketch mirror, splines, sketch fillet/chamfer — corroborated by
-`docs/COMPETITIVE.md`'s first Fusion 360/Plasticity discovery pass; plus
-sweep/loft (Part-modeling breadth), face/edge picking (now unblocked), and
-wiring the existing-but-disabled solid Fillet/Chamfer authoring UI. See
-`docs/BACKLOG.md` Ready queue.
+The solid Fillet/Chamfer authoring UI (Ready #1) shipped 2026-07-12, so a
+user can now round/bevel a body through the product (predicate edge
+selector). Current target: the Sketching row's remaining named gap —
+trim/extend, offset, sketch mirror, splines, sketch fillet/chamfer —
+corroborated by `docs/COMPETITIVE.md`'s first Fusion 360/Plasticity
+discovery pass; plus sweep/loft (Part-modeling breadth) and face/edge
+picking (now unblocked). See `docs/BACKLOG.md` Ready queue.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -115,9 +116,14 @@ evidence in `CHANGELOG.md`. One line per item:
       fillet/chamfer) — see BACKLOG Ready.
 - ✅ Revolve + linear/circular pattern — 5 body-affecting features now
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
-      held ❌: fillet/chamfer have no authoring UI (buttons wired disabled
-      since 5625610), edge selection is still predicate-only, and sweep/
-      loft/shell/draft/hole are unbuilt — see BACKLOG Ready + Next.
+      held ❌: edge selection is still predicate-only, and sweep/loft/shell/
+      draft/hole are unbuilt — see BACKLOG Ready + Next.
+- ✅ Fillet/Chamfer authoring UI (Ready #1) — FilletEditor + ChamferEditor
+      wired into PartPage (create/edit/submit), CreateStrip buttons live on a
+      body; predicate edge selector + brass radius/distance handle. A user can
+      finally round/bevel through the product. Also: reopened #6 P1 — measure
+      pick-marks now hit-test by real click/tap (true-midpoint edge marks,
+      vertex z-priority, visible reticle nodes).
 - ✅ Design system: grouped-icon toolbar + flyouts, full text-idiom
       conversion, Create▸Modify split. Doc: `docs/design/toolbar-system.md`.
       Remaining follow-up: sketch-tool overflow flyout (slot/polygon/spline),
