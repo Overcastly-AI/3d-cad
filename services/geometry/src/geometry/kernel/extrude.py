@@ -89,8 +89,17 @@ def plane_point_to_world(
     return _to_world(DATUM_PLANES[plane_name], point)
 
 
-def _entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
-    """The profile edge(s) contributed by one solved sketch entity."""
+def entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
+    """The kernel edge(s) contributed by one solved sketch entity.
+
+    THE single per-entity edge-construction point (CLAUDE.md DRY rule): the
+    profile builder (:func:`build_profile_face`, closed wire) and the sweep path
+    builder (:func:`geometry.kernel.sweep.build_path_wire`, open wire) both go
+    through here, so a profile and a path can never disagree on how a sketch
+    entity becomes a kernel edge. Construction geometry is excluded by each
+    caller BEFORE this point (the single profile/path-exclusion points), so
+    points map to no edges here only as a defensive default.
+    """
     match entity:
         case SketchPoint():
             return []  # construction geometry — never part of the profile
@@ -165,7 +174,7 @@ def build_profile_face(
         # RESEARCH §9) — filtering does not reorder.
         if entity.construction:
             continue
-        edges.extend(_entity_edges(plane, entity))
+        edges.extend(entity_edges(plane, entity))
 
     if not edges:
         raise ProfileNotClosedError(

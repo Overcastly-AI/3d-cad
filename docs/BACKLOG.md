@@ -27,9 +27,9 @@ pass; this note only points the queue at it, no duplication:
   pattern) but stays ❌: (a) fillet/chamfer authoring UI **shipped** (Ready
   #1 done) — a user can now round/bevel a body through the product via the
   predicate edge selector; click-specific edge picking remains Ready #9; (b)
-  sweep/loft/shell/draft/hole still make whole part classes ("shafts,
-  ribs, lofted surfaces") unmodelable — Ready #7–#8 start the widest-named
-  gaps, hole/shell/draft stay in Next (gated on face/edge picking); (c)
+  sweep BACKEND shipped (#7 — shafts/ribs now modelable via the API; UI #7b
+  pending); loft/shell/draft/hole still make whole part classes unmodelable —
+  Ready #8 (loft), hole/shell/draft stay in Next (gated on face/edge picking); (c)
   edge selection is still predicate-only — Ready #9 (face/edge picking) is
   now startable, its design-doc blocker shipped 2026-07-11.
 - **Interop row** — unchanged from last pass: export covers modeled trees,
@@ -238,17 +238,21 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       matches a hand/CAD-cross-checked expectation within the documented
       tolerance; screenshots; `frontend-design` skill invoked. [src:
       product-auditor, competitive, roadmap]
-- [ ] (P1, M) Sweep feature — sweep a closed profile along a path
-      (edge/line chain) via build123d; add/cut. Named in the Part-modeling
-      ❌ notes ("shafts, ribs... can't be modeled at all"). Same two-slice
-      pattern as revolve/pattern (kernel+schema+golden, then authoring UI —
-      don't tick until both land). Depends on: nothing new.
-      Acceptance: golden `sweep-<name>` through every gate (mass props,
-      exact topology/mesh, determinism, STEP round-trip); open-profile/
-      open-path/self-intersecting-sweep error paths pinned (strict-prefix
-      rule); contracts+ts-client regen; authoring UI (profile+path pick,
-      title-block seat) with e2e proving a swept body renders at the
-      expected volume; screenshots. [src: roadmap, product-auditor,
+- [x] (P1, M) Sweep feature BACKEND — sweep a closed profile along a SECOND
+      sketch's open path wire via build123d; add/cut. SHIPPED 2026-07-12:
+      `SweepFeature`/`SweepParamsV1`, `build_path_wire`/`sweep_profile` kernel
+      ops, evaluate-tree handler; path = whole earlier sketch feature (option A,
+      reuses the profile FeatureRef mechanism → independent of topological
+      naming). Golden `sweep-circle-r8-h30` (analytic cylinder π·r²·h) through
+      every gate (mass props, exact topology 3/3/1, mesh 506/500, determinism
+      incl. interpreter restart, STEP round-trip); error paths pinned
+      (`profile_not_closed`, `reference_unresolved`, `sweep_path_closed`,
+      `sweep_path_not_connected`, `sweep_path_empty`, `no_prior_body`,
+      `sweep_failed`); contracts+ts-client regen. v1: no twist/scale/guide-
+      rails, anchored at the profile. [src: roadmap, product-auditor]
+- [ ] (P1, S) #7b Sweep authoring UI — profile+path pick, title-block seat;
+      e2e proving a swept body renders at the expected volume; screenshots;
+      `frontend-design` skill invoked. Backend (#7) is live. [src: roadmap,
       competitive]
 - [ ] (P1, M) Loft feature — blend a transitional solid between two or more
       profile sketches. Named alongside sweep in the Part-modeling ❌ notes

@@ -14,7 +14,9 @@ Dispatch is a ``type → handler`` registry (:data:`FEATURE_HANDLERS`):
 ``sketch`` (produces input geometry, not body-affecting), ``extrude`` (the
 first **body-affecting** feature, §4.3 — mutates the part's single solid body
 chain via add/cut booleans), ``revolve`` (sweeps a profile about a sketch-line
-axis, sharing extrude's profile + boolean plumbing), ``fillet`` (rounds
+axis, sharing extrude's profile + boolean plumbing), ``sweep`` (the first
+non-prismatic feature — sweeps a profile along a SECOND sketch's open path
+wire), ``fillet`` (rounds
 selected edges of that body chain) and ``chamfer`` (bevels selected edges; both
 body-affecting and both resolving edges through the shared geometric selector).
 A feature that
@@ -43,7 +45,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from build123d import Face, Solid
+from build123d import Face, Solid, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
     ChamferFeature,
@@ -62,6 +64,7 @@ from py_kit.schemas.features import (
     RevolveFeature,
     SketchFeature,
     SolvedSketchData,
+    SweepFeature,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
 
@@ -72,6 +75,9 @@ from geometry.kernel import (
     FilletError,
     NoAxisError,
     NoEdgesSelectedError,
+    PathClosedError,
+    PathEmptyError,
+    PathNotConnectedError,
     PatternAngleError,
     PatternAxisError,
     PatternCountError,
@@ -82,6 +88,8 @@ from geometry.kernel import (
     ProfileNotClosedError,
     ProfileUnsupportedError,
     RevolveError,
+    SweepError,
+    build_path_wire,
     build_profile_face,
     chamfer_body,
     check_axis_clears_profile,
@@ -94,6 +102,7 @@ from geometry.kernel import (
     resolve_axis_line,
     revolve_face,
     select_edges,
+    sweep_profile,
     tessellate_glb,
 )
 from geometry.mesh_store import store_mesh_glb
@@ -353,6 +362,97 @@ def _evaluate_revolve(
     return None
 
 
+def _resolve_path_wire(path: FeatureRef, state: EvaluationState) -> Wire | FeatureError:
+    """Resolve a sweep-path FeatureRef to its single OPEN path wire.
+
+    The path sibling of :func:`_resolve_profile_face`: it re-checks the §2.2
+    reference rule (documents enforces it at write time; geometry must not trust
+    its callers), then assembles the open path wire through
+    :func:`geometry.kernel.build_path_wire` (construction geometry excluded
+    there, the shared per-entity edge builder). Every failure flavour is a
+    per-feature error pinned to the upstream path sketch.
+    """
+    path_id = path.feature_id
+    solved = state.solved_sketches.get(path_id)
+    plane = state.sketch_planes.get(path_id)
+    if solved is None or plane is None:
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                "Path must reference an earlier successfully solved sketch "
+                "feature of this tree."
+            ),
+            upstream_feature_id=path_id,
+        )
+    try:
+        return build_path_wire(plane.plane, solved.entities)
+    except PathEmptyError as exc:
+        return FeatureError(
+            code="sweep_path_empty", message=str(exc), upstream_feature_id=path_id
+        )
+    except PathNotConnectedError as exc:
+        return FeatureError(
+            code="sweep_path_not_connected",
+            message=str(exc),
+            upstream_feature_id=path_id,
+        )
+    except PathClosedError as exc:
+        return FeatureError(
+            code="sweep_path_closed", message=str(exc), upstream_feature_id=path_id
+        )
+
+
+def _evaluate_sweep(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Sweep an earlier sketch's profile along an earlier sketch's path (§4.3).
+
+    The first NON-PRISMATIC body-affecting handler: it shares extrude/revolve's
+    profile resolution + closed-wire check (:func:`_resolve_profile_face`) and
+    ``add``/``cut`` boolean (:func:`combine_body`), swapping the linear prism /
+    revolution for a sweep along a SECOND sketch's open path wire
+    (:func:`_resolve_path_wire`). Kernel failures surface as design error codes
+    pinned to the failing feature — ``profile_not_closed``/``profile_unsupported``
+    and ``reference_unresolved`` (upstream profile), ``sweep_path_empty``/
+    ``sweep_path_not_connected``/``sweep_path_closed``/``reference_unresolved``
+    (upstream path), ``no_prior_body`` (cut with nothing to cut),
+    ``sweep_failed``, ``boolean_failed``. ``state.body`` is only replaced on
+    success (strict-prefix rule tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, SweepFeature), "registry dispatches on type='sweep'"
+    params = feature.params
+
+    resolved = _resolve_profile_face(params.profile, state)
+    if isinstance(resolved, FeatureError):
+        return resolved
+    face, _plane, _ = resolved
+
+    path = _resolve_path_wire(params.path, state)
+    if isinstance(path, FeatureError):
+        return path
+
+    if params.operation == "cut" and state.body is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "Cut requires an existing body, but no body-affecting "
+                "feature precedes this one; use an additive feature first."
+            ),
+        )
+
+    try:
+        tool = sweep_profile(face, path)
+    except SweepError as exc:
+        return FeatureError(code="sweep_failed", message=str(exc))
+
+    try:
+        state.body = combine_body(state.body, tool, params.operation)
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+    return None
+
+
 def _evaluate_fillet(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -502,6 +602,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "sketch": _evaluate_sketch,
     "extrude": _evaluate_extrude,
     "revolve": _evaluate_revolve,
+    "sweep": _evaluate_sweep,
     "fillet": _evaluate_fillet,
     "chamfer": _evaluate_chamfer,
     "pattern": _evaluate_pattern,

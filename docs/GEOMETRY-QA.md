@@ -48,6 +48,7 @@ recorded from harness output.
 | `chamfer-plate-d5` | FIRST CHAMFER golden (all-planar): sketch→extrude→chamfer tree — the plate's 4 vertical (Z-parallel) edges beveled d=5 (45°) via the SAME `EdgeSelector` plumbing fillet uses (shared `select_edges` helper, design §2.4); GProp over 4 PLANAR bevel faces + octagonal caps, EXACT STEP survival (0.0 vs fillet's curved 1.26e-10) | 1e-9 (all-planar, measured-then-set; volume/area exact, residual worst 3.55e-15) | 10 / 24 / 1 | 48 / 28 |
 | `revolve-annulus-r10-20-h15` | FIRST REVOLVE golden (solid of revolution): sketch→revolve tree — a rectangle [r 10..20]×[h 0..15] revolved 360° about a CONSTRUCTION centerline into an annular cylinder; shares extrude's `build_profile_face`/`combine_body`; GProp over two coaxial cylinders + two annular caps, periodic seam-edge topology, STEP re-approximation of the revolved cylinders | 1e-9 (curved-geometry, measured-then-set; observed worst 1.82e-12 on volume) | 4 / 6 / 1 | 1012 / 1008 |
 | `pattern-linear-3x-bar` | FIRST PATTERN golden (linear pattern, #7): sketch→extrude→pattern tree — a unit cube LINEAR-patterned +X (spacing 6, count 3, overlapping) so the copies fuse into a connected bar [0,22]×[0,10]×[0,10]; locks the pattern handler + placement math (unit dir × spacing × k) + variadic fuse + single-solid finalize (§7.6), and STEP round-trip of the patterned body | 1e-9 (all-planar union, measured-then-set; volume/area/centroid/AABB EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
+| `sweep-circle-r8-h30` | FIRST SWEEP golden (first NON-PRISMATIC feature, #7): sketch→sketch→sweep tree — an r=8 circle profile swept along a SECOND sketch's straight 30 mm OPEN path (vertical line on XZ) into a right circular cylinder; locks the sweep handler + two-sketch FeatureRef resolution (profile + open path wire) + open-wire assembly (shared per-entity edge builder) + `Solid.sweep`; cross-checks that `Solid.sweep` reproduces `build_cylinder`'s exact B-rep/mesh by a different code path | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 1.44e-15 on centroid, vol/area/AABB EXACTLY 0.0) | 3 / 3 / 1 | 506 / 500 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
@@ -63,9 +64,13 @@ every revolve path (add/cut, partial angle, touching-axis disc + all four
 error codes `profile_not_closed`/`no_axis`/`axis_intersects_profile`/
 `no_prior_body`/`reference_unresolved`) are additionally pinned by
 `tests/test_extrude.py` / `tests/test_fillet.py` / `tests/test_chamfer.py` /
-`tests/test_revolve.py`. No shipped modeling capability lacks a golden as of
-the 2026-07-11 revolve entry — the four core features (extrude, revolve,
-fillet, chamfer) are all golden-covered.
+`tests/test_revolve.py`. Every sweep path (add/cut, straight + bent multi-
+segment path, and all error codes `profile_not_closed`/`reference_unresolved`/
+`sweep_path_closed`/`sweep_path_not_connected`/`sweep_path_empty`/
+`no_prior_body`) is additionally pinned by `tests/test_sweep.py`. No shipped
+modeling capability lacks a golden as of the 2026-07-12 sweep entry — the six
+body-affecting features (extrude, revolve, sweep, fillet, chamfer, pattern) are
+all golden-covered.
 
 ---
 
@@ -420,6 +425,83 @@ count is a parse-time 422 (`count` is typed `int`). Evidence:
 `test_pattern.py` green; full `services/geometry` + `services/gateway` suites
 green; pyright + ruff clean; contracts + ts-client regenerated (gen-check
 clean); web typecheck green with no stub needed.
+
+---
+
+## 2026-07-12 — First sweep golden: `sweep-circle-r8-h30` (first NON-PRISMATIC feature, BACKLOG Ready #7 backend)
+
+**Capability:** `SweepFeature`/`SweepParamsV1` v1 — sweep an earlier sketch's
+closed profile along a SECOND sketch's open path wire, `add`/`cut` against the
+body chain. The first non-prismatic body-affecting feature (extrude follows the
+plane normal, revolve an axis, sweep an arbitrary open path) — the shaft / pipe
+/ rib primitive on the Part-modeling scorecard.
+
+**DESIGN DECISION — path representation (option A, "path is a whole earlier
+sketch feature"):** the path is a SECOND `FeatureRef` to an earlier sketch
+whose entities assemble into a single OPEN wire — the exact `FeatureRef`-to-
+sketch mechanism the `profile` slot already uses (design `feature-tree.md`
+§2.1/§2.2), NOT a picked sub-edge. This keeps sweep **independent of
+topological naming (#1)**: it references a whole feature's evaluated wire, so it
+survives rebuilds like any other profile reference and needs no persistent
+edge identity. The open-path wire is built by `build_path_wire`, the open-wire
+sibling of `build_profile_face`, sharing the SAME per-entity edge builder
+(`entity_edges`, promoted to public this commit — one edge-construction point,
+CLAUDE.md DRY) so a sweep path and an extrude profile can never disagree on how
+a sketch entity becomes a kernel edge. Construction geometry is excluded from
+the path exactly as from the profile.
+
+**Stated limitations (honest, in the DTO docstring + code):** (1) the sweep is
+**anchored at the profile** — build123d applies the path as a relative
+trajectory from the profile's own location, so the path's absolute position is
+unused; author the path starting at the profile origin, first segment
+perpendicular to the profile plane, for a predictable result. (2) NO twist, NO
+scale-along-path, NO multi-section, NO guide rails, NO per-segment transition
+control — one profile rigidly swept along one path (all later, additive params,
+no `param_version` bump). (3) the path must resolve to a single **open** wire.
+
+**Golden `sweep-circle-r8-h30`** (sketch→sketch→sweep): an r=8 circle on XY
+swept along a straight 30 mm vertical line on XZ → a right circular cylinder.
+The analytic anchor the brief calls for; because a straight sweep of a circle
+IS the canonical cylinder, this doubles as a cross-check that `Solid.sweep`
+reproduces `build_cylinder`'s exact B-rep + mesh by an entirely different code
+path (identical 3/3/1 topology and 506/500 mesh to `cylinder-r10-h25`).
+HAND-DERIVED expectations (not recorded output):
+
+| Quantity | Expected (analytic) | Measured deviation |
+| --- | --- | --- |
+| volume | π·8²·30 = **6031.857894892402 mm³** | **0.0** (exact) |
+| surface_area | 2π·8·(8+30) = **1910.088333382594 mm²** | **0.0** (exact) |
+| centroid | **(0, 0, 15) mm** | ≤ **1.44e-15** (x/y on axis; z one ulp) |
+| AABB | **[-8,-8,0]..[8,8,30]** | **0.0** on all six bounds |
+| topology F/E/S | **3 / 3 / 1** | exact (1 lateral + 2 caps, 1 seam edge) |
+| mesh V/T | **506 / 500** | exact |
+
+Tolerance `1e-9` = reviewed curved-geometry ceiling (~7e5× the observed worst
+1.44e-15), 100× tighter than the standing planar 1e-7 bound, matching the
+cylinder/revolve/fillet goldens' curved posture. Solver contributes zero error
+by construction (both sketches fully constrained at their analytic solution,
+zero-residual start → planegcs returns input positions bitwise).
+
+**Determinism (RESEARCH §9):** same tree → byte-identical evaluate response
+INCLUDING `mesh_glb_id` (content hash of a deterministic GLB), across rebuilds
+and an interpreter restart (`test_evaluate_response_with_body_is_byte_
+deterministic`). **STEP round-trip:** the swept cylinder re-imports with mass
+properties within tolerance and topology preserved 3/3/1 (parametrized
+`test_step_roundtrip.py`, green).
+
+**Error paths pinned** (per-feature rebuild errors, strict-prefix, last-good
+body preserved — never a 500): `profile_not_closed` (open profile, shared
+`build_profile_face` check), `reference_unresolved` (bad/missing/non-sketch
+profile OR path ref), `sweep_path_closed` (a closed loop path),
+`sweep_path_not_connected` (disjoint path segments), `sweep_path_empty` (path
+with only construction geometry), `no_prior_body` (cut with nothing to cut),
+plus kernel `sweep_failed` (self-intersecting path / corner tighter than the
+profile). Evidence: `test_sweep.py` (11 tests green).
+
+**Gates:** `test_sweep.py` + `test_goldens.py` + `test_step_roundtrip.py` green;
+full `services/geometry` + `services/gateway` suites green; pyright + ruff
+clean; contracts + ts-client regenerated (gen-check clean); web typecheck green
+with no stub needed (additive `SweepFeature` union member).
 
 ---
 

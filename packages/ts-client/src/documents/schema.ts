@@ -449,7 +449,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Id
              * Format: uuid
@@ -510,7 +510,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -570,7 +570,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Id
              * Format: uuid
@@ -629,7 +629,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"]) | null;
+            feature?: (components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -1139,6 +1139,74 @@ export interface components {
              */
             kind: "point";
             position: components["schemas"]["Point2D"];
+        };
+        /**
+         * SweepFeature
+         * @description ``{"type": "sweep", "version": 1, "params": {...}}`` envelope.
+         */
+        SweepFeature: {
+            params: components["schemas"]["SweepParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sweep";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SweepParamsV1
+         * @description Sweep an earlier sketch's closed profile along an earlier sketch's open path.
+         *
+         *     The first NON-PRISMATIC body-affecting feature (design §4.3): where extrude
+         *     sweeps a profile along the plane normal and revolve about an axis, sweep
+         *     follows an arbitrary open PATH wire — the shaft / pipe / rib primitive named
+         *     in the Part-modeling scorecard notes. It consumes the SAME ``profile``
+         *     FeatureRef to an earlier sketch (a single closed wire, built by the shared
+         *     ``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body
+         *     chain as extrude/revolve; the new ingredient is ``path``, a SECOND
+         *     FeatureRef to an earlier sketch whose entities form a single OPEN wire.
+         *
+         *     Path representation (v1 DESIGN DECISION — docs/design/feature-tree.md
+         *     §2.1/§2.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier
+         *     SKETCH feature referenced by id (option A — the most general model, matching
+         *     how production CAD names a sweep path, and reusing the tree's stable feature
+         *     ids exactly as the ``profile`` slot does). This is NOT topological naming
+         *     (#1): it references a whole feature's evaluated wire, never a picked
+         *     sub-edge — the same mechanism extrude/revolve already use for their profile.
+         *
+         *     v1 limits (stated plainly — documented scope, not bugs):
+         *
+         *     * the path must resolve to a single **open** wire; a closed path is a
+         *       ``sweep_path_closed`` rebuild error, disjoint path loops are
+         *       ``sweep_path_not_connected``, and a path with no curve entities is
+         *       ``sweep_path_empty`` (construction geometry is excluded from the path
+         *       exactly as it is from the profile);
+         *     * the sweep is **anchored at the profile** — build123d applies the path as a
+         *       relative trajectory from the profile's own location, so the path's
+         *       absolute position is not used. Author the path starting at the profile
+         *       origin, with its first segment perpendicular to the profile plane, for a
+         *       predictable result (as the golden's vertical path over an XY circle is);
+         *     * NO twist, NO scale-along-path, NO multi-section, NO guide rails, NO
+         *       per-segment transition control — one profile rigidly swept along one path
+         *       (all later, additive params — no ``param_version`` bump);
+         *     * a self-intersecting path, or a corner tighter than the profile can turn
+         *       without sweeping through itself, is a kernel ``sweep_failed`` rebuild
+         *       error, never a silently bad body.
+         */
+        SweepParamsV1: {
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "add" | "cut";
+            /** @description Must resolve to an EARLIER sketch feature whose entities form a single OPEN wire — the sweep trajectory (design §2.2) */
+            path: components["schemas"]["FeatureRef"];
+            /** @description Must resolve to an EARLIER sketch feature whose entities form the single CLOSED profile wire (design §2.2) */
+            profile: components["schemas"]["FeatureRef"];
         };
         /**
          * SymmetricConstraint

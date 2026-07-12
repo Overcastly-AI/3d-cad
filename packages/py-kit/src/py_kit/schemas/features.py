@@ -199,6 +199,57 @@ class RevolveParamsV1(BaseModel):
     )
 
 
+class SweepParamsV1(BaseModel):
+    """Sweep an earlier sketch's closed profile along an earlier sketch's open path.
+
+    The first NON-PRISMATIC body-affecting feature (design §4.3): where extrude
+    sweeps a profile along the plane normal and revolve about an axis, sweep
+    follows an arbitrary open PATH wire — the shaft / pipe / rib primitive named
+    in the Part-modeling scorecard notes. It consumes the SAME ``profile``
+    FeatureRef to an earlier sketch (a single closed wire, built by the shared
+    ``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body
+    chain as extrude/revolve; the new ingredient is ``path``, a SECOND
+    FeatureRef to an earlier sketch whose entities form a single OPEN wire.
+
+    Path representation (v1 DESIGN DECISION — docs/design/feature-tree.md
+    §2.1/§2.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier
+    SKETCH feature referenced by id (option A — the most general model, matching
+    how production CAD names a sweep path, and reusing the tree's stable feature
+    ids exactly as the ``profile`` slot does). This is NOT topological naming
+    (#1): it references a whole feature's evaluated wire, never a picked
+    sub-edge — the same mechanism extrude/revolve already use for their profile.
+
+    v1 limits (stated plainly — documented scope, not bugs):
+
+    * the path must resolve to a single **open** wire; a closed path is a
+      ``sweep_path_closed`` rebuild error, disjoint path loops are
+      ``sweep_path_not_connected``, and a path with no curve entities is
+      ``sweep_path_empty`` (construction geometry is excluded from the path
+      exactly as it is from the profile);
+    * the sweep is **anchored at the profile** — build123d applies the path as a
+      relative trajectory from the profile's own location, so the path's
+      absolute position is not used. Author the path starting at the profile
+      origin, with its first segment perpendicular to the profile plane, for a
+      predictable result (as the golden's vertical path over an XY circle is);
+    * NO twist, NO scale-along-path, NO multi-section, NO guide rails, NO
+      per-segment transition control — one profile rigidly swept along one path
+      (all later, additive params — no ``param_version`` bump);
+    * a self-intersecting path, or a corner tighter than the profile can turn
+      without sweeping through itself, is a kernel ``sweep_failed`` rebuild
+      error, never a silently bad body.
+    """
+
+    profile: FeatureRef = Field(
+        description="Must resolve to an EARLIER sketch feature whose entities "
+        "form the single CLOSED profile wire (design §2.2)"
+    )
+    path: FeatureRef = Field(
+        description="Must resolve to an EARLIER sketch feature whose entities "
+        "form a single OPEN wire — the sweep trajectory (design §2.2)"
+    )
+    operation: Literal["add", "cut"]
+
+
 class FilletParamsV1(BaseModel):
     """Round selected edges of the current body chain with a constant radius.
 
@@ -395,6 +446,14 @@ class RevolveFeature(BaseModel):
     params: RevolveParamsV1
 
 
+class SweepFeature(BaseModel):
+    """``{"type": "sweep", "version": 1, "params": {...}}`` envelope."""
+
+    type: Literal["sweep"]
+    version: Literal[1]
+    params: SweepParamsV1
+
+
 class FilletFeature(BaseModel):
     """``{"type": "fillet", "version": 1, "params": {...}}`` envelope."""
 
@@ -426,6 +485,7 @@ Feature = Annotated[
     SketchFeature
     | ExtrudeFeature
     | RevolveFeature
+    | SweepFeature
     | FilletFeature
     | ChamferFeature
     | PatternFeature,
@@ -437,6 +497,7 @@ FeatureEnvelope = (
     SketchFeature
     | ExtrudeFeature
     | RevolveFeature
+    | SweepFeature
     | FilletFeature
     | ChamferFeature
     | PatternFeature
@@ -585,6 +646,7 @@ FEATURE_REGISTRY: FeatureTypeRegistry[FeatureEnvelope] = FeatureTypeRegistry()
 FEATURE_REGISTRY.register(SketchFeature)
 FEATURE_REGISTRY.register(ExtrudeFeature)
 FEATURE_REGISTRY.register(RevolveFeature)
+FEATURE_REGISTRY.register(SweepFeature)
 FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.register(ChamferFeature)
 FEATURE_REGISTRY.register(PatternFeature)
@@ -654,6 +716,18 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                 FeatureReference(
                     "profile", feature.params.profile, frozenset({"sketch"})
                 )
+            )
+        case SweepFeature():
+            # Two sketch refs: the closed PROFILE and the open PATH wire (design
+            # §4.3). Both resolve to earlier sketch features (the path is a whole
+            # feature's wire, NOT a picked sub-edge — independent of #1).
+            references.append(
+                FeatureReference(
+                    "profile", feature.params.profile, frozenset({"sketch"})
+                )
+            )
+            references.append(
+                FeatureReference("path", feature.params.path, frozenset({"sketch"}))
             )
         case FilletFeature() | ChamferFeature() | PatternFeature():
             # No FeatureRef: fillet/chamfer modify the implicit single body

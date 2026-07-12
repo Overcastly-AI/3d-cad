@@ -45,6 +45,14 @@ from geometry.kernel.revolve import (
     revolve_face,
 )
 from geometry.kernel.shapes import build_box, build_cylinder
+from geometry.kernel.sweep import (
+    PathClosedError,
+    PathEmptyError,
+    PathNotConnectedError,
+    SweepError,
+    build_path_wire,
+    sweep_profile,
+)
 from geometry.kernel.tessellate import glb_stats, tessellate_glb
 from geometry.schemas import (
     BoxParams,
@@ -65,6 +73,9 @@ __all__ = [
     "MeasureError",
     "NoAxisError",
     "NoEdgesSelectedError",
+    "PathClosedError",
+    "PathEmptyError",
+    "PathNotConnectedError",
     "PatternAngleError",
     "PatternAxisError",
     "PatternCountError",
@@ -75,8 +86,10 @@ __all__ = [
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "RevolveError",
+    "SweepError",
     "build_box",
     "build_cylinder",
+    "build_path_wire",
     "build_profile_face",
     "build_shape",
     "chamfer_body",
@@ -98,6 +111,7 @@ __all__ = [
     "revolve_face",
     "select_edges",
     "selection_overlay",
+    "sweep_profile",
     "tessellate_glb",
 ]
 

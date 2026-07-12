@@ -349,7 +349,8 @@
                 "fillet": "#/components/schemas/FilletFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
-                "sketch": "#/components/schemas/SketchFeature"
+                "sketch": "#/components/schemas/SketchFeature",
+                "sweep": "#/components/schemas/SweepFeature"
               },
               "propertyName": "type"
             },
@@ -362,6 +363,9 @@
               },
               {
                 "$ref": "#/components/schemas/RevolveFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SweepFeature"
               },
               {
                 "$ref": "#/components/schemas/FilletFeature"
@@ -470,7 +474,8 @@
                 "fillet": "#/components/schemas/FilletFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
-                "sketch": "#/components/schemas/SketchFeature"
+                "sketch": "#/components/schemas/SketchFeature",
+                "sweep": "#/components/schemas/SweepFeature"
               },
               "propertyName": "type"
             },
@@ -483,6 +488,9 @@
               },
               {
                 "$ref": "#/components/schemas/RevolveFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SweepFeature"
               },
               {
                 "$ref": "#/components/schemas/FilletFeature"
@@ -592,7 +600,8 @@
                 "fillet": "#/components/schemas/FilletFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
-                "sketch": "#/components/schemas/SketchFeature"
+                "sketch": "#/components/schemas/SketchFeature",
+                "sweep": "#/components/schemas/SweepFeature"
               },
               "propertyName": "type"
             },
@@ -605,6 +614,9 @@
               },
               {
                 "$ref": "#/components/schemas/RevolveFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SweepFeature"
               },
               {
                 "$ref": "#/components/schemas/FilletFeature"
@@ -721,7 +733,8 @@
                     "fillet": "#/components/schemas/FilletFeature",
                     "pattern": "#/components/schemas/PatternFeature",
                     "revolve": "#/components/schemas/RevolveFeature",
-                    "sketch": "#/components/schemas/SketchFeature"
+                    "sketch": "#/components/schemas/SketchFeature",
+                    "sweep": "#/components/schemas/SweepFeature"
                   },
                   "propertyName": "type"
                 },
@@ -734,6 +747,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/RevolveFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SweepFeature"
                   },
                   {
                     "$ref": "#/components/schemas/FilletFeature"
@@ -1563,6 +1579,59 @@
           "position"
         ],
         "title": "SketchPoint",
+        "type": "object"
+      },
+      "SweepFeature": {
+        "description": "``{\"type\": \"sweep\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/SweepParamsV1"
+          },
+          "type": {
+            "const": "sweep",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "SweepFeature",
+        "type": "object"
+      },
+      "SweepParamsV1": {
+        "description": "Sweep an earlier sketch's closed profile along an earlier sketch's open path.\n\nThe first NON-PRISMATIC body-affecting feature (design \u00a74.3): where extrude\nsweeps a profile along the plane normal and revolve about an axis, sweep\nfollows an arbitrary open PATH wire \u2014 the shaft / pipe / rib primitive named\nin the Part-modeling scorecard notes. It consumes the SAME ``profile``\nFeatureRef to an earlier sketch (a single closed wire, built by the shared\n``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve; the new ingredient is ``path``, a SECOND\nFeatureRef to an earlier sketch whose entities form a single OPEN wire.\n\nPath representation (v1 DESIGN DECISION \u2014 docs/design/feature-tree.md\n\u00a72.1/\u00a72.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier\nSKETCH feature referenced by id (option A \u2014 the most general model, matching\nhow production CAD names a sweep path, and reusing the tree's stable feature\nids exactly as the ``profile`` slot does). This is NOT topological naming\n(#1): it references a whole feature's evaluated wire, never a picked\nsub-edge \u2014 the same mechanism extrude/revolve already use for their profile.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* the path must resolve to a single **open** wire; a closed path is a\n  ``sweep_path_closed`` rebuild error, disjoint path loops are\n  ``sweep_path_not_connected``, and a path with no curve entities is\n  ``sweep_path_empty`` (construction geometry is excluded from the path\n  exactly as it is from the profile);\n* the sweep is **anchored at the profile** \u2014 build123d applies the path as a\n  relative trajectory from the profile's own location, so the path's\n  absolute position is not used. Author the path starting at the profile\n  origin, with its first segment perpendicular to the profile plane, for a\n  predictable result (as the golden's vertical path over an XY circle is);\n* NO twist, NO scale-along-path, NO multi-section, NO guide rails, NO\n  per-segment transition control \u2014 one profile rigidly swept along one path\n  (all later, additive params \u2014 no ``param_version`` bump);\n* a self-intersecting path, or a corner tighter than the profile can turn\n  without sweeping through itself, is a kernel ``sweep_failed`` rebuild\n  error, never a silently bad body.",
+        "properties": {
+          "operation": {
+            "enum": [
+              "add",
+              "cut"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "path": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "Must resolve to an EARLIER sketch feature whose entities form a single OPEN wire \u2014 the sweep trajectory (design \u00a72.2)"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "Must resolve to an EARLIER sketch feature whose entities form the single CLOSED profile wire (design \u00a72.2)"
+          }
+        },
+        "required": [
+          "profile",
+          "path",
+          "operation"
+        ],
+        "title": "SweepParamsV1",
         "type": "object"
       },
       "SymmetricConstraint": {
