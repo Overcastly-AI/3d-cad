@@ -397,7 +397,11 @@ def test_sketch_on_datum_plane_has_no_feature_refs() -> None:
     assert list(iter_feature_refs(_sketch())) == []
 
 
-def test_sketch_plane_feature_ref_accepts_no_type_in_v1() -> None:
+def test_sketch_plane_feature_ref_accepts_datum() -> None:
+    # Offset/datum planes (Ready #2) widened the sketch-plane FeatureRef slot
+    # from frozenset() (no referenceable plane feature in v1) to {"datum"}: a
+    # sketch may now sit on a datum-plane feature. The design review confirmed
+    # this is the sole reference-graph change (walker/self-check stay balanced).
     sketch = SketchFeature.model_validate(
         {
             "type": "sketch",
@@ -411,7 +415,7 @@ def test_sketch_plane_feature_ref_accepts_no_type_in_v1() -> None:
     )
     (reference,) = feature_references(sketch)
     assert reference.slot == "plane"
-    assert reference.allowed_types == frozenset()
+    assert reference.allowed_types == frozenset({"datum"})
 
 
 def test_slot_map_drift_fails_loudly() -> None:
