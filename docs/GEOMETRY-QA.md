@@ -68,6 +68,52 @@ fillet, chamfer) are all golden-covered.
 
 ---
 
+## 2026-07-12 — Stateless measure endpoint: exact nearest distance (BACKLOG Ready #6 / 6a)
+
+`POST /api/v1/measure` (geometry) + `POST /api/v1/geometry/measure` (gateway,
+auth-gated). Stateless one-shot distance query between two **targets**: a
+POINT (explicit world coords — a picked snap point, exact on its own) or an
+EDGE (a transient 0-based index into the deterministic edge list of a body
+recomputed from a supplied feature `tree`, reusing `evaluate_tree`).
+
+### Contract decision + fidelity (honest)
+
+Distances come from the **exact B-rep** via OCCT `BRepExtrema_DistShapeShape`,
+never from the tessellation. The "client sends picked coords for edges too"
+contract was rejected because curved-edge nearest would then be a mesh
+approximation; recomputing the body keeps **every** supported case EXACT —
+point-point, point-edge, edge-edge, straight OR curved. Cost: an edge target
+must carry the `tree` (point targets need nothing). The edge index is
+transient (this request/tree only), NOT a stable reference across edits — that
+is topological naming (Phase 2, feature-tree §2.4).
+
+### Gate — analytic vs measured (`tests/test_measure.py`, TOL = 1e-7)
+
+| case | setup (box-10x20x30, min at origin) | analytic | measured |
+|---|---|---|---|
+| point-point (acceptance) | corners (0,0,0)→(10,20,30) | √1400 = 37.416573867739416 | = (abs 1e-7) |
+| point-edge nearest | pt (5,4,3) → X-edge (0,0,0)-(10,0,0) | √(4²+3²) = 5, foot (5,0,0) | = |
+| edge-edge parallel | two X-edges 20 mm apart in Y | dist 20, angle 0° | = |
+| edge-edge perpendicular | X-edge ⟂ Y-edge sharing origin | dist 0, angle 90° | = |
+
+The box is planar-exact in OCCT, so deviation from analytic is round-off only;
+1e-7 is the standing kernel ceiling, not a fitted epsilon. Angle is the acute
+line-line angle [0,90], reported only when BOTH edges are straight lines
+(a point or curved edge has no single direction → null).
+
+### Determinism + error paths pinned
+
+Byte-identical result across repeat calls (kernel + HTTP), because `.edges()`
+explores a fixed shape deterministically and the solver is a pure function.
+Error paths are clean 422 envelopes, never a 500: `edge_index_out_of_range`
+(index past the body's edges), `tree_measure_failed` (tree recomputes to no
+body — reuses the shared `tree_no_body_error` also behind export), and DTO
+validation (an edge target with no `tree`; a malformed target) rejected at the
+boundary — at the gateway too, so bad input never reaches geometry. No new
+golden model (measurement produces no body; it reads the box golden's corners).
+
+---
+
 ## 2026-07-11 — First revolve golden: `revolve-annulus-r10-20-h15` (revolve feature, BACKLOG Ready #5 / 5a)
 
 Environment: dev container, Python 3.12.3, build123d 0.11.1 (OCCT 7.9 via

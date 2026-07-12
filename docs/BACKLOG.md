@@ -189,6 +189,20 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       engineering notation (reuses the sketch DRO component); e2e — measure
       two corners of the `box-10x20x30` golden, assert the readout matches
       the analytic distance. [src: product-auditor]
+      _PARTIAL (6a shipped): `POST /api/v1/measure` (geometry) + auth-gated
+      `POST /api/v1/geometry/measure` (gateway) over a new `MeasureRequest`/
+      `MeasureResult` py-kit DTO. Stateless one-shot distance between two
+      targets — a POINT (world coords, exact) or an EDGE (transient index into
+      the deterministic edge list of a body recomputed from a supplied `tree`,
+      reusing `evaluate_tree`). EXACT for every case (point-point, point-edge,
+      edge-edge, straight/curved) via OCCT `BRepExtrema_DistShapeShape` — no
+      mesh approximation; the "coords-for-edges" contract was rejected for that
+      reason. Returns distance + (dx,dy,dz) delta + witness points + acute
+      line-line angle. Tests: box corners → √1400 exact (acceptance), analytic
+      point-edge/edge-edge/angle, determinism, 422 envelopes
+      (`edge_index_out_of_range`/`tree_measure_failed`/DTO); contracts+ts-client
+      regen; no apps/web stub needed. Remaining (6b): viewport pick-and-read UI
+      (title-block DRO readout) — do not tick until 6b lands._
 - [ ] (P2, M) Linear/circular pattern — repeat a feature (or a contiguous
       run of features) N times along a vector or around an axis; operates on
       whole features, not picked sub-geometry, so independent of #1.
@@ -368,6 +382,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — measure endpoint + gateway proxy (6a) shipped; viewport pick UI
+  (6b) pending. Exact B-rep nearest distance (point/edge targets, recompute-
+  from-tree edges), analytic-verified, contracts+ts-client regen. [kernel-architect]
 - 2026-07-12 — **Full-width top toolbar band (frontend, founder feedback):**
   toolbar → edge-to-edge `TopToolbar` band under the brand bar, mode-aware
   (SketchStrip ⇄ CreateStrip); fixed 32 px `h-band` (no canvas reflow); hooks

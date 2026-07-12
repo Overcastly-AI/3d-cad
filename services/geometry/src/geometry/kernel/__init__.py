@@ -22,6 +22,7 @@ from geometry.kernel.extrude import (
     extrude_face,
 )
 from geometry.kernel.fillet import FilletError, fillet_body
+from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
 from geometry.kernel.properties import measure_shape
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
@@ -47,7 +48,9 @@ __all__ = [
     "AxisIntersectsProfileError",
     "BooleanError",
     "ChamferError",
+    "EdgeIndexError",
     "FilletError",
+    "MeasureError",
     "NoAxisError",
     "NoEdgesSelectedError",
     "ProfileNotClosedError",
@@ -69,6 +72,7 @@ __all__ = [
     "fillet_body",
     "glb_stats",
     "measure_shape",
+    "measure_targets",
     "resolve_axis_line",
     "revolve_face",
     "select_edges",

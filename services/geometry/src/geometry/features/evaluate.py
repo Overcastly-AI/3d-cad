@@ -44,6 +44,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from build123d import Face, Solid
+from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
     ChamferFeature,
     DatumPlaneRef,
@@ -483,6 +484,40 @@ class TreeEvaluation:
     body: Solid | None = None
     glb: bytes | None = None
     mesh: MeshStats | None = None
+
+
+def tree_no_body_error(
+    result: EvaluateTreeResult, *, code: str, action: str
+) -> ValidationApiError:
+    """A clean 422 for a tree that produced no body (never a 500).
+
+    Shared (CLAUDE.md DRY rule) by every endpoint that needs the last-good
+    body of an evaluated tree — export and measure today. Reuses the
+    strict-prefix ``FeatureError`` semantics (§4.3): if a feature failed, its
+    code/message/upstream id ride in the envelope ``details`` so the caller
+    learns exactly why (e.g. ``profile_not_closed``); a tree with no
+    body-affecting feature at all is the honest ``no_body`` case. *action* is
+    the verb the message uses ("export", "measure").
+    """
+    failed = next(
+        (feature for feature in result.features if feature.status == "error"), None
+    )
+    if failed is not None and failed.error is not None:
+        return ValidationApiError(
+            "The feature tree could not be evaluated to a body, so there is "
+            f"nothing to {action}.",
+            code=code,
+            details={
+                "feature_id": str(failed.feature_id),
+                "feature_error": failed.error.model_dump(mode="json"),
+            },
+        )
+    return ValidationApiError(
+        "The feature tree evaluated with no body-affecting feature, so there "
+        f"is nothing to {action}; add an extrude first.",
+        code=code,
+        details={"reason": "no_body"},
+    )
 
 
 def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:

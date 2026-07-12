@@ -278,6 +278,28 @@
         "title": "DistanceConstraint",
         "type": "object"
       },
+      "EdgeTarget": {
+        "description": "A measurement endpoint that is a B-rep edge of the recomputed body.\n\n``index`` is a TRANSIENT 0-based index into the recomputed body's\ndeterministic edge list (build123d ``.edges()`` / OCCT exploration order \u2014\nthe same order the B-rep edge overlay enumerates). It is meaningful only\nagainst the ``tree`` sent in the SAME request and is NOT stable across\nedits (stable named references are topological naming, Phase 2 \u2014\nfeature-tree design \u00a72.4). Requires :attr:`MeasureRequest.tree`.",
+        "properties": {
+          "index": {
+            "description": "0-based index into the recomputed body's deterministic edge list (transient \u2014 valid for this request/tree only, not stable across edits)",
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "edge",
+            "default": "edge",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index"
+        ],
+        "title": "EdgeTarget",
+        "type": "object"
+      },
       "EntityPointRef": {
         "description": "Names one point of one entity, e.g. ``{\"entity\": \"e1\", \"point\": \"end\"}``.",
         "properties": {
@@ -876,6 +898,119 @@
         "title": "HorizontalConstraint",
         "type": "object"
       },
+      "MeasureRequest": {
+        "description": "Measure the nearest distance between two targets (stateless, one-shot).\n\n``tree`` is required iff either target is an edge \u2014 geometry recomputes\nthat feature tree (reusing the ``POST /api/v1/evaluate`` machinery, so the\nsame ordered dispatch + strict-prefix rule applies) and measures the exact\nB-rep edge. For point-point, ``tree`` is omitted and no body is built.",
+        "properties": {
+          "a": {
+            "description": "First measurement target",
+            "discriminator": {
+              "mapping": {
+                "edge": "#/components/schemas/EdgeTarget",
+                "point": "#/components/schemas/PointTarget"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PointTarget"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeTarget"
+              }
+            ],
+            "title": "A"
+          },
+          "b": {
+            "description": "Second measurement target",
+            "discriminator": {
+              "mapping": {
+                "edge": "#/components/schemas/EdgeTarget",
+                "point": "#/components/schemas/PointTarget"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PointTarget"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeTarget"
+              }
+            ],
+            "title": "B"
+          },
+          "tree": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluateTreeRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Feature tree to recompute for edge targets (required iff a or b is an edge); ignored for point-point. Its linear_deflection is unused \u2014 measurement reads the exact B-rep, never the mesh."
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "title": "MeasureRequest",
+        "type": "object"
+      },
+      "MeasureResult": {
+        "description": "Nearest distance between the two targets plus its components.\n\n``distance`` is the exact minimum distance; ``delta`` are the signed\ncomponent distances from the nearest point on A to the nearest point on B\n(its magnitude equals ``distance``). ``point_on_a``/``point_on_b`` are the\nwitness points (what a UI draws the measurement line between). ``angle_deg``\nis the acute angle between the two targets, reported only for edge-edge\nwhere BOTH edges are straight lines (else null \u2014 no single direction).",
+        "properties": {
+          "angle_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Acute angle between the two targets in degrees [0, 90], reported only for edge-edge where both edges are straight lines; null otherwise (a point or a curved edge has no single direction)",
+            "title": "Angle Deg"
+          },
+          "delta": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Component distances from the nearest point on A to the nearest point on B (mm): (dx, dy, dz); |delta| == distance"
+          },
+          "distance": {
+            "description": "Exact nearest (minimum) distance between the targets (mm)",
+            "title": "Distance",
+            "type": "number"
+          },
+          "kind": {
+            "description": "Which pair of target flavours was measured",
+            "enum": [
+              "point_point",
+              "point_edge",
+              "edge_edge"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "point_on_a": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Nearest point on target A (mm)"
+          },
+          "point_on_b": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Nearest point on target B (mm)"
+          }
+        },
+        "required": [
+          "kind",
+          "distance",
+          "delta",
+          "point_on_a",
+          "point_on_b"
+        ],
+        "title": "MeasureResult",
+        "type": "object"
+      },
       "MeshStats": {
         "description": "Statistics of the tessellated GLB artifact.",
         "properties": {
@@ -976,6 +1111,26 @@
           "y"
         ],
         "title": "Point2D",
+        "type": "object"
+      },
+      "PointTarget": {
+        "description": "A measurement endpoint given by explicit world coordinates (mm).\n\nExact on its own \u2014 a picked vertex/snap point already has exact world\ncoordinates, so no body recomputation is needed for a point target.",
+        "properties": {
+          "kind": {
+            "const": "point",
+            "default": "point",
+            "title": "Kind",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "World-space coordinates of the point (mm)"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "PointTarget",
         "type": "object"
       },
       "RadiusConstraint": {
@@ -1897,6 +2052,49 @@
         },
         "summary": "Export Tree",
         "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/measure": {
+      "post": {
+        "description": "Exact nearest distance between two transient measurement targets.\n\n**Stateless** (CLAUDE.md): a one-shot query, nothing persisted. Each\ntarget is either a POINT (explicit world coordinates \u2014 a picked\nvertex/snap point, exact on its own) or an EDGE (a transient 0-based index\ninto the deterministic edge list of a body geometry recomputes from the\nsupplied ``tree``). Distances come from the exact B-rep via OCCT, so every\nsupported case \u2014 point-point, point-edge, edge-edge, straight OR curved \u2014\nis EXACT; nothing is read from the tessellation. The response carries the\nminimum distance, its (dx, dy, dz) components, the two witness points, and\n(for two straight edges) the acute angle between them. See\n:mod:`py_kit.schemas.measure` for the full contract + fidelity rationale.\n\nA tree that recomputes to no body is a clean 422 ``tree_measure_failed``\nenvelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.",
+        "operationId": "measure_api_v1_measure_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeasureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeasureResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Measure",
+        "tags": [
+          "geometry",
           "geometry"
         ]
       }

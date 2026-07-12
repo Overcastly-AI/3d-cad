@@ -9,7 +9,7 @@ queue path (``geometry.worker``) calls the same core function.
 from typing import Any
 
 from fastapi import APIRouter, Response
-from py_kit.errors import NotFoundError, ValidationApiError
+from py_kit.errors import NotFoundError
 
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
@@ -27,9 +27,11 @@ from py_kit.schemas.geometry import (
     export_responses,
     tessellate_responses,
 )
+from py_kit.schemas.measure import MeasureRequest, MeasureResult
 
-from geometry.features import evaluate_tree
+from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
+from geometry.measure import evaluate_measure
 from geometry.mesh_store import fetch_mesh_glb
 from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
 
@@ -125,33 +127,25 @@ def export(request: ExportRequest) -> Response:
     )
 
 
-def _tree_export_error(result: EvaluateTreeResult) -> ValidationApiError:
-    """A clean 422 for an export whose tree produced no body (never a 500).
+@router.post("/measure", tags=["geometry"])
+def measure(request: MeasureRequest) -> MeasureResult:
+    """Exact nearest distance between two transient measurement targets.
 
-    Reuses the strict-prefix ``FeatureError`` semantics (§4.3): if a feature
-    failed, its code/message/upstream id ride in the envelope ``details`` so
-    the caller learns exactly why (e.g. ``profile_not_closed``); a tree with
-    no body-affecting feature at all is the honest ``no_body`` case.
+    **Stateless** (CLAUDE.md): a one-shot query, nothing persisted. Each
+    target is either a POINT (explicit world coordinates — a picked
+    vertex/snap point, exact on its own) or an EDGE (a transient 0-based index
+    into the deterministic edge list of a body geometry recomputes from the
+    supplied ``tree``). Distances come from the exact B-rep via OCCT, so every
+    supported case — point-point, point-edge, edge-edge, straight OR curved —
+    is EXACT; nothing is read from the tessellation. The response carries the
+    minimum distance, its (dx, dy, dz) components, the two witness points, and
+    (for two straight edges) the acute angle between them. See
+    :mod:`py_kit.schemas.measure` for the full contract + fidelity rationale.
+
+    A tree that recomputes to no body is a clean 422 ``tree_measure_failed``
+    envelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.
     """
-    failed = next(
-        (feature for feature in result.features if feature.status == "error"), None
-    )
-    if failed is not None and failed.error is not None:
-        return ValidationApiError(
-            "The feature tree could not be evaluated to a body, so there is "
-            "nothing to export.",
-            code="tree_export_failed",
-            details={
-                "feature_id": str(failed.feature_id),
-                "feature_error": failed.error.model_dump(mode="json"),
-            },
-        )
-    return ValidationApiError(
-        "The feature tree evaluated with no body-affecting feature, so there "
-        "is nothing to export; add an extrude first.",
-        code="tree_export_failed",
-        details={"reason": "no_body"},
-    )
+    return evaluate_measure(request)
 
 
 @router.post("/export/tree", response_class=Response, responses=_EXPORT_RESPONSES)
@@ -169,7 +163,9 @@ def export_tree(request: ExportTreeRequest) -> Response:
     """
     evaluation = evaluate_tree(request)
     if evaluation.body is None:
-        raise _tree_export_error(evaluation.result)
+        raise tree_no_body_error(
+            evaluation.result, code="tree_export_failed", action="export"
+        )
     data = export_solid(
         evaluation.body,
         request.format,

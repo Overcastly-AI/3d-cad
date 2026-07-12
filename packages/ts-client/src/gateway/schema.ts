@@ -81,6 +81,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/geometry/measure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Measure
+         * @description Proxy a stateless distance measurement to the geometry service.
+         *
+         *     Auth-protected (a measurement reads a signed-in user's part geometry);
+         *     the geometry hop itself stays identity-free, so the principal never goes
+         *     upstream (same posture as the mesh-fetch proxy, RESEARCH §3). The shared
+         *     :class:`MeasureRequest` DTO validates at the gateway — a malformed target
+         *     or an edge target with no ``tree`` is a 422 here and never reaches
+         *     geometry. Upstream envelopes (``tree_measure_failed``,
+         *     ``edge_index_out_of_range``, …) are re-surfaced verbatim.
+         */
+        post: operations["measure_api_v1_geometry_measure_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/meshes/{mesh_glb_id}": {
         parameters: {
             query?: never;
@@ -567,6 +595,29 @@ export interface components {
             value_mm: number;
         };
         /**
+         * EdgeTarget
+         * @description A measurement endpoint that is a B-rep edge of the recomputed body.
+         *
+         *     ``index`` is a TRANSIENT 0-based index into the recomputed body's
+         *     deterministic edge list (build123d ``.edges()`` / OCCT exploration order —
+         *     the same order the B-rep edge overlay enumerates). It is meaningful only
+         *     against the ``tree`` sent in the SAME request and is NOT stable across
+         *     edits (stable named references are topological naming, Phase 2 —
+         *     feature-tree design §2.4). Requires :attr:`MeasureRequest.tree`.
+         */
+        EdgeTarget: {
+            /**
+             * Index
+             * @description 0-based index into the recomputed body's deterministic edge list (transient — valid for this request/tree only, not stable across edits)
+             */
+            index: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "edge";
+        };
+        /**
          * EntityPointRef
          * @description Names one point of one entity, e.g. ``{"entity": "e1", "point": "end"}``.
          */
@@ -611,6 +662,36 @@ export interface components {
             kind: "equal";
         };
         /**
+         * EvaluateTreeRequest
+         * @description Evaluate an ordered, validated, current-version feature list (§4.2).
+         *
+         *     Documents applies the rollback bar BEFORE sending: geometry receives
+         *     exactly the prefix to evaluate and never needs to know rollback exists.
+         */
+        EvaluateTreeRequest: {
+            /**
+             * Features
+             * @description Ordered prefix (rollback already applied)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Linear Deflection
+             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3)
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /**
+             * Tree Version
+             * @description Echoed back; cache/correlation key
+             */
+            tree_version: number;
+        };
+        /**
          * EvaluateTreeResult
          * @description Statuses plus object-storage references — never kernel types, never
          *     inline meshes (§4.1). A feature failure is a 200 with per-feature errors;
@@ -641,6 +722,20 @@ export interface components {
             properties: components["schemas"]["ShapeProperties"] | null;
             /** Tree Version */
             tree_version: number;
+        };
+        /**
+         * EvaluatedFeatureInput
+         * @description One ordered entry of an evaluation request.
+         */
+        EvaluatedFeatureInput: {
+            /** Feature */
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"];
+            /**
+             * Id
+             * Format: uuid
+             * @description Feature identity for refs + result keying
+             */
+            id: string;
         };
         /**
          * ExportRequest
@@ -994,6 +1089,64 @@ export interface components {
             password: string;
         };
         /**
+         * MeasureRequest
+         * @description Measure the nearest distance between two targets (stateless, one-shot).
+         *
+         *     ``tree`` is required iff either target is an edge — geometry recomputes
+         *     that feature tree (reusing the ``POST /api/v1/evaluate`` machinery, so the
+         *     same ordered dispatch + strict-prefix rule applies) and measures the exact
+         *     B-rep edge. For point-point, ``tree`` is omitted and no body is built.
+         */
+        MeasureRequest: {
+            /**
+             * A
+             * @description First measurement target
+             */
+            a: components["schemas"]["PointTarget"] | components["schemas"]["EdgeTarget"];
+            /**
+             * B
+             * @description Second measurement target
+             */
+            b: components["schemas"]["PointTarget"] | components["schemas"]["EdgeTarget"];
+            /** @description Feature tree to recompute for edge targets (required iff a or b is an edge); ignored for point-point. Its linear_deflection is unused — measurement reads the exact B-rep, never the mesh. */
+            tree?: components["schemas"]["EvaluateTreeRequest"] | null;
+        };
+        /**
+         * MeasureResult
+         * @description Nearest distance between the two targets plus its components.
+         *
+         *     ``distance`` is the exact minimum distance; ``delta`` are the signed
+         *     component distances from the nearest point on A to the nearest point on B
+         *     (its magnitude equals ``distance``). ``point_on_a``/``point_on_b`` are the
+         *     witness points (what a UI draws the measurement line between). ``angle_deg``
+         *     is the acute angle between the two targets, reported only for edge-edge
+         *     where BOTH edges are straight lines (else null — no single direction).
+         */
+        MeasureResult: {
+            /**
+             * Angle Deg
+             * @description Acute angle between the two targets in degrees [0, 90], reported only for edge-edge where both edges are straight lines; null otherwise (a point or a curved edge has no single direction)
+             */
+            angle_deg?: number | null;
+            /** @description Component distances from the nearest point on A to the nearest point on B (mm): (dx, dy, dz); |delta| == distance */
+            delta: components["schemas"]["Vec3"];
+            /**
+             * Distance
+             * @description Exact nearest (minimum) distance between the targets (mm)
+             */
+            distance: number;
+            /**
+             * Kind
+             * @description Which pair of target flavours was measured
+             * @enum {string}
+             */
+            kind: "point_point" | "point_edge" | "edge_edge";
+            /** @description Nearest point on target A (mm) */
+            point_on_a: components["schemas"]["Vec3"];
+            /** @description Nearest point on target B (mm) */
+            point_on_b: components["schemas"]["Vec3"];
+        };
+        /**
          * MeshStats
          * @description Statistics of the tessellated GLB artifact.
          */
@@ -1117,6 +1270,22 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /**
+         * PointTarget
+         * @description A measurement endpoint given by explicit world coordinates (mm).
+         *
+         *     Exact on its own — a picked vertex/snap point already has exact world
+         *     coordinates, so no body recomputation is needed for a point target.
+         */
+        PointTarget: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point";
+            /** @description World-space coordinates of the point (mm) */
+            position: components["schemas"]["Vec3"];
         };
         /**
          * RadiusConstraint
@@ -1728,6 +1897,39 @@ export interface operations {
                 content: {
                     "model/step": string;
                     "model/stl": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    measure_api_v1_geometry_measure_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeasureRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasureResult"];
                 };
             };
             /** @description Validation Error */

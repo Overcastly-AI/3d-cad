@@ -18,12 +18,13 @@ from py_kit.schemas.geometry import (
     GLB_MEDIA_TYPE,
     PROPERTIES_HEADER,
     ExportRequest,
-    ShapeRequest,
     TessellateRequest,
     TessellationMetadata,
     export_responses,
     tessellate_responses,
 )
+from py_kit.schemas.measure import MeasureRequest, MeasureResult
+from pydantic import BaseModel
 
 from gateway.auth import CurrentUser
 from gateway.upstream import create_upstream_client, forward, raise_upstream_error
@@ -48,7 +49,7 @@ def create_geometry_client(
 
 
 async def _forward(
-    http_request: Request, path: str, payload: ShapeRequest
+    http_request: Request, path: str, payload: BaseModel
 ) -> httpx.Response:
     """POST *payload* to the geometry service, mapping transport failures."""
     client: httpx.AsyncClient = http_request.app.state.geometry_client
@@ -179,3 +180,23 @@ async def export(request: ExportRequest, http_request: Request) -> Response:
         media_type=EXPORT_MEDIA_TYPES[request.format],
         headers=headers,
     )
+
+
+@router.post("/measure")
+async def measure(
+    request: MeasureRequest, user: CurrentUser, http_request: Request
+) -> MeasureResult:
+    """Proxy a stateless distance measurement to the geometry service.
+
+    Auth-protected (a measurement reads a signed-in user's part geometry);
+    the geometry hop itself stays identity-free, so the principal never goes
+    upstream (same posture as the mesh-fetch proxy, RESEARCH §3). The shared
+    :class:`MeasureRequest` DTO validates at the gateway — a malformed target
+    or an edge target with no ``tree`` is a 422 here and never reaches
+    geometry. Upstream envelopes (``tree_measure_failed``,
+    ``edge_index_out_of_range``, …) are re-surfaced verbatim.
+    """
+    upstream = await _forward(http_request, "/api/v1/measure", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return MeasureResult.model_validate_json(upstream.content)

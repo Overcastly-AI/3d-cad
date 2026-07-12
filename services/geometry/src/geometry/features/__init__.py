@@ -15,6 +15,7 @@ from geometry.features.evaluate import (
     FeatureHandler,
     TreeEvaluation,
     evaluate_tree,
+    tree_no_body_error,
 )
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "FeatureHandler",
     "TreeEvaluation",
     "evaluate_tree",
+    "tree_no_body_error",
 ]

@@ -77,6 +77,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/measure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Measure
+         * @description Exact nearest distance between two transient measurement targets.
+         *
+         *     **Stateless** (CLAUDE.md): a one-shot query, nothing persisted. Each
+         *     target is either a POINT (explicit world coordinates — a picked
+         *     vertex/snap point, exact on its own) or an EDGE (a transient 0-based index
+         *     into the deterministic edge list of a body geometry recomputes from the
+         *     supplied ``tree``). Distances come from the exact B-rep via OCCT, so every
+         *     supported case — point-point, point-edge, edge-edge, straight OR curved —
+         *     is EXACT; nothing is read from the tessellation. The response carries the
+         *     minimum distance, its (dx, dy, dz) components, the two witness points, and
+         *     (for two straight edges) the acute angle between them. See
+         *     :mod:`py_kit.schemas.measure` for the full contract + fidelity rationale.
+         *
+         *     A tree that recomputes to no body is a clean 422 ``tree_measure_failed``
+         *     envelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.
+         */
+        post: operations["measure_api_v1_measure_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/meshes/{mesh_glb_id}": {
         parameters: {
             query?: never;
@@ -340,6 +374,29 @@ export interface components {
              * @description Line length (mm)
              */
             value_mm: number;
+        };
+        /**
+         * EdgeTarget
+         * @description A measurement endpoint that is a B-rep edge of the recomputed body.
+         *
+         *     ``index`` is a TRANSIENT 0-based index into the recomputed body's
+         *     deterministic edge list (build123d ``.edges()`` / OCCT exploration order —
+         *     the same order the B-rep edge overlay enumerates). It is meaningful only
+         *     against the ``tree`` sent in the SAME request and is NOT stable across
+         *     edits (stable named references are topological naming, Phase 2 —
+         *     feature-tree design §2.4). Requires :attr:`MeasureRequest.tree`.
+         */
+        EdgeTarget: {
+            /**
+             * Index
+             * @description 0-based index into the recomputed body's deterministic edge list (transient — valid for this request/tree only, not stable across edits)
+             */
+            index: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "edge";
         };
         /**
          * EntityPointRef
@@ -731,6 +788,64 @@ export interface components {
             kind: "horizontal";
         };
         /**
+         * MeasureRequest
+         * @description Measure the nearest distance between two targets (stateless, one-shot).
+         *
+         *     ``tree`` is required iff either target is an edge — geometry recomputes
+         *     that feature tree (reusing the ``POST /api/v1/evaluate`` machinery, so the
+         *     same ordered dispatch + strict-prefix rule applies) and measures the exact
+         *     B-rep edge. For point-point, ``tree`` is omitted and no body is built.
+         */
+        MeasureRequest: {
+            /**
+             * A
+             * @description First measurement target
+             */
+            a: components["schemas"]["PointTarget"] | components["schemas"]["EdgeTarget"];
+            /**
+             * B
+             * @description Second measurement target
+             */
+            b: components["schemas"]["PointTarget"] | components["schemas"]["EdgeTarget"];
+            /** @description Feature tree to recompute for edge targets (required iff a or b is an edge); ignored for point-point. Its linear_deflection is unused — measurement reads the exact B-rep, never the mesh. */
+            tree?: components["schemas"]["EvaluateTreeRequest"] | null;
+        };
+        /**
+         * MeasureResult
+         * @description Nearest distance between the two targets plus its components.
+         *
+         *     ``distance`` is the exact minimum distance; ``delta`` are the signed
+         *     component distances from the nearest point on A to the nearest point on B
+         *     (its magnitude equals ``distance``). ``point_on_a``/``point_on_b`` are the
+         *     witness points (what a UI draws the measurement line between). ``angle_deg``
+         *     is the acute angle between the two targets, reported only for edge-edge
+         *     where BOTH edges are straight lines (else null — no single direction).
+         */
+        MeasureResult: {
+            /**
+             * Angle Deg
+             * @description Acute angle between the two targets in degrees [0, 90], reported only for edge-edge where both edges are straight lines; null otherwise (a point or a curved edge has no single direction)
+             */
+            angle_deg?: number | null;
+            /** @description Component distances from the nearest point on A to the nearest point on B (mm): (dx, dy, dz); |delta| == distance */
+            delta: components["schemas"]["Vec3"];
+            /**
+             * Distance
+             * @description Exact nearest (minimum) distance between the targets (mm)
+             */
+            distance: number;
+            /**
+             * Kind
+             * @description Which pair of target flavours was measured
+             * @enum {string}
+             */
+            kind: "point_point" | "point_edge" | "edge_edge";
+            /** @description Nearest point on target A (mm) */
+            point_on_a: components["schemas"]["Vec3"];
+            /** @description Nearest point on target B (mm) */
+            point_on_b: components["schemas"]["Vec3"];
+        };
+        /**
          * MeshStats
          * @description Statistics of the tessellated GLB artifact.
          */
@@ -803,6 +918,22 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /**
+         * PointTarget
+         * @description A measurement endpoint given by explicit world coordinates (mm).
+         *
+         *     Exact on its own — a picked vertex/snap point already has exact world
+         *     coordinates, so no body recomputation is needed for a point target.
+         */
+        PointTarget: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "point";
+            /** @description World-space coordinates of the point (mm) */
+            position: components["schemas"]["Vec3"];
         };
         /**
          * RadiusConstraint
@@ -1346,6 +1477,39 @@ export interface operations {
                 content: {
                     "model/step": string;
                     "model/stl": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    measure_api_v1_measure_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeasureRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasureResult"];
                 };
             };
             /** @description Validation Error */
