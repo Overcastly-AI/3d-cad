@@ -17,6 +17,7 @@ import {
   ChamferIcon,
   ExtrudeIcon,
   FilletIcon,
+  MeasureIcon,
   RevolveIcon,
   SketchIcon,
   ToolButton,
@@ -43,6 +44,12 @@ export interface CreateStripProps {
   onFillet?: () => void;
   /** Bevel the selected edges (arrives with the geometry chamfer op). */
   onChamfer?: () => void;
+  /** A solid body exists to inspect — the Measure tool lights up. */
+  canMeasure?: boolean;
+  /** The Measure tool is armed (picking targets in the viewport). */
+  measuring?: boolean;
+  /** Toggle the Measure tool (M). */
+  onToggleMeasure?: () => void;
 }
 
 export function CreateStrip({
@@ -55,6 +62,9 @@ export function CreateStrip({
   canModify = false,
   onFillet,
   onChamfer,
+  canMeasure = false,
+  measuring = false,
+  onToggleMeasure,
 }: CreateStripProps) {
   const filletReady = canModify && treeReady && onFillet !== undefined;
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
@@ -129,6 +139,24 @@ export function CreateStrip({
           }
           disabled={!chamferReady}
           onClick={onChamfer}
+        />
+      </ToolGroup>
+
+      <ToolGroup aria-label="Inspect">
+        <ToolButton
+          icon={<MeasureIcon />}
+          showLabel
+          label="Measure"
+          shortcut="M"
+          active={measuring}
+          data-testid="measure-tool"
+          aria-label={
+            canMeasure
+              ? "Measure — pick two points or edges to read the distance (M)"
+              : "Measure — create a body first"
+          }
+          disabled={!canMeasure || onToggleMeasure === undefined}
+          onClick={onToggleMeasure}
         />
       </ToolGroup>
     </div>

@@ -120,6 +120,31 @@ export const sketch = {
   previewGapMm: 1.25,
 } as const;
 
+/**
+ * Measurement-overlay palette — the inspect mode inside the WebGL viewport.
+ * Pickable snap points and edges are quiet at rest and take the brass accent
+ * on hover/selection (the same selection language as the sketcher). The
+ * dimension line + its witness marks are THE signature measurement moment, so
+ * they carry brass at full strength. References existing colors only — no new
+ * hex, one palette across both renderers.
+ */
+export const measure = {
+  /** Pickable node at rest (vertex snap dot / edge midpoint mark). */
+  node: color.gauge,
+  /** Node under the pointer or keyboard focus. */
+  nodeHover: color.brassHover,
+  /** A node chosen as a measurement target. */
+  nodeSelected: color.brass,
+  /** A hovered edge's highlighted polyline. */
+  edgeHover: color.brassHover,
+  /** A selected edge's highlighted polyline. */
+  edgeSelected: color.brass,
+  /** The dimension line drawn between the two witness points + its end marks. */
+  dimension: color.brass,
+  /** Witness-point marker size (px, screen space — sizeAttenuation off). */
+  witnessSizePx: 8,
+} as const;
+
 export const font = {
   /** Display: wordmark + tracked eyebrow labels. Used with restraint. */
   display: '"Fragment Mono", ui-monospace, monospace',

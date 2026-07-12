@@ -275,6 +275,25 @@ export const ReverseIcon = (p: IconProps) => (
   </Icon>
 );
 
+// --- Inspect ----------------------------------------------------------------
+
+/**
+ * Measure = a caliper reading a distance: a dimension line with end arrows
+ * between two witness ticks. Drawn from engineering-drawing dimension
+ * notation, not a generic ruler — it ties the tool to the title-block idiom.
+ */
+export const MeasureIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 6 V18" />
+    <path d="M19 6 V18" />
+    <path d="M5 12 H19" />
+    <path d="M5 12 L8 10 M5 12 L8 14" />
+    <path d="M19 12 L16 10 M19 12 L16 14" />
+    <Node cx={5} cy={12} />
+    <Node cx={19} cy={12} />
+  </Icon>
+);
+
 // --- DRO --------------------------------------------------------------------
 
 /** Grid snap = a ruled grid with one punched intersection (the snapped node). */

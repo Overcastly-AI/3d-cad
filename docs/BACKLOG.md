@@ -179,44 +179,36 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       UI → 4500π mm³ washer, angle 360→180 halves the body, both bad-axis/
       open-profile errors. `frontend-design` skill invoked; screenshots
       desktop + 1280×800.
-- [ ] (P2, S) Measurement tool — point/edge distance — transient viewport
+- [x] (P2, S) Measurement tool — point/edge distance — transient viewport
       measurement (click two points/edges, read distance/angle in a
       title-block readout); no persisted reference, so independent of #1.
-      Depends on: nothing (reuses the body inspector's B-rep edge-overlay
-      hover/click primitives).
-      Acceptance: stateless kernel-side distance endpoint (point-point,
-      point-edge nearest, edge-edge nearest); title-block readout in
-      engineering notation (reuses the sketch DRO component); e2e — measure
-      two corners of the `box-10x20x30` golden, assert the readout matches
-      the analytic distance. [src: product-auditor]
-      _PARTIAL (6a shipped): `POST /api/v1/measure` (geometry) + auth-gated
-      `POST /api/v1/geometry/measure` (gateway) over a new `MeasureRequest`/
-      `MeasureResult` py-kit DTO. Stateless one-shot distance between two
-      targets — a POINT (world coords, exact) or an EDGE (transient index into
-      the deterministic edge list of a body recomputed from a supplied `tree`,
-      reusing `evaluate_tree`). EXACT for every case (point-point, point-edge,
-      edge-edge, straight/curved) via OCCT `BRepExtrema_DistShapeShape` — no
-      mesh approximation; the "coords-for-edges" contract was rejected for that
-      reason. Returns distance + (dx,dy,dz) delta + witness points + acute
-      line-line angle. Tests: box corners → √1400 exact (acceptance), analytic
-      point-edge/edge-edge/angle, determinism, 422 envelopes
-      (`edge_index_out_of_range`/`tree_measure_failed`/DTO); contracts+ts-client
-      regen; no apps/web stub needed._
-      _PARTIAL (6b backend shipped): `POST /api/v1/overlay` (geometry) +
-      auth-gated `POST /api/v1/geometry/overlay` (gateway) over a new
-      `OverlayRequest`/`OverlayResult` py-kit DTO — the pickability half of 6b.
-      Recomputes the tree (reusing `evaluate_tree`) and returns the body's exact
-      pickable geometry: `vertices` (world-mm snap points in `body.vertices()`
-      order, echoed back as measure `PointTarget`s) and `edges` in
-      `body.edges()` order — the SAME enumeration `/measure` resolves
-      `EdgeTarget.index` against (order-equality gate proves `edges[i]` IS
-      measure's edge i, both kernel + HTTP). Each edge carries a kind tag, its
-      two endpoint coords, and a polyline sampled at the tree's
-      `linear_deflection` (same tolerance as the mesh — no new epsilon). Indices
-      are TRANSIENT (this tree/request only, not stable across edits — that's
-      topological naming, Phase 2). 422s: `tree_overlay_failed`/`overlay_failed`.
-      Remaining (6b): viewport pick-and-read UI (title-block DRO readout) — do
-      not tick #6 until the UI lands._
+      Acceptance MET: measure two corners of the `box-10x20x30` golden →
+      readout reads √1400 ≈ 37.42 mm (real-stack e2e `measure.spec.ts`).
+      _SHIPPED (6a): stateless exact-distance endpoints — `POST /measure`
+      (geometry) + gateway proxy over `MeasureRequest`/`MeasureResult`; POINT
+      (exact world coords) or EDGE (transient `body.edges()` index against a
+      supplied `tree`). EXACT for every case via OCCT `BRepExtrema_DistShapeShape`;
+      returns distance + (dx,dy,dz) + witness points + acute line-line angle.
+      422s: `edge_index_out_of_range`/`measure_failed`/`tree_measure_failed`._
+      _SHIPPED (overlay): `POST /overlay` (geometry) + gateway proxy over
+      `OverlayRequest`/`OverlayResult` — the pickability half. Recomputes the
+      tree and returns `vertices` (echoed back as `PointTarget`s) + `edges` in
+      `body.edges()` order (the SAME enumeration `/measure` resolves indices
+      against), each with a kind tag + a polyline sampled at the tree's
+      `linear_deflection`. Indices TRANSIENT (topological naming is Phase 2).
+      422s: `tree_overlay_failed`/`overlay_failed`._
+      _SHIPPED (6b UI): Measure tool in the toolbar's new Inspect group (M,
+      aria-pressed, disabled until a body exists). Arming it fetches the overlay
+      and renders keyboard-navigable, screen-reader-named pick nodes (drei `Html`
+      buttons: round=vertex, diamond=edge) placed by the Z-up→Y-up transform
+      that matches the GLB, so they land on the body. Second pick calls
+      `/measure`; the result draws a brass dimension line + witness marks in the
+      viewport (always-on-top) and a title-block readout (Fragment Mono):
+      distance (hero), Δx/Δy/Δz, angle when two straight edges. Esc clears then
+      exits; 422 envelopes surface legibly. New shared primitive `PickNode` +
+      `measure` tokens + `MeasureIcon`; pure logic unit-tested; e2e ties the UI
+      to the golden. Deferred to a later slice of this bundle: mass-properties
+      panel additions + a units system (still mm-only)._
 - [ ] (P2, M) Linear/circular pattern — repeat a feature (or a contiguous
       run of features) N times along a vector or around an axis; operates on
       whole features, not picked sub-geometry, so independent of #1.
@@ -397,6 +389,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — measurement pick-and-read UI (6b) shipped → #6 DONE: Measure tool
+  (Inspect group, M), drei-`Html` pick nodes, brass dimension line + title-block
+  readout; e2e reads the golden √1400 ≈ 37.42. New `PickNode` primitive +
+  `measure` tokens. Deferred: mass-props panel + units system. [frontend-builder]
 - 2026-07-12 — selection-overlay endpoint (6b enabling half): `POST /overlay`
   (geometry) + gated gateway proxy over new `OverlayRequest`/`OverlayResult`
   DTOs. Exact vertices + `body.edges()`-ordered edges; order-equality gate

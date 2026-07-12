@@ -144,7 +144,13 @@ item below.
       pre-engraved. Every test hook preserved; full e2e green (54 specs).
       Next: wire Fillet/Chamfer once the geometry ops land + a sketch-tool
       overflow flyout (slot/polygon/spline)
-- ⬜ Measurement tools, mass properties panel, units system
+- 🚧 Measurement tools, mass properties panel, units system — distance
+      measurement SHIPPED (BACKLOG #6): Measure tool (Inspect group, M) fetches
+      the body's pickable overlay, user picks two vertices/edges, and a brass
+      dimension line + title-block readout report the exact distance + Δx/Δy/Δz +
+      angle (real-stack e2e reads the box golden √1400 ≈ 37.42 mm). Still
+      pending in this bundle: a dedicated mass-properties panel expansion and a
+      units system (currently mm-only)
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
 

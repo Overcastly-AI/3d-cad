@@ -3,6 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
+import { fetchOverlay, measureTargets } from "../api/measure";
+import { buildEvaluateTree, buildMeasureRequest } from "../measure/geometry";
+import { useMeasureStore } from "../measure/store";
+import { MeasureReadout } from "../components/MeasureReadout";
+import { MeasureOverlay } from "../viewport/MeasureOverlay";
 import {
   createFeature,
   evaluatePart,
@@ -11,6 +16,7 @@ import {
   extrudeFeatureUpdate,
   type FeatureCreate,
   type FeatureResponse,
+  type FeatureTreeResponse,
   type FeatureUpdate,
   fetchFeatureTree,
   fetchPart,
@@ -161,6 +167,87 @@ export function PartPage() {
     void queryClient.invalidateQueries({ queryKey: ["evaluate", partId] });
     void queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
   }, [partId, queryClient]);
+
+  const hasBody = body.data !== undefined;
+
+  // ---------------------------------------------------------------------
+  // Measurement (inspect mode). The tool fetches the pickable overlay for the
+  // current evaluated body, the user picks two vertices/edges, and the second
+  // pick calls /measure for the exact nearest distance. State lives in the
+  // shared measure store (the in-canvas overlay + the DOM readout both read
+  // it); PartPage owns the two network effects and the mode plumbing.
+  // ---------------------------------------------------------------------
+  const measureActive = useMeasureStore((s) => s.active);
+  const measurePicks = useMeasureStore((s) => s.picks);
+  const measureResult = useMeasureStore((s) => s.result);
+  const measureFailure = useMeasureStore((s) => s.measureError);
+  const setMeasureOverlay = useMeasureStore((s) => s.setOverlay);
+  const setMeasureOverlayError = useMeasureStore((s) => s.setOverlayError);
+  const setMeasureResult = useMeasureStore((s) => s.setResult);
+  const setMeasureFailure = useMeasureStore((s) => s.setMeasureError);
+
+  const overlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: measureActive && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (measureActive && overlayQuery.data !== undefined) {
+      setMeasureOverlay(overlayQuery.data);
+    }
+  }, [measureActive, overlayQuery.data, setMeasureOverlay]);
+
+  useEffect(() => {
+    if (measureActive && overlayQuery.error) {
+      setMeasureOverlayError(
+        overlayQuery.error instanceof Error
+          ? overlayQuery.error.message
+          : "The selection overlay could not be built.",
+      );
+    }
+  }, [measureActive, overlayQuery.error, setMeasureOverlayError]);
+
+  // The second pick resolves the measurement (once, per pair).
+  const measureInFlight = useRef(false);
+  useEffect(() => {
+    if (!measureActive || measurePicks.length !== 2) return;
+    if (measureResult !== null || measureFailure !== null) return;
+    if (measureInFlight.current || tree.data === undefined) return;
+    const currentTree = tree.data;
+    const [a, b] = measurePicks;
+    if (a === undefined || b === undefined) return;
+    measureInFlight.current = true;
+    void (async () => {
+      try {
+        const request = buildMeasureRequest(
+          a,
+          b,
+          buildEvaluateTree(currentTree),
+        );
+        setMeasureResult(await measureTargets(request));
+      } catch (error) {
+        setMeasureFailure(
+          error instanceof Error
+            ? error.message
+            : "The measurement could not be computed.",
+        );
+      } finally {
+        measureInFlight.current = false;
+      }
+    })();
+  }, [
+    measureActive,
+    measurePicks,
+    measureResult,
+    measureFailure,
+    tree.data,
+    setMeasureResult,
+    setMeasureFailure,
+  ]);
 
   // ---------------------------------------------------------------------
   // Persistence — one serialized write chain (create binds, update PATCHes;
@@ -415,6 +502,13 @@ export function PartPage() {
   // Leaving the workspace always leaves sketch mode.
   useEffect(() => () => useSketchStore.getState().exit(), []);
 
+  // Sketch mode owns the viewport — measurement never overlaps it.
+  useEffect(() => {
+    if (mode !== "off") useMeasureStore.getState().deactivate();
+  }, [mode]);
+  // Leaving the workspace tears the measurement overlay down.
+  useEffect(() => () => useMeasureStore.getState().deactivate(), []);
+
   // ---------------------------------------------------------------------
   // Extrude authoring + feature-tree interactions. Discrete user actions
   // (not the debounced sketch chain): each reads the freshest tree_version,
@@ -475,12 +569,63 @@ export function PartPage() {
     setSyncError(null);
     setEditor(null);
     setSelectedFeatureId(null);
+    useMeasureStore.getState().deactivate();
     begin();
   }, [begin]);
+
+  /** Toggle the Measure tool; arming it drops any open feature editor. */
+  const toggleMeasure = useCallback(() => {
+    const store = useMeasureStore.getState();
+    if (store.active) {
+      store.deactivate();
+      return;
+    }
+    setEditor(null);
+    setSelectedFeatureId(null);
+    store.activate();
+  }, []);
+
+  // Measure keyboard path (mode off): M toggles the tool; Escape clears the
+  // picks, then exits — the same cascade grammar the sketcher uses.
+  useEffect(() => {
+    if (mode !== "off") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isTypingTarget(event.target)) return;
+      const store = useMeasureStore.getState();
+      if (event.key === "Escape") {
+        if (!store.active) return;
+        event.preventDefault();
+        if (
+          store.picks.length > 0 ||
+          store.result !== null ||
+          store.measureError !== null
+        ) {
+          store.reset();
+        } else {
+          store.deactivate();
+        }
+        return;
+      }
+      if (event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        if (store.active) {
+          store.deactivate();
+        } else if (hasBody) {
+          setEditor(null);
+          setSelectedFeatureId(null);
+          store.activate();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, hasBody]);
 
   const openCreateExtrude = useCallback(() => {
     const profileId = defaultProfileId(tree.data?.features ?? []);
     if (profileId === "") return;
+    useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
     setEditor({
@@ -495,6 +640,7 @@ export function PartPage() {
     const profileId = defaultProfileId(featureList);
     if (profileId === "") return;
     const axes = axisOptions(featureList, profileId);
+    useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
     setEditor({
@@ -505,6 +651,7 @@ export function PartPage() {
   }, [tree.data]);
 
   const selectFeature = useCallback((feature: FeatureResponse) => {
+    useMeasureStore.getState().deactivate();
     setSelectedFeatureId(feature.id);
     setEditorError(null);
     if (feature.feature.type === "extrude") {
@@ -687,6 +834,9 @@ export function PartPage() {
             onNewExtrude={openCreateExtrude}
             canRevolve={hasSolvedSketch}
             onNewRevolve={openCreateRevolve}
+            canMeasure={hasBody}
+            measuring={measureActive}
+            onToggleMeasure={toggleMeasure}
           />
         ) : (
           <SketchStrip
@@ -715,6 +865,7 @@ export function PartPage() {
             <>
               <SketchDro solving={syncPending || evaluation.isFetching} />
               <SolveDiagnostic />
+              <MeasureReadout />
               {mode === "off" && editor !== null ? (
                 editor.kind === "extrude" ? (
                   <ExtrudeEditor
@@ -777,6 +928,7 @@ export function PartPage() {
           }
         >
           <SketchScene solved={solvedLayers} />
+          <MeasureOverlay />
         </Viewport>
         {showInspector ? (
           <BodyInspector
