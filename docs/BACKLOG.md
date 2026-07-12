@@ -1,10 +1,10 @@
 # Dev Board (Backlog)
 
 Single prioritized board maintained by the **backlog-groomer**, fed by the two
-independent auditors (`docs/AUDIT-PRODUCT.md`, `docs/AUDIT-ENGINEERING.md` —
-not yet generated this cycle), QA reviews (`docs/UI-REVIEW.md`,
-`docs/GEOMETRY-QA.md`), `docs/COMPETITIVE.md`, and the roadmap. The
-autonomous build loop pulls from **Ready (top of queue)** only.
+independent auditors (`docs/AUDIT-PRODUCT.md`, `docs/AUDIT-ENGINEERING.md`),
+QA reviews (`docs/UI-REVIEW.md`, `docs/GEOMETRY-QA.md`), `docs/COMPETITIVE.md`,
+and the roadmap. The autonomous build loop pulls from **Ready (top of
+queue)** only.
 
 Format: `- [ ] (P1, M) title — description [src]` · P0 critical / P1 now /
 P2 next / P3 later · size S/M/L. Checked `[x]` = done.
@@ -15,118 +15,95 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication:
 
-- **Sketching row — flipped ❌→➖ this pass.** The session-tool cluster
-  (trim/extend, offset, mirror, sketch fillet/chamfer, splines) shipped
-  full-stack; a working engineer can now run a complete sketch session.
-  Residual gaps keep it at ➖ not ✅: (1) over-constraint diagnosis is
-  index-only, not classified redundant-vs-conflicting; (2) dimensions take
-  only a literal, no expressions/driving-vs-driven; (3) splines are v1
-  non-constrained. All three are in Ready below.
-- **Part modeling row — still ❌, blocker now explicit.** 8 body-affecting
-  features (extrude/revolve/fillet/chamfer/pattern/sweep/loft-backend), plus
-  **multi-loop profiles → holes (the audit's #1 gap) now backend-shipped** — a
-  bracket's bolt holes are authorable in one cut sketch. Remaining: (a) edge
-  selection is predicate-only, not click-a-specific-edge; (b) **sketches can
-  only be placed on the 3 origin datum planes** — no offset or on-face plane
-  exists, which is also why loft shipped with no UI (#8b): a real loft needs
-  parallel offset/face-based sections it can't author. This is now the single
-  highest-leverage foundational unlock — see Ready #1/#2 below.
-- **Interop row** — unchanged: export covers modeled trees, import is Phase
-  4. No Ready items target it this pass.
+- **Sketching row — ➖.** Residual gaps: (1) over-constraint diagnosis is
+  index-only; (2) no dimension expressions/driving-vs-driven; (3) splines are
+  v1 non-constrained. All three in Ready below.
+- **Part modeling row — still ❌.** Multi-loop profiles → holes shipped (the
+  product audit's #1 gap) — bolt holes are authorable in one cut sketch. The
+  product audit **re-sequenced the remaining unlock**: the topological-naming
+  investment's first deliverable should be **sketch-on-a-model-face** (most
+  second features need it; it's also where holes belong), with **click-
+  specific edge selection as the second consumer** — not the other way round
+  as previously ordered. Both are Ready below, sketch-on-face first. A
+  dedicated Hole feature is now lower-priority (Next, P3): multi-loop cut
+  already covers the common bolt-circle case.
+- **Interop row — product audit flags as possibly understated:** export
+  round-trips exact (STEP out → reopened at identical volume, verified this
+  pass), so the export half is solid, not partial — the row is fairly gated
+  on import (Phase 4) but the *degree* of "not there yet" may read too harsh.
+  Note for the **vision-steward** to weigh at next re-score (VISION.md is
+  vision-steward-owned, not touched here).
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
   access — later phases; untouched this pass.
 
 ## Ready (top of queue)
 
-Phase 2 restock — the sketch authoring/editing cluster (trim/extend, offset,
-mirror, sketch fillet/chamfer, splines) shipped in full and is archived
-below; so did sweep and loft's backend. **The loft work surfaced a
-foundational blocker: sketches can only sit on the 3 mutually-perpendicular
-origin planes.** #1–#2 (offset/datum planes) rank above #3 (face/edge
-picking) because they unblock loft UI, sketch-on-a-height, *and*
-sketch-on-a-face — the single highest-leverage unlock right now; #3 is a
-close second, the other big Part-modeling parity gap, and its own blocker
-(topological-naming design doc) already shipped. #4–#6 are sketch-session
-polish the re-score flagged; independent of #1–#3 and of each other.
+Restocked post product+engineering audits (2026-07-12, HEAD `5135c9e`).
+Offset/datum planes, loft UI, and **multi-loop profiles → holes** (the
+product audit's #1 gap) shipped and are archived below. The product audit
+**re-sequences** the topological-naming payoff: **sketch-on-a-model-face
+(#1) ranks ahead of click-specific edge selection (#2)** — both consume the
+same `SubshapeRef` machinery (already shipped), but sketch-on-face unblocks
+whole *classes* of second features (a pocket on top, a boss on a shoulder)
+while edge-selection only makes fillets prettier. #3–#4 interleave
+engineering-audit debt that the founder flagged as worth pulling forward
+rather than burying at P3: **F1** is a correctness cliff on the "cloud-native"
+claim (mesh fetch silently 404s once geometry scales past 1 worker), **F4**
+(circular-pattern slice) is the widest determinism-gate hole on already-
+shipped geometry. #5–#7 are the sketch-session polish the last re-score
+flagged, unchanged in substance, reordered below the above.
 
-- [x] (P1, S) Design note: offset/datum plane representation — a design doc
-      (`docs/design/datum-planes.md`, precedent: `topological-naming.md`)
-      before implementation starts. Confirmed in code this pass:
-      `apps/web/src/sketch/plane.ts`'s `DATUM_PLANES` is hardcoded to
-      `["XY","XZ","YZ"]`, and `services/geometry/src/geometry/features/
-      evaluate.py` explicitly rejects any other sketch plane. Cover: (a) v1
-      tractable slice — **offset-from-a-datum-by-a-signed-distance**
-      (parallel plane, no face dependency); (b) v2 note only —
-      **on-a-face** plane needs a face `SubshapeRef`, so it's gated on Ready
-      item below (face/edge picking), don't scope it into v1; (c) how a
-      `FeatureRef`-style plane reference threads through the sketch's
-      `plane` field and survives rebuild/rollback. Acceptance: doc reviewed
-      by `code-reviewer` (endorsed, like the topo-naming precedent) before
-      the implementation item starts. [src: product-auditor,
-      engineering-auditor, roadmap]
-- [x] (P1, M) Offset/datum planes — **BACKEND SHIPPED** (this commit). The
-      single highest-leverage foundational unlock: unblocks #8b loft UI,
-      sketch-on-a-height, and is a prerequisite for sketch-on-a-face. v1 scope
-      = offset-from-origin-datum-by-distance (+ optional normal flip); on-a-face
-      deferred to v2 (gated on face picking). Shipped: `DatumFeature`/
-      `DatumParamsV1` in the `Feature` union + registry; a sketch references a
-      datum via the existing `FeatureRef` plane slot (widened `allowed_types`
-      → `{datum}`, so documents now ACCEPTS + edge-materializes sketch-on-datum
-      and enforces datum-before-sketch order); `resolve_sketch_plane` DRY funnel
-      threads a resolved `build123d.Plane` through profile/path/loft/revolve.
-      Goldens: `sketch-extrude-offset-plane-40x25x10` (analytic-exact box +30 Z)
-      and `loft-cylinder-offset-r10-h30` (**the two-parallel-circles → cylinder
-      the loft note deferred** — π·r²·h, 3/3/1 topology, STEP round-trip,
-      determinism). **Remaining → follow-up #2b:** plane-picker UI (offset+base
-      at sketch-create), viewport offset-origin plane math, e2e
-      sketch→offset-plane→extrude + screenshots.
-      [src: product-auditor, engineering-auditor, roadmap]
-- [x] (P1, M) #2b Offset/datum-plane picker UI — **SHIPPED** (this commit).
-      The one-click origin case is preserved (XY/XZ/YZ stay the primary
-      picker choice); offset planes are additive/opt-in via an inline
-      **"+ Offset plane"** affordance in the SAME picker (base + signed
-      offset NumberField + normal flip → creates a `datum` feature, seats the
-      sketch on it via a `FeatureRef`), plus a standalone **Datum** tool
-      (`tool-datum`) that adds a reusable datum row to the feature tree.
-      `apps/web/src/sketch/plane.ts` generalized from the hardcoded 3-datum
-      enum to a placed `PlaneBasis` (origin datum OR datum-feature offset;
-      flip negates normal+v) — the ONE plane-math source both DOM and WebGL
-      read, mirroring the kernel `resolve_sketch_plane`. Viewport draws the
-      grid/entities/solved ink AT the offset (a sketch on XY+30 renders at
-      z=30, translucent datum hint sheet). Gates: `pnpm lint` +
-      `pnpm typecheck` green; 377 vitest (offset+flip basis math, datum-create
-      builder); `datum-plane.spec.ts` e2e (XY+30 sketch → rectangle → extrude
-      → **body bbox z ≈ 30..40 end-to-end**; plain one-click XY unchanged;
-      standalone datum reuse) + sketcher/extrude/constraints/offset/mirror
-      suites green; founder before/after screenshots (`docs/screenshots/
-      datum-plane-*.png`). [src: frontend-builder]
-- [x] (P1, M) Multi-loop closed profiles → holes — DONE 2026-07-12. The
-      product audit's #1 gap (`docs/AUDIT-PRODUCT.md`): a single sketch of an
-      outer boundary + N inner circles now extrudes/cuts to a plate with N
-      through-holes. `build_profile_face` (kernel/extrude.py, shared by
-      extrude/revolve/sweep/loft) classifies the largest-area loop as the outer
-      boundary and the rest as interior holes → `Face(outer, inner_wires)`; no
-      topological naming. v1 scope: one outer boundary + disjoint, strictly
-      interior holes; disjoint/crossing/overlapping/nested loops are legible
-      `profile_unsupported`, an open loop `profile_not_closed`. Single-loop path
-      byte-identical. Golden `sketch-extrude-plate-2holes-40x25x10` (analytic V,
-      8 faces, STEP round-trip + restart determinism). [src: product-auditor #1]
-- [ ] (P1, M) Viewport v1 — face/edge picking — in-UI selection of a
-      specific face/edge for feature authoring, per
-      `docs/design/topological-naming.md` (`SubshapeRef`, shipped
-      2026-07-11, commit 2531850 — this item's blocker is clear and it is
-      now startable). Feeds fillet/chamfer's existing selector plumbing as
-      an additive option alongside today's `EdgeSelector` predicates.
-      Unblocks hole/shell/draft in Next and on-a-face datum planes above.
-      Ranked just below offset/datum planes: this is the other big
-      Part-modeling parity unlock, independent work, safe to run in
-      parallel with the planes pair. Acceptance: raycasting in the r3f
-      viewport resolves a click to a stable face/edge `SubshapeRef` per the
-      design doc's naming scheme; worked e2e — click a specific edge, apply
-      fillet, confirm only that edge rounds (vs. today's all-edges
-      predicate); the reference persists correctly across a rebuild per the
-      design doc's failure semantics (§4.3 strict-prefix rule); screenshots.
-      [src: roadmap, engineering-auditor]
+- [ ] (P1, M) Sketch-on-a-model-face — topological-naming's **first**
+      deliverable (product audit: ranked ahead of edge-selection — unblocks
+      whole classes of second features and is where holes/bosses on a
+      shoulder belong, not just cosmetic fillet precision). In-viewport
+      raycast resolves a click to a stable face `SubshapeRef` per
+      `docs/design/topological-naming.md`; a sketch's `plane` field accepts a
+      face reference (widen the existing `FeatureRef` plane slot, alongside
+      origin-datum and offset-datum) and `resolve_sketch_plane` threads the
+      resolved `build123d.Plane` for that face. Depends on: nothing new — the
+      design doc (topological-naming, shipped 2531850) is the only blocker
+      and it's already merged. Acceptance: pick a non-origin-parallel face
+      (e.g. a revolve's shoulder or a loft's slanted wall) as a sketch plane;
+      sketch + extrude a boss on it; reference persists correctly across a
+      rebuild per the design doc's strict-prefix failure semantics;
+      screenshots. [src: product-auditor #2, engineering-auditor]
+- [ ] (P1, M) Click-specific edge/face selection for fillet/chamfer —
+      topological-naming's **second** consumer (after sketch-on-face above).
+      Feeds fillet/chamfer's existing selector plumbing as an additive
+      option alongside today's `EdgeSelector` predicates (`all_edges` /
+      `axis_parallel`). Unblocks hole/shell/draft in Next. Acceptance:
+      raycasting resolves a click to a stable edge `SubshapeRef`; worked
+      e2e — click one specific edge, apply fillet, confirm only that edge
+      rounds (vs. today's all-edges predicate rounding a bracket's base
+      along with its top rim); reference persists across rebuild per §4.3;
+      screenshots. [src: roadmap, product-auditor #3, engineering-auditor]
+- [ ] (P2, M) Mesh store: object-storage swap or explicit single-worker
+      guard (engineering audit **F1**) — the in-process mesh LRU
+      (`geometry/mesh_store.py`) is a process-global; evaluate and fetch
+      landing on different workers/replicas 404s the mesh ~(N−1)/N of the
+      time. Masked today (compose runs 1 geometry container, uvicorn
+      defaults to 1 worker) but compose already provisions `S3_URL`/
+      `S3_BUCKET` implying multi-replica readiness that isn't real yet — a
+      correctness cliff on the "cloud-native/self-hostable" claim. v1
+      acceptable scope: EITHER land the MinIO-backed mesh store (feature-tree
+      design doc §7.8, preferred) OR add an enforced single-worker guard +
+      readiness note gating any `--workers>1`/replica>1 deploy until the
+      swap lands. Acceptance: a 2-worker smoke test round-trips
+      evaluate→fetch without 404 (swap path) OR startup fails loud on
+      `--workers>1` with a clear message pointing at §7.8 (guard path);
+      GEOMETRY-QA/ROADMAP §7.8 updated to say which. [src: engineering-auditor F1]
+- [ ] (P2, S) Geometry QA: circular-pattern determinism golden (engineering
+      audit **F4**, first slice) — `circular_pattern` is the only shipped
+      body op with no golden/cross-interpreter determinism gate (only an
+      in-process unit test); it's also the most rotation/trig-heavy op and
+      the likeliest to drift across BLAS/interpreter. Acceptance: a
+      `circular-pattern-*` golden (`model.json` + hand-derived
+      `expected.json`) in `services/geometry/goldens/`, passing the same
+      in-process + interpreter-restart byte-identity gate as every other
+      golden (`test_goldens.py`). Boolean-cut and revolve/sweep-on-offset
+      goldens (same finding, remaining slices) follow in Next. [src:
+      engineering-auditor F4, geometry-qa]
 - [ ] (P2, S) Sketch: over-constraint classification — upgrade
       `sketch_conflicting` from raw constraint indices to a classified
       redundant-vs-conflicting diagnosis with a suggested fix, surfaced in
@@ -165,10 +142,31 @@ polish the re-score flagged; independent of #1–#3 and of each other.
 
 ## Next (P2)
 
-- [ ] (P2, M) Hole feature — face-based placement (point on a face + depth,
-      optionally counterbore/countersink), distinct from a sketched-circle
-      extrude cut. Depends on face/edge picking (Ready, above) landing — needs a
-      stable face reference. [src: roadmap, product-auditor, competitive]
+- [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
+      trap, product audit #4) — marking the on-axis edge `construction: true`
+      (the natural SolidWorks/Fusion idiom) excludes it from the profile wire
+      → `422 profile_not_closed`; today only a real profile-boundary edge
+      used *as* the axis works. Fix: accept a construction-flagged edge as
+      the revolve axis without requiring it in the profile wire, or surface
+      a clear hint distinguishing the two idioms. Acceptance: sketch a
+      half-profile + a construction centerline on the axis → revolve
+      succeeds using the centerline; existing real-edge-as-axis path
+      unaffected; worked e2e. [src: product-auditor]
+- [ ] (P2, S) evaluate_tree: skip tessellation/store for export/measure
+      callers (engineering audit **F2**) — thread a bool through
+      `evaluate_tree` so `export_tree`/measure (which never fetch the GLB)
+      don't churn the 64-slot mesh LRU with never-fetched entries, evicting
+      live interactive-session meshes. Acceptance: export/measure requests
+      no longer call `store_mesh_glb` (test asserts cache occupancy
+      unchanged after N exports); evaluate-for-viewport path unaffected.
+      [src: engineering-auditor F2]
+- [ ] (P2, S) Geometry QA: boolean-cut + revolve/sweep-on-offset-plane
+      determinism goldens (engineering audit **F4**, remaining slices —
+      circular-pattern slice is Ready above) — all 12 goldens today are
+      additive-only and no offset-plane golden exercises revolve/sweep
+      (code-noted "same path, untested"). Acceptance: one `*-cut-*` golden
+      and one revolve-or-sweep-on-offset golden, same determinism gate as
+      existing goldens. [src: engineering-auditor F4, geometry-qa]
 - [ ] (P2, M) Shell feature — hollow a body, removing selected faces.
       Depends on face/edge picking (Ready, above) for face selection to
       remove. [src: roadmap, competitive]
@@ -195,14 +193,30 @@ polish the re-score flagged; independent of #1–#3 and of each other.
 - [ ] (P2, M) Rate limiting + request-size caps on unauthenticated auth
       endpoints (py-kit middleware — DRY home) — pre-deploy hardening.
       [src: code-reviewer]
+
+## Later (P3)
+
+- [ ] (P3, M) Hole feature — face-based placement (point on a face + depth,
+      optionally counterbore/countersink), distinct from a sketched-circle
+      extrude cut. **Downgraded P2→P3 this pass:** multi-loop closed-profile
+      cuts now cover the common bolt-circle/mounting-hole case the product
+      audit was pushing this for; a dedicated Hole feature is a nicety
+      (counterbore/countersink, no sketch needed) once face picking lands,
+      not the unblocker it was before multi-loop shipped. Depends on
+      face/edge picking (Ready, above) landing — needs a stable face
+      reference. [src: roadmap, product-auditor, competitive]
+- [ ] (P3, S) Spline profile builder: named tolerance + non-consecutive-
+      coincidence guard (engineering audit **F5**) — promote the inline
+      `abs_tol=1e-9` (kernel/extrude.py:186) to the module's existing
+      `PROFILE_WIRE_TOLERANCE`; extend the coincident-fit-point guard beyond
+      consecutive pairs so a non-consecutive coincidence falls into a
+      legible `profile_*` error instead of the generic `evaluation_failed`
+      catch-all. [src: engineering-auditor F5]
 - [ ] (P3, M) Thread feature — cosmetic/modeled threads on a hole/cylinder,
       driven by a thread-standard library. Pairs with the hole feature
       above. [src: competitive]
 - [ ] (P3, M) Multi-body boolean — join/cut/intersect between solid bodies.
       [src: competitive]
-
-## Later (P3)
-
 - [ ] (P3, S) py-kit: align FastAPI 422 OpenAPI schema with the py-kit error
       envelope (currently documents HTTPValidationError)
       [src: kernel-architect]
@@ -375,40 +389,37 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 - [x] (P1, M) Sweep feature — backend + UI (#7/#7b) — profile along a second
       sketch's open path wire, golden `sweep-circle-r8-h30`. [src: roadmap,
       product-auditor, competitive]
-- [x] (P1, M) Loft feature (#8) — BACKEND ruled loft through ≥2 ordered
-      sections incl. loft-to-apex (golden `loft-pyramid-sq20-h30`); **UI (#8b)
-      shipped**: ordered section stack (add/remove/reorder), Add/Cut, L
-      accelerator, v1 scope note; e2e proves two parallel circles (XY + XY+30
-      offset plane) → a real frustum body. [src: roadmap, product-auditor,
+- [x] (P1, M) Loft feature (#8) — backend (ruled loft, ≥2 sections incl.
+      loft-to-apex) + UI (#8b, ordered section-stack picker); e2e proves a
+      real frustum via two offset-plane circles. [src: roadmap, product-auditor,
       competitive]
+
+### Phase 2 — Ready batch 3: offset/datum planes + multi-loop holes (through commit a36e436)
+
+- [x] (P1, S) Design note: offset/datum plane representation —
+      `docs/design/datum-planes.md`, code-reviewer-endorsed. [src: product-auditor,
+      engineering-auditor, roadmap]
+- [x] (P1, M) Offset/datum planes — backend (`DatumFeature`, `resolve_sketch_plane`
+      funnel) + picker UI (#2b, inline "+ Offset plane" + standalone Datum tool);
+      unblocked #8b loft UI and sketch-on-a-height. [src: product-auditor,
+      engineering-auditor, roadmap, frontend-builder]
+- [x] (P1, M) Multi-loop closed profiles → holes — the product audit's #1
+      daily-driver gap; one sketch (outer boundary + N inner loops) now
+      extrudes/cuts a plate with N through-holes, shared across
+      extrude/revolve/sweep/loft, no topological naming needed. [src:
+      product-auditor #1]
 
 ## Changelog
 
 Older entries live in `CHANGELOG.md`.
 
-- 2026-07-12 — **#8b Loft authoring UI shipped.** Ordered section-stack picker
-  (≥2 sketch sections, add/remove/reorder — order is the blend sequence) with a
-  "blend spine" signature, Add/Cut, `L` accelerator, honest v1 note; DRY
-  `LoftParamsV1` from `@loft/ts-client`. e2e (real stack): two parallel circles
-  (XY + XY+30 via "+ Offset plane") → a rendered frustum in the tree; submit
-  guard on incomplete stacks. Closes #8. [frontend-builder]
-- 2026-07-12 — **#2b offset/datum-plane picker UI shipped.** One-click origin
-  planes preserved; inline "+ Offset plane" + standalone Datum tool create a
-  `datum` feature the sketch seats on via `FeatureRef`. `plane.ts` generalized
-  to a placed `PlaneBasis` (one plane-math source, DOM+WebGL). e2e proof: XY+30
-  sketch→extrude → body bbox z≈30..40. #8b loft UI now fully unblocked.
-  [frontend-builder]
-- 2026-07-12 — **Offset/datum planes — BACKEND shipped.** `DatumFeature` in the
-  Feature union + registry; sketch-on-datum via the widened `FeatureRef` plane
-  slot; `resolve_sketch_plane` DRY funnel → resolved `Plane`. Goldens: offset
-  extrude + the two-parallel-circles→cylinder loft. Ready #2 backend done; #8b
-  loft UI unblocked; #2b plane-picker UI is follow-up. [kernel-architect]
-- 2026-07-12 — **Datum-planes design note landed** (`docs/design/datum-planes.md`):
-  datum-plane-as-feature (vs inline spec); v1 = offset-from-origin-datum by
-  signed distance; additive backward-compat (no `param_version` bump). Ticks
-  Ready #1; unblocks #2 impl + #8b loft UI. [kernel-architect]
-- 2026-07-12 — **Groomed after the sketch-cluster + sweep/loft-backend
-  batch.** Archived 8 shipped items (session-tool cluster, sweep, loft
-  backend); restocked Ready with offset/datum planes (design note +
-  implementation, ranked top — unblocks #8b loft UI), face/edge picking,
-  and 3 sketch-polish items; #8b explicitly marked blocked. [backlog-groomer]
+- 2026-07-12 — **Groomed after product+engineering audit pass.** Ticked
+  multi-loop holes (audit's #1 gap); archived offset/datum-planes + loft UI
+  + multi-loop to Done. Re-sequenced Ready per the product audit: sketch-on-
+  face now ranks ahead of edge-selection (both consume topological naming);
+  interleaved engineering-audit debt (F1 mesh-store scale cliff, F4
+  circular-pattern determinism gap) into Ready rather than P3-burying them;
+  downgraded dedicated Hole feature P2→P3 (multi-loop cut covers its main
+  use case); filed the revolve construction-axis UX trap (F2/F5/F4-remainder
+  in Next); flagged Interop-row-may-be-understated for vision-steward.
+  [backlog-groomer]

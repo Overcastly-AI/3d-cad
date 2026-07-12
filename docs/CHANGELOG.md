@@ -5,6 +5,47 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-07-12 (post product+engineering audit batch)
+
+- **Multi-loop closed profiles → holes shipped** (`a36e436`, product audit's
+  #1 gap). `build_profile_face` (kernel/extrude.py, shared by
+  extrude/revolve/sweep/loft) classifies the largest-area loop as the outer
+  boundary, the rest as interior holes → `Face(outer, inner_wires)`; no
+  topological naming needed. v1: one outer boundary + disjoint strictly
+  interior holes; disjoint/crossing/overlapping/nested loops →
+  `profile_unsupported`, open loop → `profile_not_closed`. Golden
+  `sketch-extrude-plate-2holes-40x25x10` (analytic V, 8 faces, STEP
+  round-trip + restart determinism). [kernel-architect]
+- **F3 doc-defect fixed** (`c9abf7e`) — `loft.py`'s module note still said
+  offset planes were unauthorable after `df308e4` landed them; synced.
+  [kernel-architect]
+- **#8b Loft authoring UI shipped.** Ordered section-stack picker (≥2 sketch
+  sections, add/remove/reorder — order is the blend sequence) with a "blend
+  spine" signature, Add/Cut, `L` accelerator, honest v1 note; DRY
+  `LoftParamsV1` from `@loft/ts-client`. e2e (real stack): two parallel
+  circles (XY + XY+30 via "+ Offset plane") → a rendered frustum in the tree;
+  submit guard on incomplete stacks. Closes #8. [frontend-builder]
+- **#2b offset/datum-plane picker UI shipped.** One-click origin planes
+  preserved; inline "+ Offset plane" + standalone Datum tool create a
+  `datum` feature the sketch seats on via `FeatureRef`. `plane.ts`
+  generalized to a placed `PlaneBasis` (one plane-math source, DOM+WebGL).
+  e2e proof: XY+30 sketch→extrude → body bbox z≈30..40. #8b loft UI now
+  fully unblocked. [frontend-builder]
+- **Offset/datum planes — BACKEND shipped.** `DatumFeature` in the Feature
+  union + registry; sketch-on-datum via the widened `FeatureRef` plane slot;
+  `resolve_sketch_plane` DRY funnel → resolved `Plane`. Goldens: offset
+  extrude + the two-parallel-circles→cylinder loft. Ready #2 backend done;
+  #8b loft UI unblocked; #2b plane-picker UI is follow-up. [kernel-architect]
+- **Datum-planes design note landed** (`docs/design/datum-planes.md`):
+  datum-plane-as-feature (vs inline spec); v1 = offset-from-origin-datum by
+  signed distance; additive backward-compat (no `param_version` bump). Ticks
+  Ready #1; unblocks #2 impl + #8b loft UI. [kernel-architect]
+- **Groomed after the sketch-cluster + sweep/loft-backend batch.** Archived
+  8 shipped items (session-tool cluster, sweep, loft backend); restocked
+  Ready with offset/datum planes (design note + implementation, ranked top —
+  unblocks #8b loft UI), face/edge picking, and 3 sketch-polish items; #8b
+  explicitly marked blocked. [backlog-groomer]
+
 ## 2026-07-12
 
 - **Loft (#8) BACKEND shipped.** `LoftFeature`/`LoftParamsV1` (`profiles:

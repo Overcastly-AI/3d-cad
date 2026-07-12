@@ -2,28 +2,28 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 2 — Parametric core.** The sketch session-tool cluster
-shipped in full through commit 1e3d422 (2026-07-12): trim/extend, offset,
-mirror, sketch fillet/chamfer, and splines (Fit-Point v1, non-constrained),
-each backend + UI end-to-end. Sweep shipped full-stack (profile along a
-second sketch's open path). Loft's backend shipped (ruled loft through ≥2
-ordered sections incl. loft-to-apex). **Offset/datum planes — BACKEND shipped**
-(2026-07-12): sketches can now sit on offset/parallel planes (a `datum` feature
-offset a signed distance from an origin datum, + optional normal flip), lifting
-the "3 origin datum planes only" limitation that had forced loft's golden to
-fall back to loft-to-apex. Proven by two goldens — an analytic-exact offset
-extrude and **the two-parallel-circles → cylinder loft the loft note deferred**.
-The paired **plane-picker UI (#2b) shipped 2026-07-12**: the one-click origin
-planes are preserved, offset planes are an additive inline "+ Offset plane"
-affordance (plus a standalone Datum tool), and the viewport draws the sketch at
-the offset — proven end-to-end by `datum-plane.spec.ts` (an XY+30 sketch
-extrudes to a body sitting at z≈30..40). Riding that unlock, the **loft UI
-(#8b) shipped 2026-07-12** — an ordered section-stack picker whose real-stack
-e2e blends two parallel circles (XY + an XY+30 offset plane) into a frustum,
-closing #8. Next foundational unlock is face/edge
-picking (the other big Part-modeling parity gap). VISION.md's 2026-07-12
-re-score flipped the Sketching scorecard row ❌→➖; Part modeling stays ❌ with
-face/edge picking now its sharpest gap. See `docs/BACKLOG.md` Ready queue.
+**Current focus: Phase 2 — Parametric core.** The sketch session-tool cluster,
+offset/datum planes (backend + picker UI), and loft (backend + UI, #8) all
+shipped through commit 1e3d422…18d1eaa (2026-07-12) — see `CHANGELOG.md` for
+full detail. **Multi-loop closed profiles → holes shipped** (`a36e436`,
+2026-07-12): the product audit's #1 daily-driver gap — one sketch (outer
+boundary + N inner loops) now extrudes/cuts a plate with N through-holes,
+shared across extrude/revolve/sweep/loft, no topological naming required.
+Two independent audits landed the same day (`docs/AUDIT-PRODUCT.md` 6c1e600,
+`docs/AUDIT-ENGINEERING.md` 9ecec33) and **re-sequenced the next foundational
+unlock**: rather than face/edge picking as one undifferentiated item, the
+product audit orders topological naming's two consumers — **sketch-on-a-
+model-face ranks ahead of click-specific edge selection** (sketch-on-face
+unblocks whole classes of second features; edge selection only refines
+fillet/chamfer). Both are `SubshapeRef`-based and gated on the already-shipped
+topological-naming design doc. The engineering audit found no P0s (all gates
+green, license/boundary hygiene clean) but flagged a real correctness cliff
+(F1: the in-process mesh LRU 404s once geometry scales past one worker/
+replica — masked by today's single-container compose) and a determinism-gate
+hole on shipped geometry (F4: circular-pattern has no golden); both are
+interleaved into the Ready queue rather than deferred. VISION.md's 2026-07-12
+re-score flipped Sketching ❌→➖; Part modeling stays ❌, sketch-on-face now
+its sharpest gap. See `docs/BACKLOG.md` Ready queue.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -115,43 +115,28 @@ item below.
 
 ## Phase 2 — Parametric core 🚧
 
-Ready batches 1–2 shipped in full (commits 2531850…1e3d422, 2026-07-11–12);
+Ready batches 1–3 shipped in full (commits 2531850…a36e436, 2026-07-11–12);
 full evidence in `CHANGELOG.md` + `BACKLOG.md`'s Done archive. One line per
 item:
 
 - ✅ Topological naming strategy — design doc, code-reviewer-endorsed;
-      unblocked face/edge picking (BACKLOG Ready).
+      unblocks sketch-on-face + edge selection (BACKLOG Ready, re-sequenced
+      2026-07-12 per the product audit — sketch-on-face first).
 - ✅ Full sketch constraint vocabulary — all 12 kinds + construction geometry.
-- ✅ Sketch trim/extend, offset, mirror, sketch fillet/chamfer, splines
-      (Fit-Point v1) — the full session-tool cluster, each backend + UI
-      end-to-end, exact analytic geometry, legible 422s, real-stack e2e.
-      **Sketching scorecard row flipped ❌→➖** (VISION.md, 2026-07-12):
-      residual gaps are session polish, not missing capability — see
-      BACKLOG Ready (over-constraint classification, dimension expressions,
-      constrainable splines).
-- ✅ Revolve + linear/circular pattern + sweep + loft (backend+UI) —
-      8 body-affecting features now. **Loft UI (#8b) shipped 2026-07-12:** an
-      ordered section-stack picker (≥2 sketch sections, add/remove/reorder — the
-      order is the blend sequence) with a "blend spine" signature, Add/Cut, an
-      `L` accelerator, and an honest v1 note; real-stack e2e blends two parallel
-      circles (XY + an XY+30 offset plane via "+ Offset plane") into a frustum —
-      the offset-planes payoff. Closes #8.
-- ✅ Offset/datum planes — BACKEND (2026-07-12): a `datum` feature (offset
-      from an origin datum by a signed distance + optional normal flip) joins
-      the Feature union additively; a sketch sits on it via the existing
-      `FeatureRef` plane slot (widened to accept `datum`), and one
-      `resolve_sketch_plane` funnel threads a resolved `build123d.Plane`
-      through profile/path/loft/revolve. Goldens: analytic-exact offset extrude
-      + the two-parallel-circles→cylinder loft (π·r²·h) the loft note deferred.
-      Removes limitation (b) below; **unblocks loft UI (#8b)** + sketch-on-a-
-      height. **#2b plane-picker UI shipped (2026-07-12):** origin planes stay
-      one-click, offset planes are an inline "+ Offset plane" affordance + a
-      standalone Datum tool; `plane.ts` generalized to a placed `PlaneBasis`
-      (one plane-math source for DOM+WebGL); e2e proves an XY+30 sketch extrudes
-      to a body at z≈30..40. Part-modeling row **stays
-      ❌** on (a) edge selection still predicate-only — face/edge picking is now
-      the top Part-modeling parity gap (startable, its design-doc blocker
-      shipped).
+- ✅ Sketch trim/extend, offset, mirror, sketch fillet/chamfer, splines — the
+      full session-tool cluster, backend + UI end-to-end. **Sketching
+      scorecard row flipped ❌→➖** (VISION.md, 2026-07-12); residual gaps are
+      session polish (BACKLOG Ready).
+- ✅ Revolve + linear/circular pattern + sweep + loft (backend + UI, #8) —
+      8 body-affecting features.
+- ✅ Offset/datum planes — backend + picker UI (#2b): a `datum` feature
+      (signed offset from an origin datum) joins the sketch-plane `FeatureRef`
+      slot via one `resolve_sketch_plane` funnel; unblocked loft UI (#8b) and
+      sketch-on-a-height.
+- ✅ Multi-loop closed profiles → holes (2026-07-12, `a36e436`) — the
+      product audit's #1 daily-driver gap: one sketch (outer boundary + N
+      inner loops) extrudes/cuts a plate with N through-holes, shared across
+      extrude/revolve/sweep/loft, no topological naming needed.
 - ✅ Fillet/Chamfer authoring UI — predicate edge selector, first
       body-affecting authoring UI beyond extrude/revolve.
 - ✅ Design system: grouped-icon toolbar + flyouts, Create▸Modify split.
@@ -160,18 +145,16 @@ item:
       panel, units system (BACKLOG Next).
 - 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
       2026-07-12; feeds Ready restocks as the queue runs thin.
-- ✅ Multi-loop closed profiles → holes (2026-07-12): the product audit's #1
-      daily-driver gap. One sketch of an outer boundary + N inner circles now
-      extrudes/cuts to a plate with N through-holes — `build_profile_face`
-      classifies the largest-area loop as the outer boundary and the rest as
-      interior holes (`Face(outer, inner_wires)`), so extrude/revolve/sweep/loft
-      all gain holes for free. No topological naming needed. Golden:
-      `sketch-extrude-plate-2holes-40x25x10` (analytic V = (40·25−2π·5²)·10,
-      8 faces, STEP round-trip + interpreter-restart determinism). Disjoint /
-      crossing / overlapping / nested loops are legible `profile_unsupported`.
-- 🚧 Part-modeling breadth — shell, draft, dedicated hole, multi-body
-      boolean still unbuilt, several gated on face/edge picking (BACKLOG
-      Ready + Next).
+- 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face
+      now the sharpest gap (product audit, ahead of edge selection); shell,
+      draft, dedicated hole, multi-body boolean still unbuilt, several gated
+      on face/edge picking (BACKLOG Ready + Next).
+- 🚧 Two independent audits landed 2026-07-12 (`docs/AUDIT-PRODUCT.md`
+      6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found (all gates
+      green, boundaries/license clean); findings filed to BACKLOG (Ready:
+      mesh-store scale cliff F1, circular-pattern determinism gap F4; Next:
+      revolve construction-axis UX trap, evaluate_tree tessellation churn F2,
+      spline tolerance F5).
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
 
