@@ -36,6 +36,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import assert_never
 
 from geometry.sketch.schemas import (
     MirrorAxis,
@@ -66,7 +67,8 @@ class SketchEditError(ValueError):
     (never a 500): ``sketch_target_not_found``, ``sketch_unsupported_entity``,
     ``sketch_pick_not_on_target``, ``sketch_extend_no_target``,
     ``sketch_offset_zero_distance``, ``sketch_degenerate_result``,
-    ``sketch_mirror_axis_not_line``, ``sketch_mirror_degenerate_axis``.
+    ``sketch_mirror_axis_not_line``, ``sketch_mirror_degenerate_axis``,
+    ``sketch_corner_not_found``, ``sketch_corner_too_large``.
     """
 
     def __init__(self, message: str, *, code: str) -> None:
@@ -788,43 +790,49 @@ def _mirror_entity(
     reflect: Callable[[_V], _V],
     ident: str,
 ) -> SketchEntity:
-    """The reflected copy of ``entity`` with a fresh id; construction inherited."""
-    if isinstance(entity, SketchPoint):
-        return SketchPoint(
-            id=ident,
-            construction=entity.construction,
-            kind="point",
-            position=_point2d(reflect(_pt(entity.position))),
-        )
-    if isinstance(entity, SketchLine):
-        return SketchLine(
-            id=ident,
-            construction=entity.construction,
-            kind="line",
-            start=_point2d(reflect(_pt(entity.start))),
-            end=_point2d(reflect(_pt(entity.end))),
-        )
-    if isinstance(entity, SketchCircle):
-        return SketchCircle(
-            id=ident,
-            construction=entity.construction,
-            kind="circle",
-            center=_point2d(reflect(_pt(entity.center))),
-            radius=entity.radius,
-        )
-    # Only SketchArc remains (the union is exhaustive — a future entity kind
-    # makes this branch a pyright type error, forcing an explicit mirror rule
-    # rather than a silent wrong reflection). Orientation reverses under
-    # reflection: swap start/end so the copy is still CCW from its start
-    # (SketchArc invariant).
-    return SketchArc(
-        id=ident,
-        construction=entity.construction,
-        kind="arc",
-        center=_point2d(reflect(_pt(entity.center))),
-        start=_point2d(reflect(_pt(entity.end))),
-        end=_point2d(reflect(_pt(entity.start))),
-    )
+    """The reflected copy of ``entity`` with a fresh id; construction inherited.
+
+    The ``case _`` guard makes the dispatch **exhaustively** type-safe: a future
+    entity kind becomes an unconditional pyright error here (not a silent wrong
+    reflection), forcing an explicit mirror rule for the new kind.
+    """
+    match entity:
+        case SketchPoint():
+            return SketchPoint(
+                id=ident,
+                construction=entity.construction,
+                kind="point",
+                position=_point2d(reflect(_pt(entity.position))),
+            )
+        case SketchLine():
+            return SketchLine(
+                id=ident,
+                construction=entity.construction,
+                kind="line",
+                start=_point2d(reflect(_pt(entity.start))),
+                end=_point2d(reflect(_pt(entity.end))),
+            )
+        case SketchCircle():
+            return SketchCircle(
+                id=ident,
+                construction=entity.construction,
+                kind="circle",
+                center=_point2d(reflect(_pt(entity.center))),
+                radius=entity.radius,
+            )
+        case SketchArc():
+            # Orientation reverses under reflection: swap start/end so the copy
+            # is still CCW from its start (SketchArc invariant).
+            return SketchArc(
+                id=ident,
+                construction=entity.construction,
+                kind="arc",
+                center=_point2d(reflect(_pt(entity.center))),
+                start=_point2d(reflect(_pt(entity.end))),
+                end=_point2d(reflect(_pt(entity.start))),
+            )
+        case _:
+            assert_never(entity)
 
 
 def mirror_sketch(
@@ -851,6 +859,228 @@ def mirror_sketch(
         used.add(ident)
         out.append(_mirror_entity(target, reflect, ident))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Corner fillet / chamfer (BACKLOG #5)
+# ---------------------------------------------------------------------------
+#
+# Round (fillet) or bevel (chamfer) the corner between two entities. v1 is
+# **line-line** only — the tangent-point/bisector math is fully closed-form, so
+# the result is exact and bitwise deterministic (RESEARCH §9): no solver, no
+# trig round-trip on the trimmed legs (only the arc endpoints, exactly on the
+# circle, are trig-derived and land at ~1e-13). Line-arc/arc-arc corners need a
+# tangent-circle construction and are DEFERRED (rejected
+# ``sketch_unsupported_entity``). Fillet and chamfer share ONE corner-resolution
+# + setback + trim path (DRY): the only difference is the bridging entity (a
+# tangent arc vs. a straight line) and how the setback distance is derived.
+#
+# Corner geometry. C = intersection of the two lines' infinite supports (none ⇒
+# parallel/collinear ⇒ ``sketch_corner_not_found``). For each line the endpoint
+# FARTHER from C is the kept anchor and ``u`` is the unit direction C→anchor
+# (into the kept leg); the NEARER endpoint is moved to the tangent/setback point
+# (an under-length leg extends, an over-length leg trims). With the interior
+# half-angle φ (θ = angle between the legs, θ/2 = φ): fillet setback
+# s = r/tan φ and centre distance r/sin φ along the bisector; chamfer setback
+# s = d. Collinear legs (|sin θ| ≈ 0, a straight line — no real corner) are
+# ``sketch_corner_not_found``; s past a leg's far end is
+# ``sketch_corner_too_large``.
+
+
+def _corner_lines(
+    entities: list[SketchEntity], a_id: str, b_id: str
+) -> tuple[SketchLine, SketchLine]:
+    """Resolve ``a_id``/``b_id`` to two distinct **line** entities (v1 scope)."""
+    if a_id == b_id:
+        raise SketchEditError(
+            "a corner needs two distinct entities (the same id was given twice)",
+            code="sketch_corner_not_found",
+        )
+    lines: list[SketchLine] = []
+    for ident in (a_id, b_id):
+        entity = _find_target(entities, ident)
+        if not isinstance(entity, SketchLine):
+            raise SketchEditError(
+                f"corner fillet/chamfer v1 supports line-line corners only; "
+                f"entity {ident!r} is a {entity.kind!r} (line-arc and arc-arc "
+                "corners are deferred)",
+                code="sketch_unsupported_entity",
+            )
+        lines.append(entity)
+    return lines[0], lines[1]
+
+
+@dataclass(frozen=True)
+class _Leg:
+    """One resolved corner leg: the kept anchor, the moved endpoint, and geometry.
+
+    ``moved`` is which of the line's ``start``/``end`` sits at the corner and is
+    pulled back to the tangent/setback point; ``u`` is the unit direction from
+    the corner ``C`` toward the kept anchor; ``length`` is ``|anchor - C|`` (the
+    available leg length the setback must not exceed).
+    """
+
+    line: SketchLine
+    moved: str  # "start" or "end"
+    u: _V
+    length: float
+
+
+def _corner_leg(line: SketchLine, corner: _V) -> _Leg:
+    """Classify a line about ``corner``: keep the farther endpoint, move the nearer."""
+    s = _pt(line.start)
+    e = _pt(line.end)
+    ds = _dist(s, corner)
+    de = _dist(e, corner)
+    # Keep the endpoint FARTHER from the corner (the leg's body); move the nearer.
+    anchor, moved = (e, "start") if de >= ds else (s, "end")
+    length = _dist(anchor, corner)
+    if length < _TOL:
+        raise SketchEditError(
+            "a corner leg collapses onto the corner (zero-length kept segment)",
+            code="sketch_degenerate_result",
+        )
+    u = _V((anchor.x - corner.x) / length, (anchor.y - corner.y) / length)
+    return _Leg(line=line, moved=moved, u=u, length=length)
+
+
+def _trim_leg(leg: _Leg, point: _V) -> SketchLine:
+    """The leg's line with its corner-side endpoint moved to ``point`` (id kept)."""
+    return leg.line.model_copy(update={leg.moved: _point2d(point)})
+
+
+def _arc_ccw_order(center: _V, t1: _V, t2: _V) -> tuple[_V, _V]:
+    """Order ``(t1, t2)`` so CCW from the first sweeps the MINOR arc (< π).
+
+    The fillet arc is always the minor corner arc (sweep = π - θ < π), so
+    exactly one ordering has a CCW sweep below π; return that one as
+    ``(start, end)`` to honour the CCW-from-start :class:`SketchArc` invariant.
+    """
+    a1 = _angle_at(center, t1)
+    a2 = _angle_at(center, t2)
+    if (a2 - a1) % _TWO_PI <= math.pi + _TOL:
+        return t1, t2
+    return t2, t1
+
+
+def _corner_edit(
+    entities: list[SketchEntity],
+    a_id: str,
+    b_id: str,
+    size: float,
+    *,
+    fillet: bool,
+) -> list[SketchEntity]:
+    """Shared fillet/chamfer core: trim both legs + build the bridge entity."""
+    line_a, line_b = _corner_lines(entities, a_id, b_id)
+    isect = _isect_line_line(_support(line_a), _support(line_b))
+    if not isect:
+        raise SketchEditError(
+            "the two curves have no isolated corner (parallel or collinear)",
+            code="sketch_corner_not_found",
+        )
+    corner = isect[0]
+    leg_a = _corner_leg(line_a, corner)
+    leg_b = _corner_leg(line_b, corner)
+
+    cos_t = _dot(leg_a.u, leg_b.u)
+    sin_t = abs(_cross(leg_a.u, leg_b.u))
+    if sin_t < _TOL:
+        # Collinear legs: a straight line through the corner (θ ≈ 0 or π), no
+        # real corner to round/bevel.
+        raise SketchEditError(
+            "the two curves are collinear at the corner (no angle to round)",
+            code="sketch_corner_not_found",
+        )
+
+    # Fillet setback = r/tan(θ/2) via the half-angle identity tan(θ/2) =
+    # sinθ/(1+cosθ) — no acos, so exact for rational-friendly inputs; a chamfer
+    # sets back by the given distance directly.
+    setback = size * (1.0 + cos_t) / sin_t if fillet else size
+
+    if setback > leg_a.length - _TOL or setback > leg_b.length - _TOL:
+        raise SketchEditError(
+            "radius/distance is too large for the available leg length "
+            "(the tangent/setback point falls past the corner leg)",
+            code="sketch_corner_too_large",
+        )
+
+    t_a = _V(corner.x + setback * leg_a.u.x, corner.y + setback * leg_a.u.y)
+    t_b = _V(corner.x + setback * leg_b.u.x, corner.y + setback * leg_b.u.y)
+    trimmed_a = _trim_leg(leg_a, t_a)
+    trimmed_b = _trim_leg(leg_b, t_b)
+
+    ident = _fresh_id(a_id, {e.id for e in entities})
+    bridge: SketchEntity
+    if fillet:
+        # Centre lies along the interior bisector at r/sin(θ/2) from the corner
+        # (sin(θ/2) = √((1-cosθ)/2), the matching half-angle identity).
+        bx = leg_a.u.x + leg_b.u.x
+        by = leg_a.u.y + leg_b.u.y
+        blen = math.hypot(bx, by)
+        center_dist = size / math.sqrt((1.0 - cos_t) / 2.0)
+        center = _V(
+            corner.x + center_dist * bx / blen,
+            corner.y + center_dist * by / blen,
+        )
+        start, end = _arc_ccw_order(center, t_a, t_b)
+        bridge = SketchArc(
+            id=ident,
+            construction=line_a.construction,
+            kind="arc",
+            center=_point2d(center),
+            start=_point2d(start),
+            end=_point2d(end),
+        )
+    else:
+        if _dist(t_a, t_b) < _TOL:
+            raise SketchEditError(
+                "chamfer collapses to a zero-length line",
+                code="sketch_degenerate_result",
+            )
+        bridge = SketchLine(
+            id=ident,
+            construction=line_a.construction,
+            kind="line",
+            start=_point2d(t_a),
+            end=_point2d(t_b),
+        )
+
+    out: list[SketchEntity] = []
+    for e in entities:
+        if e.id == a_id:
+            out.append(trimmed_a)
+        elif e.id == b_id:
+            out.append(trimmed_b)
+        else:
+            out.append(e)
+    out.append(bridge)
+    return out
+
+
+def fillet_sketch(
+    entities: list[SketchEntity], a_id: str, b_id: str, radius: float
+) -> list[SketchEntity]:
+    """Round the corner between lines ``a_id``/``b_id`` with a tangent arc.
+
+    Returns the whole rewritten entity list: the two lines trimmed in place to
+    their tangent points (ids preserved) plus the tangent arc appended with a
+    fresh deterministic id ``f"{a}.{n}"`` (see
+    :class:`py_kit.schemas.sketch.SketchCornerResult`). v1 is line-line only.
+    """
+    return _corner_edit(entities, a_id, b_id, radius, fillet=True)
+
+
+def chamfer_sketch(
+    entities: list[SketchEntity], a_id: str, b_id: str, distance: float
+) -> list[SketchEntity]:
+    """Bevel the corner between lines ``a_id``/``b_id`` with a straight line.
+
+    Returns the whole rewritten entity list: the two lines trimmed in place to
+    their equal-setback points (ids preserved) plus the chamfer line appended
+    with a fresh deterministic id ``f"{a}.{n}"``. v1 is line-line only.
+    """
+    return _corner_edit(entities, a_id, b_id, distance, fillet=False)
 
 
 # ---------------------------------------------------------------------------

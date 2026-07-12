@@ -144,6 +144,17 @@ evidence in `CHANGELOG.md`. One line per item:
       from the `symmetric` CONSTRAINT (creates geometry, doesn't enforce
       symmetry); v1 does not auto-pair source↔copy. Sketch-UI wiring is BACKLOG
       #4b; the Sketching row holds ❌ until the session-tool cluster's UI lands.
+- ✅ Sketch fillet/chamfer — BACKEND (2026-07-12): stateless server-side
+      geometry ops `POST /api/v1/sketch/{fillet,chamfer}` (gateway-proxied),
+      exact closed-form corner round (tangent arc) / bevel (straight line): both
+      corner lines trimmed in place to their tangent/setback points (ids
+      preserved) and the arc/line bridge appended with a fresh `f"{a}.{n}"` id
+      (seeded from the whole entity set). **v1 line-line corners only**
+      (line-arc/arc-arc deferred → `sketch_unsupported_entity`). Deterministic,
+      legible 422s (`sketch_corner_not_found`, `sketch_corner_too_large`,
+      `sketch_degenerate_result`). Distinct from the SOLID fillet/chamfer.
+      Sketch-UI wiring is BACKLOG #5b; the Sketching row holds ❌ until the
+      session-tool cluster's UI lands.
 - ✅ Revolve + linear/circular pattern — 5 body-affecting features now
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
       held ❌: edge selection is still predicate-only, and sweep/loft/shell/

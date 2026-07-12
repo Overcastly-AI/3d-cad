@@ -1583,6 +1583,67 @@
         "title": "SketchArc",
         "type": "object"
       },
+      "SketchChamferRequest": {
+        "description": "Input for a sketch **chamfer** (bevel a corner with a straight line).\n\nSame corner contract as :class:`SketchFilletRequest` (``a``/``b`` two\ndistinct line curves present in ``entities``). ``distance`` is the equal\nsetback (mm) measured along each leg from the corner; strictly positive and\nfinite. Both lines are trimmed to their setback points and a straight\nchamfer line is added between them. Errors are the same 422 codes as fillet\n(``sketch_corner_not_found``, ``sketch_corner_too_large`` when ``distance``\nexceeds a leg's available length, ``sketch_degenerate_result``,\n``sketch_target_not_found``, ``sketch_unsupported_entity``).",
+        "properties": {
+          "a": {
+            "description": "Id of the first corner line; must be in `entities`.",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Id of the second corner line; must be in `entities`, distinct from `a`.",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "distance": {
+            "description": "Equal setback distance (mm) along each leg from the corner; strictly positive and finite.",
+            "exclusiveMinimum": 0.0,
+            "title": "Distance",
+            "type": "number"
+          },
+          "entities": {
+            "description": "The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line).",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities",
+          "a",
+          "b",
+          "distance"
+        ],
+        "title": "SketchChamferRequest",
+        "type": "object"
+      },
       "SketchCircle": {
         "description": "A full circle.",
         "properties": {
@@ -1620,6 +1681,46 @@
           "radius"
         ],
         "title": "SketchCircle",
+        "type": "object"
+      },
+      "SketchCornerResult": {
+        "description": "Output of a fillet/chamfer: the whole rewritten entity list.\n\nLike :class:`SketchEditResult` (and unlike the additive offset/mirror\nresults), a corner op returns the FULL entity set: order is preserved, the\ntwo corner curves are replaced **in place** by their trimmed selves (ids and\nconstruction flags unchanged, only the corner-side endpoint moved to the\ntangent/setback point), and the bridging entity \u2014 a tangent arc (fillet) or\nstraight line (chamfer) \u2014 is **appended at the end** with a fresh\ndeterministic id ``f\"{a}.{n}\"`` (lowest ``n`` >= 2 not already in use, seeded\nfrom the whole input set) inheriting the first curve's construction flag. A\nfillet arc is emitted CCW-from-start (the minor corner arc), honouring the\n:class:`SketchArc` invariant. Deterministic: identical input yields identical\noutput entities, coordinates included (RESEARCH \u00a79).",
+        "properties": {
+          "entities": {
+            "description": "The sketch entities after the corner op: the two source curves trimmed in place (ids preserved) plus the appended bridge (fresh id `f\"{a}.{n}\"`).",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "title": "SketchCornerResult",
         "type": "object"
       },
       "SketchEditRequest": {
@@ -1737,6 +1838,67 @@
           "params"
         ],
         "title": "SketchFeature",
+        "type": "object"
+      },
+      "SketchFilletRequest": {
+        "description": "Input for a sketch **fillet** (round a corner with a tangent arc).\n\n``entities`` is the whole sketch's entity list (so the new arc gets a fresh\nid that cannot collide, and to mirror the trim/offset contract). ``a`` and\n``b`` name the two curves forming the corner; each MUST be present in\n``entities`` (else ``sketch_target_not_found``), be **distinct**, and \u2014 in\nv1 \u2014 be **lines** (a non-line, or a line-arc/arc-arc pair, is\n``sketch_unsupported_entity``). ``radius`` is the tangent-arc radius (mm),\nstrictly positive and finite.\n\nBoth lines are trimmed to their tangent points (``radius`` from the corner\nalong each leg, scaled by the corner half-angle) and a tangent arc is added.\nErrors are 422s, never 500s: ``sketch_corner_not_found`` (the supports are\nparallel/collinear, or ``a``/``b`` name the same entity \u2014 no isolated\ncorner), ``sketch_corner_too_large`` (the tangent point falls past a leg's\nfar end \u2014 radius too large for the available length),\n``sketch_degenerate_result`` (a zero-length result), plus the target/kind\ncodes above.",
+        "properties": {
+          "a": {
+            "description": "Id of the first corner line; must be in `entities`.",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Id of the second corner line; must be in `entities`, distinct from `a`.",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "entities": {
+            "description": "The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc).",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "radius": {
+            "description": "Fillet (tangent-arc) radius (mm); strictly positive and finite.",
+            "exclusiveMinimum": 0.0,
+            "title": "Radius",
+            "type": "number"
+          }
+        },
+        "required": [
+          "entities",
+          "a",
+          "b",
+          "radius"
+        ],
+        "title": "SketchFilletRequest",
         "type": "object"
       },
       "SketchLine": {
@@ -2737,6 +2899,48 @@
         ]
       }
     },
+    "/api/v1/sketch/chamfer": {
+      "post": {
+        "description": "Bevel a sketch corner between two lines with a straight line (BACKLOG #5).\n\n**Stateless** (CLAUDE.md): the corner between lines ``a`` and ``b`` is\nreplaced by a straight chamfer line across two equal-setback points at\n``distance`` along each leg: both lines are trimmed to those points (ids\npreserved) and the chamfer line is appended with a fresh deterministic id\n``f\"{a}.{n}\"``. Same corner contract, result shape, and determinism as\n``/sketch/fillet``. **v1 is line-line only.**\n\nErrors are the same 422 codes as fillet: ``sketch_target_not_found``,\n``sketch_unsupported_entity``, ``sketch_corner_not_found``,\n``sketch_corner_too_large`` (distance exceeds a leg's available length),\n``sketch_degenerate_result``.",
+        "operationId": "sketch_chamfer_api_v1_sketch_chamfer_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchChamferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SketchCornerResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sketch Chamfer",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
     "/api/v1/sketch/extend": {
       "post": {
         "description": "Extend a sketch curve's picked end to the nearest neighbor it meets.\n\n**Stateless** (CLAUDE.md): the picked end (the endpoint nearer ``pick``)\ngrows along the target's own supporting line/circle to the closest entity\nin that direction. Line and arc targets are supported; a circle or point\nhas no free end (``sketch_unsupported_entity``). Deterministic (RESEARCH\n\u00a79). Errors are 422s: ``sketch_target_not_found``,\n``sketch_unsupported_entity``, ``sketch_extend_no_target`` (nothing to meet\nin the extension direction), ``sketch_degenerate_result``.",
@@ -2774,6 +2978,48 @@
           }
         },
         "summary": "Sketch Extend",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/sketch/fillet": {
+      "post": {
+        "description": "Round a sketch corner between two lines with a tangent arc (BACKLOG #5).\n\n**Stateless** (CLAUDE.md): a one-shot geometry edit, nothing persisted and no\nkernel type crosses the boundary. The corner between lines ``a`` and ``b`` is\nreplaced by a tangent arc of ``radius``: both lines are trimmed to their\ntangent points (ids preserved) and the arc is appended with a fresh\ndeterministic id ``f\"{a}.{n}\"`` (see\n:class:`py_kit.schemas.sketch.SketchCornerResult`). Exact closed-form and\ndeterministic (RESEARCH \u00a79). **v1 is line-line only.**\n\nErrors are 422s with legible codes, never 500s: ``sketch_target_not_found``\n(a target id absent), ``sketch_unsupported_entity`` (a non-line target \u2014 a\nline-arc/arc-arc corner is deferred), ``sketch_corner_not_found`` (the lines\nare parallel/collinear or the same entity \u2014 no isolated corner),\n``sketch_corner_too_large`` (radius exceeds a leg's available length),\n``sketch_degenerate_result`` (a zero-length result).",
+        "operationId": "sketch_fillet_api_v1_sketch_fillet_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchFilletRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SketchCornerResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sketch Fillet",
         "tags": [
           "geometry"
         ]

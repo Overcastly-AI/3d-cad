@@ -69,6 +69,87 @@ fillet, chamfer) are all golden-covered.
 
 ---
 
+## 2026-07-12 — Sketch fillet/chamfer backend (BACKLOG #5): exact analytic corner round/bevel
+
+**Architecture decision.** Corner fillet (round with a tangent arc) and chamfer
+(bevel with a straight line) — the one-click corner-round an engineer expects
+instead of hand-placing a tangent arc and constraining it twice, a named ❌
+Sketching-scorecard cluster item (`docs/COMPETITIVE.md`) — are **server-side
+geometry operations**, not frontend math (RESEARCH §3 + CLAUDE.md service
+boundaries), same family as trim/extend/offset/mirror. Two stateless endpoints
+`POST /api/v1/sketch/{fillet,chamfer}`, gateway-proxied auth-gated at
+`/api/v1/geometry/sketch/{fillet,chamfer}`. Shared pure-pydantic DTOs in
+`py_kit.schemas.sketch`: `SketchFilletRequest` (`entities` + two line ids
+`a`/`b` + `radius`), `SketchChamferRequest` (…+ `distance`), both →
+`SketchCornerResult` (`entities` = the WHOLE rewritten set). `radius`/`distance`
+carry `Field(gt=0, allow_inf_nan=False)`, so a non-positive/NaN/inf size is a
+422 at the DTO boundary, never reaching the kernel. Fillet/chamfer share ONE
+`_corner_edit` core (DRY): only the bridge entity (arc vs. line) and the setback
+derivation differ.
+
+**Rewrite-and-add posture.** Unlike offset/mirror (add-only), a corner op both
+**rewrites** the two source lines (shortened to their tangent/setback points,
+**ids + construction preserved** — only the corner-side endpoint moves) AND
+**adds** the bridge (a fresh deterministic `f"{a}.{n}"` id seeded from the WHOLE
+entity set — the e9e4450 pattern, `test_fillet_fresh_id_seeded_from_full_entity_set`
+pins that a pre-existing `A.2` is skipped so the arc becomes `A.3`), appended at
+the end. The `SketchCornerResult` model_validator re-checks id-uniqueness at the
+boundary (defense in depth).
+
+**v1 scope (honest).** **Line-line corners only** — the tangent-point/bisector
+geometry is fully closed-form. A non-line target, or a line-arc/arc-arc pair,
+is rejected `sketch_unsupported_entity` (message names the deferred kinds;
+`test_fillet_arc_target_unsupported_line_arc_deferred`). Line-arc/arc-arc need a
+tangent-circle construction — deferred, never mis-filleted. Ambiguous
+X-crossings are not pick-disambiguated in v1 (the farther-endpoint rule selects
+the longer legs).
+
+**Kernel choice — exact closed-form, no solver iteration, no acos.** The corner
+`C` is the two lines' infinite-support intersection (`_isect_line_line`; none ⇒
+parallel/collinear ⇒ `sketch_corner_not_found`). For each line the endpoint
+FARTHER from `C` is the kept anchor, `u` = unit(C→anchor); the nearer endpoint
+is moved to the tangent/setback point (an under-length leg extends, an
+over-length leg trims). With `cosθ = u_a·u_b`, `sinθ = |u_a×u_b|` (unit
+vectors): fillet setback `s = r·(1+cosθ)/sinθ` = `r/tan(θ/2)`, centre distance
+`r/√((1-cosθ)/2)` = `r/sin(θ/2)` along the interior bisector — half-angle
+identities, no `acos`. Chamfer setback = `distance`. Collinear legs
+(`sinθ ≈ 0`, a straight line — no real corner, and the same-entity-twice case)
+are `sketch_corner_not_found`; a setback past a leg's far end is
+`sketch_corner_too_large`. `_TOL = 1e-9` mm only classifies; it never rounds a
+returned coordinate.
+
+**Arc CCW ordering (the subtle point, TESTED).** The fillet arc is always the
+minor corner arc (sweep `= π - θ < π`). `_arc_ccw_order` picks the start/end
+ordering whose CCW sweep is `< π`, honouring the CCW-from-start `SketchArc`
+invariant. For the canonical perpendicular corner (below) the arc emits
+`start=(0,2)`, `end=(2,0)`, centre `(2,2)` — a 90° CCW quadrant facing the
+origin (`test_fillet_perpendicular_corner_tangent_points_and_arc` asserts the
+sweep is exactly `π/2`).
+
+**Analytic gate evidence** (`tests/test_sketch_edit.py`, exact endpoints; line
+coords land at 0.0 deviation, arc endpoints ≤1e-13; tol `1e-9` is a ceiling):
+- perpendicular corner, legs `(0,0)→(10,0)` and `(0,0)→(0,10)`:
+  - fillet `r=2` → tangent points `(2,0)`/`(0,2)`, lines trimmed to
+    `(2,0)-(10,0)` / `(0,2)-(0,10)`, arc centre `(2,2)`, start `(0,2)` end
+    `(2,0)`, sweep `90°`.
+  - chamfer `d=3` → setback points `(3,0)`/`(0,3)`, lines trimmed to
+    `(3,0)-(10,0)` / `(0,3)-(0,10)`, chamfer line `(3,0)-(0,3)`.
+
+**Error taxonomy (all 422, never 500; belt-and-braces `sketch_{fillet,
+chamfer}_failed`):** `sketch_target_not_found`, `sketch_unsupported_entity`
+(non-line / line-arc / arc-arc), `sketch_corner_not_found` (parallel/collinear
+or same entity twice), `sketch_corner_too_large` (radius/distance exceeds a
+leg's available length), `sketch_degenerate_result` (zero-length result).
+Determinism: `test_{fillet,chamfer}_is_deterministic` (`model_dump` equality,
+same op twice). 19 geometry tests + 4 gateway proxy tests.
+
+**Adjacent hardening.** The `_mirror_entity` entity dispatch was converted to a
+`match`/`case _: assert_never(entity)` exhaustive form (was incidentally
+type-safe via a fall-through arc branch): a future `SketchEntity` kind is now an
+unconditional pyright error there, forcing an explicit mirror rule.
+
+---
+
 ## 2026-07-12 — Sketch mirror backend (BACKLOG #4): exact analytic reflection, CCW-preserving
 
 **Architecture decision.** Mirror (reflect selected entities about an axis line

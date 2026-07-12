@@ -27,7 +27,9 @@ from geometry.sketch import (
     SketchEntity,
     SketchLine,
     SketchPoint,
+    chamfer_sketch,
     extend_sketch,
+    fillet_sketch,
     mirror_sketch,
     offset_sketch,
     trim_sketch,
@@ -901,3 +903,249 @@ def test_mirror_endpoint_empty_targets_rejected_by_dto() -> None:
     }
     response = client.post("/api/v1/sketch/mirror", json=body)
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Corner fillet / chamfer (BACKLOG #5) — exact analytic, line-line v1
+# ---------------------------------------------------------------------------
+#
+# The perpendicular corner at the origin is the canonical case: two legs
+# `(0,0)→(10,0)` (X axis) and `(0,0)→(0,10)` (Y axis). Fillet r=2 puts tangent
+# points at exactly (2,0)/(0,2) with arc centre (2,2); chamfer d=3 puts setback
+# points at (3,0)/(0,3). Endpoints are rational for lines (0.0 deviation); the
+# arc endpoints carry only trig round-trip noise, well inside EDIT_TOL.
+
+
+def _perp_corner() -> list[SketchEntity]:
+    return [line("A", 0.0, 0.0, 10.0, 0.0), line("B", 0.0, 0.0, 0.0, 10.0)]
+
+
+def _arc_sweep(a: SketchArc) -> float:
+    cx, cy = a.center.x, a.center.y
+    a0 = math.atan2(a.start.y - cy, a.start.x - cx)
+    a1 = math.atan2(a.end.y - cy, a.end.x - cx)
+    return (a1 - a0) % (2.0 * math.pi)
+
+
+def test_fillet_perpendicular_corner_tangent_points_and_arc() -> None:
+    out = fillet_sketch(_perp_corner(), "A", "B", 2.0)
+    # Two sources trimmed in place (ids preserved) + appended arc (fresh id).
+    assert [e.id for e in out] == ["A", "B", "A.2"]
+
+    trimmed_a = by_id(out, "A")
+    trimmed_b = by_id(out, "B")
+    assert isinstance(trimmed_a, SketchLine)
+    assert isinstance(trimmed_b, SketchLine)
+    # Line A: corner-side endpoint (start=(0,0)) moves to tangent point (2,0);
+    # the far anchor (10,0) is untouched.
+    approx_point(trimmed_a.start, 2.0, 0.0)
+    approx_point(trimmed_a.end, 10.0, 0.0)
+    approx_point(trimmed_b.start, 0.0, 2.0)
+    approx_point(trimmed_b.end, 0.0, 10.0)
+
+    arc = by_id(out, "A.2")
+    assert isinstance(arc, SketchArc)
+    approx_point(arc.center, 2.0, 2.0)
+    # CCW-from-start minor arc: start=(0,2), end=(2,0) sweeps the quadrant that
+    # faces the origin (the rounded corner).
+    approx_point(arc.start, 0.0, 2.0)
+    approx_point(arc.end, 2.0, 0.0)
+    assert math.hypot(arc.start.x - 2.0, arc.start.y - 2.0) == pytest.approx(
+        2.0, abs=EDIT_TOL
+    )
+    assert _arc_sweep(arc) == pytest.approx(math.pi / 2, abs=EDIT_TOL)
+
+
+def test_chamfer_perpendicular_corner_setback_points_and_line() -> None:
+    out = chamfer_sketch(_perp_corner(), "A", "B", 3.0)
+    assert [e.id for e in out] == ["A", "B", "A.2"]
+
+    trimmed_a = by_id(out, "A")
+    trimmed_b = by_id(out, "B")
+    assert isinstance(trimmed_a, SketchLine)
+    assert isinstance(trimmed_b, SketchLine)
+    approx_point(trimmed_a.start, 3.0, 0.0)
+    approx_point(trimmed_a.end, 10.0, 0.0)
+    approx_point(trimmed_b.start, 0.0, 3.0)
+    approx_point(trimmed_b.end, 0.0, 10.0)
+
+    chamfer = by_id(out, "A.2")
+    assert isinstance(chamfer, SketchLine)
+    approx_point(chamfer.start, 3.0, 0.0)
+    approx_point(chamfer.end, 0.0, 3.0)
+
+
+def test_fillet_fresh_id_seeded_from_full_entity_set() -> None:
+    # A pre-existing "A.2" must not collide with the minted arc id (e9e4450
+    # pattern: seed _fresh_id from the WHOLE set, not just the target family).
+    entities: list[SketchEntity] = [
+        *_perp_corner(),
+        line("A.2", 20.0, 20.0, 21.0, 21.0),
+    ]
+    out = fillet_sketch(entities, "A", "B", 2.0)
+    ids = [e.id for e in out]
+    assert ids == ["A", "B", "A.2", "A.3"]  # arc gets A.3, skipping taken A.2
+    assert len(ids) == len(set(ids))
+
+
+def test_fillet_parallel_lines_no_corner() -> None:
+    entities: list[SketchEntity] = [
+        line("A", 0.0, 0.0, 10.0, 0.0),
+        line("B", 0.0, 5.0, 10.0, 5.0),
+    ]
+    with pytest.raises(SketchEditError) as ei:
+        fillet_sketch(entities, "A", "B", 2.0)
+    assert _code(ei) == "sketch_corner_not_found"
+
+
+def test_fillet_radius_larger_than_leg() -> None:
+    # Leg B is only 1mm long; a perpendicular r=5 fillet needs setback 5 > 1.
+    entities: list[SketchEntity] = [
+        line("A", 0.0, 0.0, 10.0, 0.0),
+        line("B", 0.0, 0.0, 0.0, 1.0),
+    ]
+    with pytest.raises(SketchEditError) as ei:
+        fillet_sketch(entities, "A", "B", 5.0)
+    assert _code(ei) == "sketch_corner_too_large"
+
+
+def test_chamfer_distance_larger_than_leg() -> None:
+    entities: list[SketchEntity] = [
+        line("A", 0.0, 0.0, 10.0, 0.0),
+        line("B", 0.0, 0.0, 0.0, 2.0),
+    ]
+    with pytest.raises(SketchEditError) as ei:
+        chamfer_sketch(entities, "A", "B", 5.0)
+    assert _code(ei) == "sketch_corner_too_large"
+
+
+def test_fillet_arc_target_unsupported_line_arc_deferred() -> None:
+    entities: list[SketchEntity] = [
+        line("A", 0.0, 0.0, 10.0, 0.0),
+        arc("R", 0.0, 0.0, 0.0, 5.0, 5.0, 0.0),
+    ]
+    with pytest.raises(SketchEditError) as ei:
+        fillet_sketch(entities, "A", "R", 2.0)
+    assert _code(ei) == "sketch_unsupported_entity"
+
+
+def test_fillet_same_entity_twice_no_corner() -> None:
+    with pytest.raises(SketchEditError) as ei:
+        fillet_sketch(_perp_corner(), "A", "A", 2.0)
+    assert _code(ei) == "sketch_corner_not_found"
+
+
+def test_fillet_target_not_found() -> None:
+    with pytest.raises(SketchEditError) as ei:
+        fillet_sketch(_perp_corner(), "A", "ghost", 2.0)
+    assert _code(ei) == "sketch_target_not_found"
+
+
+def test_fillet_is_deterministic() -> None:
+    first = fillet_sketch(_perp_corner(), "A", "B", 2.0)
+    second = fillet_sketch(_perp_corner(), "A", "B", 2.0)
+    assert [e.model_dump() for e in first] == [e.model_dump() for e in second]
+
+
+def test_chamfer_is_deterministic() -> None:
+    first = chamfer_sketch(_perp_corner(), "A", "B", 3.0)
+    second = chamfer_sketch(_perp_corner(), "A", "B", 3.0)
+    assert [e.model_dump() for e in first] == [e.model_dump() for e in second]
+
+
+_FILLET_BODY: dict[str, Any] = {
+    "entities": [
+        {
+            "id": "A",
+            "kind": "line",
+            "start": {"x": 0.0, "y": 0.0},
+            "end": {"x": 10.0, "y": 0.0},
+        },
+        {
+            "id": "B",
+            "kind": "line",
+            "start": {"x": 0.0, "y": 0.0},
+            "end": {"x": 0.0, "y": 10.0},
+        },
+    ],
+    "a": "A",
+    "b": "B",
+    "radius": 2.0,
+}
+
+
+def test_fillet_endpoint_returns_rewritten_entities() -> None:
+    response = client.post("/api/v1/sketch/fillet", json=_FILLET_BODY)
+    assert response.status_code == 200, response.text
+    entities = response.json()["entities"]
+    assert [e["id"] for e in entities] == ["A", "B", "A.2"]
+    arc = entities[2]
+    assert arc["kind"] == "arc"
+    assert arc["center"]["x"] == pytest.approx(2.0, abs=EDIT_TOL)
+    assert arc["center"]["y"] == pytest.approx(2.0, abs=EDIT_TOL)
+
+
+def test_chamfer_endpoint_returns_rewritten_entities() -> None:
+    body = {k: v for k, v in _FILLET_BODY.items() if k != "radius"}
+    body["distance"] = 3.0
+    response = client.post("/api/v1/sketch/chamfer", json=body)
+    assert response.status_code == 200, response.text
+    entities = response.json()["entities"]
+    assert [e["id"] for e in entities] == ["A", "B", "A.2"]
+    assert entities[2]["kind"] == "line"
+
+
+def test_fillet_endpoint_corner_not_found_is_422() -> None:
+    body = {
+        "entities": [
+            {
+                "id": "A",
+                "kind": "line",
+                "start": {"x": 0.0, "y": 0.0},
+                "end": {"x": 10.0, "y": 0.0},
+            },
+            {
+                "id": "B",
+                "kind": "line",
+                "start": {"x": 0.0, "y": 5.0},
+                "end": {"x": 10.0, "y": 5.0},
+            },
+        ],
+        "a": "A",
+        "b": "B",
+        "radius": 2.0,
+    }
+    response = client.post("/api/v1/sketch/fillet", json=body)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "sketch_corner_not_found"
+
+
+def test_fillet_endpoint_nonpositive_radius_rejected_by_dto() -> None:
+    body = {**_FILLET_BODY, "radius": 0.0}
+    response = client.post("/api/v1/sketch/fillet", json=body)
+    assert response.status_code == 422
+
+
+def test_chamfer_endpoint_too_large_is_422() -> None:
+    body = {
+        "entities": [
+            {
+                "id": "A",
+                "kind": "line",
+                "start": {"x": 0.0, "y": 0.0},
+                "end": {"x": 10.0, "y": 0.0},
+            },
+            {
+                "id": "B",
+                "kind": "line",
+                "start": {"x": 0.0, "y": 0.0},
+                "end": {"x": 0.0, "y": 2.0},
+            },
+        ],
+        "a": "A",
+        "b": "B",
+        "distance": 5.0,
+    }
+    response = client.post("/api/v1/sketch/chamfer", json=body)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "sketch_corner_too_large"

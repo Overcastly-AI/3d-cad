@@ -32,9 +32,12 @@ from py_kit.schemas.measure import MeasureRequest, MeasureResult
 from py_kit.schemas.overlay import OverlayRequest, OverlayResult
 from py_kit.schemas.sketch import (
     Point2D,
+    SketchChamferRequest,
+    SketchCornerResult,
     SketchEditRequest,
     SketchEditResult,
     SketchEntity,
+    SketchFilletRequest,
     SketchMirrorRequest,
     SketchMirrorResult,
     SketchOffsetRequest,
@@ -50,7 +53,9 @@ from geometry.overlay import evaluate_overlay
 from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
 from geometry.sketch import (
     SketchEditError,
+    chamfer_sketch,
     extend_sketch,
+    fillet_sketch,
     mirror_sketch,
     offset_sketch,
     trim_sketch,
@@ -315,6 +320,65 @@ def sketch_mirror(request: SketchMirrorRequest) -> SketchMirrorResult:
             exc, code="sketch_mirror_failed", action="sketch mirror"
         ) from exc
     return SketchMirrorResult(entities=entities)
+
+
+@router.post("/sketch/fillet")
+def sketch_fillet(request: SketchFilletRequest) -> SketchCornerResult:
+    """Round a sketch corner between two lines with a tangent arc (BACKLOG #5).
+
+    **Stateless** (CLAUDE.md): a one-shot geometry edit, nothing persisted and no
+    kernel type crosses the boundary. The corner between lines ``a`` and ``b`` is
+    replaced by a tangent arc of ``radius``: both lines are trimmed to their
+    tangent points (ids preserved) and the arc is appended with a fresh
+    deterministic id ``f"{a}.{n}"`` (see
+    :class:`py_kit.schemas.sketch.SketchCornerResult`). Exact closed-form and
+    deterministic (RESEARCH §9). **v1 is line-line only.**
+
+    Errors are 422s with legible codes, never 500s: ``sketch_target_not_found``
+    (a target id absent), ``sketch_unsupported_entity`` (a non-line target — a
+    line-arc/arc-arc corner is deferred), ``sketch_corner_not_found`` (the lines
+    are parallel/collinear or the same entity — no isolated corner),
+    ``sketch_corner_too_large`` (radius exceeds a leg's available length),
+    ``sketch_degenerate_result`` (a zero-length result).
+    """
+    try:
+        entities = fillet_sketch(request.entities, request.a, request.b, request.radius)
+    except SketchEditError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
+    except Exception as exc:  # belt and braces — an edit is never a 500
+        raise unexpected_query_failure(
+            exc, code="sketch_fillet_failed", action="sketch fillet"
+        ) from exc
+    return SketchCornerResult(entities=entities)
+
+
+@router.post("/sketch/chamfer")
+def sketch_chamfer(request: SketchChamferRequest) -> SketchCornerResult:
+    """Bevel a sketch corner between two lines with a straight line (BACKLOG #5).
+
+    **Stateless** (CLAUDE.md): the corner between lines ``a`` and ``b`` is
+    replaced by a straight chamfer line across two equal-setback points at
+    ``distance`` along each leg: both lines are trimmed to those points (ids
+    preserved) and the chamfer line is appended with a fresh deterministic id
+    ``f"{a}.{n}"``. Same corner contract, result shape, and determinism as
+    ``/sketch/fillet``. **v1 is line-line only.**
+
+    Errors are the same 422 codes as fillet: ``sketch_target_not_found``,
+    ``sketch_unsupported_entity``, ``sketch_corner_not_found``,
+    ``sketch_corner_too_large`` (distance exceeds a leg's available length),
+    ``sketch_degenerate_result``.
+    """
+    try:
+        entities = chamfer_sketch(
+            request.entities, request.a, request.b, request.distance
+        )
+    except SketchEditError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
+    except Exception as exc:  # belt and braces — an edit is never a 500
+        raise unexpected_query_failure(
+            exc, code="sketch_chamfer_failed", action="sketch chamfer"
+        ) from exc
+    return SketchCornerResult(entities=entities)
 
 
 @router.post("/export/tree", response_class=Response, responses=_EXPORT_RESPONSES)

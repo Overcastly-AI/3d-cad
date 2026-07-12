@@ -23,8 +23,11 @@ from py_kit.db import async_dsn
 from py_kit.schemas.parts import PRINCIPAL_HEADER
 from py_kit.schemas.sketch import (
     Point2D,
+    SketchChamferRequest,
+    SketchCornerResult,
     SketchEditRequest,
     SketchEditResult,
+    SketchFilletRequest,
     SketchLine,
     SketchMirrorRequest,
     SketchMirrorResult,
@@ -113,6 +116,41 @@ MIRROR_RESULT = SketchMirrorResult(
             kind="line",
             start=Point2D(x=-2.0, y=1.0),
             end=Point2D(x=-6.0, y=3.0),
+        ),
+    ]
+)
+
+
+FILLET_BODY: dict[str, Any] = {
+    "entities": [
+        {
+            "id": "A",
+            "kind": "line",
+            "start": {"x": 0.0, "y": 0.0},
+            "end": {"x": 10.0, "y": 0.0},
+        },
+        {
+            "id": "B",
+            "kind": "line",
+            "start": {"x": 0.0, "y": 0.0},
+            "end": {"x": 0.0, "y": 10.0},
+        },
+    ],
+    "a": "A",
+    "b": "B",
+    "radius": 2.0,
+}
+
+CHAMFER_BODY: dict[str, Any] = {**FILLET_BODY, "distance": 3.0}
+del CHAMFER_BODY["radius"]
+
+CORNER_RESULT = SketchCornerResult(
+    entities=[
+        SketchLine(
+            id="A", kind="line", start=Point2D(x=2.0, y=0.0), end=Point2D(x=10.0, y=0.0)
+        ),
+        SketchLine(
+            id="B", kind="line", start=Point2D(x=0.0, y=2.0), end=Point2D(x=0.0, y=10.0)
         ),
     ]
 )
@@ -276,6 +314,84 @@ def test_offset_requires_auth(db_url: str) -> None:
 
     with make_client(db_url, handler) as client:
         response = client.post("/api/v1/geometry/sketch/offset", json=OFFSET_BODY)
+
+    assert response.status_code == 401
+    assert seen == []
+
+
+def test_fillet_proxies_typed_result(db_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=CORNER_RESULT.model_dump_json())
+
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/sketch/fillet", json=FILLET_BODY, headers=bearer
+        )
+
+    assert response.status_code == 200
+    assert SketchCornerResult.model_validate(response.json()) == CORNER_RESULT
+
+    [upstream] = seen
+    assert upstream.url.path == "/api/v1/sketch/fillet"
+    assert SketchFilletRequest.model_validate_json(
+        upstream.content
+    ) == SketchFilletRequest.model_validate(FILLET_BODY)
+    assert PRINCIPAL_HEADER not in upstream.headers
+    assert "authorization" not in upstream.headers
+
+
+def test_chamfer_proxies_typed_result(db_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=CORNER_RESULT.model_dump_json())
+
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/sketch/chamfer", json=CHAMFER_BODY, headers=bearer
+        )
+
+    assert response.status_code == 200
+    assert SketchCornerResult.model_validate(response.json()) == CORNER_RESULT
+
+    [upstream] = seen
+    assert upstream.url.path == "/api/v1/sketch/chamfer"
+    assert SketchChamferRequest.model_validate_json(
+        upstream.content
+    ) == SketchChamferRequest.model_validate(CHAMFER_BODY)
+    assert PRINCIPAL_HEADER not in upstream.headers
+    assert "authorization" not in upstream.headers
+
+
+def test_fillet_requires_auth(db_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=CORNER_RESULT.model_dump_json())
+
+    with make_client(db_url, handler) as client:
+        response = client.post("/api/v1/geometry/sketch/fillet", json=FILLET_BODY)
+
+    assert response.status_code == 401
+    assert seen == []
+
+
+def test_chamfer_requires_auth(db_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=CORNER_RESULT.model_dump_json())
+
+    with make_client(db_url, handler) as client:
+        response = client.post("/api/v1/geometry/sketch/chamfer", json=CHAMFER_BODY)
 
     assert response.status_code == 401
     assert seen == []

@@ -165,18 +165,36 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       a centerline, confirm the resulting closed profile extrudes to double the
       source volume (symmetric part); screenshots; `frontend-design` skill
       invoked. [src: product-auditor, competitive, roadmap]
-- [ ] (P1, S) Sketch: fillet/chamfer (corner round) — select two sketch
-      lines sharing an endpoint + a radius/distance; replace the corner
-      with a tangent arc (fillet) or bevel line (chamfer), trimming both
-      lines to the new tangent/bevel points. Reuses trim's segment-
-      shortening math (sequence after or alongside the trim/extend item
-      above). Name-collision note: distinct from the SOLID fillet/chamfer
-      (Ready #1) — give it a visually distinct icon/label. Depends on:
-      nothing new (may share code with trim/extend — coordinate).
-      Acceptance: new sketch-corner operation; keyboard verb; worked e2e —
-      round a rectangle's corner, confirm the profile still closes and
-      extrudes to the expected (reduced) volume; screenshots; `frontend-
-      design` skill invoked. [src: product-auditor, competitive, roadmap]
+- [x] (P1, S) Sketch: fillet/chamfer (corner round) — BACKEND shipped
+      2026-07-12. Server-side geometry ops (RESEARCH §3: the tangent-point/
+      bisector math is kernel-owned, never reimplemented in the frontend).
+      Stateless endpoints `POST /api/v1/sketch/fillet` + `/sketch/chamfer`
+      (gateway-proxied auth-gated at `/api/v1/geometry/sketch/{fillet,chamfer}`),
+      shared pure-pydantic DTOs `SketchFilletRequest`/`SketchChamferRequest` +
+      `SketchCornerResult` in `py_kit.schemas.sketch`. Exact closed-form analytic
+      (`geometry.sketch.edit.{fillet,chamfer}_sketch`): both source lines trimmed
+      in place to their tangent/setback points (ids preserved) + tangent arc
+      (fillet) / bevel line (chamfer) appended with a fresh `f"{a}.{n}"` id
+      (seeded from the WHOLE entity set). **v1 scope: line-line corners only**
+      (line-arc/arc-arc deferred → `sketch_unsupported_entity`). Deterministic
+      (RESEARCH §9). Legible 422s (`sketch_corner_not_found`,
+      `sketch_corner_too_large`, `sketch_degenerate_result`,
+      `sketch_target_not_found`, `sketch_unsupported_entity`; belt-and-braces
+      `sketch_{fillet,chamfer}_failed`). Distinct from the SOLID fillet/chamfer
+      (Ready #1). +19 geometry tests (exact tangent/setback points, error paths,
+      determinism, fresh-id-from-full-set) + 4 gateway proxy tests; contracts +
+      ts-client regenerated. GEOMETRY-QA dated entry. #5b (UI) queued.
+      [src: product-auditor, competitive, roadmap]
+- [ ] (P1, S) #5b Sketch: fillet/chamfer UI — wire the shipped corner backend
+      into the sketch strip: pick two lines + a radius/distance, call the gateway
+      `/geometry/sketch/{fillet,chamfer}` proxy with `{entities, a, b, radius|
+      distance}`, splice the returned entity set back into the sketch, and
+      re-solve. Reuse the trim/offset selection-presence pattern; visually
+      distinct icon/label from the SOLID fillet/chamfer (Ready #1). Depends on:
+      #5 backend (done). Acceptance: worked e2e — round a rectangle's corner,
+      confirm the profile still closes and extrudes to the expected (reduced)
+      volume; keyboard verb; screenshots; `frontend-design` skill invoked.
+      [src: product-auditor, competitive, roadmap]
 - [ ] (P1, M) Sketch: splines (Fit-Point v1) — a free-form curve through
       placed points. Closes the last "flatly impossible" Sketching gap (no
       organic/free-form profiles at all today). Control-Point/NURBS variant
@@ -439,6 +457,12 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — **Sketch fillet/chamfer (#5) BACKEND shipped.** `POST /api/v1/
+  sketch/{fillet,chamfer}` (gateway-proxied): exact closed-form corner round/
+  bevel — both lines trimmed to their tangent/setback points, arc/line bridge
+  appended (fresh `f"{a}.{n}"` id). v1 line-line only (line-arc/arc-arc
+  deferred). Also hardened `_mirror_entity` dispatch with `assert_never`. #5b
+  (UI) queued. [kernel-architect]
 - 2026-07-12 — **Sketch mirror (#4) BACKEND shipped.** `POST /api/v1/sketch/
   mirror` (gateway-proxied): exact analytic reflection of point/line/circle/arc
   about a line-entity-id OR two-point axis; arc CCW-swap preserves the invariant.

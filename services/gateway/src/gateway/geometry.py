@@ -26,8 +26,11 @@ from py_kit.schemas.geometry import (
 from py_kit.schemas.measure import MeasureRequest, MeasureResult
 from py_kit.schemas.overlay import OverlayRequest, OverlayResult
 from py_kit.schemas.sketch import (
+    SketchChamferRequest,
+    SketchCornerResult,
     SketchEditRequest,
     SketchEditResult,
+    SketchFilletRequest,
     SketchMirrorRequest,
     SketchMirrorResult,
     SketchOffsetRequest,
@@ -304,3 +307,43 @@ async def sketch_mirror(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchMirrorResult.model_validate_json(upstream.content)
+
+
+@router.post("/sketch/fillet")
+async def sketch_fillet(
+    request: SketchFilletRequest, user: CurrentUser, http_request: Request
+) -> SketchCornerResult:
+    """Proxy a stateless sketch corner fillet to the geometry service.
+
+    Auth-protected and identity-free upstream (same posture as ``sketch/trim``).
+    The shared ``SketchFilletRequest`` DTO validates at the gateway (a duplicate
+    entity id, or a non-positive/non-finite radius, is a 422 here and never
+    reaches geometry); upstream envelopes (``sketch_target_not_found``,
+    ``sketch_unsupported_entity``, ``sketch_corner_not_found``,
+    ``sketch_corner_too_large``, ``sketch_degenerate_result``) are re-surfaced
+    verbatim.
+    """
+    upstream = await _forward(http_request, "/api/v1/sketch/fillet", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return SketchCornerResult.model_validate_json(upstream.content)
+
+
+@router.post("/sketch/chamfer")
+async def sketch_chamfer(
+    request: SketchChamferRequest, user: CurrentUser, http_request: Request
+) -> SketchCornerResult:
+    """Proxy a stateless sketch corner chamfer to the geometry service.
+
+    Auth-protected and identity-free upstream (same posture as ``sketch/trim``).
+    The shared ``SketchChamferRequest`` DTO validates at the gateway (a duplicate
+    entity id, or a non-positive/non-finite distance, is a 422 here and never
+    reaches geometry); upstream envelopes (``sketch_target_not_found``,
+    ``sketch_unsupported_entity``, ``sketch_corner_not_found``,
+    ``sketch_corner_too_large``, ``sketch_degenerate_result``) are re-surfaced
+    verbatim.
+    """
+    upstream = await _forward(http_request, "/api/v1/sketch/chamfer", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return SketchCornerResult.model_validate_json(upstream.content)

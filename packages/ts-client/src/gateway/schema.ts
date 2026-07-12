@@ -162,6 +162,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/geometry/sketch/chamfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sketch Chamfer
+         * @description Proxy a stateless sketch corner chamfer to the geometry service.
+         *
+         *     Auth-protected and identity-free upstream (same posture as ``sketch/trim``).
+         *     The shared ``SketchChamferRequest`` DTO validates at the gateway (a duplicate
+         *     entity id, or a non-positive/non-finite distance, is a 422 here and never
+         *     reaches geometry); upstream envelopes (``sketch_target_not_found``,
+         *     ``sketch_unsupported_entity``, ``sketch_corner_not_found``,
+         *     ``sketch_corner_too_large``, ``sketch_degenerate_result``) are re-surfaced
+         *     verbatim.
+         */
+        post: operations["sketch_chamfer_api_v1_geometry_sketch_chamfer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/sketch/extend": {
         parameters: {
             query?: never;
@@ -181,6 +209,34 @@ export interface paths {
          *     verbatim.
          */
         post: operations["sketch_extend_api_v1_geometry_sketch_extend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/geometry/sketch/fillet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sketch Fillet
+         * @description Proxy a stateless sketch corner fillet to the geometry service.
+         *
+         *     Auth-protected and identity-free upstream (same posture as ``sketch/trim``).
+         *     The shared ``SketchFilletRequest`` DTO validates at the gateway (a duplicate
+         *     entity id, or a non-positive/non-finite radius, is a 422 here and never
+         *     reaches geometry); upstream envelopes (``sketch_target_not_found``,
+         *     ``sketch_unsupported_entity``, ``sketch_corner_not_found``,
+         *     ``sketch_corner_too_large``, ``sketch_degenerate_result``) are re-surfaced
+         *     verbatim.
+         */
+        post: operations["sketch_fillet_api_v1_geometry_sketch_fillet_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1807,6 +1863,41 @@ export interface components {
             start: components["schemas"]["Point2D"];
         };
         /**
+         * SketchChamferRequest
+         * @description Input for a sketch **chamfer** (bevel a corner with a straight line).
+         *
+         *     Same corner contract as :class:`SketchFilletRequest` (``a``/``b`` two
+         *     distinct line curves present in ``entities``). ``distance`` is the equal
+         *     setback (mm) measured along each leg from the corner; strictly positive and
+         *     finite. Both lines are trimmed to their setback points and a straight
+         *     chamfer line is added between them. Errors are the same 422 codes as fillet
+         *     (``sketch_corner_not_found``, ``sketch_corner_too_large`` when ``distance``
+         *     exceeds a leg's available length, ``sketch_degenerate_result``,
+         *     ``sketch_target_not_found``, ``sketch_unsupported_entity``).
+         */
+        SketchChamferRequest: {
+            /**
+             * A
+             * @description Id of the first corner line; must be in `entities`.
+             */
+            a: string;
+            /**
+             * B
+             * @description Id of the second corner line; must be in `entities`, distinct from `a`.
+             */
+            b: string;
+            /**
+             * Distance
+             * @description Equal setback distance (mm) along each leg from the corner; strictly positive and finite.
+             */
+            distance: number;
+            /**
+             * Entities
+             * @description The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line).
+             */
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+        };
+        /**
          * SketchCircle
          * @description A full circle.
          */
@@ -1833,6 +1924,29 @@ export interface components {
              * @description Radius (mm)
              */
             radius: number;
+        };
+        /**
+         * SketchCornerResult
+         * @description Output of a fillet/chamfer: the whole rewritten entity list.
+         *
+         *     Like :class:`SketchEditResult` (and unlike the additive offset/mirror
+         *     results), a corner op returns the FULL entity set: order is preserved, the
+         *     two corner curves are replaced **in place** by their trimmed selves (ids and
+         *     construction flags unchanged, only the corner-side endpoint moved to the
+         *     tangent/setback point), and the bridging entity — a tangent arc (fillet) or
+         *     straight line (chamfer) — is **appended at the end** with a fresh
+         *     deterministic id ``f"{a}.{n}"`` (lowest ``n`` >= 2 not already in use, seeded
+         *     from the whole input set) inheriting the first curve's construction flag. A
+         *     fillet arc is emitted CCW-from-start (the minor corner arc), honouring the
+         *     :class:`SketchArc` invariant. Deterministic: identical input yields identical
+         *     output entities, coordinates included (RESEARCH §9).
+         */
+        SketchCornerResult: {
+            /**
+             * Entities
+             * @description The sketch entities after the corner op: the two source curves trimmed in place (ids preserved) plus the appended bridge (fresh id `f"{a}.{n}"`).
+             */
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
         };
         /**
          * SketchEditRequest
@@ -1910,6 +2024,49 @@ export interface components {
              * @constant
              */
             version: 1;
+        };
+        /**
+         * SketchFilletRequest
+         * @description Input for a sketch **fillet** (round a corner with a tangent arc).
+         *
+         *     ``entities`` is the whole sketch's entity list (so the new arc gets a fresh
+         *     id that cannot collide, and to mirror the trim/offset contract). ``a`` and
+         *     ``b`` name the two curves forming the corner; each MUST be present in
+         *     ``entities`` (else ``sketch_target_not_found``), be **distinct**, and — in
+         *     v1 — be **lines** (a non-line, or a line-arc/arc-arc pair, is
+         *     ``sketch_unsupported_entity``). ``radius`` is the tangent-arc radius (mm),
+         *     strictly positive and finite.
+         *
+         *     Both lines are trimmed to their tangent points (``radius`` from the corner
+         *     along each leg, scaled by the corner half-angle) and a tangent arc is added.
+         *     Errors are 422s, never 500s: ``sketch_corner_not_found`` (the supports are
+         *     parallel/collinear, or ``a``/``b`` name the same entity — no isolated
+         *     corner), ``sketch_corner_too_large`` (the tangent point falls past a leg's
+         *     far end — radius too large for the available length),
+         *     ``sketch_degenerate_result`` (a zero-length result), plus the target/kind
+         *     codes above.
+         */
+        SketchFilletRequest: {
+            /**
+             * A
+             * @description Id of the first corner line; must be in `entities`.
+             */
+            a: string;
+            /**
+             * B
+             * @description Id of the second corner line; must be in `entities`, distinct from `a`.
+             */
+            b: string;
+            /**
+             * Entities
+             * @description The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc).
+             */
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            /**
+             * Radius
+             * @description Fillet (tangent-arc) radius (mm); strictly positive and finite.
+             */
+            radius: number;
         };
         /**
          * SketchLine
@@ -2507,6 +2664,39 @@ export interface operations {
             };
         };
     };
+    sketch_chamfer_api_v1_geometry_sketch_chamfer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SketchChamferRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SketchCornerResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     sketch_extend_api_v1_geometry_sketch_extend_post: {
         parameters: {
             query?: never;
@@ -2527,6 +2717,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SketchEditResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sketch_fillet_api_v1_geometry_sketch_fillet_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SketchFilletRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SketchCornerResult"];
                 };
             };
             /** @description Validation Error */
