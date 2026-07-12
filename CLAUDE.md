@@ -249,3 +249,14 @@ recipe here in the same commit as the fix.**
   picks up `/usr/bin/python3.12` automatically. PyPI + npm registries are
   direct (proxy no-proxy list), so `uv sync` / `pnpm install` just work.
 - `just` is not preinstalled: `uv tool install rust-just` → `~/.local/bin/just`.
+- **Stale dev uvicorns poison `just e2e`.** Long-lived service uvicorns (from a
+  prior `just dev` or an agent that booted the stack) run **without**
+  `--reload`, so after any backend commit their served OpenAPI/routes go stale.
+  `just e2e` (and `just smoke`) **reuse healthy listeners** on :8000/:8001/:8002
+  rather than rebooting, so a batch-end e2e will 404 on newly-added routes and
+  fail specs that are actually green against HEAD. Before a batch-end `just
+  e2e`, kill lingering `*.main:app` uvicorns:
+  `ps -eo pid,args | grep -E '(gateway|geometry|documents)\.main:app' | grep -v grep`
+  then `kill` those pids (parents + children) so the suite reboots from current
+  code. Agents that need a stack mid-run should boot **isolated** ports (e.g.
+  :8010/:8012) and tear them down, leaving the shared stack untouched.
