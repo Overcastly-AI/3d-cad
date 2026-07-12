@@ -59,19 +59,34 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       cube→fillet(all,r5) and →chamfer(all): feature lands, body re-renders
       with less volume; +16 unit tests; screenshots (desktop + 1280×800).
       `frontend-design` skill invoked. [src: roadmap]
-- [ ] (P1, M) Sketch: trim/extend — trim cuts a curve at its nearest
-      intersection with another sketch curve; extend lengthens a curve to
-      meet neighboring geometry. The Sketching row's #1 named blocker
-      ("draw rough, then clean up" is the incumbents' default workflow —
-      today every vertex must be placed exactly). Depends on: nothing new.
-      Acceptance: new sketch-editing operation(s) (splits/shortens/
-      lengthens curve entities, re-numbers dependent constraints — not a
-      solver constraint kind); new keyboard verb(s), selection-presence
-      pattern (avoid the 13 already-assigned letters: H V D R X C P L T E S
-      O N); worked e2e — trim two overlapping lines at their intersection
-      and confirm the resulting wire still closes and extrudes; extend a
-      short line to meet its neighbor and confirm the closed-loop check now
-      passes; screenshots; `frontend-design` skill invoked. [src:
+- [x] (P1, M) Sketch: trim/extend — BACKEND shipped 2026-07-12. Server-side
+      geometry ops (RESEARCH §3: 2D curve trimming is kernel-owned, never
+      reimplemented in the frontend). Stateless geometry endpoints
+      `POST /api/v1/sketch/trim` + `/sketch/extend` (gateway-proxied auth-gated
+      at `/api/v1/geometry/sketch/{trim,extend}`), shared pure-pydantic DTOs
+      `SketchEditRequest`/`SketchEditResult` in `py_kit.schemas.sketch`.
+      Exact analytic geometry for line/arc/circle (`geometry.sketch.edit`);
+      trim = Onshape "cut at intersection" (delete picked segment up to
+      bounding intersections; no intersection ⇒ delete whole; split emits a
+      fresh `f"{target}.{n}"` id), extend = grow picked end to nearest
+      neighbor. Deterministic (RESEARCH §9). Error paths are legible 422s
+      (`sketch_target_not_found`, `sketch_unsupported_entity`,
+      `sketch_pick_not_on_target`, `sketch_extend_no_target`,
+      `sketch_degenerate_result`). v1 defers spline entities (not yet a
+      kind) and circle/point extend (no free end). Tests: analytic unit +
+      endpoint gates + gateway proxy + determinism. Contracts/ts-client
+      regenerated. GEOMETRY-QA entry 2026-07-12.
+- [ ] (P1, M) #2b Sketch: trim/extend UI — wire the shipped trim/extend
+      backend into the sketch editor: new keyboard verb(s) + selection-
+      presence pattern (avoid the 13 already-assigned letters: H V D R X C P
+      L T E S O N), call the gateway `/geometry/sketch/{trim,extend}` proxies
+      with the entity set + target + pick point, apply the returned entity
+      list (re-map any constraints that referenced a split/removed id — the
+      geometry op is constraint-free by design). Depends on: #2 backend
+      (done). Acceptance: worked e2e — trim two overlapping lines at their
+      intersection and confirm the resulting wire still closes and extrudes;
+      extend a short line to meet its neighbor and confirm the closed-loop
+      check now passes; screenshots; `frontend-design` skill invoked. [src:
       product-auditor, competitive, roadmap]
 - [ ] (P1, S) Sketch: offset — parallel copy of a selected curve/chain at a
       signed distance (ribs, webs, wall profiles — used constantly).

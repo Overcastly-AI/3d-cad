@@ -1999,6 +1999,98 @@
         "title": "SketchCircle",
         "type": "object"
       },
+      "SketchEditRequest": {
+        "description": "Input for a sketch trim or extend edit (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list (same shapes the solver\nconsumes \u2014 a construction entity is trimmed/extended like any other).\n``target`` names the entity being edited; it MUST be present in\n``entities`` (else a 422 ``sketch_target_not_found``). ``pick`` is the\n2D sketch-plane point the user clicked:\n\n* **trim** \u2014 ``pick`` selects WHICH segment of ``target`` to delete: the\n  target curve is cut at its nearest intersection(s) with the other\n  entities on each side of the pick, and the segment containing the pick\n  is removed (standard Onshape/Fusion \"cut at intersection\" gesture). With\n  no intersection bounding a side, that side runs to the curve's end; with\n  no intersection at all, the whole target is deleted. The pick must\n  project onto the target's drawn extent (else 422\n  ``sketch_pick_not_on_target``).\n* **extend** \u2014 ``pick`` selects WHICH END of ``target`` to lengthen (the\n  nearer endpoint): the curve grows along its own supporting line/circle\n  from that end to the nearest neighboring entity it meets in that\n  direction (else 422 ``sketch_extend_no_target``).\n\nUnits are millimetres (:mod:`py_kit.schemas.sketch` convention).",
+        "properties": {
+          "entities": {
+            "description": "The whole sketch's entities (the edit rewrites this set).",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "pick": {
+            "$ref": "#/components/schemas/Point2D",
+            "description": "Sketch-plane pick point (mm): the segment to delete (trim) or the end to lengthen (extend, nearest endpoint wins)."
+          },
+          "target": {
+            "description": "Id of the entity to trim/extend; must be in `entities`.",
+            "minLength": 1,
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entities",
+          "target",
+          "pick"
+        ],
+        "title": "SketchEditRequest",
+        "type": "object"
+      },
+      "SketchEditResult": {
+        "description": "Output of a trim/extend edit: the rewritten entity list.\n\nOrder is preserved: unedited entities keep their position and id; the\ntarget is replaced **in place** by its resulting piece(s). Trim may leave\nthe target shortened (one piece, id unchanged), split it into two (the\npiece from the target's start keeps the id; the second piece gets a fresh\ndeterministic id ``f\"{target}.{n}\"``, the lowest ``n`` >= 2 not already in\nuse), convert a trimmed circle into a single arc (id unchanged), or delete\nit entirely (target absent from the result). Extend returns the target\nlengthened (id unchanged). Deterministic: identical input yields identical\noutput entities, coordinates included (RESEARCH \u00a79).",
+        "properties": {
+          "entities": {
+            "description": "The sketch entities after the edit (see class docstring for how the target is rewritten and how split ids are assigned).",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "title": "SketchEditResult",
+        "type": "object"
+      },
       "SketchFeature": {
         "description": "``{\"type\": \"sketch\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -2875,6 +2967,100 @@
           }
         ],
         "summary": "Overlay",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/geometry/sketch/extend": {
+      "post": {
+        "description": "Proxy a stateless sketch extend to the geometry service.\n\nAuth-protected and identity-free upstream (same posture as ``sketch/trim``).\nUpstream envelopes (``sketch_extend_no_target``, ``sketch_unsupported_entity``,\n``sketch_target_not_found``, ``sketch_degenerate_result``) are re-surfaced\nverbatim.",
+        "operationId": "sketch_extend_api_v1_geometry_sketch_extend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchEditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SketchEditResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sketch Extend",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/geometry/sketch/trim": {
+      "post": {
+        "description": "Proxy a stateless sketch trim to the geometry service.\n\nAuth-protected (the edit rewrites a signed-in user's sketch); the geometry\nhop stays identity-free, so the principal never travels upstream (same\nposture as measure/overlay, RESEARCH \u00a73). The shared ``SketchEditRequest``\nDTO validates at the gateway (a duplicate entity id is a 422 here and never\nreaches geometry); upstream envelopes (``sketch_target_not_found``,\n``sketch_pick_not_on_target``, ``sketch_unsupported_entity``, \u2026) are\nre-surfaced verbatim.",
+        "operationId": "sketch_trim_api_v1_geometry_sketch_trim_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchEditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SketchEditResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sketch Trim",
         "tags": [
           "geometry"
         ]

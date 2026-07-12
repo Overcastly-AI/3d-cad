@@ -6,10 +6,11 @@ CPU-bound and runs on the threadpool, keeping the event loop free. The arq
 queue path (``geometry.worker``) calls the same core function.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Response
-from py_kit.errors import NotFoundError
+from py_kit.errors import NotFoundError, ValidationApiError
 
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
@@ -29,13 +30,21 @@ from py_kit.schemas.geometry import (
 )
 from py_kit.schemas.measure import MeasureRequest, MeasureResult
 from py_kit.schemas.overlay import OverlayRequest, OverlayResult
+from py_kit.schemas.sketch import (
+    Point2D,
+    SketchEditRequest,
+    SketchEditResult,
+    SketchEntity,
+)
 
+from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
 from geometry.measure import evaluate_measure
 from geometry.mesh_store import fetch_mesh_glb
 from geometry.overlay import evaluate_overlay
 from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
+from geometry.sketch import SketchEditError, extend_sketch, trim_sketch
 
 router = APIRouter(prefix="/api/v1", tags=["geometry"])
 
@@ -171,6 +180,65 @@ def overlay(request: OverlayRequest) -> OverlayResult:
     envelope. See :mod:`py_kit.schemas.overlay` for the full contract.
     """
     return evaluate_overlay(request)
+
+
+_SketchEdit = Callable[[list[SketchEntity], str, Point2D], list[SketchEntity]]
+
+
+def _run_sketch_edit(
+    op: _SketchEdit, request: SketchEditRequest, *, action: str
+) -> SketchEditResult:
+    """Run a stateless trim/extend edit, mapping failures to 422 (never 500).
+
+    A diagnosed edit failure (:class:`SketchEditError`) rides its legible code
+    into the envelope; a raw analytic raise is sanitized to the belt-and-braces
+    ``sketch_{action}_failed`` (same posture as measure/overlay,
+    :mod:`geometry.faults`). Pure function of the request — deterministic.
+    """
+    try:
+        entities = op(request.entities, request.target, request.pick)
+    except SketchEditError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
+    except Exception as exc:  # belt and braces — an edit is never a 500
+        raise unexpected_query_failure(
+            exc, code=f"sketch_{action}_failed", action=f"sketch {action}"
+        ) from exc
+    return SketchEditResult(entities=entities)
+
+
+@router.post("/sketch/trim")
+def sketch_trim(request: SketchEditRequest) -> SketchEditResult:
+    """Trim a sketch curve at the pick, returning the rewritten entity list.
+
+    **Stateless** (CLAUDE.md): a one-shot geometry edit, nothing persisted and
+    no kernel type crosses the boundary. The target curve is cut at its nearest
+    intersection with the other entities on each side of ``pick`` and the picked
+    segment removed (Onshape/Fusion "cut at intersection"); an unbounded side
+    runs to the curve end, and a curve with no intersection at all is deleted
+    whole. Splits may add a second entity with a fresh deterministic id (see
+    :class:`py_kit.schemas.sketch.SketchEditResult`). Deterministic (RESEARCH
+    §9): identical input yields coordinate-identical output.
+
+    Errors are 422s with legible codes, never 500s: ``sketch_target_not_found``
+    (target id absent), ``sketch_unsupported_entity`` (a free-point target),
+    ``sketch_pick_not_on_target`` (pick projects off the curve's extent).
+    """
+    return _run_sketch_edit(trim_sketch, request, action="trim")
+
+
+@router.post("/sketch/extend")
+def sketch_extend(request: SketchEditRequest) -> SketchEditResult:
+    """Extend a sketch curve's picked end to the nearest neighbor it meets.
+
+    **Stateless** (CLAUDE.md): the picked end (the endpoint nearer ``pick``)
+    grows along the target's own supporting line/circle to the closest entity
+    in that direction. Line and arc targets are supported; a circle or point
+    has no free end (``sketch_unsupported_entity``). Deterministic (RESEARCH
+    §9). Errors are 422s: ``sketch_target_not_found``,
+    ``sketch_unsupported_entity``, ``sketch_extend_no_target`` (nothing to meet
+    in the extension direction), ``sketch_degenerate_result``.
+    """
+    return _run_sketch_edit(extend_sketch, request, action="extend")
 
 
 @router.post("/export/tree", response_class=Response, responses=_EXPORT_RESPONSES)

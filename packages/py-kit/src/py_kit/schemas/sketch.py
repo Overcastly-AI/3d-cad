@@ -363,3 +363,93 @@ class SolvedSketch(BaseModel):
         default_factory=list[int],
         description="Indices into the input constraint list that are redundant.",
     )
+
+
+# ---------------------------------------------------------------------------
+# Sketch editing — trim / extend (BACKLOG #2, backend)
+# ---------------------------------------------------------------------------
+#
+# Trim and extend are **server-side geometry operations** (RESEARCH §3 +
+# CLAUDE.md service boundaries): 2D curve intersection/trimming is kernel-owned
+# geometry logic and must NOT be reimplemented in the frontend (that would be
+# WET and a boundary breach). The geometry service serves them at
+# ``POST /api/v1/sketch/trim`` and ``POST /api/v1/sketch/extend``; the gateway
+# proxies them auth-gated at ``/api/v1/geometry/sketch/{trim,extend}``. Both
+# share one request/response pair — DRY (CLAUDE.md): the contract is "the whole
+# entity set + a target + a pick point in, the modified entity set out". The
+# operations are **stateless** (nothing persisted) and **deterministic**
+# (RESEARCH §9): identical input yields byte/coordinate-identical output.
+#
+# Constraints are deliberately NOT part of this contract. The geometry service
+# is stateless and does not own the constraint graph; trim/extend operate on
+# geometry alone and return the new entity list. Re-mapping any constraints
+# that referenced a split/removed entity id is the caller's job (the sketch-UI
+# / documents layer, item #2b). Splitting an entity keeps the target's id on
+# the piece that survives from the target's start; any additional piece gets a
+# fresh deterministic id ``f"{target}.{n}"`` (see :class:`SketchEditResult`).
+
+
+class SketchEditRequest(BaseModel):
+    """Input for a sketch trim or extend edit (stateless, one-shot).
+
+    ``entities`` is the whole sketch's entity list (same shapes the solver
+    consumes — a construction entity is trimmed/extended like any other).
+    ``target`` names the entity being edited; it MUST be present in
+    ``entities`` (else a 422 ``sketch_target_not_found``). ``pick`` is the
+    2D sketch-plane point the user clicked:
+
+    * **trim** — ``pick`` selects WHICH segment of ``target`` to delete: the
+      target curve is cut at its nearest intersection(s) with the other
+      entities on each side of the pick, and the segment containing the pick
+      is removed (standard Onshape/Fusion "cut at intersection" gesture). With
+      no intersection bounding a side, that side runs to the curve's end; with
+      no intersection at all, the whole target is deleted. The pick must
+      project onto the target's drawn extent (else 422
+      ``sketch_pick_not_on_target``).
+    * **extend** — ``pick`` selects WHICH END of ``target`` to lengthen (the
+      nearer endpoint): the curve grows along its own supporting line/circle
+      from that end to the nearest neighboring entity it meets in that
+      direction (else 422 ``sketch_extend_no_target``).
+
+    Units are millimetres (:mod:`py_kit.schemas.sketch` convention).
+    """
+
+    entities: list[SketchEntity] = Field(
+        description="The whole sketch's entities (the edit rewrites this set)."
+    )
+    target: EntityId = Field(
+        description="Id of the entity to trim/extend; must be in `entities`."
+    )
+    pick: Point2D = Field(
+        description="Sketch-plane pick point (mm): the segment to delete (trim) "
+        "or the end to lengthen (extend, nearest endpoint wins)."
+    )
+
+    @model_validator(mode="after")
+    def _unique_entity_ids(self) -> "SketchEditRequest":
+        seen: set[str] = set()
+        for entity in self.entities:
+            if entity.id in seen:
+                raise ValueError(f"Duplicate sketch entity id: {entity.id!r}")
+            seen.add(entity.id)
+        return self
+
+
+class SketchEditResult(BaseModel):
+    """Output of a trim/extend edit: the rewritten entity list.
+
+    Order is preserved: unedited entities keep their position and id; the
+    target is replaced **in place** by its resulting piece(s). Trim may leave
+    the target shortened (one piece, id unchanged), split it into two (the
+    piece from the target's start keeps the id; the second piece gets a fresh
+    deterministic id ``f"{target}.{n}"``, the lowest ``n`` >= 2 not already in
+    use), convert a trimmed circle into a single arc (id unchanged), or delete
+    it entirely (target absent from the result). Extend returns the target
+    lengthened (id unchanged). Deterministic: identical input yields identical
+    output entities, coordinates included (RESEARCH §9).
+    """
+
+    entities: list[SketchEntity] = Field(
+        description="The sketch entities after the edit (see class docstring "
+        "for how the target is rewritten and how split ids are assigned)."
+    )

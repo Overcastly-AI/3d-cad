@@ -114,6 +114,11 @@ evidence in `CHANGELOG.md`. One line per item:
       geometry. Sketching row re-scored, held ❌ — the remaining named gap is
       the session-tool cluster (trim/extend, offset, mirror, splines, sketch
       fillet/chamfer) — see BACKLOG Ready.
+- ✅ Sketch trim/extend — BACKEND (2026-07-12): stateless server-side
+      geometry ops `POST /api/v1/sketch/{trim,extend}` (gateway-proxied),
+      exact analytic line/arc/circle trim (Onshape "cut at intersection") +
+      extend-to-neighbor, deterministic, legible 422 error codes. Sketch-UI
+      wiring is BACKLOG #2b; the Sketching row holds ❌ until that lands.
 - ✅ Revolve + linear/circular pattern — 5 body-affecting features now
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
       held ❌: edge selection is still predicate-only, and sweep/loft/shell/

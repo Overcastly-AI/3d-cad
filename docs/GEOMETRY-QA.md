@@ -69,6 +69,62 @@ fillet, chamfer) are all golden-covered.
 
 ---
 
+## 2026-07-12 — Sketch trim/extend backend (BACKLOG #2): exact analytic edits
+
+**Architecture decision.** Trim and extend are **server-side geometry
+operations**, not frontend math (RESEARCH §3 + CLAUDE.md service boundaries):
+2D curve intersection/trimming is kernel-owned; reimplementing it in the
+browser would be WET and a boundary breach. Two stateless geometry endpoints
+`POST /api/v1/sketch/trim` and `POST /api/v1/sketch/extend`, gateway-proxied
+auth-gated at `/api/v1/geometry/sketch/{trim,extend}`. Shared pure-pydantic
+DTOs `SketchEditRequest` (`entities` + `target` + `pick`) → `SketchEditResult`
+(`entities`) in `py_kit.schemas.sketch` — no kernel/solver type crosses the
+boundary. Constraints are deliberately **out of contract**: the geometry
+service is stateless and does not own the constraint graph; re-mapping ids the
+edit split/removed is the sketch-UI's job (#2b).
+
+**Kernel choice — analytic, not OCCT `Geom2d`.** `geometry.sketch.edit` uses
+closed-form line/arc/circle intersection. Rationale (RESEARCH §9): closed-form
+results are **exact and bitwise-deterministic** with no solver iteration and no
+nondeterministic exploration order — the same input yields coordinate-identical
+output (asserted by `test_trim_is_deterministic` / `test_extend_is_deterministic`,
+`model_dump` equality). The only epsilon (`_TOL = 1e-9` mm) *classifies*
+(parallel/containment/dedup/zero-length) and never rounds a returned coordinate.
+
+**Supported entity kinds (v1, honest scope).** Trim: target line/arc/circle,
+cutters line/arc/circle. Extend: target line/arc (circle & point have no free
+end → `sketch_unsupported_entity`). Deferred: spline/bezier (not yet a sketch
+entity kind — extends this module, not the DTO, when it lands).
+
+**Semantics pinned.** Trim = Onshape/Fusion "cut at intersection": remove the
+picked segment up to the nearest bounding intersection on each side; an
+unbounded side runs to the curve end; **no intersection at all deletes the
+whole curve** (documented delete-whole, not an error). A mid-curve pick splits
+into two entities — the piece from the target's start keeps the id, the second
+gets a fresh deterministic `f"{target}.{n}"`. A trimmed circle becomes one
+complementary arc (id unchanged). Extend grows the picked end (nearer endpoint)
+along its own support to the nearest neighbor.
+
+**Analytic gate evidence** (`tests/test_sketch_edit.py`, exact endpoints; tol
+`1e-9` is a ceiling — line-line lands at 0.0, arc/circle carry only trig
+round-trip noise ~1e-13):
+- line `(0,0)-(10,0)` crossed by `x=5`, pick `(2,0)` → survivor `(5,0)-(10,0)`.
+- same line, two cutters `x=3`/`x=7`, pick `(5,0)` → split `(0,0)-(3,0)` [id `L`]
+  + `(7,0)-(10,0)` [id `L.2`].
+- circle r=5 by two vertical chords `x=±4`, pick top `(0,5)` → arc `(-4,3)`→`(4,3)`
+  through the bottom (midpoint `(0,-5)`).
+- extend line `(0,0)-(5,0)` end to `x=10` → new end exactly `(10,0)`; nearest of
+  two neighbors wins (`x=8` over `x=12`).
+
+**Never a 500.** Every failure is a legible 422 (endpoint maps `SketchEditError.code`
+via `ValidationApiError`, plus the shared `geometry.faults` belt-and-braces):
+`sketch_target_not_found`, `sketch_unsupported_entity`,
+`sketch_pick_not_on_target` (pick projects off a bounded curve's extent),
+`sketch_extend_no_target`, `sketch_degenerate_result`. Duplicate entity ids are
+caught by the DTO validator at the gateway (never reaches geometry).
+
+---
+
 ## 2026-07-12 — First pattern golden: `pattern-linear-3x-bar` (linear/circular pattern, BACKLOG Ready #7 backend)
 
 **Capability:** `PatternFeature` v1 — a linear/circular pattern in the

@@ -162,6 +162,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/geometry/sketch/extend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sketch Extend
+         * @description Proxy a stateless sketch extend to the geometry service.
+         *
+         *     Auth-protected and identity-free upstream (same posture as ``sketch/trim``).
+         *     Upstream envelopes (``sketch_extend_no_target``, ``sketch_unsupported_entity``,
+         *     ``sketch_target_not_found``, ``sketch_degenerate_result``) are re-surfaced
+         *     verbatim.
+         */
+        post: operations["sketch_extend_api_v1_geometry_sketch_extend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/geometry/sketch/trim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sketch Trim
+         * @description Proxy a stateless sketch trim to the geometry service.
+         *
+         *     Auth-protected (the edit rewrites a signed-in user's sketch); the geometry
+         *     hop stays identity-free, so the principal never travels upstream (same
+         *     posture as measure/overlay, RESEARCH §3). The shared ``SketchEditRequest``
+         *     DTO validates at the gateway (a duplicate entity id is a 422 here and never
+         *     reaches geometry); upstream envelopes (``sketch_target_not_found``,
+         *     ``sketch_pick_not_on_target``, ``sketch_unsupported_entity``, …) are
+         *     re-surfaced verbatim.
+         */
+        post: operations["sketch_trim_api_v1_geometry_sketch_trim_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/tessellate": {
         parameters: {
             query?: never;
@@ -1688,6 +1741,66 @@ export interface components {
             radius: number;
         };
         /**
+         * SketchEditRequest
+         * @description Input for a sketch trim or extend edit (stateless, one-shot).
+         *
+         *     ``entities`` is the whole sketch's entity list (same shapes the solver
+         *     consumes — a construction entity is trimmed/extended like any other).
+         *     ``target`` names the entity being edited; it MUST be present in
+         *     ``entities`` (else a 422 ``sketch_target_not_found``). ``pick`` is the
+         *     2D sketch-plane point the user clicked:
+         *
+         *     * **trim** — ``pick`` selects WHICH segment of ``target`` to delete: the
+         *       target curve is cut at its nearest intersection(s) with the other
+         *       entities on each side of the pick, and the segment containing the pick
+         *       is removed (standard Onshape/Fusion "cut at intersection" gesture). With
+         *       no intersection bounding a side, that side runs to the curve's end; with
+         *       no intersection at all, the whole target is deleted. The pick must
+         *       project onto the target's drawn extent (else 422
+         *       ``sketch_pick_not_on_target``).
+         *     * **extend** — ``pick`` selects WHICH END of ``target`` to lengthen (the
+         *       nearer endpoint): the curve grows along its own supporting line/circle
+         *       from that end to the nearest neighboring entity it meets in that
+         *       direction (else 422 ``sketch_extend_no_target``).
+         *
+         *     Units are millimetres (:mod:`py_kit.schemas.sketch` convention).
+         */
+        SketchEditRequest: {
+            /**
+             * Entities
+             * @description The whole sketch's entities (the edit rewrites this set).
+             */
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            /** @description Sketch-plane pick point (mm): the segment to delete (trim) or the end to lengthen (extend, nearest endpoint wins). */
+            pick: components["schemas"]["Point2D"];
+            /**
+             * Target
+             * @description Id of the entity to trim/extend; must be in `entities`.
+             */
+            target: string;
+        };
+        /**
+         * SketchEditResult
+         * @description Output of a trim/extend edit: the rewritten entity list.
+         *
+         *     Order is preserved: unedited entities keep their position and id; the
+         *     target is replaced **in place** by its resulting piece(s). Trim may leave
+         *     the target shortened (one piece, id unchanged), split it into two (the
+         *     piece from the target's start keeps the id; the second piece gets a fresh
+         *     deterministic id ``f"{target}.{n}"``, the lowest ``n`` >= 2 not already in
+         *     use), convert a trimmed circle into a single arc (id unchanged), or delete
+         *     it entirely (target absent from the result). Extend returns the target
+         *     lengthened (id unchanged). Deterministic: identical input yields identical
+         *     output entities, coordinates included (RESEARCH §9).
+         */
+        SketchEditResult: {
+            /**
+             * Entities
+             * @description The sketch entities after the edit (see class docstring for how the target is rewritten and how split ids are assigned).
+             */
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+        };
+        /**
          * SketchFeature
          * @description ``{"type": "sketch", "version": 1, "params": {...}}`` envelope.
          */
@@ -2183,6 +2296,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OverlayResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sketch_extend_api_v1_geometry_sketch_extend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SketchEditRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SketchEditResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sketch_trim_api_v1_geometry_sketch_trim_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SketchEditRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SketchEditResult"];
                 };
             };
             /** @description Validation Error */

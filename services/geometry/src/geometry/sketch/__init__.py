@@ -4,6 +4,7 @@ Decision record: RESEARCH §2 (planegcs, LGPL-2.1-or-later, behind the
 protocol). Callers import from this package, never from ``planegcs``.
 """
 
+from geometry.sketch.edit import SketchEditError, extend_sketch, trim_sketch
 from geometry.sketch.planegcs_solver import PlanegcsSketchSolver
 from geometry.sketch.schemas import (
     CoincidentConstraint,
@@ -21,6 +22,8 @@ from geometry.sketch.schemas import (
     SketchCircle,
     SketchConstraint,
     SketchDefinition,
+    SketchEditRequest,
+    SketchEditResult,
     SketchEntity,
     SketchLine,
     SketchPoint,
@@ -50,6 +53,9 @@ __all__ = [
     "SketchConstraint",
     "SketchDefinition",
     "SketchDefinitionError",
+    "SketchEditError",
+    "SketchEditRequest",
+    "SketchEditResult",
     "SketchEntity",
     "SketchLine",
     "SketchPoint",
@@ -59,4 +65,6 @@ __all__ = [
     "SymmetricConstraint",
     "TangentConstraint",
     "VerticalConstraint",
+    "extend_sketch",
+    "trim_sketch",
 ]
