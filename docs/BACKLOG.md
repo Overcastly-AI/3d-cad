@@ -196,16 +196,33 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       determinism, fresh-id-from-full-set) + 4 gateway proxy tests; contracts +
       ts-client regenerated. GEOMETRY-QA dated entry. #5b (UI) queued.
       [src: product-auditor, competitive, roadmap]
-- [ ] (P1, S) #5b Sketch: fillet/chamfer UI — wire the shipped corner backend
-      into the sketch strip: pick two lines + a radius/distance, call the gateway
-      `/geometry/sketch/{fillet,chamfer}` proxy with `{entities, a, b, radius|
-      distance}`, splice the returned entity set back into the sketch, and
-      re-solve. Reuse the trim/offset selection-presence pattern; visually
-      distinct icon/label from the SOLID fillet/chamfer (Ready #1). Depends on:
-      #5 backend (done). Acceptance: worked e2e — round a rectangle's corner,
-      confirm the profile still closes and extrudes to the expected (reduced)
-      volume; keyboard verb; screenshots; `frontend-design` skill invoked.
-      [src: product-auditor, competitive, roadmap]
+- [x] (P1, S) #5b Sketch: fillet/chamfer UI — DONE 2026-07-12, closes #5 end-
+      to-end (backend + UI both shipped). Fillet + Chamfer on the sketch strip's
+      MODIFY group (own scribed FilletIcon/ChamferIcon, distinct from the SOLID
+      fillet/chamfer of Ready #1); accelerators **U** (fillet) / **B** (bevel =
+      chamfer), free keys extending the J/K/F/I modify row. Pick two LINES (leg
+      count prompt, brass pick ink; a non-line leg pre-empts the backend's
+      `sketch_unsupported_entity` with an inline hint) → an in-canvas value
+      editor opens at the shared corner (NumberField, radius for fillet /
+      distance for chamfer, default 2 mm), mirroring the dimension/offset idiom.
+      Calls the gateway `/geometry/sketch/{fillet,chamfer}` proxy with
+      `{entities, a, b, radius|distance}`; unlike the additive offset/mirror a
+      corner REWRITES — the result is the WHOLE set (two source lines trimmed in
+      place, ids preserved, + appended bridge with a fresh id), so it SWAPS
+      (`applyCornerResult`) and runs the same `reconcileConstraints(before,after)`
+      as trim/extend before re-solving. Legible 422s (`sketch_corner_not_found`,
+      `sketch_corner_too_large`, `sketch_unsupported_entity`,
+      `sketch_target_not_found`) surface as hints; the picks + editor survive a
+      too-large radius for a retype. Esc cascade close-editor/clear-picks →
+      drop-tool (never exits mid-flow). Testids `tool-fillet`/`tool-chamfer`,
+      `corner-prompt`/`corner-count`/`corner-editor`/`corner-input`/
+      `corner-apply`. v1 = line-line corners only (honest UI copy). Evidence:
+      324 vitest, 4 fillet/chamfer e2e green on the real stack (fillet r2 → arc +
+      both legs trimmed to tangent points + solves; chamfer d3 → straight bridge
+      + trimmed + solves; oversize radius → legible 422, no crash; laptop reach),
+      before/after + too-large + laptop screenshots under docs/screenshots/.
+      `frontend-design` skill invoked. line-arc/arc-arc corners still deferred
+      (backend defers them). [src: product-auditor, competitive, roadmap]
 - [ ] (P1, M) Sketch: splines (Fit-Point v1) — a free-form curve through
       placed points. Closes the last "flatly impossible" Sketching gap (no
       organic/free-form profiles at all today). Control-Point/NURBS variant

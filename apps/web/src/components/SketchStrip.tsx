@@ -18,6 +18,7 @@
  */
 import {
   ArcIcon,
+  ChamferIcon,
   CheckIcon,
   CircleIcon,
   CloseIcon,
@@ -27,6 +28,7 @@ import {
   DistanceIcon,
   EqualIcon,
   ExtendIcon,
+  FilletIcon,
   FixedIcon,
   Flyout,
   type FlyoutItem,
@@ -97,8 +99,10 @@ const TOOLS: ReadonlyArray<{
  * The modify (clean-up) tools — the "draw rough, then tidy" set. Trim cuts a
  * curve at its intersections and deletes the picked piece; Extend grows the
  * picked end to the nearest neighbor; Offset adds a parallel copy at a signed
- * distance (the rib/web/wall-profile move). All arm like draw tools (empty
- * selection), then the next click on a curve does the edit.
+ * distance (the rib/web/wall-profile move); Mirror reflects a selection about a
+ * line; Fillet rounds and Chamfer bevels the corner two lines share. All arm
+ * like draw tools (empty selection), then the next click(s) on a curve do the
+ * edit.
  */
 const MODIFY_TOOLS: ReadonlyArray<{
   tool: SketchTool;
@@ -134,6 +138,20 @@ const MODIFY_TOOLS: ReadonlyArray<{
     keyHint: "I",
     name: "Mirror tool (I) — pick entities, then a line, to add their reflected copies",
     icon: <MirrorIcon />,
+  },
+  {
+    tool: "fillet",
+    label: "Fillet",
+    keyHint: "U",
+    name: "Fillet tool (U) — pick two lines, then set a radius to round their corner",
+    icon: <FilletIcon />,
+  },
+  {
+    tool: "chamfer",
+    label: "Chamfer",
+    keyHint: "B",
+    name: "Chamfer tool (B) — pick two lines, then set a distance to bevel their corner",
+    icon: <ChamferIcon />,
   },
 ];
 
@@ -343,6 +361,48 @@ function MirrorPrompt({
   );
 }
 
+/**
+ * The Fillet/Chamfer two-line guide, hung from the band into the viewport.
+ * Collecting phase: how many of the two legs are held. Once both are picked the
+ * in-canvas value editor takes over (radius / setback), so the prompt steps
+ * back to a one-line reminder. Keyboard-first, honest about v1 (two lines only).
+ */
+function CornerPrompt({
+  corner,
+}: {
+  corner: NonNullable<ReturnType<typeof useSketchStore.getState>["corner"]>;
+}) {
+  const count = corner.picks.length;
+  const verb = corner.op === "fillet" ? "round" : "bevel";
+  return (
+    <div
+      role="status"
+      data-testid="corner-prompt"
+      data-phase={count >= 2 ? "value" : "legs"}
+      className="border border-hairline bg-anvil px-3 py-2 font-body text-xs text-gauge"
+    >
+      {count >= 2 ? (
+        <span>
+          Set the {corner.op === "fillet" ? "radius" : "distance"} to {verb} the
+          corner
+        </span>
+      ) : (
+        <span>
+          Pick two lines to {verb} their corner
+          {count > 0 ? (
+            <>
+              {" · "}
+              <span className="text-mist" data-testid="corner-count">
+                {count} of 2
+              </span>
+            </>
+          ) : null}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
@@ -362,6 +422,7 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
   const hint = useSketchStore((state) => state.hint);
   const editNote = useSketchStore((state) => state.editNote);
   const mirror = useSketchStore((state) => state.mirror);
+  const corner = useSketchStore((state) => state.corner);
   const advanceMirror = useSketchStore((state) => state.advanceMirror);
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
@@ -525,11 +586,12 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
 
       {/* Transient readouts hang from the band's bottom edge into the
           viewport's top-left, so the band itself stays one thin row. */}
-      {mirror !== null || hint || saveError || editNote ? (
+      {mirror !== null || corner !== null || hint || saveError || editNote ? (
         <div className="absolute left-3 top-full z-20 mt-2 flex max-w-sm flex-col gap-2">
           {mirror !== null ? (
             <MirrorPrompt mirror={mirror} onAdvance={advanceMirror} />
           ) : null}
+          {corner !== null ? <CornerPrompt corner={corner} /> : null}
           {editNote ? (
             <p
               role="status"

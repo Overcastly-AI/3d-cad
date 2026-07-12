@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import { fetchOverlay, measureTargets } from "../api/measure";
 import {
+  cornerSketch,
   editSketch,
   mirrorSketch,
   offsetSketch,
@@ -126,6 +127,7 @@ export function PartPage() {
   const edit = useSketchStore((state) => state.edit);
   const offset = useSketchStore((state) => state.offset);
   const mirrorRequest = useSketchStore((state) => state.mirrorRequest);
+  const cornerRequest = useSketchStore((state) => state.cornerRequest);
   const revision = useSketchStore((state) => state.revision);
   const featureId = useSketchStore((state) => state.featureId);
   const constraintCount = useSketchStore((state) => state.constraints.length);
@@ -491,9 +493,10 @@ export function PartPage() {
       const store = useSketchStore.getState();
       if (event.key === "Escape") {
         event.preventDefault();
-        // Mirror runs its own cascade (axis → targets → drop tool) and never
-        // exits the sketch mid-flow.
-        if (store.mirror !== null) {
+        // Mirror and the corner tools run their own cascades (mirror: axis →
+        // targets → drop tool; corner: close editor / clear picks → drop tool)
+        // and never exit the sketch mid-flow.
+        if (store.mirror !== null || store.corner !== null) {
           store.escape();
           return;
         }
@@ -645,6 +648,43 @@ export function PartPage() {
       }
     })();
   }, [mirrorRequest]);
+
+  // Fillet/Chamfer: the value editor arms a corner request; this effect owns
+  // the one network hop and SWAPS the whole rewritten set in (the two source
+  // lines trimmed in place, ids preserved, plus the appended bridge) — like
+  // trim/extend, unlike the additive offset/mirror. The store reconciles
+  // constraints; the revision bump then re-solves through the live loop. The
+  // nonce guards a double fire (React strict mode / re-render).
+  const cornerNonceRef = useRef(0);
+  useEffect(() => {
+    if (
+      cornerRequest === null ||
+      cornerRequest.nonce === cornerNonceRef.current
+    )
+      return;
+    cornerNonceRef.current = cornerRequest.nonce;
+    const { op, a, b, value } = cornerRequest;
+    void (async () => {
+      try {
+        const result = await cornerSketch(op, {
+          entities: useSketchStore.getState().entities,
+          a,
+          b,
+          value,
+        });
+        const store = useSketchStore.getState();
+        if (store.mode === "draw") store.applyCornerResult(result.entities);
+      } catch (error) {
+        useSketchStore
+          .getState()
+          .failCorner(
+            error instanceof SketchEditError
+              ? error.message
+              : "The corner could not be broken — try a smaller value.",
+          );
+      }
+    })();
+  }, [cornerRequest]);
 
   // Leaving the workspace always leaves sketch mode.
   useEffect(() => () => useSketchStore.getState().exit(), []);

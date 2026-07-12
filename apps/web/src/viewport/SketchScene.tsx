@@ -286,7 +286,9 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
           aimTool === "trim" ||
           aimTool === "extend" ||
           aimTool === "offset" ||
-          aimTool === "mirror"
+          aimTool === "mirror" ||
+          aimTool === "fillet" ||
+          aimTool === "chamfer"
         ) {
           const all = pickCandidates(
             useSketchStore.getState().entities,
@@ -359,6 +361,17 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
           const id = target?.kind === "entity" ? target.id : null;
           if (store.mirror?.phase === "axis") store.pickMirrorAxis(id);
           else store.toggleMirrorTarget(id);
+        } else if (clickTool === "fillet" || clickTool === "chamfer") {
+          // Corner tools collect two line legs (raw pick, like trim/offset);
+          // the value editor opens once both are held.
+          const raw = rawPlanePoint(e);
+          const target =
+            pickCandidates(store.entities, raw, toleranceMm(e)).find(
+              (pick) => pick.kind === "entity",
+            ) ?? null;
+          store.pickCornerLine(
+            target !== null && target.kind === "entity" ? target.id : null,
+          );
         } else {
           placeAt(snap(rawPlanePoint(e)));
         }
@@ -427,16 +440,19 @@ function DrawLayer({ plane }: { plane: DatumPlaneName }) {
   const selection = useSketchStore((state) => state.selection);
   const hoverPick = useSketchStore((state) => state.hoverPick);
   const mirror = useSketchStore((state) => state.mirror);
+  const corner = useSketchStore((state) => state.corner);
 
-  // Mirror targets read as "picked" (brass), the same affordance as a
-  // selection — merged so the idle buffer never double-draws them.
+  // Mirror targets and corner legs read as "picked" (brass), the same
+  // affordance as a selection — merged so the idle buffer never double-draws
+  // them.
   const selectedIds = useMemo(() => {
     const ids = new Set(
       selection.flatMap((pick) => (pick.kind === "entity" ? [pick.id] : [])),
     );
     for (const id of mirror?.targets ?? []) ids.add(id);
+    for (const id of corner?.picks ?? []) ids.add(id);
     return ids;
-  }, [selection, mirror]);
+  }, [selection, mirror, corner]);
   const hoveredId =
     hoverPick?.kind === "entity" && !selectedIds.has(hoverPick.id)
       ? hoverPick.id

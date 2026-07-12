@@ -518,6 +518,160 @@ describe("mirror — two-phase pick, appends reflected copies", () => {
   });
 });
 
+describe("fillet/chamfer — two-line pick, rewrites in place", () => {
+  it("arming Fillet opens a corner draft; legs toggle in and out (cap 2)", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("fillet");
+    expect(store().corner).toEqual({ op: "fillet", picks: [] });
+
+    store().pickCornerLine("e1");
+    store().pickCornerLine("e2");
+    expect(store().corner).toEqual({ op: "fillet", picks: ["e1", "e2"] });
+
+    // A third leg is ignored once two are held (editor is open).
+    store().pickCornerLine("e3");
+    expect(store().corner?.picks).toEqual(["e1", "e2"]);
+  });
+
+  it("a miss and a non-line leg hint instead of picking", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    // Add a circle (e5) so a non-line leg is testable.
+    store().setTool("circle");
+    store().placeAt({ x: 60, y: 60 });
+    store().placeAt({ x: 70, y: 60 });
+
+    store().setTool("chamfer");
+    store().pickCornerLine(null); // miss
+    expect(store().corner?.picks).toEqual([]);
+    expect(store().hint).toMatch(/click a line/i);
+
+    store().pickCornerLine("e5"); // circle → unsupported in v1
+    expect(store().corner?.picks).toEqual([]);
+    expect(store().hint).toMatch(/two lines/i);
+  });
+
+  it("armCorner builds the request from the two legs; rejects a non-positive value", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("fillet");
+    store().pickCornerLine("e1");
+    store().pickCornerLine("e2");
+
+    store().armCorner(0); // radius must be > 0 → refused at the edge
+    expect(store().cornerRequest).toBeNull();
+    store().armCorner(-2);
+    expect(store().cornerRequest).toBeNull();
+
+    store().armCorner(2);
+    expect(store().cornerRequest).toMatchObject({
+      op: "fillet",
+      a: "e1",
+      b: "e2",
+      value: 2,
+      nonce: 1,
+    });
+    expect(store().editBusy).toBe(true);
+  });
+
+  it("applyCornerResult SWAPS the whole rewritten set, bumps revision, keeps ids' constraints", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
+    store().applyConstraint("horizontal");
+    expect(store().constraints).toHaveLength(1);
+
+    store().setTool("fillet");
+    store().pickCornerLine("e1");
+    store().pickCornerLine("e2");
+    store().armCorner(2);
+    const revision = store().revision;
+
+    // Backend echoes the WHOLE set: e1/e2 trimmed in place (ids preserved) plus
+    // a fresh bridge arc appended.
+    const rewritten: SketchEntity[] = [
+      {
+        id: "e1",
+        kind: "line",
+        start: { x: 2, y: 0 },
+        end: { x: 40, y: 0 },
+        construction: false,
+      },
+      {
+        id: "e2",
+        kind: "line",
+        start: { x: 40, y: 0 },
+        end: { x: 40, y: 25 },
+        construction: false,
+      },
+      {
+        id: "e3",
+        kind: "line",
+        start: { x: 40, y: 25 },
+        end: { x: 0, y: 25 },
+        construction: false,
+      },
+      {
+        id: "e4",
+        kind: "line",
+        start: { x: 0, y: 25 },
+        end: { x: 0, y: 0 },
+        construction: false,
+      },
+      {
+        id: "e1.2",
+        kind: "arc",
+        center: { x: 2, y: 2 },
+        start: { x: 2, y: 0 },
+        end: { x: 0, y: 2 },
+        construction: false,
+      },
+    ];
+    store().applyCornerResult(rewritten);
+
+    expect(store().entities).toEqual(rewritten);
+    // e1 kept its id, so its horizontal constraint survives the trim.
+    expect(store().constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
+    expect(store().revision).toBe(revision + 1);
+    expect(store().editBusy).toBe(false);
+    expect(store().cornerRequest).toBeNull();
+    // Re-armed for another corner, still on the tool.
+    expect(store().corner).toEqual({ op: "fillet", picks: [] });
+    expect(store().editNote).toMatch(/filleted/i);
+  });
+
+  it("failCorner surfaces the message and keeps the picks for a retry", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("chamfer");
+    store().pickCornerLine("e1");
+    store().pickCornerLine("e2");
+    store().armCorner(999);
+    store().failCorner("Radius is too large for this corner.");
+    expect(store().cornerRequest).toBeNull();
+    expect(store().editBusy).toBe(false);
+    expect(store().hint).toMatch(/too large/i);
+    // Both legs survive so a smaller value can be retyped without re-picking.
+    expect(store().corner?.picks).toEqual(["e1", "e2"]);
+  });
+
+  it("Escape cascades close editor/clear picks → drop the tool", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("fillet");
+    store().pickCornerLine("e1");
+    store().pickCornerLine("e2");
+
+    store().escape(); // picks (editor open) → clear picks
+    expect(store().corner).toEqual({ op: "fillet", picks: [] });
+
+    store().escape(); // empty picks → drop the tool
+    expect(store().corner).toBeNull();
+    expect(store().tool).toBe("select");
+  });
+});
+
 describe("bind + revision bookkeeping", () => {
   it("placing entities bumps revision; bind records the feature", () => {
     rectangleAt();

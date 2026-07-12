@@ -27,6 +27,7 @@ import {
   formatDimensionMm,
   type ConstraintGlyph,
 } from "../sketch/constraints";
+import { cornerPoint } from "../sketch/corner";
 import { entityAnchor } from "../sketch/geometry";
 import { planeToWorld, type DatumPlaneName } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
@@ -262,6 +263,113 @@ function OffsetEditor({ plane }: { plane: DatumPlaneName }) {
   );
 }
 
+/** Default corner size when the editor opens (mm) — a typical break radius. */
+const DEFAULT_CORNER_MM = 2;
+
+/**
+ * The inline value field the Fillet/Chamfer tools open once both line legs are
+ * picked. Fillet collects a radius, chamfer an equal setback (mm). Anchored at
+ * the shared corner, it mirrors the dimension/offset in-canvas idiom so the
+ * three read as one annotation language. Enter applies; Escape dismisses (the
+ * store's Escape cascade clears the picks). v1 is line-line corners only.
+ */
+function CornerEditor({ plane }: { plane: DatumPlaneName }) {
+  const corner = useSketchStore((state) => state.corner);
+  const entities = useSketchStore((state) => state.entities);
+  const armCorner = useSketchStore((state) => state.armCorner);
+  const cancelCorner = useSketchStore((state) => state.cancelCorner);
+  const [text, setText] = useState<string | null>(null);
+
+  const open = corner !== null && corner.picks.length === 2;
+  const legA = open
+    ? entities.find((e) => e.id === corner.picks[0])
+    : undefined;
+  const legB = open
+    ? entities.find((e) => e.id === corner.picks[1])
+    : undefined;
+  const anchor = useMemo(
+    () =>
+      legA?.kind === "line" && legB?.kind === "line"
+        ? cornerPoint(legA, legB)
+        : null,
+    [legA, legB],
+  );
+
+  // Reset to the default whenever the picks change, so a fresh corner never
+  // inherits the previous one's typed value.
+  const picksKey = corner?.picks.join(",");
+  useEffect(() => {
+    setText(null);
+  }, [picksKey]);
+
+  if (!open || corner === null || anchor === null) return null;
+
+  const isFillet = corner.op === "fillet";
+  const value = text ?? String(DEFAULT_CORNER_MM);
+  const parsed = Number.parseFloat(value);
+  const valid = Number.isFinite(parsed) && parsed > 0;
+  const label = isFillet ? "Radius" : "Distance";
+
+  const apply = () => {
+    if (valid) {
+      armCorner(parsed);
+      setText(null);
+    }
+  };
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    apply();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      cancelCorner();
+      setText(null);
+    }
+  };
+
+  return (
+    <Html
+      position={planeToWorld(plane, anchor)}
+      center
+      zIndexRange={GLYPH_Z_RANGE}
+    >
+      <Panel className="w-48 p-2" data-testid="corner-editor">
+        <form onSubmit={onSubmit}>
+          <NumberField
+            label={isFillet ? "Fillet radius" : "Chamfer distance"}
+            unit="mm"
+            value={value}
+            error={valid ? null : "Enter a value above 0."}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={onKeyDown}
+            autoFocus
+            onFocus={(event) => event.target.select()}
+            data-testid="corner-input"
+            aria-label={`${label} (mm)`}
+          />
+          <p className="mt-1 font-body text-2xs text-gauge">
+            {isFillet
+              ? "Rounds the corner where the two lines meet."
+              : "Bevels the corner where the two lines meet."}{" "}
+            Two lines only.
+          </p>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <button
+              type="submit"
+              className="font-display text-2xs uppercase tracking-[0.14em] text-brass hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
+              disabled={!valid}
+              data-testid="corner-apply"
+            >
+              {isFillet ? "Round corner" : "Bevel corner"}
+            </button>
+          </div>
+        </form>
+      </Panel>
+    </Html>
+  );
+}
+
 export function ConstraintGlyphs({ plane }: { plane: DatumPlaneName }) {
   const constraints = useSketchStore((state) => state.constraints);
   const entities = useSketchStore((state) => state.entities);
@@ -322,6 +430,7 @@ export function ConstraintGlyphs({ plane }: { plane: DatumPlaneName }) {
       })}
       <DimensionEditor plane={plane} />
       <OffsetEditor plane={plane} />
+      <CornerEditor plane={plane} />
     </group>
   );
 }

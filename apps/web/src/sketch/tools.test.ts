@@ -5,10 +5,21 @@ import {
   escapeAction,
   placePoint,
   previewEntities,
+  TOOL_SHORTCUTS,
   type SketchEntity,
 } from "./tools";
 
 const p = (x: number, y: number) => ({ x, y });
+
+describe("TOOL_SHORTCUTS — the corner pair claims free keys", () => {
+  it("maps U to fillet and B to chamfer without shadowing an existing key", () => {
+    expect(TOOL_SHORTCUTS.u).toBe("fillet");
+    expect(TOOL_SHORTCUTS.b).toBe("chamfer");
+    // The keys the draw/modify/constraint vocabulary already spoke for stay put.
+    expect(TOOL_SHORTCUTS.f).toBe("offset");
+    expect(TOOL_SHORTCUTS.i).toBe("mirror");
+  });
+});
 
 describe("placePoint — line", () => {
   it("buffers the start, then emits a line with a sequential id", () => {
@@ -142,7 +153,7 @@ describe("select tool", () => {
 });
 
 describe("modify tools place nothing and never rubber-band", () => {
-  it.each(["trim", "extend", "offset"] as const)(
+  it.each(["trim", "extend", "offset", "mirror", "fillet", "chamfer"] as const)(
     "%s is a placement no-op",
     (tool) => {
       expect(placePoint(tool, [], p(1, 2), 5)).toEqual({

@@ -24,7 +24,9 @@ export type SketchTool =
   | "trim"
   | "extend"
   | "offset"
-  | "mirror";
+  | "mirror"
+  | "fillet"
+  | "chamfer";
 
 /**
  * Keyboard tool switching — case-insensitive at the call site. Draw tools take
@@ -35,7 +37,10 @@ export type SketchTool =
  * J·K·F sit left-to-right on the home row, mirroring Trim·Extend·Offset in the
  * toolbar; F is the free index-finger key (the offset mnemonic O is taken by
  * concentric). Mirror's mnemonic M is measure's; it claims I instead — a free
- * key whose vertical bar reads as the mirror axis it pivots about.
+ * key whose vertical bar reads as the mirror axis it pivots about. The corner
+ * pair extends the row: Chamfer claims B (Bevel — chamfer's own synonym);
+ * Fillet has no free initial (F offset, R radius), so it takes U, the free key
+ * beside Mirror's I, continuing the modify cluster rightward.
  */
 export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   l: "line",
@@ -46,6 +51,8 @@ export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   k: "extend",
   f: "offset",
   i: "mirror",
+  u: "fillet",
+  b: "chamfer",
 };
 
 /** Coordinates closer than this (mm) are the same point — degenerate. */
@@ -94,6 +101,8 @@ export function placePoint(
     case "extend":
     case "offset":
     case "mirror":
+    case "fillet":
+    case "chamfer":
       return keep(pending, nextIdIndex);
     case "line": {
       const [start] = pending;
@@ -241,6 +250,8 @@ export function previewEntities(
     case "extend":
     case "offset":
     case "mirror":
+    case "fillet":
+    case "chamfer":
       return [];
     case "line": {
       const [start] = pending;

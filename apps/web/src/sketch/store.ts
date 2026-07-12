@@ -21,6 +21,7 @@ import {
   type SketchConstraint,
   type SolveInfo,
 } from "./constraints";
+import { toggleCornerPick, type CornerOp } from "./corner";
 import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import type { DatumPlaneName, Point2D } from "./plane";
 import { snapPoint } from "./plane";
@@ -113,6 +114,28 @@ export interface SketchState {
    * ADDS geometry. The `nonce` fires the request exactly once.
    */
   mirrorRequest: { targets: string[]; axis: MirrorAxis; nonce: number } | null;
+  /**
+   * The Fillet/Chamfer tool's corner draft: the two line legs being collected
+   * (`picks`, capped at two). Once both are held the inline value editor opens
+   * (radius for a fillet, setback for a chamfer). Null unless a corner tool is
+   * armed. Held apart from `selection` so the corner's whole-line picks never
+   * mix with the general point-first select grain.
+   */
+  corner: { op: CornerOp; picks: string[] } | null;
+  /**
+   * A pending corner op the value editor armed; PartPage owns the network
+   * effect that consumes it (the store stays side-effect-free), reads the live
+   * entity list, and REPLACES it with the rewritten result. Unlike offset/mirror
+   * (which append), a corner rewrites in place — like `edit` (trim/extend). The
+   * `nonce` fires the request exactly once.
+   */
+  cornerRequest: {
+    op: CornerOp;
+    a: string;
+    b: string;
+    value: number;
+    nonce: number;
+  } | null;
 
   /** Enter sketch mode at the plane-pick step. */
   begin: () => void;
@@ -178,6 +201,20 @@ export interface SketchState {
   applyMirrorResult: (entities: readonly SketchEntity[]) => void;
   /** Fail the in-flight mirror with a surfaced message (axis phase survives). */
   failMirror: (message: string) => void;
+  /**
+   * Add/remove a line leg from the corner pick set (max two). `id` null means
+   * the click missed every curve, and a non-line leg pre-empts the backend's
+   * `sketch_unsupported_entity` — both hint instead of picking.
+   */
+  pickCornerLine: (id: string | null) => void;
+  /** Confirm the corner value editor with a validated radius/setback (mm). */
+  armCorner: (valueMm: number) => void;
+  /** Dismiss the corner value editor, clearing the picks (tool survives). */
+  cancelCorner: () => void;
+  /** Apply a corner result: SWAP the rewritten entity set, reconcile, re-arm. */
+  applyCornerResult: (entities: readonly SketchEntity[]) => void;
+  /** Fail the in-flight corner op; the picks + editor survive for a retry. */
+  failCorner: (message: string) => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
   editDimension: (constraintIndex: number) => void;
   /** Commit the open dimension editor with a validated value (mm). */
@@ -224,6 +261,8 @@ const INITIAL = {
   offset: null,
   mirror: null,
   mirrorRequest: null,
+  corner: null,
+  cornerRequest: null,
 };
 
 export const useSketchStore = create<SketchState>()((set, get) => ({
@@ -245,6 +284,12 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
       // the draft. The armed `mirrorRequest` is left alone — its nonce guards a
       // late in-flight response from re-firing.
       mirror: tool === "mirror" ? { phase: "targets", targets: [] } : null,
+      // Fillet/Chamfer open a fresh two-line corner draft; any other tool clears
+      // it. The armed `cornerRequest` is left alone (nonce-guarded), like mirror.
+      corner:
+        tool === "fillet" || tool === "chamfer"
+          ? { op: tool, picks: [] }
+          : null,
       hint: null,
       editNote: null,
     }),
@@ -507,6 +552,93 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
     // Keep the draft in its axis phase so the user can pick a different line.
     set({ mirrorRequest: null, editBusy: false, hint: message }),
 
+  pickCornerLine: (id) => {
+    const { corner, entities, editBusy } = get();
+    if (corner === null || editBusy) return;
+    // Both legs already held → the value editor is open; ignore stray clicks.
+    if (corner.picks.length >= 2 && !corner.picks.includes(id ?? "")) return;
+    if (id === null) {
+      set({ hint: "Click a line to break the corner." });
+      return;
+    }
+    const entity = entities.find((e) => e.id === id);
+    if (entity === undefined || entity.kind !== "line") {
+      // Pre-empt the backend's `sketch_unsupported_entity`: v1 rounds/bevels the
+      // corner between two LINES only.
+      set({ hint: "Fillet and chamfer join two lines — pick a line." });
+      return;
+    }
+    set({
+      corner: { op: corner.op, picks: toggleCornerPick(corner.picks, id) },
+      selection: [],
+      hoverPick: null,
+      hint: null,
+      editNote: null,
+    });
+  },
+
+  armCorner: (valueMm) => {
+    const { corner, cornerRequest } = get();
+    if (corner === null || corner.picks.length !== 2) return;
+    // Guard the strictly-positive contract at the store edge (the backend's
+    // `radius`/`distance` are > 0); a non-positive value never leaves the UI.
+    if (!Number.isFinite(valueMm) || !(valueMm > 0)) return;
+    const [a, b] = corner.picks;
+    if (a === undefined || b === undefined) return;
+    set({
+      cornerRequest: {
+        op: corner.op,
+        a,
+        b,
+        value: valueMm,
+        nonce: (cornerRequest?.nonce ?? 0) + 1,
+      },
+      editBusy: true,
+      hint: null,
+      editNote: null,
+    });
+  },
+
+  cancelCorner: () => {
+    const { corner } = get();
+    if (corner === null) return;
+    set({ corner: { op: corner.op, picks: [] }, hint: null });
+  },
+
+  applyCornerResult: (result) => {
+    const { cornerRequest, corner, constraints, revision } = get();
+    if (cornerRequest === null) return;
+    // Corner REWRITES (like trim/extend): the two source lines are trimmed in
+    // place with ids preserved, so their constraints survive — but reconcile on
+    // the uniform, safe path anyway, so a dangling ref can never reach the solve.
+    const { constraints: kept, removed } = reconcileConstraints(
+      constraints,
+      result,
+    );
+    const verb = cornerRequest.op === "fillet" ? "Filleted" : "Chamfered";
+    const note =
+      removed > 0
+        ? `${verb}. ${removed} ${removed === 1 ? "constraint" : "constraints"} removed.`
+        : `${verb}.`;
+    set({
+      entities: [...result],
+      constraints: kept,
+      revision: revision + 1,
+      cornerRequest: null,
+      editBusy: false,
+      editNote: note,
+      hoverPick: null,
+      // Re-arm a fresh corner draft so the user can break another corner without
+      // reselecting the tool (mirror does the same after a copy).
+      corner: corner !== null ? { op: cornerRequest.op, picks: [] } : null,
+    });
+  },
+
+  failCorner: (message) =>
+    // Keep the picks (the editor stays open) so a too-large radius can be retyped
+    // smaller without re-picking the corner.
+    set({ cornerRequest: null, editBusy: false, hint: message }),
+
   editDimension: (constraintIndex) => {
     const constraint = get().constraints[constraintIndex];
     if (constraint?.kind !== "distance" && constraint?.kind !== "radius") {
@@ -583,8 +715,25 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
   },
 
   escape: () => {
-    const { tool, pending, selection, dimensionEdit, offsetDraft, mirror } =
-      get();
+    const {
+      tool,
+      pending,
+      selection,
+      dimensionEdit,
+      offsetDraft,
+      mirror,
+      corner,
+    } = get();
+    // Corner's own cascade, most-local first: an open editor / any picks →
+    // clear the picks (close the editor); empty picks → drop the tool.
+    if (corner !== null) {
+      if (corner.picks.length > 0) {
+        set({ corner: { op: corner.op, picks: [] }, hint: null });
+        return;
+      }
+      set({ tool: "select", corner: null, hint: null });
+      return;
+    }
     // Mirror's own cascade, most-local first: axis phase → back to targets;
     // targets with picks → clear the picks; empty targets → drop the tool.
     if (mirror !== null) {

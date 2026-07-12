@@ -149,17 +149,21 @@ evidence in `CHANGELOG.md`. One line per item:
       returned copies + re-solves. 315 vitest + 3 mirror e2e green on the real
       stack; before/after/ghost screenshots. Line-entity axis is the shipped
       path; two-point axis deferred.
-- ✅ Sketch fillet/chamfer — BACKEND (2026-07-12): stateless server-side
-      geometry ops `POST /api/v1/sketch/{fillet,chamfer}` (gateway-proxied),
-      exact closed-form corner round (tangent arc) / bevel (straight line): both
-      corner lines trimmed in place to their tangent/setback points (ids
-      preserved) and the arc/line bridge appended with a fresh `f"{a}.{n}"` id
-      (seeded from the whole entity set). **v1 line-line corners only**
-      (line-arc/arc-arc deferred → `sketch_unsupported_entity`). Deterministic,
-      legible 422s (`sketch_corner_not_found`, `sketch_corner_too_large`,
-      `sketch_degenerate_result`). Distinct from the SOLID fillet/chamfer.
-      Sketch-UI wiring is BACKLOG #5b; the Sketching row holds ❌ until the
-      session-tool cluster's UI lands.
+- ✅ Sketch fillet/chamfer — BACKEND + UI (2026-07-12, closes #5): stateless
+      server-side geometry ops `POST /api/v1/sketch/{fillet,chamfer}` (gateway-
+      proxied), exact closed-form corner round (tangent arc) / bevel (straight
+      line): both corner lines trimmed in place to their tangent/setback points
+      (ids preserved) and the arc/line bridge appended with a fresh `f"{a}.{n}"`
+      id (seeded from the whole entity set). UI (#5b): Fillet (U) / Chamfer (B)
+      on the sketch strip's MODIFY group — pick two lines, an in-canvas value
+      editor collects the radius/distance, the whole rewritten set is SWAPPED in
+      (`applyCornerResult`, `reconcileConstraints` like trim/extend) and re-
+      solved; legible 422s surface as hints, Esc cascades. **v1 line-line
+      corners only** (line-arc/arc-arc deferred → `sketch_unsupported_entity`).
+      Deterministic, legible 422s (`sketch_corner_not_found`,
+      `sketch_corner_too_large`, `sketch_degenerate_result`). Distinct from the
+      SOLID fillet/chamfer. 324 vitest + 4 fillet/chamfer e2e green on the real
+      stack; before/after screenshots under docs/screenshots/.
 - ✅ Revolve + linear/circular pattern — 5 body-affecting features now
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
       held ❌: edge selection is still predicate-only, and sweep/loft/shell/

@@ -7,6 +7,8 @@
  */
 import type { components } from "@loft/ts-client/gateway";
 
+import type { CornerOp } from "../sketch/corner";
+import type { SketchEntity } from "../sketch/tools";
 import { gatewayClient } from "./client";
 import { envelopeCode, envelopeMessage } from "./envelope";
 
@@ -16,6 +18,10 @@ export type SketchOffsetRequest = components["schemas"]["SketchOffsetRequest"];
 export type SketchOffsetResult = components["schemas"]["SketchOffsetResult"];
 export type SketchMirrorRequest = components["schemas"]["SketchMirrorRequest"];
 export type SketchMirrorResult = components["schemas"]["SketchMirrorResult"];
+export type SketchFilletRequest = components["schemas"]["SketchFilletRequest"];
+export type SketchChamferRequest =
+  components["schemas"]["SketchChamferRequest"];
+export type SketchCornerResult = components["schemas"]["SketchCornerResult"];
 
 /** The two clean-up edits — a trim (cut at intersection) or an extend. */
 export type SketchEditOp = "trim" | "extend";
@@ -103,6 +109,51 @@ export async function mirrorSketch(
     throw new SketchEditError(
       envelopeCode(error) ?? "sketch_mirror_failed",
       envelopeMessage(error, "The mirror could not be applied."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Round (fillet) or bevel (chamfer) the corner two lines `a`/`b` share by
+ * `value` mm (a fillet arc's radius / a chamfer's equal setback). Unlike
+ * offset/mirror this REWRITES: `request.entities` is the whole sketch and the
+ * result is the WHOLE rewritten set — the two source lines trimmed in place
+ * (ids preserved, so their constraints survive) plus the appended bridge with a
+ * fresh id — which the caller SWAPS in (like trim/extend). v1 is line-line
+ * corners only. 422 codes: `sketch_corner_not_found` (parallel/collinear/same
+ * line), `sketch_corner_too_large` (radius/distance exceeds a leg),
+ * `sketch_unsupported_entity` (a non-line leg), `sketch_target_not_found`,
+ * `sketch_degenerate_result`.
+ */
+export async function cornerSketch(
+  op: CornerOp,
+  args: { entities: SketchEntity[]; a: string; b: string; value: number },
+  client = gatewayClient,
+): Promise<SketchCornerResult> {
+  const { entities, a, b, value } = args;
+  const { data, error } =
+    op === "fillet"
+      ? await client.POST("/api/v1/geometry/sketch/fillet", {
+          body: {
+            entities,
+            a,
+            b,
+            radius: value,
+          } satisfies SketchFilletRequest,
+        })
+      : await client.POST("/api/v1/geometry/sketch/chamfer", {
+          body: {
+            entities,
+            a,
+            b,
+            distance: value,
+          } satisfies SketchChamferRequest,
+        });
+  if (error !== undefined) {
+    throw new SketchEditError(
+      envelopeCode(error) ?? `sketch_${op}_failed`,
+      envelopeMessage(error, `The ${op} could not be applied.`),
     );
   }
   return data;
