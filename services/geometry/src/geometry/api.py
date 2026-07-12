@@ -35,6 +35,8 @@ from py_kit.schemas.sketch import (
     SketchEditRequest,
     SketchEditResult,
     SketchEntity,
+    SketchOffsetRequest,
+    SketchOffsetResult,
 )
 
 from geometry.faults import unexpected_query_failure
@@ -44,7 +46,12 @@ from geometry.measure import evaluate_measure
 from geometry.mesh_store import fetch_mesh_glb
 from geometry.overlay import evaluate_overlay
 from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
-from geometry.sketch import SketchEditError, extend_sketch, trim_sketch
+from geometry.sketch import (
+    SketchEditError,
+    extend_sketch,
+    offset_sketch,
+    trim_sketch,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["geometry"])
 
@@ -239,6 +246,37 @@ def sketch_extend(request: SketchEditRequest) -> SketchEditResult:
     in the extension direction), ``sketch_degenerate_result``.
     """
     return _run_sketch_edit(extend_sketch, request, action="extend")
+
+
+@router.post("/sketch/offset")
+def sketch_offset(request: SketchOffsetRequest) -> SketchOffsetResult:
+    """Offset a sketch curve — a parallel copy at a signed distance (rib/web).
+
+    **Stateless** (CLAUDE.md): a one-shot geometry op, nothing persisted and no
+    kernel type crosses the boundary. Unlike trim (which rewrites the target),
+    offset **ADDS** geometry: the source is unchanged and the response carries
+    only the NEW offset entity, with a fresh deterministic id ``f"{target}.{n}"``
+    inheriting the source's construction flag. Sign convention: the copy is
+    displaced along the curve's **left-hand normal** (forward direction rotated
+    +90° CCW), so ``+distance`` = left of the directed curve; a CCW arc/circle's
+    left normal points inward, so ``+distance`` shrinks its radius. Line / arc /
+    circle are supported (single-entity v1; chain offset is deferred).
+    Exact closed-form and deterministic (RESEARCH §9).
+
+    Errors are 422s with legible codes, never 500s: ``sketch_target_not_found``,
+    ``sketch_unsupported_entity`` (a free-point target),
+    ``sketch_offset_zero_distance`` (zero/NaN/inf distance),
+    ``sketch_degenerate_result`` (inward offset drives an arc/circle radius ≤ 0).
+    """
+    try:
+        entities = offset_sketch(request.entities, request.target, request.distance)
+    except SketchEditError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
+    except Exception as exc:  # belt and braces — an edit is never a 500
+        raise unexpected_query_failure(
+            exc, code="sketch_offset_failed", action="sketch offset"
+        ) from exc
+    return SketchOffsetResult(entities=entities)
 
 
 @router.post("/export/tree", response_class=Response, responses=_EXPORT_RESPONSES)

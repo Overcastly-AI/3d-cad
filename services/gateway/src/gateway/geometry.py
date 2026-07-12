@@ -25,7 +25,12 @@ from py_kit.schemas.geometry import (
 )
 from py_kit.schemas.measure import MeasureRequest, MeasureResult
 from py_kit.schemas.overlay import OverlayRequest, OverlayResult
-from py_kit.schemas.sketch import SketchEditRequest, SketchEditResult
+from py_kit.schemas.sketch import (
+    SketchEditRequest,
+    SketchEditResult,
+    SketchOffsetRequest,
+    SketchOffsetResult,
+)
 from pydantic import BaseModel
 
 from gateway.auth import CurrentUser
@@ -259,3 +264,22 @@ async def sketch_extend(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchEditResult.model_validate_json(upstream.content)
+
+
+@router.post("/sketch/offset")
+async def sketch_offset(
+    request: SketchOffsetRequest, user: CurrentUser, http_request: Request
+) -> SketchOffsetResult:
+    """Proxy a stateless sketch offset to the geometry service.
+
+    Auth-protected and identity-free upstream (same posture as ``sketch/trim``).
+    The shared ``SketchOffsetRequest`` DTO validates at the gateway (a duplicate
+    entity id is a 422 here and never reaches geometry); upstream envelopes
+    (``sketch_target_not_found``, ``sketch_unsupported_entity``,
+    ``sketch_offset_zero_distance``, ``sketch_degenerate_result``) are
+    re-surfaced verbatim.
+    """
+    upstream = await _forward(http_request, "/api/v1/sketch/offset", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return SketchOffsetResult.model_validate_json(upstream.content)

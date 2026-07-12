@@ -199,6 +199,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sketch/offset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sketch Offset
+         * @description Offset a sketch curve — a parallel copy at a signed distance (rib/web).
+         *
+         *     **Stateless** (CLAUDE.md): a one-shot geometry op, nothing persisted and no
+         *     kernel type crosses the boundary. Unlike trim (which rewrites the target),
+         *     offset **ADDS** geometry: the source is unchanged and the response carries
+         *     only the NEW offset entity, with a fresh deterministic id ``f"{target}.{n}"``
+         *     inheriting the source's construction flag. Sign convention: the copy is
+         *     displaced along the curve's **left-hand normal** (forward direction rotated
+         *     +90° CCW), so ``+distance`` = left of the directed curve; a CCW arc/circle's
+         *     left normal points inward, so ``+distance`` shrinks its radius. Line / arc /
+         *     circle are supported (single-entity v1; chain offset is deferred).
+         *     Exact closed-form and deterministic (RESEARCH §9).
+         *
+         *     Errors are 422s with legible codes, never 500s: ``sketch_target_not_found``,
+         *     ``sketch_unsupported_entity`` (a free-point target),
+         *     ``sketch_offset_zero_distance`` (zero/NaN/inf distance),
+         *     ``sketch_degenerate_result`` (inward offset drives an arc/circle radius ≤ 0).
+         */
+        post: operations["sketch_offset_api_v1_sketch_offset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sketch/trim": {
         parameters: {
             query?: never;
@@ -1476,6 +1512,54 @@ export interface components {
             start: components["schemas"]["Point2D"];
         };
         /**
+         * SketchOffsetRequest
+         * @description Input for a sketch offset (stateless, one-shot).
+         *
+         *     ``entities`` is the whole sketch's entity list — passed so the new offset
+         *     entity gets a fresh id that cannot collide with an existing one (and to
+         *     mirror the trim/extend contract). ``target`` names the entity to offset; it
+         *     MUST be present in ``entities`` (else a 422 ``sketch_target_not_found``).
+         *     ``distance`` is the **signed** offset distance in millimetres (see the
+         *     module comment above for the left-hand-normal sign convention); it must be
+         *     a nonzero, finite value (else 422 ``sketch_offset_zero_distance``).
+         */
+        SketchOffsetRequest: {
+            /**
+             * Distance
+             * @description Signed offset distance (mm): +distance = left of the directed curve (a CCW arc/circle's left normal points inward, so +distance shrinks its radius). Must be nonzero and finite.
+             */
+            distance: number;
+            /**
+             * Entities
+             * @description The whole sketch's entities (offset ADDS to this set; the source stays unchanged).
+             */
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            /**
+             * Target
+             * @description Id of the entity to offset; must be in `entities`.
+             */
+            target: string;
+        };
+        /**
+         * SketchOffsetResult
+         * @description Output of an offset: the NEW offset entity/entities (source unchanged).
+         *
+         *     Offset **adds** geometry, so — unlike :class:`SketchEditResult` (which
+         *     returns the whole rewritten set) — this carries ONLY the newly created
+         *     offset entities. In v1 that is exactly one entity, with a fresh
+         *     deterministic id ``f"{target}.{n}"`` and the source's construction flag
+         *     inherited. The caller appends these to its own entity list. Deterministic:
+         *     identical input yields identical output entities, coordinates included
+         *     (RESEARCH §9).
+         */
+        SketchOffsetResult: {
+            /**
+             * Entities
+             * @description The newly created offset entities (source entities are unchanged and NOT echoed here). One entity in v1 (single-entity offset); fresh id `f"{target}.{n}"`, construction flag inherited.
+             */
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+        };
+        /**
          * SketchParamsV1
          * @description Sketch on a plane — datum planes only in v1 (design §2.1).
          *
@@ -1924,6 +2008,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SketchEditResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sketch_offset_api_v1_sketch_offset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SketchOffsetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SketchOffsetResult"];
                 };
             };
             /** @description Validation Error */

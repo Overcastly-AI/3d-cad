@@ -26,6 +26,8 @@ from py_kit.schemas.sketch import (
     SketchEditRequest,
     SketchEditResult,
     SketchLine,
+    SketchOffsetRequest,
+    SketchOffsetResult,
 )
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -59,6 +61,31 @@ RESULT = SketchEditResult(
             kind="line",
             start=Point2D(x=5.0, y=0.0),
             end=Point2D(x=10.0, y=0.0),
+        ),
+    ]
+)
+
+
+OFFSET_BODY: dict[str, Any] = {
+    "entities": [
+        {
+            "id": "L",
+            "kind": "line",
+            "start": {"x": 0.0, "y": 0.0},
+            "end": {"x": 10.0, "y": 0.0},
+        },
+    ],
+    "target": "L",
+    "distance": 2.0,
+}
+
+OFFSET_RESULT = SketchOffsetResult(
+    entities=[
+        SketchLine(
+            id="L.2",
+            kind="line",
+            start=Point2D(x=0.0, y=2.0),
+            end=Point2D(x=10.0, y=2.0),
         ),
     ]
 )
@@ -147,6 +174,45 @@ def test_extend_proxies_to_correct_upstream_path(db_url: str) -> None:
     assert response.status_code == 200
     [upstream] = seen
     assert upstream.url.path == "/api/v1/sketch/extend"
+
+
+def test_offset_proxies_typed_result(db_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=OFFSET_RESULT.model_dump_json())
+
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/sketch/offset", json=OFFSET_BODY, headers=bearer
+        )
+
+    assert response.status_code == 200
+    assert SketchOffsetResult.model_validate(response.json()) == OFFSET_RESULT
+
+    [upstream] = seen
+    assert upstream.url.path == "/api/v1/sketch/offset"
+    assert SketchOffsetRequest.model_validate_json(
+        upstream.content
+    ) == SketchOffsetRequest.model_validate(OFFSET_BODY)
+    assert PRINCIPAL_HEADER not in upstream.headers
+    assert "authorization" not in upstream.headers
+
+
+def test_offset_requires_auth(db_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=OFFSET_RESULT.model_dump_json())
+
+    with make_client(db_url, handler) as client:
+        response = client.post("/api/v1/geometry/sketch/offset", json=OFFSET_BODY)
+
+    assert response.status_code == 401
+    assert seen == []
 
 
 def test_unauthenticated_401_and_nothing_forwarded(db_url: str) -> None:

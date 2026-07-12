@@ -88,15 +88,37 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       extend a short line to meet its neighbor and confirm the closed-loop
       check now passes; screenshots; `frontend-design` skill invoked. [src:
       product-auditor, competitive, roadmap]
-- [ ] (P1, S) Sketch: offset — parallel copy of a selected curve/chain at a
-      signed distance (ribs, webs, wall profiles — used constantly).
-      Depends on: nothing new.
-      Acceptance: new offset operation (typed distance param, works on a
-      line/arc/circle chain); keyboard verb; worked e2e — offset a
-      rectangle edge inward by a set distance, confirm the new entity
-      exists at the expected offset and a closed profile built from it
-      extrudes to the expected volume; screenshots; `frontend-design`
-      skill invoked. [src: product-auditor, competitive, roadmap]
+- [x] (P1, S) Sketch: offset — BACKEND shipped 2026-07-12. Server-side
+      geometry op (RESEARCH §3: offset math is kernel-owned, never
+      reimplemented in the frontend). Stateless endpoint
+      `POST /api/v1/sketch/offset` (gateway-proxied auth-gated at
+      `/api/v1/geometry/sketch/offset`), shared pure-pydantic DTOs
+      `SketchOffsetRequest` (`entities` + `target` + signed `distance`) →
+      `SketchOffsetResult` (`entities` = the NEW offset entity only; source
+      unchanged) in `py_kit.schemas.sketch`. Exact closed-form analytic offset
+      for line/arc/circle (`geometry.sketch.edit.offset_sketch`): sign
+      convention **+distance = left of the directed curve** (left-hand normal;
+      a CCW arc/circle's left normal is inward, so +distance shrinks its
+      radius). New entity gets a fresh `f"{target}.{n}"` id and inherits the
+      source construction flag. Deterministic (RESEARCH §9). Error paths are
+      legible 422s (`sketch_target_not_found`, `sketch_unsupported_entity`,
+      `sketch_offset_zero_distance`, `sketch_degenerate_result`,
+      belt-and-braces `sketch_offset_failed`). v1 = single-entity offset;
+      **chain offset (connected runs + miter/arc joins) deferred** (more than a
+      clean increment). Tests: analytic unit (exact coords) + endpoint gates +
+      gateway proxy + determinism. Contracts/ts-client regenerated.
+      GEOMETRY-QA entry 2026-07-12. [src: product-auditor, competitive, roadmap]
+- [ ] (P1, S) #3b Sketch: offset UI — wire the shipped offset backend into the
+      sketch editor: new keyboard verb (avoid the assigned letters) +
+      selection-presence pattern, a typed signed-distance input, call the
+      gateway `/geometry/sketch/offset` proxy with the entity set + target +
+      distance, append the returned NEW entity to the sketch. Depends on: #3
+      backend (done). Acceptance: worked e2e — offset a rectangle edge inward
+      by a set distance, confirm the new entity exists at the expected offset
+      and a closed profile built from it extrudes to the expected volume;
+      screenshots; `frontend-design` skill invoked. Chain-offset UI is out of
+      scope (backend defers chain offset). [src: product-auditor, competitive,
+      roadmap]
 - [ ] (P1, M) Sketch: mirror — duplicate selected entities reflected about
       a chosen line (any line, not just construction). v1 scope: a one-shot
       duplicate, not a live-linked op (explicit scoping call — revisit if

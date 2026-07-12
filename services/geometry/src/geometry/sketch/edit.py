@@ -58,12 +58,12 @@ _TWO_PI = 2.0 * math.pi
 
 
 class SketchEditError(ValueError):
-    """A trim/extend edit cannot be performed as asked.
+    """A trim/extend/offset edit cannot be performed as asked.
 
     ``code`` is the legible envelope code the endpoint surfaces as a 422
     (never a 500): ``sketch_target_not_found``, ``sketch_unsupported_entity``,
     ``sketch_pick_not_on_target``, ``sketch_extend_no_target``,
-    ``sketch_degenerate_result``.
+    ``sketch_offset_zero_distance``, ``sketch_degenerate_result``.
     """
 
     def __init__(self, message: str, *, code: str) -> None:
@@ -580,6 +580,126 @@ def extend_sketch(
             code="sketch_degenerate_result",
         )
     return _splice(entities, target_id, [replacement])
+
+
+# ---------------------------------------------------------------------------
+# Offset (BACKLOG #3)
+# ---------------------------------------------------------------------------
+#
+# A parallel copy of the target curve, displaced by a SIGNED distance along its
+# **left-hand normal** — the curve's forward direction rotated +90° (CCW).
+# +distance = left of the directed curve; -distance = right. For a line this is
+# the familiar perpendicular offset. A circle/arc is traversed CCW, so its
+# left-hand normal points INWARD (toward the centre): +distance shrinks the
+# radius (radius - distance, same centre/angular span), -distance grows it.
+#
+# Exact closed-form for every kind (RESEARCH §9): the line case is one rational
+# unit-normal displacement; the arc/circle case is a rational radial RESCALE
+# (new_r / r), so the arc's angular span is preserved with NO trig at all.
+# Offset ADDS geometry — the source is untouched; the new entity carries a
+# fresh deterministic id and inherits the source's construction flag.
+#
+# v1 = single-entity offset; chain offset (connected runs + miter/arc joins) is
+# deferred (see py_kit.schemas.sketch module comment).
+
+
+def _offset_line(entity: SketchLine, distance: float, ident: str) -> SketchLine:
+    a = _pt(entity.start)
+    b = _pt(entity.end)
+    d = _sub(b, a)
+    length = math.hypot(d.x, d.y)
+    if length < _TOL:
+        raise SketchEditError(
+            "cannot offset a zero-length line",
+            code="sketch_degenerate_result",
+        )
+    # Left-hand unit normal: rotate the unit direction +90° CCW, (x,y)->(-y,x).
+    ox = distance * (-d.y / length)
+    oy = distance * (d.x / length)
+    return SketchLine(
+        id=ident,
+        construction=entity.construction,
+        kind="line",
+        start=_point2d(_V(a.x + ox, a.y + oy)),
+        end=_point2d(_V(b.x + ox, b.y + oy)),
+    )
+
+
+def _offset_circle(entity: SketchCircle, distance: float, ident: str) -> SketchCircle:
+    new_r = entity.radius - distance  # +distance = inward (CCW left normal)
+    if new_r <= _TOL:
+        raise SketchEditError(
+            "inward offset collapses the circle (radius <= 0)",
+            code="sketch_degenerate_result",
+        )
+    return SketchCircle(
+        id=ident,
+        construction=entity.construction,
+        kind="circle",
+        center=entity.center,
+        radius=new_r,
+    )
+
+
+def _offset_arc(entity: SketchArc, distance: float, ident: str) -> SketchArc:
+    c = _pt(entity.center)
+    s = _pt(entity.start)
+    e = _pt(entity.end)
+    r = _dist(c, s)
+    if r < _TOL:
+        raise SketchEditError(
+            "cannot offset a degenerate (zero-radius) arc",
+            code="sketch_degenerate_result",
+        )
+    new_r = r - distance  # +distance = inward (CCW left normal)
+    if new_r <= _TOL:
+        raise SketchEditError(
+            "inward offset collapses the arc (radius <= 0)",
+            code="sketch_degenerate_result",
+        )
+    scale = new_r / r  # exact radial rescale — preserves the angular span
+    return SketchArc(
+        id=ident,
+        construction=entity.construction,
+        kind="arc",
+        center=entity.center,
+        start=_point2d(_V(c.x + (s.x - c.x) * scale, c.y + (s.y - c.y) * scale)),
+        end=_point2d(_V(c.x + (e.x - c.x) * scale, c.y + (e.y - c.y) * scale)),
+    )
+
+
+def offset_sketch(
+    entities: list[SketchEntity], target_id: str, distance: float
+) -> list[SketchEntity]:
+    """Return the NEW offset entity/entities (the source is left unchanged).
+
+    Offset ADDS a parallel copy of ``target_id`` at the signed ``distance``
+    (see this module's Offset section for the left-hand-normal sign
+    convention). The result is the newly created entity only, with a fresh
+    deterministic id ``f"{target}.{n}"`` and the source's construction flag
+    inherited; the caller appends it to its own entity list.
+    """
+    target = _find_target(entities, target_id)
+    if not math.isfinite(distance) or abs(distance) < _TOL:
+        raise SketchEditError(
+            "offset distance must be a nonzero, finite value",
+            code="sketch_offset_zero_distance",
+        )
+    ident = _fresh_id(target_id, {e.id for e in entities})
+    new: SketchEntity
+    if isinstance(target, SketchLine):
+        new = _offset_line(target, distance, ident)
+    elif isinstance(target, SketchCircle):
+        new = _offset_circle(target, distance, ident)
+    elif isinstance(target, SketchArc):
+        new = _offset_arc(target, distance, ident)
+    else:
+        raise SketchEditError(
+            f"offset does not support a {target.kind!r} entity "
+            "(only line, arc and circle have a parallel offset)",
+            code="sketch_unsupported_entity",
+        )
+    return [new]
 
 
 # ---------------------------------------------------------------------------

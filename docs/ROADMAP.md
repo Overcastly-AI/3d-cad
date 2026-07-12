@@ -119,6 +119,13 @@ evidence in `CHANGELOG.md`. One line per item:
       exact analytic line/arc/circle trim (Onshape "cut at intersection") +
       extend-to-neighbor, deterministic, legible 422 error codes. Sketch-UI
       wiring is BACKLOG #2b; the Sketching row holds ❌ until that lands.
+- ✅ Sketch offset — BACKEND (2026-07-12): stateless server-side geometry op
+      `POST /api/v1/sketch/offset` (gateway-proxied), exact closed-form
+      line/arc/circle offset (parallel copy at a signed distance; +distance =
+      left of the directed curve, so a CCW arc/circle's +distance shrinks its
+      radius). ADDS a fresh entity, deterministic, legible 422 error codes.
+      Single-entity v1; chain offset deferred. Sketch-UI wiring is BACKLOG #3b;
+      the Sketching row holds ❌ until the session-tool cluster's UI lands.
 - ✅ Revolve + linear/circular pattern — 5 body-affecting features now
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
       held ❌: edge selection is still predicate-only, and sweep/loft/shell/

@@ -69,6 +69,67 @@ fillet, chamfer) are all golden-covered.
 
 ---
 
+## 2026-07-12 — Sketch offset backend (BACKLOG #3): exact analytic parallel copy
+
+**Architecture decision.** Offset (the rib/web/wall-profile tool) is a
+**server-side geometry operation**, not frontend math (RESEARCH §3 + CLAUDE.md
+service boundaries) — same posture as trim/extend. One stateless endpoint
+`POST /api/v1/sketch/offset`, gateway-proxied auth-gated at
+`/api/v1/geometry/sketch/offset`. Shared pure-pydantic DTOs
+`SketchOffsetRequest` (`entities` + `target` + signed `distance`) →
+`SketchOffsetResult` (`entities` = the NEW offset entity only) in
+`py_kit.schemas.sketch` — no kernel/solver type crosses the boundary. Unlike
+trim (which *rewrites* the target), offset **ADDS** geometry: the source is
+returned unchanged in the caller's set and the result carries only the new
+entity, with a fresh deterministic `f"{target}.{n}"` id and the source's
+construction flag **inherited**. Constraints are out of contract (the geometry
+op is constraint-free; re-mapping is the sketch-UI's job, #3b).
+
+**Kernel choice — exact closed-form, no solver iteration.**
+`geometry.sketch.edit.offset_sketch` matches the trim/extend analytic choice:
+the line case is one rational unit-normal displacement; the arc/circle case is
+a rational **radial rescale** (`new_r / r`), so an arc's angular span is
+preserved with **no trig at all**. Results are exact and bitwise-deterministic
+(RESEARCH §9) — asserted by `test_offset_is_deterministic` (`model_dump`
+equality). The only epsilon (`_TOL = 1e-9` mm) classifies (zero-length line /
+zero-radius arc / radius-collapse / near-zero distance) and never rounds a
+returned coordinate.
+
+**Sign convention (documented, uniform across kinds).** The copy is displaced
+along the target curve's **left-hand normal** — the curve's forward direction
+rotated +90° (CCW). `+distance` = left of the directed curve; `-distance` =
+right. For a line directed start→end this is the familiar perpendicular offset.
+Because a circle/arc is traversed **counter-clockwise**, its left-hand normal
+points **inward** (toward the centre), so `+distance` shrinks the radius
+(`radius - distance`, same centre/angular span) and `-distance` grows it.
+
+**Supported entity kinds (v1, honest scope).** line / arc / circle
+(single-entity). Free point → `sketch_unsupported_entity`. **Chain offset** — a
+connected run of curves offset together with miter/arc join handling — is
+**DEFERRED**: it needs join construction + self-intersection trimming, more than
+a clean increment. Callers offset one entity at a time in v1.
+
+**Analytic gate evidence** (`tests/test_sketch_edit.py`, exact endpoints; tol
+`1e-9` is a ceiling):
+- line `(0,0)-(10,0)` offset `+2` → NEW entity id `L.2` at `(0,2)-(10,2)`;
+  offset `-3` → `(0,-3)-(10,-3)` (right side).
+- circle centre `(1,2)` r=5, offset `+2` → concentric r=`3` (inward);
+  offset `-4` → r=`9` (outward), centre unchanged.
+- quarter arc `(5,0)→(0,5)` offset `+2` → concentric r=`3` arc `(3,0)→(0,3)`,
+  centre + 90° span preserved.
+- construction flag inherited; fresh id skips a taken `L.2` → `L.3`.
+
+**Never a 500.** Every failure is a legible 422 (endpoint maps
+`SketchEditError.code` via `ValidationApiError`, plus the shared
+`geometry.faults` belt-and-braces `sketch_offset_failed`):
+`sketch_target_not_found`, `sketch_unsupported_entity` (free point),
+`sketch_offset_zero_distance` (zero/NaN/inf distance),
+`sketch_degenerate_result` (inward offset drives an arc/circle radius ≤ 0, or a
+zero-length line / zero-radius arc source). Duplicate entity ids are caught by
+the DTO validator at the gateway (never reaches geometry).
+
+---
+
 ## 2026-07-12 — Sketch trim/extend backend (BACKLOG #2): exact analytic edits
 
 **Architecture decision.** Trim and extend are **server-side geometry

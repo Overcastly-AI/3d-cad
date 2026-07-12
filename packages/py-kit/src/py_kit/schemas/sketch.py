@@ -453,3 +453,95 @@ class SketchEditResult(BaseModel):
         description="The sketch entities after the edit (see class docstring "
         "for how the target is rewritten and how split ids are assigned)."
     )
+
+
+# ---------------------------------------------------------------------------
+# Sketch editing — offset (BACKLOG #3, backend)
+# ---------------------------------------------------------------------------
+#
+# Offset is the standard rib/web/wall-profile tool: a **parallel copy** of a
+# curve at a signed distance. Like trim/extend it is a **server-side geometry
+# operation** (RESEARCH §3 + CLAUDE.md service boundaries) — the frontend must
+# not reimplement offset math — served at ``POST /api/v1/sketch/offset`` and
+# gateway-proxied auth-gated at ``/api/v1/geometry/sketch/offset``. It is
+# stateless and deterministic (RESEARCH §9): identical input yields
+# coordinate-identical output, computed by **exact closed-form analytic**
+# geometry (no solver iteration), matching the trim/extend choice.
+#
+# Unlike trim (which *rewrites* the target), offset **ADDS** geometry: the
+# source entity is returned unchanged in the caller's set and the result
+# carries only the NEW offset entity, with a fresh deterministic id
+# ``f"{target}.{n}"`` (lowest ``n`` >= 2 not already in use) and the source's
+# construction flag inherited. Re-mapping/constraining the new entity is the
+# caller's job (the geometry op is constraint-free by design, same as
+# trim/extend).
+#
+# **Sign convention (documented, uniform across kinds).** The copy is displaced
+# along the target curve's **left-hand normal** — the curve's forward direction
+# rotated +90° (counter-clockwise). ``+distance`` = left of the directed curve,
+# ``-distance`` = right. For a line directed start→end this is the familiar
+# perpendicular offset, e.g. ``(0,0)→(10,0)`` offset ``+2`` → ``(0,2)→(10,2)``.
+# Because a circle/arc is traversed **counter-clockwise**, its left-hand normal
+# points **inward** (toward the center), so ``+distance`` shrinks the radius
+# (``radius - distance``, same center/angular span) and ``-distance`` grows it;
+# an inward offset that would drive the radius to ≤ 0 is a degenerate error.
+#
+# **v1 scope (honest).** Single-entity offset (line / arc / circle) is shipped.
+# Chain offset — a connected run of curves offset together with miter/arc join
+# handling — is DEFERRED (it is more than a clean increment: it needs join
+# construction and self-intersection trimming). Callers offset one entity at a
+# time in v1.
+
+
+class SketchOffsetRequest(BaseModel):
+    """Input for a sketch offset (stateless, one-shot).
+
+    ``entities`` is the whole sketch's entity list — passed so the new offset
+    entity gets a fresh id that cannot collide with an existing one (and to
+    mirror the trim/extend contract). ``target`` names the entity to offset; it
+    MUST be present in ``entities`` (else a 422 ``sketch_target_not_found``).
+    ``distance`` is the **signed** offset distance in millimetres (see the
+    module comment above for the left-hand-normal sign convention); it must be
+    a nonzero, finite value (else 422 ``sketch_offset_zero_distance``).
+    """
+
+    entities: list[SketchEntity] = Field(
+        description="The whole sketch's entities (offset ADDS to this set; the "
+        "source stays unchanged)."
+    )
+    target: EntityId = Field(
+        description="Id of the entity to offset; must be in `entities`."
+    )
+    distance: float = Field(
+        description="Signed offset distance (mm): +distance = left of the "
+        "directed curve (a CCW arc/circle's left normal points inward, so "
+        "+distance shrinks its radius). Must be nonzero and finite."
+    )
+
+    @model_validator(mode="after")
+    def _unique_entity_ids(self) -> "SketchOffsetRequest":
+        seen: set[str] = set()
+        for entity in self.entities:
+            if entity.id in seen:
+                raise ValueError(f"Duplicate sketch entity id: {entity.id!r}")
+            seen.add(entity.id)
+        return self
+
+
+class SketchOffsetResult(BaseModel):
+    """Output of an offset: the NEW offset entity/entities (source unchanged).
+
+    Offset **adds** geometry, so — unlike :class:`SketchEditResult` (which
+    returns the whole rewritten set) — this carries ONLY the newly created
+    offset entities. In v1 that is exactly one entity, with a fresh
+    deterministic id ``f"{target}.{n}"`` and the source's construction flag
+    inherited. The caller appends these to its own entity list. Deterministic:
+    identical input yields identical output entities, coordinates included
+    (RESEARCH §9).
+    """
+
+    entities: list[SketchEntity] = Field(
+        description="The newly created offset entities (source entities are "
+        "unchanged and NOT echoed here). One entity in v1 (single-entity "
+        "offset); fresh id `f\"{target}.{n}\"`, construction flag inherited."
+    )

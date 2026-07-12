@@ -1728,6 +1728,99 @@
         "title": "SketchLine",
         "type": "object"
       },
+      "SketchOffsetRequest": {
+        "description": "Input for a sketch offset (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list \u2014 passed so the new offset\nentity gets a fresh id that cannot collide with an existing one (and to\nmirror the trim/extend contract). ``target`` names the entity to offset; it\nMUST be present in ``entities`` (else a 422 ``sketch_target_not_found``).\n``distance`` is the **signed** offset distance in millimetres (see the\nmodule comment above for the left-hand-normal sign convention); it must be\na nonzero, finite value (else 422 ``sketch_offset_zero_distance``).",
+        "properties": {
+          "distance": {
+            "description": "Signed offset distance (mm): +distance = left of the directed curve (a CCW arc/circle's left normal points inward, so +distance shrinks its radius). Must be nonzero and finite.",
+            "title": "Distance",
+            "type": "number"
+          },
+          "entities": {
+            "description": "The whole sketch's entities (offset ADDS to this set; the source stays unchanged).",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "target": {
+            "description": "Id of the entity to offset; must be in `entities`.",
+            "minLength": 1,
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entities",
+          "target",
+          "distance"
+        ],
+        "title": "SketchOffsetRequest",
+        "type": "object"
+      },
+      "SketchOffsetResult": {
+        "description": "Output of an offset: the NEW offset entity/entities (source unchanged).\n\nOffset **adds** geometry, so \u2014 unlike :class:`SketchEditResult` (which\nreturns the whole rewritten set) \u2014 this carries ONLY the newly created\noffset entities. In v1 that is exactly one entity, with a fresh\ndeterministic id ``f\"{target}.{n}\"`` and the source's construction flag\ninherited. The caller appends these to its own entity list. Deterministic:\nidentical input yields identical output entities, coordinates included\n(RESEARCH \u00a79).",
+        "properties": {
+          "entities": {
+            "description": "The newly created offset entities (source entities are unchanged and NOT echoed here). One entity in v1 (single-entity offset); fresh id `f\"{target}.{n}\"`, construction flag inherited.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "title": "SketchOffsetResult",
+        "type": "object"
+      },
       "SketchParamsV1": {
         "description": "Sketch on a plane \u2014 datum planes only in v1 (design \u00a72.1).\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
         "properties": {
@@ -2522,6 +2615,48 @@
           }
         },
         "summary": "Sketch Extend",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/sketch/offset": {
+      "post": {
+        "description": "Offset a sketch curve \u2014 a parallel copy at a signed distance (rib/web).\n\n**Stateless** (CLAUDE.md): a one-shot geometry op, nothing persisted and no\nkernel type crosses the boundary. Unlike trim (which rewrites the target),\noffset **ADDS** geometry: the source is unchanged and the response carries\nonly the NEW offset entity, with a fresh deterministic id ``f\"{target}.{n}\"``\ninheriting the source's construction flag. Sign convention: the copy is\ndisplaced along the curve's **left-hand normal** (forward direction rotated\n+90\u00b0 CCW), so ``+distance`` = left of the directed curve; a CCW arc/circle's\nleft normal points inward, so ``+distance`` shrinks its radius. Line / arc /\ncircle are supported (single-entity v1; chain offset is deferred).\nExact closed-form and deterministic (RESEARCH \u00a79).\n\nErrors are 422s with legible codes, never 500s: ``sketch_target_not_found``,\n``sketch_unsupported_entity`` (a free-point target),\n``sketch_offset_zero_distance`` (zero/NaN/inf distance),\n``sketch_degenerate_result`` (inward offset drives an arc/circle radius \u2264 0).",
+        "operationId": "sketch_offset_api_v1_sketch_offset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchOffsetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SketchOffsetResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sketch Offset",
         "tags": [
           "geometry"
         ]

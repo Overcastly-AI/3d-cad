@@ -26,6 +26,7 @@ from geometry.sketch import (
     SketchLine,
     SketchPoint,
     extend_sketch,
+    offset_sketch,
     trim_sketch,
 )
 
@@ -259,6 +260,122 @@ def test_extend_arc_end_to_radial_line() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Offset (parallel copy at a signed distance; +d = left of the directed curve)
+# ---------------------------------------------------------------------------
+
+
+def test_offset_line_left_positive_distance() -> None:
+    """Directed (0,0)->(10,0), +2 = left (north) -> exact (0,2)-(10,2)."""
+    entities: list[SketchEntity] = [line("L", 0.0, 0.0, 10.0, 0.0)]
+    result = offset_sketch(entities, "L", 2.0)
+
+    assert [e.id for e in result] == ["L.2"]  # NEW entity, fresh id
+    new = result[0]
+    assert isinstance(new, SketchLine)
+    approx_point(new.start, 0.0, 2.0)
+    approx_point(new.end, 10.0, 2.0)
+
+
+def test_offset_line_negative_distance_is_right_side() -> None:
+    """-3 = right (south) of the eastbound line -> (0,-3)-(10,-3)."""
+    result = offset_sketch([line("L", 0.0, 0.0, 10.0, 0.0)], "L", -3.0)
+    new = result[0]
+    assert isinstance(new, SketchLine)
+    approx_point(new.start, 0.0, -3.0)
+    approx_point(new.end, 10.0, -3.0)
+
+
+def test_offset_circle_positive_shrinks_radius_inward() -> None:
+    """A CCW circle's left normal is inward: +d shrinks (r - d)."""
+    inward = offset_sketch([circle("O", 1.0, 2.0, 5.0)], "O", 2.0)[0]
+    assert isinstance(inward, SketchCircle)
+    assert inward.center.x == 1.0 and inward.center.y == 2.0
+    assert inward.radius == pytest.approx(3.0, abs=EDIT_TOL)
+
+    outward = offset_sketch([circle("O", 1.0, 2.0, 5.0)], "O", -4.0)[0]
+    assert isinstance(outward, SketchCircle)
+    assert outward.radius == pytest.approx(9.0, abs=EDIT_TOL)
+
+
+def test_offset_arc_preserves_center_and_span() -> None:
+    """Quarter arc (5,0)->(0,5), +2 -> concentric r=3 arc, same 90° span."""
+    a = arc("A", 0.0, 0.0, 5.0, 0.0, 0.0, 5.0)
+    new = offset_sketch([a], "A", 2.0)[0]
+    assert isinstance(new, SketchArc)
+    assert new.center.x == 0.0 and new.center.y == 0.0
+    approx_point(new.start, 3.0, 0.0)  # radially rescaled 5 -> 3
+    approx_point(new.end, 0.0, 3.0)
+
+
+def test_offset_inherits_construction_flag() -> None:
+    src = SketchLine(
+        id="L",
+        kind="line",
+        construction=True,
+        start=Point2D(x=0.0, y=0.0),
+        end=Point2D(x=10.0, y=0.0),
+    )
+    new = offset_sketch([src], "L", 2.0)[0]
+    assert new.construction is True
+
+
+def test_offset_fresh_id_avoids_collision() -> None:
+    entities: list[SketchEntity] = [
+        line("L", 0.0, 0.0, 10.0, 0.0),
+        line("L.2", 0.0, 5.0, 10.0, 5.0),  # occupies the default fresh id
+    ]
+    new = offset_sketch(entities, "L", 1.0)[0]
+    assert new.id == "L.3"
+
+
+def test_offset_circle_inward_collapse_is_degenerate() -> None:
+    with pytest.raises(SketchEditError) as ei:
+        offset_sketch([circle("O", 0.0, 0.0, 5.0)], "O", 5.0)  # r - d = 0
+    assert _code(ei) == "sketch_degenerate_result"
+
+
+def test_offset_arc_inward_collapse_is_degenerate() -> None:
+    a = arc("A", 0.0, 0.0, 5.0, 0.0, 0.0, 5.0)
+    with pytest.raises(SketchEditError) as ei:
+        offset_sketch([a], "A", 6.0)  # r=5, r - d = -1
+    assert _code(ei) == "sketch_degenerate_result"
+
+
+def test_offset_zero_distance_rejected() -> None:
+    with pytest.raises(SketchEditError) as ei:
+        offset_sketch([line("L", 0.0, 0.0, 10.0, 0.0)], "L", 0.0)
+    assert _code(ei) == "sketch_offset_zero_distance"
+
+
+def test_offset_nan_distance_rejected() -> None:
+    with pytest.raises(SketchEditError) as ei:
+        offset_sketch([line("L", 0.0, 0.0, 10.0, 0.0)], "L", math.nan)
+    assert _code(ei) == "sketch_offset_zero_distance"
+
+
+def test_offset_point_target_unsupported() -> None:
+    entities: list[SketchEntity] = [
+        SketchPoint(id="P", kind="point", position=Point2D(x=0.0, y=0.0))
+    ]
+    with pytest.raises(SketchEditError) as ei:
+        offset_sketch(entities, "P", 2.0)
+    assert _code(ei) == "sketch_unsupported_entity"
+
+
+def test_offset_target_not_found() -> None:
+    with pytest.raises(SketchEditError) as ei:
+        offset_sketch([line("L", 0.0, 0.0, 10.0, 0.0)], "ghost", 2.0)
+    assert _code(ei) == "sketch_target_not_found"
+
+
+def test_offset_is_deterministic() -> None:
+    a = arc("A", 0.0, 0.0, 5.0, 0.0, 0.0, 5.0)
+    first = offset_sketch([a], "A", 1.5)
+    second = offset_sketch([a], "A", 1.5)
+    assert [e.model_dump() for e in first] == [e.model_dump() for e in second]
+
+
+# ---------------------------------------------------------------------------
 # Error paths (legible codes, never 500)
 # ---------------------------------------------------------------------------
 
@@ -439,3 +556,48 @@ def test_trim_endpoint_duplicate_id_rejected_by_dto(
     response = client.post("/api/v1/sketch/trim", json=body)
     assert response.status_code == 422
     assert_validation_envelope(response.json())
+
+
+_OFFSET_BODY: dict[str, Any] = {
+    "entities": [
+        {
+            "id": "L",
+            "kind": "line",
+            "start": {"x": 0.0, "y": 0.0},
+            "end": {"x": 10.0, "y": 0.0},
+        },
+    ],
+    "target": "L",
+    "distance": 2.0,
+}
+
+
+def test_offset_endpoint_returns_new_entity() -> None:
+    response = client.post("/api/v1/sketch/offset", json=_OFFSET_BODY)
+    assert response.status_code == 200, response.text
+    entities = response.json()["entities"]
+    assert [e["id"] for e in entities] == ["L.2"]  # NEW entity only
+    new = entities[0]
+    assert new["start"]["y"] == pytest.approx(2.0, abs=EDIT_TOL)
+    assert new["end"]["y"] == pytest.approx(2.0, abs=EDIT_TOL)
+
+
+def test_offset_endpoint_degenerate_is_422() -> None:
+    body = {
+        "entities": [
+            {"id": "O", "kind": "circle", "center": {"x": 0.0, "y": 0.0}, "radius": 5.0}
+        ],
+        "target": "O",
+        "distance": 5.0,
+    }
+    response = client.post("/api/v1/sketch/offset", json=body)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "sketch_degenerate_result"
+
+
+def test_offset_endpoint_zero_distance_is_422() -> None:
+    response = client.post(
+        "/api/v1/sketch/offset", json={**_OFFSET_BODY, "distance": 0.0}
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "sketch_offset_zero_distance"
