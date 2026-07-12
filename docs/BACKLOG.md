@@ -368,6 +368,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — **Full-width top toolbar band (frontend, founder feedback):**
+  toolbar → edge-to-edge `TopToolbar` band under the brand bar, mode-aware
+  (SketchStrip ⇄ CreateStrip); fixed 32 px `h-band` (no canvas reflow); hooks
+  preserved, 54 e2e green. [frontend-builder]
 - 2026-07-12 — **Toolbar density revision (frontend, founder feedback):**
   sketch toolbar collapsed two-panel stack (~110 px) → single thin row (~26 px):
   label cells flattened, SAVE/EXIT/Construction icon-only, `ToolButton`/`Flyout`

@@ -178,5 +178,11 @@ export const duration = {
 /** Fixed layout dimensions (px) of the shell. */
 export const layout = {
   toolbarHeight: 44,
+  /**
+   * The full-width command band under the brand bar — thin by mandate (the
+   * viewport is the hero). Fixed so swapping its contents by mode (sketch
+   * tools ⇄ feature-create tools) never reflows the r3f canvas beneath it.
+   */
+  commandBandHeight: 32,
   inspectorWidth: 320,
 } as const;

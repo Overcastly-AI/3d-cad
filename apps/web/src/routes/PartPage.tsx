@@ -23,6 +23,7 @@ import {
   updateFeature,
 } from "../api/parts";
 import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
+import { CreateStrip } from "../components/CreateStrip";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { PartExportControls } from "../components/PartExportControls";
@@ -46,6 +47,7 @@ import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
 import { TopBar } from "../components/TopBar";
+import { TopToolbar } from "../components/TopToolbar";
 import {
   parseConflictIndices,
   resolveSketchKey,
@@ -466,6 +468,16 @@ export function PartPage() {
     await queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
   }, [partId, queryClient]);
 
+  /** Enter sketch mode: reset the sync bookkeeping, drop any open editor. */
+  const handleNewSketch = useCallback(() => {
+    lastSynced.current = 0;
+    failedRevision.current = null;
+    setSyncError(null);
+    setEditor(null);
+    setSelectedFeatureId(null);
+    begin();
+  }, [begin]);
+
   const openCreateExtrude = useCallback(() => {
     const profileId = defaultProfileId(tree.data?.features ?? []);
     if (profileId === "") return;
@@ -662,25 +674,34 @@ export function PartPage() {
       <TopBar>
         <Chip data-testid="part-name">{part.data?.name ?? "Part"}</Chip>
       </TopBar>
+      {/* The full-width command band, directly under the brand bar: the
+          mode-aware CAD top-toolbar. Sketch tools while sketching, the
+          feature-create tools otherwise — one edge-to-edge surface, the
+          viewport below it. */}
+      <TopToolbar>
+        {mode === "off" ? (
+          <CreateStrip
+            treeReady={tree.data !== undefined}
+            onNewSketch={handleNewSketch}
+            canExtrude={hasSolvedSketch}
+            onNewExtrude={openCreateExtrude}
+            canRevolve={hasSolvedSketch}
+            onNewRevolve={openCreateRevolve}
+          />
+        ) : (
+          <SketchStrip
+            onSave={finishSketch}
+            saving={syncPending}
+            saveError={syncError}
+          />
+        )}
+      </TopToolbar>
       <main className="flex min-h-0 grow flex-col md:flex-row">
         <FeatureTreePanel
           tree={tree.data}
           treeError={tree.error}
           evaluation={evaluation.data}
           evaluating={evaluation.isFetching}
-          sketchActive={mode !== "off"}
-          onNewSketch={() => {
-            lastSynced.current = 0;
-            failedRevision.current = null;
-            setSyncError(null);
-            setEditor(null);
-            setSelectedFeatureId(null);
-            begin();
-          }}
-          canExtrude={hasSolvedSketch}
-          onNewExtrude={openCreateExtrude}
-          canRevolve={hasSolvedSketch}
-          onNewRevolve={openCreateRevolve}
           selectedFeatureId={selectedFeatureId}
           onSelectFeature={selectFeature}
           onMoveRollback={moveRollback}
@@ -692,11 +713,6 @@ export function PartPage() {
           groundGrid={mode !== "draw"}
           hud={
             <>
-              <SketchStrip
-                onSave={finishSketch}
-                saving={syncPending}
-                saveError={syncError}
-              />
               <SketchDro solving={syncPending || evaluation.isFetching} />
               <SolveDiagnostic />
               {mode === "off" && editor !== null ? (

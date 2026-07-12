@@ -6,6 +6,29 @@ sketch toolbar is now a **single thin row** (~26 px, down from a ~110 px
 two-panel stack). Grouping model, flyouts, icon set, and machine-shop tokens
 are unchanged — only the vertical rhythm. Specifics of the revision:
 
+## Layout — full-width top band (2026-07-12, founder feedback)
+
+The command surface is a **full-width top toolbar band** spanning the window
+edge-to-edge, directly under the brand bar (LOFT · part · Sign out) — the
+conventional CAD anchor (Fusion/Plasticity both do this). **Stacked, not
+merged:** the brand bar keeps identity/sign-out; a dedicated `TopToolbar` band
+sits beneath it, because the sketch toolbar's ~13 controls would crowd the
+brand row. The band is **mode-aware by composition** — `SketchStrip` while
+sketching, `CreateStrip` (the feature-create verbs, moved up out of the
+feature-tree panel) otherwise — so the top band is always THE command surface.
+Below it: the feature-tree panel (now just FEATURE TREE + FEATURES/TREE/SOLVE
+vitals) on the left, the viewport filling the rest, DRO at the viewport's
+bottom edge. The band is a **fixed height** (`layout.commandBandHeight` =
+32 px → `h-band`) so swapping its contents by mode never reflows the r3f
+canvas beneath it (a 1 px content flip was racing sketch-plane picks). Every
+test hook moved in lockstep: `new-sketch`/`new-extrude`/`new-revolve`,
+`sketch-strip`, `sketch-save` (still carries the "N entities" caption),
+`sketch-exit`, `tool-*`, `constraint-*`, `plane-*`, `sketch-step`,
+`selection-readout` all intact; the strips no longer sit in a bordered
+`Panel` box (the band supplies the edge-to-edge chrome).
+
+### Density revision (2026-07-12) specifics
+
 - **One row, not two.** The former SKETCH row and CONSTRAIN row are merged
   into a single ruled Panel: status · draw tools · constraint families ·
   construction · finish. The `constraint-strip` sub-panel is gone; its

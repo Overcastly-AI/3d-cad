@@ -1,6 +1,7 @@
 /**
- * The sketch toolbar — one thin title-block row across the top of the
- * viewport, icon-forward. Plane-pick step: the three datum planes (keyboard
+ * The sketch toolbar — one thin title-block row that fills the LEFT of the
+ * full-width top band while sketching, icon-forward. Plane-pick step: the
+ * three datum planes (keyboard
  * path, hover-synced with the 3D sheets). Draw step, all on a single ruled
  * row so the viewport keeps the pixels: a flat status cell (plane + live
  * selection), the four sketch tools as scribed icons, the twelve constraint
@@ -30,7 +31,6 @@ import {
   type FlyoutItem,
   HorizontalIcon,
   LineIcon,
-  Panel,
   ParallelIcon,
   PerpendicularIcon,
   RadiusIcon,
@@ -262,11 +262,13 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
   if (mode === "off") return null;
 
   return (
-    <div className="absolute left-3 top-3 max-w-full pr-3">
-      {/* One thin instrument row: status → draw tools → constraint families →
-          construction → finish. Collapsed from the former two-panel stack so
-          the viewport keeps the pixels (chrome recedes). */}
-      <Panel
+    <>
+      {/* One thin instrument row, now the LEFT of the full-width top band:
+          status → draw tools → constraint families → construction → finish.
+          The band (TopToolbar) supplies the edge-to-edge chrome; this strip
+          brings only its own hairline-divided cells (no bordered box), so the
+          band reads as one continuous CAD toolbar. */}
+      <div
         aria-label="Sketch"
         data-testid="sketch-strip"
         className="flex items-stretch divide-x divide-hairline"
@@ -397,26 +399,32 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
             </ToolGroup>
           </>
         ) : null}
-      </Panel>
+      </div>
 
-      {hint ? (
-        <p
-          role="status"
-          data-testid="constraint-hint"
-          className="mt-2 max-w-sm border border-hairline bg-anvil px-3 py-2 font-body text-xs text-gauge"
-        >
-          {hint}
-        </p>
+      {/* Transient readouts hang from the band's bottom edge into the
+          viewport's top-left, so the band itself stays one thin row. */}
+      {hint || saveError ? (
+        <div className="absolute left-3 top-full z-20 mt-2 flex max-w-sm flex-col gap-2">
+          {hint ? (
+            <p
+              role="status"
+              data-testid="constraint-hint"
+              className="border border-hairline bg-anvil px-3 py-2 font-body text-xs text-gauge"
+            >
+              {hint}
+            </p>
+          ) : null}
+          {saveError ? (
+            <p
+              role="alert"
+              data-testid="sketch-save-error"
+              className="border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
+            >
+              {saveError}
+            </p>
+          ) : null}
+        </div>
       ) : null}
-      {saveError ? (
-        <p
-          role="alert"
-          data-testid="sketch-save-error"
-          className="mt-2 max-w-sm border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
-        >
-          {saveError}
-        </p>
-      ) : null}
-    </div>
+    </>
   );
 }

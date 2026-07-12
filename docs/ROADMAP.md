@@ -130,6 +130,9 @@ item below.
       feature Create toolbar converted; every keyboard shortcut preserved as a
       tooltip accelerator; full e2e green. Density revision 2026-07-12:
       collapsed to a single thin row (~110→26 px) — viewport is the hero.
+      Layout revision 2026-07-12: promoted to a full-width `TopToolbar` band
+      under the brand bar (edge-to-edge, mode-aware SketchStrip ⇄ CreateStrip,
+      fixed 32 px `h-band`) — the viewport gained the width + top-right space.
       Doc: `docs/design/toolbar-system.md`).
       Next: convert the remaining text-idiom surfaces (DRO, editor toggles,
       export) + a Modify group as fillet/chamfer/sweep land

@@ -2,18 +2,13 @@
  * The feature tree as a title block: ruled rows carrying the part's build
  * order (the row number IS the evaluation order — structure encoding truth),
  * per-feature evaluate status/error, a rollback "cut line" the build can be
- * wound back to, and the NEW SKETCH / EXTRUDE action cells. Selecting a row
- * hands it up to the workspace (an extrude opens its editor); rolling the bar
- * before a feature marks everything below it inert without deleting it.
+ * wound back to, and the FEATURES / TREE / SOLVE vitals. The CREATE tools now
+ * live in the full-width top band (CreateStrip), not here — the panel is a
+ * quiet read-out of the build. Selecting a row hands it up to the workspace
+ * (an extrude opens its editor); rolling the bar before a feature marks
+ * everything below it inert without deleting it.
  */
-import {
-  ExtrudeIcon,
-  Panel,
-  PanelSection,
-  RevolveIcon,
-  SketchIcon,
-  ToolButton,
-} from "@loft/design";
+import { Panel, PanelSection } from "@loft/design";
 import type { ReactNode } from "react";
 
 import type {
@@ -29,17 +24,6 @@ export interface FeatureTreePanelProps {
   treeError: Error | null;
   evaluation: EvaluateTreeResult | undefined;
   evaluating: boolean;
-  /** Enter sketch mode (disabled while already sketching). */
-  onNewSketch: () => void;
-  sketchActive: boolean;
-  /** True when a solved sketch exists to extrude. */
-  canExtrude: boolean;
-  /** Begin a new extrude against the last solved sketch. */
-  onNewExtrude: () => void;
-  /** True when a solved sketch exists to revolve (same gate as extrude). */
-  canRevolve: boolean;
-  /** Begin a new revolve against the last solved sketch. */
-  onNewRevolve: () => void;
   /** Selected feature id (brass left-rule); extrude rows open their editor. */
   selectedFeatureId: string | null;
   onSelectFeature: (feature: FeatureResponse) => void;
@@ -59,12 +43,6 @@ export function FeatureTreePanel({
   treeError,
   evaluation,
   evaluating,
-  onNewSketch,
-  sketchActive,
-  canExtrude,
-  onNewExtrude,
-  canRevolve,
-  onNewRevolve,
   selectedFeatureId,
   onSelectFeature,
   onMoveRollback,
@@ -216,58 +194,6 @@ export function FeatureTreePanel({
             </ol>
           )}
         </PanelSection>
-
-        {/* Create toolbar: the feature verbs as scribed icon buttons, grouped
-            like Fusion's Create — a sketch, then the body-affecting features. */}
-        <div
-          role="group"
-          aria-label="Create"
-          className="border-t border-hairline"
-        >
-          <span className="block px-3 pb-1 pt-2 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-            Create
-          </span>
-          <div className="flex items-stretch divide-x divide-hairline border-t border-hairline">
-            <ToolButton
-              className="grow justify-center"
-              icon={<SketchIcon />}
-              showLabel
-              label="Sketch"
-              data-testid="new-sketch"
-              aria-label="New sketch — pick a plane, then L / R / C / A"
-              disabled={sketchActive || tree === undefined}
-              onClick={onNewSketch}
-            />
-            <ToolButton
-              className="grow justify-center"
-              icon={<ExtrudeIcon />}
-              showLabel
-              label="Extrude"
-              data-testid="new-extrude"
-              aria-label={
-                canExtrude
-                  ? "Extrude — add or cut a sketch profile"
-                  : "Extrude — solve a sketch first"
-              }
-              disabled={!canExtrude || sketchActive || tree === undefined}
-              onClick={onNewExtrude}
-            />
-            <ToolButton
-              className="grow justify-center"
-              icon={<RevolveIcon />}
-              showLabel
-              label="Revolve"
-              data-testid="new-revolve"
-              aria-label={
-                canRevolve
-                  ? "Revolve — sweep a sketch profile about an axis"
-                  : "Revolve — solve a sketch first"
-              }
-              disabled={!canRevolve || sketchActive || tree === undefined}
-              onClick={onNewRevolve}
-            />
-          </div>
-        </div>
 
         {/* Title-block footer: the tree's vitals. */}
         <div className="grid grid-cols-3 divide-x divide-hairline border-t border-hairline">

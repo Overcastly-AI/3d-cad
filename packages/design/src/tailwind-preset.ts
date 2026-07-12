@@ -55,6 +55,7 @@ export const loftPreset = {
     extend: {
       height: {
         toolbar: px(layout.toolbarHeight),
+        band: px(layout.commandBandHeight),
       },
       width: {
         inspector: px(layout.inspectorWidth),
