@@ -368,6 +368,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — **Toolbar density revision (frontend, founder feedback):**
+  sketch toolbar collapsed two-panel stack (~110 px) → single thin row (~26 px):
+  label cells flattened, SAVE/EXIT/Construction icon-only, `ToolButton`/`Flyout`
+  padding trimmed at the primitive. Shortcuts + hooks preserved; 54 e2e green. [frontend-builder]
 - 2026-07-11 — **Toolbar system shipped (frontend, design-system evolution):**
   grouped-icon toolbar + keyboard-navigable flyouts + hand-drawn scribed CAD
   icon set in `packages/design`; sketch tool+constraint toolbar (Geometric/

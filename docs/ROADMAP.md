@@ -128,7 +128,9 @@ item below.
       hand-drawn scribed CAD icon set in `packages/design`; sketch tool +
       constraint toolbar (Geometric/Dimensional/Relational flyouts) and the
       feature Create toolbar converted; every keyboard shortcut preserved as a
-      tooltip accelerator; full e2e green. Doc: `docs/design/toolbar-system.md`).
+      tooltip accelerator; full e2e green. Density revision 2026-07-12:
+      collapsed to a single thin row (~110→26 px) — viewport is the hero.
+      Doc: `docs/design/toolbar-system.md`).
       Next: convert the remaining text-idiom surfaces (DRO, editor toggles,
       export) + a Modify group as fillet/chamfer/sweep land
 - ⬜ Measurement tools, mass properties panel, units system

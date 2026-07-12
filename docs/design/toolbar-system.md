@@ -1,6 +1,27 @@
 # Toolbar system — grouped icons + flyouts
 
-Status: shipped (2026-07-11, frontend-builder). Evolution of the
+Status: shipped (2026-07-11, frontend-builder); **density revision
+2026-07-12** (founder feedback: too tall — the viewport is the hero). The
+sketch toolbar is now a **single thin row** (~26 px, down from a ~110 px
+two-panel stack). Grouping model, flyouts, icon set, and machine-shop tokens
+are unchanged — only the vertical rhythm. Specifics of the revision:
+
+- **One row, not two.** The former SKETCH row and CONSTRAIN row are merged
+  into a single ruled Panel: status · draw tools · constraint families ·
+  construction · finish. The `constraint-strip` sub-panel is gone; its
+  `selection-readout` moved into the shared flat status cell.
+- **No stacked label cells.** The two-line identity/action cells ("SKETCH /
+  On XY", "SAVE SKETCH / 4 entities", "EXIT / Esc discards", "CONSTRAIN /
+  …") are flattened. `sketch-step` + `selection-readout` sit on one gauge-face
+  line ("On XY · 2 ent"); SAVE and EXIT and Construction are icon-only
+  (`ToolButton` without `showLabel`) with their count/reason engraved in the
+  tooltip (`caption`), so the entity count stays queryable under `sketch-save`.
+- **Primitive-level padding trim.** `ToolButton` (`py-2`→`py-1.5`) and the
+  `Flyout` trigger (`py-2`→`py-1.5`), and `ToolButton.caption` now renders in
+  the tooltip rather than as a stacked second line — every toolbar thins
+  uniformly (fix the primitive, not the instance).
+
+Evolution of the
 single-key-verb + text-strip pattern into a grouped **icon** toolbar with
 **flyouts**, driven by the founder priority: ~13 keyboard verbs with real
 letter collisions (tools L/R/C/A; constraints H/V/D/R/X/C/P/L/T/E/S/O + N),

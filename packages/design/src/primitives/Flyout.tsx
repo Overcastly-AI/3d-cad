@@ -153,7 +153,7 @@ export function Flyout({
         onClick={() => (open ? close(true) : setOpen(true))}
         onKeyDown={onTriggerKeyDown}
         className={cx(
-          "group/tt relative inline-flex select-none items-center gap-1.5 rounded-sm px-2.5 py-2",
+          "group/tt relative inline-flex select-none items-center gap-1.5 rounded-sm px-2.5 py-1.5",
           "transition-colors duration-fast hover:bg-carbide",
           "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
           open ? "bg-carbide text-mist" : "text-mist",

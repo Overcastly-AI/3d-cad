@@ -42,7 +42,7 @@ export interface ToolButtonProps extends Omit<
   active?: boolean;
   /** Show the `label` text beside the icon (the feature toolbar does). */
   showLabel?: boolean;
-  /** Quiet second line under the label (count / reason). */
+  /** Quiet supplement (count / reason) — engraved in the tooltip, not stacked. */
   caption?: ReactNode;
   /** Override the computed accessible name (label + shortcut otherwise). */
   "aria-label"?: string;
@@ -75,7 +75,7 @@ export function ToolButton({
       aria-label={accessibleName}
       className={cx(
         "group/tt relative inline-flex select-none items-center gap-2 rounded-sm",
-        showLabel ? "px-3 py-2" : "px-2.5 py-2",
+        showLabel ? "px-3 py-1.5" : "px-2 py-1.5",
         "transition-colors duration-fast hover:bg-carbide",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
         "disabled:opacity-40 disabled:pointer-events-none",
@@ -86,15 +86,8 @@ export function ToolButton({
     >
       <span className="flex shrink-0 items-center">{icon}</span>
       {showLabel ? (
-        <span className="flex min-w-0 flex-col text-left leading-tight">
-          <span className="truncate font-display text-2xs uppercase tracking-[0.12em]">
-            {label}
-          </span>
-          {caption ? (
-            <span className="truncate font-data text-2xs text-gauge">
-              {caption}
-            </span>
-          ) : null}
+        <span className="min-w-0 truncate text-left font-display text-2xs uppercase tracking-[0.12em]">
+          {label}
         </span>
       ) : null}
 
@@ -106,19 +99,26 @@ export function ToolButton({
         />
       ) : null}
 
-      {/* Tooltip: an anvil stamp with the accelerator engraved. */}
+      {/* Tooltip: an anvil stamp with the accelerator engraved, and the quiet
+          caption (count / reason) folded onto a second line so the resting
+          button stays a single icon-thin row. */}
       <span
         aria-hidden
         className={cx(
           "pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 -translate-x-1/2",
-          "flex items-center gap-1.5 whitespace-nowrap border border-hairline bg-anvil px-2 py-1",
+          "flex flex-col gap-0.5 whitespace-nowrap border border-hairline bg-anvil px-2 py-1",
           "font-body text-2xs text-mist opacity-0",
           "group-hover/tt:opacity-100 group-focus-visible/tt:opacity-100",
           "motion-safe:transition-opacity motion-safe:duration-fast",
         )}
       >
-        {label}
-        {shortcut ? <Kbd>{shortcut}</Kbd> : null}
+        <span className="flex items-center gap-1.5">
+          {label}
+          {shortcut ? <Kbd>{shortcut}</Kbd> : null}
+        </span>
+        {caption ? (
+          <span className="font-data text-2xs text-gauge">{caption}</span>
+        ) : null}
       </span>
     </button>
   );

@@ -1,11 +1,12 @@
 /**
- * The sketch toolbar — two title-block rows across the top of the viewport,
- * now icon-forward. Plane-pick step: the three datum planes (keyboard path,
- * hover-synced with the 3D sheets). Draw step: the four sketch tools as
- * scribed icon buttons, then SAVE and EXIT — plus a second ruled row, the
- * CONSTRAIN strip: the twelve constraint verbs grouped by kind (Geometric /
- * Dimensional / Relational) behind labeled flyouts, then the Construction
- * toggle and the live selection readout.
+ * The sketch toolbar — one thin title-block row across the top of the
+ * viewport, icon-forward. Plane-pick step: the three datum planes (keyboard
+ * path, hover-synced with the 3D sheets). Draw step, all on a single ruled
+ * row so the viewport keeps the pixels: a flat status cell (plane + live
+ * selection), the four sketch tools as scribed icons, the twelve constraint
+ * verbs grouped by kind (Geometric / Dimensional / Relational) behind labeled
+ * flyouts, the Construction toggle, then SAVE and EXIT as icon buttons —
+ * their counts/reasons engraved in tooltips, never stacked into tall cells.
  *
  * One keyboard, two vocabularies survives untouched: the global key handler
  * still arms tools (L/R/C/A) with nothing selected and fires constraint verbs
@@ -225,19 +226,14 @@ export interface SketchStripProps {
   saveError: string | null;
 }
 
-/** One ruled identity cell — the row's title-block header + live value. */
-function IdentityCell({
-  eyebrow,
-  children,
-}: {
-  eyebrow: string;
-  children: ReactNode;
-}) {
+/**
+ * The strip's one-line status cell — the title-block reading folded flat:
+ * the active plane, and (while drawing) the live selection, on a single
+ * gauge-face line so the toolbar stays icon-thin. No stacked eyebrow.
+ */
+function StatusCell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex shrink-0 flex-col justify-center px-3 py-2">
-      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-        {eyebrow}
-      </span>
+    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap px-3 font-data text-xs">
       {children}
     </div>
   );
@@ -267,22 +263,36 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
 
   return (
     <div className="absolute left-3 top-3 max-w-full pr-3">
+      {/* One thin instrument row: status → draw tools → constraint families →
+          construction → finish. Collapsed from the former two-panel stack so
+          the viewport keeps the pixels (chrome recedes). */}
       <Panel
         aria-label="Sketch"
         data-testid="sketch-strip"
         className="flex items-stretch divide-x divide-hairline"
       >
-        <IdentityCell eyebrow="Sketch">
+        <StatusCell>
           <span
-            className="block font-data text-xs text-mist"
+            className={mode === "plane" ? "text-mist" : "text-mist"}
             data-testid="sketch-step"
           >
             {mode === "plane" ? "Pick a plane" : `On ${plane ?? "—"}`}
           </span>
-        </IdentityCell>
+          {mode === "draw" ? (
+            <>
+              <span aria-hidden className="text-etch">
+                ·
+              </span>
+              <span className="text-gauge" data-testid="selection-readout">
+                {describeSelection(selection)}
+                {constraintCount > 0 ? ` · ${constraintCount} applied` : ""}
+              </span>
+            </>
+          ) : null}
+        </StatusCell>
 
         {mode === "plane" ? (
-          <ToolGroup eyebrow="Datum plane">
+          <ToolGroup aria-label="Datum plane">
             {DATUM_PLANES.map((name) => (
               <ToolButton
                 key={name}
@@ -308,7 +318,7 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
 
         {mode === "draw" ? (
           <>
-            <ToolGroup>
+            <ToolGroup aria-label="Sketch tools">
               {TOOLS.map(({ tool: t, keyHint, name, icon }) => (
                 <ToolButton
                   key={t}
@@ -322,11 +332,43 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
                 />
               ))}
             </ToolGroup>
-            <ToolGroup>
+
+            <ToolGroup aria-label="Constrain">
+              {CONSTRAINT_GROUPS.map((group) => (
+                <Flyout
+                  key={group.key}
+                  label={group.triggerLabel}
+                  icon={group.triggerIcon}
+                  eyebrow={group.eyebrow}
+                  data-testid={`constraint-group-${group.key}`}
+                  items={group.items.map<FlyoutItem>((item) => ({
+                    key: item.action,
+                    icon: item.icon,
+                    label: item.label,
+                    shortcut: item.keyHint,
+                    onSelect: () => applyConstraint(item.action),
+                    "data-testid": `constraint-${item.action}`,
+                    "aria-label": item.name,
+                  }))}
+                />
+              ))}
+              <ToolButton
+                icon={<ConstructionIcon />}
+                shortcut="N"
+                label="Construction"
+                active={selectionAllConstruction(selection, entities)}
+                data-testid="sketch-construction"
+                aria-label="Toggle construction geometry (N, on selected entities) — reference-only, excluded from the extrude profile"
+                onClick={toggleConstruction}
+              />
+            </ToolGroup>
+
+            <ToolGroup aria-label="Sketch">
               <ToolButton
                 icon={<CheckIcon />}
-                showLabel
-                label={saving ? "Saving…" : bound ? "Finish" : "Save sketch"}
+                label={
+                  saving ? "Saving…" : bound ? "Finish sketch" : "Save sketch"
+                }
                 caption={
                   bound
                     ? "edits save live"
@@ -340,7 +382,6 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
               />
               <ToolButton
                 icon={<CloseIcon />}
-                showLabel
                 label="Exit"
                 caption={bound ? "Esc closes" : "Esc discards"}
                 shortcut="Esc"
@@ -357,58 +398,6 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
           </>
         ) : null}
       </Panel>
-
-      {mode === "draw" ? (
-        <Panel
-          aria-label="Constraints"
-          data-testid="constraint-strip"
-          className="mt-2 flex items-stretch divide-x divide-hairline"
-        >
-          <IdentityCell eyebrow="Constrain">
-            <span
-              className="block font-data text-xs text-mist"
-              data-testid="selection-readout"
-            >
-              {describeSelection(selection)}
-              {constraintCount > 0 ? ` · ${constraintCount} applied` : ""}
-            </span>
-          </IdentityCell>
-
-          <ToolGroup>
-            {CONSTRAINT_GROUPS.map((group) => (
-              <Flyout
-                key={group.key}
-                label={group.triggerLabel}
-                icon={group.triggerIcon}
-                eyebrow={group.eyebrow}
-                data-testid={`constraint-group-${group.key}`}
-                items={group.items.map<FlyoutItem>((item) => ({
-                  key: item.action,
-                  icon: item.icon,
-                  label: item.label,
-                  shortcut: item.keyHint,
-                  onSelect: () => applyConstraint(item.action),
-                  "data-testid": `constraint-${item.action}`,
-                  "aria-label": item.name,
-                }))}
-              />
-            ))}
-          </ToolGroup>
-
-          <ToolGroup>
-            <ToolButton
-              icon={<ConstructionIcon />}
-              showLabel
-              label="Construction"
-              shortcut="N"
-              active={selectionAllConstruction(selection, entities)}
-              data-testid="sketch-construction"
-              aria-label="Toggle construction geometry (N, on selected entities) — reference-only, excluded from the extrude profile"
-              onClick={toggleConstruction}
-            />
-          </ToolGroup>
-        </Panel>
-      ) : null}
 
       {hint ? (
         <p
