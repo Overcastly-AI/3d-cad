@@ -48,7 +48,7 @@ close second, the other big Part-modeling parity gap, and its own blocker
 (topological-naming design doc) already shipped. #4–#6 are sketch-session
 polish the re-score flagged; independent of #1–#3 and of each other.
 
-- [ ] (P1, S) Design note: offset/datum plane representation — a design doc
+- [x] (P1, S) Design note: offset/datum plane representation — a design doc
       (`docs/design/datum-planes.md`, precedent: `topological-naming.md`)
       before implementation starts. Confirmed in code this pass:
       `apps/web/src/sketch/plane.ts`'s `DATUM_PLANES` is hardcoded to
@@ -361,6 +361,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-12 — **Datum-planes design note landed** (`docs/design/datum-planes.md`):
+  datum-plane-as-feature (vs inline spec); v1 = offset-from-origin-datum by
+  signed distance; additive backward-compat (no `param_version` bump). Ticks
+  Ready #1; unblocks #2 impl + #8b loft UI. [kernel-architect]
 - 2026-07-12 — **Groomed after the sketch-cluster + sweep/loft-backend
   batch.** Archived 8 shipped items (session-tool cluster, sweep, loft
   backend); restocked Ready with offset/datum planes (design note +
