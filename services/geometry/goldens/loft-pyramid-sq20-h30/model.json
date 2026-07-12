@@ -36,10 +36,26 @@
             }
           ],
           "constraints": [
-            { "kind": "coincident", "a": { "entity": "l1", "point": "end" }, "b": { "entity": "l2", "point": "start" } },
-            { "kind": "coincident", "a": { "entity": "l2", "point": "end" }, "b": { "entity": "l3", "point": "start" } },
-            { "kind": "coincident", "a": { "entity": "l3", "point": "end" }, "b": { "entity": "l4", "point": "start" } },
-            { "kind": "coincident", "a": { "entity": "l4", "point": "end" }, "b": { "entity": "l1", "point": "start" } },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l1", "point": "end" },
+              "b": { "entity": "l2", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l2", "point": "end" },
+              "b": { "entity": "l3", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l3", "point": "end" },
+              "b": { "entity": "l4", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l4", "point": "end" },
+              "b": { "entity": "l1", "point": "start" }
+            },
             { "kind": "horizontal", "entity": "l1" },
             { "kind": "horizontal", "entity": "l3" },
             { "kind": "vertical", "entity": "l2" },
@@ -63,7 +79,10 @@
             }
           ],
           "constraints": [
-            { "kind": "fixed", "point": { "entity": "a1", "point": "position" } }
+            {
+              "kind": "fixed",
+              "point": { "entity": "a1", "point": "position" }
+            }
           ]
         }
       }
@@ -75,8 +94,14 @@
         "version": 1,
         "params": {
           "profiles": [
-            { "kind": "feature", "feature_id": "00000000-0000-0000-0000-0000000b0001" },
-            { "kind": "feature", "feature_id": "00000000-0000-0000-0000-0000000b0002" }
+            {
+              "kind": "feature",
+              "feature_id": "00000000-0000-0000-0000-0000000b0001"
+            },
+            {
+              "kind": "feature",
+              "feature_id": "00000000-0000-0000-0000-0000000b0002"
+            }
           ],
           "operation": "add"
         }
