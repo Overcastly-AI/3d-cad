@@ -69,6 +69,86 @@ fillet, chamfer) are all golden-covered.
 
 ---
 
+## 2026-07-12 — Sketch mirror backend (BACKLOG #4): exact analytic reflection, CCW-preserving
+
+**Architecture decision.** Mirror (reflect selected entities about an axis line
+→ mirrored copies — the symmetric-profile tool, a named ❌ Sketching-scorecard
+blocker in `docs/COMPETITIVE.md`) is a **server-side geometry operation**, not
+frontend math (RESEARCH §3 + CLAUDE.md service boundaries) — same posture and
+same additive shape as offset. One stateless endpoint
+`POST /api/v1/sketch/mirror`, gateway-proxied auth-gated at
+`/api/v1/geometry/sketch/mirror`. Shared pure-pydantic DTOs
+`SketchMirrorRequest` (`entities` + `targets: list[EntityId]` (min 1) + `axis`)
+→ `SketchMirrorResult` (`entities` = the NEW copies only) in
+`py_kit.schemas.sketch` — no kernel/solver type crosses the boundary. Mirror
+**ADDS** geometry: sources unchanged, one copy per target (in `targets` order),
+each with a fresh deterministic `f"{source}.{n}"` id and the source's
+construction flag **inherited**.
+
+**Mirror the OP is not the `symmetric` CONSTRAINT (documented, not conflated).**
+`SymmetricConstraint` enforces symmetry on two points that already exist and
+creates no geometry; the mirror op CREATES reflected copies. v1 is
+**geometry-only**: it does NOT auto-add symmetric constraints between a source
+and its copy (honest limitation — the live-linked pairing is deferred; callers
+who want it add the constraints themselves).
+
+**Axis representation (decision).** The axis is a discriminated union so both
+real-world gestures are first-class and DRY (one op, one reflection):
+`MirrorAxisEntity{kind:"entity", entity}` — mirror about an existing **line**
+entity by id (the common "mirror about this construction centerline" case), and
+`MirrorAxisPoints{kind:"points", a, b}` — the infinite line through two given
+points (more general; no axis entity need exist). A non-line axis entity is
+`sketch_mirror_axis_not_line`; a zero-length axis is
+`sketch_mirror_degenerate_axis`.
+
+**Kernel choice — exact closed-form, no solver iteration, no sqrt/trig.**
+`geometry.sketch.edit.mirror_sketch` reflects across the infinite axis line by a
+**rational foot-of-perpendicular**: for point P, anchor A, direction d,
+`F = A + ((P-A)·d/(d·d))·d` and `P' = 2F - P`. No unit-normalisation and no
+trig ⇒ exact for rational inputs and bitwise-deterministic (RESEARCH §9;
+`test_mirror_is_deterministic`, `model_dump` equality). Circle/arc radius is
+reflection-invariant (isometry). The only epsilon (`_TOL = 1e-9` mm) classifies
+the degenerate axis and never rounds a returned coordinate.
+
+**Arc CCW-preservation (the subtle correctness point, TESTED).** Reflection is
+**orientation-reversing**: a CCW arc's image is CW. To keep the CCW-from-start
+invariant `SketchArc` documents, a mirrored arc **swaps** its reflected
+endpoints — new `start` = reflect(source `end`), new `end` = reflect(source
+`start`); the centre reflects in place. `test_mirror_arc_swaps_endpoints_to_stay_ccw`
+mirrors the Q1 quarter arc `(5,0)→(0,5)` about the Y axis and asserts BOTH the
+swapped endpoints (`start=(0,5)`, `end=(-5,0)`) AND that the CCW sweep is the
+SHORT Q2 arc (midpoint at 135° = `(5cos135°, 5sin135°)`), not the 270° long way
+through the bottom a non-swapped arc would trace. A line has no orientation
+invariant, so its endpoints reflect in place.
+
+**Analytic gate evidence** (`tests/test_sketch_edit.py`, exact endpoints; tol
+`1e-9` is a ceiling):
+- line `(2,1)-(6,3)` about the Y axis → NEW id `L.2` at `(-2,1)-(-6,3)`.
+- circle centre `(4,3)` r=2 about Y → centre `(-4,3)`, r=`2` unchanged.
+- arc: as above (swap + Q2 sweep proof).
+- point `(3,4)` about Y → `(-3,4)`.
+- mirror about a line-entity X-axis: `(2,3)-(6,5)` → `(2,-3)-(6,-5)`.
+- mirror about `y=x` swaps coords: `(2,5)-(3,8)` → `(5,2)-(8,3)`.
+- multi-target `["L","O"]` → copies `["L.2","O.2"]`; construction inherited;
+  fresh id skips a taken `L.2` → `L.3`; on-axis line → coincident identity copy.
+
+**On-axis entity = identity copy (decision).** An entity lying exactly on the
+axis reflects to itself — a coincident copy with a fresh id. This is
+well-defined and avoids a fragile on-axis epsilon test, so it is NOT rejected;
+`test_mirror_entity_on_axis_is_coincident_identity_copy` pins it.
+
+**Never a 500.** Every failure is a legible 422 (endpoint maps
+`SketchEditError.code` via `ValidationApiError`, plus the `geometry.faults`
+belt-and-braces `sketch_mirror_failed`): `sketch_target_not_found` (a target id
+or a `MirrorAxisEntity` axis id absent), `sketch_mirror_axis_not_line`,
+`sketch_mirror_degenerate_axis`. Every entity kind is reflectable, so there is
+no unsupported-target path (a future kind is a pyright exhaustiveness error at
+the arc branch, not a silent wrong reflection). Empty `targets` and duplicate
+entity ids are caught by the DTO validators at the gateway (never reach
+geometry).
+
+---
+
 ## 2026-07-12 — Sketch offset backend (BACKLOG #3): exact analytic parallel copy
 
 **Architecture decision.** Offset (the rib/web/wall-profile tool) is a

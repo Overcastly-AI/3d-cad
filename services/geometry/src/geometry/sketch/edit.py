@@ -38,6 +38,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from geometry.sketch.schemas import (
+    MirrorAxis,
+    MirrorAxisEntity,
     Point2D,
     SketchArc,
     SketchCircle,
@@ -63,7 +65,8 @@ class SketchEditError(ValueError):
     ``code`` is the legible envelope code the endpoint surfaces as a 422
     (never a 500): ``sketch_target_not_found``, ``sketch_unsupported_entity``,
     ``sketch_pick_not_on_target``, ``sketch_extend_no_target``,
-    ``sketch_offset_zero_distance``, ``sketch_degenerate_result``.
+    ``sketch_offset_zero_distance``, ``sketch_degenerate_result``,
+    ``sketch_mirror_axis_not_line``, ``sketch_mirror_degenerate_axis``.
     """
 
     def __init__(self, message: str, *, code: str) -> None:
@@ -718,6 +721,136 @@ def offset_sketch(
             code="sketch_unsupported_entity",
         )
     return [new]
+
+
+# ---------------------------------------------------------------------------
+# Mirror (BACKLOG #4)
+# ---------------------------------------------------------------------------
+#
+# Reflect selected entities about an axis line, APPENDING the reflected copies
+# (sources untouched — same additive posture as offset). The reflection is an
+# **exact rational foot-of-perpendicular** across the infinite axis line: for a
+# point P and axis anchor A with direction d, the foot F = A + ((P-A)·d/(d·d))d
+# and the image is P' = 2F - P. No unit-normalisation (no sqrt), no trig — so
+# the result is exact for rational inputs and bitwise deterministic (RESEARCH
+# §9). Circle radius / arc radius are reflection-invariant (isometry).
+#
+# Reflection is **orientation-reversing**: a CCW arc's image is CW, so to keep
+# the CCW-from-start invariant SketchArc documents we SWAP the reflected
+# endpoints (new start = reflect(source end), new end = reflect(source start));
+# the centre reflects in place. A line has no orientation invariant, so its
+# endpoints reflect in place.
+#
+# Mirror is the OP, not the ``symmetric`` CONSTRAINT (see the py_kit.schemas
+# .sketch module comment): v1 is geometry-only and does NOT auto-add symmetric
+# constraints between a source and its copy.
+
+
+def _resolve_axis(
+    entities: list[SketchEntity], axis: MirrorAxis
+) -> tuple[_V, _V, float]:
+    """Resolve a mirror axis to ``(anchor, direction, |direction|^2)``.
+
+    A :class:`MirrorAxisEntity` must name a line (else
+    ``sketch_mirror_axis_not_line``); a missing axis entity is
+    ``sketch_target_not_found``. A zero-length axis (coincident points or a
+    degenerate line) is ``sketch_mirror_degenerate_axis``.
+    """
+    if isinstance(axis, MirrorAxisEntity):
+        entity = _find_target(entities, axis.entity)
+        if not isinstance(entity, SketchLine):
+            raise SketchEditError(
+                f"mirror axis entity {axis.entity!r} is a {entity.kind!r}, not a line",
+                code="sketch_mirror_axis_not_line",
+            )
+        a, b = _pt(entity.start), _pt(entity.end)
+    else:
+        a, b = _pt(axis.a), _pt(axis.b)
+    d = _sub(b, a)
+    if math.hypot(d.x, d.y) < _TOL:
+        raise SketchEditError(
+            "mirror axis is degenerate (zero-length)",
+            code="sketch_mirror_degenerate_axis",
+        )
+    return a, d, _dot(d, d)
+
+
+def _reflect(p: _V, anchor: _V, d: _V, dd: float) -> _V:
+    """Reflect ``p`` across the infinite line through ``anchor`` along ``d``."""
+    t = _dot(_sub(p, anchor), d) / dd
+    fx = anchor.x + t * d.x
+    fy = anchor.y + t * d.y
+    return _V(2.0 * fx - p.x, 2.0 * fy - p.y)
+
+
+def _mirror_entity(
+    entity: SketchEntity,
+    reflect: Callable[[_V], _V],
+    ident: str,
+) -> SketchEntity:
+    """The reflected copy of ``entity`` with a fresh id; construction inherited."""
+    if isinstance(entity, SketchPoint):
+        return SketchPoint(
+            id=ident,
+            construction=entity.construction,
+            kind="point",
+            position=_point2d(reflect(_pt(entity.position))),
+        )
+    if isinstance(entity, SketchLine):
+        return SketchLine(
+            id=ident,
+            construction=entity.construction,
+            kind="line",
+            start=_point2d(reflect(_pt(entity.start))),
+            end=_point2d(reflect(_pt(entity.end))),
+        )
+    if isinstance(entity, SketchCircle):
+        return SketchCircle(
+            id=ident,
+            construction=entity.construction,
+            kind="circle",
+            center=_point2d(reflect(_pt(entity.center))),
+            radius=entity.radius,
+        )
+    # Only SketchArc remains (the union is exhaustive — a future entity kind
+    # makes this branch a pyright type error, forcing an explicit mirror rule
+    # rather than a silent wrong reflection). Orientation reverses under
+    # reflection: swap start/end so the copy is still CCW from its start
+    # (SketchArc invariant).
+    return SketchArc(
+        id=ident,
+        construction=entity.construction,
+        kind="arc",
+        center=_point2d(reflect(_pt(entity.center))),
+        start=_point2d(reflect(_pt(entity.end))),
+        end=_point2d(reflect(_pt(entity.start))),
+    )
+
+
+def mirror_sketch(
+    entities: list[SketchEntity], targets: list[str], axis: MirrorAxis
+) -> list[SketchEntity]:
+    """Return the NEW mirrored copies of ``targets`` (sources left unchanged).
+
+    Each target is reflected about ``axis`` and appended as a fresh entity with a
+    fresh deterministic id ``f"{source}.{n}"`` (seeded from the whole sketch AND
+    the copies already minted, so no id can collide) inheriting the source's
+    construction flag. Arcs are start/end-swapped to stay CCW (see this module's
+    Mirror section). The caller appends the result to its own entity list.
+    """
+    anchor, d, dd = _resolve_axis(entities, axis)
+
+    def reflect(p: _V) -> _V:
+        return _reflect(p, anchor, d, dd)
+
+    used = {e.id for e in entities}
+    out: list[SketchEntity] = []
+    for target_id in targets:
+        target = _find_target(entities, target_id)
+        ident = _fresh_id(target_id, used)
+        used.add(ident)
+        out.append(_mirror_entity(target, reflect, ident))
+    return out
 
 
 # ---------------------------------------------------------------------------

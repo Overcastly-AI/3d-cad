@@ -26,6 +26,8 @@ from py_kit.schemas.sketch import (
     SketchEditRequest,
     SketchEditResult,
     SketchLine,
+    SketchMirrorRequest,
+    SketchMirrorResult,
     SketchOffsetRequest,
     SketchOffsetResult,
 )
@@ -86,6 +88,31 @@ OFFSET_RESULT = SketchOffsetResult(
             kind="line",
             start=Point2D(x=0.0, y=2.0),
             end=Point2D(x=10.0, y=2.0),
+        ),
+    ]
+)
+
+
+MIRROR_BODY: dict[str, Any] = {
+    "entities": [
+        {
+            "id": "L",
+            "kind": "line",
+            "start": {"x": 2.0, "y": 1.0},
+            "end": {"x": 6.0, "y": 3.0},
+        },
+    ],
+    "targets": ["L"],
+    "axis": {"kind": "points", "a": {"x": 0.0, "y": 0.0}, "b": {"x": 0.0, "y": 1.0}},
+}
+
+MIRROR_RESULT = SketchMirrorResult(
+    entities=[
+        SketchLine(
+            id="L.2",
+            kind="line",
+            start=Point2D(x=-2.0, y=1.0),
+            end=Point2D(x=-6.0, y=3.0),
         ),
     ]
 )
@@ -199,6 +226,45 @@ def test_offset_proxies_typed_result(db_url: str) -> None:
     ) == SketchOffsetRequest.model_validate(OFFSET_BODY)
     assert PRINCIPAL_HEADER not in upstream.headers
     assert "authorization" not in upstream.headers
+
+
+def test_mirror_proxies_typed_result(db_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=MIRROR_RESULT.model_dump_json())
+
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/sketch/mirror", json=MIRROR_BODY, headers=bearer
+        )
+
+    assert response.status_code == 200
+    assert SketchMirrorResult.model_validate(response.json()) == MIRROR_RESULT
+
+    [upstream] = seen
+    assert upstream.url.path == "/api/v1/sketch/mirror"
+    assert SketchMirrorRequest.model_validate_json(
+        upstream.content
+    ) == SketchMirrorRequest.model_validate(MIRROR_BODY)
+    assert PRINCIPAL_HEADER not in upstream.headers
+    assert "authorization" not in upstream.headers
+
+
+def test_mirror_requires_auth(db_url: str) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=MIRROR_RESULT.model_dump_json())
+
+    with make_client(db_url, handler) as client:
+        response = client.post("/api/v1/geometry/sketch/mirror", json=MIRROR_BODY)
+
+    assert response.status_code == 401
+    assert seen == []
 
 
 def test_offset_requires_auth(db_url: str) -> None:

@@ -1109,6 +1109,53 @@
         "title": "MeshStats",
         "type": "object"
       },
+      "MirrorAxisEntity": {
+        "description": "Mirror axis named by an existing **line** entity id.\n\nThe cleanest \"mirror about this construction centerline\" case: ``entity``\nmust resolve to a :class:`SketchLine` in the request's ``entities`` (else\n``sketch_target_not_found``; a non-line axis entity is\n``sketch_mirror_axis_not_line``). The line's start/end define the axis.",
+        "properties": {
+          "entity": {
+            "description": "Id of the line entity to mirror about; must be in `entities`.",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "entity",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "entity"
+        ],
+        "title": "MirrorAxisEntity",
+        "type": "object"
+      },
+      "MirrorAxisPoints": {
+        "description": "Mirror axis given directly as the infinite line through two points.\n\nMore general than :class:`MirrorAxisEntity` \u2014 no axis entity need exist in\nthe sketch. ``a`` and ``b`` must be distinct (a zero-length axis is\n``sketch_mirror_degenerate_axis``).",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/Point2D",
+            "description": "First point on the mirror axis line (mm)."
+          },
+          "b": {
+            "$ref": "#/components/schemas/Point2D",
+            "description": "Second point on the mirror axis line (mm)."
+          },
+          "kind": {
+            "const": "points",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "MirrorAxisPoints",
+        "type": "object"
+      },
       "OverlayEdge": {
         "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures\nTHIS edge. Not stable across edits (topological naming is Phase 2).",
         "properties": {
@@ -1726,6 +1773,118 @@
           "end"
         ],
         "title": "SketchLine",
+        "type": "object"
+      },
+      "SketchMirrorRequest": {
+        "description": "Input for a sketch mirror (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list \u2014 passed so each new copy\ngets a fresh id that cannot collide with an existing one (and to resolve a\n:class:`MirrorAxisEntity` axis). ``targets`` names the entities to reflect;\neach MUST be present in ``entities`` (else ``sketch_target_not_found``) and\nat least one is required. ``axis`` is the mirror line (see :data:`MirrorAxis`).\n\nMirror **adds** geometry: the sources are untouched and the response carries\nonly the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity\nkind is reflectable (point, line, circle, arc). Units are millimetres\n(:mod:`py_kit.schemas.sketch` convention).",
+        "properties": {
+          "axis": {
+            "description": "The mirror axis: a line entity id or two points (see MirrorAxis).",
+            "discriminator": {
+              "mapping": {
+                "entity": "#/components/schemas/MirrorAxisEntity",
+                "points": "#/components/schemas/MirrorAxisPoints"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MirrorAxisEntity"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorAxisPoints"
+              }
+            ],
+            "title": "Axis"
+          },
+          "entities": {
+            "description": "The whole sketch's entities (mirror ADDS to this set; the sources stay unchanged).",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "targets": {
+            "description": "Ids of the entities to reflect; each must be in `entities`.",
+            "items": {
+              "description": "Sketch-local entity id, e.g. 'e1'",
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities",
+          "targets",
+          "axis"
+        ],
+        "title": "SketchMirrorRequest",
+        "type": "object"
+      },
+      "SketchMirrorResult": {
+        "description": "Output of a mirror: the NEW reflected copies (sources unchanged).\n\nLike :class:`SketchOffsetResult` (and unlike :class:`SketchEditResult`),\nmirror **adds** geometry, so this carries ONLY the newly created copies \u2014\none per ``target``, in ``targets`` order \u2014 each with a fresh deterministic\nid ``f\"{source}.{n}\"`` (lowest ``n`` >= 2 not already in use, seeded from the\nwhole sketch AND the copies already minted) and the source's construction\nflag inherited. The caller appends these to its own entity list.\n\nReflection reverses orientation, so a mirrored **arc** has its start/end\n**swapped** (``start`` = reflected source ``end``, ``end`` = reflected source\n``start``) to preserve the CCW-from-start invariant :class:`SketchArc`\ndocuments. Deterministic: identical input yields identical output entities,\ncoordinates included (RESEARCH \u00a79).",
+        "properties": {
+          "entities": {
+            "description": "The newly created mirrored copies (sources are unchanged and NOT echoed here). One per target; fresh id `f\"{source}.{n}\"`, construction flag inherited, arcs start/end-swapped for CCW.",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "arc": "#/components/schemas/SketchArc",
+                  "circle": "#/components/schemas/SketchCircle",
+                  "line": "#/components/schemas/SketchLine",
+                  "point": "#/components/schemas/SketchPoint"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SketchPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchLine"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchCircle"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchArc"
+                }
+              ]
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "title": "SketchMirrorResult",
         "type": "object"
       },
       "SketchOffsetRequest": {
@@ -2615,6 +2774,48 @@
           }
         },
         "summary": "Sketch Extend",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/sketch/mirror": {
+      "post": {
+        "description": "Mirror sketch curves \u2014 reflected copies about an axis line (symmetry).\n\n**Stateless** (CLAUDE.md): a one-shot geometry op, nothing persisted and no\nkernel type crosses the boundary. Like offset (and unlike trim), mirror\n**ADDS** geometry: the sources are unchanged and the response carries only\nthe NEW reflected copies \u2014 one per ``target``, in order \u2014 each with a fresh\ndeterministic id ``f\"{source}.{n}\"`` inheriting the source's construction\nflag. Every entity kind is reflectable; a mirrored **arc** is start/end-\nswapped to stay CCW (reflection reverses orientation). The axis is a line\nentity id or two points (see ``MirrorAxis``).\n\nDistinct from the ``symmetric`` CONSTRAINT: this CREATES geometry, it does\nnot enforce symmetry, and v1 does NOT auto-add symmetric constraints between\na source and its copy (geometry-only). Exact closed-form (rational foot-of-\nperpendicular) and deterministic (RESEARCH \u00a79).\n\nEvery entity kind (point, line, circle, arc) is reflectable, so there is no\nunsupported-target path. Errors are 422s with legible codes, never 500s:\n``sketch_target_not_found`` (a target id \u2014 or a ``MirrorAxisEntity`` axis id\n\u2014 absent), ``sketch_mirror_axis_not_line`` (axis entity is not a line),\n``sketch_mirror_degenerate_axis`` (zero-length axis).",
+        "operationId": "sketch_mirror_api_v1_sketch_mirror_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchMirrorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SketchMirrorResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sketch Mirror",
         "tags": [
           "geometry"
         ]

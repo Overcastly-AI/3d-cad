@@ -129,6 +129,16 @@ evidence in `CHANGELOG.md`. One line per item:
       radius). ADDS a fresh entity, deterministic, legible 422 error codes.
       Single-entity v1; chain offset deferred. Sketch-UI wiring is BACKLOG #3b;
       the Sketching row holds ❌ until the session-tool cluster's UI lands.
+- ✅ Sketch mirror — BACKEND (2026-07-12): stateless server-side geometry op
+      `POST /api/v1/sketch/mirror` (gateway-proxied), exact analytic reflection
+      (rational foot-of-perpendicular; no sqrt/trig) of point/line/circle/arc
+      about an axis line — axis given as a line-entity id OR two points
+      (discriminated union). ADDS fresh copies (construction inherited),
+      deterministic, legible 422s. Arc CCW-from-start invariant preserved by
+      swapping reflected start/end (reflection reverses orientation). Distinct
+      from the `symmetric` CONSTRAINT (creates geometry, doesn't enforce
+      symmetry); v1 does not auto-pair source↔copy. Sketch-UI wiring is BACKLOG
+      #4b; the Sketching row holds ❌ until the session-tool cluster's UI lands.
 - ✅ Revolve + linear/circular pattern — 5 body-affecting features now
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
       held ❌: edge selection is still predicate-only, and sweep/loft/shell/

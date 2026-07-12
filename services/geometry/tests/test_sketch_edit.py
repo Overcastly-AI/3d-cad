@@ -18,6 +18,8 @@ import pytest
 from fastapi.testclient import TestClient
 from geometry.main import app
 from geometry.sketch import (
+    MirrorAxisEntity,
+    MirrorAxisPoints,
     Point2D,
     SketchArc,
     SketchCircle,
@@ -26,6 +28,7 @@ from geometry.sketch import (
     SketchLine,
     SketchPoint,
     extend_sketch,
+    mirror_sketch,
     offset_sketch,
     trim_sketch,
 )
@@ -417,6 +420,191 @@ def test_offset_is_deterministic() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Mirror (reflected copies about an axis line; sources unchanged)
+# ---------------------------------------------------------------------------
+
+#: The Y axis as two points (line x=0, through the origin, pointing +y).
+_Y_AXIS = MirrorAxisPoints(
+    kind="points", a=Point2D(x=0.0, y=0.0), b=Point2D(x=0.0, y=1.0)
+)
+
+
+def _arc_mid(a: SketchArc) -> tuple[float, float]:
+    """Midpoint of the CCW-from-start arc (proves which side is swept)."""
+    cx, cy = a.center.x, a.center.y
+    r = math.hypot(a.start.x - cx, a.start.y - cy)
+    a0 = math.atan2(a.start.y - cy, a.start.x - cx)
+    a1 = math.atan2(a.end.y - cy, a.end.x - cx)
+    sweep = (a1 - a0) % (2 * math.pi)
+    return cx + r * math.cos(a0 + sweep / 2), cy + r * math.sin(a0 + sweep / 2)
+
+
+def test_mirror_line_across_y_axis_exact_endpoints() -> None:
+    """Line (2,1)->(6,3) mirrored across the Y axis -> (-2,1)->(-6,3), fresh id."""
+    entities: list[SketchEntity] = [line("L", 2.0, 1.0, 6.0, 3.0)]
+    result = mirror_sketch(entities, ["L"], _Y_AXIS)
+
+    assert [e.id for e in result] == ["L.2"]  # NEW copy only, source untouched
+    copy = result[0]
+    assert isinstance(copy, SketchLine)
+    approx_point(copy.start, -2.0, 1.0)
+    approx_point(copy.end, -6.0, 3.0)
+
+
+def test_mirror_circle_reflects_center_radius_unchanged() -> None:
+    """Circle center (4,3) r=2 across the Y axis -> center (-4,3), r=2."""
+    result = mirror_sketch([circle("O", 4.0, 3.0, 2.0)], ["O"], _Y_AXIS)
+    copy = result[0]
+    assert isinstance(copy, SketchCircle)
+    approx_point(copy.center, -4.0, 3.0)
+    assert copy.radius == pytest.approx(2.0, abs=EDIT_TOL)
+
+
+def test_mirror_arc_swaps_endpoints_to_stay_ccw() -> None:
+    """Quarter arc (5,0)->(0,5) in Q1 mirrored across Y -> Q2 arc, still CCW.
+
+    Reflection reverses orientation, so the copy MUST swap start/end:
+    start = reflect(end) = (0,5), end = reflect(start) = (-5,0). The swept side
+    is Q2 (midpoint at 135°), NOT the 270° long way through the bottom that a
+    non-swapped arc would trace.
+    """
+    a = arc("A", 0.0, 0.0, 5.0, 0.0, 0.0, 5.0)  # 0° -> 90° CCW
+    copy = mirror_sketch([a], ["A"], _Y_AXIS)[0]
+    assert isinstance(copy, SketchArc)
+    approx_point(copy.center, 0.0, 0.0)
+    approx_point(copy.start, 0.0, 5.0)  # reflect(end)
+    approx_point(copy.end, -5.0, 0.0)  # reflect(start)
+    # The CCW sweep really is the short Q2 arc: midpoint at 135°.
+    mx, my = _arc_mid(copy)
+    assert mx == pytest.approx(5.0 * math.cos(3 * math.pi / 4), abs=EDIT_TOL)
+    assert my == pytest.approx(5.0 * math.sin(3 * math.pi / 4), abs=EDIT_TOL)
+
+
+def test_mirror_point_reflects_position() -> None:
+    entities: list[SketchEntity] = [
+        SketchPoint(id="P", kind="point", position=Point2D(x=3.0, y=4.0))
+    ]
+    copy = mirror_sketch(entities, ["P"], _Y_AXIS)[0]
+    assert isinstance(copy, SketchPoint)
+    approx_point(copy.position, -3.0, 4.0)
+
+
+def test_mirror_about_line_entity_axis() -> None:
+    """Mirror about a construction centerline (the X axis) by entity id."""
+    axis = SketchLine(
+        id="AX",
+        kind="line",
+        construction=True,
+        start=Point2D(x=0.0, y=0.0),
+        end=Point2D(x=1.0, y=0.0),
+    )
+    entities: list[SketchEntity] = [axis, line("L", 2.0, 3.0, 6.0, 5.0)]
+    result = mirror_sketch(
+        entities, ["L"], MirrorAxisEntity(kind="entity", entity="AX")
+    )
+    copy = result[0]
+    assert isinstance(copy, SketchLine)
+    approx_point(copy.start, 2.0, -3.0)  # reflect across X axis flips y
+    approx_point(copy.end, 6.0, -5.0)
+
+
+def test_mirror_about_diagonal_axis_y_equals_x() -> None:
+    """Mirror across y=x swaps coordinates (exact rational reflection)."""
+    axis = MirrorAxisPoints(
+        kind="points", a=Point2D(x=0.0, y=0.0), b=Point2D(x=1.0, y=1.0)
+    )
+    copy = mirror_sketch([line("L", 2.0, 5.0, 3.0, 8.0)], ["L"], axis)[0]
+    assert isinstance(copy, SketchLine)
+    approx_point(copy.start, 5.0, 2.0)
+    approx_point(copy.end, 8.0, 3.0)
+
+
+def test_mirror_multiple_targets_each_fresh_id() -> None:
+    entities: list[SketchEntity] = [
+        line("L", 2.0, 0.0, 4.0, 0.0),
+        circle("O", 3.0, 1.0, 1.0),
+    ]
+    result = mirror_sketch(entities, ["L", "O"], _Y_AXIS)
+    assert [e.id for e in result] == ["L.2", "O.2"]
+
+
+def test_mirror_inherits_construction_flag() -> None:
+    src = SketchLine(
+        id="L",
+        kind="line",
+        construction=True,
+        start=Point2D(x=2.0, y=0.0),
+        end=Point2D(x=6.0, y=0.0),
+    )
+    copy = mirror_sketch([src], ["L"], _Y_AXIS)[0]
+    assert copy.construction is True
+
+
+def test_mirror_fresh_id_avoids_collision() -> None:
+    """A copy id must skip an id already present elsewhere in the sketch."""
+    entities: list[SketchEntity] = [
+        line("L", 2.0, 0.0, 4.0, 0.0),
+        line("L.2", 0.0, 9.0, 1.0, 9.0),  # occupies the default fresh id
+    ]
+    copy = mirror_sketch(entities, ["L"], _Y_AXIS)[0]
+    assert copy.id == "L.3"
+
+
+def test_mirror_entity_on_axis_is_coincident_identity_copy() -> None:
+    """An entity lying ON the axis reflects to itself (documented identity)."""
+    # Vertical line on the Y axis (x=0).
+    copy = mirror_sketch([line("L", 0.0, 1.0, 0.0, 5.0)], ["L"], _Y_AXIS)[0]
+    assert isinstance(copy, SketchLine)
+    approx_point(copy.start, 0.0, 1.0)
+    approx_point(copy.end, 0.0, 5.0)
+
+
+def test_mirror_is_deterministic() -> None:
+    a = arc("A", 1.0, 2.0, 6.0, 2.0, 1.0, 7.0)
+    axis = MirrorAxisPoints(
+        kind="points", a=Point2D(x=0.0, y=0.0), b=Point2D(x=0.3, y=1.7)
+    )
+    first = mirror_sketch([a], ["A"], axis)
+    second = mirror_sketch([a], ["A"], axis)
+    assert [e.model_dump() for e in first] == [e.model_dump() for e in second]
+
+
+def test_mirror_target_not_found() -> None:
+    with pytest.raises(SketchEditError) as ei:
+        mirror_sketch([line("L", 0.0, 0.0, 1.0, 0.0)], ["ghost"], _Y_AXIS)
+    assert _code(ei) == "sketch_target_not_found"
+
+
+def test_mirror_axis_entity_not_found() -> None:
+    with pytest.raises(SketchEditError) as ei:
+        mirror_sketch(
+            [line("L", 2.0, 0.0, 4.0, 0.0)],
+            ["L"],
+            MirrorAxisEntity(kind="entity", entity="ghost"),
+        )
+    assert _code(ei) == "sketch_target_not_found"
+
+
+def test_mirror_axis_entity_not_a_line() -> None:
+    entities: list[SketchEntity] = [
+        circle("O", 0.0, 0.0, 5.0),
+        line("L", 2.0, 0.0, 4.0, 0.0),
+    ]
+    with pytest.raises(SketchEditError) as ei:
+        mirror_sketch(entities, ["L"], MirrorAxisEntity(kind="entity", entity="O"))
+    assert _code(ei) == "sketch_mirror_axis_not_line"
+
+
+def test_mirror_degenerate_axis_zero_length() -> None:
+    axis = MirrorAxisPoints(
+        kind="points", a=Point2D(x=1.0, y=1.0), b=Point2D(x=1.0, y=1.0)
+    )
+    with pytest.raises(SketchEditError) as ei:
+        mirror_sketch([line("L", 2.0, 0.0, 4.0, 0.0)], ["L"], axis)
+    assert _code(ei) == "sketch_mirror_degenerate_axis"
+
+
+# ---------------------------------------------------------------------------
 # Error paths (legible codes, never 500)
 # ---------------------------------------------------------------------------
 
@@ -642,3 +830,74 @@ def test_offset_endpoint_zero_distance_is_422() -> None:
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "sketch_offset_zero_distance"
+
+
+_MIRROR_BODY: dict[str, Any] = {
+    "entities": [
+        {
+            "id": "L",
+            "kind": "line",
+            "start": {"x": 2.0, "y": 1.0},
+            "end": {"x": 6.0, "y": 3.0},
+        },
+    ],
+    "target": "L",  # unused by mirror; present only for shape parity in docs
+    "targets": ["L"],
+    "axis": {"kind": "points", "a": {"x": 0.0, "y": 0.0}, "b": {"x": 0.0, "y": 1.0}},
+}
+
+
+def test_mirror_endpoint_returns_new_entity() -> None:
+    body = {k: v for k, v in _MIRROR_BODY.items() if k != "target"}
+    response = client.post("/api/v1/sketch/mirror", json=body)
+    assert response.status_code == 200, response.text
+    entities = response.json()["entities"]
+    assert [e["id"] for e in entities] == ["L.2"]  # NEW copy only
+    copy = entities[0]
+    assert copy["start"]["x"] == pytest.approx(-2.0, abs=EDIT_TOL)
+    assert copy["end"]["x"] == pytest.approx(-6.0, abs=EDIT_TOL)
+
+
+def test_mirror_endpoint_axis_entity_not_a_line_is_422() -> None:
+    body = {
+        "entities": [
+            {
+                "id": "O",
+                "kind": "circle",
+                "center": {"x": 0.0, "y": 0.0},
+                "radius": 5.0,
+            },
+            {
+                "id": "L",
+                "kind": "line",
+                "start": {"x": 2.0, "y": 0.0},
+                "end": {"x": 4.0, "y": 0.0},
+            },
+        ],
+        "targets": ["L"],
+        "axis": {"kind": "entity", "entity": "O"},
+    }
+    response = client.post("/api/v1/sketch/mirror", json=body)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "sketch_mirror_axis_not_line"
+
+
+def test_mirror_endpoint_empty_targets_rejected_by_dto() -> None:
+    body = {
+        "entities": [
+            {
+                "id": "L",
+                "kind": "line",
+                "start": {"x": 2.0, "y": 0.0},
+                "end": {"x": 4.0, "y": 0.0},
+            },
+        ],
+        "targets": [],
+        "axis": {
+            "kind": "points",
+            "a": {"x": 0.0, "y": 0.0},
+            "b": {"x": 0.0, "y": 1.0},
+        },
+    }
+    response = client.post("/api/v1/sketch/mirror", json=body)
+    assert response.status_code == 422

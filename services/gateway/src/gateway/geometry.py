@@ -28,6 +28,8 @@ from py_kit.schemas.overlay import OverlayRequest, OverlayResult
 from py_kit.schemas.sketch import (
     SketchEditRequest,
     SketchEditResult,
+    SketchMirrorRequest,
+    SketchMirrorResult,
     SketchOffsetRequest,
     SketchOffsetResult,
 )
@@ -283,3 +285,22 @@ async def sketch_offset(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchOffsetResult.model_validate_json(upstream.content)
+
+
+@router.post("/sketch/mirror")
+async def sketch_mirror(
+    request: SketchMirrorRequest, user: CurrentUser, http_request: Request
+) -> SketchMirrorResult:
+    """Proxy a stateless sketch mirror to the geometry service.
+
+    Auth-protected and identity-free upstream (same posture as ``sketch/trim``).
+    The shared ``SketchMirrorRequest`` DTO validates at the gateway (a duplicate
+    entity id, or an empty ``targets`` list, is a 422 here and never reaches
+    geometry); upstream envelopes (``sketch_target_not_found``,
+    ``sketch_mirror_axis_not_line``, ``sketch_mirror_degenerate_axis``,
+    ``sketch_unsupported_entity``) are re-surfaced verbatim.
+    """
+    upstream = await _forward(http_request, "/api/v1/sketch/mirror", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return SketchMirrorResult.model_validate_json(upstream.content)

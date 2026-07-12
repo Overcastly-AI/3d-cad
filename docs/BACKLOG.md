@@ -124,17 +124,41 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       screenshots; `frontend-design` skill invoked. Chain-offset UI is out of
       scope (backend defers chain offset). [src: product-auditor, competitive,
       roadmap]
-- [ ] (P1, M) Sketch: mirror — duplicate selected entities reflected about
-      a chosen line (any line, not just construction). v1 scope: a one-shot
-      duplicate, not a live-linked op (explicit scoping call — revisit if
-      the founder wants a live mirror later); sketch-level rectangular/
-      circular array is explicitly out of scope for this item. Depends on:
-      nothing new.
-      Acceptance: new mirror operation; keyboard verb; worked e2e — mirror
-      an L-shaped profile about a centerline, confirm the resulting closed
-      profile extrudes to double the source volume (symmetric part);
-      screenshots; `frontend-design` skill invoked. [src: product-auditor,
-      competitive, roadmap]
+- [x] (P1, M) Sketch: mirror — BACKEND shipped 2026-07-12. Server-side
+      geometry op (RESEARCH §3: reflection math is kernel-owned, never
+      reimplemented in the frontend). Stateless endpoint
+      `POST /api/v1/sketch/mirror` (gateway-proxied auth-gated at
+      `/api/v1/geometry/sketch/mirror`), shared pure-pydantic DTOs
+      `SketchMirrorRequest` (`entities` + `targets: list[EntityId]` (min 1) +
+      `axis`) → `SketchMirrorResult` (`entities` = the NEW copies only; sources
+      unchanged) in `py_kit.schemas.sketch`. Exact analytic reflection (rational
+      foot-of-perpendicular; no sqrt/trig) of point/line/circle/arc
+      (`geometry.sketch.edit.mirror_sketch`). **Axis** = a discriminated union:
+      `MirrorAxisEntity` (a line-entity id — the construction-centerline case)
+      OR `MirrorAxisPoints` (two points). Copies get fresh `f"{source}.{n}"`
+      ids, inherit construction. **Arc CCW-from-start invariant preserved** by
+      swapping reflected start/end (reflection reverses orientation) — tested
+      with the swept-side proof. Distinct from the `symmetric` CONSTRAINT
+      (documented — creates geometry, doesn't enforce symmetry); v1 does NOT
+      auto-add symmetric constraints pairing source↔copy (deferred, honest).
+      On-axis entity → coincident identity copy. Deterministic (RESEARCH §9).
+      Error paths are legible 422s (`sketch_target_not_found`,
+      `sketch_mirror_axis_not_line`, `sketch_mirror_degenerate_axis`,
+      belt-and-braces `sketch_mirror_failed`). Sketch-level rectangular/circular
+      array remains out of scope. Tests: analytic unit (exact coords + arc-CCW
+      swap) + endpoint gates + gateway proxy + determinism + fresh-id-collision.
+      Contracts/ts-client regenerated. GEOMETRY-QA entry 2026-07-12.
+      [src: product-auditor, competitive, roadmap]
+- [ ] (P1, S) #4b Sketch: mirror UI — wire the shipped mirror backend into the
+      sketch editor: new keyboard verb (avoid assigned letters) + multi-select
+      of targets + an axis pick (a line entity, defaulting to a construction
+      centerline), call the gateway `/geometry/sketch/mirror` proxy with
+      `{entities, targets, axis}`, append the returned copies to the sketch, and
+      re-solve. Reuse the trim/offset selection-presence pattern. Depends on: #4
+      backend (done). Acceptance: worked e2e — mirror an L-shaped profile about
+      a centerline, confirm the resulting closed profile extrudes to double the
+      source volume (symmetric part); screenshots; `frontend-design` skill
+      invoked. [src: product-auditor, competitive, roadmap]
 - [ ] (P1, S) Sketch: fillet/chamfer (corner round) — select two sketch
       lines sharing an endpoint + a radius/distance; replace the corner
       with a tangent arc (fillet) or bevel line (chamfer), trimming both
@@ -409,6 +433,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — **Sketch mirror (#4) BACKEND shipped.** `POST /api/v1/sketch/
+  mirror` (gateway-proxied): exact analytic reflection of point/line/circle/arc
+  about a line-entity-id OR two-point axis; arc CCW-swap preserves the invariant.
+  #4b (UI) queued. [kernel-architect]
 - 2026-07-12 — **Ready #1 (Fillet/Chamfer authoring UI) shipped** +
   reopened #6 P1 fixed: measure pick-marks now hit-test by real click/tap
   (edge marks at true midpoint, vertex z-priority, visible reticle nodes).

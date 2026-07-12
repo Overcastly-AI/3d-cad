@@ -35,6 +35,8 @@ from py_kit.schemas.sketch import (
     SketchEditRequest,
     SketchEditResult,
     SketchEntity,
+    SketchMirrorRequest,
+    SketchMirrorResult,
     SketchOffsetRequest,
     SketchOffsetResult,
 )
@@ -49,6 +51,7 @@ from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetad
 from geometry.sketch import (
     SketchEditError,
     extend_sketch,
+    mirror_sketch,
     offset_sketch,
     trim_sketch,
 )
@@ -277,6 +280,41 @@ def sketch_offset(request: SketchOffsetRequest) -> SketchOffsetResult:
             exc, code="sketch_offset_failed", action="sketch offset"
         ) from exc
     return SketchOffsetResult(entities=entities)
+
+
+@router.post("/sketch/mirror")
+def sketch_mirror(request: SketchMirrorRequest) -> SketchMirrorResult:
+    """Mirror sketch curves — reflected copies about an axis line (symmetry).
+
+    **Stateless** (CLAUDE.md): a one-shot geometry op, nothing persisted and no
+    kernel type crosses the boundary. Like offset (and unlike trim), mirror
+    **ADDS** geometry: the sources are unchanged and the response carries only
+    the NEW reflected copies — one per ``target``, in order — each with a fresh
+    deterministic id ``f"{source}.{n}"`` inheriting the source's construction
+    flag. Every entity kind is reflectable; a mirrored **arc** is start/end-
+    swapped to stay CCW (reflection reverses orientation). The axis is a line
+    entity id or two points (see ``MirrorAxis``).
+
+    Distinct from the ``symmetric`` CONSTRAINT: this CREATES geometry, it does
+    not enforce symmetry, and v1 does NOT auto-add symmetric constraints between
+    a source and its copy (geometry-only). Exact closed-form (rational foot-of-
+    perpendicular) and deterministic (RESEARCH §9).
+
+    Every entity kind (point, line, circle, arc) is reflectable, so there is no
+    unsupported-target path. Errors are 422s with legible codes, never 500s:
+    ``sketch_target_not_found`` (a target id — or a ``MirrorAxisEntity`` axis id
+    — absent), ``sketch_mirror_axis_not_line`` (axis entity is not a line),
+    ``sketch_mirror_degenerate_axis`` (zero-length axis).
+    """
+    try:
+        entities = mirror_sketch(request.entities, request.targets, request.axis)
+    except SketchEditError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
+    except Exception as exc:  # belt and braces — an edit is never a 500
+        raise unexpected_query_failure(
+            exc, code="sketch_mirror_failed", action="sketch mirror"
+        ) from exc
+    return SketchMirrorResult(entities=entities)
 
 
 @router.post("/export/tree", response_class=Response, responses=_EXPORT_RESPONSES)
