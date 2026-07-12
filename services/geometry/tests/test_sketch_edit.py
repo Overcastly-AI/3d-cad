@@ -1047,6 +1047,80 @@ def test_fillet_is_deterministic() -> None:
     assert [e.model_dump() for e in first] == [e.model_dump() for e in second]
 
 
+def _corner_at(deg: float) -> list[SketchEntity]:
+    """Two legs from the origin: A along +X, B at ``deg`` degrees, so the
+    interior angle between the legs is exactly ``deg``."""
+    t = math.radians(deg)
+    return [
+        line("A", 0.0, 0.0, 10.0, 0.0),
+        line("B", 0.0, 0.0, 10.0 * math.cos(t), 10.0 * math.sin(t)),
+    ]
+
+
+def _assert_fillet_tangent(out: list[SketchEntity], radius: float, deg: float) -> None:
+    """Property-based tangency check that does NOT depend on the setback
+    formula: the arc must be tangent to both legs (its radius to each tangent
+    point is perpendicular to that leg) and the corner-facing minor arc must
+    sweep exactly pi-theta. At theta=90deg setback==radius==center_dist all
+    collapse to r, so these properties are what distinguish a correct
+    general-angle formula from one that accidentally returns `radius` (the
+    a0302e4 review 🟡).
+    """
+    t = math.radians(deg)
+    dir_a = (1.0, 0.0)
+    dir_b = (math.cos(t), math.sin(t))
+    a = by_id(out, "A")
+    b = by_id(out, "B")
+    arc = by_id(out, "A.2")
+    assert isinstance(a, SketchLine) and isinstance(b, SketchLine)
+    assert isinstance(arc, SketchArc)
+    c = (arc.center.x, arc.center.y)
+    ta = (a.start.x, a.start.y)  # corner-side endpoint moved to the tangent point
+    tb = (b.start.x, b.start.y)
+    # the radius to each tangent point equals r, and the arc endpoints lie on
+    # that same circle
+    for px, py in (ta, tb, (arc.start.x, arc.start.y), (arc.end.x, arc.end.y)):
+        assert math.hypot(c[0] - px, c[1] - py) == pytest.approx(radius, abs=EDIT_TOL)
+    # true tangency: the radius to each tangent point is perpendicular to its leg
+    assert (c[0] - ta[0]) * dir_a[0] + (c[1] - ta[1]) * dir_a[1] == pytest.approx(
+        0.0, abs=EDIT_TOL
+    )
+    assert (c[0] - tb[0]) * dir_b[0] + (c[1] - tb[1]) * dir_b[1] == pytest.approx(
+        0.0, abs=EDIT_TOL
+    )
+    # the corner-facing minor arc sweeps exactly pi - theta
+    assert _arc_sweep(arc) == pytest.approx(math.pi - t, abs=EDIT_TOL)
+
+
+def test_fillet_acute_60deg_corner_is_truly_tangent() -> None:
+    # Regression for the review 🟡: the committed tests were all 90°, where the
+    # setback/radius/center-distance degenerate to the same value. 60° separates
+    # them (setback=r/tan30°, center_dist=r/sin30°) and proves the formula is
+    # the general one, not a right-angle special case.
+    _assert_fillet_tangent(fillet_sketch(_corner_at(60.0), "A", "B", 2.0), 2.0, 60.0)
+
+
+def test_fillet_obtuse_120deg_corner_is_truly_tangent() -> None:
+    _assert_fillet_tangent(fillet_sketch(_corner_at(120.0), "A", "B", 2.0), 2.0, 120.0)
+
+
+def test_chamfer_non_perpendicular_setback() -> None:
+    # Chamfer at a 60° corner: setback points sit at distance d along each leg
+    # from the corner (no 90° assumption), and the bevel connects them.
+    out = chamfer_sketch(_corner_at(60.0), "A", "B", 3.0)
+    assert [e.id for e in out] == ["A", "B", "A.2"]
+    t = math.radians(60.0)
+    a = by_id(out, "A")
+    b = by_id(out, "B")
+    chamfer = by_id(out, "A.2")
+    assert isinstance(a, SketchLine) and isinstance(b, SketchLine)
+    assert isinstance(chamfer, SketchLine)
+    approx_point(a.start, 3.0, 0.0)  # setback 3 along +X
+    approx_point(b.start, 3.0 * math.cos(t), 3.0 * math.sin(t))  # setback 3 along B
+    approx_point(chamfer.start, a.start.x, a.start.y)
+    approx_point(chamfer.end, b.start.x, b.start.y)
+
+
 def test_chamfer_is_deterministic() -> None:
     first = chamfer_sketch(_perp_corner(), "A", "B", 3.0)
     second = chamfer_sketch(_perp_corner(), "A", "B", 3.0)
