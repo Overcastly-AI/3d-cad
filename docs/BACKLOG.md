@@ -383,6 +383,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — measure "never a 500" gap closed (code-review 🟡): a RAW OCCT/std
+  raise from the kernel (degenerate recomputed edge) now maps to a 422
+  `measure_failed`, sanitized to the exception class name, via a shared
+  belt-and-braces helper (`geometry.faults`). [kernel-architect]
 - 2026-07-12 — measure endpoint + gateway proxy (6a) shipped; viewport pick UI
   (6b) pending. Exact B-rep nearest distance (point/edge targets, recompute-
   from-tree edges), analytic-verified, contracts+ts-client regen. [kernel-architect]

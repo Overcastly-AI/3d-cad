@@ -21,6 +21,7 @@ from build123d import Solid
 from fastapi.testclient import TestClient
 from geometry.kernel import EdgeIndexError, measure_targets
 from geometry.main import app
+from py_kit.errors import ValidationApiError
 from py_kit.schemas.geometry import Vec3
 from py_kit.schemas.measure import (
     EdgeTarget,
@@ -297,3 +298,53 @@ def test_measure_rejects_malformed_payload(
     response = client.post("/api/v1/measure", json={"a": {"kind": "point"}})
     assert response.status_code == 422
     assert_validation_envelope(response.json())
+
+
+def test_unexpected_kernel_raise_is_sanitized_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A RAW kernel raise (not EdgeIndexError/MeasureError) is a clean 422
+    ``measure_failed`` with the OCCT detail sanitized to the class name — the
+    "surfaces as a 422, never a 500" promise, tested at the service function."""
+    import geometry.measure as measure_mod
+
+    def boom(*_args: Any, **_kwargs: Any) -> MeasureResult:
+        raise RuntimeError("OCCT StdFail_NotDone: gp_Pnt internals leaked here")
+
+    monkeypatch.setattr(measure_mod, "measure_targets", boom)
+    with pytest.raises(ValidationApiError) as excinfo:
+        measure_mod.evaluate_measure(
+            MeasureRequest.model_validate(
+                {
+                    "a": {"kind": "point", "position": {"x": 0.0, "y": 0.0, "z": 0.0}},
+                    "b": {"kind": "point", "position": {"x": 1.0, "y": 0.0, "z": 0.0}},
+                }
+            )
+        )
+    error = excinfo.value
+    assert error.code == "measure_failed"
+    assert error.status_code == 422
+    assert "RuntimeError" in error.message  # class name kept
+    assert "gp_Pnt internals" not in error.message  # OCCT detail sanitized out
+
+
+def test_pathological_kernel_raise_is_422_over_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same degenerate raise over the real HTTP path is a 422 envelope,
+    never a 500 (the belt-and-braces the module docstring promises)."""
+    import geometry.measure as measure_mod
+
+    def boom(*_args: Any, **_kwargs: Any) -> MeasureResult:
+        raise RuntimeError("BRepExtrema_DistShapeShape constructor failed")
+
+    monkeypatch.setattr(measure_mod, "measure_targets", boom)
+    response = client.post(
+        "/api/v1/measure",
+        json={
+            "a": {"kind": "point", "position": {"x": 0.0, "y": 0.0, "z": 0.0}},
+            "b": {"kind": "point", "position": {"x": 1.0, "y": 2.0, "z": 3.0}},
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "measure_failed"

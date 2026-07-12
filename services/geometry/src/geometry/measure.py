@@ -13,6 +13,7 @@ from build123d import Solid
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.measure import EdgeTarget, MeasureRequest, MeasureResult
 
+from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import EdgeIndexError, MeasureError, measure_targets
 
@@ -50,3 +51,12 @@ def evaluate_measure(request: MeasureRequest) -> MeasureResult:
         raise ValidationApiError(str(exc), code="edge_index_out_of_range") from exc
     except MeasureError as exc:
         raise ValidationApiError(str(exc), code="measure_failed") from exc
+    except Exception as exc:
+        # Belt and braces: a RAW OCCT/std raise (e.g. the
+        # BRepExtrema_DistShapeShape constructor, or PointOnShape1(1) with
+        # NbSolution()==0, on a degenerate recomputed edge) must surface as
+        # the promised 422, never a 500. Sanitized to the exception class
+        # name (geometry.faults) — no kernel internals leak to the client.
+        raise unexpected_query_failure(
+            exc, code="measure_failed", action="measurement"
+        ) from exc
