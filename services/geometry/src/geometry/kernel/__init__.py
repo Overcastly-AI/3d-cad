@@ -22,6 +22,7 @@ from geometry.kernel.extrude import (
     extrude_face,
 )
 from geometry.kernel.fillet import FilletError, fillet_body
+from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
 from geometry.kernel.overlay import selection_overlay
 from geometry.kernel.pattern import (
@@ -70,6 +71,7 @@ __all__ = [
     "ChamferError",
     "EdgeIndexError",
     "FilletError",
+    "LoftError",
     "MeasureError",
     "NoAxisError",
     "NoEdgesSelectedError",
@@ -89,6 +91,7 @@ __all__ = [
     "SweepError",
     "build_box",
     "build_cylinder",
+    "build_loft_section",
     "build_path_wire",
     "build_profile_face",
     "build_shape",
@@ -105,6 +108,7 @@ __all__ = [
     "fillet_body",
     "glb_stats",
     "linear_pattern",
+    "loft_sections",
     "measure_shape",
     "measure_targets",
     "resolve_axis_line",

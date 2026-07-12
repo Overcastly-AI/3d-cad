@@ -192,9 +192,11 @@ evidence in `CHANGELOG.md`. One line per item:
       mass-properties panel, units system (BACKLOG Next).
 - 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
       2026-07-12 (commit e022114); feeds this groom's Ready restock.
-- 🚧 Part-modeling breadth — sweep shipped end-to-end (#7 + #7b); loft,
-      shell, draft, dedicated hole, feature-scoped patterns, multi-body
-      boolean, datum planes/axes still unbuilt (see BACKLOG Ready + Next).
+- 🚧 Part-modeling breadth — sweep shipped end-to-end (#7 + #7b); loft
+      BACKEND shipped (#8 — ruled loft through ≥2 ordered sections incl.
+      loft-to-apex; UI #8b pending); shell, draft, dedicated hole,
+      feature-scoped patterns, multi-body boolean, offset datum planes/axes
+      still unbuilt (see BACKLOG Ready + Next).
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
 

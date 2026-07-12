@@ -250,6 +250,59 @@ class SweepParamsV1(BaseModel):
     operation: Literal["add", "cut"]
 
 
+class LoftParamsV1(BaseModel):
+    """Blend a solid THROUGH two or more ordered section sketches (design §4.3).
+
+    The loft sibling of :class:`SweepParamsV1` and the second non-prismatic
+    body-affecting feature: where sweep drives ONE profile along a path, a loft
+    skins a solid through an ORDERED list of cross-section sketches (the
+    transitional-solid / cone / adapter primitive named in the Part-modeling
+    scorecard notes). It shares the SAME ``add``/``cut`` boolean against the body
+    chain as extrude/revolve/sweep; the new ingredient is ``profiles``, a list
+    of ``FeatureRef``s (min 2) to earlier sketch features, blended in list order.
+
+    Section representation (v1 DESIGN DECISION — docs/GEOMETRY-QA.md
+    2026-07-12): each ``profiles`` entry is a whole earlier SKETCH feature
+    referenced by id — the same stable-feature-id mechanism the extrude/revolve
+    ``profile`` and sweep ``profile``/``path`` slots use. This is NOT topological
+    naming (#1): it references a whole feature's evaluated wire, never a picked
+    sub-edge. A section's non-construction entities form either a single CLOSED
+    profile wire (built by the shared ``build_profile_face``) OR a single POINT,
+    interpreted as an APEX vertex (the standard loft-to-a-point tip); an apex may
+    appear only as the FIRST or LAST section.
+
+    Why apex support in v1 (honest limit, not gold-plating): datum planes are
+    origin-only and mutually perpendicular (never parallel), so two parallel
+    offset circular sections — a cylinder/frustum — are not authorable until
+    offset datum planes land. A closed section lofted to an apex point IS
+    authorable and gives an analytic solid (a pyramid/cone), which is the loft
+    golden's mass-property anchor.
+
+    v1 limits (stated plainly — documented scope, not bugs):
+
+    * a RULED (straight) loft through the sections in list order — NO guide
+      rails, NO tangency/normal end conditions, NO periodic (closed) loft, NO
+      per-section twist/alignment control (all later, additive params — no
+      ``param_version`` bump);
+    * sections are coplanar-or-parallel profiles as authored (each sketch
+      carries its own plane); an open/non-closed section is a
+      ``profile_not_closed`` rebuild error, a multi-loop section is
+      ``profile_unsupported``, and a section ref that is not an earlier ok
+      sketch is ``reference_unresolved`` (exactly like extrude/sweep);
+    * incompatible sections (crossed rails), an apex wedged between two wire
+      sections, or a skin OCCT cannot reduce to exactly one solid is a kernel
+      ``loft_failed`` rebuild error, never a silently bad body.
+    """
+
+    profiles: list[FeatureRef] = Field(
+        min_length=2,
+        description="Ordered earlier sketch features (>= 2) to blend through; "
+        "each forms a single closed profile wire or a single apex point "
+        "(design §2.2). Fewer than 2 is a request-validation 422.",
+    )
+    operation: Literal["add", "cut"]
+
+
 class FilletParamsV1(BaseModel):
     """Round selected edges of the current body chain with a constant radius.
 
@@ -454,6 +507,14 @@ class SweepFeature(BaseModel):
     params: SweepParamsV1
 
 
+class LoftFeature(BaseModel):
+    """``{"type": "loft", "version": 1, "params": {...}}`` envelope."""
+
+    type: Literal["loft"]
+    version: Literal[1]
+    params: LoftParamsV1
+
+
 class FilletFeature(BaseModel):
     """``{"type": "fillet", "version": 1, "params": {...}}`` envelope."""
 
@@ -486,6 +547,7 @@ Feature = Annotated[
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
+    | LoftFeature
     | FilletFeature
     | ChamferFeature
     | PatternFeature,
@@ -498,6 +560,7 @@ FeatureEnvelope = (
     | ExtrudeFeature
     | RevolveFeature
     | SweepFeature
+    | LoftFeature
     | FilletFeature
     | ChamferFeature
     | PatternFeature
@@ -647,6 +710,7 @@ FEATURE_REGISTRY.register(SketchFeature)
 FEATURE_REGISTRY.register(ExtrudeFeature)
 FEATURE_REGISTRY.register(RevolveFeature)
 FEATURE_REGISTRY.register(SweepFeature)
+FEATURE_REGISTRY.register(LoftFeature)
 FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.register(ChamferFeature)
 FEATURE_REGISTRY.register(PatternFeature)
@@ -729,6 +793,17 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             references.append(
                 FeatureReference("path", feature.params.path, frozenset({"sketch"}))
             )
+        case LoftFeature():
+            # One sketch ref per ordered section (design §4.3). Each resolves to
+            # an earlier sketch feature (a whole feature's wire/apex, NOT a
+            # picked sub-edge — independent of #1), so the slot rule is the same
+            # `sketch`-only rule as extrude/sweep, emitted per section in order.
+            for index, section in enumerate(feature.params.profiles):
+                references.append(
+                    FeatureReference(
+                        f"profiles[{index}]", section, frozenset({"sketch"})
+                    )
+                )
         case FilletFeature() | ChamferFeature() | PatternFeature():
             # No FeatureRef: fillet/chamfer modify the implicit single body
             # chain (design §7.6) and select edges by a geometric predicate,

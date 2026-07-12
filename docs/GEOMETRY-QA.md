@@ -49,6 +49,7 @@ recorded from harness output.
 | `revolve-annulus-r10-20-h15` | FIRST REVOLVE golden (solid of revolution): sketch→revolve tree — a rectangle [r 10..20]×[h 0..15] revolved 360° about a CONSTRUCTION centerline into an annular cylinder; shares extrude's `build_profile_face`/`combine_body`; GProp over two coaxial cylinders + two annular caps, periodic seam-edge topology, STEP re-approximation of the revolved cylinders | 1e-9 (curved-geometry, measured-then-set; observed worst 1.82e-12 on volume) | 4 / 6 / 1 | 1012 / 1008 |
 | `pattern-linear-3x-bar` | FIRST PATTERN golden (linear pattern, #7): sketch→extrude→pattern tree — a unit cube LINEAR-patterned +X (spacing 6, count 3, overlapping) so the copies fuse into a connected bar [0,22]×[0,10]×[0,10]; locks the pattern handler + placement math (unit dir × spacing × k) + variadic fuse + single-solid finalize (§7.6), and STEP round-trip of the patterned body | 1e-9 (all-planar union, measured-then-set; volume/area/centroid/AABB EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
 | `sweep-circle-r8-h30` | FIRST SWEEP golden (first NON-PRISMATIC feature, #7): sketch→sketch→sweep tree — an r=8 circle profile swept along a SECOND sketch's straight 30 mm OPEN path (vertical line on XZ) into a right circular cylinder; locks the sweep handler + two-sketch FeatureRef resolution (profile + open path wire) + open-wire assembly (shared per-entity edge builder) + `Solid.sweep`; cross-checks that `Solid.sweep` reproduces `build_cylinder`'s exact B-rep/mesh by a different code path | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 1.44e-15 on centroid, vol/area/AABB EXACTLY 0.0) | 3 / 3 / 1 | 506 / 500 |
+| `loft-pyramid-sq20-h30` | FIRST LOFT golden (second NON-PRISMATIC feature, #8): sketch→sketch→loft tree — a 20×20 square section on XY ruled-lofted to a single APEX point 30 mm up +Z into a right square pyramid; locks the loft handler + per-section ordered FeatureRef resolution + loft-to-a-point (a point section → `Vertex`) + `Solid.make_loft(ruled=True)`; analytic pyramid volume a²·h/3 = 4000 mm³, all faces PLANAR so mesh is hand-derivable. NB: a cylinder/frustum golden needs two PARALLEL offset sections (unauthorable — datums are origin-only + mutually perpendicular), hence the apex pyramid | 2e-7 (AABB-padding-limited: ThruSections faces carry OCCT ~1e-7 modeling tolerance → optimal AABB padded ~1e-7; ceiling = 2× kernel linear tol; vol worst 1.82e-12, area EXACTLY 0.0, centroid ≤ 3.7e-16) | 5 / 8 / 1 | 16 / 6 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
@@ -67,10 +68,13 @@ error codes `profile_not_closed`/`no_axis`/`axis_intersects_profile`/
 `tests/test_revolve.py`. Every sweep path (add/cut, straight + bent multi-
 segment path, and all error codes `profile_not_closed`/`reference_unresolved`/
 `sweep_path_closed`/`sweep_path_not_connected`/`sweep_path_empty`/
-`no_prior_body`) is additionally pinned by `tests/test_sweep.py`. No shipped
-modeling capability lacks a golden as of the 2026-07-12 sweep entry — the six
-body-affecting features (extrude, revolve, sweep, fillet, chamfer, pattern) are
-all golden-covered.
+`no_prior_body`) is additionally pinned by `tests/test_sweep.py`. Every loft
+path (add/cut, two-wire + three-section + apex sections, and all error codes
+`profile_not_closed`/`reference_unresolved`/`loft_failed`/`no_prior_body`, plus
+the <2-section 422) is additionally pinned by `tests/test_loft.py`. No shipped
+modeling capability lacks a golden as of the 2026-07-12 loft entry — the seven
+body-affecting features (extrude, revolve, sweep, loft, fillet, chamfer,
+pattern) are all golden-covered.
 
 ---
 
@@ -502,6 +506,91 @@ profile). Evidence: `test_sweep.py` (11 tests green).
 full `services/geometry` + `services/gateway` suites green; pyright + ruff
 clean; contracts + ts-client regenerated (gen-check clean); web typecheck green
 with no stub needed (additive `SweepFeature` union member).
+
+---
+
+## 2026-07-12 — First loft golden: `loft-pyramid-sq20-h30` (second NON-PRISMATIC feature, BACKLOG Ready #8 backend)
+
+**Capability:** `LoftFeature`/`LoftParamsV1` v1 — blend a solid THROUGH two or
+more ordered section sketches (`profiles: list[FeatureRef]`, min 2) via a RULED
+`Solid.make_loft`, `add`/`cut` against the body chain. The second non-prismatic
+body-affecting feature (the transitional-solid / cone / adapter primitive on the
+Part-modeling scorecard). Shares extrude/sweep's `build_profile_face` (each
+section's outer wire) and `combine_body` boolean; loft owns only the section
+assembly (`build_loft_section`) and the ThruSections skin (`loft_sections`).
+
+**DESIGN DECISION — sections are whole earlier sketch features (like sweep's
+slots), and a section may be a POINT (apex):** each `profiles` entry is a
+`FeatureRef` to an earlier sketch — the same mechanism the extrude/revolve
+`profile` and sweep `profile`/`path` slots use — so loft is **independent of
+topological naming (#1)** (whole-feature wires, never picked sub-edges). A
+section's non-construction entities form either a single CLOSED profile wire OR
+a single POINT, interpreted as an APEX vertex (the standard loft-to-a-point tip;
+allowed only as the first/last section — OCCT's own rule).
+
+**Why apex support in v1 — and why the golden is a PYRAMID, not the brief's
+cylinder/frustum (honest, root-caused):** a cylinder or frustum golden needs two
+PARALLEL offset circular sections. Those are **not authorable in v1**: sketch
+planes are the three origin datum planes only, which are mutually PERPENDICULAR
+(never parallel), and there is no offset/parallel datum plane yet (a Next item).
+Two coplanar sections loft to zero volume; two perpendicular circular sections
+loft to a non-analytic solid (no closed-form volume, and a BSpline lateral
+surface → irregular, non-hand-derivable mesh). The ONE analytic loft
+constructible from datum-plane sketches is a closed section lofted to an APEX
+point — a cone or pyramid. A SQUARE→apex pyramid additionally has **all-planar
+faces**, so every mass property, topology count, AND mesh count is
+hand-derivable (a cone's BSpline surface would not be). Hence apex support is
+what makes a rigorous analytic loft golden possible at all; it is a real, valued
+capability, not gold-plating.
+
+**Golden `loft-pyramid-sq20-h30`** (sketch→sketch→loft): a 20×20 square section
+on XY ruled-lofted to an apex point at world (0,0,30) → a right square pyramid.
+Cross-checked independently against build123d's `Solid.make_cone`-family
+primitive and the analytic pyramid formulae — all three agree to machine
+precision. HAND-DERIVED expectations (not recorded output):
+
+| Quantity | Expected (analytic) | Measured deviation |
+| --- | --- | --- |
+| volume | a²·h/3 = 400·30/3 = **4000 mm³** | **1.82e-12** (one ulp at 4e3) |
+| surface_area | 400 + 40·√1000 = **1664.9110640673516 mm²** | **0.0** (exact) |
+| centroid | **(0, 0, 7.5) mm** (h/4 above base) | ≤ **3.7e-16** (x/y on axis; z exact) |
+| AABB | **[-10,-10,0]..[10,10,30]** | ≤ **1.0e-7** (ThruSections padding — see below) |
+| topology F/E/S | **5 / 8 / 1** (1 square base + 4 tri sides; 4 base + 4 lateral edges) | exact |
+| mesh V/T | **16 / 6** (base 4v/2t + 4 sides × 3v/1t, faceted per-face) | exact |
+
+**Tolerance `2e-7` — AABB-padding-limited, measured-then-set:** unlike
+`build_box` (exact bounds), the lofted B-rep is built by OCCT's
+`BRepOffsetAPI_ThruSections`, whose faces carry the kernel modeling tolerance
+(~`Precision::Confusion` = 1e-7 mm); the optimal AABB is therefore padded
+outward by ~1e-7 on each bound — the DOMINANT deviation. Volume/area/centroid
+are machine-exact (≤1.82e-12); the bound is set by the AABB, not by any
+correctness value. Ceiling `2e-7` = 2× the observed worst (1.0e-7) and exactly
+2× the standing kernel linear tolerance (1e-7). This is deliberately looser than
+the curved cylinder goldens' 1e-9 SPECIFICALLY because ThruSections pads the
+AABB — not because a mass property is imprecise. Solver contributes zero error
+(base square under-constrained but at its drawn solution → planegcs returns
+input bitwise; apex fully fixed).
+
+**Determinism (RESEARCH §9):** same tree → byte-identical evaluate response
+INCLUDING `mesh_glb_id`, across rebuilds and an interpreter restart (16/6 mesh,
+identical GLB hash — `test_goldens.py` restart probe + `test_evaluate_response_
+with_body_is_byte_deterministic`). **STEP round-trip:** the pyramid re-imports
+with mass properties EXACTLY preserved (dev 0.0) and topology 5/8/1 (parametrized
+`test_step_roundtrip.py`, green — all-planar B-rep survives STEP without loss).
+
+**Error paths pinned** (per-feature rebuild errors, strict-prefix, last-good
+body preserved — never a 500): `profile_not_closed` (open/empty section, shared
+`build_profile_face` check), `profile_unsupported` (multi-loop section),
+`reference_unresolved` (bad/missing/non-sketch section ref), `loft_failed`
+(incompatible sections, or an apex wedged between two wire sections),
+`no_prior_body` (cut with nothing to cut). Fewer than 2 sections is a request-
+validation **422** (`LoftParamsV1.min_length=2`) — the transport/validation
+envelope, also never a 500. Evidence: `test_loft.py` (12 tests green).
+
+**Gates:** `test_loft.py` + `test_goldens.py` + `test_step_roundtrip.py` green;
+full `services/geometry` + `services/gateway` suites green; pyright + ruff
+clean; contracts + ts-client regenerated (gen-check clean); web typecheck green
+with no stub needed (additive `LoftFeature` union member).
 
 ---
 

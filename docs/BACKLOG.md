@@ -28,9 +28,10 @@ pass; this note only points the queue at it, no duplication:
   #1 done) — a user can now round/bevel a body through the product via the
   predicate edge selector; click-specific edge picking remains Ready #9; (b)
   sweep shipped end-to-end (#7 backend + #7b authoring UI — shafts/ribs now
-  modelable in the product); loft/shell/draft/hole still make whole part
-  classes unmodelable —
-  Ready #8 (loft), hole/shell/draft stay in Next (gated on face/edge picking); (c)
+  modelable in the product); loft BACKEND shipped (#8 — transitional solids /
+  cones now modelable via the API, UI #8b pending); shell/draft/hole still make
+  whole part classes unmodelable —
+  hole/shell/draft stay in Next (gated on face/edge picking); (c)
   edge selection is still predicate-only — Ready #9 (face/edge picking) is
   now startable, its design-doc blocker shipped 2026-07-11.
 - **Interop row** — unchanged from last pass: export covers modeled trees,
@@ -259,15 +260,31 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       the tree. `sweep.spec.ts` real-stack: circle→30 mm path → π·64·30 mm³
       cylinder renders + lands in tree, closed-path → `sweep_path_closed`.
       `frontend-design` invoked. [src: roadmap, competitive]
-- [ ] (P1, M) Loft feature — blend a transitional solid between two or more
-      profile sketches. Named alongside sweep in the Part-modeling ❌ notes
-      ("lofted surfaces... can't be modeled at all"). Same two-slice pattern
-      as revolve/pattern/sweep. Depends on: nothing new.
-      Acceptance: golden `loft-<name>` through every gate; mismatched-
-      profile-count/non-planar-profile error paths pinned; contracts+
-      ts-client regen; authoring UI (multi-profile pick, title-block seat)
-      with e2e proving a lofted body renders at the expected volume;
-      screenshots. [src: roadmap, product-auditor, competitive]
+- [x] (P1, M) #8 Loft feature BACKEND — blend a solid through two or more
+      ordered section sketches via build123d ruled `make_loft`; add/cut.
+      SHIPPED 2026-07-12: `LoftFeature`/`LoftParamsV1` (`profiles:
+      list[FeatureRef]` min 2, `operation`), `build_loft_section`/
+      `loft_sections` kernel ops, evaluate-tree handler; each section = whole
+      earlier sketch feature (reuses the profile FeatureRef mechanism →
+      independent of topological naming). Sections are a closed profile wire OR
+      a single apex point (loft-to-a-point). Golden `loft-pyramid-sq20-h30`
+      (analytic square pyramid a²·h/3 = 4000 mm³) through every gate (mass
+      props, exact topology 5/8/1, mesh 16/6, determinism incl. interpreter
+      restart, STEP round-trip); error paths pinned (`profile_not_closed`,
+      `profile_unsupported`, `reference_unresolved`, `loft_failed`,
+      `no_prior_body`; <2 sections = 422); contracts+ts-client regen. v1:
+      ruled loft only (no guide rails / tangency / periodic). DESIGN NOTE: a
+      cylinder/frustum golden needs two PARALLEL offset sections, unauthorable
+      until offset datum planes land (datums are origin-only + mutually
+      perpendicular) — hence the apex pyramid as the analytic anchor.
+      [src: roadmap, product-auditor]
+- [ ] (P1, S) #8b Loft authoring UI — multi-section feature-reference picker
+      (ordered ≥2 sketch sections + apex points), title-block seat, Add/Cut
+      toggle, v1 scope note; e2e proving a lofted body renders at the expected
+      volume; screenshots; `frontend-design` invoked. Backend (#8) is live.
+      DTO for the picker: `{ profiles: FeatureRef[] (min 2), operation:
+      "add"|"cut" }`; a section sketch resolves to a closed wire or a single
+      apex point (ends only). [src: roadmap, product-auditor, competitive]
 - [ ] (P2, M) Viewport v1 — face/edge picking — in-UI selection of a
       specific face/edge for feature authoring, per
       `docs/design/topological-naming.md` (`SubshapeRef`, shipped
@@ -494,6 +511,13 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — **Loft (#8) BACKEND shipped.** `LoftFeature`/`LoftParamsV1`
+  (`profiles: FeatureRef[]` min 2 + add/cut), `build_loft_section`/
+  `loft_sections` ruled `make_loft`, evaluate-tree handler. Sections = closed
+  wire OR single apex point (loft-to-a-point). Golden `loft-pyramid-sq20-h30`
+  (analytic pyramid 4000 mm³) through every gate. Apex support unblocks an
+  analytic golden (parallel offset sections need offset datum planes — a Next
+  item). #8b (UI) queued. [kernel-architect]
 - 2026-07-12 — **Sketch fillet/chamfer (#5) BACKEND shipped.** `POST /api/v1/
   sketch/{fillet,chamfer}` (gateway-proxied): exact closed-form corner round/
   bevel — both lines trimmed to their tangent/setback points, arc/line bridge

@@ -16,7 +16,8 @@ first **body-affecting** feature, §4.3 — mutates the part's single solid body
 chain via add/cut booleans), ``revolve`` (sweeps a profile about a sketch-line
 axis, sharing extrude's profile + boolean plumbing), ``sweep`` (the first
 non-prismatic feature — sweeps a profile along a SECOND sketch's open path
-wire), ``fillet`` (rounds
+wire), ``loft`` (blends a solid through two or more ordered section sketches),
+``fillet`` (rounds
 selected edges of that body chain) and ``chamfer`` (bevels selected edges; both
 body-affecting and both resolving edges through the shared geometric selector).
 A feature that
@@ -45,7 +46,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from build123d import Face, Solid, Wire
+from build123d import Face, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
     ChamferFeature,
@@ -60,6 +61,7 @@ from py_kit.schemas.features import (
     FeatureResult,
     FilletFeature,
     LinearPatternParamsV1,
+    LoftFeature,
     PatternFeature,
     RevolveFeature,
     SketchFeature,
@@ -73,6 +75,7 @@ from geometry.kernel import (
     BooleanError,
     ChamferError,
     FilletError,
+    LoftError,
     NoAxisError,
     NoEdgesSelectedError,
     PathClosedError,
@@ -89,6 +92,7 @@ from geometry.kernel import (
     ProfileUnsupportedError,
     RevolveError,
     SweepError,
+    build_loft_section,
     build_path_wire,
     build_profile_face,
     chamfer_body,
@@ -98,6 +102,7 @@ from geometry.kernel import (
     extrude_face,
     fillet_body,
     linear_pattern,
+    loft_sections,
     measure_shape,
     resolve_axis_line,
     revolve_face,
@@ -453,6 +458,94 @@ def _evaluate_sweep(
     return None
 
 
+def _resolve_loft_section(
+    ref: FeatureRef, state: EvaluationState
+) -> Wire | Vertex | FeatureError:
+    """Resolve one loft-section FeatureRef to its closed wire or apex vertex.
+
+    A per-section sibling of :func:`_resolve_profile_face`: it re-checks the
+    §2.2 reference rule (documents enforces it at write time; geometry must not
+    trust its callers), then builds the section through the shared
+    :func:`geometry.kernel.build_loft_section` (construction geometry excluded,
+    single-closed-loop check, or a single apex point). Every failure flavour is
+    a per-feature error pinned to the upstream section sketch.
+    """
+    section_id = ref.feature_id
+    solved = state.solved_sketches.get(section_id)
+    plane = state.sketch_planes.get(section_id)
+    if solved is None or plane is None:
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                "Loft section must reference an earlier successfully solved "
+                "sketch feature of this tree."
+            ),
+            upstream_feature_id=section_id,
+        )
+    try:
+        return build_loft_section(plane.plane, solved.entities)
+    except ProfileNotClosedError as exc:
+        return FeatureError(
+            code="profile_not_closed", message=str(exc), upstream_feature_id=section_id
+        )
+    except ProfileUnsupportedError as exc:
+        return FeatureError(
+            code="profile_unsupported",
+            message=str(exc),
+            upstream_feature_id=section_id,
+        )
+
+
+def _evaluate_loft(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Blend a solid through two or more ordered section sketches (§4.3).
+
+    The loft sibling of :func:`_evaluate_sweep` and the second non-prismatic
+    handler: it resolves each ordered section (:func:`_resolve_loft_section` —
+    a closed wire or an apex point, sharing extrude/sweep's closed-wire check)
+    and ruled-lofts them (:func:`loft_sections`), then applies the SAME
+    ``add``/``cut`` boolean (:func:`combine_body`). Kernel failures surface as
+    design error codes pinned to the failing feature — ``profile_not_closed``/
+    ``profile_unsupported``/``reference_unresolved`` (upstream section),
+    ``no_prior_body`` (cut with nothing to cut), ``loft_failed`` (incompatible
+    sections / not one solid), ``boolean_failed``. ``state.body`` is only
+    replaced on success (strict-prefix rule tessellates the last-good body,
+    §4.3). Fewer than 2 sections cannot reach here — ``LoftParamsV1`` enforces
+    ``min_length=2`` at request validation (a clean 422, never a 500).
+    """
+    feature = item.feature
+    assert isinstance(feature, LoftFeature), "registry dispatches on type='loft'"
+    params = feature.params
+
+    sections: list[Wire | Vertex] = []
+    for ref in params.profiles:
+        resolved = _resolve_loft_section(ref, state)
+        if isinstance(resolved, FeatureError):
+            return resolved
+        sections.append(resolved)
+
+    if params.operation == "cut" and state.body is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "Cut requires an existing body, but no body-affecting "
+                "feature precedes this one; use an additive feature first."
+            ),
+        )
+
+    try:
+        tool = loft_sections(sections)
+    except LoftError as exc:
+        return FeatureError(code="loft_failed", message=str(exc))
+
+    try:
+        state.body = combine_body(state.body, tool, params.operation)
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+    return None
+
+
 def _evaluate_fillet(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -603,6 +696,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "extrude": _evaluate_extrude,
     "revolve": _evaluate_revolve,
     "sweep": _evaluate_sweep,
+    "loft": _evaluate_loft,
     "fillet": _evaluate_fillet,
     "chamfer": _evaluate_chamfer,
     "pattern": _evaluate_pattern,

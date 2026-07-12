@@ -1,0 +1,87 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000fc",
+  "tree_version": 2,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000b0001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "l1",
+              "kind": "line",
+              "start": { "x": -10.0, "y": -10.0 },
+              "end": { "x": 10.0, "y": -10.0 }
+            },
+            {
+              "id": "l2",
+              "kind": "line",
+              "start": { "x": 10.0, "y": -10.0 },
+              "end": { "x": 10.0, "y": 10.0 }
+            },
+            {
+              "id": "l3",
+              "kind": "line",
+              "start": { "x": 10.0, "y": 10.0 },
+              "end": { "x": -10.0, "y": 10.0 }
+            },
+            {
+              "id": "l4",
+              "kind": "line",
+              "start": { "x": -10.0, "y": 10.0 },
+              "end": { "x": -10.0, "y": -10.0 }
+            }
+          ],
+          "constraints": [
+            { "kind": "coincident", "a": { "entity": "l1", "point": "end" }, "b": { "entity": "l2", "point": "start" } },
+            { "kind": "coincident", "a": { "entity": "l2", "point": "end" }, "b": { "entity": "l3", "point": "start" } },
+            { "kind": "coincident", "a": { "entity": "l3", "point": "end" }, "b": { "entity": "l4", "point": "start" } },
+            { "kind": "coincident", "a": { "entity": "l4", "point": "end" }, "b": { "entity": "l1", "point": "start" } },
+            { "kind": "horizontal", "entity": "l1" },
+            { "kind": "horizontal", "entity": "l3" },
+            { "kind": "vertical", "entity": "l2" },
+            { "kind": "vertical", "entity": "l4" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000b0002",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XZ" },
+          "entities": [
+            {
+              "id": "a1",
+              "kind": "point",
+              "position": { "x": 0.0, "y": 30.0 }
+            }
+          ],
+          "constraints": [
+            { "kind": "fixed", "point": { "entity": "a1", "point": "position" } }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000b0003",
+      "feature": {
+        "type": "loft",
+        "version": 1,
+        "params": {
+          "profiles": [
+            { "kind": "feature", "feature_id": "00000000-0000-0000-0000-0000000b0001" },
+            { "kind": "feature", "feature_id": "00000000-0000-0000-0000-0000000b0002" }
+          ],
+          "operation": "add"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}
