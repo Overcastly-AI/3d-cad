@@ -7,9 +7,12 @@ naming design doc, all 12 sketch constraint kinds, revolve, measurement,
 linear/circular pattern) shipped in full through commit 5777656 (2026-07-12).
 The solid Fillet/Chamfer authoring UI (Ready #1) shipped 2026-07-12, so a
 user can now round/bevel a body through the product (predicate edge
-selector). Current target: the Sketching row's remaining named gap —
-trim/extend, offset, sketch mirror, splines, sketch fillet/chamfer —
-corroborated by `docs/COMPETITIVE.md`'s first Fusion 360/Plasticity
+selector). The session-tool cluster is closing: trim/extend, offset, mirror,
+and sketch fillet/chamfer shipped end-to-end, and the **splines backend**
+shipped 2026-07-12 (fit-point `SketchSpline`; interactive draw tool #6b
+pending). Current target: the Sketching row's remaining named gap —
+splines draw-tool UI (#6b) — corroborated by `docs/COMPETITIVE.md`'s first
+Fusion 360/Plasticity
 discovery pass; plus sweep/loft (Part-modeling breadth) and face/edge
 picking (now unblocked). See `docs/BACKLOG.md` Ready queue.
 
@@ -164,6 +167,23 @@ evidence in `CHANGELOG.md`. One line per item:
       `sketch_corner_too_large`, `sketch_degenerate_result`). Distinct from the
       SOLID fillet/chamfer. 324 vitest + 4 fillet/chamfer e2e green on the real
       stack; before/after screenshots under docs/screenshots/.
+- ✅ Sketch splines (Fit-Point) — BACKEND (2026-07-12, #6; draw-tool UI #6b
+      pending): the last hard Sketching capability gap (no free-form profiles
+      at all). New `SketchSpline` entity (`kind:"spline"`, ordered `points`,
+      min 2) in the discriminated `SketchEntity` union — a NEW entity KIND, so
+      persisted sketches are unaffected (`param_version` unchanged). **Solver
+      spike verdict: NON-CONSTRAINED v1** — planegcs has no spline primitive, so
+      a spline is FIXED geometry: skipped when building the constraint system,
+      preserved bitwise in the solve, contributing zero DOF (constraining
+      splines / fit points + spline tangency deferred). Kernel emits an
+      interpolating C2 B-spline edge (`Edge.make_spline`), so a closed profile
+      containing a spline edge extrudes/revolves and tessellates. Golden
+      `sketch-spline-extrude` (3 lines + 1 spline) uses the honest
+      measured-then-set strategy (no closed-form area/volume) with a documented
+      1e-6 mm tolerance; OCCT interpolation verified DETERMINISTIC across three
+      fresh interpreter processes (byte-identical GLB + STEP round-trip).
+      `apps/web` carries minimal forward-compat stubs (marked `STUB (#6b
+      upgrades)`) for #6b to replace with real curve sampling + the draw tool.
 - ✅ Revolve + linear/circular pattern — 5 body-affecting features now
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
       held ❌: edge selection is still predicate-only, and sweep/loft/shell/

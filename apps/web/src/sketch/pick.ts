@@ -52,6 +52,11 @@ export function namedPoints(
         { point: "start", at: entity.start },
         { point: "end", at: entity.end },
       ];
+    case "spline":
+      // STUB (#6b upgrades): v1 splines are non-constrained (no solver-
+      // addressable named point), so they expose none to the pick/constraint
+      // layer. Snapping to fit points arrives with the draw tool (#6b).
+      return [];
   }
 }
 
@@ -93,6 +98,23 @@ export function curveDistance(p: Point2D, entity: SketchEntity): number {
         return Math.abs(dist(p, entity.center) - radius);
       }
       return Math.min(dist(p, entity.start), dist(p, entity.end));
+    }
+    case "spline": {
+      // STUB (#6b upgrades): approximate the curve by its fit-point control
+      // polygon (min distance to a segment). #6b samples the true B-spline for
+      // pixel-accurate picking; this keeps a spline coarsely pickable meanwhile.
+      let best = Infinity;
+      for (let i = 0; i + 1 < entity.points.length; i += 1) {
+        best = Math.min(
+          best,
+          segmentDistance(
+            p,
+            entity.points[i] as Point2D,
+            entity.points[i + 1] as Point2D,
+          ),
+        );
+      }
+      return best;
     }
   }
 }

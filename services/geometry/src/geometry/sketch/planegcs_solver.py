@@ -39,6 +39,7 @@ from geometry.sketch.schemas import (
     SketchLine,
     SketchPoint,
     SketchSolveStatus,
+    SketchSpline,
     SolvedSketch,
     SymmetricConstraint,
     TangentConstraint,
@@ -180,6 +181,15 @@ class _GcsBuild:
                 self._arcs[entity.id] = self.gcs.add_arc_cse(
                     center, start, end, radius, start_angle, end_angle
                 )
+            case SketchSpline():
+                # NON-CONSTRAINED v1 (SketchSpline docstring): planegcs has no
+                # spline primitive, so a spline is FIXED geometry — it is added
+                # to no gcs entity, registers no point, and contributes zero DOF.
+                # It is neither driven by nor drives constraints; a constraint
+                # that names a spline point resolves to no point and raises
+                # SketchDefinitionError (via _resolve_point). read_back() carries
+                # the untouched fit points straight through to the solved result.
+                pass
 
     # -- constraints ---------------------------------------------------------
 
@@ -434,4 +444,10 @@ class _GcsBuild:
                             end=Point2D(x=arc.end_point[0], y=arc.end_point[1]),
                         )
                     )
+                case SketchSpline():
+                    # NON-CONSTRAINED v1: the spline holds no gcs handle, so its
+                    # fit points are preserved bitwise — a deep copy of the input
+                    # entity, unchanged. Its presence never perturbs the solved
+                    # geometry or DOF of the other entities.
+                    solved.append(entity.model_copy(deep=True))
         return solved

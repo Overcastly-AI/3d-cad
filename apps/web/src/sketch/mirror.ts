@@ -85,5 +85,9 @@ export function reflectEntity(
         start: r(entity.end),
         end: r(entity.start),
       };
+    case "spline":
+      // Reflecting a spline reflects each fit point in order (the interpolant
+      // follows). Correct as-is — #6b only adds live rendering, not new math.
+      return { ...entity, id, points: entity.points.map(r) };
   }
 }

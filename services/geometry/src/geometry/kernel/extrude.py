@@ -39,6 +39,7 @@ from py_kit.schemas.sketch import (
     SketchEntity,
     SketchLine,
     SketchPoint,
+    SketchSpline,
 )
 
 #: The three origin datum planes (design §2.1), by their wire name. Local
@@ -150,6 +151,28 @@ def entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
                     start_angle=start_angle,
                     end_angle=end_angle,
                 )
+            ]
+        case SketchSpline():
+            # Fit-point spline: an interpolating C2 B-spline through the ordered
+            # fit points (OCCT GeomAPI_Interpolate via Edge.make_spline), so a
+            # closed profile wire containing a spline edge extrudes/revolves like
+            # any curve. Deterministic across processes (OCCT interpolation is
+            # seed-free; verified in-process AND across interpreter restart by the
+            # spline golden's determinism gates). Coincident consecutive fit
+            # points make interpolation degenerate: reject with a legible profile
+            # error (the degenerate-arc precedent above) rather than let OCCT
+            # raise an opaque kernel failure.
+            for prev, nxt in zip(entity.points, entity.points[1:], strict=False):
+                if math.isclose(prev.x, nxt.x, abs_tol=1e-9) and math.isclose(
+                    prev.y, nxt.y, abs_tol=1e-9
+                ):
+                    raise ProfileNotClosedError(
+                        f"Spline '{entity.id}' has coincident consecutive fit "
+                        f"points at ({prev.x}, {prev.y}); each fit point must be "
+                        "distinct from the previous one."
+                    )
+            return [
+                Edge.make_spline([_to_world(plane, point) for point in entity.points])
             ]
 
 

@@ -1,0 +1,25 @@
+{
+  "description": "FIRST FREE-FORM (fit-point spline) GOLDEN: a closed profile of three lines plus one interpolating B-spline, sketched on the XY datum plane and extruded 10 mm additively, exercising the free-form-profile capability (BACKLOG #6). The profile loop is line e1 A(0,0)->B(40,0), line e2 B->C(40,20), line e3 C->D(30,25), and spline e4 interpolating fit points D(30,25)->(15,30)->(5,20)->A(0,0) back to the start. Locks the spline path end to end: solver passes the non-constrained spline through untouched -> entity_edges emits an OCCT interpolated-curve (Edge.make_spline) edge -> Wire.combine closes the loop -> face -> prism along +Z -> GProp -> tessellation of a B-spline-bounded face -> content-addressed GLB. The sketch has zero constraints (spline is non-constrained in v1); the solver returns input positions bitwise, so solver determinism is subsumed by the harness byte-determinism gates.",
+  "derivation": [
+    "HONEST measured-then-set golden (geometry-gates skill / RESEARCH §9): a spline-bounded region has NO closed-form area/volume, so these expectations are MEASURED once through the harness and pinned, NOT an analytic claim. What IS analytically asserted is the topology, the extrude depth, and the byte-determinism (incl. interpreter restart).",
+    "The two coordinates that ARE exact: centroid.z = 5.0 (a symmetric 10 mm extrude of a planar profile puts the centroid at half-depth) and the z-extent = [0, 10] mm up to OCCT's Bnd_Box gap tolerance (the -1e-7 / +1e-7 padding OCCT reports on an optimal box, deterministic on-host).",
+    "volume 9971.456824143326 mm^3, surface_area 3228.503412173146 mm^2, centroid (20.595988304241317, 13.040747001070365, 5.0) mm: MEASURED (build123d 0.11.1 / OCCT 7.9). Cross-checked stable and byte-identical across three fresh interpreter processes (2026-07-12): identical volume/area/centroid/AABB and an identical dense-sample hash of the spline edge -> OCCT GeomAPI_Interpolate is deterministic (the critical spline finding: interpolation is seed-free and reproducible across process restarts).",
+    "bounding_box min (-0.15489603263844093, -1e-07, -1e-07), max (40.0000001, 30.81566159185402, 10.0000001) mm: MEASURED. x-min < 0 and y-max > 25 because the spline bulges left/up past its fit-point corners (a genuinely non-analytic boundary); the +/-1e-7 on the axis-aligned faces is OCCT's Bnd_Box tolerance, deterministic on-host.",
+    "topology: 6 faces / 12 edges / 1 shell — EXACT and analytic. The profile is one closed loop of 4 boundary edges (3 lines + 1 spline); a prism of a 4-edge face is top + bottom + 4 side faces = 6 faces, 4 top + 4 bottom + 4 vertical = 12 edges, 1 shell. The spline side is a single B-spline-swept face (not chorded into many faces).",
+    "mesh: 372 vertices / 448 triangles — EXACT (linear_deflection 0.1 mm). The planar faces triangulate coarsely; the B-spline side face and the two spline-bounded caps (top/bottom) carry the chord refinement, hence the higher counts than a planar-only prism. Asserted exactly by the harness; a changed count is a real tessellation change to explain, never widen.",
+    "GLB byte size is deliberately NOT pinned (brittle across glTF-writer upgrades); it is asserted internally consistent (glb_bytes == len(glb)) and byte-deterministic within a kernel version by the runner."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "MEASURED-THEN-SET, not analytic (a spline-bounded region has no closed-form mass properties): the pinned values ARE this kernel's output. On-host deviation is exactly 0.0 — the harness determinism gates assert BYTE-identical GLB and identical metadata in-process AND across a fresh interpreter (verified 2026-07-12, three processes), so run-to-run variance is zero. The 1e-6 mm bound is headroom for cross-CI-host libm variation in OCCT's B-spline interpolation + GProp Gauss integration over the curved side/cap faces — deliberately LOOSER than the analytic planar goldens' 1e-9 (whose faces are exact planes/cylinders) because a fit-point spline face is non-analytic, yet still 100x TIGHTER than the standing kernel linear bound (1e-4 mm = 1e-7 m), so a real geometric regression cannot hide under it. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 9971.456824143326,
+    "surface_area": 3228.503412173146,
+    "centroid": { "x": 20.595988304241317, "y": 13.040747001070365, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": -0.15489603263844093, "y": -1e-7, "z": -1e-7 },
+      "max": { "x": 40.0000001, "y": 30.81566159185402, "z": 10.0000001 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 372, "triangles": 448 }
+}

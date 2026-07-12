@@ -225,21 +225,27 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       before/after + too-large + laptop screenshots under docs/screenshots/.
       `frontend-design` skill invoked. line-arc/arc-arc corners still deferred
       (backend defers them). [src: product-auditor, competitive, roadmap]
-- [ ] (P1, M) Sketch: splines (Fit-Point v1) — a free-form curve through
+- [~] (P1, M) Sketch: splines (Fit-Point v1) — a free-form curve through
       placed points. Closes the last "flatly impossible" Sketching gap (no
       organic/free-form profiles at all today). Control-Point/NURBS variant
-      explicitly deferred. Depends on: nothing new, but the planegcs
-      solver's spline support (or lack of it) needs a first-look spike —
-      record the decision (solved vs. rendered-only curve) in the commit
-      message or a GEOMETRY-QA entry.
-      Acceptance: new spline entity type in the typed sketch schema,
-      participates in the closed-wire/profile check; documented per-model
-      tolerance for spline-bounded golden mass properties (CLAUDE.md
-      tolerance rule — no ad-hoc epsilons); worked e2e — draw a 3-point
-      spline, close a profile with two lines, extrude, confirm volume
-      matches a hand/CAD-cross-checked expectation within the documented
-      tolerance; screenshots; `frontend-design` skill invoked. [src:
-      product-auditor, competitive, roadmap]
+      explicitly deferred.
+      BACKEND SHIPPED (2026-07-12): `SketchSpline` entity (`kind:"spline"`,
+      `points` min 2) in the typed sketch schema + discriminated union;
+      solver spike verdict = NON-CONSTRAINED v1 (planegcs has no spline
+      primitive → spline is FIXED geometry, skipped when building the
+      constraint system, preserved bitwise in the solve, zero DOF — decision
+      recorded in the DTO docstring + GEOMETRY-QA); kernel emits an
+      interpolating B-spline edge (`Edge.make_spline`), so a closed profile
+      with a spline edge extrudes/revolves; measured-then-set golden
+      `sketch-spline-extrude` (3 lines + 1 spline, volume/topology/mesh +
+      byte-determinism incl. interpreter restart + STEP round-trip);
+      OCCT interpolation verified deterministic across 3 fresh processes.
+      Follow-up **#6b (draw tool UI)**: interactive fit-point placement +
+      real curve sampling in the viewport — `apps/web` currently carries
+      minimal forward-compat stubs (control-polygon polylines/pick, middle
+      fit-point anchor) noted in code as `STUB (#6b upgrades)`.
+      Deferred: constraining splines / their fit points, spline tangency.
+      [src: product-auditor, competitive, roadmap]
 - [x] (P1, M) Sweep feature BACKEND — sweep a closed profile along a SECOND
       sketch's open path wire via build123d; add/cut. SHIPPED 2026-07-12:
       `SweepFeature`/`SweepParamsV1`, `build_path_wire`/`sweep_profile` kernel

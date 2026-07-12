@@ -49,6 +49,7 @@ recorded from harness output.
 | `revolve-annulus-r10-20-h15` | FIRST REVOLVE golden (solid of revolution): sketch→revolve tree — a rectangle [r 10..20]×[h 0..15] revolved 360° about a CONSTRUCTION centerline into an annular cylinder; shares extrude's `build_profile_face`/`combine_body`; GProp over two coaxial cylinders + two annular caps, periodic seam-edge topology, STEP re-approximation of the revolved cylinders | 1e-9 (curved-geometry, measured-then-set; observed worst 1.82e-12 on volume) | 4 / 6 / 1 | 1012 / 1008 |
 | `pattern-linear-3x-bar` | FIRST PATTERN golden (linear pattern, #7): sketch→extrude→pattern tree — a unit cube LINEAR-patterned +X (spacing 6, count 3, overlapping) so the copies fuse into a connected bar [0,22]×[0,10]×[0,10]; locks the pattern handler + placement math (unit dir × spacing × k) + variadic fuse + single-solid finalize (§7.6), and STEP round-trip of the patterned body | 1e-9 (all-planar union, measured-then-set; volume/area/centroid/AABB EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
 | `sweep-circle-r8-h30` | FIRST SWEEP golden (first NON-PRISMATIC feature, #7): sketch→sketch→sweep tree — an r=8 circle profile swept along a SECOND sketch's straight 30 mm OPEN path (vertical line on XZ) into a right circular cylinder; locks the sweep handler + two-sketch FeatureRef resolution (profile + open path wire) + open-wire assembly (shared per-entity edge builder) + `Solid.sweep`; cross-checks that `Solid.sweep` reproduces `build_cylinder`'s exact B-rep/mesh by a different code path | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 1.44e-15 on centroid, vol/area/AABB EXACTLY 0.0) | 3 / 3 / 1 | 506 / 500 |
+| `sketch-spline-extrude` | FIRST FREE-FORM golden (fit-point spline, #6): sketch→extrude tree with a closed profile of 3 lines + 1 interpolating C2 B-spline (`Edge.make_spline`) closing the loop through 4 fit points; locks the non-constrained-spline solver pass-through, the spline profile edge, GProp/tessellation over a B-spline-bounded face, and STEP round-trip. A spline region has NO closed-form mass properties → **measured-then-set** (not analytic) | 1e-6 (measured-then-set, non-analytic curved boundary; on-host deviation 0.0 by byte-determinism gate; 1e-6 = cross-host libm headroom, still 100× tighter than kernel 1e-4 mm) | 6 / 12 / 1 | 372 / 448 |
 | `loft-pyramid-sq20-h30` | FIRST LOFT golden (second NON-PRISMATIC feature, #8): sketch→sketch→loft tree — a 20×20 square section on XY ruled-lofted to a single APEX point 30 mm up +Z into a right square pyramid; locks the loft handler + per-section ordered FeatureRef resolution + loft-to-a-point (a point section → `Vertex`) + `Solid.make_loft(ruled=True)`; analytic pyramid volume a²·h/3 = 4000 mm³, all faces PLANAR so mesh is hand-derivable. NB: a cylinder/frustum golden needs two PARALLEL offset sections (unauthorable — datums are origin-only + mutually perpendicular), hence the apex pyramid | 2e-7 (AABB-padding-limited: ThruSections faces carry OCCT ~1e-7 modeling tolerance → optimal AABB padded ~1e-7; ceiling = 2× kernel linear tol; vol worst 1.82e-12, area EXACTLY 0.0, centroid ≤ 3.7e-16) | 5 / 8 / 1 | 16 / 6 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
@@ -77,6 +78,74 @@ body-affecting features (extrude, revolve, sweep, loft, fillet, chamfer,
 pattern) are all golden-covered.
 
 ---
+
+## 2026-07-12 — Sketch splines (Fit-Point, BACKLOG #6): first FREE-FORM profile, measured-then-set golden
+
+**What shipped.** The `SketchSpline` entity (`kind:"spline"`, ordered `points`,
+min 2) — a smooth C2 B-spline interpolating its fit points — closing the last
+hard Sketching capability gap (no free-form/organic profiles at all). Backend
+only; the interactive draw tool is follow-up #6b.
+
+**Design decisions (recorded here + DTO docstring).**
+- *DTO / versioning.* A NEW entity KIND in the discriminated `SketchEntity`
+  union, not a changed field. Persisted sketches are unaffected: the union keys
+  on `kind`, no stored sketch carries `kind:"spline"`, so every sketch parses to
+  the exact entity it did before — `param_version` unchanged (additive-optional
+  rule, feature-tree §1.3).
+- *Solver — NON-CONSTRAINED v1 (honest limit).* planegcs has no spline
+  primitive, so a spline is treated as **fixed geometry**: `_GcsBuild._add_entity`
+  SKIPS it (registers no point, no gcs handle → zero parameters, zero equations,
+  zero DOF), and `read_back` PRESERVES it (`model_copy(deep=True)` of the input
+  entity, fit points bitwise-identical). Its presence never perturbs the DOF or
+  diagnosis of the other entities (unit-proven: a fully-constrained line stays
+  `converged`/DOF 0 with a spline added). A constraint that names a spline point
+  resolves to no point → `SketchDefinitionError` (malformed input, not a solve
+  outcome). Constraining splines / their fit points and spline tangency are
+  DEFERRED.
+- *Kernel.* `entity_edges` emits one interpolating B-spline edge via
+  `Edge.make_spline` (OCCT `GeomAPI_Interpolate`), so a closed wire containing a
+  spline edge assembles → face → extrude/revolve and tessellates. Coincident
+  consecutive fit points are rejected `ProfileNotClosedError` (maps to the
+  per-feature `profile_not_closed` code, the degenerate-arc precedent) — never an
+  opaque kernel 500. Self-intersecting spline profiles surface at profile
+  build / boolean as the existing profile error.
+
+**Golden `sketch-spline-extrude` — MEASURED-THEN-SET (honest for non-analytic
+geometry).** A spline-bounded region has no closed-form area/volume, so the
+mass-property expectations are MEASURED once through the harness and pinned
+(RESEARCH §9 / geometry-gates allows this), NOT an analytic claim. Profile: 3
+lines A(0,0)→B(40,0)→C(40,20)→D(30,25) + spline D→(15,30)→(5,20)→A closing the
+loop; extruded 10 mm.
+
+| Quantity | Pinned value | Basis |
+| --- | --- | --- |
+| volume | **9971.456824143326 mm³** | measured |
+| surface_area | **3228.503412173146 mm²** | measured |
+| centroid | **(20.5959…, 13.0407…, 5.0) mm** | measured; z=5.0 exact (symmetric extrude) |
+| AABB | **[-0.1549…, -1e-7, -1e-7]..[40+1e-7, 30.8156…, 10+1e-7]** | measured; spline bulges past its corners; ±1e-7 = OCCT Bnd_Box tol |
+| topology F/E/S | **6 / 12 / 1** | EXACT/analytic (4-edge loop prism) |
+| mesh V/T | **372 / 448** | EXACT (deflection 0.1 mm) |
+
+Tolerance **1e-6 mm** (measured-then-set): on-host deviation is exactly 0.0
+(byte-determinism gate), 1e-6 is cross-host libm headroom over OCCT B-spline
+interpolation + GProp integration on a curved boundary — deliberately looser
+than the analytic planar goldens' 1e-9 (their faces are exact planes/cylinders)
+yet 100× tighter than the kernel 1e-4 mm bound.
+
+**DETERMINISM (the critical spline finding).** OCCT spline interpolation is
+DETERMINISTIC and seed-free: three fresh interpreter processes produced
+byte-identical GLB, identical volume/area/centroid/AABB, and an identical
+dense-sample (2001-pt) hash of the spline edge. The harness determinism gates
+(in-process ×2 + interpreter-restart) and the STEP round-trip gate are green for
+the new golden. No non-determinism found — implementation proceeded.
+
+**Frontend forward-compat (for #6b to upgrade).** `apps/web` exhaustive
+`entity.kind` switches got minimal stubs marked `STUB (#6b upgrades)`:
+`entityPolylines`/`definingPoints`/pick `curveDistance` treat the spline as its
+fit-point control polygon, `entityAnchor` returns the middle fit point,
+`namedPoints` returns `[]` (non-constrained), and `mirror.ts`/`edit.py`
+`reflectEntity` reflect the fit points (correct as-is). #6b replaces the
+control-polygon stubs with real B-spline sampling + the draw tool.
 
 ## 2026-07-12 — Sketch fillet/chamfer backend (BACKLOG #5): exact analytic corner round/bevel
 

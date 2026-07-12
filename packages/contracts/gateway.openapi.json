@@ -2121,7 +2121,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2137,6 +2138,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2203,7 +2207,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2219,6 +2224,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2243,7 +2251,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2259,6 +2268,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2295,7 +2307,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2311,6 +2324,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2372,7 +2388,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2388,6 +2405,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2476,7 +2496,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2492,6 +2513,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2529,7 +2553,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2545,6 +2570,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2574,7 +2602,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2590,6 +2619,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2622,7 +2654,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2638,6 +2671,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2722,7 +2758,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2738,6 +2775,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },
@@ -2803,6 +2843,44 @@
         "title": "SketchPoint",
         "type": "object"
       },
+      "SketchSpline": {
+        "description": "A smooth **fit-point** curve \u2014 a C2 B-spline interpolating ``points``.\n\nThe free-form/organic profile entity (the last hard Sketching capability\ngap): the curve passes **through** every fit point in order (an *interpolating*\nB-spline, OCCT ``GeomAPI_Interpolate`` via ``Edge.make_spline``), so a closed\nprofile wire containing a spline edge can extrude/revolve. ``points`` are the\nordered fit points (mm, sketch-plane); **at least two** are required (two fit\npoints degenerate to a straight interpolant \u2014 still valid). Consecutive fit\npoints must be distinct; a coincident pair is a degenerate spline the profile\nbuilder rejects (``profile_not_closed``, like the degenerate-arc precedent).\n\nAdditive optional-free field-set (docs/design/feature-tree.md \u00a71.3): this is\na NEW entity **kind**, not a changed field. Persisted sketches are unaffected\n\u2014 the discriminated ``SketchEntity`` union keys on ``kind``, and no existing\nsketch carries ``kind: \"spline\"``, so every stored sketch still parses to the\nexact same entity it did before (totality holds; ``param_version`` unchanged).\n\n**Solver interaction \u2014 v1 is NON-CONSTRAINED (honest limit).** planegcs has\nno spline primitive, so v1 treats a spline as **fixed geometry**: its fit\npoints pass through :meth:`SketchSolver.solve` unchanged (the spline neither\ndrives nor is driven by constraints, and it contributes zero DOF). A spline\nhas no solver-addressable named point, so a constraint referencing one is a\nmalformed definition (``SketchDefinitionError``). Constraining splines / their\nfit points \u2014 and tangency between a spline and its neighbours \u2014 is DEFERRED.",
+        "properties": {
+          "construction": {
+            "default": false,
+            "description": "Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.",
+            "title": "Construction",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "spline",
+            "title": "Kind",
+            "type": "string"
+          },
+          "points": {
+            "description": "Ordered fit points (mm) the curve interpolates through; at least two. Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).",
+            "items": {
+              "$ref": "#/components/schemas/Point2D"
+            },
+            "minItems": 2,
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "points"
+        ],
+        "title": "SketchSpline",
+        "type": "object"
+      },
       "SolvedSketchData": {
         "description": "Per-feature solved-sketch payload (\u00a77.10): the solver's solved entity\npositions, status, and DOF diagnosis for an ``ok`` sketch feature \u2014 what\nthe sketcher UI renders. ``kind`` is the :data:`FeatureData` union tag.",
         "properties": {
@@ -2834,7 +2912,8 @@
                   "arc": "#/components/schemas/SketchArc",
                   "circle": "#/components/schemas/SketchCircle",
                   "line": "#/components/schemas/SketchLine",
-                  "point": "#/components/schemas/SketchPoint"
+                  "point": "#/components/schemas/SketchPoint",
+                  "spline": "#/components/schemas/SketchSpline"
                 },
                 "propertyName": "kind"
               },
@@ -2850,6 +2929,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SketchArc"
+                },
+                {
+                  "$ref": "#/components/schemas/SketchSpline"
                 }
               ]
             },

@@ -47,6 +47,7 @@ from geometry.sketch.schemas import (
     SketchEntity,
     SketchLine,
     SketchPoint,
+    SketchSpline,
 )
 
 #: Geometric classification epsilon (mm). Used only to CLASSIFY — detect
@@ -830,6 +831,16 @@ def _mirror_entity(
                 center=_point2d(reflect(_pt(entity.center))),
                 start=_point2d(reflect(_pt(entity.end))),
                 end=_point2d(reflect(_pt(entity.start))),
+            )
+        case SketchSpline():
+            # Reflecting a spline reflects each fit point in order; the
+            # interpolant follows. No CCW/orientation invariant to preserve
+            # (a fit-point spline carries no directed-sweep convention).
+            return SketchSpline(
+                id=ident,
+                construction=entity.construction,
+                kind="spline",
+                points=[_point2d(reflect(_pt(p))) for p in entity.points],
             )
         case _:
             assert_never(entity)

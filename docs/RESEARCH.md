@@ -66,6 +66,16 @@ design; only fully-constrained sketches are guess-independent. No iteration
 count is exposed; the default DogLeg algorithm is used with no random
 restarts.
 
+**Spline entities are NON-CONSTRAINED (v1, 2026-07-12).** planegcs has no
+spline primitive, so the fit-point `SketchSpline` (docs/GEOMETRY-QA.md) is
+treated as **fixed geometry**: the solver skips it when building the constraint
+system (zero parameters/equations/DOF) and preserves its fit points bitwise in
+the solved result. A spline neither drives nor is driven by constraints, and it
+exposes no solver-addressable named point (a constraint referencing one is a
+malformed definition). Constraining splines / their fit points and spline
+tangency are deferred behind the `SketchSolver` protocol — a future solver (or a
+planegcs spline extension) can add them without changing the DTO or callers.
+
 **Guardrail (standing):** SolveSpace's solver is GPLv3 — **do not** introduce
 it or any GPL dependency into this MIT codebase. LGPL dynamic deps are fine.
 The solver stays behind the `SketchSolver` protocol

@@ -80,6 +80,11 @@ export function entityPolylines(entity: SketchEntity): Point2D[][] {
         circlePolyline(entity.center, radius, startAngle, sweep, segments),
       ];
     }
+    case "spline":
+      // STUB (#6b upgrades): draw the fit points as a straight control polygon.
+      // Real smooth sampling of the interpolating B-spline lands with the draw
+      // tool (#6b); the backend already builds the true curved edge.
+      return [entity.points];
   }
 }
 
@@ -120,6 +125,10 @@ export function entityAnchor(entity: SketchEntity): Point2D {
         y: entity.center.y + radius * Math.sin(mid),
       };
     }
+    case "spline":
+      // STUB (#6b upgrades): the middle fit point stands in for the on-curve
+      // midpoint until #6b samples the true curve.
+      return entity.points[Math.floor(entity.points.length / 2)] as Point2D;
   }
 }
 
@@ -134,6 +143,9 @@ export function definingPoints(entity: SketchEntity): Point2D[] {
       return [entity.center];
     case "arc":
       return [entity.center, entity.start, entity.end];
+    case "spline":
+      // STUB (#6b upgrades): the fit points ARE the spline's defining points.
+      return entity.points;
   }
 }
 

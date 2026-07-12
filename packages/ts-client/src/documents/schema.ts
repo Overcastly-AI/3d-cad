@@ -1186,7 +1186,7 @@ export interface components {
             /** Constraints */
             constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
             /** Entities */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /** Plane */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
         };
@@ -1212,6 +1212,56 @@ export interface components {
              */
             kind: "point";
             position: components["schemas"]["Point2D"];
+        };
+        /**
+         * SketchSpline
+         * @description A smooth **fit-point** curve — a C2 B-spline interpolating ``points``.
+         *
+         *     The free-form/organic profile entity (the last hard Sketching capability
+         *     gap): the curve passes **through** every fit point in order (an *interpolating*
+         *     B-spline, OCCT ``GeomAPI_Interpolate`` via ``Edge.make_spline``), so a closed
+         *     profile wire containing a spline edge can extrude/revolve. ``points`` are the
+         *     ordered fit points (mm, sketch-plane); **at least two** are required (two fit
+         *     points degenerate to a straight interpolant — still valid). Consecutive fit
+         *     points must be distinct; a coincident pair is a degenerate spline the profile
+         *     builder rejects (``profile_not_closed``, like the degenerate-arc precedent).
+         *
+         *     Additive optional-free field-set (docs/design/feature-tree.md §1.3): this is
+         *     a NEW entity **kind**, not a changed field. Persisted sketches are unaffected
+         *     — the discriminated ``SketchEntity`` union keys on ``kind``, and no existing
+         *     sketch carries ``kind: "spline"``, so every stored sketch still parses to the
+         *     exact same entity it did before (totality holds; ``param_version`` unchanged).
+         *
+         *     **Solver interaction — v1 is NON-CONSTRAINED (honest limit).** planegcs has
+         *     no spline primitive, so v1 treats a spline as **fixed geometry**: its fit
+         *     points pass through :meth:`SketchSolver.solve` unchanged (the spline neither
+         *     drives nor is driven by constraints, and it contributes zero DOF). A spline
+         *     has no solver-addressable named point, so a constraint referencing one is a
+         *     malformed definition (``SketchDefinitionError``). Constraining splines / their
+         *     fit points — and tangency between a spline and its neighbours — is DEFERRED.
+         */
+        SketchSpline: {
+            /**
+             * Construction
+             * @description Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.
+             * @default false
+             */
+            construction: boolean;
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "spline";
+            /**
+             * Points
+             * @description Ordered fit points (mm) the curve interpolates through; at least two. Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
+             */
+            points: components["schemas"]["Point2D"][];
         };
         /**
          * SweepFeature

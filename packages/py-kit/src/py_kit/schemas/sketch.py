@@ -109,8 +109,46 @@ class SketchArc(SketchEntityBase):
     end: Point2D
 
 
+class SketchSpline(SketchEntityBase):
+    """A smooth **fit-point** curve — a C2 B-spline interpolating ``points``.
+
+    The free-form/organic profile entity (the last hard Sketching capability
+    gap): the curve passes **through** every fit point in order (an *interpolating*
+    B-spline, OCCT ``GeomAPI_Interpolate`` via ``Edge.make_spline``), so a closed
+    profile wire containing a spline edge can extrude/revolve. ``points`` are the
+    ordered fit points (mm, sketch-plane); **at least two** are required (two fit
+    points degenerate to a straight interpolant — still valid). Consecutive fit
+    points must be distinct; a coincident pair is a degenerate spline the profile
+    builder rejects (``profile_not_closed``, like the degenerate-arc precedent).
+
+    Additive optional-free field-set (docs/design/feature-tree.md §1.3): this is
+    a NEW entity **kind**, not a changed field. Persisted sketches are unaffected
+    — the discriminated ``SketchEntity`` union keys on ``kind``, and no existing
+    sketch carries ``kind: "spline"``, so every stored sketch still parses to the
+    exact same entity it did before (totality holds; ``param_version`` unchanged).
+
+    **Solver interaction — v1 is NON-CONSTRAINED (honest limit).** planegcs has
+    no spline primitive, so v1 treats a spline as **fixed geometry**: its fit
+    points pass through :meth:`SketchSolver.solve` unchanged (the spline neither
+    drives nor is driven by constraints, and it contributes zero DOF). A spline
+    has no solver-addressable named point, so a constraint referencing one is a
+    malformed definition (``SketchDefinitionError``). Constraining splines / their
+    fit points — and tangency between a spline and its neighbours — is DEFERRED.
+    """
+
+    kind: Literal["spline"]
+    points: list[Point2D] = Field(
+        min_length=2,
+        description=(
+            "Ordered fit points (mm) the curve interpolates through; at least "
+            "two. Consecutive points must be distinct (a coincident pair is a "
+            "degenerate spline, rejected at profile build)."
+        ),
+    )
+
+
 SketchEntity = Annotated[
-    SketchPoint | SketchLine | SketchCircle | SketchArc,
+    SketchPoint | SketchLine | SketchCircle | SketchArc | SketchSpline,
     Field(discriminator="kind"),
 ]
 

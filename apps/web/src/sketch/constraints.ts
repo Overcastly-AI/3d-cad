@@ -638,7 +638,12 @@ function entityGlyphAnchor(entity: SketchEntity, offsetMm: number): Point2D {
   if (entity.kind === "circle" || entity.kind === "arc") {
     return radiusAnchor(entity, offsetMm);
   }
-  return { x: entity.position.x + offsetMm, y: entity.position.y + offsetMm };
+  // A v1 spline carries no relational glyphs (non-constrained); only bare
+  // points reach here with a meaningful anchor.
+  if (entity.kind === "point") {
+    return { x: entity.position.x + offsetMm, y: entity.position.y + offsetMm };
+  }
+  return { x: 0, y: 0 };
 }
 
 /**

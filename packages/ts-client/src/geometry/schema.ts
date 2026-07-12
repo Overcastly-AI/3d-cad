@@ -1635,7 +1635,7 @@ export interface components {
              * Entities
              * @description The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line).
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
         };
         /**
          * SketchCircle
@@ -1686,7 +1686,7 @@ export interface components {
              * Entities
              * @description The sketch entities after the corner op: the two source curves trimmed in place (ids preserved) plus the appended bridge (fresh id `f"{a}.{n}"`).
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
         };
         /**
          * SketchEditRequest
@@ -1718,7 +1718,7 @@ export interface components {
              * Entities
              * @description The whole sketch's entities (the edit rewrites this set).
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /** @description Sketch-plane pick point (mm): the segment to delete (trim) or the end to lengthen (extend, nearest endpoint wins). */
             pick: components["schemas"]["Point2D"];
             /**
@@ -1746,7 +1746,7 @@ export interface components {
              * Entities
              * @description The sketch entities after the edit (see class docstring for how the target is rewritten and how split ids are assigned).
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
         };
         /**
          * SketchFeature
@@ -1801,7 +1801,7 @@ export interface components {
              * Entities
              * @description The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc).
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
              * Radius
              * @description Fillet (tangent-arc) radius (mm); strictly positive and finite.
@@ -1857,7 +1857,7 @@ export interface components {
              * Entities
              * @description The whole sketch's entities (mirror ADDS to this set; the sources stay unchanged).
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
              * Targets
              * @description Ids of the entities to reflect; each must be in `entities`.
@@ -1886,7 +1886,7 @@ export interface components {
              * Entities
              * @description The newly created mirrored copies (sources are unchanged and NOT echoed here). One per target; fresh id `f"{source}.{n}"`, construction flag inherited, arcs start/end-swapped for CCW.
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
         };
         /**
          * SketchOffsetRequest
@@ -1910,7 +1910,7 @@ export interface components {
              * Entities
              * @description The whole sketch's entities (offset ADDS to this set; the source stays unchanged).
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
              * Target
              * @description Id of the entity to offset; must be in `entities`.
@@ -1934,7 +1934,7 @@ export interface components {
              * Entities
              * @description The newly created offset entities (source entities are unchanged and NOT echoed here). One entity in v1 (single-entity offset); fresh id `f"{target}.{n}"`, construction flag inherited.
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
         };
         /**
          * SketchParamsV1
@@ -1950,7 +1950,7 @@ export interface components {
             /** Constraints */
             constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
             /** Entities */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /** Plane */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
         };
@@ -1978,6 +1978,56 @@ export interface components {
             position: components["schemas"]["Point2D"];
         };
         /**
+         * SketchSpline
+         * @description A smooth **fit-point** curve — a C2 B-spline interpolating ``points``.
+         *
+         *     The free-form/organic profile entity (the last hard Sketching capability
+         *     gap): the curve passes **through** every fit point in order (an *interpolating*
+         *     B-spline, OCCT ``GeomAPI_Interpolate`` via ``Edge.make_spline``), so a closed
+         *     profile wire containing a spline edge can extrude/revolve. ``points`` are the
+         *     ordered fit points (mm, sketch-plane); **at least two** are required (two fit
+         *     points degenerate to a straight interpolant — still valid). Consecutive fit
+         *     points must be distinct; a coincident pair is a degenerate spline the profile
+         *     builder rejects (``profile_not_closed``, like the degenerate-arc precedent).
+         *
+         *     Additive optional-free field-set (docs/design/feature-tree.md §1.3): this is
+         *     a NEW entity **kind**, not a changed field. Persisted sketches are unaffected
+         *     — the discriminated ``SketchEntity`` union keys on ``kind``, and no existing
+         *     sketch carries ``kind: "spline"``, so every stored sketch still parses to the
+         *     exact same entity it did before (totality holds; ``param_version`` unchanged).
+         *
+         *     **Solver interaction — v1 is NON-CONSTRAINED (honest limit).** planegcs has
+         *     no spline primitive, so v1 treats a spline as **fixed geometry**: its fit
+         *     points pass through :meth:`SketchSolver.solve` unchanged (the spline neither
+         *     drives nor is driven by constraints, and it contributes zero DOF). A spline
+         *     has no solver-addressable named point, so a constraint referencing one is a
+         *     malformed definition (``SketchDefinitionError``). Constraining splines / their
+         *     fit points — and tangency between a spline and its neighbours — is DEFERRED.
+         */
+        SketchSpline: {
+            /**
+             * Construction
+             * @description Reference-only geometry (centerlines, symmetry/mirror axes, diagonals): solves and can be constrained/referenced, but is excluded from the profile that gates extrude/revolve. Absent in pre-construction-field sketches, which read as False.
+             * @default false
+             */
+            construction: boolean;
+            /**
+             * Id
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "spline";
+            /**
+             * Points
+             * @description Ordered fit points (mm) the curve interpolates through; at least two. Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
+             */
+            points: components["schemas"]["Point2D"][];
+        };
+        /**
          * SolvedSketchData
          * @description Per-feature solved-sketch payload (§7.10): the solver's solved entity
          *     positions, status, and DOF diagnosis for an ``ok`` sketch feature — what
@@ -1998,7 +2048,7 @@ export interface components {
              * Entities
              * @description Same entities (ids, kinds, order) as the input. Positions are solved when the numeric solve succeeded (converged, underconstrained, and consistent overconstrained cases); for conflicting/diverged sketches the input positions are returned unchanged.
              */
-            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"])[];
+            entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
              * Kind
              * @default solved_sketch
