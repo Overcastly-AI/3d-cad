@@ -209,7 +209,7 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       `measure` tokens + `MeasureIcon`; pure logic unit-tested; e2e ties the UI
       to the golden. Deferred to a later slice of this bundle: mass-properties
       panel additions + a units system (still mm-only)._
-- [ ] (P2, M) Linear/circular pattern — repeat a feature (or a contiguous
+- [x] (P2, M) Linear/circular pattern — repeat a feature (or a contiguous
       run of features) N times along a vector or around an axis; operates on
       whole features, not picked sub-geometry, so independent of #1.
       Depends on: nothing new.
@@ -236,12 +236,18 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       pinned as per-feature rebuild errors (strict-prefix, last-good preserved):
       `no_target_body`, `pattern_bad_count`/`_spacing`/`_direction`/`_axis`/
       `_angle`, `pattern_disjoint`. Contracts + ts-client regenerated._
-      _PENDING (7b, P2, S): pattern authoring UI — a PatternEditor (linear/
-      circular) in the title-block seat + toolbar action + `features/pattern.ts`
-      twin of `features/revolve.ts` + `api/parts.ts` builders. Backend + DTO +
-      generated client are ready; web typecheck is already green (no exhaustive
-      switch), so no forward-compat stub was needed — a pattern feature row just
-      shows its type and opens no editor until 7b._
+      _SHIPPED (7b UI): `PatternEditor` in the title-block seat (LINEAR⇄CIRCULAR
+      SegmentedControl; COUNT wears brass + the seed-inclusive note; linear =
+      +direction/spacing, circular = axis point/axis/angle), a Pattern action in
+      the CreateStrip **Modify** group (P accelerator, gated on a body like
+      fillet/chamfer) + `features/pattern.ts` (world-axis presets, form↔param
+      mapping) + `api/parts.ts` builders — all types from the generated client.
+      Rebuild errors (`no_target_body`, `pattern_bad_*`, `pattern_disjoint`)
+      surface through the existing per-feature tree error row. e2e
+      `pattern.spec.ts`: real stack, sketch→extrude→linear pattern count 3
+      spacing 6 → feature lands in the tree AND the body re-renders as the wider
+      bar (X-extent grows). Unit tests for the module + builders (253 web unit
+      green). Founder before/after screenshots (desktop + 1280×800)._
 
 ## Next (P2)
 

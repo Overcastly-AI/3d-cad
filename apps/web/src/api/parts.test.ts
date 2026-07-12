@@ -9,6 +9,9 @@ import {
   extrudeFeatureUpdate,
   fetchParts,
   PartNameTakenError,
+  type PatternParams,
+  patternFeatureCreate,
+  patternFeatureUpdate,
   type RevolveParams,
   revolveFeatureCreate,
   revolveFeatureUpdate,
@@ -271,6 +274,46 @@ describe("revolveFeatureUpdate", () => {
     expect(body).toEqual({
       expected_tree_version: 9,
       feature: { type: "revolve", version: 1, params: half },
+    });
+    expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+const linearPattern: PatternParams = {
+  pattern: {
+    kind: "linear",
+    direction: { x: 1, y: 0, z: 0 },
+    spacing_mm: 6,
+    count: 3,
+  },
+};
+
+describe("patternFeatureCreate", () => {
+  it("wraps the params in the {type, version, params} create envelope", () => {
+    const body = patternFeatureCreate("Pattern1", linearPattern, 4);
+    expect(body).toEqual({
+      name: "Pattern1",
+      expected_tree_version: 4,
+      feature: { type: "pattern", version: 1, params: linearPattern },
+    });
+  });
+});
+
+describe("patternFeatureUpdate", () => {
+  it("wraps the re-parametrized envelope for the PATCH (no rename)", () => {
+    const circular: PatternParams = {
+      pattern: {
+        kind: "circular",
+        axis_point: { x: 0, y: 0, z: 0 },
+        axis_direction: { x: 0, y: 0, z: 1 },
+        angle_deg: 360,
+        count: 6,
+      },
+    };
+    const body = patternFeatureUpdate(circular, 12);
+    expect(body).toEqual({
+      expected_tree_version: 12,
+      feature: { type: "pattern", version: 1, params: circular },
     });
     expect(body).not.toHaveProperty("name", expect.anything());
   });

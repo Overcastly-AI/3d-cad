@@ -21,6 +21,9 @@ import {
   fetchFeatureTree,
   fetchPart,
   moveRollbackBar,
+  type PatternParams,
+  patternFeatureCreate,
+  patternFeatureUpdate,
   type RevolveParams,
   revolveFeatureCreate,
   revolveFeatureUpdate,
@@ -33,6 +36,7 @@ import { CreateStrip } from "../components/CreateStrip";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { PartExportControls } from "../components/PartExportControls";
+import { PatternEditor } from "../components/PatternEditor";
 import { RevolveEditor } from "../components/RevolveEditor";
 import {
   defaultExtrudeForm,
@@ -49,6 +53,11 @@ import {
   formFromRevolveParams,
   type RevolveForm,
 } from "../features/revolve";
+import {
+  defaultPatternForm,
+  formFromPatternParams,
+  type PatternForm,
+} from "../features/pattern";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -541,6 +550,12 @@ export function PartPage() {
         initial: RevolveForm;
         featureId?: string;
       }
+    | {
+        kind: "pattern";
+        mode: "create" | "edit";
+        initial: PatternForm;
+        featureId?: string;
+      }
     | null
   >(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
@@ -650,6 +665,19 @@ export function PartPage() {
     });
   }, [tree.data]);
 
+  // A pattern needs no sketch profile — it repeats the current BODY — so it
+  // only requires a solid to exist (canModify), unlike extrude/revolve.
+  const openCreatePattern = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "pattern",
+      mode: "create",
+      initial: defaultPatternForm(),
+    });
+  }, []);
+
   const selectFeature = useCallback((feature: FeatureResponse) => {
     useMeasureStore.getState().deactivate();
     setSelectedFeatureId(feature.id);
@@ -667,6 +695,13 @@ export function PartPage() {
         mode: "edit",
         featureId: feature.id,
         initial: formFromRevolveParams(feature.feature.params),
+      });
+    } else if (feature.feature.type === "pattern") {
+      setEditor({
+        kind: "pattern",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromPatternParams(feature.feature.params),
       });
     } else {
       setEditor(null);
@@ -760,6 +795,24 @@ export function PartPage() {
     [editor, features, runFeatureSave],
   );
 
+  const submitPattern = useCallback(
+    (params: PatternParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "pattern") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "pattern").length + 1;
+      runFeatureSave(
+        (version) =>
+          patternFeatureCreate(`Pattern${nextIndex}`, params, version),
+        (version) => patternFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The pattern could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
   const moveRollback = useCallback(
     (rollbackFeatureId: string | null) => {
       // Moving the bar rebuilds the body → the measure overlay refetches
@@ -798,6 +851,21 @@ export function PartPage() {
   useEffect(() => {
     if (mode !== "off") setEditor(null);
   }, [mode]);
+
+  // Modify accelerator: P adds a pattern to the current body (mode off, a body
+  // exists) — the same guard grammar as the Measure M accelerator.
+  useEffect(() => {
+    if (mode !== "off") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isTypingTarget(event.target)) return;
+      if (event.key.toLowerCase() !== "p" || !hasBody) return;
+      event.preventDefault();
+      openCreatePattern();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, hasBody, openCreatePattern]);
 
   // The body is the hero: once a solid renders, the profile sketch that
   // defined it recedes (it sits on the body's base face — coincident scribe
@@ -839,6 +907,8 @@ export function PartPage() {
             onNewExtrude={openCreateExtrude}
             canRevolve={hasSolvedSketch}
             onNewRevolve={openCreateRevolve}
+            canModify={hasBody}
+            onPattern={openCreatePattern}
             canMeasure={hasBody}
             measuring={measureActive}
             onToggleMeasure={toggleMeasure}
@@ -882,13 +952,22 @@ export function PartPage() {
                     saving={editorSaving}
                     error={editorError}
                   />
-                ) : (
+                ) : editor.kind === "revolve" ? (
                   <RevolveEditor
                     mode={editor.mode}
                     profiles={sketchProfiles}
                     axesByProfile={axesByProfile}
                     initial={editor.initial}
                     onSubmit={submitRevolve}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
+                ) : (
+                  <PatternEditor
+                    mode={editor.mode}
+                    initial={editor.initial}
+                    onSubmit={submitPattern}
                     onCancel={closeEditor}
                     saving={editorSaving}
                     error={editorError}

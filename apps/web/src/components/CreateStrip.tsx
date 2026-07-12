@@ -18,6 +18,7 @@ import {
   ExtrudeIcon,
   FilletIcon,
   MeasureIcon,
+  PatternIcon,
   RevolveIcon,
   SketchIcon,
   ToolButton,
@@ -44,6 +45,8 @@ export interface CreateStripProps {
   onFillet?: () => void;
   /** Bevel the selected edges (arrives with the geometry chamfer op). */
   onChamfer?: () => void;
+  /** Repeat the current body into a linear/circular array (P). */
+  onPattern?: () => void;
   /** A solid body exists to inspect — the Measure tool lights up. */
   canMeasure?: boolean;
   /** The Measure tool is armed (picking targets in the viewport). */
@@ -62,12 +65,14 @@ export function CreateStrip({
   canModify = false,
   onFillet,
   onChamfer,
+  onPattern,
   canMeasure = false,
   measuring = false,
   onToggleMeasure,
 }: CreateStripProps) {
   const filletReady = canModify && treeReady && onFillet !== undefined;
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
+  const patternReady = canModify && treeReady && onPattern !== undefined;
 
   return (
     <div
@@ -139,6 +144,20 @@ export function CreateStrip({
           }
           disabled={!chamferReady}
           onClick={onChamfer}
+        />
+        <ToolButton
+          icon={<PatternIcon />}
+          showLabel
+          label="Pattern"
+          shortcut="P"
+          data-testid="new-pattern"
+          aria-label={
+            patternReady
+              ? "Pattern — repeat the body in a linear or circular array (P)"
+              : "Pattern — create a body first"
+          }
+          disabled={!patternReady}
+          onClick={onPattern}
         />
       </ToolGroup>
 

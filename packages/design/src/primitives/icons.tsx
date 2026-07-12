@@ -240,6 +240,44 @@ export const ChamferIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Pattern = the seed body copied into an array — a 2×2 grid of square cells,
+ * the top-left one punched to mark the seed (instance 0). Reads as "repeat",
+ * and its square cells tie it to the title-block grid rather than a generic
+ * "copy" glyph.
+ */
+export const PatternIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={4} y={4} width={6} height={6} />
+    <rect x={14} y={4} width={6} height={6} />
+    <rect x={4} y={14} width={6} height={6} />
+    <rect x={14} y={14} width={6} height={6} />
+    <Node cx={7} cy={7} />
+  </Icon>
+);
+
+/** Linear pattern = the seed square stepped along a row (a direction arrow). */
+export const LinearPatternIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={3} y={9} width={6} height={6} />
+    <path d="M11 12 H21" />
+    <path d="M21 12 L18 10 M21 12 L18 14" />
+    <Node cx={13} cy={12} />
+    <Node cx={17} cy={12} />
+  </Icon>
+);
+
+/** Circular pattern = the seed square copied around a center (a ring of nodes). */
+export const CircularPatternIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={9.5} y={2.5} width={5} height={5} />
+    <path d="M6 6 A 9 9 0 1 0 18 6" />
+    <Node cx={12} cy={13} />
+    <Node cx={5} cy={16} />
+    <Node cx={19} cy={16} />
+  </Icon>
+);
+
 // --- Feature operations (add / cut, direction) ------------------------------
 
 /** Add = material joined onto the body. */

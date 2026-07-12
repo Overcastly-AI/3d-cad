@@ -28,6 +28,13 @@ export type ExtrudeFeature = components["schemas"]["ExtrudeFeature"];
 export type ExtrudeParams = components["schemas"]["ExtrudeParamsV1"];
 export type RevolveFeature = components["schemas"]["RevolveFeature"];
 export type RevolveParams = components["schemas"]["RevolveParamsV1"];
+export type PatternFeature = components["schemas"]["PatternFeature"];
+export type PatternParams = components["schemas"]["PatternParamsV1"];
+export type LinearPatternParams =
+  components["schemas"]["LinearPatternParamsV1"];
+export type CircularPatternParams =
+  components["schemas"]["CircularPatternParamsV1"];
+export type Vec3 = components["schemas"]["Vec3"];
 
 export type PartCreate = components["schemas"]["PartCreate"];
 
@@ -260,6 +267,40 @@ export function revolveFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: revolveFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by pattern create and update. */
+function patternFeatureEnvelope(params: PatternParams): PatternFeature {
+  return { type: "pattern", version: 1, params };
+}
+
+/**
+ * The create payload for a pattern feature: repeat the current single body into
+ * a linear row or circular ring, unioning the copies (design §7.6, the
+ * revolve/fillet sibling — no `FeatureRef`, it acts on the implicit body chain
+ * at its point in the tree). Pure — unit-tested against the generated types.
+ */
+export function patternFeatureCreate(
+  name: string,
+  params: PatternParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: patternFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing pattern (no rename). */
+export function patternFeatureUpdate(
+  params: PatternParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: patternFeatureEnvelope(params),
   };
 }
 

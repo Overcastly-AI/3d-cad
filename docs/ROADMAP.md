@@ -118,11 +118,13 @@ item below.
 - ⬜ Features: revolve (✅ shipped — 5a kernel+schema+golden
       `revolve-annulus-r10-20-h15` + 5b authoring UI: title-block editor with
       line-entity axis pick & brass angle handle, live edit, tree errors);
-      linear/circular pattern (✅ backend shipped — 7 kernel+schema+golden
+      linear/circular pattern (✅ shipped — 7 kernel+schema+golden
       `pattern-linear-3x-bar`: `PatternFeature` v1 replicates the current body
       and boolean-unions the copies into the single body chain, world-space
-      direction/axis (no topo naming), all error paths pinned; 7b authoring UI
-      pending). **5 body-affecting features now
+      direction/axis (no topo naming), all error paths pinned; 7b authoring UI:
+      `PatternEditor` (linear⇄circular toggle, world-axis presets, brass count
+      handle) in the Modify group, live edit, tree errors, e2e widens-the-bar).
+      **5 body-affecting features now
       (extrude+revolve+fillet+chamfer+pattern)** — the Part-modeling scorecard
       row is a re-score candidate (vision-steward to reassess; still
       predicate-only edge selection, whole-body pattern only, no hole/shell/
