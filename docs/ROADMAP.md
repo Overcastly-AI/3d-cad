@@ -160,6 +160,15 @@ item:
       panel, units system (BACKLOG Next).
 - 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
       2026-07-12; feeds Ready restocks as the queue runs thin.
+- ✅ Multi-loop closed profiles → holes (2026-07-12): the product audit's #1
+      daily-driver gap. One sketch of an outer boundary + N inner circles now
+      extrudes/cuts to a plate with N through-holes — `build_profile_face`
+      classifies the largest-area loop as the outer boundary and the rest as
+      interior holes (`Face(outer, inner_wires)`), so extrude/revolve/sweep/loft
+      all gain holes for free. No topological naming needed. Golden:
+      `sketch-extrude-plate-2holes-40x25x10` (analytic V = (40·25−2π·5²)·10,
+      8 faces, STEP round-trip + interpreter-restart determinism). Disjoint /
+      crossing / overlapping / nested loops are legible `profile_unsupported`.
 - 🚧 Part-modeling breadth — shell, draft, dedicated hole, multi-body
       boolean still unbuilt, several gated on face/edge picking (BACKLOG
       Ready + Next).

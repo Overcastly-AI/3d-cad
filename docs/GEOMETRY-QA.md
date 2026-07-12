@@ -81,6 +81,68 @@ pattern) are all golden-covered.
 
 ---
 
+## 2026-07-12 — Multi-loop closed profiles → holes (product audit #1): plate-with-holes golden
+
+**Capability.** A single sketch's non-construction edges may now form **more
+than one closed loop**. `build_profile_face` (kernel/extrude.py — the SHARED
+profile builder for extrude/revolve/sweep/loft) classifies them: the
+**largest-area loop is the outer boundary** and every other loop is an
+**interior hole**, built as `Face(outer_wire, inner_wires)`. One sketch of an
+outer boundary + N inner circles → a plate with N through-holes when
+extruded/cut (the audit's #1 daily-driver gap; needs **no** topological
+naming). Because all four body-affecting features consume this one function,
+they all gain holes for free.
+
+**v1 classification rule (documented limit, honest).** One outer boundary +
+holes that are **strictly interior** and **mutually disjoint**. Containment is
+tested by sampling 64 points along each inner loop against the outer face
+(`Face.is_inside`); the constructed face's OCCT validity (`Face.is_valid`,
+i.e. `BRepCheck_Analyzer`) is the geometry-exact backstop so no malformed
+arrangement slips through as a bad body. Rejections (all legible, never a 500,
+per-feature codes): disjoint outer boundaries or a boundary-crossing loop →
+`profile_unsupported` ("not all enclosed by a single outer boundary");
+overlapping / nested holes → `profile_unsupported` (invalid face); an open
+loop among them → `profile_not_closed`. Multi-region (multi-body) sketches are
+a separate future item. **The single-loop path is byte-identical** — one loop
+still returns `Face(wire)` exactly as before (verified: all pre-existing
+goldens unchanged).
+
+**Golden `sketch-extrude-plate-2holes-40x25x10`** (EvaluateTreeRequest: 40×25
+outer rectangle + two r5 holes at (12,12.5) and (28,12.5), extruded 10 mm).
+Hand-derived analytic values, measured-then-set tolerance:
+
+- **volume** = (40·25 − 2·π·5²)·10 = **8429.203673205104 mm³** — measured
+  deviation **exactly 0.0**.
+- **surface_area** = 2·(1000−50π) + 2·65·10 + 2·(2π·5·10) =
+  **3614.159265358979 mm²** — deviation **exactly 0.0**.
+- **centroid** (20, 12.5, 5) by symmetry (holes symmetric about the plate
+  centre) — worst deviation **1.78e-15 mm** (z, ulp scale); x/y exactly.
+- **bounding_box** [0,0,0]..[40,25,10] — exact on all six bounds (interior
+  holes don't touch the AABB).
+- **topology 8 faces / 18 edges / 1 shell** (exact): 6 prism faces + 2
+  cylindrical hole walls; edges = top 6 (4 rect + 2 circles) + bottom 6 + 4
+  vertical box + 2 hole seams.
+- **mesh 1036 vertices / 1028 triangles** (exact, linear 0.1 / angular 0.1),
+  analytically decomposed: 2 hole cylinders (126-segment rule) = 508 v / 504 t;
+  2 cap faces (rect + two 126-gon holes) = 512 v / 516 t; 4 side rects = 16 v /
+  8 t.
+- **tolerance 1e-9** — curved-geometry posture (two cylinders through GProp
+  quadrature), ~5.6e5× the observed worst case, 100× tighter than the standing
+  planar 1e-7 bound; matches the extrude/cylinder/revolve goldens.
+
+**Determinism + round-trip.** Inner wires are sorted by a geometric key
+(area, then centre x/y/z) so the `Face(outer, inners)` input order is
+independent of `Wire.combine`'s output order → byte-identical GLB in-process
+**and across an interpreter restart** (the harness restart gate is green for
+this golden). STEP round-trip green (the parametrized `test_step_roundtrip.py`
+covers the new golden). API-level error paths and the holed-profile **cut**
+path (cutting a plate-with-hole tool leaves the pillar under the hole:
+V = π·25·10) pinned in `tests/test_extrude.py`.
+
+No shipped modeling capability lacks a golden as of this entry.
+
+---
+
 ## 2026-07-12 — Offset/datum planes — BACKEND (BACKLOG Ready #2): sketch-on-an-offset-plane, and the loft the loft note deferred
 
 **What shipped.** A `datum` feature (`DatumParamsV1{base: XY|XZ|YZ, offset_mm

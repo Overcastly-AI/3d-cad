@@ -18,11 +18,18 @@ v1 profile rules (documented limits, not accidents):
   axes, diagonals): they solve and can be constrained/referenced upstream, but
   are **excluded here** — the single profile-exclusion point for every
   body-affecting feature. ``point`` entities never bound a profile either.
-- All remaining curve entities together must form exactly **one closed wire**.
-  Marking a real profile edge construction opens the loop, so an open
-  or broken chain raises :class:`ProfileNotClosedError`; multiple disjoint
-  closed loops (including hole-in-profile nesting) raise
-  :class:`ProfileUnsupportedError` until a multi-loop face design lands.
+- All remaining curve entities must form **one or more closed wires**. A
+  single closed wire is a plain face (the original path, byte-identical). Two
+  or more closed wires are a **face with holes**: the loop of largest area is
+  the OUTER boundary and every other loop is an inner boundary (a hole)
+  subtracted from the face — so one sketch of an outer boundary + N inner
+  circles extrudes/cuts to a plate with N through-holes (a bolt circle). See
+  :func:`build_profile_face` for the v1 classification rule and its documented
+  limits (single outer boundary; disjoint, strictly-interior holes only).
+  Marking a real profile edge construction opens its loop, so an open or
+  broken chain raises :class:`ProfileNotClosedError`; a configuration outside
+  the single-outer / disjoint-interior-holes rule raises
+  :class:`ProfileUnsupportedError`.
 - The extrusion is a single body chain (design §7.6): a boolean whose result
   is not exactly one solid raises :class:`BooleanError`.
 """
@@ -84,7 +91,9 @@ class ProfileNotClosedError(ValueError):
 
 
 class ProfileUnsupportedError(ValueError):
-    """The profile is closed but outside v1 support (multiple loops)."""
+    """The profile's loops are all closed but their arrangement is outside v1
+    support: disjoint outer boundaries (a multi-region / multi-body sketch), a
+    hole that crosses the outer boundary, or holes that overlap or nest."""
 
 
 class BooleanError(RuntimeError):
@@ -196,8 +205,100 @@ def entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
             ]
 
 
+#: Points sampled along each inner loop's perimeter to test that it lies
+#: strictly inside the outer boundary (v1 containment classification). A whole
+#: loop poking outside the outer boundary is caught when any sample lands
+#: outside; OCCT's own face validity check (:attr:`Face.is_valid`) is the
+#: geometry-exact backstop for anything sampling between points might miss, so
+#: no malformed arrangement can slip through as a bad body. 64 is dense enough
+#: to separate the analytic loops v1 authors while staying cheap.
+_INNER_CONTAINMENT_SAMPLES = 64
+
+
+def _wire_area(wire: Wire) -> float:
+    """Planar area enclosed by a closed *wire* (via its bare face)."""
+    return Face(wire).area
+
+
+def _wire_sort_key(wire: Wire) -> tuple[float, float, float, float]:
+    """A deterministic ordering key for inner (hole) wires (RESEARCH §9).
+
+    Independent of :meth:`Wire.combine`'s output order: sort holes by enclosed
+    area then centre-of-area coordinates, so the same sketch always feeds the
+    same inner-wire order into ``Face(outer, inners)`` — and therefore the same
+    tessellation bytes across processes (verified by the plate-with-holes
+    golden's determinism gates).
+    """
+    face = Face(wire)
+    centre = face.center()
+    return (face.area, centre.X, centre.Y, centre.Z)
+
+
+def _build_face_with_holes(wires: Sequence[Wire]) -> Face:
+    """Classify 2+ closed loops into one outer boundary + inner holes → face.
+
+    v1 classification rule (documented limit, not an accident): the loop of
+    **largest enclosed area** is the OUTER boundary; every other loop is a hole
+    subtracted from it. Each hole must lie **strictly inside** the outer
+    boundary and the holes must be **mutually disjoint** — a single outer
+    boundary with N non-overlapping, non-nested interior holes (the bolt-circle
+    / plate-with-holes case). Anything else is rejected as
+    :class:`ProfileUnsupportedError` with a legible message, never a 500:
+
+    * a loop not contained by the outer boundary ⇒ the sketch has disjoint
+      outer boundaries (a multi-region / multi-body sketch), a separate future
+      item;
+    * a hole crossing the outer boundary, or holes that overlap or nest, leave
+      OCCT with an invalid face — caught here by the validity backstop.
+    """
+    outer_wire = max(wires, key=_wire_area)
+    outer_face = Face(outer_wire)
+    inner_wires = [wire for wire in wires if wire is not outer_wire]
+
+    for inner in inner_wires:
+        contained = all(
+            outer_face.is_inside(
+                inner.position_at(index / _INNER_CONTAINMENT_SAMPLES),
+                tolerance=PROFILE_WIRE_TOLERANCE,
+            )
+            for index in range(_INNER_CONTAINMENT_SAMPLES)
+        )
+        if not contained:
+            raise ProfileUnsupportedError(
+                f"Sketch profile has {len(wires)} closed loops that are not all "
+                "enclosed by a single outer boundary (a loop lies outside it or "
+                "crosses it); extrude builds one body from one outer boundary "
+                "with interior holes in v1 — separate regions (multi-body) and "
+                "boundary-crossing loops are a later item."
+            )
+
+    try:
+        face = Face(outer_wire, sorted(inner_wires, key=_wire_sort_key))
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        raise ProfileUnsupportedError(
+            "Sketch holes could not be subtracted from the outer boundary; "
+            "each inner loop must be a simple, interior, non-overlapping hole."
+        ) from exc
+
+    if not face.is_valid:
+        raise ProfileUnsupportedError(
+            "Sketch holes cross the outer boundary, overlap one another, or "
+            "nest; v1 supports one outer boundary with disjoint interior holes."
+        )
+    return face
+
+
 def build_profile_face(plane: Plane, entities: Sequence[SketchEntity]) -> Face:
-    """Assemble solved sketch entities into the single closed profile face.
+    """Assemble solved sketch entities into a closed profile face.
+
+    A single closed loop is a plain face (byte-identical to the original
+    single-loop path). Two or more closed loops are a **face with holes**: the
+    largest-area loop is the outer boundary and every other loop is a hole
+    subtracted from it — one sketch of an outer boundary + N inner circles
+    extrudes/cuts to a plate with N through-holes (see
+    :func:`_build_face_with_holes` for the classification rule and its v1
+    limits). Every body-affecting feature (extrude/revolve/sweep/loft) consumes
+    this face, so they all gain holes for free.
 
     *plane* is the resolved sketch :class:`~build123d.Plane` (origin datum or
     offset ``datum`` feature — docs/design/datum-planes.md §3a); the name→Plane
@@ -205,10 +306,10 @@ def build_profile_face(plane: Plane, entities: Sequence[SketchEntity]) -> Face:
     so every body-affecting builder takes a concrete plane.
 
     Raises:
-        ProfileNotClosedError: no curve entities, or the chained edges do not
-            close into a loop.
-        ProfileUnsupportedError: more than one closed loop (v1 supports a
-            single-loop profile; holes/multi-loop faces are a later item).
+        ProfileNotClosedError: no curve entities, or some loop does not close.
+        ProfileUnsupportedError: the loops do not form one outer boundary with
+            disjoint, strictly-interior holes (disjoint outer boundaries /
+            crossing / overlapping / nested holes — all legible, never a 500).
     """
     edges: list[Edge] = []
     for entity in entities:
@@ -228,18 +329,15 @@ def build_profile_face(plane: Plane, entities: Sequence[SketchEntity]) -> Face:
         )
 
     wires = Wire.combine(edges, tol=PROFILE_WIRE_TOLERANCE)
-    if len(wires) > 1:
-        raise ProfileUnsupportedError(
-            f"Sketch profile forms {len(wires)} separate loops; extrude "
-            "supports exactly one closed loop in v1."
-        )
-    wire = wires[0]
-    if not wire.is_closed:
-        raise ProfileNotClosedError(
-            "Sketch profile is not a closed loop; close the boundary (e.g. "
-            "with coincident constraints) before extruding."
-        )
-    return Face(wire)
+    for wire in wires:
+        if not wire.is_closed:
+            raise ProfileNotClosedError(
+                "Sketch profile is not a closed loop; close the boundary (e.g. "
+                "with coincident constraints) before extruding."
+            )
+    if len(wires) == 1:
+        return Face(wires[0])
+    return _build_face_with_holes(wires)
 
 
 def extrude_face(

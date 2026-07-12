@@ -126,6 +126,52 @@ def circle_sketch(
     }
 
 
+def _circle(eid: str, center: tuple[float, float], radius: float) -> dict[str, Any]:
+    return {
+        "id": eid,
+        "kind": "circle",
+        "center": {"x": center[0], "y": center[1]},
+        "radius": radius,
+    }
+
+
+def plate_with_holes_sketch(
+    feature_id: uuid.UUID,
+    holes: list[tuple[tuple[float, float], float]],
+    *,
+    x0: float = 0.0,
+    y0: float = 0.0,
+    x1: float = 40.0,
+    y1: float = 25.0,
+) -> dict[str, Any]:
+    """A closed outer rectangle plus inner hole circles in ONE sketch.
+
+    The multi-loop profile: the rectangle is the outer boundary, each circle a
+    hole subtracted from the face (build_profile_face classifies by area).
+    """
+    entities = [
+        _line("e1", (x0, y0), (x1, y0)),
+        _line("e2", (x1, y0), (x1, y1)),
+        _line("e3", (x1, y1), (x0, y1)),
+        _line("e4", (x0, y1), (x0, y0)),
+    ]
+    entities += [
+        _circle(f"h{i + 1}", center, radius) for i, (center, radius) in enumerate(holes)
+    ]
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(XY_PLANE),
+                "entities": entities,
+                "constraints": [],
+            },
+        },
+    }
+
+
 def extrude_input(
     feature_id: uuid.UUID,
     profile_id: uuid.UUID,
@@ -388,7 +434,11 @@ def test_disjoint_add_is_boolean_failed() -> None:
     assert error.code == "boolean_failed"
 
 
-def test_multiple_disjoint_loops_are_profile_unsupported() -> None:
+def test_disjoint_outer_boundaries_are_profile_unsupported() -> None:
+    """Two circles neither of which contains the other are two disjoint outer
+    boundaries — a multi-region sketch, unsupported in v1 (a single body is one
+    outer boundary with interior holes). Not a hole configuration: the message
+    names the disjoint-regions case, and it is a per-feature error, never 500."""
     result = _post(
         _request(
             [
@@ -402,6 +452,155 @@ def test_multiple_disjoint_loops_are_profile_unsupported() -> None:
     error = result.features[1].error
     assert error is not None
     assert error.code == "profile_unsupported"
+    assert "outer boundary" in error.message.lower()
+
+
+# --- Multi-loop closed profiles: plate with holes (bolt-circle capability) ------------
+
+
+def test_plate_with_holes_extrudes_with_holes_subtracted() -> None:
+    """One sketch of a 40x25 outer rectangle + two r5 holes extrudes to a plate
+    with two through-holes: V = (40*25 - 2*pi*25)*10, 8 faces (6 prism + 2 hole
+    cylinders). The kernel half of the golden, asserted over HTTP."""
+    result = _post(
+        _request(
+            [
+                plate_with_holes_sketch(
+                    SKETCH_ID, [((12.0, 12.5), 5.0), ((28.0, 12.5), 5.0)]
+                ),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        (40.0 * 25.0 - 2.0 * math.pi * 25.0) * 10.0, abs=EXTRUDE_TOL
+    )
+    assert result.properties.topology.faces == 8
+
+
+def test_single_hole_plate_extrudes() -> None:
+    """One outer boundary + one hole: the minimal multi-loop profile (a washer
+    plate). V = (40*25 - pi*25)*10; 7 faces (6 prism + 1 hole cylinder)."""
+    result = _post(
+        _request(
+            [
+                plate_with_holes_sketch(SKETCH_ID, [((20.0, 12.5), 5.0)]),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        (40.0 * 25.0 - math.pi * 25.0) * 10.0, abs=EXTRUDE_TOL
+    )
+    assert result.properties.topology.faces == 7
+
+
+def test_cut_with_holed_profile_leaves_material_under_holes() -> None:
+    """The holed-profile CUT path is meaningfully different: cutting a block
+    with a plate-with-hole profile removes the ring but LEAVES the pillar under
+    the hole. add a 40x25x10 block, then cut a full-depth pocket shaped as a
+    40x25 outer with a central r5 hole -> only the ring is removed, so the
+    remaining volume is exactly the two hole columns' worth: pi*25*10 = the
+    material under the single hole for the full 10 mm depth."""
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                plate_with_holes_sketch(SKETCH2_ID, [((20.0, 12.5), 5.0)]),
+                extrude_input(EXTRUDE2_ID, SKETCH2_ID, 10.0, operation="cut"),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 4
+    assert result.properties is not None
+    # The cut tool is the plate minus its hole; cutting it from the identical
+    # block leaves exactly the hole's column: pi*5^2*10.
+    assert result.properties.volume == pytest.approx(
+        math.pi * 25.0 * 10.0, abs=EXTRUDE_TOL
+    )
+
+
+def test_hole_crossing_outer_boundary_is_profile_unsupported() -> None:
+    """A hole poking through the outer boundary is not an interior hole -> a
+    legible profile_unsupported, never a 500 (OCCT would build an invalid
+    face)."""
+    result = _post(
+        _request(
+            [
+                # r10 hole centred near the right edge (x=38) pokes past x=40.
+                plate_with_holes_sketch(SKETCH_ID, [((38.0, 12.5), 10.0)]),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+            ]
+        )
+    )
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_unsupported"
+
+
+def test_overlapping_holes_are_profile_unsupported() -> None:
+    """Two holes that overlap each other are not disjoint interior holes -> a
+    legible profile_unsupported (invalid face), never a 500."""
+    result = _post(
+        _request(
+            [
+                plate_with_holes_sketch(
+                    SKETCH_ID, [((18.0, 12.5), 5.0), ((23.0, 12.5), 5.0)]
+                ),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+            ]
+        )
+    )
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_unsupported"
+
+
+def test_open_loop_among_closed_loops_is_profile_not_closed() -> None:
+    """An open outer boundary (three sides) plus a closed hole circle -> the
+    open loop is caught first as profile_not_closed, not profile_unsupported."""
+    sketch = plate_with_holes_sketch(SKETCH_ID, [((20.0, 12.5), 5.0)])
+    entities = sketch["feature"]["params"]["entities"]
+    sketch["feature"]["params"]["entities"] = [
+        e for e in entities if e["id"] != "e4"
+    ]  # drop the closing edge of the outer rectangle
+    result = _post(_request([sketch, extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0)]))
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_not_closed"
+
+
+def test_plate_with_holes_is_byte_deterministic() -> None:
+    """Determinism holds with multi-loop profiles (RESEARCH §9): inner-wire
+    ordering is sorted by a geometric key, so the body — and its content-
+    addressed mesh id — is byte-reproducible across identical requests."""
+    payload = _request(
+        [
+            plate_with_holes_sketch(
+                SKETCH_ID, [((12.0, 12.5), 5.0), ((28.0, 12.5), 5.0)]
+            ),
+            extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+        ]
+    )
+    first = client.post("/api/v1/evaluate", json=payload)
+    second = client.post("/api/v1/evaluate", json=payload)
+
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
 
 
 def test_points_only_sketch_has_nothing_to_extrude() -> None:

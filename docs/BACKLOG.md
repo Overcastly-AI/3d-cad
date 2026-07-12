@@ -23,13 +23,14 @@ duplication:
   only a literal, no expressions/driving-vs-driven; (3) splines are v1
   non-constrained. All three are in Ready below.
 - **Part modeling row — still ❌, blocker now explicit.** 8 body-affecting
-  features (extrude/revolve/fillet/chamfer/pattern/sweep/loft-backend), but:
-  (a) edge selection is predicate-only, not click-a-specific-edge; (b)
-  **sketches can only be placed on the 3 origin datum planes** — no
-  offset or on-face plane exists, which is also why loft shipped with no UI
-  (#8b): a real loft needs parallel offset/face-based sections it can't
-  author. This is now the single highest-leverage foundational unlock — see
-  Ready #1/#2 below.
+  features (extrude/revolve/fillet/chamfer/pattern/sweep/loft-backend), plus
+  **multi-loop profiles → holes (the audit's #1 gap) now backend-shipped** — a
+  bracket's bolt holes are authorable in one cut sketch. Remaining: (a) edge
+  selection is predicate-only, not click-a-specific-edge; (b) **sketches can
+  only be placed on the 3 origin datum planes** — no offset or on-face plane
+  exists, which is also why loft shipped with no UI (#8b): a real loft needs
+  parallel offset/face-based sections it can't author. This is now the single
+  highest-leverage foundational unlock — see Ready #1/#2 below.
 - **Interop row** — unchanged: export covers modeled trees, import is Phase
   4. No Ready items target it this pass.
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
@@ -99,6 +100,17 @@ polish the re-score flagged; independent of #1–#3 and of each other.
       standalone datum reuse) + sketcher/extrude/constraints/offset/mirror
       suites green; founder before/after screenshots (`docs/screenshots/
       datum-plane-*.png`). [src: frontend-builder]
+- [x] (P1, M) Multi-loop closed profiles → holes — DONE 2026-07-12. The
+      product audit's #1 gap (`docs/AUDIT-PRODUCT.md`): a single sketch of an
+      outer boundary + N inner circles now extrudes/cuts to a plate with N
+      through-holes. `build_profile_face` (kernel/extrude.py, shared by
+      extrude/revolve/sweep/loft) classifies the largest-area loop as the outer
+      boundary and the rest as interior holes → `Face(outer, inner_wires)`; no
+      topological naming. v1 scope: one outer boundary + disjoint, strictly
+      interior holes; disjoint/crossing/overlapping/nested loops are legible
+      `profile_unsupported`, an open loop `profile_not_closed`. Single-loop path
+      byte-identical. Golden `sketch-extrude-plate-2holes-40x25x10` (analytic V,
+      8 faces, STEP round-trip + restart determinism). [src: product-auditor #1]
 - [ ] (P1, M) Viewport v1 — face/edge picking — in-UI selection of a
       specific face/edge for feature authoring, per
       `docs/design/topological-naming.md` (`SubshapeRef`, shipped
