@@ -32,6 +32,7 @@ from py_kit.schemas.geometry import (
     DEFAULT_LINEAR_DEFLECTION,
     ExportFormat,
     ShapeProperties,
+    Vec3,
 )
 from py_kit.schemas.sketch import EntityId, SketchDefinition, SolvedSketch
 
@@ -243,6 +244,130 @@ class ChamferParamsV1(BaseModel):
     )
 
 
+# --- Pattern params (linear / circular) -----------------------------------------
+#
+# DESIGN DECISION (v1, BACKLOG #7 — recorded in docs/GEOMETRY-QA.md 2026-07-12):
+# a pattern replicates the CURRENT evaluated body — everything modelled so far —
+# and BOOLEAN-UNIONS the copies into the single body chain (design §7.6). This is
+# option (B): "pattern the current body", NOT (A) "replicate an isolated source
+# feature's solid delta". Instance 0 is the existing body (never double-counted);
+# instances 1..count-1 are rigid copies transformed to each placement and fused
+# in. A pattern operates on WHOLE features by tree position, never on picked
+# sub-geometry, so — like revolve's axis — it is independent of topological
+# naming (#1).
+#
+# Why (B): for the common case where the body IS the thing to array (a bare
+# boss/prism), option (B) is a pure rigid transform + fuse — EXACT, with zero
+# hidden inaccuracy (no solid-delta subtraction, which (A) needs and which can
+# leave slivers). Its honest limitations (stated plainly, GEOMETRY-QA):
+#   * it arrays the WHOLE body-so-far — any base is dragged to each placement.
+#     Feature-scoped patterning (replicating only one chosen feature's tool
+#     solid onto a fixed base) needs per-feature tool tracking and is future
+#     work (#7 follow-up), NOT this version.
+#   * additive UNION only — v1 has no cut/hole arrays.
+#   * the copies must merge into ONE connected solid (§7.6 single body chain);
+#     a pattern whose instances are disjoint is a per-feature `pattern_disjoint`
+#     rebuild error until multi-body parts land.
+#
+# All pattern VALUE validation (count, spacing, direction/axis magnitude, angle)
+# lives at rebuild in geometry.kernel.pattern, surfacing as per-feature
+# `pattern_*` errors under the strict-prefix rule — NOT as pydantic Field
+# constraints. This is a deliberate departure from the extrude/revolve
+# gt=0-at-parse idiom: pattern validity is partly CROSS-FIELD (a zero sweep is
+# only wrong when count > 1; direction is a free vector whose magnitude no
+# single-field bound can check), so v1 centralizes every check in one place for
+# one uniform, legible per-feature error surface rather than splitting
+# single-field checks to 422s and cross-field checks to rebuild errors. (A
+# non-integer count is still a parse-time type error — `count` is typed ``int``.)
+
+
+class LinearPatternParamsV1(BaseModel):
+    """A linear (row/grid-line) pattern along a world-space direction.
+
+    ``count`` INCLUDES the seed (instance 0 = the existing body), so a row of
+    N total bodies is ``count = N``; ``count = 1`` is a no-op (seed only).
+    Copies are placed at ``spacing_mm * k`` along the unit ``direction`` for
+    ``k = 1..count-1``. See the module design note above for what "the body"
+    means and the connected-solid requirement.
+    """
+
+    kind: Literal["linear"] = "linear"
+    direction: Vec3 = Field(
+        description="World-space direction of the row; only its DIRECTION is "
+        "used (magnitude ignored; a zero-length vector is a `pattern_bad_"
+        "direction` rebuild error)"
+    )
+    spacing_mm: float = Field(
+        description="Centre-to-centre step between consecutive instances along "
+        "`direction` (mm); must be > 0 (a `pattern_bad_spacing` rebuild error "
+        "otherwise). Validated at rebuild, not at parse (see module note)."
+    )
+    count: int = Field(
+        description="TOTAL instances INCLUDING the seed (instance 0); an "
+        "integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; "
+        "`count = 1` is a no-op (the body is unchanged)."
+    )
+
+
+class CircularPatternParamsV1(BaseModel):
+    """A circular (ring) pattern about a world-space axis.
+
+    ``count`` INCLUDES the seed. Instances are placed every ``angle_deg /
+    count`` degrees about the axis for ``k = 1..count-1``, so the closing
+    position at ``angle_deg`` is EXCLUSIVE (omitted): ``angle_deg = 360`` with
+    ``count = 4`` yields a clean 4-up ring at 0/90/180/270° with no overlapping
+    twin at 360° ≡ 0°. To place N instances INCLUSIVELY across a partial arc of
+    ``a`` degrees (both ends occupied), set ``angle_deg = a * count / (count -
+    1)``. See the module design note above for the connected-solid requirement.
+    """
+
+    kind: Literal["circular"] = "circular"
+    axis_point: Vec3 = Field(
+        description="A point on the world-space axis of rotation (mm)"
+    )
+    axis_direction: Vec3 = Field(
+        description="Direction of the axis of rotation; only its DIRECTION is "
+        "used (magnitude ignored; a zero-length vector is a `pattern_bad_axis` "
+        "rebuild error)"
+    )
+    angle_deg: float = Field(
+        description="TOTAL sweep about the axis (degrees). Instances are spaced "
+        "`angle_deg / count`, so `angle_deg = 360` is a full ring; the closing "
+        "instance at `angle_deg` is EXCLUSIVE. Must be in (0, 360] when count "
+        "> 1 (a `pattern_bad_angle` rebuild error otherwise)."
+    )
+    count: int = Field(
+        description="TOTAL instances INCLUDING the seed; an integer >= 1. "
+        "`count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a "
+        "no-op."
+    )
+
+
+#: Discriminated pattern-geometry union (linear vs circular), the RevolveAxis
+#: `kind`-discriminator idiom: a future `path`/`mirror` variant joins additively
+#: without a `param_version` bump.
+PatternGeometry = Annotated[
+    LinearPatternParamsV1 | CircularPatternParamsV1, Field(discriminator="kind")
+]
+
+
+class PatternParamsV1(BaseModel):
+    """Repeat the current single body into a linear row or circular ring.
+
+    Wraps the discriminated :data:`PatternGeometry` under ``pattern`` (the
+    nested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). Like a
+    fillet/chamfer, a pattern carries NO ``FeatureRef``: it operates on the
+    implicit single body chain that exists at its point in the tree (design
+    §7.6), so its dependency on the prior body-affecting feature is tree order,
+    not a reference. See the module-level DESIGN DECISION note for the v1
+    "pattern the whole body + union" semantics and its stated limitations.
+    """
+
+    pattern: PatternGeometry = Field(
+        description="Linear or circular pattern geometry (discriminated on `kind`)"
+    )
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -286,17 +411,35 @@ class ChamferFeature(BaseModel):
     params: ChamferParamsV1
 
 
+class PatternFeature(BaseModel):
+    """``{"type": "pattern", "version": 1, "params": {...}}`` envelope."""
+
+    type: Literal["pattern"]
+    version: Literal[1]
+    params: PatternParamsV1
+
+
 #: Discriminated union of the CURRENT version of every feature type — this is
 #: what the OpenAPI contract exports (design §1.4). Older stored versions are
 #: upcast on read via :data:`FEATURE_REGISTRY`.
 Feature = Annotated[
-    SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature,
+    SketchFeature
+    | ExtrudeFeature
+    | RevolveFeature
+    | FilletFeature
+    | ChamferFeature
+    | PatternFeature,
     Field(discriminator="type"),
 ]
 
 #: Plain (non-annotated) union alias for type annotations of validated values.
 FeatureEnvelope = (
-    SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature
+    SketchFeature
+    | ExtrudeFeature
+    | RevolveFeature
+    | FilletFeature
+    | ChamferFeature
+    | PatternFeature
 )
 
 
@@ -444,6 +587,7 @@ FEATURE_REGISTRY.register(ExtrudeFeature)
 FEATURE_REGISTRY.register(RevolveFeature)
 FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.register(ChamferFeature)
+FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.validate_chains()
 
 
@@ -511,10 +655,12 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                     "profile", feature.params.profile, frozenset({"sketch"})
                 )
             )
-        case FilletFeature() | ChamferFeature():
+        case FilletFeature() | ChamferFeature() | PatternFeature():
             # No FeatureRef: fillet/chamfer modify the implicit single body
             # chain (design §7.6) and select edges by a geometric predicate,
-            # not by a per-feature subshape reference (design §2.4). Their
+            # not by a per-feature subshape reference (design §2.4); a pattern
+            # replicates that same implicit body about world-space direction/
+            # axis vectors (no picked sub-geometry — independent of #1). Their
             # ordering dependency on the prior body-affecting feature is the
             # tree order.
             pass

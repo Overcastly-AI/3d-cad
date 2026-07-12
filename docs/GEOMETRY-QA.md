@@ -47,6 +47,7 @@ recorded from harness output.
 | `fillet-plate-r5` | FIRST FILLET golden (new curved-topology class): sketch→extrude→fillet tree — the plate's 4 vertical (Z-parallel) edges rounded r=5 via geometric edge selection (design §2.4, not topological naming); GProp over quarter-cylinder fillet surfaces, curved-face tessellation, STEP re-approximation of trimmed cylindrical surfaces | 1e-9 (curved-geometry, measured-then-set; observed worst 1.78e-15) | 10 / 24 / 1 | 544 / 524 |
 | `chamfer-plate-d5` | FIRST CHAMFER golden (all-planar): sketch→extrude→chamfer tree — the plate's 4 vertical (Z-parallel) edges beveled d=5 (45°) via the SAME `EdgeSelector` plumbing fillet uses (shared `select_edges` helper, design §2.4); GProp over 4 PLANAR bevel faces + octagonal caps, EXACT STEP survival (0.0 vs fillet's curved 1.26e-10) | 1e-9 (all-planar, measured-then-set; volume/area exact, residual worst 3.55e-15) | 10 / 24 / 1 | 48 / 28 |
 | `revolve-annulus-r10-20-h15` | FIRST REVOLVE golden (solid of revolution): sketch→revolve tree — a rectangle [r 10..20]×[h 0..15] revolved 360° about a CONSTRUCTION centerline into an annular cylinder; shares extrude's `build_profile_face`/`combine_body`; GProp over two coaxial cylinders + two annular caps, periodic seam-edge topology, STEP re-approximation of the revolved cylinders | 1e-9 (curved-geometry, measured-then-set; observed worst 1.82e-12 on volume) | 4 / 6 / 1 | 1012 / 1008 |
+| `pattern-linear-3x-bar` | FIRST PATTERN golden (linear pattern, #7): sketch→extrude→pattern tree — a unit cube LINEAR-patterned +X (spacing 6, count 3, overlapping) so the copies fuse into a connected bar [0,22]×[0,10]×[0,10]; locks the pattern handler + placement math (unit dir × spacing × k) + variadic fuse + single-solid finalize (§7.6), and STEP round-trip of the patterned body | 1e-9 (all-planar union, measured-then-set; volume/area/centroid/AABB EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
@@ -65,6 +66,82 @@ error codes `profile_not_closed`/`no_axis`/`axis_intersects_profile`/
 `tests/test_revolve.py`. No shipped modeling capability lacks a golden as of
 the 2026-07-11 revolve entry — the four core features (extrude, revolve,
 fillet, chamfer) are all golden-covered.
+
+---
+
+## 2026-07-12 — First pattern golden: `pattern-linear-3x-bar` (linear/circular pattern, BACKLOG Ready #7 backend)
+
+**Capability:** `PatternFeature` v1 — a linear/circular pattern in the
+discriminated feature union + evaluate-tree dispatcher. First feature that
+replicates the body rather than sweeping a sketch profile.
+
+**DESIGN DECISION (option B — "pattern the current body"):** the brief offered
+(A) replicate an isolated source feature's solid delta vs (B) pattern the whole
+current body + union. **Chose B.** For the common case where the body IS the
+thing to array (a bare boss/prism), B is a pure rigid transform + fuse —
+**EXACT, zero hidden inaccuracy** — whereas A needs a solid-delta subtraction
+that can leave slivers. Instance 0 is the existing body (never double-counted);
+linear places copies at `spacing·k` along a world **unit** direction, circular
+every `angle/count` about a world axis (closing instance **EXCLUSIVE**, so
+`angle=360` is a clean ring, `count` includes the seed). Direction/axis are
+world-space `Vec3` (no sketch/sub-shape ref) → **independent of topological
+naming (#1)**, as the board noted.
+
+**Stated limitations (honest, in the DTO docstring + code):** (1) it arrays the
+WHOLE body-so-far — any base is dragged to each placement; feature-scoped
+patterning (replicating one feature's tool solid onto a fixed base) needs
+per-feature tool tracking and is future work. (2) additive UNION only — no
+cut/hole arrays in v1. (3) copies must merge into ONE connected solid (§7.6
+single body chain); a disjoint result is a `pattern_disjoint` rebuild error
+until multi-body parts land. All pattern *value* validation lives at rebuild
+(not pydantic Field constraints) so it surfaces as legible per-feature
+`pattern_*` errors — deliberate, because pattern validity is partly cross-field
+(a zero sweep is only wrong when count > 1; a direction vector's magnitude is
+no single-field bound).
+
+**Golden `pattern-linear-3x-bar`** (sketch→extrude→pattern): a 10×10 square
+extruded to a unit cube, linear-patterned +X spacing 6 mm count 3. The three
+x-intervals [0,10],[6,16],[12,22] overlap+contiguous → the union is exactly the
+bar [0,22]×[0,10]×[0,10] (a disjoint result would fail, proving the fuse both
+ran and merged). HAND-DERIVED expectations:
+
+| Quantity | Expected (analytic) | Measured deviation |
+| --- | --- | --- |
+| volume | 22·10·10 = **2200 mm³** | **0.0** (exact) |
+| surface_area | 2(220+220+100) = **1080 mm²** | **0.0** (exact) |
+| centroid | **(11, 5, 5) mm** | **0.0** on all three |
+| AABB | **[0,0,0]..[22,10,10]** | **0.0** on all six bounds |
+| topology F/E/S | **6 / 12 / 1** | exact (clean() collapsed the union seams) |
+| mesh V/T | **24 / 12** | exact |
+
+Deviations are EXACTLY 0.0 (planar-union path integrates exactly — better than
+the curved revolve/fillet goldens, matching the primitive box). Tolerance
+`1e-9` = reviewed ceiling for cross-host libm variation, 100× tighter than the
+standing planar 1e-7 bound.
+
+**Determinism (RESEARCH §9):** GLB 3252 bytes, in-process byte-identical across
+rebuilds, and byte-identical across an interpreter restart — digest
+`49903df8cf3493bc576ab002f39d391e0c1c8e4ffa8587dce5e2fdba0f832949` in both this
+process and a fresh one. **STEP round-trip:** the patterned bar re-imports with
+mass properties within tolerance and topology preserved 6/12/1 (parametrized
+`test_step_roundtrip.py`, green).
+
+**Circular path** covered by `test_pattern.py` (unit): a 4×12×8 bar centred on
+world Z, circular-patterned 360°/4, crosses into a connected PLUS solid — vol
+(48+48−16)·8 = **640 mm³**, symmetric AABB [−6,−6,0]..[6,6,8], single solid.
+
+**Error paths pinned** (per-feature rebuild errors, strict-prefix, last-good
+body preserved — never a 500): `no_target_body` (pattern before any body),
+`pattern_bad_count` (count < 1), `pattern_bad_spacing` (≤ 0), `pattern_bad_
+direction`/`pattern_bad_axis` (zero-length vector), `pattern_bad_angle` (0 or
+> 360 with count > 1), `pattern_disjoint` (instances don't merge). Non-integer
+count is a parse-time 422 (`count` is typed `int`). Evidence:
+`test_pattern.py` (13 tests green).
+
+**Gates:** `test_goldens.py` + `test_step_roundtrip.py` + `test_export.py` +
+`test_pattern.py` green; full `services/geometry` + `services/gateway` suites
+green; pyright + ruff clean; contracts + ts-client regenerated (gen-check
+clean); web typecheck green with no stub needed.
 
 ---
 

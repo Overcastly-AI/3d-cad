@@ -57,6 +57,8 @@ from py_kit.schemas.features import (
     FeatureRef,
     FeatureResult,
     FilletFeature,
+    LinearPatternParamsV1,
+    PatternFeature,
     RevolveFeature,
     SketchFeature,
     SolvedSketchData,
@@ -70,15 +72,24 @@ from geometry.kernel import (
     FilletError,
     NoAxisError,
     NoEdgesSelectedError,
+    PatternAngleError,
+    PatternAxisError,
+    PatternCountError,
+    PatternDirectionError,
+    PatternDisjointError,
+    PatternError,
+    PatternSpacingError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
     RevolveError,
     build_profile_face,
     chamfer_body,
     check_axis_clears_profile,
+    circular_pattern,
     combine_body,
     extrude_face,
     fillet_body,
+    linear_pattern,
     measure_shape,
     resolve_axis_line,
     revolve_face,
@@ -416,6 +427,74 @@ def _evaluate_chamfer(
     return None
 
 
+def _evaluate_pattern(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Replicate the current body into a linear row / circular ring (§4.3).
+
+    v1 DESIGN DECISION (option B, docs/GEOMETRY-QA.md): a pattern arrays the
+    CURRENT single body — everything modelled so far — and unions the copies
+    into the body chain (design §7.6). It operates on the implicit body about
+    world-space direction/axis vectors (no picked sub-geometry — independent of
+    topological naming, #1), so like fillet/chamfer it needs a prior
+    body-affecting feature (``no_target_body`` otherwise). Every pattern value
+    is validated in :mod:`geometry.kernel.pattern` and mapped 1:1 to a
+    per-feature ``pattern_*`` code — bad count/spacing/direction/axis/angle,
+    ``pattern_disjoint`` (instances do not merge into one solid), or the kernel
+    ``pattern_failed``. ``state.body`` is only replaced on success (strict-prefix
+    rule tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, PatternFeature), "registry dispatches on type='pattern'"
+
+    if state.body is None:
+        return FeatureError(
+            code="no_target_body",
+            message=(
+                "Pattern requires an existing body, but no body-affecting "
+                "feature precedes this one; add a feature that creates a body "
+                "first."
+            ),
+        )
+
+    geometry = feature.params.pattern
+    try:
+        if isinstance(geometry, LinearPatternParamsV1):
+            state.body = linear_pattern(
+                state.body,
+                (geometry.direction.x, geometry.direction.y, geometry.direction.z),
+                geometry.spacing_mm,
+                geometry.count,
+            )
+        else:
+            state.body = circular_pattern(
+                state.body,
+                (geometry.axis_point.x, geometry.axis_point.y, geometry.axis_point.z),
+                (
+                    geometry.axis_direction.x,
+                    geometry.axis_direction.y,
+                    geometry.axis_direction.z,
+                ),
+                geometry.angle_deg,
+                geometry.count,
+            )
+    except PatternCountError as exc:
+        return FeatureError(code="pattern_bad_count", message=str(exc))
+    except PatternSpacingError as exc:
+        return FeatureError(code="pattern_bad_spacing", message=str(exc))
+    except PatternDirectionError as exc:
+        return FeatureError(code="pattern_bad_direction", message=str(exc))
+    except PatternAxisError as exc:
+        return FeatureError(code="pattern_bad_axis", message=str(exc))
+    except PatternAngleError as exc:
+        return FeatureError(code="pattern_bad_angle", message=str(exc))
+    except PatternDisjointError as exc:
+        return FeatureError(code="pattern_disjoint", message=str(exc))
+    except PatternError as exc:
+        return FeatureError(code="pattern_failed", message=str(exc))
+    return None
+
+
 #: The dispatcher registry (§4): feature ``type`` discriminator → handler.
 #: Consulted by key only; no iteration order participates (RESEARCH §9
 #: determinism). New feature types plug in here.
@@ -425,6 +504,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "revolve": _evaluate_revolve,
     "fillet": _evaluate_fillet,
     "chamfer": _evaluate_chamfer,
+    "pattern": _evaluate_pattern,
 }
 
 

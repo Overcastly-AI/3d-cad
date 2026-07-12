@@ -1,0 +1,360 @@
+"""Pattern feature — API-level behavior of the linear/circular pattern (#7).
+
+Covers the BACKLOG Ready #7 acceptance beyond the golden harness (the golden
+``pattern-linear-3x-bar`` runs every parametrized gate in ``test_goldens.py`` /
+``test_step_roundtrip.py``): the golden tree evaluated over HTTP populates real
+mass properties and a fetchable content-addressed mesh; a connected CIRCULAR
+array is numerically checked; ``count == 1`` is a no-op; and every pattern
+error path — ``no_target_body``, ``pattern_bad_count``, ``pattern_bad_spacing``,
+``pattern_bad_direction``, ``pattern_bad_axis``, ``pattern_bad_angle``,
+``pattern_disjoint`` — is a per-feature error pinned under the strict-prefix
+rule (design §4.3), never a transport failure. A non-integer count is a
+parse-time 422 (``count`` is typed ``int``).
+
+v1 DESIGN DECISION (option B, docs/GEOMETRY-QA.md): a pattern replicates the
+CURRENT body and unions the copies into the single body chain (§7.6). Numeric
+assertions use the documented tree-golden tolerance (measured-then-set,
+``goldens/pattern-linear-3x-bar/expected.json``), not ad-hoc epsilons.
+"""
+
+import json
+import uuid
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+from geometry.main import app
+from py_kit.schemas.features import EvaluateTreeResult
+
+client = TestClient(app)
+
+GOLDEN_MODEL = (
+    Path(__file__).resolve().parent.parent
+    / "goldens"
+    / "pattern-linear-3x-bar"
+    / "model.json"
+)
+
+#: The documented tolerance of the pattern golden (expected.json
+#: tolerance_rationale: measured EXACTLY 0.0 on every property; 1e-9 is the
+#: reviewed ceiling). The planar-union pattern path is exact.
+PATTERN_TOL = 1e-9
+
+PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000000fb")
+SKETCH_ID = uuid.UUID("00000000-0000-0000-0000-00000000aaaa")
+BODY_ID = uuid.UUID("00000000-0000-0000-0000-00000000bbbb")
+PATTERN_ID = uuid.UUID("00000000-0000-0000-0000-00000000cccc")
+
+XY_PLANE: dict[str, Any] = {"kind": "datum_plane", "plane": "XY"}
+
+
+def _line(
+    eid: str, start: tuple[float, float], end: tuple[float, float]
+) -> dict[str, Any]:
+    return {
+        "id": eid,
+        "kind": "line",
+        "start": {"x": start[0], "y": start[1]},
+        "end": {"x": end[0], "y": end[1]},
+    }
+
+
+def rect_sketch(
+    feature_id: uuid.UUID, x0: float, y0: float, x1: float, y1: float
+) -> dict[str, Any]:
+    """A closed rectangle [x0,x1] x [y0,y1] on XY, entities at their analytic
+    positions with no constraints (underconstrained → solver returns the input
+    positions bitwise; same posture as the revolve suite's profile_sketch)."""
+    corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    entities = [_line(f"e{i + 1}", corners[i], corners[(i + 1) % 4]) for i in range(4)]
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(XY_PLANE),
+                "entities": entities,
+                "constraints": [],
+            },
+        },
+    }
+
+
+def extrude_input(
+    feature_id: uuid.UUID, profile_id: uuid.UUID, distance_mm: float
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "extrude",
+            "version": 1,
+            "params": {
+                "profile": {"kind": "feature", "feature_id": str(profile_id)},
+                "distance_mm": distance_mm,
+                "operation": "add",
+                "direction": "normal",
+            },
+        },
+    }
+
+
+def linear_pattern_input(
+    feature_id: uuid.UUID,
+    *,
+    direction: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    spacing_mm: float = 6.0,
+    count: int = 3,
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "pattern",
+            "version": 1,
+            "params": {
+                "pattern": {
+                    "kind": "linear",
+                    "direction": {
+                        "x": direction[0],
+                        "y": direction[1],
+                        "z": direction[2],
+                    },
+                    "spacing_mm": spacing_mm,
+                    "count": count,
+                }
+            },
+        },
+    }
+
+
+def circular_pattern_input(
+    feature_id: uuid.UUID,
+    *,
+    axis_point: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    axis_direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+    angle_deg: float = 360.0,
+    count: int = 4,
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "pattern",
+            "version": 1,
+            "params": {
+                "pattern": {
+                    "kind": "circular",
+                    "axis_point": {
+                        "x": axis_point[0],
+                        "y": axis_point[1],
+                        "z": axis_point[2],
+                    },
+                    "axis_direction": {
+                        "x": axis_direction[0],
+                        "y": axis_direction[1],
+                        "z": axis_direction[2],
+                    },
+                    "angle_deg": angle_deg,
+                    "count": count,
+                }
+            },
+        },
+    }
+
+
+def _request(features: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"part_id": str(PART_ID), "tree_version": 3, "features": features}
+
+
+def _post(payload: dict[str, Any]) -> EvaluateTreeResult:
+    response = client.post("/api/v1/evaluate", json=payload)
+    assert response.status_code == 200, response.text
+    return EvaluateTreeResult.model_validate(response.json())
+
+
+def _cube_tree(pattern: dict[str, Any]) -> dict[str, Any]:
+    """The unit-cube seed (10x10x10) then the given pattern feature."""
+    return _request(
+        [
+            rect_sketch(SKETCH_ID, 0.0, 0.0, 10.0, 10.0),
+            extrude_input(BODY_ID, SKETCH_ID, 10.0),
+            pattern,
+        ]
+    )
+
+
+# --- The golden tree over HTTP -------------------------------------------------------
+
+
+def test_golden_tree_evaluates_with_body_artifact_over_http() -> None:
+    """The committed pattern golden, posted verbatim: all three features ok,
+    the fused bar volume 2200 mm^3, content-addressed mesh id."""
+    payload: dict[str, Any] = json.loads(GOLDEN_MODEL.read_text(encoding="utf-8"))
+    result = _post(payload)
+
+    assert [(r.feature_id, r.status) for r in result.features] == [
+        (SKETCH_ID, "ok"),
+        (BODY_ID, "ok"),
+        (PATTERN_ID, "ok"),
+    ]
+    assert result.last_good_feature_id == PATTERN_ID
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(2200.0, abs=PATTERN_TOL)
+    assert result.properties.surface_area == pytest.approx(1080.0, abs=PATTERN_TOL)
+    assert result.properties.topology.faces == 6
+    assert result.mesh_glb_id is not None
+    assert result.mesh_glb_id.startswith("sha256:")
+
+
+def test_evaluate_response_with_body_is_byte_deterministic() -> None:
+    """Same pattern tree → identical response bytes INCLUDING mesh_glb_id
+    (a content hash of a deterministic GLB) — RESEARCH §9."""
+    payload: dict[str, Any] = json.loads(GOLDEN_MODEL.read_text(encoding="utf-8"))
+    first = client.post("/api/v1/evaluate", json=payload)
+    second = client.post("/api/v1/evaluate", json=payload)
+
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
+
+
+# --- Valid pattern variants ----------------------------------------------------------
+
+
+def test_circular_pattern_of_a_bar_forms_a_connected_plus() -> None:
+    """A 4x12x8 bar centred on the world Z axis, circular-patterned 360°/4:
+    the 90°/270° copies cross the seed into a connected PLUS solid. Volume =
+    two crossed 4x12 rectangles minus the 4x4 centre overlap, x 8 mm high =
+    (48 + 48 - 16) * 8 = 640 mm^3; symmetric AABB [-6,-6,0]..[6,6,8]."""
+    result = _post(
+        _request(
+            [
+                rect_sketch(SKETCH_ID, -2.0, -6.0, 2.0, 6.0),
+                extrude_input(BODY_ID, SKETCH_ID, 8.0),
+                circular_pattern_input(PATTERN_ID),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(640.0, abs=PATTERN_TOL)
+    bbox = result.properties.bounding_box
+    assert bbox.min.x == pytest.approx(-6.0, abs=PATTERN_TOL)
+    assert bbox.max.x == pytest.approx(6.0, abs=PATTERN_TOL)
+    assert bbox.min.z == pytest.approx(0.0, abs=PATTERN_TOL)
+    assert bbox.max.z == pytest.approx(8.0, abs=PATTERN_TOL)
+
+
+def test_count_one_is_a_no_op_leaving_the_seed_body() -> None:
+    """count == 1 (seed only) returns the body unchanged — the cube volume."""
+    result = _post(_cube_tree(linear_pattern_input(PATTERN_ID, count=1)))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(1000.0, abs=PATTERN_TOL)
+
+
+def test_linear_pattern_along_y_shifts_the_whole_body() -> None:
+    """A +Y linear pattern (count 3, spacing 6) of the unit cube is the bar
+    along Y — the placement math is not X-specific."""
+    result = _post(
+        _cube_tree(linear_pattern_input(PATTERN_ID, direction=(0.0, 1.0, 0.0)))
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(2200.0, abs=PATTERN_TOL)
+    bbox = result.properties.bounding_box
+    assert bbox.max.y == pytest.approx(22.0, abs=PATTERN_TOL)
+    assert bbox.max.x == pytest.approx(10.0, abs=PATTERN_TOL)
+
+
+# --- Error paths are per-feature values, never transport failures ---------------------
+
+
+def _pattern_error(result: EvaluateTreeResult) -> str:
+    """The pattern feature's error code, asserting the strict-prefix shape:
+    the pattern is the error, the seed body is preserved as last-good."""
+    assert [r.status for r in result.features] == ["ok", "ok", "error"]
+    error = result.features[2].error
+    assert error is not None
+    return error.code
+
+
+def test_pattern_before_any_body_is_no_target_body() -> None:
+    """A pattern with no prior body-affecting feature → no_target_body."""
+    result = _post(_request([linear_pattern_input(PATTERN_ID)]))
+
+    assert result.features[0].status == "error"
+    error = result.features[0].error
+    assert error is not None
+    assert error.code == "no_target_body"
+    assert result.mesh_glb_id is None
+
+
+def test_zero_count_is_pattern_bad_count() -> None:
+    """count < 1 → pattern_bad_count; the seed extrude stays as last-good."""
+    result = _post(_cube_tree(linear_pattern_input(PATTERN_ID, count=0)))
+    assert _pattern_error(result) == "pattern_bad_count"
+    # Strict-prefix: the last-good body (the extrude) is still tessellated.
+    assert result.last_good_feature_id == BODY_ID
+    assert result.mesh_glb_id is not None
+
+
+def test_zero_spacing_is_pattern_bad_spacing() -> None:
+    """Linear spacing 0 → pattern_bad_spacing (instances would coincide)."""
+    result = _post(_cube_tree(linear_pattern_input(PATTERN_ID, spacing_mm=0.0)))
+    assert _pattern_error(result) == "pattern_bad_spacing"
+
+
+def test_negative_spacing_is_pattern_bad_spacing() -> None:
+    result = _post(_cube_tree(linear_pattern_input(PATTERN_ID, spacing_mm=-6.0)))
+    assert _pattern_error(result) == "pattern_bad_spacing"
+
+
+def test_zero_length_direction_is_pattern_bad_direction() -> None:
+    """A zero-length linear direction vector → pattern_bad_direction."""
+    result = _post(
+        _cube_tree(linear_pattern_input(PATTERN_ID, direction=(0.0, 0.0, 0.0)))
+    )
+    assert _pattern_error(result) == "pattern_bad_direction"
+
+
+def test_zero_length_axis_is_pattern_bad_axis() -> None:
+    """A zero-length circular axis direction → pattern_bad_axis."""
+    result = _post(
+        _cube_tree(circular_pattern_input(PATTERN_ID, axis_direction=(0.0, 0.0, 0.0)))
+    )
+    assert _pattern_error(result) == "pattern_bad_axis"
+
+
+def test_zero_angle_with_multiple_instances_is_pattern_bad_angle() -> None:
+    """angle 0 with count > 1 → pattern_bad_angle (copies collapse on seed)."""
+    result = _post(_cube_tree(circular_pattern_input(PATTERN_ID, angle_deg=0.0)))
+    assert _pattern_error(result) == "pattern_bad_angle"
+
+
+def test_over_360_angle_is_pattern_bad_angle() -> None:
+    """A sweep > 360° with count > 1 → pattern_bad_angle."""
+    result = _post(_cube_tree(circular_pattern_input(PATTERN_ID, angle_deg=540.0)))
+    assert _pattern_error(result) == "pattern_bad_angle"
+
+
+def test_disjoint_instances_are_pattern_disjoint() -> None:
+    """Spacing wider than the 10 mm cube leaves separated lumps — a single body
+    chain is required in v1 (§7.6), so this is pattern_disjoint, NOT a body."""
+    result = _post(
+        _cube_tree(linear_pattern_input(PATTERN_ID, spacing_mm=20.0, count=2))
+    )
+    assert _pattern_error(result) == "pattern_disjoint"
+    # The seed body is still the last-good artifact (strict-prefix rule).
+    assert result.last_good_feature_id == BODY_ID
+
+
+def test_non_integer_count_is_a_parse_error() -> None:
+    """A non-integer count is a request-validation failure (422), not a
+    per-feature error — `count` is typed `int`."""
+    payload = _cube_tree(linear_pattern_input(PATTERN_ID))
+    payload["features"][2]["feature"]["params"]["pattern"]["count"] = 2.5
+    response = client.post("/api/v1/evaluate", json=payload)
+    assert response.status_code == 422

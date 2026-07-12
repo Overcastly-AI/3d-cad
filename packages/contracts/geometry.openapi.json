@@ -149,6 +149,43 @@
         "title": "ChamferParamsV1",
         "type": "object"
       },
+      "CircularPatternParamsV1": {
+        "description": "A circular (ring) pattern about a world-space axis.\n\n``count`` INCLUDES the seed. Instances are placed every ``angle_deg /\ncount`` degrees about the axis for ``k = 1..count-1``, so the closing\nposition at ``angle_deg`` is EXCLUSIVE (omitted): ``angle_deg = 360`` with\n``count = 4`` yields a clean 4-up ring at 0/90/180/270\u00b0 with no overlapping\ntwin at 360\u00b0 \u2261 0\u00b0. To place N instances INCLUSIVELY across a partial arc of\n``a`` degrees (both ends occupied), set ``angle_deg = a * count / (count -\n1)``. See the module design note above for the connected-solid requirement.",
+        "properties": {
+          "angle_deg": {
+            "description": "TOTAL sweep about the axis (degrees). Instances are spaced `angle_deg / count`, so `angle_deg = 360` is a full ring; the closing instance at `angle_deg` is EXCLUSIVE. Must be in (0, 360] when count > 1 (a `pattern_bad_angle` rebuild error otherwise).",
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "axis_direction": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Direction of the axis of rotation; only its DIRECTION is used (magnitude ignored; a zero-length vector is a `pattern_bad_axis` rebuild error)"
+          },
+          "axis_point": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "A point on the world-space axis of rotation (mm)"
+          },
+          "count": {
+            "description": "TOTAL instances INCLUDING the seed; an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "circular",
+            "default": "circular",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "axis_point",
+          "axis_direction",
+          "angle_deg",
+          "count"
+        ],
+        "title": "CircularPatternParamsV1",
+        "type": "object"
+      },
       "CoincidentConstraint": {
         "description": "Two named points share a location.",
         "properties": {
@@ -470,6 +507,7 @@
                 "chamfer": "#/components/schemas/ChamferFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
+                "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sketch": "#/components/schemas/SketchFeature"
               },
@@ -490,6 +528,9 @@
               },
               {
                 "$ref": "#/components/schemas/ChamferFeature"
+              },
+              {
+                "$ref": "#/components/schemas/PatternFeature"
               }
             ],
             "title": "Feature"
@@ -898,6 +939,38 @@
         "title": "HorizontalConstraint",
         "type": "object"
       },
+      "LinearPatternParamsV1": {
+        "description": "A linear (row/grid-line) pattern along a world-space direction.\n\n``count`` INCLUDES the seed (instance 0 = the existing body), so a row of\nN total bodies is ``count = N``; ``count = 1`` is a no-op (seed only).\nCopies are placed at ``spacing_mm * k`` along the unit ``direction`` for\n``k = 1..count-1``. See the module design note above for what \"the body\"\nmeans and the connected-solid requirement.",
+        "properties": {
+          "count": {
+            "description": "TOTAL instances INCLUDING the seed (instance 0); an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).",
+            "title": "Count",
+            "type": "integer"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "World-space direction of the row; only its DIRECTION is used (magnitude ignored; a zero-length vector is a `pattern_bad_direction` rebuild error)"
+          },
+          "kind": {
+            "const": "linear",
+            "default": "linear",
+            "title": "Kind",
+            "type": "string"
+          },
+          "spacing_mm": {
+            "description": "Centre-to-centre step between consecutive instances along `direction` (mm); must be > 0 (a `pattern_bad_spacing` rebuild error otherwise). Validated at rebuild, not at parse (see module note).",
+            "title": "Spacing Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "direction",
+          "spacing_mm",
+          "count"
+        ],
+        "title": "LinearPatternParamsV1",
+        "type": "object"
+      },
       "MeasureRequest": {
         "description": "Measure the nearest distance between two targets (stateless, one-shot).\n\n``tree`` is required iff either target is an edge \u2014 geometry recomputes\nthat feature tree (reusing the ``POST /api/v1/evaluate`` machinery, so the\nsame ordered dispatch + strict-prefix rule applies) and measures the exact\nB-rep edge. For point-point, ``tree`` is omitted and no body is built.",
         "properties": {
@@ -1143,6 +1216,60 @@
           "b"
         ],
         "title": "ParallelConstraint",
+        "type": "object"
+      },
+      "PatternFeature": {
+        "description": "``{\"type\": \"pattern\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/PatternParamsV1"
+          },
+          "type": {
+            "const": "pattern",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "PatternFeature",
+        "type": "object"
+      },
+      "PatternParamsV1": {
+        "description": "Repeat the current single body into a linear row or circular ring.\n\nWraps the discriminated :data:`PatternGeometry` under ``pattern`` (the\nnested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). Like a\nfillet/chamfer, a pattern carries NO ``FeatureRef``: it operates on the\nimplicit single body chain that exists at its point in the tree (design\n\u00a77.6), so its dependency on the prior body-affecting feature is tree order,\nnot a reference. See the module-level DESIGN DECISION note for the v1\n\"pattern the whole body + union\" semantics and its stated limitations.",
+        "properties": {
+          "pattern": {
+            "description": "Linear or circular pattern geometry (discriminated on `kind`)",
+            "discriminator": {
+              "mapping": {
+                "circular": "#/components/schemas/CircularPatternParamsV1",
+                "linear": "#/components/schemas/LinearPatternParamsV1"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LinearPatternParamsV1"
+              },
+              {
+                "$ref": "#/components/schemas/CircularPatternParamsV1"
+              }
+            ],
+            "title": "Pattern"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "title": "PatternParamsV1",
         "type": "object"
       },
       "PerpendicularConstraint": {

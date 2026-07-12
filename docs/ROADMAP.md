@@ -117,12 +117,17 @@ item below.
       mirror/pattern, splines, over-constraint diagnostics
 - ⬜ Features: revolve (✅ shipped — 5a kernel+schema+golden
       `revolve-annulus-r10-20-h15` + 5b authoring UI: title-block editor with
-      line-entity axis pick & brass angle handle, live edit, tree errors).
-      **4 body-affecting features now (extrude+revolve+fillet+chamfer)** — the
-      Part-modeling scorecard row is a re-score candidate (vision-steward to
-      reassess; still predicate-only edge selection, no hole/pattern/shell/
-      draft). Next: sweep, loft, shell, draft, holes, linear/circular
-      patterns, boolean between bodies, datum planes/axes
+      line-entity axis pick & brass angle handle, live edit, tree errors);
+      linear/circular pattern (✅ backend shipped — 7 kernel+schema+golden
+      `pattern-linear-3x-bar`: `PatternFeature` v1 replicates the current body
+      and boolean-unions the copies into the single body chain, world-space
+      direction/axis (no topo naming), all error paths pinned; 7b authoring UI
+      pending). **5 body-affecting features now
+      (extrude+revolve+fillet+chamfer+pattern)** — the Part-modeling scorecard
+      row is a re-score candidate (vision-steward to reassess; still
+      predicate-only edge selection, whole-body pattern only, no hole/shell/
+      draft). Next: sweep, loft, shell, draft, holes, feature-scoped patterns,
+      boolean between bodies, datum planes/axes
 - ⬜ Design system: grouped-icon toolbar + flyouts (✅ shipped — icon layer
       for the growing tool count: `ToolButton`/`ToolGroup`/`Flyout`/`Kbd` +
       hand-drawn scribed CAD icon set in `packages/design`; sketch tool +

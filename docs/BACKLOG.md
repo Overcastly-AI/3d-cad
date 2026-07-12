@@ -219,6 +219,29 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       instances into the body chain; golden through every gate; bad-count/
       zero-spacing error paths pinned; contracts regenerated. [src: roadmap,
       product-auditor]
+      _SHIPPED (7 BACKEND): `PatternFeature` v1 in the feature union +
+      evaluate-tree dispatcher. DESIGN DECISION (option B, GEOMETRY-QA
+      2026-07-12): a pattern replicates the CURRENT body and boolean-UNIONS the
+      copies into the single body chain (§7.6) — instance 0 is the seed (never
+      double-counted); linear places copies at `spacing*k` along a world unit
+      direction, circular every `angle/count` about a world axis (closing
+      instance EXCLUSIVE, so 360° = clean ring). Discriminated `params.pattern`
+      (linear|circular), world-space `Vec3` direction/axis (no sketch ref → no
+      topo naming). Limitations (honest): arrays the WHOLE body (base dragged to
+      each placement — feature-scoped patterning is future work), additive-union
+      only, and copies must merge into ONE connected solid (disjoint →
+      `pattern_disjoint`). Golden `pattern-linear-3x-bar` (1×3 overlapping cubes
+      → bar, vol 2200 mm³, 6/12/1, EXACT 0.0 dev) green through every gate incl.
+      determinism (in-proc + interpreter-restart) + STEP round-trip. Error paths
+      pinned as per-feature rebuild errors (strict-prefix, last-good preserved):
+      `no_target_body`, `pattern_bad_count`/`_spacing`/`_direction`/`_axis`/
+      `_angle`, `pattern_disjoint`. Contracts + ts-client regenerated._
+      _PENDING (7b, P2, S): pattern authoring UI — a PatternEditor (linear/
+      circular) in the title-block seat + toolbar action + `features/pattern.ts`
+      twin of `features/revolve.ts` + `api/parts.ts` builders. Backend + DTO +
+      generated client are ready; web typecheck is already green (no exhaustive
+      switch), so no forward-compat stub was needed — a pattern feature row just
+      shows its type and opens no editor until 7b._
 
 ## Next (P2)
 

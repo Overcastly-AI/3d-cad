@@ -24,6 +24,17 @@ from geometry.kernel.extrude import (
 from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
 from geometry.kernel.overlay import selection_overlay
+from geometry.kernel.pattern import (
+    PatternAngleError,
+    PatternAxisError,
+    PatternCountError,
+    PatternDirectionError,
+    PatternDisjointError,
+    PatternError,
+    PatternSpacingError,
+    circular_pattern,
+    linear_pattern,
+)
 from geometry.kernel.properties import measure_shape
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
@@ -54,6 +65,13 @@ __all__ = [
     "MeasureError",
     "NoAxisError",
     "NoEdgesSelectedError",
+    "PatternAngleError",
+    "PatternAxisError",
+    "PatternCountError",
+    "PatternDirectionError",
+    "PatternDisjointError",
+    "PatternError",
+    "PatternSpacingError",
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "RevolveError",
@@ -63,6 +81,7 @@ __all__ = [
     "build_shape",
     "chamfer_body",
     "check_axis_clears_profile",
+    "circular_pattern",
     "combine_body",
     "evaluate_export",
     "evaluate_tessellation",
@@ -72,6 +91,7 @@ __all__ = [
     "extrude_face",
     "fillet_body",
     "glb_stats",
+    "linear_pattern",
     "measure_shape",
     "measure_targets",
     "resolve_axis_line",

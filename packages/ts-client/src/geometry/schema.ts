@@ -319,6 +319,39 @@ export interface components {
             edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"];
         };
         /**
+         * CircularPatternParamsV1
+         * @description A circular (ring) pattern about a world-space axis.
+         *
+         *     ``count`` INCLUDES the seed. Instances are placed every ``angle_deg /
+         *     count`` degrees about the axis for ``k = 1..count-1``, so the closing
+         *     position at ``angle_deg`` is EXCLUSIVE (omitted): ``angle_deg = 360`` with
+         *     ``count = 4`` yields a clean 4-up ring at 0/90/180/270° with no overlapping
+         *     twin at 360° ≡ 0°. To place N instances INCLUSIVELY across a partial arc of
+         *     ``a`` degrees (both ends occupied), set ``angle_deg = a * count / (count -
+         *     1)``. See the module design note above for the connected-solid requirement.
+         */
+        CircularPatternParamsV1: {
+            /**
+             * Angle Deg
+             * @description TOTAL sweep about the axis (degrees). Instances are spaced `angle_deg / count`, so `angle_deg = 360` is a full ring; the closing instance at `angle_deg` is EXCLUSIVE. Must be in (0, 360] when count > 1 (a `pattern_bad_angle` rebuild error otherwise).
+             */
+            angle_deg: number;
+            /** @description Direction of the axis of rotation; only its DIRECTION is used (magnitude ignored; a zero-length vector is a `pattern_bad_axis` rebuild error) */
+            axis_direction: components["schemas"]["Vec3"];
+            /** @description A point on the world-space axis of rotation (mm) */
+            axis_point: components["schemas"]["Vec3"];
+            /**
+             * Count
+             * @description TOTAL instances INCLUDING the seed; an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.
+             */
+            count: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "circular";
+        };
+        /**
          * CoincidentConstraint
          * @description Two named points share a location.
          */
@@ -546,7 +579,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"];
+            feature: components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Id
              * Format: uuid
@@ -824,6 +857,35 @@ export interface components {
             kind: "horizontal";
         };
         /**
+         * LinearPatternParamsV1
+         * @description A linear (row/grid-line) pattern along a world-space direction.
+         *
+         *     ``count`` INCLUDES the seed (instance 0 = the existing body), so a row of
+         *     N total bodies is ``count = N``; ``count = 1`` is a no-op (seed only).
+         *     Copies are placed at ``spacing_mm * k`` along the unit ``direction`` for
+         *     ``k = 1..count-1``. See the module design note above for what "the body"
+         *     means and the connected-solid requirement.
+         */
+        LinearPatternParamsV1: {
+            /**
+             * Count
+             * @description TOTAL instances INCLUDING the seed (instance 0); an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).
+             */
+            count: number;
+            /** @description World-space direction of the row; only its DIRECTION is used (magnitude ignored; a zero-length vector is a `pattern_bad_direction` rebuild error) */
+            direction: components["schemas"]["Vec3"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "linear";
+            /**
+             * Spacing Mm
+             * @description Centre-to-centre step between consecutive instances along `direction` (mm); must be > 0 (a `pattern_bad_spacing` rebuild error otherwise). Validated at rebuild, not at parse (see module note).
+             */
+            spacing_mm: number;
+        };
+        /**
          * MeasureRequest
          * @description Measure the nearest distance between two targets (stateless, one-shot).
          *
@@ -982,6 +1044,42 @@ export interface components {
              * @enum {string}
              */
             kind: "parallel";
+        };
+        /**
+         * PatternFeature
+         * @description ``{"type": "pattern", "version": 1, "params": {...}}`` envelope.
+         */
+        PatternFeature: {
+            params: components["schemas"]["PatternParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "pattern";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * PatternParamsV1
+         * @description Repeat the current single body into a linear row or circular ring.
+         *
+         *     Wraps the discriminated :data:`PatternGeometry` under ``pattern`` (the
+         *     nested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). Like a
+         *     fillet/chamfer, a pattern carries NO ``FeatureRef``: it operates on the
+         *     implicit single body chain that exists at its point in the tree (design
+         *     §7.6), so its dependency on the prior body-affecting feature is tree order,
+         *     not a reference. See the module-level DESIGN DECISION note for the v1
+         *     "pattern the whole body + union" semantics and its stated limitations.
+         */
+        PatternParamsV1: {
+            /**
+             * Pattern
+             * @description Linear or circular pattern geometry (discriminated on `kind`)
+             */
+            pattern: components["schemas"]["LinearPatternParamsV1"] | components["schemas"]["CircularPatternParamsV1"];
         };
         /**
          * PerpendicularConstraint
