@@ -29,11 +29,12 @@ export type Point2D = components["schemas"]["Point2D"];
 export type SketchPlaneRef = components["schemas"]["SketchParamsV1"]["plane"];
 /**
  * A datum feature's OFFSET params (offset-from-origin + optional normal flip).
- * The on-a-face datum variant (`DatumOnFaceParams`, a picked face `SubshapeRef`)
- * is handled by the later face-picker slice; this plane math covers offset
- * datums only.
+ * The on-a-face datum variant is `DatumOnFaceParams` (a picked face
+ * `SubshapeRef` signature); its plane math lives in {@link faceBasis}.
  */
 export type DatumParams = components["schemas"]["DatumOffsetParams"];
+/** The stage-1 planar-face fingerprint an on-face datum resolves against. */
+export type PlanarFaceSignature = components["schemas"]["PlanarFaceSignature"];
 
 export type Vec3Tuple = readonly [number, number, number];
 
@@ -87,6 +88,21 @@ export type SketchPlaneSpec =
       flip: boolean;
       /** The persisted `datum` feature this plane belongs to. */
       datumFeatureId: string;
+    }
+  | {
+      /**
+       * A sketch seated on a picked PLANAR model face, via an `on_face` datum
+       * feature. The basis is reconstructed from the face `signature` exactly
+       * as the kernel's `resolve_face_plane` derives it (origin = centroid,
+       * normal = face normal, x-axis from {@link deterministicXDir}), then
+       * expressed in scene coordinates so the ink lands on the rendered body.
+       */
+      kind: "on_face";
+      signature: PlanarFaceSignature;
+      /** Signed offset along the face normal (mm); 0 sits on the face. */
+      offsetMm: number;
+      /** The persisted `on_face` `datum` feature this plane belongs to. */
+      datumFeatureId: string;
     };
 
 /** The origin datum basis (through world zero). */
@@ -121,15 +137,133 @@ export function offsetBasis(
   };
 }
 
-/** Resolve a viewport plane spec to its placed world basis. */
+// --- On-face plane math (stage-1 topological naming) -----------------------
+//
+// A sketch on a picked planar face resolves to the SAME deterministic basis the
+// kernel derives (`geometry.kernel.faces._deterministic_x_dir` / `_face_plane`)
+// so the drawn 2D→3D mapping matches the server byte-for-byte: origin = face
+// area centroid (+ offset along the normal), z_dir = the outward face normal,
+// x_dir pinned purely from the normal, y_dir = z_dir × x_dir (build123d). The
+// (u,v) parameterisation is frame-independent; only where the ink RENDERS
+// differs, so the basis is finally expressed in scene coordinates (below) to
+// land exactly on the GLB body face — one enumeration, pick side and resolve
+// side (the measurement lesson).
+
+function dot(a: Vec3Tuple, b: Vec3Tuple): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function cross(a: Vec3Tuple, b: Vec3Tuple): Vec3Tuple {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function normalize(v: Vec3Tuple): Vec3Tuple {
+  const len = Math.hypot(v[0], v[1], v[2]);
+  return len === 0 ? [0, 0, 0] : [v[0] / len, v[1] / len, v[2] / len];
+}
+
+/**
+ * A stable in-plane x-axis derived PURELY from a face normal — the exact port
+ * of the kernel's `geometry.kernel.faces._deterministic_x_dir` (RESEARCH §9):
+ * pick the world axis LEAST aligned with the normal (ties broken by axis order
+ * X < Y < Z), project out its normal component, and normalise. A pure function
+ * of the normal, so the sketch's 2D→3D basis never varies between rebuilds and
+ * always agrees with the server resolver.
+ */
+export function deterministicXDir(normal: Vec3Tuple): Vec3Tuple {
+  const axes: readonly Vec3Tuple[] = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ];
+  let bestIndex = 0;
+  let bestAlignment = Infinity;
+  for (let i = 0; i < axes.length; i += 1) {
+    // Strict `<` keeps the earliest axis on a tie — the kernel's `min` over
+    // `(abs(dot), index)`.
+    const alignment = Math.abs(dot(axes[i] as Vec3Tuple, normal));
+    if (alignment < bestAlignment) {
+      bestAlignment = alignment;
+      bestIndex = i;
+    }
+  }
+  const axis = axes[bestIndex] as Vec3Tuple;
+  const k = dot(axis, normal);
+  return normalize([
+    axis[0] - normal[0] * k,
+    axis[1] - normal[1] * k,
+    axis[2] - normal[2] * k,
+  ]);
+}
+
+/**
+ * OCCT world-mm (Z-up) → three.js scene (Y-up): `(x, y, z) → (x, z, −y)`, the
+ * SAME rotation build123d bakes into the GLB node. THE one frame transform (the
+ * measure overlay's `occtToScene` delegates here — CLAUDE.md DRY rule). Linear,
+ * so it applies to direction vectors as well as points; `−0` is normalised so a
+ * zero never renders as `-0`.
+ */
+export function occtToSceneTuple(v: Vec3Tuple): Vec3Tuple {
+  return [v[0], v[2], v[1] === 0 ? 0 : -v[1]];
+}
+
+/**
+ * The scene-frame basis of a sketch seated on a picked planar face. Mirrors the
+ * kernel's `resolve_face_plane`: origin = centroid + normal·offset, z = normal,
+ * x = {@link deterministicXDir}, y = z × x — computed in OCCT coordinates so the
+ * (u,v) mapping equals the server's, then rotated into scene coordinates so the
+ * grid, entities, and picks land on the rendered body face.
+ */
+export function faceBasis(
+  signature: PlanarFaceSignature,
+  offsetMm: number,
+): PlaneBasis {
+  const normal: Vec3Tuple = [
+    signature.normal.x,
+    signature.normal.y,
+    signature.normal.z,
+  ];
+  const centroid: Vec3Tuple = [
+    signature.centroid.x,
+    signature.centroid.y,
+    signature.centroid.z,
+  ];
+  const xDir = deterministicXDir(normal);
+  const yDir = cross(normal, xDir); // build123d y_dir = z_dir × x_dir
+  const origin: Vec3Tuple = [
+    centroid[0] + normal[0] * offsetMm,
+    centroid[1] + normal[1] * offsetMm,
+    centroid[2] + normal[2] * offsetMm,
+  ];
+  return {
+    u: occtToSceneTuple(xDir),
+    v: occtToSceneTuple(yDir),
+    normal: occtToSceneTuple(normal),
+    origin: occtToSceneTuple(origin),
+  };
+}
+
+/** Resolve a viewport plane spec to its placed basis (scene frame for faces). */
 export function resolveSpecBasis(spec: SketchPlaneSpec): PlaneBasis {
-  return spec.kind === "origin"
-    ? originBasis(spec.base)
-    : offsetBasis(spec.base, spec.offsetMm, spec.flip);
+  switch (spec.kind) {
+    case "origin":
+      return originBasis(spec.base);
+    case "offset":
+      return offsetBasis(spec.base, spec.offsetMm, spec.flip);
+    case "on_face":
+      return faceBasis(spec.signature, spec.offsetMm);
+  }
 }
 
 /** The persisted plane ref (wire `GeomRef`) for a viewport plane spec. */
 export function planeRefFromSpec(spec: SketchPlaneSpec): SketchPlaneRef {
+  // Both an offset datum and an on_face datum are referenced by the sketch as a
+  // FeatureRef to the persisted `datum` feature — the on_face plane reuses the
+  // datum node, not a new sketch-plane mechanism (datum-planes §7).
   return spec.kind === "origin"
     ? { kind: "datum_plane", plane: spec.base }
     : { kind: "feature", feature_id: spec.datumFeatureId };
@@ -139,9 +273,23 @@ export function planeRefFromSpec(spec: SketchPlaneSpec): SketchPlaneRef {
 export function describePlane(spec: SketchPlaneSpec | null): string {
   if (spec === null) return "—";
   if (spec.kind === "origin") return spec.base;
+  if (spec.kind === "on_face") {
+    if (spec.offsetMm === 0) return "Face";
+    const sign = spec.offsetMm >= 0 ? "+" : "−";
+    return `Face ${sign}${Math.abs(spec.offsetMm)}`;
+  }
   const sign = spec.offsetMm >= 0 ? "+" : "−";
   const mag = Math.abs(spec.offsetMm);
   return `${spec.base} ${sign}${mag}${spec.flip ? " ⟲" : ""}`;
+}
+
+/** An on-face plane spec from a persisted on_face datum's face signature. */
+export function faceSpecFromDatum(
+  datumFeatureId: string,
+  signature: PlanarFaceSignature,
+  offsetMm: number,
+): SketchPlaneSpec {
+  return { kind: "on_face", signature, offsetMm, datumFeatureId };
 }
 
 /** An offset plane spec from a persisted datum feature's params. */

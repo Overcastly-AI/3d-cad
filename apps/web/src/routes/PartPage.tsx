@@ -23,6 +23,7 @@ import {
   type DatumParams,
   datumFeatureCreate,
   datumFeatureUpdate,
+  datumOnFaceFeatureCreate,
   evaluatePart,
   type ExtrudeParams,
   extrudeFeatureCreate,
@@ -33,6 +34,8 @@ import {
   type FeatureUpdate,
   fetchFeatureTree,
   fetchPart,
+  type OverlayFace,
+  type PlanarFaceSignature,
   type FilletParams,
   filletFeatureCreate,
   filletFeatureUpdate,
@@ -124,12 +127,15 @@ import {
   type SolveInfo,
 } from "../sketch/constraints";
 import {
+  faceSpecFromDatum,
   offsetBasis,
   offsetSpecFromDatum,
   originBasis,
   planeRefFromSpec,
   type PlaneBasis,
 } from "../sketch/plane";
+import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
+import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
 import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
 import { partRoute } from "../router";
@@ -244,6 +250,15 @@ export function PartPage() {
   }, [partId, queryClient]);
 
   const hasBody = body.data !== undefined;
+
+  // Face-pick (the plane-pick "Pick a face" path): arm → highlight the body's
+  // planar faces → click one → author an on_face datum → seat the sketch.
+  // Declared up here because the sketch keyboard effect (Escape cancels the
+  // pick) reads `facePicking`.
+  const [facePicking, setFacePicking] = useState(false);
+  const [facePlaneBusy, setFacePlaneBusy] = useState(false);
+  const [facePlaneError, setFacePlaneError] = useState<string | null>(null);
+  const [pendingFaceIndex, setPendingFaceIndex] = useState<number | null>(null);
 
   // ---------------------------------------------------------------------
   // Measurement (inspect mode). The tool fetches the pickable overlay for the
@@ -562,6 +577,13 @@ export function PartPage() {
       const store = useSketchStore.getState();
       if (event.key === "Escape") {
         event.preventDefault();
+        // Face-pick has its own most-local cancel: disarm the mode, staying in
+        // the plane-pick step (a second Escape then exits the sketch).
+        if (facePicking) {
+          setFacePicking(false);
+          setFacePlaneError(null);
+          return;
+        }
         // Mirror and the corner tools run their own cascades (mirror: axis →
         // targets → drop tool; corner: close editor / clear picks → drop tool)
         // and never exit the sketch mid-flow.
@@ -625,7 +647,7 @@ export function PartPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, finishSketch, setTool, toggleSnap]);
+  }, [mode, finishSketch, setTool, toggleSnap, facePicking]);
 
   // Trim/extend: the scene arms an edit on a target click; this effect owns
   // the one network hop (the store stays side-effect-free). On success the
@@ -874,6 +896,20 @@ export function PartPage() {
   // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
   const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
   const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
+
+  // The pickable face overlay for the current evaluated body — fetched exactly
+  // as measurement fetches its overlay (same request/key: one cache entry, and
+  // the faces line up with the body the viewport renders). Only while arming a
+  // face pick and a body exists.
+  const facesQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: facePicking && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const pickableFaces = facePicking ? (facesQuery.data?.faces ?? null) : null;
 
   /** Latest tree version, refetched if the query has none yet. */
   const freshTreeVersion = useCallback(async (): Promise<number> => {
@@ -1356,6 +1392,74 @@ export function PartPage() {
     [partId, features, freshTreeVersion, queryClient],
   );
 
+  // The "Pick a face" path: author an `on_face` datum from the clicked face's
+  // stage-1 signature, then seat this sketch on it — the datum-node route
+  // (datum-planes §7), so the sketch's plane is the SAME FeatureRef slot an
+  // offset datum uses. The face's plane basis is reconstructed client-side from
+  // the signature (origin + deterministic x-axis), matching the kernel's
+  // `resolve_sketch_plane` exactly, so the ink lands on the rendered face.
+  const authorFacePlane = useCallback(
+    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+      const featureList = tree.data?.features ?? [];
+      const anchorId = lastBodyFeatureId(featureList);
+      if (anchorId === null) {
+        setFacePlaneError(
+          "Add a feature that creates a body before sketching on a face.",
+        );
+        return;
+      }
+      const { signature } = face;
+      const nextIndex =
+        featureList.filter((f) => f.feature.type === "datum").length + 1;
+      setFacePlaneBusy(true);
+      setPendingFaceIndex(face.index);
+      setFacePlaneError(null);
+      void (async () => {
+        try {
+          const params = onFaceDatumParams(anchorId, signature, 0);
+          const create = (version: number) =>
+            createFeature(
+              partId,
+              datumOnFaceFeatureCreate(`Plane${nextIndex}`, params, version),
+            );
+          let response;
+          try {
+            response = await create(await freshTreeVersion());
+          } catch {
+            response = await create(
+              (await fetchFeatureTree(partId)).tree_version,
+            );
+          }
+          await queryClient.invalidateQueries({
+            queryKey: ["features", partId],
+          });
+          useSketchStore
+            .getState()
+            .choosePlaneSpec(
+              faceSpecFromDatum(response.feature.id, signature, 0),
+            );
+          setFacePicking(false);
+        } catch (error) {
+          setFacePlaneError(
+            error instanceof Error
+              ? error.message
+              : "The sketch could not be placed on that face.",
+          );
+        } finally {
+          setFacePlaneBusy(false);
+          setPendingFaceIndex(null);
+        }
+      })();
+    },
+    [partId, tree.data, freshTreeVersion, queryClient],
+  );
+
+  /** Arm/disarm the face-pick mode (clears any stale error on toggle). */
+  const togglePickFace = useCallback(() => {
+    setFacePlaneError(null);
+    setFacePicking((armed) => !armed);
+  }, []);
+
   const moveRollback = useCallback(
     (rollbackFeatureId: string | null) => {
       // Moving the bar rebuilds the body → the measure overlay refetches
@@ -1399,6 +1503,15 @@ export function PartPage() {
   // Sketch mode owns the viewport; leaving/entering it dismisses the editor.
   useEffect(() => {
     if (mode !== "off") setEditor(null);
+  }, [mode]);
+
+  // Face-pick belongs to the plane-pick step only: a chosen plane (→ draw) or a
+  // sketch exit (→ off) disarms it, so the face overlay never lingers.
+  useEffect(() => {
+    if (mode !== "plane") {
+      setFacePicking(false);
+      setFacePlaneError(null);
+    }
   }, [mode]);
 
   // Create/Modify accelerators (mode off): P patterns the current body (needs a
@@ -1498,6 +1611,11 @@ export function PartPage() {
             onAuthorOffsetPlane={authorOffsetPlane}
             authoringOffset={offsetPlaneBusy}
             offsetPlaneError={offsetPlaneError}
+            onTogglePickFace={togglePickFace}
+            canPickFace={hasBody}
+            facePicking={facePicking}
+            authoringFace={facePlaneBusy}
+            facePickError={facePlaneError}
           />
         )}
       </TopToolbar>
@@ -1639,8 +1757,15 @@ export function PartPage() {
             </>
           }
         >
-          <SketchScene solved={solvedLayers} />
+          <SketchScene solved={solvedLayers} facePicking={facePicking} />
           <MeasureOverlay />
+          {mode === "plane" && facePicking ? (
+            <FacePickOverlay
+              faces={pickableFaces}
+              onPick={authorFacePlane}
+              pendingIndex={pendingFaceIndex}
+            />
+          ) : null}
         </Viewport>
         {showInspector ? (
           <BodyInspector

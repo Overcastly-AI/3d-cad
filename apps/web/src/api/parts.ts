@@ -29,6 +29,14 @@ export type SketchPlaneRef = SketchParamsV1["plane"];
 export type SketchParamsV1 = components["schemas"]["SketchParamsV1"];
 export type DatumFeature = components["schemas"]["DatumFeature"];
 export type DatumParams = components["schemas"]["DatumOffsetParams"];
+/** On-face datum params — a datum adopting a picked planar face's plane. */
+export type DatumOnFaceParams = components["schemas"]["DatumOnFaceParams"];
+/** Stage-1 reference to one planar face of a body-affecting feature's result. */
+export type SubshapeRef = components["schemas"]["SubshapeRef"];
+/** The planar-face fingerprint an overlay face carries and a datum echoes. */
+export type PlanarFaceSignature = components["schemas"]["PlanarFaceSignature"];
+/** One pickable face of the evaluated body (from `OverlayResult.faces`). */
+export type OverlayFace = components["schemas"]["OverlayFace"];
 export type ExtrudeFeature = components["schemas"]["ExtrudeFeature"];
 export type ExtrudeParams = components["schemas"]["ExtrudeParamsV1"];
 export type RevolveFeature = components["schemas"]["RevolveFeature"];
@@ -224,8 +232,28 @@ export function sketchFeatureUpdate(
 }
 
 /** The `{type, version, params}` envelope shared by datum create and update. */
-function datumFeatureEnvelope(params: DatumParams): DatumFeature {
+function datumFeatureEnvelope(params: DatumFeature["params"]): DatumFeature {
   return { type: "datum", version: 1, params };
+}
+
+/**
+ * The create payload for an ON-FACE datum feature: a construction plane adopted
+ * from a picked planar model face (`kind: "on_face"`), named by a stage-1
+ * `SubshapeRef` signature (docs/design/datum-planes.md §7). Like an offset
+ * datum it seats a later sketch via a `FeatureRef` plane slot; unlike it, it can
+ * fail per-feature if the referenced face no longer resolves. Pure — unit-tested
+ * against the generated types.
+ */
+export function datumOnFaceFeatureCreate(
+  name: string,
+  params: DatumOnFaceParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: datumFeatureEnvelope(params),
+  };
 }
 
 /**

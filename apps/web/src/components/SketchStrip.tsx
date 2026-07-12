@@ -339,6 +339,20 @@ export interface SketchStripProps {
   authoringOffset?: boolean;
   /** Inline offset-plane authoring failure, or null. */
   offsetPlaneError?: string | null;
+  /**
+   * Arm/disarm the "Pick a face" mode — the viewport then highlights the
+   * body's planar faces; clicking one authors an `on_face` datum and seats
+   * this sketch on it. Only offered when a body exists (`canPickFace`).
+   */
+  onTogglePickFace?: () => void;
+  /** True when a body exists to pick a face from (gates the affordance). */
+  canPickFace?: boolean;
+  /** True while the face-pick mode is armed. */
+  facePicking?: boolean;
+  /** True while an on-face datum write is in flight. */
+  authoringFace?: boolean;
+  /** On-face authoring failure, or null. */
+  facePickError?: string | null;
 }
 
 const OFFSET_BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
@@ -461,6 +475,65 @@ function OffsetPlanePanel({
         <p
           role="alert"
           data-testid="offset-plane-error"
+          className="mt-2 border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
+        >
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The "Pick a face" guide, hung from the band into the viewport during the
+ * plane-pick step. Honest about the stage-1 limit (datum-planes §7 /
+ * topological-naming §9): a face-anchored sketch is a BEST-EFFORT reference — a
+ * drastic upstream change can retarget it — so the copy never implies a rock-
+ * solid link. Keyboard-first: Escape (handled by the parent) cancels.
+ */
+function FacePickPrompt({
+  busy,
+  error,
+  onCancel,
+}: {
+  busy: boolean;
+  error: string | null;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="w-72 max-w-full">
+      <div
+        role="status"
+        data-testid="face-pick-prompt"
+        className="border border-hairline bg-anvil px-3 py-3 font-body text-xs text-gauge"
+      >
+        <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+          Pick a face
+        </h2>
+        <p className="mt-1.5 text-mist">
+          {busy
+            ? "Placing the sketch on the face…"
+            : "Click a highlighted planar face to sketch on it."}
+        </p>
+        <p className="mt-1.5 text-gauge">
+          Best-effort reference — a big change upstream can move it. Curved
+          faces aren’t pickable.
+        </p>
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            className="font-display text-2xs uppercase tracking-[0.14em] text-gauge hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+            data-testid="face-pick-cancel"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+      {error ? (
+        <p
+          role="alert"
+          data-testid="face-pick-error"
           className="mt-2 border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
         >
           {error}
@@ -629,6 +702,11 @@ export function SketchStrip({
   onAuthorOffsetPlane,
   authoringOffset = false,
   offsetPlaneError = null,
+  onTogglePickFace,
+  canPickFace = false,
+  facePicking = false,
+  authoringFace = false,
+  facePickError = null,
 }: SketchStripProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
@@ -748,7 +826,29 @@ export function SketchStrip({
                   active={offsetOpen}
                   data-testid="datum-offset-plane"
                   aria-label="Author an offset plane — sketch at a height"
-                  onClick={() => setOffsetOpen((open) => !open)}
+                  onClick={() => {
+                    setOffsetOpen((open) => !open);
+                    if (facePicking) onTogglePickFace?.();
+                  }}
+                />
+              </ToolGroup>
+            ) : null}
+
+            {/* Sketch on a picked model face (an on_face datum). Only offered
+                once a body exists — the faces are highlighted in the viewport. */}
+            {onTogglePickFace && canPickFace ? (
+              <ToolGroup aria-label="Model face">
+                <ToolButton
+                  icon={<DatumIcon />}
+                  label="Pick a face"
+                  showLabel
+                  active={facePicking}
+                  data-testid="plane-pick-face"
+                  aria-label="Pick a model face to sketch on"
+                  onClick={() => {
+                    setOffsetOpen(false);
+                    onTogglePickFace();
+                  }}
                 />
               </ToolGroup>
             ) : null}
@@ -862,6 +962,18 @@ export function SketchStrip({
             onClose={() => setOffsetOpen(false)}
             busy={authoringOffset}
             error={offsetPlaneError}
+          />
+        </div>
+      ) : null}
+
+      {/* The "Pick a face" guide, hung from the band while the mode is armed —
+          the faces themselves are the affordance out in the viewport. */}
+      {mode === "plane" && facePicking && onTogglePickFace ? (
+        <div className="absolute left-3 top-full z-20 mt-2">
+          <FacePickPrompt
+            busy={authoringFace}
+            error={facePickError}
+            onCancel={onTogglePickFace}
           />
         </div>
       ) : null}

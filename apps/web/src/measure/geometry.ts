@@ -13,6 +13,7 @@ import type {
 } from "../api/measure";
 import { MESH_LINEAR_DEFLECTION_MM } from "../api/client";
 import { formatDroMm } from "../lib/format";
+import { occtToSceneTuple } from "../sketch/plane";
 
 /** A resolved measurement pick, ready to become a `MeasureTarget`. */
 export type MeasurePick =
@@ -45,8 +46,10 @@ export function buildEvaluateTree(
  * uses the ORIGINAL Z-up coordinates — this transform is presentation only.
  */
 export function occtToScene(v: Vec3): [number, number, number] {
-  // Normalize the negated axis so a zero never renders as -0.
-  return [v.x, v.z, v.y === 0 ? 0 : -v.y];
+  // THE one OCCT→scene rotation lives in `sketch/plane` (shared with the
+  // on-face sketch basis — CLAUDE.md DRY rule); -0 is normalised there.
+  const [x, y, z] = occtToSceneTuple([v.x, v.y, v.z]);
+  return [x, y, z];
 }
 
 /** A polyline's scene-space segment endpoints (pairs) for a LineSegments draw. */

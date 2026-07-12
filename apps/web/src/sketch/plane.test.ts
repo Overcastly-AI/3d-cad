@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   DATUM_PLANES,
+  deterministicXDir,
+  describePlane,
+  faceBasis,
+  faceSpecFromDatum,
+  occtToSceneTuple,
   offsetBasis,
   originBasis,
+  type PlanarFaceSignature,
   PLANE_BASES,
   planeCameraPose,
   planeRefFromSpec,
@@ -149,6 +155,108 @@ describe("planeCameraPose", () => {
     const pose = planeCameraPose(offsetBasis("XY", 30, false), 140);
     expect(pose.position).toEqual([0, 0, 170]); // 30 + 140 along +Z
     expect(pose.target).toEqual([0, 0, 30]); // the plane centre
+  });
+});
+
+/** A planar-face signature helper for the on-face basis tests. */
+function signature(
+  normal: [number, number, number],
+  centroid: [number, number, number],
+): PlanarFaceSignature {
+  return {
+    normal: { x: normal[0], y: normal[1], z: normal[2] },
+    centroid: { x: centroid[0], y: centroid[1], z: centroid[2] },
+    area_mm2: 100,
+    subshape_type: "face",
+    surface: "plane",
+  };
+}
+
+describe("deterministicXDir — the kernel's _deterministic_x_dir port", () => {
+  it("picks world +X for a +Z face (box top)", () => {
+    expect([...deterministicXDir([0, 0, 1])]).toEqual([1, 0, 0]);
+  });
+
+  it("breaks axis ties by order X < Y < Z (a +X face → +Y)", () => {
+    // |x·n|=1, |y·n|=|z·n|=0 → the earliest least-aligned axis (Y) wins.
+    expect([...deterministicXDir([1, 0, 0])]).toEqual([0, 1, 0]);
+    // A +Y face: |y·n|=1, X and Z tie at 0 → X wins.
+    expect([...deterministicXDir([0, 1, 0])]).toEqual([1, 0, 0]);
+  });
+
+  it("returns a unit vector orthogonal to the normal (a tilted face)", () => {
+    const n: [number, number, number] = [0, 0.6, 0.8];
+    const x = deterministicXDir(n);
+    expect(Math.hypot(...x)).toBeCloseTo(1, 12);
+    expect(x[0] * n[0] + x[1] * n[1] + x[2] * n[2]).toBeCloseTo(0, 12);
+  });
+});
+
+describe("occtToSceneTuple — the one OCCT(Z-up)→scene(Y-up) rotation", () => {
+  it("maps (x, y, z) → (x, z, −y)", () => {
+    expect([...occtToSceneTuple([1, 2, 3])]).toEqual([1, 3, -2]);
+    expect([...occtToSceneTuple([0, 0, 1])]).toEqual([0, 1, 0]); // +Z → up
+  });
+
+  it("never emits -0 for a zero Y", () => {
+    const [, , z] = occtToSceneTuple([5, 0, 7]);
+    expect(Object.is(z, 0)).toBe(true);
+  });
+});
+
+describe("faceBasis — sketch on a picked planar face", () => {
+  it("lands the ink on the rendered top face, matching the kernel mapping", () => {
+    // A box top: OCCT normal +Z, centroid (10,10,10).
+    const basis = faceBasis(signature([0, 0, 1], [10, 10, 10]), 0);
+    // Scene frame: origin at the face centre, normal up (+Y).
+    expect([...basis.origin]).toEqual([10, 10, -10]);
+    expect([...basis.normal]).toEqual([0, 1, 0]);
+    // A drawn point maps to the SAME physical spot the kernel resolves: the
+    // backend places (u,v)=(2,3) at OCCT (12,13,10) → scene (12,10,-13).
+    expect(planeToWorld(basis, { x: 2, y: 3 })).toEqual([12, 10, -13]);
+  });
+
+  it("is orthonormal (normal = u × v)", () => {
+    const { u, v, normal } = faceBasis(signature([0, 1, 0], [0, 5, 0]), 0);
+    const cross = [
+      u[1] * v[2] - u[2] * v[1],
+      u[2] * v[0] - u[0] * v[2],
+      u[0] * v[1] - u[1] * v[0],
+    ];
+    cross.forEach((c, i) => expect(c).toBeCloseTo(normal[i] as number, 12));
+  });
+
+  it("offsets the origin along the face normal", () => {
+    // +Z face lifted 5 mm → OCCT z=15 → scene y=15.
+    const basis = faceBasis(signature([0, 0, 1], [10, 10, 10]), 5);
+    expect([...basis.origin]).toEqual([10, 15, -10]);
+  });
+});
+
+describe("on-face plane spec ↔ wire ref", () => {
+  const spec = faceSpecFromDatum(
+    "d-face-1",
+    signature([0, 0, 1], [1, 2, 3]),
+    0,
+  );
+
+  it("resolves to the face basis", () => {
+    if (spec.kind !== "on_face") throw new Error("expected on_face spec");
+    expect([...resolveSpecBasis(spec).origin]).toEqual([1, 3, -2]);
+  });
+
+  it("builds a FeatureRef to the on_face datum", () => {
+    expect(planeRefFromSpec(spec)).toEqual({
+      kind: "feature",
+      feature_id: "d-face-1",
+    });
+  });
+
+  it("describes the plane as a face (with signed offset)", () => {
+    expect(describePlane(spec)).toBe("Face");
+    expect(
+      describePlane(faceSpecFromDatum("d", signature([0, 0, 1], [0, 0, 0]), 5)),
+    ).toBe("Face +5");
   });
 });
 

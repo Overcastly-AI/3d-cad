@@ -16,7 +16,12 @@ product audit orders topological naming's two consumers — **sketch-on-a-
 model-face ranks ahead of click-specific edge selection** (sketch-on-face
 unblocks whole classes of second features; edge selection only refines
 fillet/chamfer). Both are `SubshapeRef`-based and gated on the already-shipped
-topological-naming design doc. The engineering audit found no P0s (all gates
+topological-naming design doc. **Sketch-on-a-model-face now ships end-to-end**
+(backend + UI, 2026-07-12): "Pick a face" highlights the body's planar faces,
+a click authors an `on_face` datum from the face signature and seats the
+sketch on it (basis reconstructed client-side to match the kernel exactly), and
+a boss extrudes on top — the product audit's #1 topological-naming consumer is
+done; click-specific edge selection (#2) is next. The engineering audit found no P0s (all gates
 green, license/boundary hygiene clean) but flagged a real correctness cliff
 (F1: the in-process mesh LRU 404s once geometry scales past one worker/
 replica — masked by today's single-container compose) and a determinism-gate
@@ -145,12 +150,14 @@ item:
       panel, units system (BACKLOG Next).
 - 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
       2026-07-12; feeds Ready restocks as the queue runs thin.
-- 🚧 Sketch-on-a-model-face — **backend + schema shipped 2026-07-12**
-      (stage-1 planar-face `SubshapeRef` signature, `on_face` datum variant,
+- ✅ Sketch-on-a-model-face — **backend + UI shipped 2026-07-12** (stage-1
+      planar-face `SubshapeRef` signature, `on_face` datum variant,
       datum-from-face resolver, `/overlay` face enumeration, golden
-      `boss-on-face-40x40x10-20x20x10`; topological-naming §9). The in-viewport
-      raycast face picker is the remaining UI leg (BACKLOG Ready #1). First
-      real consumer of the topological-naming design.
+      `boss-on-face-40x40x10-20x20x10`; topological-naming §9). UI: "Pick a
+      face" in-viewport planar-face picker → `on_face` datum → sketch seated on
+      it, basis reconstructed client-side to match the kernel exactly; e2e
+      proves a boss adds on top at z 0..20. First real consumer of the
+      topological-naming design; click-specific edge selection is next.
 - 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face
       backend now landed (UI picker pending); shell, draft, dedicated hole,
       multi-body boolean still unbuilt, several gated on face/edge picking

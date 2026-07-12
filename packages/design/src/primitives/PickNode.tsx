@@ -10,8 +10,9 @@
  * halo ring reads on the aluminum — visible either way, quiet at rest. It takes
  * the brass accent on hover/focus and a brass fill when selected — the
  * selection language of the rest of the app. The shape encodes the entity kind:
- * a round node marks a vertex (a point), a diamond marks an edge (a curve). The
- * transparent hit area is a comfortable ≥24px target for mouse and touch.
+ * a round node marks a vertex (a point), a diamond marks an edge (a curve), and
+ * an upright square marks a face (a plane you can sketch on). The transparent
+ * hit area is a comfortable ≥24px target for mouse and touch.
  */
 import type { ButtonHTMLAttributes } from "react";
 
@@ -21,8 +22,8 @@ export interface PickNodeProps extends Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
   "aria-label"
 > {
-  /** Vertex = round point mark; edge = diamond curve mark. */
-  shape?: "vertex" | "edge";
+  /** Vertex = round point mark; edge = diamond curve mark; face = upright square. */
+  shape?: "vertex" | "edge" | "face";
   /** Chosen as a measurement target — brass fill + `aria-pressed`. */
   selected?: boolean;
   /** Required: the target's accessible name (e.g. "Vertex at 10, 20, 30 mm"). */
@@ -56,7 +57,11 @@ export function PickNode({
           // 12px core + a 2px halo ring: the two-tone reticle that survives
           // both the light body faces and the dark ground.
           "block h-3 w-3 ring-2 transition-colors duration-fast",
-          shape === "vertex" ? "rounded-full" : "rotate-45 rounded-none",
+          shape === "vertex"
+            ? "rounded-full"
+            : shape === "face"
+              ? "rounded-none"
+              : "rotate-45 rounded-none",
           selected
             ? "bg-brass ring-carbide"
             : "bg-mist ring-carbide group-hover/pn:bg-brass-hover group-hover/pn:ring-anvil group-focus-visible/pn:bg-brass-hover",

@@ -751,10 +751,16 @@ function SketchCameraRig() {
 
 export interface SketchSceneProps {
   solved: readonly SolvedSketchLayer[];
+  /**
+   * The "Pick a face" mode is armed: the body's planar faces are the
+   * affordance (FacePickOverlay), so the origin datum sheets step back to keep
+   * the pick target unambiguous.
+   */
+  facePicking?: boolean;
 }
 
 /** Everything sketch inside the Canvas: pick sheets, draw layer, solved ink. */
-export function SketchScene({ solved }: SketchSceneProps) {
+export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
   const basis = useMemo(
@@ -766,7 +772,7 @@ export function SketchScene({ solved }: SketchSceneProps) {
       {solved.map((layer) => (
         <SolvedLayer key={layer.featureId} layer={layer} />
       ))}
-      {mode === "plane"
+      {mode === "plane" && !facePicking
         ? DATUM_PLANES.map((name) => <DatumSheet key={name} plane={name} />)
         : null}
       {mode === "draw" && plane !== null && basis !== null ? (
