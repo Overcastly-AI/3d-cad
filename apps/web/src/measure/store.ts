@@ -76,7 +76,22 @@ export const useMeasureStore = create<MeasureState>((set) => ({
 
   activate: () => set({ active: true, ...EMPTY }),
   deactivate: () => set({ active: false, ...EMPTY }),
-  setOverlay: (overlay) => set({ overlay, overlayError: null }),
+  // Picks are indices into a SPECIFIC overlay. When the overlay is swapped for
+  // a different one (a rollback / tree edit rebuilds the body → new overlay
+  // identity), any existing picks resolve against the OLD indexing and would
+  // silently mismeasure — so drop them the moment the overlay changes.
+  setOverlay: (overlay) =>
+    set((state) =>
+      overlay === state.overlay
+        ? { overlay, overlayError: null }
+        : {
+            overlay,
+            overlayError: null,
+            picks: [],
+            result: null,
+            measureError: null,
+          },
+    ),
   setOverlayError: (overlayError) => set({ overlayError }),
   setHoverVertex: (hoverVertex) => set({ hoverVertex }),
   setHoverEdge: (hoverEdge) => set({ hoverEdge }),

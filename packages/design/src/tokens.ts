@@ -129,12 +129,6 @@ export const sketch = {
  * hex, one palette across both renderers.
  */
 export const measure = {
-  /** Pickable node at rest (vertex snap dot / edge midpoint mark). */
-  node: color.gauge,
-  /** Node under the pointer or keyboard focus. */
-  nodeHover: color.brassHover,
-  /** A node chosen as a measurement target. */
-  nodeSelected: color.brass,
   /** A hovered edge's highlighted polyline. */
   edgeHover: color.brassHover,
   /** A selected edge's highlighted polyline. */

@@ -762,6 +762,11 @@ export function PartPage() {
 
   const moveRollback = useCallback(
     (rollbackFeatureId: string | null) => {
+      // Moving the bar rebuilds the body → the measure overlay refetches
+      // against a different tree version; disarm the tool so a mid-measure
+      // rollback can never resolve a stale pick index (matches every other
+      // tree-mutating path: openCreate*, selectFeature, handleNewSketch).
+      useMeasureStore.getState().deactivate();
       setRollbackBusy(true);
       void (async () => {
         try {
