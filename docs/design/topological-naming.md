@@ -1,8 +1,11 @@
 # Topological Naming — Design
 
-Status: **revised after code-reviewer request-changes** (2026-07-11; see §8
-review log). Scope: **design only** — no
-code, no contracts, no `param_version` change. This doc specifies how a
+Status: **stage-1 PLANAR-FACE signature IMPLEMENTED for datum-from-face**
+(2026-07-12, backend + schema; see §9 scoping delta and `docs/GEOMETRY-QA.md`).
+The rest — edge/vertex signatures, the stage-2 provenance half, and the
+in-viewport picker — remains design-only. Originally: **revised after
+code-reviewer request-changes** (2026-07-11; see §8 review log). This doc
+specifies how a
 `SubshapeRef` (the variant reserved by
 [`docs/design/feature-tree.md`](./feature-tree.md) §2.4) identifies a specific
 **face / edge / vertex of a feature's result, stably across feature-tree
@@ -786,3 +789,70 @@ predicate union. `all_edges` / `axis_parallel` remain the right tool for
     shift), 9 (residual false-unique-match risk, tied to §6.3), 10 (vertex
     signatures — degenerate length, point + adjacency, `"vertex"` reserved-but-
     unspecified).
+
+---
+
+## 9. Scoping delta — stage-1 PLANAR-FACE signature, implemented (2026-07-12)
+
+Backend + schema for the FIRST consumer, **datum-from-face** (the
+sketch-on-a-model-face foundation, BACKLOG #1). This pins exactly what v1
+implements against the design above, and — per the §8 review lesson (do not
+overstate stage-1 stability) — states plainly what it does and does **not**
+guarantee. Owner: kernel-architect. Evidence: `docs/GEOMETRY-QA.md`
+(2026-07-12), golden `boss-on-face-40x40x10-20x20x10`, `test_faces.py`.
+
+**Mechanism (which of §2–§4 landed):**
+
+- **§2b geometric signature only, PLANAR FACES only.** `PlanarFaceSignature`
+  (`py_kit.schemas.features`) = `subshape_type:"face"` + `surface:"plane"` +
+  outward unit `normal` (Vec3) + area `centroid` (Vec3, world mm) + `area_mm2`
+  — full precision (§7.2, no quantizing). Edge/vertex signatures and any
+  curved-surface signature are **not** implemented (Open Questions 10; edge
+  selection is BACKLOG #2).
+- **§4 typed selector union, degenerate to one member.** `SelectorV1`
+  (`selector_version:1` + `signature`); `Selector` is a plain alias until
+  stage 2 adds `SelectorV2` (pydantic forbids a single-member discriminated
+  union — same idiom as `FeatureData`). `SubshapeRef` = `kind:"subshape"` +
+  `feature_id` + `subshape_type:"face"` + `selector`.
+- **§4 dependency-graph wiring landed as described (the "not purely additive"
+  part).** `iter_feature_refs` now yields `FeatureRef | SubshapeRef`;
+  `FeatureReference.ref` widened to that union; the `walked == mapped`
+  self-check balances with both kinds. A datum-on-face's `feature_id`
+  materializes into `feature_dependencies` (allowed targets = the
+  body-affecting feature types), so deleting the named body feature is a
+  write-time 409 and reorder re-checks strict-backward. `feature_id` is the
+  **stage-1 anchor** (the body-chain tip the signature matches against), per §4.
+- **Datum-node path, NOT a direct sketch-plane `SubshapeRef`.** Per
+  `datum-planes.md` §7, on-face is a `kind:"on_face"` variant of the `datum`
+  feature (carrying the face `SubshapeRef` + optional offset along the normal);
+  the sketch references it by the existing `FeatureRef` plane slot. So `GeomRef`
+  did **not** gain a `subshape` member in this slice (it stays reserved for a
+  possible future direct reference). No `param_version` bump — the datum union
+  reads legacy kind-less params as `offset` via a before-validator.
+- **Resolution (`geometry.kernel.faces`).** Enumerate the rebuilt body's planar
+  faces in `body.faces()` order → match the stored signature
+  nearest-within-tolerance → **exactly one or error**. Derived plane: origin =
+  face centroid (+ offset·normal), `z_dir` = outward normal, `x_dir` **pinned
+  from the normal** (world axis least aligned with it, ties X<Y<Z, projected
+  into the plane) so the 2D→3D basis is deterministic and OCCT-parametrisation-
+  independent. Match tolerances (documented, not ad-hoc): normal 1−cos ≤ 1e-9,
+  centroid ≤ 1e-6 mm, area rel ≤ 1e-6.
+- **Pick↔resolve same enumeration.** `/overlay` enumerates faces
+  (`OverlayResult.faces`), each planar face carrying the SAME
+  `PlanarFaceSignature` the resolver matches, built by the SAME
+  `geometry.kernel.faces` helper — asserted by an order-equality gate
+  (`test_faces.py`), the measurement §6b lesson applied to faces.
+
+**Honest guarantee (per-stage tiers, §6.5/§7.3):** T0 parametric edits that
+don't move the face **resolve**; T1/T2 are **best-effort at stage 1** — an
+edit that removes/moves the face is an honest `subshape_unresolved` /
+`subshape_ambiguous` on the datum, but a drastic change **can** retarget to a
+coincidentally-congruent face **without erroring** (the residual signature hole,
+§1.3/§2b). Stage 1 does **not** ship the §6.3 mis-resolve telemetry yet — it is
+"unlikely and mostly honest-failing", not measured; that (and the structural
+non-retarget guarantee) waits on stage-2 provenance. **For FACES specifically,**
+`subshape_ambiguous` is effectively unreachable today: two distinct planar faces
+of a manifold solid cannot share a centroid, so the exactly-one rule always
+finds one (the ambiguity branch is guarded-but-defensive, becoming load-bearing
+for edge/vertex signatures). This is stated so no reader mistakes "faces don't
+tie in practice" for "signatures never retarget."

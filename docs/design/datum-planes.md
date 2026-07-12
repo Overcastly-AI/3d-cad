@@ -1,8 +1,13 @@
 # Offset / Datum-Plane Representation — Design
 
-Status: **BACKEND IMPLEMENTED** 2026-07-12 (backend slice: DTOs, kernel,
+Status: **BACKEND IMPLEMENTED** 2026-07-12 (offset slice: DTOs, kernel,
 documents, goldens — see GEOMETRY-QA; plane-picker UI #2b is the follow-up).
-Purely additive — no `param_version` change, no migration.
+The **v2 on-a-face variant (§7) is ALSO backend-implemented** 2026-07-12 (the
+`on_face` datum params variant carrying a face `SubshapeRef`, resolved to the
+face's plane — stage-1 topological naming; see `docs/design/topological-naming.md`
+§9 and GEOMETRY-QA; the in-viewport face picker is its follow-up UI). Purely
+additive — no `param_version` change, no migration (the datum params union
+reads legacy kind-less rows as `offset` via a before-validator).
 Scope: how an **offset (parallel) datum plane** enters the architecture so a
 sketch can sit somewhere other than the three origin datum planes, and so the
 follow-up implementation item ("Offset/datum planes — implementation",
@@ -351,13 +356,18 @@ another feature's output. Total and naming-free.
 **v2 (named here so the #2 implementer does not over-build; each is a future
 additive params variant of the *same* `datum` feature type):**
 
-- **On-a-face plane.** A `datum` params variant (`kind: "on_face"`) carrying a
-  face **`SubshapeRef`** (topological-naming design) + an optional offset along
-  the face normal. **Gated on** BACKLOG Ready #3 (viewport face/edge picking),
-  which produces the `SubshapeRef`. This variant *does* materialize a
-  `feature_dependencies` edge to the body feature whose face it names. Deferred
-  — but the datum node designed here is exactly its home, so it lands as an
-  additive variant, not a new mechanism.
+- **On-a-face plane. — BACKEND IMPLEMENTED 2026-07-12.** A `datum` params
+  variant (`kind: "on_face"`) carrying a face **`SubshapeRef`**
+  (topological-naming design, stage-1 planar-face signature) + an optional
+  offset along the face normal. The **backend/schema** landed ahead of the
+  picker (the `SubshapeRef` signature is authorable directly / from the
+  `/overlay` face list); the **in-viewport face picker** that produces the
+  `SubshapeRef` from a click is the remaining UI slice (BACKLOG #1 UI leg). This
+  variant materializes a `feature_dependencies` edge to the body feature whose
+  face it names, as designed. It landed exactly as an **additive variant of this
+  datum node**, not a new mechanism — the decisive §2b/§7 argument, now proven.
+  See `docs/design/topological-naming.md` §9 + GEOMETRY-QA (golden
+  `boss-on-face-40x40x10-20x20x10`).
 - **Angled / 3-point plane.** A plane through three picked points/vertices, or
   at an angle to a base plane about a picked edge. Needs vertex/edge picking
   (topological naming) for its anchors. Deferred.

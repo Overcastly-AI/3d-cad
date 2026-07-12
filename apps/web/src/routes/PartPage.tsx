@@ -499,7 +499,12 @@ export function PartPage() {
   const datumParamsById = useMemo(() => {
     const map = new Map<string, DatumParams>();
     for (const feature of tree.data?.features ?? []) {
-      if (feature.feature.type === "datum") {
+      // Offset datums drive client-side plane preview math; on-face datums
+      // resolve against the body server-side (the later face-picker slice).
+      if (
+        feature.feature.type === "datum" &&
+        feature.feature.params.kind === "offset"
+      ) {
         map.set(feature.id, feature.feature.params);
       }
     }
@@ -780,7 +785,10 @@ export function PartPage() {
   const datumPlaneOptions = useMemo(
     () =>
       features.flatMap((f) =>
-        f.feature.type === "datum"
+        // Offset datums are offerable as reusable sketch planes today; on-face
+        // datums (a picked face SubshapeRef) are selectable via the later
+        // face-picker slice — the offset plane math does not describe them.
+        f.feature.type === "datum" && f.feature.params.kind === "offset"
           ? [{ id: f.id, name: f.name, params: f.feature.params }]
           : [],
       ),
@@ -1098,7 +1106,10 @@ export function PartPage() {
         featureId: feature.id,
         initial: formFromChamferParams(feature.feature.params),
       });
-    } else if (feature.feature.type === "datum") {
+    } else if (
+      feature.feature.type === "datum" &&
+      feature.feature.params.kind === "offset"
+    ) {
       setEditor({
         kind: "datum",
         mode: "edit",

@@ -123,6 +123,7 @@ describe("overlayBounds", () => {
         { x: 10, y: 20, z: 30 },
       ],
       edges: [],
+      faces: [],
     };
     // scene coords: (0,0,0) and (10,30,-20) → diagonal = hypot(10,30,20)
     expect(overlayBounds(overlay).diagonal).toBeCloseTo(
@@ -132,7 +133,9 @@ describe("overlayBounds", () => {
   });
 
   it("is zero for an empty overlay", () => {
-    expect(overlayBounds({ vertices: [], edges: [] }).diagonal).toBe(0);
+    expect(overlayBounds({ vertices: [], edges: [], faces: [] }).diagonal).toBe(
+      0,
+    );
   });
 });
 

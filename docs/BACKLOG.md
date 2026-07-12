@@ -53,21 +53,25 @@ claim (mesh fetch silently 404s once geometry scales past 1 worker), **F4**
 shipped geometry. #5–#7 are the sketch-session polish the last re-score
 flagged, unchanged in substance, reordered below the above.
 
-- [ ] (P1, M) Sketch-on-a-model-face — topological-naming's **first**
-      deliverable (product audit: ranked ahead of edge-selection — unblocks
-      whole classes of second features and is where holes/bosses on a
-      shoulder belong, not just cosmetic fillet precision). In-viewport
-      raycast resolves a click to a stable face `SubshapeRef` per
-      `docs/design/topological-naming.md`; a sketch's `plane` field accepts a
-      face reference (widen the existing `FeatureRef` plane slot, alongside
-      origin-datum and offset-datum) and `resolve_sketch_plane` threads the
-      resolved `build123d.Plane` for that face. Depends on: nothing new — the
-      design doc (topological-naming, shipped 2531850) is the only blocker
-      and it's already merged. Acceptance: pick a non-origin-parallel face
-      (e.g. a revolve's shoulder or a loft's slanted wall) as a sketch plane;
-      sketch + extrude a boss on it; reference persists correctly across a
-      rebuild per the design doc's strict-prefix failure semantics;
-      screenshots. [src: product-auditor #2, engineering-auditor]
+- [ ] (P1, S) Sketch-on-a-model-face — **UI leg** (backend/schema shipped
+      2026-07-12). ✅ **BACKEND DONE:** stage-1 planar-face `SubshapeRef`
+      signature (`PlanarFaceSignature` = normal/centroid/area), a
+      `kind:"on_face"` `datum` variant carrying it, the `geometry.kernel.faces`
+      resolver (planar-face enumeration + exactly-one signature match →
+      deterministic derived sketch plane), `/overlay` face enumeration (pick↔
+      resolve same-signature gate), `feature_dependencies` wiring, golden
+      `boss-on-face-40x40x10-20x20x10`, errors `subshape_unresolved` /
+      `subshape_ambiguous`. Implemented via the **datum-node path**
+      (`datum-planes.md` §7), not a direct sketch-plane `SubshapeRef` — a
+      sketch sits on an `on_face` datum by the existing `FeatureRef` plane slot.
+      ⏳ **REMAINING (this item):** the in-viewport raycast picker — click a
+      planar face → build a `SubshapeRef` from its `/overlay` signature →
+      author an `on_face` datum → sketch on it; face highlight/hover; small-
+      laptop screenshots. HONEST LIMIT to surface in UI: stage-1 signatures are
+      best-effort (a drastic rebuild can retarget to a congruent face) — see
+      `topological-naming.md` §9. Acceptance: pick a non-origin-parallel face
+      (a revolve shoulder / loft wall), sketch + extrude a boss, reference
+      persists across a rebuild; screenshots. [src: product-auditor #2]
 - [ ] (P1, M) Click-specific edge/face selection for fillet/chamfer —
       topological-naming's **second** consumer (after sketch-on-face above).
       Feeds fillet/chamfer's existing selector plumbing as an additive
@@ -413,6 +417,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-12 — **Sketch-on-a-model-face BACKEND shipped** (Ready #1 backend
+  leg). Stage-1 planar-face `SubshapeRef` signature + `on_face` datum variant
+  + datum-from-face resolver + `/overlay` face enumeration + golden; #1
+  reduced to its UI raycast-picker leg. [kernel-architect]
 - 2026-07-12 — **Groomed after product+engineering audit pass.** Ticked
   multi-loop holes (audit's #1 gap); archived offset/datum-planes + loft UI
   + multi-loop to Done. Re-sequenced Ready per the product audit: sketch-on-

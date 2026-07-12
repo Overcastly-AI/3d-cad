@@ -30,7 +30,14 @@ from build123d import Edge, GeomType, Solid, Vector, Vertex
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GCPnts import GCPnts_QuasiUniformDeflection
 from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.overlay import OverlayEdge, OverlayEdgeKind, OverlayResult
+from py_kit.schemas.overlay import (
+    OverlayEdge,
+    OverlayEdgeKind,
+    OverlayFace,
+    OverlayResult,
+)
+
+from geometry.kernel.faces import face_signature_dto
 
 #: OCCT ``GeomType`` → overlay edge kind (a rendering hint only). Anything not a
 #: straight line or a circle is ``other`` (ellipse, spline, …) — still sampled
@@ -80,7 +87,10 @@ def selection_overlay(body: Solid, linear_deflection: float) -> OverlayResult:
     :func:`geometry.kernel.measure.measure_targets` resolves ``EdgeTarget.index``
     against — so ``edges[i]`` is the edge ``EdgeTarget(index=i)`` measures.
     ``vertices`` is in ``body.vertices()`` order with EXACT coordinates.
-    Deterministic (RESEARCH §9).
+    ``faces`` is in ``body.faces()`` order; each planar face carries the SAME
+    stage-1 signature :func:`geometry.kernel.faces.resolve_face_plane` matches a
+    datum-on-face ``SubshapeRef`` against — one enumeration, pick side ==
+    resolve side. Deterministic (RESEARCH §9).
     """
     vertices = [_vertex_point(vertex) for vertex in body.vertices()]
 
@@ -100,4 +110,11 @@ def selection_overlay(body: Solid, linear_deflection: float) -> OverlayResult:
             )
         )
 
-    return OverlayResult(vertices=vertices, edges=edges)
+    faces: list[OverlayFace] = []
+    for index, face in enumerate(body.faces()):
+        signature = face_signature_dto(face)
+        faces.append(
+            OverlayFace(index=index, planar=signature is not None, signature=signature)
+        )
+
+    return OverlayResult(vertices=vertices, edges=edges, faces=faces)

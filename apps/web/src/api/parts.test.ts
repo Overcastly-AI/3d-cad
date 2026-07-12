@@ -252,7 +252,12 @@ describe("sketchFeatureUpdate", () => {
   });
 });
 
-const datumParams: DatumParams = { base: "XY", offset_mm: 30, flip: false };
+const datumParams: DatumParams = {
+  kind: "offset",
+  base: "XY",
+  offset_mm: 30,
+  flip: false,
+};
 
 describe("datumFeatureCreate", () => {
   it("wraps the params in the {type, version, params} create envelope", () => {
@@ -267,7 +272,12 @@ describe("datumFeatureCreate", () => {
 
 describe("datumFeatureUpdate", () => {
   it("wraps the re-parametrized envelope for the PATCH (no rename)", () => {
-    const flipped: DatumParams = { base: "XZ", offset_mm: -10, flip: true };
+    const flipped: DatumParams = {
+      kind: "offset",
+      base: "XZ",
+      offset_mm: -10,
+      flip: true,
+    };
     const body = datumFeatureUpdate(flipped, 9);
     expect(body).toEqual({
       expected_tree_version: 9,

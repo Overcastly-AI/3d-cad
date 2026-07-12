@@ -41,10 +41,10 @@ describe("buildDatumParams", () => {
   it("builds v1 datum params from the form", () => {
     expect(
       buildDatumParams({ base: "XY", offsetInput: "30", flip: false }),
-    ).toEqual({ base: "XY", offset_mm: 30, flip: false });
+    ).toEqual({ kind: "offset", base: "XY", offset_mm: 30, flip: false });
     expect(
       buildDatumParams({ base: "XZ", offsetInput: "-10", flip: true }),
-    ).toEqual({ base: "XZ", offset_mm: -10, flip: true });
+    ).toEqual({ kind: "offset", base: "XZ", offset_mm: -10, flip: true });
   });
 
   it("returns null (blocks submit) when the offset is missing/invalid", () => {
@@ -70,7 +70,12 @@ describe("form seeding", () => {
   });
 
   it("round-trips params → form → params", () => {
-    const params = { base: "YZ", offset_mm: 12.5, flip: true } as const;
+    const params = {
+      kind: "offset",
+      base: "YZ",
+      offset_mm: 12.5,
+      flip: true,
+    } as const;
     expect(buildDatumParams(formFromDatumParams(params))).toEqual(params);
   });
 });

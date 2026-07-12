@@ -27,8 +27,13 @@ export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
 export type Point2D = components["schemas"]["Point2D"];
 /** The sketch `plane` slot on the wire: an origin datum OR a datum FeatureRef. */
 export type SketchPlaneRef = components["schemas"]["SketchParamsV1"]["plane"];
-/** A datum feature's v1 params (offset-from-origin + optional normal flip). */
-export type DatumParams = components["schemas"]["DatumParamsV1"];
+/**
+ * A datum feature's OFFSET params (offset-from-origin + optional normal flip).
+ * The on-a-face datum variant (`DatumOnFaceParams`, a picked face `SubshapeRef`)
+ * is handled by the later face-picker slice; this plane math covers offset
+ * datums only.
+ */
+export type DatumParams = components["schemas"]["DatumOffsetParams"];
 
 export type Vec3Tuple = readonly [number, number, number];
 

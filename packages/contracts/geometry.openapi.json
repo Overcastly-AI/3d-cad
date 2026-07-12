@@ -262,10 +262,25 @@
         "type": "object"
       },
       "DatumFeature": {
-        "description": "``{\"type\": \"datum\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA non-body-affecting feature that produces a plane a later sketch sits on\n(docs/design/datum-planes.md \u00a72b). Additive to the union exactly as\nsweep/loft/pattern were \u2014 no ``param_version`` bump anywhere.",
+        "description": "``{\"type\": \"datum\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA non-body-affecting feature that produces a plane a later sketch sits on\n(docs/design/datum-planes.md \u00a72b). ``params`` is the discriminated\n:data:`DatumParams` union \u2014 an ``offset`` plane (\u00a73) or an ``on_face`` plane\n(\u00a77). Adding the ``on_face`` variant is ADDITIVE with NO ``param_version``\nbump: legacy offset params (persisted before ``on_face`` existed) carry no\n``kind`` discriminator, so :meth:`_legacy_offset_kind` injects ``\"offset\"``\nbefore validation and every existing datum row/golden validates unchanged\n(datum-planes \u00a74/\u00a77).",
         "properties": {
           "params": {
-            "$ref": "#/components/schemas/DatumParamsV1"
+            "discriminator": {
+              "mapping": {
+                "offset": "#/components/schemas/DatumOffsetParams",
+                "on_face": "#/components/schemas/DatumOnFaceParams"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumOffsetParams"
+              },
+              {
+                "$ref": "#/components/schemas/DatumOnFaceParams"
+              }
+            ],
+            "title": "Params"
           },
           "type": {
             "const": "datum",
@@ -286,8 +301,8 @@
         "title": "DatumFeature",
         "type": "object"
       },
-      "DatumParamsV1": {
-        "description": "A datum plane parallel to an origin datum, offset along its normal.\n\nv1 is the face-free slice (docs/design/datum-planes.md \u00a73): ``base`` is one\nof the three stable origin datums, ``offset_mm`` slides the plane along that\ndatum's normal, and ``flip`` optionally reverses the normal. No picked\ngeometry, no reference to another feature's output \u2014 so this is independent\nof topological naming (#1), exactly like revolve's world-axis or a pattern's\nworld-vector. A datum is NOT body-affecting: it produces a plane, contributes\nno body, and is TOTAL \u2014 any finite ``offset_mm`` yields a valid plane, so a\ndatum feature never carries an ``error`` status (\u00a73b). A non-finite offset is\na parse-time 422 (``allow_inf_nan=False``), never a rebuild error.",
+      "DatumOffsetParams": {
+        "description": "An origin datum slid ``offset_mm`` along its normal (``kind: \"offset\"``).\n\nThe v1 face-free slice (docs/design/datum-planes.md \u00a73): ``base`` is one of\nthe three stable origin datums, ``offset_mm`` slides the plane along that\ndatum's normal, and ``flip`` optionally reverses the normal. No picked\ngeometry, no reference to another feature's output \u2014 so this is independent\nof topological naming (#1), exactly like revolve's world-axis or a pattern's\nworld-vector. A datum is NOT body-affecting: it produces a plane, contributes\nno body, and is TOTAL \u2014 any finite ``offset_mm`` yields a valid plane, so an\noffset datum never carries an ``error`` status (\u00a73b). A non-finite offset is\na parse-time 422 (``allow_inf_nan=False``), never a rebuild error.\n\n``kind`` defaults to ``\"offset\"`` so LEGACY params (persisted before the\n``on_face`` variant, which carry no discriminator) validate here unchanged \u2014\n:class:`DatumFeature`'s before-validator injects it (additive, NO\n``param_version`` bump \u2014 datum-planes \u00a74/\u00a77).",
         "properties": {
           "base": {
             "description": "Origin datum this plane is parallel to (its orientation).",
@@ -305,6 +320,12 @@
             "title": "Flip",
             "type": "boolean"
           },
+          "kind": {
+            "const": "offset",
+            "default": "offset",
+            "title": "Kind",
+            "type": "string"
+          },
           "offset_mm": {
             "description": "Signed distance along `base`'s normal (mm). 0 coincides with the origin datum; +/- selects side. Any finite value is valid.",
             "title": "Offset Mm",
@@ -315,7 +336,33 @@
           "base",
           "offset_mm"
         ],
-        "title": "DatumParamsV1",
+        "title": "DatumOffsetParams",
+        "type": "object"
+      },
+      "DatumOnFaceParams": {
+        "description": "A datum plane adopted from a picked PLANAR face (``kind: \"on_face\"``).\n\nThe v2 on-a-face slice (docs/design/datum-planes.md \u00a77): the datum's plane\nresolves to the plane of a planar face of an EARLIER body-affecting feature's\nresult, named by a stage-1 :class:`SubshapeRef` signature\n(docs/design/topological-naming.md), with an optional ``offset_mm`` along the\nface normal. This is the sketch-on-a-face foundation \u2014 a sketch sits on this\ndatum by the SAME ``FeatureRef`` it uses for an offset datum, so on-face\nreuses the datum node rather than a new mechanism (datum-planes \u00a72b/\u00a77).\n\nThe derived sketch basis is DETERMINISTIC (RESEARCH \u00a79): origin at the face\narea centroid (plus ``offset_mm`` along the normal), ``z_dir`` the outward\nface normal, and an ``x_dir`` pinned from the normal\n(``geometry.kernel.faces._deterministic_x_dir``) so the 2D\u21923D mapping is\nstable across rebuilds, independent of OCCT's face parametrisation.\n\nHONEST v1 limits: the face reference is a stage-1 signature \u2014 best-effort,\nNOT structurally non-retargeting (see :class:`SubshapeRef`). A rebuild that\nremoves the face is an honest ``subshape_unresolved`` on this datum; a\ncongruent twin is ``subshape_ambiguous``; a drastic change can (rarely)\nretarget to a congruent face. Only PLANAR faces carry a signature, so a\nnon-planar face cannot be referenced (the pick UI omits them from the\nsketchable set \u2014 a non-planar pick is rejected before a datum is authored).",
+        "properties": {
+          "face": {
+            "$ref": "#/components/schemas/SubshapeRef",
+            "description": "Planar face of an earlier body-affecting feature whose plane this datum adopts (stage-1 signature reference)"
+          },
+          "kind": {
+            "const": "on_face",
+            "title": "Kind",
+            "type": "string"
+          },
+          "offset_mm": {
+            "default": 0.0,
+            "description": "Signed offset along the face normal (mm); 0 sits on the face. Optional (datum-planes \u00a77).",
+            "title": "Offset Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "face"
+        ],
+        "title": "DatumOnFaceParams",
         "type": "object"
       },
       "DatumPlaneRef": {
@@ -1317,6 +1364,38 @@
         "title": "OverlayEdge",
         "type": "object"
       },
+      "OverlayFace": {
+        "description": "One face of the evaluated body \u2014 pickable for a sketch datum-on-a-face.\n\nA PLANAR face carries a stage-1\n:class:`~py_kit.schemas.features.PlanarFaceSignature` \u2014 the SAME fingerprint\na datum-on-face ``SubshapeRef`` stores and the geometry resolver matches\nagainst (one enumeration: the pick side and the resolve side share\n``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To\nplace a sketch on a face, echo its ``signature`` into a ``SubshapeRef`` \u2014 the\nsame round-trip a vertex makes into a ``PointTarget``. A NON-planar face has\n``signature = null`` and is not sketchable in v1 (topological naming's face\nsignatures are planar-only until edge/curved-surface support lands).\n\n``index`` is TRANSIENT \u2014 the ``body.faces()`` position for THIS tree only,\nnot stable across edits (the persisted reference is the signature, never the\nindex \u2014 topological naming, feature-tree design \u00a72.4).",
+        "properties": {
+          "index": {
+            "description": "Transient 0-based body.faces() index (this tree only; NOT stable across edits \u2014 the stored reference is the signature)",
+            "title": "Index",
+            "type": "integer"
+          },
+          "planar": {
+            "description": "True if the face is planar (sketchable \u2014 carries a signature)",
+            "title": "Planar",
+            "type": "boolean"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanarFaceSignature"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stage-1 face signature (normal/centroid/area) for a planar face; null for a non-planar face. Echo it into a SubshapeRef to place a datum-on-a-face sketch here."
+          }
+        },
+        "required": [
+          "index",
+          "planar"
+        ],
+        "title": "OverlayFace",
+        "type": "object"
+      },
       "OverlayRequest": {
         "description": "Request the pickable selection geometry of an evaluated feature tree.\n\n``tree`` is recomputed with the SAME ordered dispatch + strict-prefix rule\nas ``POST /api/v1/evaluate`` / ``/measure`` (reusing ``evaluate_tree``); the\noverlay is built from the last-good body. Its ``linear_deflection`` also\nfixes the curved-edge polyline sampling (one tolerance, no ad-hoc epsilon).\nA tree that recomputes to no body is a clean 422 ``tree_overlay_failed``.",
         "properties": {
@@ -1342,6 +1421,14 @@
             "title": "Edges",
             "type": "array"
           },
+          "faces": {
+            "description": "Faces in body.faces() order; each planar face carries the SAME stage-1 signature the datum-on-face resolver matches against \u2014 echo a planar face's signature into a SubshapeRef to sketch on it",
+            "items": {
+              "$ref": "#/components/schemas/OverlayFace"
+            },
+            "title": "Faces",
+            "type": "array"
+          },
           "vertices": {
             "description": "Exact world-mm snap points in body.vertices() order; echo one back as a measure PointTarget for an exact point measurement",
             "items": {
@@ -1353,7 +1440,8 @@
         },
         "required": [
           "vertices",
-          "edges"
+          "edges",
+          "faces"
         ],
         "title": "OverlayResult",
         "type": "object"
@@ -1468,6 +1556,44 @@
           "b"
         ],
         "title": "PerpendicularConstraint",
+        "type": "object"
+      },
+      "PlanarFaceSignature": {
+        "description": "\u00a72b stage-1 geometric fingerprint of a PLANAR face \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity): the\noutward unit ``normal``, the area ``centroid`` (world mm), and the\n``area_mm2``. A planar face is uniquely fixed among a body's faces by\n(normal, centroid, area) in the common case; congruent twins of a symmetric\npart tie and resolve to an honest ``subshape_ambiguous`` (\u00a75), never a guess.\nMatching is nearest-within-tolerance at the documented subshape tolerance\n(geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.",
+        "properties": {
+          "area_mm2": {
+            "description": "Face area (mm^2), full precision",
+            "exclusiveMinimum": 0.0,
+            "title": "Area Mm2",
+            "type": "number"
+          },
+          "centroid": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Area centroid of the face, world mm (full precision)"
+          },
+          "normal": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Outward unit normal of the planar face (full precision)"
+          },
+          "subshape_type": {
+            "const": "face",
+            "default": "face",
+            "title": "Subshape Type",
+            "type": "string"
+          },
+          "surface": {
+            "const": "plane",
+            "default": "plane",
+            "title": "Surface",
+            "type": "string"
+          }
+        },
+        "required": [
+          "normal",
+          "centroid",
+          "area_mm2"
+        ],
+        "title": "PlanarFaceSignature",
         "type": "object"
       },
       "Point2D": {
@@ -1629,6 +1755,25 @@
           "operation"
         ],
         "title": "RevolveParamsV1",
+        "type": "object"
+      },
+      "SelectorV1": {
+        "description": "Stage-1 selector payload: the geometric signature alone (\u00a73, \u00a74).\n\n``selector_version`` is the discriminator of the (currently single-member)\n``Selector`` union \u2014 decoupled from feature ``param_version`` (\u00a74). Stage 2\nadds a ``SelectorV2`` member (signature + provenance) additively, at which\npoint ``Selector`` becomes ``Annotated[SelectorV1 | SelectorV2,\nField(discriminator=\"selector_version\")]`` with no change to persisted v1\nrows. pydantic forbids a discriminated single-member union, so ``Selector``\nis a plain alias until then (same idiom as :data:`FeatureData`).",
+        "properties": {
+          "selector_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Selector Version",
+            "type": "integer"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/PlanarFaceSignature"
+          }
+        },
+        "required": [
+          "signature"
+        ],
+        "title": "SelectorV1",
         "type": "object"
       },
       "ShapeProperties": {
@@ -2582,6 +2727,37 @@
           "entities"
         ],
         "title": "SolvedSketchData",
+        "type": "object"
+      },
+      "SubshapeRef": {
+        "description": "Stage-1 reference to ONE planar face of a body-affecting feature's result.\n\n(docs/design/topological-naming.md \u00a74.) ``feature_id`` is the stage-1 anchor\n\u2014 \"the prior body-affecting feature whose body I signature-match against\"\n(\u00a74), NOT necessarily the originating feature (stage 2 shifts it to the true\noriginating feature). It materializes into ``feature_dependencies`` like a\n:class:`FeatureRef` (via the widened :func:`iter_feature_refs` /\n:func:`feature_references`), so deleting that feature is a write-time\n409-with-dependents. ``subshape_type`` is ``\"face\"`` only in v1 (edge/vertex\nreserved \u2014 \u00a710).",
+        "properties": {
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "subshape",
+            "title": "Kind",
+            "type": "string"
+          },
+          "selector": {
+            "$ref": "#/components/schemas/SelectorV1"
+          },
+          "subshape_type": {
+            "const": "face",
+            "title": "Subshape Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "feature_id",
+          "subshape_type",
+          "selector"
+        ],
+        "title": "SubshapeRef",
         "type": "object"
       },
       "SweepFeature": {

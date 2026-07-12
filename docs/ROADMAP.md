@@ -145,10 +145,16 @@ item:
       panel, units system (BACKLOG Next).
 - 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
       2026-07-12; feeds Ready restocks as the queue runs thin.
+- 🚧 Sketch-on-a-model-face — **backend + schema shipped 2026-07-12**
+      (stage-1 planar-face `SubshapeRef` signature, `on_face` datum variant,
+      datum-from-face resolver, `/overlay` face enumeration, golden
+      `boss-on-face-40x40x10-20x20x10`; topological-naming §9). The in-viewport
+      raycast face picker is the remaining UI leg (BACKLOG Ready #1). First
+      real consumer of the topological-naming design.
 - 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face
-      now the sharpest gap (product audit, ahead of edge selection); shell,
-      draft, dedicated hole, multi-body boolean still unbuilt, several gated
-      on face/edge picking (BACKLOG Ready + Next).
+      backend now landed (UI picker pending); shell, draft, dedicated hole,
+      multi-body boolean still unbuilt, several gated on face/edge picking
+      (BACKLOG Ready + Next).
 - 🚧 Two independent audits landed 2026-07-12 (`docs/AUDIT-PRODUCT.md`
       6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found (all gates
       green, boundaries/license clean); findings filed to BACKLOG (Ready:

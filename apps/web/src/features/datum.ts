@@ -71,14 +71,19 @@ export function offsetError(input: string): string | null {
 }
 
 /**
- * Build the `DatumParamsV1` from the form, or null when the offset is
+ * Build the offset datum params from the form, or null when the offset is
  * missing/invalid (the submit gate). Server-side rebuild is total for any
  * finite offset — this only guards the shape.
  */
 export function buildDatumParams(form: DatumForm): DatumParams | null {
   const offset = parseOffsetMm(form.offsetInput);
   if (offset === null) return null;
-  return { base: form.base, offset_mm: offset, flip: form.flip };
+  return {
+    kind: "offset",
+    base: form.base,
+    offset_mm: offset,
+    flip: form.flip,
+  };
 }
 
 /** True when the form can be submitted (offset present + finite). */

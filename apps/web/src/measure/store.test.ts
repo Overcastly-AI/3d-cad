@@ -13,6 +13,7 @@ function overlay(vertexCount: number): OverlayResult {
   return {
     vertices: Array.from({ length: vertexCount }, () => ({ x: 0, y: 0, z: 0 })),
     edges: [],
+    faces: [],
   };
 }
 

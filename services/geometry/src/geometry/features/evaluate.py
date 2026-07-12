@@ -53,6 +53,8 @@ from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
     ChamferFeature,
     DatumFeature,
+    DatumOffsetParams,
+    DatumOnFaceParams,
     DatumPlaneRef,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
@@ -95,6 +97,8 @@ from geometry.kernel import (
     ProfileNotClosedError,
     ProfileUnsupportedError,
     RevolveError,
+    SubshapeAmbiguousError,
+    SubshapeUnresolvedError,
     SweepError,
     build_datum_plane,
     build_loft_section,
@@ -110,6 +114,7 @@ from geometry.kernel import (
     loft_sections,
     measure_shape,
     resolve_axis_line,
+    resolve_face_plane,
     revolve_face,
     select_edges,
     sweep_profile,
@@ -200,21 +205,61 @@ def resolve_sketch_plane(
 def _evaluate_datum(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Resolve one offset datum plane (not body-affecting, TOTAL — §3b).
+    """Resolve one datum plane — offset-from-origin OR on-a-face (not body-affecting).
 
-    The v1 datum feature (docs/design/datum-planes.md §3): an origin datum slid
-    ``offset_mm`` along its own normal, with an optional normal ``flip``. It
-    produces a plane, contributes no body, and is TOTAL — any finite offset is a
-    valid plane, so it never returns an error (a non-finite offset is rejected at
-    parse time by ``allow_inf_nan=False``). The resolved plane is recorded under
-    the feature id for a later sketch's plane FeatureRef to resolve against.
+    An OFFSET datum (docs/design/datum-planes.md §3) is an origin datum slid
+    ``offset_mm`` along its normal with an optional ``flip``; it is TOTAL — any
+    finite offset is a valid plane, so it never errors (a non-finite offset is a
+    parse-time 422). An ON_FACE datum (§7) adopts the plane of a PLANAR face of
+    the CURRENT body, named by a stage-1 :class:`SubshapeRef` signature
+    (docs/design/topological-naming.md), plus an optional offset along the face
+    normal — so unlike the offset variant it CAN fail per-feature:
+
+    * no prior body to pick a face from, or the referenced face no longer exists
+      after the rebuild → ``subshape_unresolved`` (§5);
+    * a congruent/symmetric twin also matches → ``subshape_ambiguous`` (refuse to
+      guess — determinism, §7.2).
+
+    Either way the resolved plane is recorded under the feature id for a later
+    sketch's plane FeatureRef to resolve against, exactly like an offset datum.
     """
     feature = item.feature
     assert isinstance(feature, DatumFeature), "registry dispatches on type='datum'"
     params = feature.params
-    state.datum_planes[item.id] = build_datum_plane(
-        params.base, params.offset_mm, params.flip
-    )
+    if isinstance(params, DatumOffsetParams):
+        state.datum_planes[item.id] = build_datum_plane(
+            params.base, params.offset_mm, params.flip
+        )
+        return None
+
+    assert isinstance(params, DatumOnFaceParams)  # closed union
+    if state.body is None:
+        return FeatureError(
+            code="subshape_unresolved",
+            message=(
+                "This datum sits on a face of the current body, but no "
+                "body-affecting feature precedes it; add a feature that creates "
+                "a body before placing an on-face datum."
+            ),
+            upstream_feature_id=params.face.feature_id,
+        )
+    try:
+        plane = resolve_face_plane(
+            state.body, params.face.selector.signature, params.offset_mm
+        )
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(
+            code="subshape_unresolved",
+            message=str(exc),
+            upstream_feature_id=params.face.feature_id,
+        )
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(
+            code="subshape_ambiguous",
+            message=str(exc),
+            upstream_feature_id=params.face.feature_id,
+        )
+    state.datum_planes[item.id] = plane
     return None
 
 

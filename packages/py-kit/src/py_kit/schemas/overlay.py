@@ -30,7 +30,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from py_kit.schemas.features import EvaluateTreeRequest
+from py_kit.schemas.features import EvaluateTreeRequest, PlanarFaceSignature
 from py_kit.schemas.geometry import Vec3
 
 #: Edge curve family, enough for the client to pick a hover/label style. Exact
@@ -63,6 +63,39 @@ class OverlayEdge(BaseModel):
         "[start, end]; a curved edge is sampled to the request tree's "
         "linear_deflection — the SAME tolerance policy as the mesh, no new "
         "epsilon."
+    )
+
+
+class OverlayFace(BaseModel):
+    """One face of the evaluated body — pickable for a sketch datum-on-a-face.
+
+    A PLANAR face carries a stage-1
+    :class:`~py_kit.schemas.features.PlanarFaceSignature` — the SAME fingerprint
+    a datum-on-face ``SubshapeRef`` stores and the geometry resolver matches
+    against (one enumeration: the pick side and the resolve side share
+    ``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To
+    place a sketch on a face, echo its ``signature`` into a ``SubshapeRef`` — the
+    same round-trip a vertex makes into a ``PointTarget``. A NON-planar face has
+    ``signature = null`` and is not sketchable in v1 (topological naming's face
+    signatures are planar-only until edge/curved-surface support lands).
+
+    ``index`` is TRANSIENT — the ``body.faces()`` position for THIS tree only,
+    not stable across edits (the persisted reference is the signature, never the
+    index — topological naming, feature-tree design §2.4).
+    """
+
+    index: int = Field(
+        description="Transient 0-based body.faces() index (this tree only; NOT "
+        "stable across edits — the stored reference is the signature)"
+    )
+    planar: bool = Field(
+        description="True if the face is planar (sketchable — carries a signature)"
+    )
+    signature: PlanarFaceSignature | None = Field(
+        default=None,
+        description="Stage-1 face signature (normal/centroid/area) for a planar "
+        "face; null for a non-planar face. Echo it into a SubshapeRef to place a "
+        "datum-on-a-face sketch here.",
     )
 
 
@@ -99,4 +132,9 @@ class OverlayResult(BaseModel):
     edges: list[OverlayEdge] = Field(
         description="Pickable edges in body.edges() order — the SAME "
         "enumeration measure resolves EdgeTarget.index against"
+    )
+    faces: list[OverlayFace] = Field(
+        description="Faces in body.faces() order; each planar face carries the "
+        "SAME stage-1 signature the datum-on-face resolver matches against — echo "
+        "a planar face's signature into a SubshapeRef to sketch on it"
     )

@@ -23,6 +23,14 @@ from geometry.kernel.extrude import (
     combine_body,
     extrude_face,
 )
+from geometry.kernel.faces import (
+    FaceResolutionError,
+    PlanarFaceRecord,
+    SubshapeAmbiguousError,
+    SubshapeUnresolvedError,
+    planar_faces,
+    resolve_face_plane,
+)
 from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
@@ -73,6 +81,7 @@ __all__ = [
     "BooleanError",
     "ChamferError",
     "EdgeIndexError",
+    "FaceResolutionError",
     "FilletError",
     "LoftError",
     "MeasureError",
@@ -88,9 +97,12 @@ __all__ = [
     "PatternDisjointError",
     "PatternError",
     "PatternSpacingError",
+    "PlanarFaceRecord",
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "RevolveError",
+    "SubshapeAmbiguousError",
+    "SubshapeUnresolvedError",
     "SweepError",
     "build_box",
     "build_cylinder",
@@ -115,7 +127,9 @@ __all__ = [
     "loft_sections",
     "measure_shape",
     "measure_targets",
+    "planar_faces",
     "resolve_axis_line",
+    "resolve_face_plane",
     "revolve_face",
     "select_edges",
     "selection_overlay",

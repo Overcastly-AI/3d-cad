@@ -101,6 +101,7 @@ RESULT = OverlayResult(
             polyline=[Vec3(x=0.0, y=0.0, z=0.0), Vec3(x=10.0, y=0.0, z=0.0)],
         )
     ],
+    faces=[],
 )
 
 

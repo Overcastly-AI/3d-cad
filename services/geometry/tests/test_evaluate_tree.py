@@ -488,6 +488,152 @@ def test_sketch_referencing_absent_datum_is_reference_unresolved() -> None:
     assert error.upstream_feature_id == DATUM_ID
 
 
+# --- Sketch on a model face (datum-from-face, topological naming stage 1) ----------
+
+FACE_DATUM_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d2")
+BOSS_SKETCH_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d3")
+BOSS_EXTRUDE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d4")
+
+
+def _square_params(half: float, plane_ref: dict[str, Any]) -> dict[str, Any]:
+    """A shape-pinned (position-free) axis-aligned square of side 2*half."""
+    return {
+        "plane": plane_ref,
+        "entities": [
+            _line("l1", (-half, -half), (half, -half)),
+            _line("l2", (half, -half), (half, half)),
+            _line("l3", (half, half), (-half, half)),
+            _line("l4", (-half, half), (-half, -half)),
+        ],
+        "constraints": [
+            _coincident(("l1", "end"), ("l2", "start")),
+            _coincident(("l2", "end"), ("l3", "start")),
+            _coincident(("l3", "end"), ("l4", "start")),
+            _coincident(("l4", "end"), ("l1", "start")),
+            {"kind": "horizontal", "entity": "l1"},
+            {"kind": "horizontal", "entity": "l3"},
+            {"kind": "vertical", "entity": "l2"},
+            {"kind": "vertical", "entity": "l4"},
+        ],
+    }
+
+
+def _on_face_datum(
+    feature_id: uuid.UUID,
+    body_feature_id: uuid.UUID,
+    signature: dict[str, Any],
+    offset_mm: float = 0.0,
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "datum",
+            "version": 1,
+            "params": {
+                "kind": "on_face",
+                "offset_mm": offset_mm,
+                "face": {
+                    "kind": "subshape",
+                    "feature_id": str(body_feature_id),
+                    "subshape_type": "face",
+                    "selector": {"selector_version": 1, "signature": signature},
+                },
+            },
+        },
+    }
+
+
+#: The base box's +Z top-face signature (40x40 square sketch extruded 10 mm).
+_TOP_FACE_SIG: dict[str, Any] = {
+    "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+    "centroid": {"x": 0.0, "y": 0.0, "z": 10.0},
+    "area_mm2": 1600.0,
+}
+
+
+def _boss_on_face_tree() -> list[dict[str, Any]]:
+    """Base 40x40x10 box -> on-face datum on its top -> 20x20x10 boss."""
+    return [
+        _sketch_input(SKETCH_ID, _square_params(20.0, dict(XY_PLANE))),
+        _extrude_input(MID_ID, SKETCH_ID),
+        _on_face_datum(FACE_DATUM_ID, MID_ID, _TOP_FACE_SIG),
+        _sketch_input(
+            BOSS_SKETCH_ID, _square_params(10.0, _feature_ref(FACE_DATUM_ID))
+        ),
+        _extrude_input(BOSS_EXTRUDE_ID, BOSS_SKETCH_ID),
+    ]
+
+
+def test_sketch_on_a_model_face_builds_the_boss() -> None:
+    """The unlock: a sketch placed on the base body's TOP FACE (a stage-1
+    SubshapeRef signature, not an origin/offset datum) extrudes a boss fused on
+    top — volume = base + boss = 20000 mm^3 (the golden asserts full properties;
+    this asserts the whole eval path resolves ok)."""
+    result = _post(_request(_boss_on_face_tree()))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "ok", "ok"]
+    props = result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(20000.0, abs=1e-6)
+    assert props.bounding_box.max.z == pytest.approx(20.0, abs=RECTANGLE_TOLERANCE_MM)
+    assert result.last_good_feature_id == BOSS_EXTRUDE_ID
+
+
+def test_on_face_datum_resolves_deterministically_across_rebuild() -> None:
+    """Same tree twice → byte-identical response, including the face-signature
+    resolution against the rebuilt body (determinism, RESEARCH §9)."""
+    payload = _request(_boss_on_face_tree())
+    first = client.post("/api/v1/evaluate", json=payload)
+    second = client.post("/api/v1/evaluate", json=payload)
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
+
+
+def test_on_face_datum_without_prior_body_is_subshape_unresolved() -> None:
+    """An on-face datum needs a body to pick a face from; with none, it is an
+    honest per-feature subshape_unresolved (never a 500), pinned to the named
+    body feature, and everything after is skipped (strict prefix)."""
+    result = _post(
+        _request(
+            [
+                _on_face_datum(FACE_DATUM_ID, MID_ID, _TOP_FACE_SIG),
+                _sketch_input(
+                    BOSS_SKETCH_ID, _square_params(10.0, _feature_ref(FACE_DATUM_ID))
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in result.features] == ["error", "skipped"]
+    error = result.features[0].error
+    assert error is not None
+    assert error.code == "subshape_unresolved"
+    assert error.upstream_feature_id == MID_ID
+
+
+def test_on_face_datum_with_stale_signature_is_subshape_unresolved() -> None:
+    """When the rebuilt body has no face matching the stored signature (here a
+    wrong area), the datum fails honestly — subshape_unresolved, never a silent
+    wrong plane — and downstream features are skipped (topo-naming §5)."""
+    stale_sig = {**_TOP_FACE_SIG, "area_mm2": 999.0}
+    result = _post(
+        _request(
+            [
+                _sketch_input(SKETCH_ID, _square_params(20.0, dict(XY_PLANE))),
+                _extrude_input(MID_ID, SKETCH_ID),
+                _on_face_datum(FACE_DATUM_ID, MID_ID, stale_sig),
+                _sketch_input(
+                    BOSS_SKETCH_ID, _square_params(10.0, _feature_ref(FACE_DATUM_ID))
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in result.features] == ["ok", "ok", "error", "skipped"]
+    error = result.features[2].error
+    assert error is not None
+    assert error.code == "subshape_unresolved"
+    assert error.upstream_feature_id == MID_ID
+
+
 # --- Rollback = prefix (§4.2) -------------------------------------------------------
 
 

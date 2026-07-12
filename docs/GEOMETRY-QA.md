@@ -37,6 +37,85 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-12 — Sketch-on-a-model-face (datum-from-face, stage-1 topological naming; BACKLOG #1 BACKEND)
+
+**What shipped (backend + schema foundation; the viewport raycast picker is
+the follow-up UI slice).** A sketch can now sit on a **planar face of the
+current body**, not just origin/offset datum planes — the product audit's #1
+unblock (pocket-on-top, boss-on-shoulder). Implemented via the **datum-node
+path** (`docs/design/datum-planes.md` §7), not a direct sketch-plane
+`SubshapeRef`: a new `on_face` variant of the `datum` feature carries a face
+`SubshapeRef`; a sketch references that datum by the existing `FeatureRef`
+plane slot. Reuses `resolve_sketch_plane` + the datum machinery — a resolved
+face-plane is just another `build123d.Plane`.
+
+**SubshapeRef signature scheme (stage 1, planar faces only).** A face is named
+by a geometric **signature** — outward unit **normal + area centroid + area**
+(full precision; `PlanarFaceSignature`), NOT an enumeration index (the §1.3
+silent-retarget trap). Resolution enumerates the rebuilt body's planar faces
+(`geometry.kernel.faces.planar_faces`, `body.faces()` order), matches
+nearest-within-tolerance, and requires **exactly one** match or errors. Derived
+sketch basis is deterministic: origin at the face centroid (+ optional offset
+along the normal), `z_dir` the outward normal, and `x_dir` **pinned from the
+normal** (the world axis least aligned with it, ties X<Y<Z, projected into the
+plane) — independent of OCCT's face parametrisation.
+
+**HONEST STABILITY LIMIT (not oversold — mirrors the topo-naming doc's own
+corrected claim).** A stage-1 signature is **best-effort, NOT a provably-stable
+structural reference.** It resolves the same face across the common edits and
+fails honestly (`subshape_unresolved` / `subshape_ambiguous`) for most others,
+but under a drastic model change it CAN retarget to a coincidentally-congruent
+face without erroring. It does **not** "never silently retarget"; only stage-2
+provenance (coordinate-blind) closes that. For FACES specifically, two distinct
+planar faces of a manifold solid cannot share a centroid, so `subshape_ambiguous`
+is effectively unreachable today (a defensive branch that becomes load-bearing
+for edge/vertex signatures). Match tolerances (documented, not ad-hoc):
+normal 1−cos ≤ 1e-9, centroid ≤ 1e-6 mm, area rel ≤ 1e-6 — the intended face is
+bit-identical on a clean rebuild (ulp residuals), and distinct faces of an
+authored part separate by whole mm/mm²/axis-flips.
+
+**Error codes (per-feature, strict-prefix, never 500):** `subshape_unresolved`
+(no matching planar face after a rebuild, or no prior body to pick from —
+pinned to the named body feature's id) and `subshape_ambiguous` (≥2 within
+tolerance — refuse to guess). Non-planar faces carry no signature, so they are
+structurally un-referenceable (the overlay marks them `planar: false`; the pick
+UI omits them — the "must be planar in v1" rule enforced by the type, not a
+resolve-time check).
+
+**Pick↔resolve same-enumeration (the measurement lesson applied to faces).**
+The `/overlay` endpoint now enumerates FACES (`OverlayResult.faces`): each
+planar face carries the SAME `PlanarFaceSignature` the resolver matches
+against, built by the SAME `geometry.kernel.faces` helper. `test_faces.py`
+asserts overlay-planar-signatures == resolver enumeration (order + bytes) and
+that a picked overlay signature resolves back to its face — so a future pick UI
+references a face by the exact signature the resolver uses.
+
+**Golden — `boss-on-face-40x40x10-20x20x10` (hand-derived, all analytic):**
+40×40×10 base box → `on_face` datum on its +Z top → 20×20×10 boss fused on top.
+
+| quantity | analytic | measured deviation |
+| --- | --- | --- |
+| volume | 20000 mm³ | **0.0** |
+| surface_area | 5600 mm² | 9.1e-13 |
+| centroid | (0,0,7.0) | z ≤ 2.7e-15, x/y ~5e-17 |
+| bounding_box | [-20,-20,0]..[20,20,20] | **0.0** all six bounds |
+| topology (F/E/S) | 11 / 24 / 1 | exact (Euler-Poincaré cross-checked: 16−24+11 = 3 = 2(1−0)+(12−11)) |
+| mesh (v/t) | 48 / 28 | exact (bottom 4/2 + 4 base walls 16/8 + shoulder square-annulus 8/8 + 4 boss walls 16/8 + boss top 4/2) |
+
+Tolerance **1e-9** (all-planar fuse, no ThruSections AABB padding; ~1100× the
+worst observed 9.1e-13, 5 orders under kernel linear tol). Byte-deterministic
+in-process AND across interpreter restart — the determinism gates re-run the
+whole tree including the signature match against the rebuilt body, which is the
+"face reference resolves deterministically across a rebuild" proof. STEP
+round-trip: planar B-rep survives exactly. `test_faces.py` + the
+datum-on-face `test_evaluate_tree.py` cases pin the resolver, both error codes,
+and the pick↔resolve round-trip.
+
+**Not in this slice (honest scope):** edge/vertex signatures, the stage-2
+provenance half, and the in-viewport raycast picker + face-highlight UI
+(BACKLOG #1's UI leg) — this is the geometry+schema foundation the picker
+consumes. `subshape_ambiguous` for faces is unreachable-but-guarded (above).
+
 ## Golden inventory
 
 | Golden | Capability locked | Tolerance (mass props) | Topology (F/E/S) | Mesh (V/T) |
@@ -54,6 +133,7 @@ recorded from harness output.
 | `loft-pyramid-sq20-h30` | FIRST LOFT golden (second NON-PRISMATIC feature, #8): sketch→sketch→loft tree — a 20×20 square section on XY ruled-lofted to a single APEX point 30 mm up +Z into a right square pyramid; locks the loft handler + per-section ordered FeatureRef resolution + loft-to-a-point (a point section → `Vertex`) + `Solid.make_loft(ruled=True)`; analytic pyramid volume a²·h/3 = 4000 mm³, all faces PLANAR so mesh is hand-derivable. NB: a cylinder/frustum golden needs two PARALLEL offset sections (unauthorable — datums are origin-only + mutually perpendicular), hence the apex pyramid | 2e-7 (AABB-padding-limited: ThruSections faces carry OCCT ~1e-7 modeling tolerance → optimal AABB padded ~1e-7; ceiling = 2× kernel linear tol; vol worst 1.82e-12, area EXACTLY 0.0, centroid ≤ 3.7e-16) | 5 / 8 / 1 | 16 / 6 |
 | `sketch-extrude-offset-plane-40x25x10` | FIRST OFFSET-DATUM golden (offset/datum planes): datum→sketch→extrude tree — the `sketch-extrude` rectangle sketched on an XY-offset-**+30** `datum` feature, extruded 10 mm → the base box translated +30 Z, proving `resolve_sketch_plane`→`Plane.XY.offset(30)` lands the body where the math says; origin-datum path unchanged (offset 0 reproduces `Plane.XY` byte-for-byte) | 1e-9 (rigid translation of an exact origin-datum extrude, measured-then-set; vol worst 1.82e-12, area/AABB EXACTLY 0.0, centroid ≤ 3.6e-15) | 6 / 12 / 1 | 24 / 12 |
 | `loft-cylinder-offset-r10-h30` | **THE LOFT THE LOFT NOTE DEFERRED** (two-parallel-circles → cylinder, now authorable via offset planes): datum→datum→sketch→sketch→loft tree — two equal r=10 circles on XY-offset-0 and XY-offset-30 datums ruled-lofted into a right circular cylinder; analytic V = π·r²·h = 3000π, true-cylinder topology 3/3/1, mesh matches the primitive `cylinder-r10-h25` (same r → 126-segment circle) | 2e-7 (AABB-padding-limited, SAME class as `loft-pyramid`: the lofted lateral surface carries OCCT ~1e-7 tol → optimal AABB padded ~1e-7; vol EXACTLY 0.0, area 4.55e-13, centroid ≤ 1.8e-15) | 3 / 3 / 1 | 506 / 500 |
+| `boss-on-face-40x40x10-20x20x10` | **FIRST SKETCH-ON-A-MODEL-FACE golden** (stage-1 topological naming, BACKLOG #1 backend): sketch→extrude→**datum-on-face**→sketch→extrude — a 20×20 boss whose sketch sits on the base box's TOP FACE, resolved from a stage-1 `SubshapeRef` signature (normal +Z / centroid (0,0,10) / area 1600) matched against the rebuilt body; locks the datum-from-face resolver (planar-face enumeration + exactly-one signature match) + the deterministic derived sketch basis (origin=face centroid, z_dir=normal, x_dir pinned from the normal) + the fuse. Analytic V = 16000+4000 = 20000 mm³, all-planar, mesh hand-derived incl. the shoulder square-annulus (8v/8t). Face reference proven to resolve deterministically across a rebuild (in-process + interpreter-restart gates re-run the signature match) | 1e-9 (all-planar fuse, NO AABB padding, measured-then-set; vol/AABB EXACTLY 0.0, surface_area worst 9.1e-13, centroid ≤ 2.7e-15) | 11 / 24 / 1 | 48 / 28 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL

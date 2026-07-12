@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self, assert_never, get_args
+from typing import Annotated, Any, Literal, Self, assert_never, cast, get_args
 
 from pydantic import (
     BaseModel,
@@ -68,10 +68,96 @@ class FeatureRef(BaseModel):
     feature_id: uuid.UUID
 
 
-#: Discriminated reference union. A ``subshape`` variant is reserved for the
-#: Phase 2 topological-naming design (design §2.4) — additive, do not
-#: implement yet.
+#: Discriminated reference union. A ``subshape`` variant remains reserved here
+#: for a future DIRECT sketch-on-subshape reference; the shipped sketch-on-a-face
+#: path does NOT need it — a sketch sits on an ``on_face`` datum by the existing
+#: ``FeatureRef`` variant (datum-planes §7), and the :class:`SubshapeRef` lives
+#: inside that datum's params, not in this union.
 GeomRef = Annotated[DatumPlaneRef | FeatureRef, Field(discriminator="kind")]
+
+
+# --- Stage-1 topological naming: SubshapeRef (docs/design/topological-naming.md) --
+#
+# A SubshapeRef names ONE planar face of an earlier body-affecting feature's
+# result by a geometric SIGNATURE (§2b), NOT an enumeration index (§1.3 rejects
+# indices — they silently retarget). v1 scope is PLANAR FACES only (the
+# sketch-on-a-face / datum-from-face foundation); edge/vertex signatures and the
+# stage-2 provenance half are future additive members (§3, §10). The signature is
+# pure pydantic — no kernel type crosses the boundary (§7.4): the geometry
+# service computes it from the recomputed body and resolves it back to a face,
+# entirely service-internal.
+#
+# HONEST STABILITY LIMIT (§7.3 — stated plainly, NOT oversold): a stage-1
+# signature is BEST-EFFORT, not a provably-stable structural reference. It
+# resolves the same face across the common edits (parametric changes that do not
+# move the face; upstream inserts that do not touch it) and FAILS HONESTLY
+# (``subshape_unresolved`` / ``subshape_ambiguous``) for most others — but under
+# a drastic model change it CAN retarget to a coincidentally-congruent face (same
+# normal/centroid/area) without erroring. It does NOT "never silently retarget";
+# only the stage-2 provenance half (coordinate-blind) makes that structural.
+
+
+class PlanarFaceSignature(BaseModel):
+    """§2b stage-1 geometric fingerprint of a PLANAR face — typed, kernel-free.
+
+    Full-precision invariants (§7.2 forbids quantizing the stored identity): the
+    outward unit ``normal``, the area ``centroid`` (world mm), and the
+    ``area_mm2``. A planar face is uniquely fixed among a body's faces by
+    (normal, centroid, area) in the common case; congruent twins of a symmetric
+    part tie and resolve to an honest ``subshape_ambiguous`` (§5), never a guess.
+    Matching is nearest-within-tolerance at the documented subshape tolerance
+    (geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.
+    """
+
+    subshape_type: Literal["face"] = "face"
+    surface: Literal["plane"] = "plane"
+    normal: Vec3 = Field(
+        description="Outward unit normal of the planar face (full precision)"
+    )
+    centroid: Vec3 = Field(
+        description="Area centroid of the face, world mm (full precision)"
+    )
+    area_mm2: float = Field(gt=0, description="Face area (mm^2), full precision")
+
+
+class SelectorV1(BaseModel):
+    """Stage-1 selector payload: the geometric signature alone (§3, §4).
+
+    ``selector_version`` is the discriminator of the (currently single-member)
+    ``Selector`` union — decoupled from feature ``param_version`` (§4). Stage 2
+    adds a ``SelectorV2`` member (signature + provenance) additively, at which
+    point ``Selector`` becomes ``Annotated[SelectorV1 | SelectorV2,
+    Field(discriminator="selector_version")]`` with no change to persisted v1
+    rows. pydantic forbids a discriminated single-member union, so ``Selector``
+    is a plain alias until then (same idiom as :data:`FeatureData`).
+    """
+
+    selector_version: Literal[1] = 1
+    signature: PlanarFaceSignature
+
+
+#: Version-discriminated selector union (§4). One member (stage 1) today, so a
+#: plain alias; stage 2 promotes it to a ``selector_version``-discriminated union.
+Selector = SelectorV1
+
+
+class SubshapeRef(BaseModel):
+    """Stage-1 reference to ONE planar face of a body-affecting feature's result.
+
+    (docs/design/topological-naming.md §4.) ``feature_id`` is the stage-1 anchor
+    — "the prior body-affecting feature whose body I signature-match against"
+    (§4), NOT necessarily the originating feature (stage 2 shifts it to the true
+    originating feature). It materializes into ``feature_dependencies`` like a
+    :class:`FeatureRef` (via the widened :func:`iter_feature_refs` /
+    :func:`feature_references`), so deleting that feature is a write-time
+    409-with-dependents. ``subshape_type`` is ``"face"`` only in v1 (edge/vertex
+    reserved — §10).
+    """
+
+    kind: Literal["subshape"]
+    feature_id: uuid.UUID
+    subshape_type: Literal["face"]
+    selector: Selector
 
 
 # --- §2.4 EdgeSelector — deterministic edge selection (NOT topological naming) ---
@@ -116,20 +202,26 @@ EdgeSelector = Annotated[
 # --- §1.4 Per-type params (current versions) ------------------------------------
 
 
-class DatumParamsV1(BaseModel):
-    """A datum plane parallel to an origin datum, offset along its normal.
+class DatumOffsetParams(BaseModel):
+    """An origin datum slid ``offset_mm`` along its normal (``kind: "offset"``).
 
-    v1 is the face-free slice (docs/design/datum-planes.md §3): ``base`` is one
-    of the three stable origin datums, ``offset_mm`` slides the plane along that
+    The v1 face-free slice (docs/design/datum-planes.md §3): ``base`` is one of
+    the three stable origin datums, ``offset_mm`` slides the plane along that
     datum's normal, and ``flip`` optionally reverses the normal. No picked
     geometry, no reference to another feature's output — so this is independent
     of topological naming (#1), exactly like revolve's world-axis or a pattern's
     world-vector. A datum is NOT body-affecting: it produces a plane, contributes
-    no body, and is TOTAL — any finite ``offset_mm`` yields a valid plane, so a
-    datum feature never carries an ``error`` status (§3b). A non-finite offset is
+    no body, and is TOTAL — any finite ``offset_mm`` yields a valid plane, so an
+    offset datum never carries an ``error`` status (§3b). A non-finite offset is
     a parse-time 422 (``allow_inf_nan=False``), never a rebuild error.
+
+    ``kind`` defaults to ``"offset"`` so LEGACY params (persisted before the
+    ``on_face`` variant, which carry no discriminator) validate here unchanged —
+    :class:`DatumFeature`'s before-validator injects it (additive, NO
+    ``param_version`` bump — datum-planes §4/§7).
     """
 
+    kind: Literal["offset"] = "offset"
     base: Literal["XY", "XZ", "YZ"] = Field(
         description="Origin datum this plane is parallel to (its orientation)."
     )
@@ -145,6 +237,55 @@ class DatumParamsV1(BaseModel):
         "as False. Position is fully covered by signed `offset_mm`; `flip` only "
         "chooses which way 'normal' points for authoring/extrude-side.",
     )
+
+
+class DatumOnFaceParams(BaseModel):
+    """A datum plane adopted from a picked PLANAR face (``kind: "on_face"``).
+
+    The v2 on-a-face slice (docs/design/datum-planes.md §7): the datum's plane
+    resolves to the plane of a planar face of an EARLIER body-affecting feature's
+    result, named by a stage-1 :class:`SubshapeRef` signature
+    (docs/design/topological-naming.md), with an optional ``offset_mm`` along the
+    face normal. This is the sketch-on-a-face foundation — a sketch sits on this
+    datum by the SAME ``FeatureRef`` it uses for an offset datum, so on-face
+    reuses the datum node rather than a new mechanism (datum-planes §2b/§7).
+
+    The derived sketch basis is DETERMINISTIC (RESEARCH §9): origin at the face
+    area centroid (plus ``offset_mm`` along the normal), ``z_dir`` the outward
+    face normal, and an ``x_dir`` pinned from the normal
+    (``geometry.kernel.faces._deterministic_x_dir``) so the 2D→3D mapping is
+    stable across rebuilds, independent of OCCT's face parametrisation.
+
+    HONEST v1 limits: the face reference is a stage-1 signature — best-effort,
+    NOT structurally non-retargeting (see :class:`SubshapeRef`). A rebuild that
+    removes the face is an honest ``subshape_unresolved`` on this datum; a
+    congruent twin is ``subshape_ambiguous``; a drastic change can (rarely)
+    retarget to a congruent face. Only PLANAR faces carry a signature, so a
+    non-planar face cannot be referenced (the pick UI omits them from the
+    sketchable set — a non-planar pick is rejected before a datum is authored).
+    """
+
+    kind: Literal["on_face"]
+    face: SubshapeRef = Field(
+        description="Planar face of an earlier body-affecting feature whose "
+        "plane this datum adopts (stage-1 signature reference)"
+    )
+    offset_mm: float = Field(
+        default=0.0,
+        allow_inf_nan=False,
+        description="Signed offset along the face normal (mm); 0 sits on the "
+        "face. Optional (datum-planes §7).",
+    )
+
+
+#: Datum params: an offset-from-origin plane OR an on-a-face plane, discriminated
+#: on ``kind``. LEGACY persisted params carry no ``kind`` (they predate on_face)
+#: — :class:`DatumFeature`'s before-validator injects ``kind: "offset"`` so old
+#: rows validate unchanged (additive, NO ``param_version`` bump — datum-planes
+#: §4/§7).
+DatumParams = Annotated[
+    DatumOffsetParams | DatumOnFaceParams, Field(discriminator="kind")
+]
 
 
 class SketchParamsV1(SketchDefinition):
@@ -518,13 +659,45 @@ class DatumFeature(BaseModel):
     """``{"type": "datum", "version": 1, "params": {...}}`` envelope.
 
     A non-body-affecting feature that produces a plane a later sketch sits on
-    (docs/design/datum-planes.md §2b). Additive to the union exactly as
-    sweep/loft/pattern were — no ``param_version`` bump anywhere.
+    (docs/design/datum-planes.md §2b). ``params`` is the discriminated
+    :data:`DatumParams` union — an ``offset`` plane (§3) or an ``on_face`` plane
+    (§7). Adding the ``on_face`` variant is ADDITIVE with NO ``param_version``
+    bump: legacy offset params (persisted before ``on_face`` existed) carry no
+    ``kind`` discriminator, so :meth:`_legacy_offset_kind` injects ``"offset"``
+    before validation and every existing datum row/golden validates unchanged
+    (datum-planes §4/§7).
     """
 
     type: Literal["datum"]
     version: Literal[1]
-    params: DatumParamsV1
+    params: DatumParams
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_offset_kind(cls, data: Any) -> Any:
+        """Read a kind-less datum params blob as an ``offset`` plane.
+
+        The ``on_face`` variant introduced the ``kind`` discriminator; params
+        persisted before it carry only ``{base, offset_mm, flip}``. Injecting
+        ``kind: "offset"`` keeps them valid without a stored-shape change or a
+        ``param_version`` bump — the additive migration datum-planes §4/§7
+        promises. On_face params always carry ``kind: "on_face"`` explicitly, so
+        they are untouched.
+        """
+        if not isinstance(data, dict):
+            return data
+        fields = cast("dict[str, Any]", data)
+        params = fields.get("params")
+        if not isinstance(params, dict):
+            return fields
+        params_dict = cast("dict[str, Any]", params)
+        if "kind" in params_dict:
+            return fields
+        new_params = dict(params_dict)
+        new_params["kind"] = "offset"
+        new_fields = dict(fields)
+        new_fields["params"] = new_params
+        return new_fields
 
 
 class SketchFeature(BaseModel):
@@ -775,14 +948,26 @@ FEATURE_REGISTRY.validate_chains()
 # --- §2.2/§2.3 Reference helpers --------------------------------------------------
 
 
-def iter_feature_refs(value: Any) -> Iterator[FeatureRef]:
-    """Every :class:`FeatureRef` reachable inside a validated model tree.
+#: Feature types that produce/mutate the body chain — the acceptable targets of
+#: a :class:`SubshapeRef` face reference (topo-naming §4: a face is named on a
+#: body-affecting feature's result). ``datum``/``sketch`` are NOT body-affecting.
+BODY_AFFECTING_FEATURE_TYPES = frozenset(
+    {"extrude", "revolve", "sweep", "loft", "fillet", "chamfer", "pattern"}
+)
 
-    Generic pydantic walk (models, lists, tuples, dict values) so extraction
-    can never drift from the schema (design §2.3) — a new ref-bearing field
-    is found without touching this function.
+
+def iter_feature_refs(value: Any) -> Iterator[FeatureRef | SubshapeRef]:
+    """Every :class:`FeatureRef` OR :class:`SubshapeRef` reachable in a model tree.
+
+    Generic pydantic walk (models, lists, tuples, dict values) so extraction can
+    never drift from the schema (design §2.3) — a new ref-bearing field is found
+    without touching this function. Both ref kinds carry a ``feature_id`` that
+    joins the dependency graph; topo-naming §4 widened this walk to also yield
+    :class:`SubshapeRef` (a named face reference), which is yielded WHOLE and not
+    descended into (its only graph-relevant field is ``feature_id`` — its
+    signature payload carries no refs).
     """
-    if isinstance(value, FeatureRef):
+    if isinstance(value, FeatureRef | SubshapeRef):
         yield value
     elif isinstance(value, BaseModel):
         for name in type(value).model_fields:
@@ -800,11 +985,14 @@ class FeatureReference:
     """One reference slot of a feature + the target feature types it accepts.
 
     ``allowed_types`` empty means NO feature type is acceptable in that slot
-    (e.g. a sketch plane in v1 accepts datum planes only — design §2.1).
+    (e.g. a sketch plane in v1 accepts datum planes only — design §2.1). ``ref``
+    is a :class:`FeatureRef` (a whole-feature reference) OR a :class:`SubshapeRef`
+    (a named face of a body-affecting feature — topo-naming §4); both expose a
+    ``feature_id`` that documents materializes into ``feature_dependencies``.
     """
 
     slot: str
-    ref: FeatureRef
+    ref: FeatureRef | SubshapeRef
     allowed_types: frozenset[str]
 
 
@@ -820,10 +1008,19 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
     references: list[FeatureReference] = []
     match feature:
         case DatumFeature():
-            # A v1 datum carries NO FeatureRef (design §5): `base` is an
-            # origin-datum enum, `offset_mm`/`flip` are scalars. It is not
-            # body-affecting — it only produces a plane a later sketch sits on.
-            pass
+            # An OFFSET datum carries NO reference (design §5): `base` is an
+            # origin-datum enum, `offset_mm`/`flip` are scalars. An ON_FACE datum
+            # names a PLANAR FACE of an earlier body-affecting feature's result
+            # (topo-naming §4): its SubshapeRef.feature_id materializes into
+            # feature_dependencies exactly like a FeatureRef, so deleting that
+            # body feature is a write-time 409-with-dependents and a reorder
+            # re-checks strict-backward for the named ref too.
+            if isinstance(feature.params, DatumOnFaceParams):
+                references.append(
+                    FeatureReference(
+                        "face", feature.params.face, BODY_AFFECTING_FEATURE_TYPES
+                    )
+                )
         case SketchFeature():
             if isinstance(feature.params.plane, FeatureRef):
                 # A sketch-plane FeatureRef is accepted iff it points at a
