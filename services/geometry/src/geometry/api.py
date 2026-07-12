@@ -28,11 +28,13 @@ from py_kit.schemas.geometry import (
     tessellate_responses,
 )
 from py_kit.schemas.measure import MeasureRequest, MeasureResult
+from py_kit.schemas.overlay import OverlayRequest, OverlayResult
 
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
 from geometry.measure import evaluate_measure
 from geometry.mesh_store import fetch_mesh_glb
+from geometry.overlay import evaluate_overlay
 from geometry.schemas import ExportRequest, TessellateRequest, TessellationMetadata
 
 router = APIRouter(prefix="/api/v1", tags=["geometry"])
@@ -146,6 +148,29 @@ def measure(request: MeasureRequest) -> MeasureResult:
     envelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.
     """
     return evaluate_measure(request)
+
+
+@router.post("/overlay", tags=["geometry"])
+def overlay(request: OverlayRequest) -> OverlayResult:
+    """Pickable selection geometry of an evaluated feature tree's body (#6b).
+
+    **Stateless** (CLAUDE.md): recomputes ``request.tree`` (the SAME ordered
+    dispatch + strict-prefix rule as ``/evaluate`` and ``/measure``, reusing
+    ``evaluate_tree``) and returns the last-good body's EXACT pickable geometry:
+    ``vertices`` (world-mm snap points in ``body.vertices()`` order — echo one
+    back as a measure ``PointTarget`` for an exact point measurement) and
+    ``edges`` in ``body.edges()`` order — the SAME enumeration ``/measure``
+    resolves ``EdgeTarget.index`` against, so ``edges[i]`` IS the edge
+    ``EdgeTarget(index=i)`` measures. Each edge carries a kind tag, its two
+    endpoint coordinates, and a polyline sampled at the tree's
+    ``linear_deflection`` (the SAME tolerance the mesh uses — no new epsilon).
+
+    Both index spaces are TRANSIENT — valid for this request/tree only, NOT
+    stable across edits (stable named references are topological naming, Phase
+    2). A tree that recomputes to no body is a clean 422 ``tree_overlay_failed``
+    envelope. See :mod:`py_kit.schemas.overlay` for the full contract.
+    """
+    return evaluate_overlay(request)
 
 
 @router.post("/export/tree", response_class=Response, responses=_EXPORT_RESPONSES)

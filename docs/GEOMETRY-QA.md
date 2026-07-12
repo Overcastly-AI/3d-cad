@@ -68,6 +68,55 @@ fillet, chamfer) are all golden-covered.
 
 ---
 
+## 2026-07-12 — Selection-overlay endpoint: pickable geometry + edge-index order-equality (BACKLOG #6 / 6b backend)
+
+`POST /api/v1/overlay` (geometry) + `POST /api/v1/geometry/overlay` (gateway,
+auth-gated). Stateless query: recompute the feature `tree` (reusing
+`evaluate_tree` — same ordered dispatch + strict-prefix rule as `/evaluate` and
+`/measure`) and return the last-good body's pickable selection geometry —
+`vertices` (exact world-mm snap points in `body.vertices()` order) and `edges`
+in `body.edges()` order (kind tag + endpoint coords + a polyline sampled at the
+tree's `linear_deflection`, the SAME tolerance the mesh tessellation uses — no
+new epsilon). Curved edges via OCCT `GCPnts_QuasiUniformDeflection`; a straight
+edge is exactly `[start, end]`.
+
+### The guarantee that matters — order-equality (the review's headline 6b risk)
+
+`overlay.edges[i]` MUST be the SAME B-rep edge `/measure` resolves for
+`EdgeTarget(index=i)`, or an edge measurement silently targets the wrong edge.
+Both paths enumerate the SAME `body.edges()` list of the SAME recomputed body,
+so alignment is by construction — and it is PROVEN, not asserted:
+
+- **Kernel** (`test_overlay_edge_index_matches_measure_edge_index`, box-10x20x30
+  golden, 12 edges): enumerate `box.edges()` once as ground truth; for every `i`
+  assert `overlay.edges[i]` endpoints match `body.edges()[i]` AND that
+  `measure_targets(PointTarget(overlay.edges[i].start), EdgeTarget(index=i))`
+  returns distance 0.0 (abs 1e-7). A misaligned enumeration would give a nonzero
+  gap on at least one edge.
+- **HTTP** (`test_overlay_and_measure_agree_on_edge_index_over_http`,
+  sketch-extrude 40×25×10 body): call `/overlay`, then for every edge POST its
+  `start` as a measure `PointTarget` against `EdgeTarget(index=i)` → distance 0.
+
+### Design honesty — indices are TRANSIENT
+
+Both the vertex and edge indices are ordinals into the recomputed body's
+deterministic `.vertices()`/`.edges()` lists (OCCT exploration order), valid for
+THIS tree/request only. They are NOT stable across edits — the same
+non-persistent contract as measure's edge index. Stable named references that
+survive rebuilds are topological naming (Phase 2, feature-tree design §2.4);
+this is deliberately not that, and the DTO/endpoint docstrings say so.
+
+### Never a 500
+
+A body-less tree → 422 `tree_overlay_failed` (reuses `tree_no_body_error`); a
+raw kernel raise while enumerating → 422 `overlay_failed`, sanitized to the
+exception class name via the shared `geometry.faults` belt-and-braces (same
+helper that closed the measure 500-gap this batch). No new solids are built, so
+no new golden is required (this is a query over existing golden bodies); the
+box + sketch-extrude goldens back the two order-equality gates.
+
+---
+
 ## 2026-07-12 — Stateless measure endpoint: exact nearest distance (BACKLOG Ready #6 / 6a)
 
 `POST /api/v1/measure` (geometry) + `POST /api/v1/geometry/measure` (gateway,

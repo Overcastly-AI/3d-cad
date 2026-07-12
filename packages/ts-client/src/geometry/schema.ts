@@ -135,6 +135,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/overlay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Overlay
+         * @description Pickable selection geometry of an evaluated feature tree's body (#6b).
+         *
+         *     **Stateless** (CLAUDE.md): recomputes ``request.tree`` (the SAME ordered
+         *     dispatch + strict-prefix rule as ``/evaluate`` and ``/measure``, reusing
+         *     ``evaluate_tree``) and returns the last-good body's EXACT pickable geometry:
+         *     ``vertices`` (world-mm snap points in ``body.vertices()`` order — echo one
+         *     back as a measure ``PointTarget`` for an exact point measurement) and
+         *     ``edges`` in ``body.edges()`` order — the SAME enumeration ``/measure``
+         *     resolves ``EdgeTarget.index`` against, so ``edges[i]`` IS the edge
+         *     ``EdgeTarget(index=i)`` measures. Each edge carries a kind tag, its two
+         *     endpoint coordinates, and a polyline sampled at the tree's
+         *     ``linear_deflection`` (the SAME tolerance the mesh uses — no new epsilon).
+         *
+         *     Both index spaces are TRANSIENT — valid for this request/tree only, NOT
+         *     stable across edits (stable named references are topological naming, Phase
+         *     2). A tree that recomputes to no body is a clean 422 ``tree_overlay_failed``
+         *     envelope. See :mod:`py_kit.schemas.overlay` for the full contract.
+         */
+        post: operations["overlay_api_v1_overlay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tessellate": {
         parameters: {
             query?: never;
@@ -861,6 +897,68 @@ export interface components {
             vertices: number;
         };
         /**
+         * OverlayEdge
+         * @description One pickable B-rep edge of the evaluated body (transient index).
+         *
+         *     The list position of this edge in :attr:`OverlayResult.edges` is its
+         *     transient 0-based index — the SAME ordinal ``body.edges()`` yields, so
+         *     passing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures
+         *     THIS edge. Not stable across edits (topological naming is Phase 2).
+         */
+        OverlayEdge: {
+            /** @description Edge end vertex, world mm (curve param 1); equals start for a closed edge such as a full circle */
+            end: components["schemas"]["Vec3"];
+            /**
+             * Kind
+             * @description Curve family (line/circle/other) — a rendering hint only; measurement reads the exact B-rep, never this tag
+             * @enum {string}
+             */
+            kind: "line" | "circle" | "other";
+            /**
+             * Polyline
+             * @description Ordered world-mm points to draw the edge as a polyline (>= 2 points, start..end inclusive). A straight edge is exactly [start, end]; a curved edge is sampled to the request tree's linear_deflection — the SAME tolerance policy as the mesh, no new epsilon.
+             */
+            polyline: components["schemas"]["Vec3"][];
+            /** @description Edge start vertex, world mm (curve param 0) */
+            start: components["schemas"]["Vec3"];
+        };
+        /**
+         * OverlayRequest
+         * @description Request the pickable selection geometry of an evaluated feature tree.
+         *
+         *     ``tree`` is recomputed with the SAME ordered dispatch + strict-prefix rule
+         *     as ``POST /api/v1/evaluate`` / ``/measure`` (reusing ``evaluate_tree``); the
+         *     overlay is built from the last-good body. Its ``linear_deflection`` also
+         *     fixes the curved-edge polyline sampling (one tolerance, no ad-hoc epsilon).
+         *     A tree that recomputes to no body is a clean 422 ``tree_overlay_failed``.
+         */
+        OverlayRequest: {
+            /** @description Feature tree to recompute; the overlay describes its last-good body */
+            tree: components["schemas"]["EvaluateTreeRequest"];
+        };
+        /**
+         * OverlayResult
+         * @description Pickable selection geometry of the evaluated body (all coords world mm).
+         *
+         *     ``vertices`` and ``edges`` are index-aligned with the recomputed body's
+         *     deterministic ``.vertices()`` / ``.edges()`` lists. A client snaps to a
+         *     vertex (exact point-point / point-edge) by echoing its coordinates as a
+         *     ``PointTarget``, and measures an edge by sending its list index as an
+         *     ``EdgeTarget``. Both index spaces are TRANSIENT — this request/tree only.
+         */
+        OverlayResult: {
+            /**
+             * Edges
+             * @description Pickable edges in body.edges() order — the SAME enumeration measure resolves EdgeTarget.index against
+             */
+            edges: components["schemas"]["OverlayEdge"][];
+            /**
+             * Vertices
+             * @description Exact world-mm snap points in body.vertices() order; echo one back as a measure PointTarget for an exact point measurement
+             */
+            vertices: components["schemas"]["Vec3"][];
+        };
+        /**
          * ParallelConstraint
          * @description Two lines have equal direction.
          *
@@ -1541,6 +1639,39 @@ export interface operations {
                 };
                 content: {
                     "model/gltf-binary": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overlay_api_v1_overlay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverlayRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayResult"];
                 };
             };
             /** @description Validation Error */

@@ -1323,6 +1323,86 @@
         "title": "MeshStats",
         "type": "object"
       },
+      "OverlayEdge": {
+        "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures\nTHIS edge. Not stable across edits (topological naming is Phase 2).",
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Edge end vertex, world mm (curve param 1); equals start for a closed edge such as a full circle"
+          },
+          "kind": {
+            "description": "Curve family (line/circle/other) \u2014 a rendering hint only; measurement reads the exact B-rep, never this tag",
+            "enum": [
+              "line",
+              "circle",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "polyline": {
+            "description": "Ordered world-mm points to draw the edge as a polyline (>= 2 points, start..end inclusive). A straight edge is exactly [start, end]; a curved edge is sampled to the request tree's linear_deflection \u2014 the SAME tolerance policy as the mesh, no new epsilon.",
+            "items": {
+              "$ref": "#/components/schemas/Vec3"
+            },
+            "title": "Polyline",
+            "type": "array"
+          },
+          "start": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Edge start vertex, world mm (curve param 0)"
+          }
+        },
+        "required": [
+          "kind",
+          "start",
+          "end",
+          "polyline"
+        ],
+        "title": "OverlayEdge",
+        "type": "object"
+      },
+      "OverlayRequest": {
+        "description": "Request the pickable selection geometry of an evaluated feature tree.\n\n``tree`` is recomputed with the SAME ordered dispatch + strict-prefix rule\nas ``POST /api/v1/evaluate`` / ``/measure`` (reusing ``evaluate_tree``); the\noverlay is built from the last-good body. Its ``linear_deflection`` also\nfixes the curved-edge polyline sampling (one tolerance, no ad-hoc epsilon).\nA tree that recomputes to no body is a clean 422 ``tree_overlay_failed``.",
+        "properties": {
+          "tree": {
+            "$ref": "#/components/schemas/EvaluateTreeRequest",
+            "description": "Feature tree to recompute; the overlay describes its last-good body"
+          }
+        },
+        "required": [
+          "tree"
+        ],
+        "title": "OverlayRequest",
+        "type": "object"
+      },
+      "OverlayResult": {
+        "description": "Pickable selection geometry of the evaluated body (all coords world mm).\n\n``vertices`` and ``edges`` are index-aligned with the recomputed body's\ndeterministic ``.vertices()`` / ``.edges()`` lists. A client snaps to a\nvertex (exact point-point / point-edge) by echoing its coordinates as a\n``PointTarget``, and measures an edge by sending its list index as an\n``EdgeTarget``. Both index spaces are TRANSIENT \u2014 this request/tree only.",
+        "properties": {
+          "edges": {
+            "description": "Pickable edges in body.edges() order \u2014 the SAME enumeration measure resolves EdgeTarget.index against",
+            "items": {
+              "$ref": "#/components/schemas/OverlayEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "vertices": {
+            "description": "Exact world-mm snap points in body.vertices() order; echo one back as a measure PointTarget for an exact point measurement",
+            "items": {
+              "$ref": "#/components/schemas/Vec3"
+            },
+            "title": "Vertices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "vertices",
+          "edges"
+        ],
+        "title": "OverlayResult",
+        "type": "object"
+      },
       "ParallelConstraint": {
         "description": "Two lines have equal direction.\n\nRelates two **whole** line entities (by id, not by endpoint) \u2014 contrast\nwith :class:`CoincidentConstraint`, whose ``a``/``b`` name single points.\nRemoves one rotational degree of freedom. Both entities must be lines.",
         "properties": {
@@ -2609,6 +2689,53 @@
           }
         ],
         "summary": "Fetch Mesh",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/geometry/overlay": {
+      "post": {
+        "description": "Proxy a stateless selection-overlay query to the geometry service.\n\nAuth-protected (the overlay describes a signed-in user's part geometry);\nthe geometry hop itself stays identity-free, so the principal never goes\nupstream (same posture as the measure + mesh-fetch proxies, RESEARCH \u00a73).\nThe shared :class:`OverlayRequest` DTO validates at the gateway. Upstream\nenvelopes (``tree_overlay_failed``, ``overlay_failed``) are re-surfaced\nverbatim. The response carries the body's exact pickable vertices + edges,\nthe edge list index-aligned with ``/measure``'s ``EdgeTarget.index``.",
+        "operationId": "overlay_api_v1_geometry_overlay_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverlayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Overlay",
         "tags": [
           "geometry"
         ]

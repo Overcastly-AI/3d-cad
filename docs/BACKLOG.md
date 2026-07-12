@@ -201,8 +201,22 @@ ship v1. #6–#7 are P2 support items, also independent, safe to start anytime.
       line-line angle. Tests: box corners → √1400 exact (acceptance), analytic
       point-edge/edge-edge/angle, determinism, 422 envelopes
       (`edge_index_out_of_range`/`tree_measure_failed`/DTO); contracts+ts-client
-      regen; no apps/web stub needed. Remaining (6b): viewport pick-and-read UI
-      (title-block DRO readout) — do not tick until 6b lands._
+      regen; no apps/web stub needed._
+      _PARTIAL (6b backend shipped): `POST /api/v1/overlay` (geometry) +
+      auth-gated `POST /api/v1/geometry/overlay` (gateway) over a new
+      `OverlayRequest`/`OverlayResult` py-kit DTO — the pickability half of 6b.
+      Recomputes the tree (reusing `evaluate_tree`) and returns the body's exact
+      pickable geometry: `vertices` (world-mm snap points in `body.vertices()`
+      order, echoed back as measure `PointTarget`s) and `edges` in
+      `body.edges()` order — the SAME enumeration `/measure` resolves
+      `EdgeTarget.index` against (order-equality gate proves `edges[i]` IS
+      measure's edge i, both kernel + HTTP). Each edge carries a kind tag, its
+      two endpoint coords, and a polyline sampled at the tree's
+      `linear_deflection` (same tolerance as the mesh — no new epsilon). Indices
+      are TRANSIENT (this tree/request only, not stable across edits — that's
+      topological naming, Phase 2). 422s: `tree_overlay_failed`/`overlay_failed`.
+      Remaining (6b): viewport pick-and-read UI (title-block DRO readout) — do
+      not tick #6 until the UI lands._
 - [ ] (P2, M) Linear/circular pattern — repeat a feature (or a contiguous
       run of features) N times along a vector or around an axis; operates on
       whole features, not picked sub-geometry, so independent of #1.
@@ -383,6 +397,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-12 — selection-overlay endpoint (6b enabling half): `POST /overlay`
+  (geometry) + gated gateway proxy over new `OverlayRequest`/`OverlayResult`
+  DTOs. Exact vertices + `body.edges()`-ordered edges; order-equality gate
+  proves `overlay.edges[i]` == measure's `EdgeTarget(index=i)`. Transient
+  indices; contracts+ts-client regen (web typecheck clean). [kernel-architect]
 - 2026-07-12 — measure "never a 500" gap closed (code-review 🟡): a RAW OCCT/std
   raise from the kernel (degenerate recomputed edge) now maps to a 422
   `measure_failed`, sanitized to the exception class name, via a shared

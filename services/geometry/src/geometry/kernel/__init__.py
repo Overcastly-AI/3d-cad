@@ -23,6 +23,7 @@ from geometry.kernel.extrude import (
 )
 from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
+from geometry.kernel.overlay import selection_overlay
 from geometry.kernel.properties import measure_shape
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
@@ -76,6 +77,7 @@ __all__ = [
     "resolve_axis_line",
     "revolve_face",
     "select_edges",
+    "selection_overlay",
     "tessellate_glb",
 ]
 

@@ -24,6 +24,7 @@ from py_kit.schemas.geometry import (
     tessellate_responses,
 )
 from py_kit.schemas.measure import MeasureRequest, MeasureResult
+from py_kit.schemas.overlay import OverlayRequest, OverlayResult
 from pydantic import BaseModel
 
 from gateway.auth import CurrentUser
@@ -200,3 +201,23 @@ async def measure(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return MeasureResult.model_validate_json(upstream.content)
+
+
+@router.post("/overlay")
+async def overlay(
+    request: OverlayRequest, user: CurrentUser, http_request: Request
+) -> OverlayResult:
+    """Proxy a stateless selection-overlay query to the geometry service.
+
+    Auth-protected (the overlay describes a signed-in user's part geometry);
+    the geometry hop itself stays identity-free, so the principal never goes
+    upstream (same posture as the measure + mesh-fetch proxies, RESEARCH §3).
+    The shared :class:`OverlayRequest` DTO validates at the gateway. Upstream
+    envelopes (``tree_overlay_failed``, ``overlay_failed``) are re-surfaced
+    verbatim. The response carries the body's exact pickable vertices + edges,
+    the edge list index-aligned with ``/measure``'s ``EdgeTarget.index``.
+    """
+    upstream = await _forward(http_request, "/api/v1/overlay", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return OverlayResult.model_validate_json(upstream.content)
