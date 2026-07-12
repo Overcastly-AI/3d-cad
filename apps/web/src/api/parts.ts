@@ -35,6 +35,10 @@ export type RevolveFeature = components["schemas"]["RevolveFeature"];
 export type RevolveParams = components["schemas"]["RevolveParamsV1"];
 export type SweepFeature = components["schemas"]["SweepFeature"];
 export type SweepParams = components["schemas"]["SweepParamsV1"];
+export type LoftFeature = components["schemas"]["LoftFeature"];
+export type LoftParams = components["schemas"]["LoftParamsV1"];
+/** One ordered section slot of a loft — a `FeatureRef` to an earlier sketch. */
+export type FeatureRef = components["schemas"]["FeatureRef"];
 export type FilletFeature = components["schemas"]["FilletFeature"];
 export type FilletParams = components["schemas"]["FilletParamsV1"];
 export type ChamferFeature = components["schemas"]["ChamferFeature"];
@@ -350,6 +354,40 @@ export function sweepFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: sweepFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by loft create and update. */
+function loftFeatureEnvelope(params: LoftParams): LoftFeature {
+  return { type: "loft", version: 1, params };
+}
+
+/**
+ * The create payload for a loft feature: skin a solid THROUGH an ordered list
+ * of earlier sketch sections (≥2), blended in list order (design §4.3, the
+ * sweep sibling — but with an ordered LIST of `FeatureRef`s rather than a
+ * profile + a path). Pure — unit-tested against the generated types.
+ */
+export function loftFeatureCreate(
+  name: string,
+  params: LoftParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: loftFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing loft (no rename). */
+export function loftFeatureUpdate(
+  params: LoftParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: loftFeatureEnvelope(params),
   };
 }
 

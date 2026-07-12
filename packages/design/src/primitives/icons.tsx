@@ -319,6 +319,23 @@ export const SweepIcon = (p: IconProps) => (
 );
 
 /**
+ * Loft = a solid skinned THROUGH stacked cross-sections. Two parallel section
+ * ellipses (a wide base, a narrower top) joined by ruling lines into a frustum
+ * silhouette, with a punch-mark node on each section — the "blend spine"
+ * signature the loft editor extends. Its parallel-section vocabulary ties it to
+ * the extrude face and the datum quad; the ruling lines say "skinned in order".
+ */
+export const LoftIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <ellipse cx={12} cy={18} rx={7} ry={2.2} />
+    <ellipse cx={12} cy={6} rx={4} ry={1.4} />
+    <path d="M5 18 L8 6 M19 18 L16 6" />
+    <Node cx={12} cy={18} />
+    <Node cx={12} cy={6} />
+  </Icon>
+);
+
+/**
  * Datum = a construction plane parallel to a base datum, held off it by an
  * offset. A dashed base quad (the origin datum) with a solid parallel quad
  * above it and a short offset tick between — the "sketch on a plane at a

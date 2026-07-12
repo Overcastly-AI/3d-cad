@@ -36,6 +36,9 @@ import {
   type FilletParams,
   filletFeatureCreate,
   filletFeatureUpdate,
+  type LoftParams,
+  loftFeatureCreate,
+  loftFeatureUpdate,
   moveRollbackBar,
   type PatternParams,
   patternFeatureCreate,
@@ -57,6 +60,7 @@ import { DatumEditor } from "../components/DatumEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
+import { LoftEditor } from "../components/LoftEditor";
 import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
 import { RevolveEditor } from "../components/RevolveEditor";
@@ -95,6 +99,12 @@ import {
   type ProfileOption,
   type SweepForm,
 } from "../features/sweep";
+import {
+  defaultLoftForm,
+  defaultLoftSections,
+  formFromLoftParams,
+  type LoftForm,
+} from "../features/loft";
 import {
   type ChamferForm,
   defaultChamferForm,
@@ -816,6 +826,12 @@ export function PartPage() {
         featureId?: string;
       }
     | {
+        kind: "loft";
+        mode: "create" | "edit";
+        initial: LoftForm;
+        featureId?: string;
+      }
+    | {
         kind: "pattern";
         mode: "create" | "edit";
         initial: PatternForm;
@@ -969,6 +985,23 @@ export function PartPage() {
     });
   }, [tree.data]);
 
+  // A loft references an ORDERED LIST of ≥2 earlier sketches (its sections),
+  // so it seeds the first two sketches in build order as the initial stack; the
+  // user retargets, reorders, or adds more sections in the editor.
+  const openCreateLoft = useCallback(() => {
+    const featureList = tree.data?.features ?? [];
+    const initialSections = defaultLoftSections(featureList);
+    if (initialSections.length < 2) return;
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "loft",
+      mode: "create",
+      initial: defaultLoftForm(initialSections),
+    });
+  }, [tree.data]);
+
   // A pattern needs no sketch profile — it repeats the current BODY — so it
   // only requires a solid to exist (canModify), unlike extrude/revolve.
   const openCreatePattern = useCallback(() => {
@@ -1036,6 +1069,13 @@ export function PartPage() {
         mode: "edit",
         featureId: feature.id,
         initial: formFromSweepParams(feature.feature.params),
+      });
+    } else if (feature.feature.type === "loft") {
+      setEditor({
+        kind: "loft",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromLoftParams(feature.feature.params),
       });
     } else if (feature.feature.type === "pattern") {
       setEditor({
@@ -1169,6 +1209,23 @@ export function PartPage() {
         current.mode === "create",
         current.featureId,
         "The sweep could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitLoft = useCallback(
+    (params: LoftParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "loft") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "loft").length + 1;
+      runFeatureSave(
+        (version) => loftFeatureCreate(`Loft${nextIndex}`, params, version),
+        (version) => loftFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The loft could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -1324,6 +1381,9 @@ export function PartPage() {
   // A sweep needs TWO sketch features to reference (a profile + a path), both
   // solved so their wires exist — hence ≥2 sketches AND a solve has landed.
   const canSweep = sketchProfiles.length >= 2 && hasSolvedSketch;
+  // A loft blends through ≥2 ordered section sketches — the same gate as sweep
+  // (two sketch features must exist and a solve must have produced their wires).
+  const canLoft = sketchProfiles.length >= 2 && hasSolvedSketch;
 
   // Sketch mode owns the viewport; leaving/entering it dismisses the editor.
   useEffect(() => {
@@ -1345,11 +1405,22 @@ export function PartPage() {
       } else if (key === "s" && canSweep) {
         event.preventDefault();
         openCreateSweep();
+      } else if (key === "l" && canLoft) {
+        event.preventDefault();
+        openCreateLoft();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, hasBody, canSweep, openCreatePattern, openCreateSweep]);
+  }, [
+    mode,
+    hasBody,
+    canSweep,
+    canLoft,
+    openCreatePattern,
+    openCreateSweep,
+    openCreateLoft,
+  ]);
 
   // The body is the hero: once a solid renders, the profile sketch that
   // defined it recedes (it sits on the body's base face — coincident scribe
@@ -1394,6 +1465,8 @@ export function PartPage() {
             onNewRevolve={openCreateRevolve}
             canSweep={canSweep}
             onNewSweep={openCreateSweep}
+            canLoft={canLoft}
+            onNewLoft={openCreateLoft}
             canModify={hasBody}
             onFillet={openCreateFillet}
             onChamfer={openCreateChamfer}
@@ -1466,6 +1539,16 @@ export function PartPage() {
                     pathsByProfile={pathsByProfile}
                     initial={editor.initial}
                     onSubmit={submitSweep}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
+                ) : editor.kind === "loft" ? (
+                  <LoftEditor
+                    mode={editor.mode}
+                    sections={sketchProfiles}
+                    initial={editor.initial}
+                    onSubmit={submitLoft}
                     onCancel={closeEditor}
                     saving={editorSaving}
                     error={editorError}

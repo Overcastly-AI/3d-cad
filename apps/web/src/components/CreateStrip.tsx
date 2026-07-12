@@ -18,6 +18,7 @@ import {
   DatumIcon,
   ExtrudeIcon,
   FilletIcon,
+  LoftIcon,
   MeasureIcon,
   PatternIcon,
   RevolveIcon,
@@ -47,6 +48,13 @@ export interface CreateStripProps {
   canSweep: boolean;
   onNewSweep: () => void;
   /**
+   * True when ≥2 sketch features exist to blend through as a loft's ordered
+   * sections (a loft references a LIST of earlier sketches, not the implicit
+   * one) — the same two-sketch gate as sweep.
+   */
+  canLoft: boolean;
+  onNewLoft: () => void;
+  /**
    * A solid body exists to modify. When false — or when a Modify handler is
    * not yet wired (the kernel op hasn't landed) — that Modify tool is disabled.
    */
@@ -75,6 +83,8 @@ export function CreateStrip({
   onNewRevolve,
   canSweep,
   onNewSweep,
+  canLoft,
+  onNewLoft,
   canModify = false,
   onFillet,
   onChamfer,
@@ -151,6 +161,20 @@ export function CreateStrip({
           }
           disabled={!canSweep || !treeReady}
           onClick={onNewSweep}
+        />
+        <ToolButton
+          icon={<LoftIcon />}
+          showLabel
+          label="Loft"
+          shortcut="L"
+          data-testid="new-loft"
+          aria-label={
+            canLoft
+              ? "Loft — blend a solid through two or more ordered section sketches (L)"
+              : "Loft — draw at least two section sketches first"
+          }
+          disabled={!canLoft || !treeReady}
+          onClick={onNewLoft}
         />
       </ToolGroup>
 

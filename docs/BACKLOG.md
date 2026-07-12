@@ -153,19 +153,6 @@ polish the re-score flagged; independent of #1–#3 and of each other.
 
 ## Next (P2)
 
-- [ ] (P1, S) #8b Loft authoring UI — **FULLY UNBLOCKED, STARTABLE NOW**
-      (offset/datum-plane BACKEND shipped 2026-07-12; **#2b plane-picker UI
-      landed** — a user can place section sketches on offset planes via the
-      picker's "+ Offset plane" / Datum tool): parallel sections are authorable,
-      proven by the `loft-cylinder-offset-r10-h30` golden (two parallel offset
-      circles → cylinder). Scope:
-      multi-section feature-reference picker (ordered ≥2 sketch sections +
-      apex points), title-block seat, Add/Cut toggle, v1 scope note; e2e
-      proving a lofted body renders at the expected volume; screenshots;
-      `frontend-design` invoked. DTO: `{ profiles: FeatureRef[] (min 2),
-      operation: "add"|"cut" }`; a section sketch resolves to a closed wire
-      or a single apex point (ends only). [src: roadmap, product-auditor,
-      competitive]
 - [ ] (P2, M) Hole feature — face-based placement (point on a face + depth,
       optionally counterbore/countersink), distinct from a sketched-circle
       extrude cut. Depends on face/edge picking (Ready, above) landing — needs a
@@ -376,15 +363,23 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 - [x] (P1, M) Sweep feature — backend + UI (#7/#7b) — profile along a second
       sketch's open path wire, golden `sweep-circle-r8-h30`. [src: roadmap,
       product-auditor, competitive]
-- [x] (P1, M) Loft feature BACKEND (#8) — ruled loft through ≥2 ordered
-      sections incl. loft-to-apex, golden `loft-pyramid-sq20-h30`; UI (#8b)
-      blocked on offset/datum planes — see BACKLOG Next. [src: roadmap,
-      product-auditor]
+- [x] (P1, M) Loft feature (#8) — BACKEND ruled loft through ≥2 ordered
+      sections incl. loft-to-apex (golden `loft-pyramid-sq20-h30`); **UI (#8b)
+      shipped**: ordered section stack (add/remove/reorder), Add/Cut, L
+      accelerator, v1 scope note; e2e proves two parallel circles (XY + XY+30
+      offset plane) → a real frustum body. [src: roadmap, product-auditor,
+      competitive]
 
 ## Changelog
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-12 — **#8b Loft authoring UI shipped.** Ordered section-stack picker
+  (≥2 sketch sections, add/remove/reorder — order is the blend sequence) with a
+  "blend spine" signature, Add/Cut, `L` accelerator, honest v1 note; DRY
+  `LoftParamsV1` from `@loft/ts-client`. e2e (real stack): two parallel circles
+  (XY + XY+30 via "+ Offset plane") → a rendered frustum in the tree; submit
+  guard on incomplete stacks. Closes #8. [frontend-builder]
 - 2026-07-12 — **#2b offset/datum-plane picker UI shipped.** One-click origin
   planes preserved; inline "+ Offset plane" + standalone Datum tool create a
   `datum` feature the sketch seats on via `FeatureRef`. `plane.ts` generalized

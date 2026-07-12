@@ -17,8 +17,10 @@ The paired **plane-picker UI (#2b) shipped 2026-07-12**: the one-click origin
 planes are preserved, offset planes are an additive inline "+ Offset plane"
 affordance (plus a standalone Datum tool), and the viewport draws the sketch at
 the offset — proven end-to-end by `datum-plane.spec.ts` (an XY+30 sketch
-extrudes to a body sitting at z≈30..40). This **fully unblocks loft UI (#8b)**
-and delivers sketch-on-a-height. Next foundational unlock is face/edge
+extrudes to a body sitting at z≈30..40). Riding that unlock, the **loft UI
+(#8b) shipped 2026-07-12** — an ordered section-stack picker whose real-stack
+e2e blends two parallel circles (XY + an XY+30 offset plane) into a frustum,
+closing #8. Next foundational unlock is face/edge
 picking (the other big Part-modeling parity gap). VISION.md's 2026-07-12
 re-score flipped the Sketching scorecard row ❌→➖; Part modeling stays ❌ with
 face/edge picking now its sharpest gap. See `docs/BACKLOG.md` Ready queue.
@@ -127,8 +129,13 @@ item:
       residual gaps are session polish, not missing capability — see
       BACKLOG Ready (over-constraint classification, dimension expressions,
       constrainable splines).
-- ✅ Revolve + linear/circular pattern + sweep (backend+UI) + loft BACKEND —
-      8 body-affecting features now.
+- ✅ Revolve + linear/circular pattern + sweep + loft (backend+UI) —
+      8 body-affecting features now. **Loft UI (#8b) shipped 2026-07-12:** an
+      ordered section-stack picker (≥2 sketch sections, add/remove/reorder — the
+      order is the blend sequence) with a "blend spine" signature, Add/Cut, an
+      `L` accelerator, and an honest v1 note; real-stack e2e blends two parallel
+      circles (XY + an XY+30 offset plane via "+ Offset plane") into a frustum —
+      the offset-planes payoff. Closes #8.
 - ✅ Offset/datum planes — BACKEND (2026-07-12): a `datum` feature (offset
       from an origin datum by a signed distance + optional normal flip) joins
       the Feature union additively; a sketch sits on it via the existing
