@@ -178,11 +178,11 @@ test.describe("measurement", () => {
         r.url().includes("/api/v1/geometry/measure") &&
         r.request().method() === "POST",
     );
-    await page.getByTestId(`measure-vertex-${a}`).dispatchEvent("click");
+    await page.getByTestId(`measure-vertex-${a}`).click();
     await expect(page.getByTestId("measure-prompt")).toContainText(
       "Pick the second point or edge",
     );
-    await page.getByTestId(`measure-vertex-${b}`).dispatchEvent("click");
+    await page.getByTestId(`measure-vertex-${b}`).click();
     expect((await measureResponse).status()).toBe(200);
 
     // THE assertion: the readout reads the golden distance.
@@ -227,8 +227,8 @@ test.describe("measurement", () => {
     };
     const a = vertexIndex(overlay.vertices, { x: 0, y: 0, z: 0 });
     const b = vertexIndex(overlay.vertices, { x: 10, y: 20, z: 30 });
-    await page.getByTestId(`measure-vertex-${a}`).dispatchEvent("click");
-    await page.getByTestId(`measure-vertex-${b}`).dispatchEvent("click");
+    await page.getByTestId(`measure-vertex-${a}`).click();
+    await page.getByTestId(`measure-vertex-${b}`).click();
     await expect(page.getByTestId("measure-readout-distance")).toHaveText(
       "37.42",
     );
@@ -259,8 +259,8 @@ test.describe("measurement small laptop (1280×800)", () => {
     };
     const a = vertexIndex(overlay.vertices, { x: 0, y: 0, z: 0 });
     const b = vertexIndex(overlay.vertices, { x: 10, y: 20, z: 30 });
-    await page.getByTestId(`measure-vertex-${a}`).dispatchEvent("click");
-    await page.getByTestId(`measure-vertex-${b}`).dispatchEvent("click");
+    await page.getByTestId(`measure-vertex-${a}`).click();
+    await page.getByTestId(`measure-vertex-${b}`).click();
     await expect(page.getByTestId("measure-readout-distance")).toHaveText(
       "37.42",
     );

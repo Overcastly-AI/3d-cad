@@ -80,7 +80,18 @@ describe("polyline helpers", () => {
     expect(Array.from(segs.slice(0, 6))).toEqual([0, 0, 0, 1, 0, 0]);
   });
 
-  it("takes the middle vertex as the mark anchor", () => {
+  it("places a straight (2-point) edge's mark at the true midpoint, not the end vertex", () => {
+    // Regression for BACKLOG #6: floor(2/2)=1 used to return the END vertex,
+    // so every straight edge's mark landed on a corner and stole the click.
+    expect(
+      polylineMidpoint([
+        { x: 0, y: 0, z: 0 },
+        { x: 10, y: 20, z: 30 },
+      ]),
+    ).toEqual({ x: 5, y: 10, z: 15 });
+  });
+
+  it("takes the arc-length half point of a curved polyline", () => {
     expect(
       polylineMidpoint([
         { x: 0, y: 0, z: 0 },
@@ -88,6 +99,19 @@ describe("polyline helpers", () => {
         { x: 10, y: 0, z: 0 },
       ]),
     ).toEqual({ x: 5, y: 0, z: 0 });
+  });
+
+  it("interpolates within the segment that straddles the half-length", () => {
+    // Three unequal segments (2 + 4 + 2 = 8, half = 4) → the point sits at the
+    // end of the first segment plus 2 into the second: exactly the geometric mid.
+    expect(
+      polylineMidpoint([
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+        { x: 6, y: 0, z: 0 },
+        { x: 8, y: 0, z: 0 },
+      ]),
+    ).toEqual({ x: 4, y: 0, z: 0 });
   });
 });
 

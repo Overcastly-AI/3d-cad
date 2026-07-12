@@ -5,9 +5,13 @@
  * named, and e2e-drivable, with zero chrome so it reads as a scribed mark, not
  * UI (the same posture as the constraint glyphs).
  *
- * Quiet at rest, brass-ringed on hover/focus, brass-filled when selected — the
+ * A two-tone reticle so the mark stays legible over BOTH the light machined
+ * body faces and the dark ground: a bright core reads on the ground, its dark
+ * halo ring reads on the aluminum — visible either way, quiet at rest. It takes
+ * the brass accent on hover/focus and a brass fill when selected — the
  * selection language of the rest of the app. The shape encodes the entity kind:
- * a round node marks a vertex (a point), a diamond marks an edge (a curve).
+ * a round node marks a vertex (a point), a diamond marks an edge (a curve). The
+ * transparent hit area is a comfortable ≥24px target for mouse and touch.
  */
 import type { ButtonHTMLAttributes } from "react";
 
@@ -37,9 +41,10 @@ export function PickNode({
       type={type ?? "button"}
       aria-pressed={selected}
       className={cx(
-        // A generous transparent hit area around a small scribed mark, so the
-        // node is easy to click without a large visible dot cluttering the model.
-        "group/pn grid place-items-center rounded-full p-1.5",
+        // A fixed 24px transparent hit area (WCAG 2.5.8 target size) around a
+        // small scribed reticle — easy to click or tap without a large dot
+        // cluttering the model, and independent of any padding collapse.
+        "group/pn grid h-6 w-6 place-items-center rounded-full",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass",
         className,
       )}
@@ -48,11 +53,13 @@ export function PickNode({
       <span
         aria-hidden
         className={cx(
-          "block h-2.5 w-2.5 border transition-colors duration-fast",
+          // 12px core + a 2px halo ring: the two-tone reticle that survives
+          // both the light body faces and the dark ground.
+          "block h-3 w-3 ring-2 transition-colors duration-fast",
           shape === "vertex" ? "rounded-full" : "rotate-45 rounded-none",
           selected
-            ? "border-brass bg-brass"
-            : "border-gauge bg-carbide group-hover/pn:border-brass-hover group-hover/pn:bg-anvil group-focus-visible/pn:border-brass-hover",
+            ? "bg-brass ring-carbide"
+            : "bg-mist ring-carbide group-hover/pn:bg-brass-hover group-hover/pn:ring-anvil group-focus-visible/pn:bg-brass-hover",
         )}
       />
     </button>

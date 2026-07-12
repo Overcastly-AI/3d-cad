@@ -62,11 +62,43 @@ export function polylineSegments(polyline: readonly Vec3[]): Float32Array {
   return out;
 }
 
-/** Midpoint of a polyline (by arc position) in OCCT coords — the edge's mark. */
+/**
+ * The point at HALF the accumulated arc length of a polyline, in OCCT coords —
+ * the anchor for an edge's pick-mark. A straight edge's polyline is just
+ * `[start, end]`, so the mark lands at `0.5·(start+end)` (the visual middle),
+ * never on the end vertex; a tessellated curve's mark lands where its arc
+ * length crosses the halfway point (interpolated within the straddling
+ * segment), so it always sits mid-span and never coincides with a corner.
+ */
 export function polylineMidpoint(polyline: readonly Vec3[]): Vec3 {
   if (polyline.length === 0) return { x: 0, y: 0, z: 0 };
-  const mid = Math.floor(polyline.length / 2);
-  return polyline[mid] as Vec3;
+  if (polyline.length === 1) return polyline[0] as Vec3;
+
+  const dist = (a: Vec3, b: Vec3): number =>
+    Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+
+  let total = 0;
+  for (let i = 1; i < polyline.length; i += 1) {
+    total += dist(polyline[i - 1] as Vec3, polyline[i] as Vec3);
+  }
+  const half = total / 2;
+
+  let acc = 0;
+  for (let i = 1; i < polyline.length; i += 1) {
+    const a = polyline[i - 1] as Vec3;
+    const b = polyline[i] as Vec3;
+    const seg = dist(a, b);
+    if (acc + seg >= half) {
+      const t = seg === 0 ? 0 : (half - acc) / seg;
+      return {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        z: a.z + (b.z - a.z) * t,
+      };
+    }
+    acc += seg;
+  }
+  return polyline[polyline.length - 1] as Vec3;
 }
 
 export interface OverlayBounds {

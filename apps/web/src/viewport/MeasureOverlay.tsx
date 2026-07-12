@@ -23,8 +23,15 @@ import {
 } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 
-/** Keep overlay marks under the HUD strips (Viewport hud sits at z-40). */
-const OVERLAY_Z_RANGE: [number, number] = [30, 0];
+/**
+ * Overlay pick-node stacking, kept under the HUD strips (Viewport hud sits at
+ * z-40). Vertices occupy a strictly higher band than edges so that when an edge
+ * mark lands near a corner (a short edge's mid-span), a real click on the corner
+ * still resolves to the VERTEX — vertices win both the DOM order (rendered last)
+ * and the z-index. Both bands stay below the HUD.
+ */
+const VERTEX_Z_RANGE: [number, number] = [36, 18];
+const EDGE_Z_RANGE: [number, number] = [17, 0];
 
 /** Concatenate positions buffers into one draw. */
 function concatPositions(buffers: readonly Float32Array[]): Float32Array {
@@ -172,31 +179,15 @@ export function MeasureOverlay() {
         color={measure.edgeSelected}
       />
 
-      {/* Pickable vertices — round snap nodes. */}
-      {overlay.vertices.map((vertex: Vec3, index) => (
-        <Html
-          key={`v${index}`}
-          position={occtToScene(vertex)}
-          center
-          zIndexRange={OVERLAY_Z_RANGE}
-        >
-          <PickNode
-            shape="vertex"
-            selected={selectedVertices.has(index)}
-            data-testid={`measure-vertex-${index}`}
-            aria-label={`Vertex at ${formatVec3Mm(vertex)} millimetres`}
-            onClick={() => pickVertex(index, vertex)}
-          />
-        </Html>
-      ))}
-
-      {/* Pickable edges — diamond marks at each edge's midpoint. */}
+      {/* Pickable edges — diamond marks at each edge's TRUE mid-span. Rendered
+          BEFORE the vertices (and in a lower z band) so a corner click resolves
+          to the vertex, an edge-midspan click to the edge. */}
       {overlay.edges.map((edge, index) => (
         <Html
           key={`e${index}`}
           position={occtToScene(polylineMidpoint(edge.polyline))}
           center
-          zIndexRange={OVERLAY_Z_RANGE}
+          zIndexRange={EDGE_Z_RANGE}
         >
           <PickNode
             shape="edge"
@@ -208,6 +199,25 @@ export function MeasureOverlay() {
             onPointerOut={() => setHoverEdge(null)}
             onFocus={() => setHoverEdge(index)}
             onBlur={() => setHoverEdge(null)}
+          />
+        </Html>
+      ))}
+
+      {/* Pickable vertices — round snap nodes, rendered LAST + in the higher z
+          band so they always win the hit-test against a nearby edge mark. */}
+      {overlay.vertices.map((vertex: Vec3, index) => (
+        <Html
+          key={`v${index}`}
+          position={occtToScene(vertex)}
+          center
+          zIndexRange={VERTEX_Z_RANGE}
+        >
+          <PickNode
+            shape="vertex"
+            selected={selectedVertices.has(index)}
+            data-testid={`measure-vertex-${index}`}
+            aria-label={`Vertex at ${formatVec3Mm(vertex)} millimetres`}
+            onClick={() => pickVertex(index, vertex)}
           />
         </Html>
       ))}

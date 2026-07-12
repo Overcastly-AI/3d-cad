@@ -289,14 +289,12 @@ feature-tree.md`: features table vs JSONB tradeoff, versioned param
 - **feat(geometry+web): tangent/perpendicular/parallel constraints**
   (d214c9d, d41d51a) — 3 planegcs-backed `ConstraintKind`s + P/L/T verbs +
   ∥/⊥/T glyphs, worked e2e proves the solve moves geometry.
-- **feat(geometry+web): equal/symmetric/concentric constraints** (a968dbe,
-  9554273) — the remaining 3 kinds + E/S/O verbs + =/⟷/◎ glyphs; all 12
+- **feat(geometry+web): equal/symmetric/concentric constraints** (a968dbe, 9554273) — the remaining 3 kinds + E/S/O verbs + =/⟷/◎ glyphs; all 12
   constraint kinds now shipped.
 - **feat(geometry+web): revolve feature** (cd7a3e5, 0cff166) — second
   body-affecting feature, golden `revolve-annulus-r10-20-h15`, title-block
   axis-pick + angle editor.
-- **feat(web): grouped-icon toolbar + flyouts** (f086fc6, 764ed1a, fe2befa,
-  5625610) — icon layer + hand-drawn CAD icon set, full-width `TopToolbar`
+- **feat(web): grouped-icon toolbar + flyouts** (f086fc6, 764ed1a, fe2befa, 5625610) — icon layer + hand-drawn CAD icon set, full-width `TopToolbar`
   band, remaining text-idiom surfaces converted; Modify group added
   (Fillet/Chamfer buttons wired disabled — UI wiring itself deferred, see
   BACKLOG Ready). Doc: `docs/design/toolbar-system.md`.
