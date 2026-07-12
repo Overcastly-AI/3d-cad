@@ -2,20 +2,22 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 2 — Parametric core.** Ready batch 1 (topological
-naming design doc, all 12 sketch constraint kinds, revolve, measurement,
-linear/circular pattern) shipped in full through commit 5777656 (2026-07-12).
-The solid Fillet/Chamfer authoring UI (Ready #1) shipped 2026-07-12, so a
-user can now round/bevel a body through the product (predicate edge
-selector). The session-tool cluster is closing: trim/extend, offset, mirror,
-and sketch fillet/chamfer shipped end-to-end, and **sketch splines shipped
-full-stack 2026-07-12** — fit-point `SketchSpline` backend plus the
-interactive draw tool (#6b: click fit points, Enter/double-click to finish,
-centripetal Catmull-Rom viewport sampling of the server-authoritative curve),
-so a user can now draw a free-form profile and extrude it through the product.
-Current target: sweep/loft (Part-modeling breadth) and face/edge picking (now
-unblocked), corroborated by `docs/COMPETITIVE.md`'s first Fusion 360/Plasticity
-discovery pass. See `docs/BACKLOG.md` Ready queue.
+**Current focus: Phase 2 — Parametric core.** The sketch session-tool cluster
+shipped in full through commit 1e3d422 (2026-07-12): trim/extend, offset,
+mirror, sketch fillet/chamfer, and splines (Fit-Point v1, non-constrained),
+each backend + UI end-to-end. Sweep shipped full-stack (profile along a
+second sketch's open path). **Loft's BACKEND shipped** (ruled loft through
+≥2 ordered sections incl. loft-to-apex) but surfaced a foundational blocker:
+sketches can only sit on the 3 mutually-perpendicular origin datum planes, so
+loft's own golden had to fall back to loft-to-apex for lack of a second
+parallel section — **loft UI (#8b) is explicitly blocked on offset/datum
+planes landing**, not queued as Ready. Offset/datum planes (design note then
+implementation) is now the single highest-leverage foundational unlock —
+top of `docs/BACKLOG.md`'s Ready queue, ranked just above face/edge picking
+(the other big Part-modeling parity gap, now startable on its own shipped
+design-doc blocker). VISION.md's 2026-07-12 re-score flipped the Sketching
+scorecard row ❌→➖; Part modeling stays ❌ with the plane limitation named
+as its sharpest gap. See `docs/BACKLOG.md` Ready queue.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -107,124 +109,42 @@ item below.
 
 ## Phase 2 — Parametric core 🚧
 
-Ready batch 1 shipped in full (commits 2531850…5777656, 2026-07-11–12); full
-evidence in `CHANGELOG.md`. One line per item:
+Ready batches 1–2 shipped in full (commits 2531850…1e3d422, 2026-07-11–12);
+full evidence in `CHANGELOG.md` + `BACKLOG.md`'s Done archive. One line per
+item:
 
-- ✅ Topological naming strategy — design doc (`docs/design/
-      topological-naming.md`), code-reviewer-endorsed; unblocks face/edge
-      picking (BACKLOG Ready).
-- ✅ Full sketch constraint vocabulary — all 12 kinds (base 6 + tangent/
-      perpendicular/parallel/equal/symmetric/concentric) + construction
-      geometry. Sketching row re-scored, held ❌ — the remaining named gap is
-      the session-tool cluster (trim/extend, offset, mirror, splines, sketch
-      fillet/chamfer) — see BACKLOG Ready.
-- ✅ Sketch trim/extend — BACKEND + UI (2026-07-12): stateless server-side
-      geometry ops `POST /api/v1/sketch/{trim,extend}` (gateway-proxied),
-      exact analytic line/arc/circle trim (Onshape "cut at intersection") +
-      extend-to-neighbor, deterministic, legible 422 error codes. UI (#2b,
-      closes #2): Trim/Extend on the sketch strip as a MODIFY group (J/K),
-      click-a-curve to edit through the proxy, buffer swap + re-solve, and
-      constraint reconciliation (dangling refs on a deleted/split id dropped,
-      surfaced as an "N removed" note). 3 e2e green on the real stack.
-- ✅ Sketch offset — BACKEND + UI (2026-07-12, closes #3): stateless
-      server-side geometry op `POST /api/v1/sketch/offset` (gateway-proxied),
-      exact closed-form line/arc/circle offset (parallel copy at a signed
-      distance; +distance = left of the directed curve, so a CCW arc/circle's
-      +distance shrinks its radius). ADDS a fresh entity, deterministic,
-      legible 422 error codes. UI (#3b): Offset joins Trim/Extend in the sketch
-      strip MODIFY group (accelerator F), armed like the modify tools — hover
-      highlights the target, a click opens an in-canvas signed-distance editor
-      (default 2 mm, documented sign convention + Flip-side), and the returned
-      NEW entity is APPENDED (source unchanged, no reconciliation) then
-      re-solved; degenerate/zero/unsupported 422s read as clean hints. 3 e2e
-      green on the real stack. Single-entity v1; chain offset deferred.
-- ✅ Sketch mirror — BACKEND + UI (2026-07-12, closes #4): stateless
-      server-side geometry op `POST /api/v1/sketch/mirror` (gateway-proxied),
-      exact analytic reflection (rational foot-of-perpendicular; no sqrt/trig)
-      of point/line/circle/arc about an axis line — axis given as a line-entity
-      id OR two points (discriminated union). ADDS fresh copies (construction
-      inherited), deterministic, legible 422s. Arc CCW-from-start invariant
-      preserved by swapping reflected start/end. Distinct from the `symmetric`
-      CONSTRAINT (creates geometry, doesn't enforce symmetry); v1 does not
-      auto-pair source↔copy. UI (#4b): Mirror joins Trim/Extend/Offset in the
-      sketch strip's MODIFY group (accelerator **I**); two-phase pick (build the
-      target set → click a line/construction centerline as the axis), with a
-      live client-side reflection ghost as the signature affordance, APPENDS the
-      returned copies + re-solves. 315 vitest + 3 mirror e2e green on the real
-      stack; before/after/ghost screenshots. Line-entity axis is the shipped
-      path; two-point axis deferred.
-- ✅ Sketch fillet/chamfer — BACKEND + UI (2026-07-12, closes #5): stateless
-      server-side geometry ops `POST /api/v1/sketch/{fillet,chamfer}` (gateway-
-      proxied), exact closed-form corner round (tangent arc) / bevel (straight
-      line): both corner lines trimmed in place to their tangent/setback points
-      (ids preserved) and the arc/line bridge appended with a fresh `f"{a}.{n}"`
-      id (seeded from the whole entity set). UI (#5b): Fillet (U) / Chamfer (B)
-      on the sketch strip's MODIFY group — pick two lines, an in-canvas value
-      editor collects the radius/distance, the whole rewritten set is SWAPPED in
-      (`applyCornerResult`, `reconcileConstraints` like trim/extend) and re-
-      solved; legible 422s surface as hints, Esc cascades. **v1 line-line
-      corners only** (line-arc/arc-arc deferred → `sketch_unsupported_entity`).
-      Deterministic, legible 422s (`sketch_corner_not_found`,
-      `sketch_corner_too_large`, `sketch_degenerate_result`). Distinct from the
-      SOLID fillet/chamfer. 324 vitest + 4 fillet/chamfer e2e green on the real
-      stack; before/after screenshots under docs/screenshots/.
-- ✅ Sketch splines (Fit-Point) — FULL-STACK (2026-07-12, #6 + draw-tool UI
-      #6b): the last hard Sketching capability gap (no free-form profiles
-      at all). New `SketchSpline` entity (`kind:"spline"`, ordered `points`,
-      min 2) in the discriminated `SketchEntity` union — a NEW entity KIND, so
-      persisted sketches are unaffected (`param_version` unchanged). **Solver
-      spike verdict: NON-CONSTRAINED v1** — planegcs has no spline primitive, so
-      a spline is FIXED geometry: skipped when building the constraint system,
-      preserved bitwise in the solve, contributing zero DOF (constraining
-      splines / fit points + spline tangency deferred). Kernel emits an
-      interpolating C2 B-spline edge (`Edge.make_spline`), so a closed profile
-      containing a spline edge extrudes/revolves and tessellates. Golden
-      `sketch-spline-extrude` (3 lines + 1 spline) uses the honest
-      measured-then-set strategy (no closed-form area/volume) with a documented
-      1e-6 mm tolerance; OCCT interpolation verified DETERMINISTIC across three
-      fresh interpreter processes (byte-identical GLB + STEP round-trip).
-      #6b DRAW TOOL (2026-07-12): the Spline tool (accelerator S) places fit
-      points with a live rubber band, Enter/double-click finishes, Esc
-      cancels; the viewport samples a centripetal Catmull-Rom through the fit
-      points (`sampleSpline`) — an interpolating, cusp-free VISUAL
-      approximation of the server-authoritative C2 B-spline (the client never
-      computes the true edge); hover/pick measure against the sampled curve;
-      honest "free-form, not constrainable yet" copy on the tool + prompt.
-      E2E `sketch-spline` covers draw→finish→persist/solve and a spline-edge
-      profile→extrude→body. All `STUB (#6b upgrades)` markers retired.
-- ✅ Revolve + linear/circular pattern — 5 body-affecting features now
-      (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
-      held ❌: edge selection is still predicate-only, and sweep/loft/shell/
-      draft/hole are unbuilt — see BACKLOG Ready + Next.
-- ✅ Sweep (Ready #7 + #7b) — first NON-PRISMATIC feature, now end-to-end:
-      `SweepFeature` sweeps a closed profile along a SECOND sketch's open path
-      wire (add/cut), reusing the FeatureRef-to-sketch mechanism (path = whole
-      feature, not a sub-edge → independent of topological naming). Golden
-      `sweep-circle-r8-h30` (analytic cylinder π·r²·h) through every gate; 6
-      body-affecting features now. **UI (#7b):** `SweepEditor` with a double
-      feature-reference picker (Profile + Path selects over the tree's
-      sketches), Sweep tool + `S` accel gated on ≥2 solved sketches, rebuild
-      errors surfaced in the tree; `sweep.spec.ts` real-stack green. v1: no
-      twist/scale/guide-rails; anchored at the profile.
-- ✅ Fillet/Chamfer authoring UI (Ready #1) — FilletEditor + ChamferEditor
-      wired into PartPage (create/edit/submit), CreateStrip buttons live on a
-      body; predicate edge selector + brass radius/distance handle. A user can
-      finally round/bevel through the product. Also: reopened #6 P1 — measure
-      pick-marks now hit-test by real click/tap (true-midpoint edge marks,
-      vertex z-priority, visible reticle nodes).
-- ✅ Design system: grouped-icon toolbar + flyouts, full text-idiom
-      conversion, Create▸Modify split. Doc: `docs/design/toolbar-system.md`.
-      Remaining follow-up: sketch-tool overflow flyout (slot/polygon/spline),
-      once splines ship.
-- 🚧 Measurement — distance/angle tool shipped (BACKLOG archive). Pending:
-      mass-properties panel, units system (BACKLOG Next).
+- ✅ Topological naming strategy — design doc, code-reviewer-endorsed;
+      unblocked face/edge picking (BACKLOG Ready).
+- ✅ Full sketch constraint vocabulary — all 12 kinds + construction geometry.
+- ✅ Sketch trim/extend, offset, mirror, sketch fillet/chamfer, splines
+      (Fit-Point v1) — the full session-tool cluster, each backend + UI
+      end-to-end, exact analytic geometry, legible 422s, real-stack e2e.
+      **Sketching scorecard row flipped ❌→➖** (VISION.md, 2026-07-12):
+      residual gaps are session polish, not missing capability — see
+      BACKLOG Ready (over-constraint classification, dimension expressions,
+      constrainable splines).
+- ✅ Revolve + linear/circular pattern + sweep (backend+UI) + loft BACKEND —
+      8 body-affecting features now. Part-modeling row **stays ❌**: (a) edge
+      selection still predicate-only; (b) **sketches can only sit on the 3
+      origin datum planes** — confirmed in code
+      (`apps/web/src/sketch/plane.ts`, `evaluate.py`), which is also why loft
+      shipped with no UI (#8b) — its own golden had to fall back to
+      loft-to-apex for lack of a second parallel section. Offset/datum
+      planes is now the top-ranked BACKLOG Ready item (unblocks #8b +
+      sketch-on-a-height + is a prerequisite for sketch-on-a-face); face/edge
+      picking ranks a close second (startable now, its design-doc blocker
+      shipped).
+- ✅ Fillet/Chamfer authoring UI — predicate edge selector, first
+      body-affecting authoring UI beyond extrude/revolve.
+- ✅ Design system: grouped-icon toolbar + flyouts, Create▸Modify split.
+      Remaining follow-up: sketch-tool overflow flyout (slot/polygon).
+- 🚧 Measurement — distance/angle tool shipped. Pending: mass-properties
+      panel, units system (BACKLOG Next).
 - 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
-      2026-07-12 (commit e022114); feeds this groom's Ready restock.
-- 🚧 Part-modeling breadth — sweep shipped end-to-end (#7 + #7b); loft
-      BACKEND shipped (#8 — ruled loft through ≥2 ordered sections incl.
-      loft-to-apex; UI #8b pending); shell, draft, dedicated hole,
-      feature-scoped patterns, multi-body boolean, offset datum planes/axes
-      still unbuilt (see BACKLOG Ready + Next).
+      2026-07-12; feeds Ready restocks as the queue runs thin.
+- 🚧 Part-modeling breadth — shell, draft, dedicated hole, multi-body
+      boolean still unbuilt, several gated on face/edge picking (BACKLOG
+      Ready + Next).
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
 

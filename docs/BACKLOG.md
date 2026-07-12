@@ -11,325 +11,147 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 ## Scorecard gaps (docs/VISION.md daily-driver scorecard)
 
-Every row is ❌ except Price/freedom (✅ structurally). See VISION.md's table
-for current row text — the vision-steward re-scores it independently each
-pass; this note only points the queue at it, no duplication:
+See VISION.md's table for current row text — the vision-steward re-scores it
+independently each pass; this note only points the queue at it, no
+duplication:
 
-- **Sketching row** — all 12 constraint kinds shipped (Phase 1 base 6 +
-  Phase 2 relational 6: tangent/perpendicular/parallel/equal/symmetric/
-  concentric), but the row stays ❌: the session-every-time authoring/editing
-  tools engineers reach for in every real sketch — trim/extend, offset,
-  sketch mirror, splines, sketch fillet/chamfer — are still entirely
-  unbuilt (VISION.md's own words: "flatly impossible," "hard capability
-  gap"). `docs/COMPETITIVE.md` independently corroborates all 5 across
-  Fusion/Onshape/Plasticity. Ready #2–#6 close this cluster.
-- **Part modeling row** — 5 features now (extrude/revolve/fillet/chamfer/
-  pattern) but stays ❌: (a) fillet/chamfer authoring UI **shipped** (Ready
-  #1 done) — a user can now round/bevel a body through the product via the
-  predicate edge selector; click-specific edge picking remains Ready #9; (b)
-  sweep shipped end-to-end (#7 backend + #7b authoring UI — shafts/ribs now
-  modelable in the product); loft BACKEND shipped (#8 — transitional solids /
-  cones now modelable via the API, UI #8b pending); shell/draft/hole still make
-  whole part classes unmodelable —
-  hole/shell/draft stay in Next (gated on face/edge picking); (c)
-  edge selection is still predicate-only — Ready #9 (face/edge picking) is
-  now startable, its design-doc blocker shipped 2026-07-11.
-- **Interop row** — unchanged from last pass: export covers modeled trees,
-  import is still Phase 4. No Ready items target it this pass.
+- **Sketching row — flipped ❌→➖ this pass.** The session-tool cluster
+  (trim/extend, offset, mirror, sketch fillet/chamfer, splines) shipped
+  full-stack; a working engineer can now run a complete sketch session.
+  Residual gaps keep it at ➖ not ✅: (1) over-constraint diagnosis is
+  index-only, not classified redundant-vs-conflicting; (2) dimensions take
+  only a literal, no expressions/driving-vs-driven; (3) splines are v1
+  non-constrained. All three are in Ready below.
+- **Part modeling row — still ❌, blocker now explicit.** 8 body-affecting
+  features (extrude/revolve/fillet/chamfer/pattern/sweep/loft-backend), but:
+  (a) edge selection is predicate-only, not click-a-specific-edge; (b)
+  **sketches can only be placed on the 3 origin datum planes** — no
+  offset or on-face plane exists, which is also why loft shipped with no UI
+  (#8b): a real loft needs parallel offset/face-based sections it can't
+  author. This is now the single highest-leverage foundational unlock — see
+  Ready #1/#2 below.
+- **Interop row** — unchanged: export covers modeled trees, import is Phase
+  4. No Ready items target it this pass.
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
   access — later phases; untouched this pass.
 
 ## Ready (top of queue)
 
-Phase 2 restock — the previous batch (topological naming, construction
-geometry, 6-constraint vocabulary, revolve, measurement, pattern) shipped in
-full and is archived below. #1 (fillet/chamfer UI) is the cheapest,
-highest-leverage item: kernel-complete, only needs a title-block editor.
-#2–#6 (sketch profile tools) are independent of each other and of #1, but
-touch the same sketch-entity/wire-manipulation code path — coordinate to
-avoid collisions if run in parallel. #7–#8 (sweep, loft) are independent of
-everything else. #9 (face/edge picking) is now startable — its blocker
-(`docs/design/topological-naming.md`) shipped 2026-07-11 (commit 2531850); it
-unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
+Phase 2 restock — the sketch authoring/editing cluster (trim/extend, offset,
+mirror, sketch fillet/chamfer, splines) shipped in full and is archived
+below; so did sweep and loft's backend. **The loft work surfaced a
+foundational blocker: sketches can only sit on the 3 mutually-perpendicular
+origin planes.** #1–#2 (offset/datum planes) rank above #3 (face/edge
+picking) because they unblock loft UI, sketch-on-a-height, *and*
+sketch-on-a-face — the single highest-leverage unlock right now; #3 is a
+close second, the other big Part-modeling parity gap, and its own blocker
+(topological-naming design doc) already shipped. #4–#6 are sketch-session
+polish the re-score flagged; independent of #1–#3 and of each other.
 
-- [x] (P1, S) Fillet/Chamfer authoring UI — FilletEditor + ChamferEditor
-      (twins of the Extrude/Revolve/Pattern title-block seat): brass radius/
-      distance handle + honest predicate edge selector (All edges / Edges
-      parallel to X/Y/Z, the kernel's shipped `EdgeSelector`). `onFillet`/
-      `onChamfer` wired in PartPage (openCreate + selectFeature edit +
-      submit), CreateStrip buttons now light up on a body. Worked e2e —
-      cube→fillet(all,r5) and →chamfer(all): feature lands, body re-renders
-      with less volume; +16 unit tests; screenshots (desktop + 1280×800).
-      `frontend-design` skill invoked. [src: roadmap]
-- [x] (P1, M) Sketch: trim/extend — BACKEND shipped 2026-07-12. Server-side
-      geometry ops (RESEARCH §3: 2D curve trimming is kernel-owned, never
-      reimplemented in the frontend). Stateless geometry endpoints
-      `POST /api/v1/sketch/trim` + `/sketch/extend` (gateway-proxied auth-gated
-      at `/api/v1/geometry/sketch/{trim,extend}`), shared pure-pydantic DTOs
-      `SketchEditRequest`/`SketchEditResult` in `py_kit.schemas.sketch`.
-      Exact analytic geometry for line/arc/circle (`geometry.sketch.edit`);
-      trim = Onshape "cut at intersection" (delete picked segment up to
-      bounding intersections; no intersection ⇒ delete whole; split emits a
-      fresh `f"{target}.{n}"` id), extend = grow picked end to nearest
-      neighbor. Deterministic (RESEARCH §9). Error paths are legible 422s
-      (`sketch_target_not_found`, `sketch_unsupported_entity`,
-      `sketch_pick_not_on_target`, `sketch_extend_no_target`,
-      `sketch_degenerate_result`). v1 defers spline entities (not yet a
-      kind) and circle/point extend (no free end). Tests: analytic unit +
-      endpoint gates + gateway proxy + determinism. Contracts/ts-client
-      regenerated. GEOMETRY-QA entry 2026-07-12.
-- [x] (P1, M) #2b Sketch: trim/extend UI — DONE 2026-07-12, closes #2 end-to-
-      end. Trim/Extend added to the sketch strip as a MODIFY group (own scribed
-      icons) with free home-row accelerators J/K (every draw + constraint
-      letter H V D R X C P L T E S O N preserved). Armed like a draw tool; the
-      next click on a curve sends `{entities, target, pick}` (raw, unsnapped)
-      to the gateway `/geometry/sketch/{trim,extend}` proxy, replaces the
-      buffer with the result, and re-solves. Hovered target gets brass aim ink.
-      CONSTRAINT RECONCILIATION (the load-bearing correctness concern): a pure
-      `reconcileConstraints(before,after)` drops every constraint referencing a
-      vanished id (deleted / split-dropped piece); v1 rule = a split keeps the
-      first piece's id so its constraints bind there, the fresh `{target}.n`
-      piece carries none — stated honestly in code + the "N constraints
-      removed" note (no silent solver mutation). Gates: typecheck+lint clean,
-      281 vitest (reconcile + store edit unit tests), 3 e2e green on the real
-      stack (trim shortens + solves, extend endpoint moves + solves, tools
-      reachable @1280×800); before/after screenshots under docs/screenshots/.
-      `frontend-design` skill invoked. [src: product-auditor, competitive]
-- [x] (P1, S) Sketch: offset — BACKEND shipped 2026-07-12. Server-side
-      geometry op (RESEARCH §3: offset math is kernel-owned, never
-      reimplemented in the frontend). Stateless endpoint
-      `POST /api/v1/sketch/offset` (gateway-proxied auth-gated at
-      `/api/v1/geometry/sketch/offset`), shared pure-pydantic DTOs
-      `SketchOffsetRequest` (`entities` + `target` + signed `distance`) →
-      `SketchOffsetResult` (`entities` = the NEW offset entity only; source
-      unchanged) in `py_kit.schemas.sketch`. Exact closed-form analytic offset
-      for line/arc/circle (`geometry.sketch.edit.offset_sketch`): sign
-      convention **+distance = left of the directed curve** (left-hand normal;
-      a CCW arc/circle's left normal is inward, so +distance shrinks its
-      radius). New entity gets a fresh `f"{target}.{n}"` id and inherits the
-      source construction flag. Deterministic (RESEARCH §9). Error paths are
-      legible 422s (`sketch_target_not_found`, `sketch_unsupported_entity`,
-      `sketch_offset_zero_distance`, `sketch_degenerate_result`,
-      belt-and-braces `sketch_offset_failed`). v1 = single-entity offset;
-      **chain offset (connected runs + miter/arc joins) deferred** (more than a
-      clean increment). Tests: analytic unit (exact coords) + endpoint gates +
-      gateway proxy + determinism. Contracts/ts-client regenerated.
-      GEOMETRY-QA entry 2026-07-12. [src: product-auditor, competitive, roadmap]
-- [x] (P1, S) #3b Sketch: offset UI — DONE 2026-07-12, closes #3 end-to-end
-      (backend + UI both shipped). Offset tool on the sketch strip beside
-      Trim/Extend (accelerator **F** — free home-row key, mirrors the J/K
-      precedent; O is taken by concentric), armed like the modify tools: hover
-      highlights the target curve, a click opens an in-canvas signed-distance
-      editor (NumberField prefilled 2 mm, sign convention "+ left of the
-      curve · − right" spelled out, Flip-side button, Enter/Add offset arms).
-      APPENDS the returned NEW entity (`applyOffsetResult`; source unchanged,
-      no constraint reconciliation) then re-solves. 422 envelopes surface as
-      legible hints (zero-distance, degenerate radius collapse, unsupported,
-      target-not-found). Testids `tool-offset` + `offset-input`/`offset-editor`.
-      Evidence: 289 vitest, 3 offset e2e green on the real stack (line +2 →
-      parallel entity + solves; circle inward past radius → clean degenerate
-      message; laptop reachable), 19 sibling sketch e2e regression-clean;
-      `frontend-design` invoked; before/after + degenerate + editor screenshots
-      under docs/screenshots/. Chain-offset UI still deferred (backend defers
-      it). [src: product-auditor, competitive, roadmap]
-- [x] (P1, M) Sketch: mirror — BACKEND shipped 2026-07-12. Server-side
-      geometry op (RESEARCH §3: reflection math is kernel-owned, never
-      reimplemented in the frontend). Stateless endpoint
-      `POST /api/v1/sketch/mirror` (gateway-proxied auth-gated at
-      `/api/v1/geometry/sketch/mirror`), shared pure-pydantic DTOs
-      `SketchMirrorRequest` (`entities` + `targets: list[EntityId]` (min 1) +
-      `axis`) → `SketchMirrorResult` (`entities` = the NEW copies only; sources
-      unchanged) in `py_kit.schemas.sketch`. Exact analytic reflection (rational
-      foot-of-perpendicular; no sqrt/trig) of point/line/circle/arc
-      (`geometry.sketch.edit.mirror_sketch`). **Axis** = a discriminated union:
-      `MirrorAxisEntity` (a line-entity id — the construction-centerline case)
-      OR `MirrorAxisPoints` (two points). Copies get fresh `f"{source}.{n}"`
-      ids, inherit construction. **Arc CCW-from-start invariant preserved** by
-      swapping reflected start/end (reflection reverses orientation) — tested
-      with the swept-side proof. Distinct from the `symmetric` CONSTRAINT
-      (documented — creates geometry, doesn't enforce symmetry); v1 does NOT
-      auto-add symmetric constraints pairing source↔copy (deferred, honest).
-      On-axis entity → coincident identity copy. Deterministic (RESEARCH §9).
-      Error paths are legible 422s (`sketch_target_not_found`,
-      `sketch_mirror_axis_not_line`, `sketch_mirror_degenerate_axis`,
-      belt-and-braces `sketch_mirror_failed`). Sketch-level rectangular/circular
-      array remains out of scope. Tests: analytic unit (exact coords + arc-CCW
-      swap) + endpoint gates + gateway proxy + determinism + fresh-id-collision.
-      Contracts/ts-client regenerated. GEOMETRY-QA entry 2026-07-12.
-      [src: product-auditor, competitive, roadmap]
-- [x] (P1, S) #4b Sketch: mirror UI — DONE 2026-07-12, closes #4 end-to-end
-      (backend + UI both shipped). Mirror tool on the sketch strip beside
-      Trim/Extend/Offset (accelerator **I** — free key; M is measure's). Two-
-      phase pick: click entities to build the target set (whole-entity toggle,
-      brass), then Enter / "Choose axis" → click a line entity (the construction-
-      centerline case) as the axis. **Signature element: a live reflection ghost**
-      — hovering a candidate axis reflects the target set client-side (dashed
-      preview, arc start/end swapped like the backend) so you see where the
-      copies land before committing. Calls the gateway `/geometry/sketch/mirror`
-      proxy with `{entities, targets, axis: {kind:"entity", entity}}`, APPENDS
-      the returned copies (`applyMirrorResult`; sources unchanged, no constraint
-      reconciliation), re-solves. Honest copy: "reflects geometry only" (no auto
-      symmetric constraints). Legible 422s (`sketch_mirror_axis_not_line` pre-
-      empted client-side; `_target_not_found`, `_degenerate_axis`). Esc cascade
-      axis→targets→drop-tool (never exits mid-flow). Testids `tool-mirror`,
-      `mirror-prompt`/`mirror-advance`/`mirror-count`. Evidence: 315 vitest (+26),
-      3 mirror e2e green on the real stack (reflected coords asserted vs. request,
-      3→5 append, solves; Esc cascade; laptop reach), 25 adjacent sketch e2e still
-      green. Before/after/ghost + laptop screenshots under docs/screenshots/.
-      `frontend-design` skill invoked. Two-point axis + symmetric-constraint
-      linking still deferred. [src: product-auditor, competitive, roadmap]
-- [x] (P1, S) Sketch: fillet/chamfer (corner round) — BACKEND shipped
-      2026-07-12. Server-side geometry ops (RESEARCH §3: the tangent-point/
-      bisector math is kernel-owned, never reimplemented in the frontend).
-      Stateless endpoints `POST /api/v1/sketch/fillet` + `/sketch/chamfer`
-      (gateway-proxied auth-gated at `/api/v1/geometry/sketch/{fillet,chamfer}`),
-      shared pure-pydantic DTOs `SketchFilletRequest`/`SketchChamferRequest` +
-      `SketchCornerResult` in `py_kit.schemas.sketch`. Exact closed-form analytic
-      (`geometry.sketch.edit.{fillet,chamfer}_sketch`): both source lines trimmed
-      in place to their tangent/setback points (ids preserved) + tangent arc
-      (fillet) / bevel line (chamfer) appended with a fresh `f"{a}.{n}"` id
-      (seeded from the WHOLE entity set). **v1 scope: line-line corners only**
-      (line-arc/arc-arc deferred → `sketch_unsupported_entity`). Deterministic
-      (RESEARCH §9). Legible 422s (`sketch_corner_not_found`,
-      `sketch_corner_too_large`, `sketch_degenerate_result`,
-      `sketch_target_not_found`, `sketch_unsupported_entity`; belt-and-braces
-      `sketch_{fillet,chamfer}_failed`). Distinct from the SOLID fillet/chamfer
-      (Ready #1). +19 geometry tests (exact tangent/setback points, error paths,
-      determinism, fresh-id-from-full-set) + 4 gateway proxy tests; contracts +
-      ts-client regenerated. GEOMETRY-QA dated entry. #5b (UI) queued.
-      [src: product-auditor, competitive, roadmap]
-- [x] (P1, S) #5b Sketch: fillet/chamfer UI — DONE 2026-07-12, closes #5 end-
-      to-end (backend + UI both shipped). Fillet + Chamfer on the sketch strip's
-      MODIFY group (own scribed FilletIcon/ChamferIcon, distinct from the SOLID
-      fillet/chamfer of Ready #1); accelerators **U** (fillet) / **B** (bevel =
-      chamfer), free keys extending the J/K/F/I modify row. Pick two LINES (leg
-      count prompt, brass pick ink; a non-line leg pre-empts the backend's
-      `sketch_unsupported_entity` with an inline hint) → an in-canvas value
-      editor opens at the shared corner (NumberField, radius for fillet /
-      distance for chamfer, default 2 mm), mirroring the dimension/offset idiom.
-      Calls the gateway `/geometry/sketch/{fillet,chamfer}` proxy with
-      `{entities, a, b, radius|distance}`; unlike the additive offset/mirror a
-      corner REWRITES — the result is the WHOLE set (two source lines trimmed in
-      place, ids preserved, + appended bridge with a fresh id), so it SWAPS
-      (`applyCornerResult`) and runs the same `reconcileConstraints(before,after)`
-      as trim/extend before re-solving. Legible 422s (`sketch_corner_not_found`,
-      `sketch_corner_too_large`, `sketch_unsupported_entity`,
-      `sketch_target_not_found`) surface as hints; the picks + editor survive a
-      too-large radius for a retype. Esc cascade close-editor/clear-picks →
-      drop-tool (never exits mid-flow). Testids `tool-fillet`/`tool-chamfer`,
-      `corner-prompt`/`corner-count`/`corner-editor`/`corner-input`/
-      `corner-apply`. v1 = line-line corners only (honest UI copy). Evidence:
-      324 vitest, 4 fillet/chamfer e2e green on the real stack (fillet r2 → arc +
-      both legs trimmed to tangent points + solves; chamfer d3 → straight bridge
-      + trimmed + solves; oversize radius → legible 422, no crash; laptop reach),
-      before/after + too-large + laptop screenshots under docs/screenshots/.
-      `frontend-design` skill invoked. line-arc/arc-arc corners still deferred
-      (backend defers them). [src: product-auditor, competitive, roadmap]
-- [x] (P1, M) Sketch: splines (Fit-Point v1) — a free-form curve through
-      placed points. Closes the last "flatly impossible" Sketching gap (no
-      organic/free-form profiles at all today). Control-Point/NURBS variant
-      explicitly deferred.
-      BACKEND SHIPPED (2026-07-12): `SketchSpline` entity (`kind:"spline"`,
-      `points` min 2), NON-CONSTRAINED v1 (fixed geometry, zero DOF), kernel
-      interpolating B-spline edge, golden `sketch-spline-extrude`.
-      DRAW-TOOL UI SHIPPED (#6b, 2026-07-12): Spline tool (accelerator S),
-      click to place fit points with a live rubber-band, Enter/double-click
-      to finish, Esc cancels; the viewport samples a centripetal Catmull-Rom
-      through the fit points (`sampleSpline`) — an interpolating, cusp-free
-      VISUAL approximation of the server-authoritative curve (documented as
-      such); hover/pick measure against the sampled curve; SplineIcon +
-      viewport prompt carry the honest "free-form, not constrainable yet"
-      copy. All `STUB (#6b upgrades)` markers retired. E2E `sketch-spline`
-      (place fit points → finish → persist/solve; spline-edge profile →
-      extrude → body renders).
-      Deferred: constraining splines / their fit points, spline tangency.
-      [src: product-auditor, competitive, roadmap]
-- [x] (P1, M) Sweep feature BACKEND — sweep a closed profile along a SECOND
-      sketch's open path wire via build123d; add/cut. SHIPPED 2026-07-12:
-      `SweepFeature`/`SweepParamsV1`, `build_path_wire`/`sweep_profile` kernel
-      ops, evaluate-tree handler; path = whole earlier sketch feature (option A,
-      reuses the profile FeatureRef mechanism → independent of topological
-      naming). Golden `sweep-circle-r8-h30` (analytic cylinder π·r²·h) through
-      every gate (mass props, exact topology 3/3/1, mesh 506/500, determinism
-      incl. interpreter restart, STEP round-trip); error paths pinned
-      (`profile_not_closed`, `reference_unresolved`, `sweep_path_closed`,
-      `sweep_path_not_connected`, `sweep_path_empty`, `no_prior_body`,
-      `sweep_failed`); contracts+ts-client regen. v1: no twist/scale/guide-
-      rails, anchored at the profile. [src: roadmap, product-auditor]
-- [x] (P1, S) #7b Sweep authoring UI — `SweepEditor` in the title-block seat
-      with a DOUBLE feature-reference picker (Profile + Path ruled selects over
-      the tree's sketch features, path list excludes the profile), Add/Cut
-      toggle, honest v1 scope note; `SweepIcon` + Sweep tool (accel `S`) gated
-      on ≥2 solved sketches; rebuild errors (`sweep_path_closed`, …) surface in
-      the tree. `sweep.spec.ts` real-stack: circle→30 mm path → π·64·30 mm³
-      cylinder renders + lands in tree, closed-path → `sweep_path_closed`.
-      `frontend-design` invoked. [src: roadmap, competitive]
-- [x] (P1, M) #8 Loft feature BACKEND — blend a solid through two or more
-      ordered section sketches via build123d ruled `make_loft`; add/cut.
-      SHIPPED 2026-07-12: `LoftFeature`/`LoftParamsV1` (`profiles:
-      list[FeatureRef]` min 2, `operation`), `build_loft_section`/
-      `loft_sections` kernel ops, evaluate-tree handler; each section = whole
-      earlier sketch feature (reuses the profile FeatureRef mechanism →
-      independent of topological naming). Sections are a closed profile wire OR
-      a single apex point (loft-to-a-point). Golden `loft-pyramid-sq20-h30`
-      (analytic square pyramid a²·h/3 = 4000 mm³) through every gate (mass
-      props, exact topology 5/8/1, mesh 16/6, determinism incl. interpreter
-      restart, STEP round-trip); error paths pinned (`profile_not_closed`,
-      `profile_unsupported`, `reference_unresolved`, `loft_failed`,
-      `no_prior_body`; <2 sections = 422); contracts+ts-client regen. v1:
-      ruled loft only (no guide rails / tangency / periodic). DESIGN NOTE: a
-      cylinder/frustum golden needs two PARALLEL offset sections, unauthorable
-      until offset datum planes land (datums are origin-only + mutually
-      perpendicular) — hence the apex pyramid as the analytic anchor.
-      [src: roadmap, product-auditor]
-- [ ] (P1, S) #8b Loft authoring UI — multi-section feature-reference picker
-      (ordered ≥2 sketch sections + apex points), title-block seat, Add/Cut
-      toggle, v1 scope note; e2e proving a lofted body renders at the expected
-      volume; screenshots; `frontend-design` invoked. Backend (#8) is live.
-      DTO for the picker: `{ profiles: FeatureRef[] (min 2), operation:
-      "add"|"cut" }`; a section sketch resolves to a closed wire or a single
-      apex point (ends only). [src: roadmap, product-auditor, competitive]
-- [ ] (P2, M) Viewport v1 — face/edge picking — in-UI selection of a
+- [ ] (P1, S) Design note: offset/datum plane representation — a design doc
+      (`docs/design/datum-planes.md`, precedent: `topological-naming.md`)
+      before implementation starts. Confirmed in code this pass:
+      `apps/web/src/sketch/plane.ts`'s `DATUM_PLANES` is hardcoded to
+      `["XY","XZ","YZ"]`, and `services/geometry/src/geometry/features/
+      evaluate.py` explicitly rejects any other sketch plane. Cover: (a) v1
+      tractable slice — **offset-from-a-datum-by-a-signed-distance**
+      (parallel plane, no face dependency); (b) v2 note only —
+      **on-a-face** plane needs a face `SubshapeRef`, so it's gated on Ready
+      item below (face/edge picking), don't scope it into v1; (c) how a
+      `FeatureRef`-style plane reference threads through the sketch's
+      `plane` field and survives rebuild/rollback. Acceptance: doc reviewed
+      by `code-reviewer` (endorsed, like the topo-naming precedent) before
+      the implementation item starts. [src: product-auditor,
+      engineering-auditor, roadmap]
+- [ ] (P1, M) Offset/datum planes — implementation. The single highest-
+      leverage foundational unlock right now: unblocks #8b loft UI (no
+      parallel/height sections today), sketch-on-a-height, and is a
+      prerequisite for sketch-on-a-face. Depends on the design note above
+      landing. v1 scope = offset-from-origin-datum-by-distance only (on-a-
+      face deferred, tracked separately once face picking lands). Acceptance:
+      new plane kind selectable at sketch-create time (offset value + base
+      datum XY/XZ/YZ); a sketch on an offset plane solves/extrudes/persists
+      through rollback; golden model — two parallel offset-plane sections
+      lofted into a frustum (closes the DESIGN NOTE gap on #8's own golden,
+      which had to fall back to loft-to-apex for lack of a second parallel
+      plane); e2e sketch→offset-plane→extrude; screenshots.
+      [src: product-auditor, engineering-auditor, roadmap]
+- [ ] (P1, M) Viewport v1 — face/edge picking — in-UI selection of a
       specific face/edge for feature authoring, per
       `docs/design/topological-naming.md` (`SubshapeRef`, shipped
-      2026-07-11, commit 2531850 — this item's blocker is now clear). Feeds
-      fillet/chamfer's existing selector plumbing as an additive option
-      alongside today's `EdgeSelector` predicates. Unblocks hole/shell/draft
-      below in Next. Depends on: nothing further.
-      Acceptance: raycasting in the r3f viewport resolves a click to a
-      stable face/edge `SubshapeRef` per the design doc's naming scheme;
-      worked e2e — click a specific edge, apply fillet, confirm only that
-      edge rounds (vs. today's all-edges predicate); the reference persists
-      correctly across a rebuild per the design doc's failure semantics
-      (§4.3 strict-prefix rule); screenshots. [src: roadmap,
-      engineering-auditor]
+      2026-07-11, commit 2531850 — this item's blocker is clear and it is
+      now startable). Feeds fillet/chamfer's existing selector plumbing as
+      an additive option alongside today's `EdgeSelector` predicates.
+      Unblocks hole/shell/draft in Next and on-a-face datum planes above.
+      Ranked just below offset/datum planes: this is the other big
+      Part-modeling parity unlock, independent work, safe to run in
+      parallel with the planes pair. Acceptance: raycasting in the r3f
+      viewport resolves a click to a stable face/edge `SubshapeRef` per the
+      design doc's naming scheme; worked e2e — click a specific edge, apply
+      fillet, confirm only that edge rounds (vs. today's all-edges
+      predicate); the reference persists correctly across a rebuild per the
+      design doc's failure semantics (§4.3 strict-prefix rule); screenshots.
+      [src: roadmap, engineering-auditor]
+- [ ] (P2, S) Sketch: over-constraint classification — upgrade
+      `sketch_conflicting` from raw constraint indices to a classified
+      redundant-vs-conflicting diagnosis with a suggested fix, surfaced in
+      the typed `FeatureError` (not string-parsed). `planegcs_solver.py`
+      already computes `redundant` internally per VISION.md's 2026-07-12
+      re-score — this item is exposing it, not deriving it fresh. Depends
+      on: nothing new. Acceptance: a deliberately over-constrained sketch
+      (e.g. two conflicting distance dims) returns distinct redundant vs.
+      conflicting classifications with the offending constraint ids named
+      in the message; frontend reads the typed field instead of parsing
+      text; worked e2e; supersedes the older "Structured conflict indices"
+      Later item. [src: product-auditor, competitive]
 - [ ] (P2, M) Sketch dimension expressions / driving vs. driven — a
       dimension value field accepts a literal, a reference to another
       dimension, or a math expression; each dimension gets a `driving: bool`
       flag (driving = feeds the solver, driven = read-only/informational).
-      New gap this pass — grep of `apps/web/src` confirms no expression/
-      driven-dimension handling exists today. Depends on: nothing new.
+      Confirmed absent by grep of `apps/web/src`. Depends on: nothing new.
       Acceptance: expression parser (+,-,*,/, parens, dimension-name refs);
       `driving` flag on the typed dimension-constraint schema; worked e2e —
       set width=20, height="width/2", confirm height solves to 10; toggle a
       dimension to driven, edit geometry directly, confirm the readout
       updates without feeding the solver; screenshots; `frontend-design`
       skill invoked for the expression-entry field. [src: competitive]
+- [ ] (P2, M) Sketch: constrainable splines (v1.1) — splines shipped
+      non-constrained (fixed geometry, zero DOF; `planegcs` has no native
+      spline primitive per the #6 commit message). Design a fit-point
+      constraint mapping (each fit point becomes a solver point subject to
+      coincident/distance/etc like any other point) rather than a native
+      spline primitive — smallest increment that makes a spline
+      participate in a sketch's DOF instead of sitting outside it.
+      Acceptance: a spline's fit points accept the existing point-level
+      constraints (coincident, distance, horizontal/vertical) and the DOF
+      readout reflects them; worked e2e — constrain a fit point to a line,
+      confirm the spline reshapes on solve; spline tangency stays explicitly
+      deferred (documented). [src: product-auditor, competitive]
 
 ## Next (P2)
 
+- [ ] (P1, S) #8b Loft authoring UI — **BLOCKED on offset/datum planes**
+      (Ready, above): a loft UI can't produce a useful loft until parallel
+      sections are authorable — v1's only analytic golden had to fall back
+      to loft-to-apex for lack of a second parallel plane. Do not start
+      until the planes implementation item lands. Scope once unblocked:
+      multi-section feature-reference picker (ordered ≥2 sketch sections +
+      apex points), title-block seat, Add/Cut toggle, v1 scope note; e2e
+      proving a lofted body renders at the expected volume; screenshots;
+      `frontend-design` invoked. DTO: `{ profiles: FeatureRef[] (min 2),
+      operation: "add"|"cut" }`; a section sketch resolves to a closed wire
+      or a single apex point (ends only). [src: roadmap, product-auditor,
+      competitive]
 - [ ] (P2, M) Hole feature — face-based placement (point on a face + depth,
       optionally counterbore/countersink), distinct from a sketched-circle
-      extrude cut. Depends on Ready #9 (face/edge picking) landing — needs a
+      extrude cut. Depends on face/edge picking (Ready, above) landing — needs a
       stable face reference. [src: roadmap, product-auditor, competitive]
 - [ ] (P2, M) Shell feature — hollow a body, removing selected faces.
-      Depends on Ready #9 (face selection to remove). [src: roadmap,
-      competitive]
+      Depends on face/edge picking (Ready, above) for face selection to
+      remove. [src: roadmap, competitive]
 - [ ] (P2, M) Draft feature — angle selected faces relative to a pull
-      direction. Depends on Ready #9. [src: roadmap, competitive]
-- [ ] (P2, M) Datum planes/axes — first-class construction references off
-      the default XY/XZ/YZ planes, for sketches/features that need an
-      arbitrary reference plane. [src: competitive]
+      direction. Depends on face/edge picking (Ready, above). [src: roadmap,
+      competitive]
 - [ ] (P2, S) Units system — mm-only today; a per-part or per-workspace unit
       preference (in/mm) with display-layer conversion (kernel stays mm
       internally per CLAUDE.md tolerances). Independent. [src: roadmap]
@@ -340,20 +162,16 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       ad-hoc per-golden warm-rebuild numbers already in GEOMETRY-QA.md
       (3.8 ms–33 ms today) into a tracked suite with committed budgets and a
       CI regression gate (GEOMETRY-QA gap #7). [src: geometry-qa]
-- [ ] (P2, S) Toolbar: sketch-tool overflow flyout — slot/polygon/spline
-      tools, once splines (Ready #6) lands. Toolbar system itself shipped
-      (`docs/design/toolbar-system.md`); this is its last open follow-up.
-      [src: frontend-builder]
+- [ ] (P2, S) Toolbar: sketch-tool overflow flyout — slot/polygon tools
+      (splines shipped and are already on the strip). Toolbar system itself
+      shipped (`docs/design/toolbar-system.md`); this is its last open
+      follow-up. [src: frontend-builder]
 - [ ] (P2, M) arq/redis queue runtime — move geometry evaluation from
       sync-inline to the real queue path; geometry gates gain queue-path
       coverage (GEOMETRY-QA gap #2). [src: roadmap, geometry-qa]
 - [ ] (P2, M) Rate limiting + request-size caps on unauthenticated auth
       endpoints (py-kit middleware — DRY home) — pre-deploy hardening.
       [src: code-reviewer]
-- [ ] (P3, S) Structured conflict indices — promote conflicting/redundant
-      constraint indices from the `sketch_conflicting` error message into a
-      typed `FeatureError` field (geometry + py-kit); frontend currently
-      parses the message (documented). [src: frontend-builder]
 - [ ] (P3, M) Thread feature — cosmetic/modeled threads on a hole/cylinder,
       driven by a thread-standard library. Pairs with the hole feature
       above. [src: competitive]
@@ -513,33 +331,38 @@ Full evidence for every line below lives in `CHANGELOG.md`.
       authoring UI; 5th body-affecting feature. [src: roadmap,
       product-auditor]
 
+### Phase 2 — Ready batch 2: sketch session-tool cluster + sweep/loft backend (through commit 1e3d422)
+
+- [x] (P1, M) Fillet/Chamfer authoring UI — predicate edge selector (all /
+      axis-parallel), title-block radius/distance handle. [src: roadmap]
+- [x] (P1, M) Sketch trim/extend — backend + UI (#2/#2b) — exact analytic
+      line/arc/circle trim/extend, constraint reconciliation on split/delete.
+      [src: product-auditor, competitive]
+- [x] (P1, S) Sketch offset — backend + UI (#3/#3b) — signed-distance
+      parallel copy, single-entity v1. [src: product-auditor, competitive,
+      roadmap]
+- [x] (P1, M) Sketch mirror — backend + UI (#4/#4b) — reflection about a
+      line-entity or two-point axis, live reflection ghost. [src:
+      product-auditor, competitive, roadmap]
+- [x] (P1, S) Sketch fillet/chamfer (corner round) — backend + UI (#5/#5b) —
+      line-line corners only v1. [src: product-auditor, competitive, roadmap]
+- [x] (P1, M) Sketch splines (Fit-Point v1) — backend + draw-tool UI (#6/#6b)
+      — non-constrained v1, Catmull-Rom viewport preview of the server B-spline.
+      [src: product-auditor, competitive, roadmap]
+- [x] (P1, M) Sweep feature — backend + UI (#7/#7b) — profile along a second
+      sketch's open path wire, golden `sweep-circle-r8-h30`. [src: roadmap,
+      product-auditor, competitive]
+- [x] (P1, M) Loft feature BACKEND (#8) — ruled loft through ≥2 ordered
+      sections incl. loft-to-apex, golden `loft-pyramid-sq20-h30`; UI (#8b)
+      blocked on offset/datum planes — see BACKLOG Next. [src: roadmap,
+      product-auditor]
+
 ## Changelog
 
-- 2026-07-12 — **Loft (#8) BACKEND shipped.** `LoftFeature`/`LoftParamsV1`
-  (`profiles: FeatureRef[]` min 2 + add/cut), `build_loft_section`/
-  `loft_sections` ruled `make_loft`, evaluate-tree handler. Sections = closed
-  wire OR single apex point (loft-to-a-point). Golden `loft-pyramid-sq20-h30`
-  (analytic pyramid 4000 mm³) through every gate. Apex support unblocks an
-  analytic golden (parallel offset sections need offset datum planes — a Next
-  item). #8b (UI) queued. [kernel-architect]
-- 2026-07-12 — **Sketch fillet/chamfer (#5) BACKEND shipped.** `POST /api/v1/
-  sketch/{fillet,chamfer}` (gateway-proxied): exact closed-form corner round/
-  bevel — both lines trimmed to their tangent/setback points, arc/line bridge
-  appended (fresh `f"{a}.{n}"` id). v1 line-line only (line-arc/arc-arc
-  deferred). Also hardened `_mirror_entity` dispatch with `assert_never`. #5b
-  (UI) queued. [kernel-architect]
-- 2026-07-12 — **Sketch mirror (#4) BACKEND shipped.** `POST /api/v1/sketch/
-  mirror` (gateway-proxied): exact analytic reflection of point/line/circle/arc
-  about a line-entity-id OR two-point axis; arc CCW-swap preserves the invariant.
-  #4b (UI) queued. [kernel-architect]
-- 2026-07-12 — **Ready #1 (Fillet/Chamfer authoring UI) shipped** +
-  reopened #6 P1 fixed: measure pick-marks now hit-test by real click/tap
-  (edge marks at true midpoint, vertex z-priority, visible reticle nodes).
-  [frontend-builder]
-- 2026-07-12 — **Groomed for Phase 2 restock.** Ready batch 1 (7 items:
-  topological naming, construction geometry, 6-constraint vocabulary,
-  revolve, measurement, pattern) archived; older changelog entries moved to
-  `CHANGELOG.md`. New 10-item Ready queue from `docs/COMPETITIVE.md`'s first
-  discovery pass + a code-inspection finding (Fillet/Chamfer buttons wired
-  but never connected — `PartPage` never passes `onFillet`/`onChamfer`).
-  [backlog-groomer]
+Older entries live in `CHANGELOG.md`.
+
+- 2026-07-12 — **Groomed after the sketch-cluster + sweep/loft-backend
+  batch.** Archived 8 shipped items (session-tool cluster, sweep, loft
+  backend); restocked Ready with offset/datum planes (design note +
+  implementation, ranked top — unblocks #8b loft UI), face/edge picking,
+  and 3 sketch-polish items; #8b explicitly marked blocked. [backlog-groomer]
