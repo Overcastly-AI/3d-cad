@@ -122,13 +122,18 @@ evidence in `CHANGELOG.md`. One line per item:
       click-a-curve to edit through the proxy, buffer swap + re-solve, and
       constraint reconciliation (dangling refs on a deleted/split id dropped,
       surfaced as an "N removed" note). 3 e2e green on the real stack.
-- ✅ Sketch offset — BACKEND (2026-07-12): stateless server-side geometry op
-      `POST /api/v1/sketch/offset` (gateway-proxied), exact closed-form
-      line/arc/circle offset (parallel copy at a signed distance; +distance =
-      left of the directed curve, so a CCW arc/circle's +distance shrinks its
-      radius). ADDS a fresh entity, deterministic, legible 422 error codes.
-      Single-entity v1; chain offset deferred. Sketch-UI wiring is BACKLOG #3b;
-      the Sketching row holds ❌ until the session-tool cluster's UI lands.
+- ✅ Sketch offset — BACKEND + UI (2026-07-12, closes #3): stateless
+      server-side geometry op `POST /api/v1/sketch/offset` (gateway-proxied),
+      exact closed-form line/arc/circle offset (parallel copy at a signed
+      distance; +distance = left of the directed curve, so a CCW arc/circle's
+      +distance shrinks its radius). ADDS a fresh entity, deterministic,
+      legible 422 error codes. UI (#3b): Offset joins Trim/Extend in the sketch
+      strip MODIFY group (accelerator F), armed like the modify tools — hover
+      highlights the target, a click opens an in-canvas signed-distance editor
+      (default 2 mm, documented sign convention + Flip-side), and the returned
+      NEW entity is APPENDED (source unchanged, no reconciliation) then
+      re-solved; degenerate/zero/unsupported 422s read as clean hints. 3 e2e
+      green on the real stack. Single-entity v1; chain offset deferred.
 - ✅ Sketch mirror — BACKEND (2026-07-12): stateless server-side geometry op
       `POST /api/v1/sketch/mirror` (gateway-proxied), exact analytic reflection
       (rational foot-of-perpendicular; no sqrt/trig) of point/line/circle/arc

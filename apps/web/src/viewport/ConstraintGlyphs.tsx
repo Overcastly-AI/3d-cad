@@ -13,7 +13,13 @@
 import { NumberField, Panel, SketchGlyph } from "@loft/design";
 import { sketch } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 import {
   constraintGlyphs,
@@ -21,6 +27,7 @@ import {
   formatDimensionMm,
   type ConstraintGlyph,
 } from "../sketch/constraints";
+import { entityAnchor } from "../sketch/geometry";
 import { planeToWorld, type DatumPlaneName } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
 
@@ -146,6 +153,115 @@ function DimensionEditor({ plane }: { plane: DatumPlaneName }) {
   );
 }
 
+/** Default offset when the editor opens (mm) — a typical rib/wall thickness. */
+const DEFAULT_OFFSET_MM = 2;
+
+/**
+ * The inline signed-distance field the Offset tool opens on the picked curve.
+ * Signed by the left-hand-normal convention (documented in the caption): a
+ * positive distance offsets to the LEFT of the directed curve — for a CCW
+ * arc/circle the left normal points inward, so +shrinks the radius. Enter
+ * applies; "Flip side" negates; Escape dismisses. Mirrors the dimension
+ * editor's in-canvas idiom so the two read as one annotation language.
+ */
+function OffsetEditor({ plane }: { plane: DatumPlaneName }) {
+  const draft = useSketchStore((state) => state.offsetDraft);
+  const entities = useSketchStore((state) => state.entities);
+  const armOffset = useSketchStore((state) => state.armOffset);
+  const cancelOffset = useSketchStore((state) => state.cancelOffset);
+  const [text, setText] = useState<string | null>(null);
+
+  const target =
+    draft === null
+      ? null
+      : (entities.find((e) => e.id === draft.target) ?? null);
+  const anchor = useMemo(
+    () => (target === null ? null : entityAnchor(target)),
+    [target],
+  );
+
+  // Reset the field to its default whenever the editor closes or retargets, so
+  // a fresh pick never inherits the previous curve's typed value.
+  useEffect(() => {
+    setText(null);
+  }, [draft?.target]);
+
+  if (draft === null || target === null || anchor === null) return null;
+
+  const value = text ?? String(DEFAULT_OFFSET_MM);
+  const parsed = Number.parseFloat(value);
+  const valid = Number.isFinite(parsed) && parsed !== 0;
+
+  const apply = () => {
+    if (valid) {
+      armOffset(parsed);
+      setText(null);
+    }
+  };
+  const flip = () => {
+    if (Number.isFinite(parsed)) setText(formatDimensionMm(-parsed));
+  };
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    apply();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      cancelOffset();
+      setText(null);
+    }
+  };
+
+  return (
+    <Html
+      position={planeToWorld(plane, anchor)}
+      center
+      zIndexRange={GLYPH_Z_RANGE}
+    >
+      <Panel className="w-48 p-2" data-testid="offset-editor">
+        <form onSubmit={onSubmit}>
+          <NumberField
+            label="Offset"
+            unit="mm"
+            value={value}
+            error={valid ? null : "Enter a nonzero distance."}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={onKeyDown}
+            autoFocus
+            onFocus={(event) => event.target.select()}
+            data-testid="offset-input"
+            aria-label="Offset distance (mm, signed)"
+          />
+          {/* Sign convention, spelled out so the direction is never a guess. */}
+          <p className="mt-1 font-body text-2xs text-gauge">
+            + left of the curve · − right. One curve at a time.
+          </p>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <button
+              type="submit"
+              className="font-display text-2xs uppercase tracking-[0.14em] text-brass hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
+              disabled={!valid}
+              data-testid="offset-apply"
+            >
+              Add offset
+            </button>
+            <button
+              type="button"
+              className="font-display text-2xs uppercase tracking-[0.14em] text-gauge hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
+              disabled={!Number.isFinite(parsed)}
+              data-testid="offset-flip"
+              onClick={flip}
+            >
+              Flip side
+            </button>
+          </div>
+        </form>
+      </Panel>
+    </Html>
+  );
+}
+
 export function ConstraintGlyphs({ plane }: { plane: DatumPlaneName }) {
   const constraints = useSketchStore((state) => state.constraints);
   const entities = useSketchStore((state) => state.entities);
@@ -205,6 +321,7 @@ export function ConstraintGlyphs({ plane }: { plane: DatumPlaneName }) {
         );
       })}
       <DimensionEditor plane={plane} />
+      <OffsetEditor plane={plane} />
     </group>
   );
 }

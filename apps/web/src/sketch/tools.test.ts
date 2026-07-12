@@ -141,6 +141,20 @@ describe("select tool", () => {
   });
 });
 
+describe("modify tools place nothing and never rubber-band", () => {
+  it.each(["trim", "extend", "offset"] as const)(
+    "%s is a placement no-op",
+    (tool) => {
+      expect(placePoint(tool, [], p(1, 2), 5)).toEqual({
+        pending: [],
+        entities: [],
+        nextIdIndex: 5,
+      });
+      expect(previewEntities(tool, [p(0, 0)], p(9, 9))).toEqual([]);
+    },
+  );
+});
+
 describe("previewEntities", () => {
   it("is empty with nothing pending", () => {
     expect(previewEntities("line", [], p(3, 3))).toEqual([]);

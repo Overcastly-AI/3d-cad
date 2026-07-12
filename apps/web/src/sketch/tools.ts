@@ -16,15 +16,17 @@ export type SketchEntity =
   components["schemas"]["SketchParamsV1"]["entities"][number];
 
 export type SketchTool =
-  "select" | "line" | "rect" | "circle" | "arc" | "trim" | "extend";
+  "select" | "line" | "rect" | "circle" | "arc" | "trim" | "extend" | "offset";
 
 /**
  * Keyboard tool switching — case-insensitive at the call site. Draw tools take
- * their initials (L/R/C/A); the "clean-up" modify pair (trim/extend) takes the
- * free adjacent home-row keys J/K — every draw-tool AND constraint-verb letter
- * (H/V/D/R/X/C/P/L/T/E/S/O/N) is already spoken for, so trim/extend claim two
- * keys with no mnemonic collision rather than shadow an existing accelerator.
- * J left of K mirrors Trim left of Extend in the toolbar.
+ * their initials (L/R/C/A); the "clean-up" modify tools take free home-row
+ * keys — every draw-tool AND constraint-verb letter (H/V/D/R/X/C/P/L/T/E/S/O/N,
+ * plus G snap / M measure) is already spoken for, so trim/extend/offset claim
+ * home-row keys with no mnemonic collision rather than shadow an accelerator.
+ * J·K·F sit left-to-right on the home row, mirroring Trim·Extend·Offset in the
+ * toolbar; F is the free index-finger key (the offset mnemonic O is taken by
+ * concentric).
  */
 export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   l: "line",
@@ -33,6 +35,7 @@ export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   a: "arc",
   j: "trim",
   k: "extend",
+  f: "offset",
 };
 
 /** Coordinates closer than this (mm) are the same point — degenerate. */
@@ -71,13 +74,15 @@ export function placePoint(
   point: Point2D,
   nextIdIndex: number,
 ): PlacementResult {
-  // Trim/extend never PLACE geometry — a click rewrites the picked target
-  // through the stateless geometry service (handled in the scene), so the
-  // placement sequence is a no-op for them (as it is for select).
+  // The modify tools never PLACE geometry — a click targets an existing curve
+  // and the stateless geometry service rewrites (trim/extend) or ADDS (offset)
+  // it (handled in the scene), so the placement sequence is a no-op for them
+  // (as it is for select).
   switch (tool) {
     case "select":
     case "trim":
     case "extend":
+    case "offset":
       return keep(pending, nextIdIndex);
     case "line": {
       const [start] = pending;
@@ -223,6 +228,7 @@ export function previewEntities(
     case "select":
     case "trim":
     case "extend":
+    case "offset":
       return [];
     case "line": {
       const [start] = pending;

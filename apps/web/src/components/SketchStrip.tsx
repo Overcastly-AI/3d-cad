@@ -32,6 +32,7 @@ import {
   type FlyoutItem,
   HorizontalIcon,
   LineIcon,
+  OffsetIcon,
   ParallelIcon,
   PerpendicularIcon,
   RadiusIcon,
@@ -92,9 +93,10 @@ const TOOLS: ReadonlyArray<{
 ];
 
 /**
- * The modify (clean-up) tools — the "draw rough, then tidy" pair. Trim cuts a
+ * The modify (clean-up) tools — the "draw rough, then tidy" set. Trim cuts a
  * curve at its intersections and deletes the picked piece; Extend grows the
- * picked end to the nearest neighbor. Both arm like draw tools (empty
+ * picked end to the nearest neighbor; Offset adds a parallel copy at a signed
+ * distance (the rib/web/wall-profile move). All arm like draw tools (empty
  * selection), then the next click on a curve does the edit.
  */
 const MODIFY_TOOLS: ReadonlyArray<{
@@ -117,6 +119,13 @@ const MODIFY_TOOLS: ReadonlyArray<{
     keyHint: "K",
     name: "Extend tool (K) — click near a curve's end to grow it to the nearest neighbor",
     icon: <ExtendIcon />,
+  },
+  {
+    tool: "offset",
+    label: "Offset",
+    keyHint: "F",
+    name: "Offset tool (F) — click a curve, then set a signed distance to add a parallel copy",
+    icon: <OffsetIcon />,
   },
 ];
 

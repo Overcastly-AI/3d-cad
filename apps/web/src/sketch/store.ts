@@ -81,10 +81,23 @@ export interface SketchState {
     pick: Point2D;
     nonce: number;
   } | null;
-  /** True while a trim/extend request is in flight (blocks re-entry). */
+  /** True while a geometry edit (trim/extend/offset) is in flight (blocks re-entry). */
   editBusy: boolean;
   /** Transient confirmation after an edit ("Trimmed. 2 constraints removed."). */
   editNote: string | null;
+  /**
+   * The target whose signed offset distance the inline editor is collecting.
+   * Set when the Offset tool clicks a curve; cleared when the editor arms the
+   * request (`armOffset`) or is dismissed (`cancelOffset`).
+   */
+  offsetDraft: { target: string } | null;
+  /**
+   * A pending offset the editor armed once the user confirmed a distance;
+   * PartPage owns the network effect that consumes it (the store stays
+   * side-effect-free). The `nonce` lets that effect fire exactly once. Unlike
+   * `edit`, offset ADDS geometry — the result is APPENDED, never swapped.
+   */
+  offset: { target: string; distance: number; nonce: number } | null;
 
   /** Enter sketch mode at the plane-pick step. */
   begin: () => void;
@@ -121,6 +134,19 @@ export interface SketchState {
   ) => void;
   /** Fail the in-flight edit with a surfaced message. */
   failEdit: (message: string) => void;
+  /**
+   * Arm the inline signed-distance editor on the target under the pick.
+   * `target` null means the click missed every curve — a hint, no editor.
+   */
+  beginOffset: (target: string | null) => void;
+  /** Confirm the offset editor with a validated signed distance (mm). */
+  armOffset: (distanceMm: number) => void;
+  /** Dismiss the offset editor without offsetting. */
+  cancelOffset: () => void;
+  /** Apply an offset result: APPEND the new offset entity/entities, re-solve. */
+  applyOffsetResult: (entities: readonly SketchEntity[]) => void;
+  /** Fail the in-flight offset with a surfaced message. */
+  failOffset: (message: string) => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
   editDimension: (constraintIndex: number) => void;
   /** Commit the open dimension editor with a validated value (mm). */
@@ -163,6 +189,8 @@ const INITIAL = {
   edit: null,
   editBusy: false,
   editNote: null,
+  offsetDraft: null,
+  offset: null,
 };
 
 export const useSketchStore = create<SketchState>()((set, get) => ({
@@ -179,6 +207,7 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
       hoverPick: null,
       selectedConstraint: null,
       dimensionEdit: null,
+      offsetDraft: null,
       hint: null,
       editNote: null,
     }),
@@ -299,6 +328,71 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
 
   failEdit: (message) => set({ edit: null, editBusy: false, hint: message }),
 
+  beginOffset: (target) => {
+    const { editBusy } = get();
+    if (editBusy) return;
+    if (target === null) {
+      set({ hint: "Aim at a curve to offset." });
+      return;
+    }
+    set({
+      offsetDraft: { target },
+      selection: [],
+      hoverPick: null,
+      selectedConstraint: null,
+      dimensionEdit: null,
+      hint: null,
+      editNote: null,
+    });
+  },
+
+  armOffset: (distanceMm) => {
+    const { offsetDraft, offset } = get();
+    // Guard the sign convention at the store edge too: zero collapses the
+    // request to the backend's `sketch_offset_zero_distance` — reject it here.
+    if (
+      offsetDraft === null ||
+      !Number.isFinite(distanceMm) ||
+      distanceMm === 0
+    ) {
+      return;
+    }
+    set({
+      offset: {
+        target: offsetDraft.target,
+        distance: distanceMm,
+        nonce: (offset?.nonce ?? 0) + 1,
+      },
+      offsetDraft: null,
+      editBusy: true,
+      hint: null,
+      editNote: null,
+    });
+  },
+
+  cancelOffset: () => set({ offsetDraft: null }),
+
+  applyOffsetResult: (added) => {
+    const { offset, entities, revision } = get();
+    if (offset === null) return;
+    // Offset ADDS: append the new offset entity/entities (fresh backend ids,
+    // source unchanged). No constraint reconciliation — nothing was deleted or
+    // split, so no existing reference can dangle. The revision bump re-solves.
+    const count = added.length;
+    set({
+      entities: [...entities, ...added],
+      revision: revision + 1,
+      offset: null,
+      editBusy: false,
+      editNote:
+        count === 1 ? "Offset added." : `Offset added. ${count} entities.`,
+      hoverPick: null,
+    });
+  },
+
+  failOffset: (message) =>
+    set({ offset: null, offsetDraft: null, editBusy: false, hint: message }),
+
   editDimension: (constraintIndex) => {
     const constraint = get().constraints[constraintIndex];
     if (constraint?.kind !== "distance" && constraint?.kind !== "radius") {
@@ -375,17 +469,17 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
   },
 
   escape: () => {
-    const { tool, pending, selection, dimensionEdit } = get();
+    const { tool, pending, selection, dimensionEdit, offsetDraft } = get();
     switch (
       escapeAction(
         tool,
         pending.length,
         selection.length > 0,
-        dimensionEdit !== null,
+        dimensionEdit !== null || offsetDraft !== null,
       )
     ) {
       case "close-editor":
-        set({ dimensionEdit: null });
+        set({ dimensionEdit: null, offsetDraft: null });
         return;
       case "cancel-placement":
         set({ pending: [] });

@@ -110,6 +110,23 @@ export const ExtendIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Offset = a parallel copy at a set distance: the source scribe and its
+ * companion line, bridged by a dimension line with arrowheads at both ends —
+ * the gap the user sets. The dimension-line bridge (not a generic "duplicate"
+ * arrow) reads as "parallel curve at this distance", the rib/web/wall gesture.
+ */
+export const OffsetIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 7 H20" />
+    <path d="M4 17 H20" />
+    <path d="M9 7 V17" />
+    <path d="M7 9 L9 7 L11 9" />
+    <path d="M7 15 L9 17 L11 15" />
+    <Node cx={4} cy={7} />
+  </Icon>
+);
+
 // --- Geometric constraints --------------------------------------------------
 
 export const HorizontalIcon = (p: IconProps) => (

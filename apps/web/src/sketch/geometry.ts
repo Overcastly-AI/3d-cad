@@ -83,6 +83,46 @@ export function entityPolylines(entity: SketchEntity): Point2D[][] {
   }
 }
 
+/**
+ * A representative point ON the entity (its visual midpoint) in plane space —
+ * where a transient inline editor (e.g. the offset distance field) anchors so
+ * it reads as attached to the curve it addresses.
+ */
+export function entityAnchor(entity: SketchEntity): Point2D {
+  switch (entity.kind) {
+    case "point":
+      return entity.position;
+    case "line":
+      return {
+        x: (entity.start.x + entity.end.x) / 2,
+        y: (entity.start.y + entity.end.y) / 2,
+      };
+    case "circle":
+      return { x: entity.center.x + entity.radius, y: entity.center.y };
+    case "arc": {
+      const radius = Math.hypot(
+        entity.start.x - entity.center.x,
+        entity.start.y - entity.center.y,
+      );
+      const startAngle = Math.atan2(
+        entity.start.y - entity.center.y,
+        entity.start.x - entity.center.x,
+      );
+      const endAngle = Math.atan2(
+        entity.end.y - entity.center.y,
+        entity.end.x - entity.center.x,
+      );
+      let sweep = endAngle - startAngle;
+      if (sweep <= 0) sweep += TWO_PI;
+      const mid = startAngle + sweep / 2;
+      return {
+        x: entity.center.x + radius * Math.cos(mid),
+        y: entity.center.y + radius * Math.sin(mid),
+      };
+    }
+  }
+}
+
 /** The entity's defining points (endpoints, centers) in plane space. */
 export function definingPoints(entity: SketchEntity): Point2D[] {
   switch (entity.kind) {

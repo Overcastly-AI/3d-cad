@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import { fetchOverlay, measureTargets } from "../api/measure";
-import { editSketch, SketchEditError } from "../api/sketchEdit";
+import { editSketch, offsetSketch, SketchEditError } from "../api/sketchEdit";
 import { buildEvaluateTree, buildMeasureRequest } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
@@ -119,6 +119,7 @@ export function PartPage() {
 
   const mode = useSketchStore((state) => state.mode);
   const edit = useSketchStore((state) => state.edit);
+  const offset = useSketchStore((state) => state.offset);
   const revision = useSketchStore((state) => state.revision);
   const featureId = useSketchStore((state) => state.featureId);
   const constraintCount = useSketchStore((state) => state.constraints.length);
@@ -488,7 +489,7 @@ export function PartPage() {
           store.tool,
           store.pending.length,
           store.selection.length > 0 || store.selectedConstraint !== null,
-          store.dimensionEdit !== null,
+          store.dimensionEdit !== null || store.offsetDraft !== null,
         );
         if (action === "exit") finishSketch();
         else store.escape();
@@ -557,6 +558,37 @@ export function PartPage() {
       }
     })();
   }, [edit]);
+
+  // Offset: the scene arms a signed-distance offset once the inline editor
+  // confirms; this effect owns the one network hop and APPENDS the returned
+  // offset entity/entities (source unchanged — offset adds, never rewrites).
+  // The revision bump then re-solves through the live loop for a bound sketch;
+  // an unbound buffer just re-renders locally. The nonce guards a double fire.
+  const offsetNonceRef = useRef(0);
+  useEffect(() => {
+    if (offset === null || offset.nonce === offsetNonceRef.current) return;
+    offsetNonceRef.current = offset.nonce;
+    const { target, distance } = offset;
+    void (async () => {
+      try {
+        const result = await offsetSketch({
+          entities: useSketchStore.getState().entities,
+          target,
+          distance,
+        });
+        const store = useSketchStore.getState();
+        if (store.mode === "draw") store.applyOffsetResult(result.entities);
+      } catch (error) {
+        useSketchStore
+          .getState()
+          .failOffset(
+            error instanceof SketchEditError
+              ? error.message
+              : "The offset could not be applied — try a different distance.",
+          );
+      }
+    })();
+  }, [offset]);
 
   // Leaving the workspace always leaves sketch mode.
   useEffect(() => () => useSketchStore.getState().exit(), []);

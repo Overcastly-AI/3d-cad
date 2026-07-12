@@ -283,7 +283,8 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
         if (
           aimTool === "select" ||
           aimTool === "trim" ||
-          aimTool === "extend"
+          aimTool === "extend" ||
+          aimTool === "offset"
         ) {
           const all = pickCandidates(
             useSketchStore.getState().entities,
@@ -332,6 +333,17 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
             clickTool,
             target !== null && target.kind === "entity" ? target.id : null,
             raw,
+          );
+        } else if (clickTool === "offset") {
+          // Offset picks a whole curve (raw pick, like trim/extend) and opens
+          // the inline signed-distance editor; the offset fires on confirm.
+          const raw = rawPlanePoint(e);
+          const target =
+            pickCandidates(store.entities, raw, toleranceMm(e)).find(
+              (pick) => pick.kind === "entity",
+            ) ?? null;
+          store.beginOffset(
+            target !== null && target.kind === "entity" ? target.id : null,
           );
         } else {
           placeAt(snap(rawPlanePoint(e)));

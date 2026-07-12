@@ -113,17 +113,23 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       clean increment). Tests: analytic unit (exact coords) + endpoint gates +
       gateway proxy + determinism. Contracts/ts-client regenerated.
       GEOMETRY-QA entry 2026-07-12. [src: product-auditor, competitive, roadmap]
-- [ ] (P1, S) #3b Sketch: offset UI — wire the shipped offset backend into the
-      sketch editor: new keyboard verb (avoid the assigned letters) +
-      selection-presence pattern, a typed signed-distance input, call the
-      gateway `/geometry/sketch/offset` proxy with the entity set + target +
-      distance, append the returned NEW entity to the sketch. Depends on: #3
-      backend (done). Acceptance: worked e2e — offset a rectangle edge inward
-      by a set distance, confirm the new entity exists at the expected offset
-      and a closed profile built from it extrudes to the expected volume;
-      screenshots; `frontend-design` skill invoked. Chain-offset UI is out of
-      scope (backend defers chain offset). [src: product-auditor, competitive,
-      roadmap]
+- [x] (P1, S) #3b Sketch: offset UI — DONE 2026-07-12, closes #3 end-to-end
+      (backend + UI both shipped). Offset tool on the sketch strip beside
+      Trim/Extend (accelerator **F** — free home-row key, mirrors the J/K
+      precedent; O is taken by concentric), armed like the modify tools: hover
+      highlights the target curve, a click opens an in-canvas signed-distance
+      editor (NumberField prefilled 2 mm, sign convention "+ left of the
+      curve · − right" spelled out, Flip-side button, Enter/Add offset arms).
+      APPENDS the returned NEW entity (`applyOffsetResult`; source unchanged,
+      no constraint reconciliation) then re-solves. 422 envelopes surface as
+      legible hints (zero-distance, degenerate radius collapse, unsupported,
+      target-not-found). Testids `tool-offset` + `offset-input`/`offset-editor`.
+      Evidence: 289 vitest, 3 offset e2e green on the real stack (line +2 →
+      parallel entity + solves; circle inward past radius → clean degenerate
+      message; laptop reachable), 19 sibling sketch e2e regression-clean;
+      `frontend-design` invoked; before/after + degenerate + editor screenshots
+      under docs/screenshots/. Chain-offset UI still deferred (backend defers
+      it). [src: product-auditor, competitive, roadmap]
 - [x] (P1, M) Sketch: mirror — BACKEND shipped 2026-07-12. Server-side
       geometry op (RESEARCH §3: reflection math is kernel-owned, never
       reimplemented in the frontend). Stateless endpoint

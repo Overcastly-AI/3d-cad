@@ -311,6 +311,90 @@ describe("trim/extend edit + constraint reconciliation", () => {
   });
 });
 
+describe("offset — appends a parallel copy, no reconciliation", () => {
+  it("beginOffset opens the distance editor; a miss hints instead", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().beginOffset(null);
+    expect(store().offsetDraft).toBeNull();
+    expect(store().hint).toMatch(/aim at a curve to offset/i);
+
+    store().beginOffset("e1");
+    expect(store().offsetDraft).toEqual({ target: "e1" });
+    expect(store().hint).toBeNull();
+  });
+
+  it("armOffset arms one request; rejects a zero distance", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().beginOffset("e1");
+    store().armOffset(0); // zero → sketch_offset_zero_distance; refused here
+    expect(store().offset).toBeNull();
+    expect(store().offsetDraft).toEqual({ target: "e1" });
+
+    store().armOffset(-3);
+    expect(store().offset).toMatchObject({
+      target: "e1",
+      distance: -3,
+      nonce: 1,
+    });
+    expect(store().offsetDraft).toBeNull();
+    expect(store().editBusy).toBe(true);
+  });
+
+  it("applyOffsetResult APPENDS the new entity, bumps revision, keeps constraints", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
+    store().applyConstraint("horizontal");
+    expect(store().constraints).toHaveLength(1);
+    const before = store().entities.length;
+
+    store().beginOffset("e1");
+    store().armOffset(2);
+    const revision = store().revision;
+    // Backend returns ONLY the new offset entity (fresh id, source untouched).
+    const added: SketchEntity = {
+      id: "e1.1",
+      kind: "line",
+      start: { x: 0, y: 2 },
+      end: { x: 40, y: 2 },
+      construction: false,
+    };
+    store().applyOffsetResult([added]);
+
+    expect(store().entities).toHaveLength(before + 1);
+    expect(store().entities.at(-1)).toEqual(added);
+    // Nothing was deleted — the source's constraint survives untouched.
+    expect(store().constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
+    expect(store().revision).toBe(revision + 1);
+    expect(store().editBusy).toBe(false);
+    expect(store().offset).toBeNull();
+    expect(store().editNote).toMatch(/offset added/i);
+  });
+
+  it("failOffset clears the request and surfaces the degenerate message", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().beginOffset("e1");
+    store().armOffset(2);
+    store().failOffset("Offset radius collapses to zero or less.");
+    expect(store().offset).toBeNull();
+    expect(store().editBusy).toBe(false);
+    expect(store().hint).toMatch(/collapses/i);
+  });
+
+  it("Escape closes the offset editor before resetting the tool", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().setTool("offset");
+    store().beginOffset("e1");
+    store().escape();
+    expect(store().offsetDraft).toBeNull();
+    expect(store().tool).toBe("offset"); // editor closed first, tool survived
+  });
+});
+
 describe("bind + revision bookkeeping", () => {
   it("placing entities bumps revision; bind records the feature", () => {
     rectangleAt();
