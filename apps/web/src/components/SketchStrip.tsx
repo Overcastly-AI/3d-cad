@@ -40,6 +40,7 @@ import {
   PerpendicularIcon,
   RadiusIcon,
   RectIcon,
+  SplineIcon,
   SymmetricIcon,
   TangentIcon,
   TrimIcon,
@@ -92,6 +93,13 @@ const TOOLS: ReadonlyArray<{
     keyHint: "A",
     name: "Arc tool (A)",
     icon: <ArcIcon />,
+  },
+  {
+    tool: "spline",
+    label: "Spline",
+    keyHint: "S",
+    name: "Spline tool (S) — click fit points, Enter or double-click to finish; free-form, not constrainable yet",
+    icon: <SplineIcon />,
   },
 ];
 
@@ -403,6 +411,45 @@ function CornerPrompt({
   );
 }
 
+/**
+ * The Spline tool's fit-point guide, hung from the band into the viewport. It
+ * counts placed points and, once two are held, offers the keyboard-first finish
+ * (Enter / double-click). Honest about v1: a spline is free-form fixed geometry
+ * — not constrainable yet, but valid as part of a closed extrude/revolve loop.
+ */
+function SplinePrompt({ count }: { count: number }) {
+  const ready = count >= 2;
+  return (
+    <div
+      role="status"
+      data-testid="spline-prompt"
+      data-phase={ready ? "ready" : "collecting"}
+      className="border border-hairline bg-anvil px-3 py-2 font-body text-xs text-gauge"
+    >
+      {ready ? (
+        <span>
+          <span className="text-mist" data-testid="spline-count">
+            {count} fit points
+          </span>{" "}
+          · Enter or double-click to finish · free-form, not constrainable yet
+        </span>
+      ) : (
+        <span>
+          Click to place fit points
+          {count > 0 ? (
+            <>
+              {" · "}
+              <span className="text-mist" data-testid="spline-count">
+                {count} placed
+              </span>
+            </>
+          ) : null}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
@@ -423,6 +470,7 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
   const editNote = useSketchStore((state) => state.editNote);
   const mirror = useSketchStore((state) => state.mirror);
   const corner = useSketchStore((state) => state.corner);
+  const pending = useSketchStore((state) => state.pending);
   const advanceMirror = useSketchStore((state) => state.advanceMirror);
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
@@ -586,12 +634,18 @@ export function SketchStrip({ onSave, saving, saveError }: SketchStripProps) {
 
       {/* Transient readouts hang from the band's bottom edge into the
           viewport's top-left, so the band itself stays one thin row. */}
-      {mirror !== null || corner !== null || hint || saveError || editNote ? (
+      {mirror !== null ||
+      corner !== null ||
+      tool === "spline" ||
+      hint ||
+      saveError ||
+      editNote ? (
         <div className="absolute left-3 top-full z-20 mt-2 flex max-w-sm flex-col gap-2">
           {mirror !== null ? (
             <MirrorPrompt mirror={mirror} onAdvance={advanceMirror} />
           ) : null}
           {corner !== null ? <CornerPrompt corner={corner} /> : null}
+          {tool === "spline" ? <SplinePrompt count={pending.length} /> : null}
           {editNote ? (
             <p
               role="status"

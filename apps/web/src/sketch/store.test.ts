@@ -55,6 +55,52 @@ describe("selection", () => {
   });
 });
 
+describe("spline draw tool", () => {
+  it("accumulates fit points, then finishPlacement commits one spline", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("spline");
+    const before = store().revision;
+    store().placeAt({ x: 0, y: 0 });
+    store().placeAt({ x: 10, y: 20 });
+    store().placeAt({ x: 30, y: 5 });
+    // Open sequence — nothing committed, no revision bump yet.
+    expect(store().entities).toEqual([]);
+    expect(store().pending).toHaveLength(3);
+    expect(store().revision).toBe(before);
+
+    store().finishPlacement();
+    expect(store().pending).toEqual([]);
+    expect(store().entities).toEqual([
+      {
+        id: "e1",
+        kind: "spline",
+        points: [
+          { x: 0, y: 0 },
+          { x: 10, y: 20 },
+          { x: 30, y: 5 },
+        ],
+        construction: false,
+      },
+    ]);
+    expect(store().revision).toBe(before + 1);
+  });
+
+  it("finishPlacement below two fit points is a no-op", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("spline");
+    store().placeAt({ x: 0, y: 0 });
+    const before = store().revision;
+    store().finishPlacement();
+    expect(store().entities).toEqual([]);
+    expect(store().pending).toEqual([{ x: 0, y: 0 }]);
+    expect(store().revision).toBe(before);
+  });
+});
+
 describe("constraints", () => {
   it("applyConstraint adds and bumps revision; hints do not", () => {
     rectangleAt();

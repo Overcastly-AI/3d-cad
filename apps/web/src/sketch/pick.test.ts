@@ -8,6 +8,7 @@ import {
   toggleSelection,
   type SketchPick,
 } from "./pick";
+import { sampleSpline } from "./spline";
 import type { SketchEntity } from "./tools";
 
 const line: SketchEntity = {
@@ -54,6 +55,28 @@ describe("curveDistance", () => {
   it("measures radially to a circle", () => {
     expect(curveDistance({ x: 100, y: 7 }, circle)).toBeCloseTo(3, 12);
     expect(curveDistance({ x: 100, y: 14 }, circle)).toBeCloseTo(4, 12);
+  });
+
+  it("measures a spline against its sampled curve, not the fit polygon", () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 10, y: 20 },
+      { x: 20, y: 0 },
+    ];
+    const spline: SketchEntity = {
+      id: "e4",
+      kind: "spline",
+      points,
+      construction: false,
+    };
+    // Every fit point is on the curve.
+    expect(curveDistance({ x: 10, y: 20 }, spline)).toBeCloseTo(0, 9);
+    // A vertex sampled BETWEEN fit points (off the straight fit polygon) reads
+    // as ~0 too — proof the distance tracks the smooth ink, not the polygon.
+    const mid =
+      sampleSpline(points)[Math.floor(sampleSpline(points).length / 4)];
+    expect(mid).toBeDefined();
+    if (mid) expect(curveDistance(mid, spline)).toBeCloseTo(0, 9);
   });
 
   it("respects the arc's CCW sweep — off-sweep falls back to endpoints", () => {

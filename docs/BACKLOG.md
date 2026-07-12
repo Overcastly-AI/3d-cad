@@ -225,25 +225,23 @@ unblocks hole/shell/draft in Next. #10 is independent, safe to start anytime.
       before/after + too-large + laptop screenshots under docs/screenshots/.
       `frontend-design` skill invoked. line-arc/arc-arc corners still deferred
       (backend defers them). [src: product-auditor, competitive, roadmap]
-- [~] (P1, M) Sketch: splines (Fit-Point v1) — a free-form curve through
+- [x] (P1, M) Sketch: splines (Fit-Point v1) — a free-form curve through
       placed points. Closes the last "flatly impossible" Sketching gap (no
       organic/free-form profiles at all today). Control-Point/NURBS variant
       explicitly deferred.
       BACKEND SHIPPED (2026-07-12): `SketchSpline` entity (`kind:"spline"`,
-      `points` min 2) in the typed sketch schema + discriminated union;
-      solver spike verdict = NON-CONSTRAINED v1 (planegcs has no spline
-      primitive → spline is FIXED geometry, skipped when building the
-      constraint system, preserved bitwise in the solve, zero DOF — decision
-      recorded in the DTO docstring + GEOMETRY-QA); kernel emits an
-      interpolating B-spline edge (`Edge.make_spline`), so a closed profile
-      with a spline edge extrudes/revolves; measured-then-set golden
-      `sketch-spline-extrude` (3 lines + 1 spline, volume/topology/mesh +
-      byte-determinism incl. interpreter restart + STEP round-trip);
-      OCCT interpolation verified deterministic across 3 fresh processes.
-      Follow-up **#6b (draw tool UI)**: interactive fit-point placement +
-      real curve sampling in the viewport — `apps/web` currently carries
-      minimal forward-compat stubs (control-polygon polylines/pick, middle
-      fit-point anchor) noted in code as `STUB (#6b upgrades)`.
+      `points` min 2), NON-CONSTRAINED v1 (fixed geometry, zero DOF), kernel
+      interpolating B-spline edge, golden `sketch-spline-extrude`.
+      DRAW-TOOL UI SHIPPED (#6b, 2026-07-12): Spline tool (accelerator S),
+      click to place fit points with a live rubber-band, Enter/double-click
+      to finish, Esc cancels; the viewport samples a centripetal Catmull-Rom
+      through the fit points (`sampleSpline`) — an interpolating, cusp-free
+      VISUAL approximation of the server-authoritative curve (documented as
+      such); hover/pick measure against the sampled curve; SplineIcon +
+      viewport prompt carry the honest "free-form, not constrainable yet"
+      copy. All `STUB (#6b upgrades)` markers retired. E2E `sketch-spline`
+      (place fit points → finish → persist/solve; spline-edge profile →
+      extrude → body renders).
       Deferred: constraining splines / their fit points, spline tangency.
       [src: product-auditor, competitive, roadmap]
 - [x] (P1, M) Sweep feature BACKEND — sweep a closed profile along a SECOND

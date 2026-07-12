@@ -121,13 +121,14 @@ describe("resolveSketchKey — one keyboard, two vocabularies", () => {
       type: "constraint",
       action: "concentric",
     });
-    // The relational letters still arm/return nothing with an empty selection
-    // (P/T aren't tools; L is the line tool). E/S/O aren't tools either.
+    // With an empty selection the letters arm draw tools: L is the line tool
+    // and S is the spline tool (the same cross-vocabulary reuse — S is Spline
+    // with nothing selected, Symmetric with a selection). P/T/E/O aren't tools.
     expect(resolveSketchKey("l", false)).toEqual({ type: "tool" });
+    expect(resolveSketchKey("s", false)).toEqual({ type: "tool" });
     expect(resolveSketchKey("p", false)).toBeNull();
     expect(resolveSketchKey("t", false)).toBeNull();
     expect(resolveSketchKey("e", false)).toBeNull();
-    expect(resolveSketchKey("s", false)).toBeNull();
     expect(resolveSketchKey("o", false)).toBeNull();
   });
 

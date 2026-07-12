@@ -79,6 +79,22 @@ export const ArcIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Spline = a free-form interpolant threaded through its fit points. The scribe
+ * flows an S-curve that PASSES THROUGH three punch nodes — the "interpolating,
+ * through every point" behaviour the tool has — distinct from the Arc's single
+ * two-node sweep. Same node vocabulary as Line/Arc, so it reads as one of the
+ * draw tools.
+ */
+export const SplineIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 18 C 6 9, 9 9, 12 12 S 18 16, 20 6" />
+    <Node cx={4} cy={18} />
+    <Node cx={12} cy={12} />
+    <Node cx={20} cy={6} />
+  </Icon>
+);
+
 // --- Modify sketch (clean-up) -----------------------------------------------
 
 /**

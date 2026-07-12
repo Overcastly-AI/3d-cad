@@ -377,6 +377,16 @@ function PointerCatcher({ plane }: { plane: DatumPlaneName }) {
         }
         invalidate();
       }}
+      onDoubleClick={(e) => {
+        // Double-click finishes an open placement sequence (the spline's fit
+        // points). The two down-events already placed the trailing point (the
+        // second is rejected as coincident), so committing the pending set is
+        // exactly right.
+        if (useSketchStore.getState().tool !== "spline") return;
+        e.stopPropagation();
+        useSketchStore.getState().finishPlacement();
+        invalidate();
+      }}
     >
       <planeGeometry args={[100000, 100000]} />
       <meshBasicMaterial transparent opacity={0} depthWrite={false} />

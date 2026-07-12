@@ -21,6 +21,7 @@ export type SketchTool =
   | "rect"
   | "circle"
   | "arc"
+  | "spline"
   | "trim"
   | "extend"
   | "offset"
@@ -40,13 +41,17 @@ export type SketchTool =
  * key whose vertical bar reads as the mirror axis it pivots about. The corner
  * pair extends the row: Chamfer claims B (Bevel — chamfer's own synonym);
  * Fillet has no free initial (F offset, R radius), so it takes U, the free key
- * beside Mirror's I, continuing the modify cluster rightward.
+ * beside Mirror's I, continuing the modify cluster rightward. Spline takes its
+ * own initial S — free as a TOOL key (nothing draws on S), reused as the
+ * Symmetric constraint verb only once a selection exists, the same
+ * one-keyboard-two-vocabularies split L (line ↔ perpendicular) already leans on.
  */
 export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   l: "line",
   r: "rect",
   c: "circle",
   a: "arc",
+  s: "spline",
   j: "trim",
   k: "extend",
   f: "offset",
@@ -181,7 +186,47 @@ export function placePoint(
         nextIdIndex: nextIdIndex + 1,
       };
     }
+    case "spline": {
+      // A spline accumulates an OPEN sequence of fit points — unlike the fixed
+      // tools it never self-finishes on a click; Enter / double-click commit it
+      // (see `finishPlacement`). Reject a click coincident with the last fit
+      // point (a double-click's second down-event snaps onto the first).
+      const last = pending[pending.length - 1];
+      if (last !== undefined && distance(last, point) < DEGENERATE_MM) {
+        return keep(pending, nextIdIndex);
+      }
+      return keep([...pending, point], nextIdIndex);
+    }
   }
+}
+
+/**
+ * Commit an open placement sequence that the fixed tools finish on their own —
+ * today only the spline (Enter / double-click). Emits a `SketchSpline` through
+ * the placed fit points when at least two are held; otherwise a no-op (the
+ * sequence stays pending). v1 splines are free-form fixed geometry: they can be
+ * part of a closed extrude/revolve profile but are not constrainable yet.
+ */
+export function finishPlacement(
+  tool: SketchTool,
+  pending: Point2D[],
+  nextIdIndex: number,
+): PlacementResult {
+  if (tool === "spline" && pending.length >= 2) {
+    return {
+      pending: [],
+      entities: [
+        {
+          id: entityId(nextIdIndex),
+          kind: "spline",
+          points: [...pending],
+          construction: false,
+        },
+      ],
+      nextIdIndex: nextIdIndex + 1,
+    };
+  }
+  return keep(pending, nextIdIndex);
 }
 
 /** Four CCW closed lines — the schema's rectangle (order: bottom, right, top, left). */
@@ -305,6 +350,17 @@ export function previewEntities(
       return [
         { id: "preview", kind: "arc", center, start, end, construction: false },
       ];
+    }
+    case "spline": {
+      // Rubber-band the smooth interpolant through the placed fit points plus
+      // the live cursor — the renderer samples it exactly like a committed
+      // spline, so the preview reads as the curve it will become.
+      if (pending.length === 0) return [];
+      const last = pending[pending.length - 1] as Point2D;
+      const points =
+        distance(last, cursor) < DEGENERATE_MM ? pending : [...pending, cursor];
+      if (points.length < 2) return [];
+      return [{ id: "preview", kind: "spline", points, construction: false }];
     }
   }
 }

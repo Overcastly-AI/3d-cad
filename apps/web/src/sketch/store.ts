@@ -28,6 +28,7 @@ import { snapPoint } from "./plane";
 import { pickCandidates, toggleSelection, type SketchPick } from "./pick";
 import {
   escapeAction,
+  finishPlacement as finishPlacementSequence,
   placePoint,
   type SketchEntity,
   type SketchTool,
@@ -148,6 +149,11 @@ export interface SketchState {
   snap: (point: Point2D) => Point2D;
   /** Place the next point of the active tool's sequence. */
   placeAt: (point: Point2D) => void;
+  /**
+   * Commit an open placement sequence (Enter / double-click) — the spline's
+   * finish gesture. A no-op for tools that self-finish on a click.
+   */
+  finishPlacement: () => void;
   /** Select-tool click at a raw (unsnapped) plane point. */
   selectAt: (point: Point2D, toleranceMm: number) => void;
   setHoverPick: (pick: SketchPick | null) => void;
@@ -309,6 +315,18 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
           ? [...entities, ...result.entities]
           : entities,
       revision: result.entities.length > 0 ? revision + 1 : revision,
+    });
+  },
+
+  finishPlacement: () => {
+    const { tool, pending, nextIdIndex, entities, revision } = get();
+    const result = finishPlacementSequence(tool, pending, nextIdIndex);
+    if (result.entities.length === 0) return;
+    set({
+      pending: result.pending,
+      nextIdIndex: result.nextIdIndex,
+      entities: [...entities, ...result.entities],
+      revision: revision + 1,
     });
   },
 

@@ -8,13 +8,14 @@ linear/circular pattern) shipped in full through commit 5777656 (2026-07-12).
 The solid Fillet/Chamfer authoring UI (Ready #1) shipped 2026-07-12, so a
 user can now round/bevel a body through the product (predicate edge
 selector). The session-tool cluster is closing: trim/extend, offset, mirror,
-and sketch fillet/chamfer shipped end-to-end, and the **splines backend**
-shipped 2026-07-12 (fit-point `SketchSpline`; interactive draw tool #6b
-pending). Current target: the Sketching row's remaining named gap —
-splines draw-tool UI (#6b) — corroborated by `docs/COMPETITIVE.md`'s first
-Fusion 360/Plasticity
-discovery pass; plus sweep/loft (Part-modeling breadth) and face/edge
-picking (now unblocked). See `docs/BACKLOG.md` Ready queue.
+and sketch fillet/chamfer shipped end-to-end, and **sketch splines shipped
+full-stack 2026-07-12** — fit-point `SketchSpline` backend plus the
+interactive draw tool (#6b: click fit points, Enter/double-click to finish,
+centripetal Catmull-Rom viewport sampling of the server-authoritative curve),
+so a user can now draw a free-form profile and extrude it through the product.
+Current target: sweep/loft (Part-modeling breadth) and face/edge picking (now
+unblocked), corroborated by `docs/COMPETITIVE.md`'s first Fusion 360/Plasticity
+discovery pass. See `docs/BACKLOG.md` Ready queue.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -167,8 +168,8 @@ evidence in `CHANGELOG.md`. One line per item:
       `sketch_corner_too_large`, `sketch_degenerate_result`). Distinct from the
       SOLID fillet/chamfer. 324 vitest + 4 fillet/chamfer e2e green on the real
       stack; before/after screenshots under docs/screenshots/.
-- ✅ Sketch splines (Fit-Point) — BACKEND (2026-07-12, #6; draw-tool UI #6b
-      pending): the last hard Sketching capability gap (no free-form profiles
+- ✅ Sketch splines (Fit-Point) — FULL-STACK (2026-07-12, #6 + draw-tool UI
+      #6b): the last hard Sketching capability gap (no free-form profiles
       at all). New `SketchSpline` entity (`kind:"spline"`, ordered `points`,
       min 2) in the discriminated `SketchEntity` union — a NEW entity KIND, so
       persisted sketches are unaffected (`param_version` unchanged). **Solver
@@ -182,8 +183,15 @@ evidence in `CHANGELOG.md`. One line per item:
       measured-then-set strategy (no closed-form area/volume) with a documented
       1e-6 mm tolerance; OCCT interpolation verified DETERMINISTIC across three
       fresh interpreter processes (byte-identical GLB + STEP round-trip).
-      `apps/web` carries minimal forward-compat stubs (marked `STUB (#6b
-      upgrades)`) for #6b to replace with real curve sampling + the draw tool.
+      #6b DRAW TOOL (2026-07-12): the Spline tool (accelerator S) places fit
+      points with a live rubber band, Enter/double-click finishes, Esc
+      cancels; the viewport samples a centripetal Catmull-Rom through the fit
+      points (`sampleSpline`) — an interpolating, cusp-free VISUAL
+      approximation of the server-authoritative C2 B-spline (the client never
+      computes the true edge); hover/pick measure against the sampled curve;
+      honest "free-form, not constrainable yet" copy on the tool + prompt.
+      E2E `sketch-spline` covers draw→finish→persist/solve and a spline-edge
+      profile→extrude→body. All `STUB (#6b upgrades)` markers retired.
 - ✅ Revolve + linear/circular pattern — 5 body-affecting features now
       (extrude/revolve/fillet/chamfer/pattern). Part-modeling row re-scored,
       held ❌: edge selection is still predicate-only, and sweep/loft/shell/

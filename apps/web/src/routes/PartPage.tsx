@@ -530,6 +530,13 @@ export function PartPage() {
         if (store.mirror?.phase === "targets") {
           event.preventDefault();
           store.advanceMirror();
+          return;
+        }
+        // Enter commits an open spline (≥ 2 fit points) — the keyboard-first
+        // finish the double-click mirrors.
+        if (store.tool === "spline" && store.pending.length >= 2) {
+          event.preventDefault();
+          store.finishPlacement();
         }
         return;
       }

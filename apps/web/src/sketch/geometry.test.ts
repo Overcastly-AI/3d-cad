@@ -59,6 +59,32 @@ describe("entityPolylines", () => {
     expect([...ys].sort((a, b) => a - b)).toEqual(ys);
   });
 
+  it("samples a spline as a smooth polyline through every fit point", () => {
+    const spline: SketchEntity = {
+      id: "e4",
+      kind: "spline",
+      points: [
+        { x: 0, y: 0 },
+        { x: 10, y: 20 },
+        { x: 30, y: 5 },
+      ],
+      construction: false,
+    };
+    const [polyline] = entityPolylines(spline);
+    // More than the 3 control points — a genuinely sampled curve.
+    expect(polyline?.length ?? 0).toBeGreaterThan(3);
+    // Each fit point lies on the sampled curve.
+    for (const fit of spline.kind === "spline" ? spline.points : []) {
+      expect(
+        (polyline ?? []).some(
+          (v) => Math.hypot(v.x - fit.x, v.y - fit.y) < 1e-9,
+        ),
+      ).toBe(true);
+    }
+    // The spline's defining points are its fit points.
+    expect(definingPoints(spline)).toEqual(spline.points);
+  });
+
   it("free points contribute no polylines but do contribute points", () => {
     const point: SketchEntity = {
       id: "e9",

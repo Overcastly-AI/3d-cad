@@ -9,6 +9,7 @@ import type { components } from "@loft/ts-client/gateway";
 
 import { planeToWorld, type DatumPlaneName, type Point2D } from "./plane";
 import { namedPoints, type SketchPick } from "./pick";
+import { sampleSpline } from "./spline";
 import type { SketchEntity } from "./tools";
 
 export type SolvedSketchData = components["schemas"]["SolvedSketchData"];
@@ -81,10 +82,12 @@ export function entityPolylines(entity: SketchEntity): Point2D[][] {
       ];
     }
     case "spline":
-      // STUB (#6b upgrades): draw the fit points as a straight control polygon.
-      // Real smooth sampling of the interpolating B-spline lands with the draw
-      // tool (#6b); the backend already builds the true curved edge.
-      return [entity.points];
+      // A centripetal Catmull-Rom sampled through the fit points — interpolating
+      // (passes through each one) and cusp-free. This is a VISUAL approximation
+      // of the server-authoritative C2 B-spline (`sampleSpline` docs the split):
+      // it renders smooth and honours the fit points; the true profile edge,
+      // mesh, and export come from the geometry service.
+      return [sampleSpline(entity.points)];
   }
 }
 
@@ -125,10 +128,15 @@ export function entityAnchor(entity: SketchEntity): Point2D {
         y: entity.center.y + radius * Math.sin(mid),
       };
     }
-    case "spline":
-      // STUB (#6b upgrades): the middle fit point stands in for the on-curve
-      // midpoint until #6b samples the true curve.
-      return entity.points[Math.floor(entity.points.length / 2)] as Point2D;
+    case "spline": {
+      // The mid-vertex of the sampled curve — a point that lies ON the ink, so
+      // an inline editor reads as attached to the spline rather than to a fit
+      // point off the curve.
+      const sampled = sampleSpline(entity.points);
+      return (
+        sampled[Math.floor(sampled.length / 2)] ?? (entity.points[0] as Point2D)
+      );
+    }
   }
 }
 

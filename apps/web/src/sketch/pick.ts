@@ -10,6 +10,7 @@
 import type { components } from "@loft/ts-client/gateway";
 
 import type { Point2D } from "./plane";
+import { sampleSpline } from "./spline";
 import type { SketchEntity } from "./tools";
 
 export type PointName = components["schemas"]["EntityPointRef"]["point"];
@@ -100,18 +101,15 @@ export function curveDistance(p: Point2D, entity: SketchEntity): number {
       return Math.min(dist(p, entity.start), dist(p, entity.end));
     }
     case "spline": {
-      // STUB (#6b upgrades): approximate the curve by its fit-point control
-      // polygon (min distance to a segment). #6b samples the true B-spline for
-      // pixel-accurate picking; this keeps a spline coarsely pickable meanwhile.
+      // Measure to the SAMPLED interpolant (the same curve the viewport draws),
+      // so hover/pick tracks the ink the user sees rather than the straight
+      // fit-point polygon. Matches `entityPolylines`' centripetal Catmull-Rom.
+      const sampled = sampleSpline(entity.points);
       let best = Infinity;
-      for (let i = 0; i + 1 < entity.points.length; i += 1) {
+      for (let i = 0; i + 1 < sampled.length; i += 1) {
         best = Math.min(
           best,
-          segmentDistance(
-            p,
-            entity.points[i] as Point2D,
-            entity.points[i + 1] as Point2D,
-          ),
+          segmentDistance(p, sampled[i] as Point2D, sampled[i + 1] as Point2D),
         );
       }
       return best;
