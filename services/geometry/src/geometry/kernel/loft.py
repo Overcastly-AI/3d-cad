@@ -28,12 +28,12 @@ Section contract (v1 DESIGN DECISION, docs/GEOMETRY-QA.md 2026-07-12):
   wire OR a single POINT (an APEX vertex). Lofting a closed section down to an
   apex point is the standard loft-to-a-point capability (a cone/pyramid tip);
   an apex may appear ONLY as the FIRST or LAST section (OCCT's own rule — a
-  vertex cannot sit between two wires). This apex support is what makes an
-  analytic loft golden constructible at all in v1: datum planes are
-  origin-only and mutually perpendicular (never parallel), so two parallel
-  offset circular sections — a cylinder/frustum — are not authorable until
-  offset datum planes land; a section-to-apex pyramid IS (its analytic volume
-  is the golden anchor). See GEOMETRY-QA for the full rationale.
+  vertex cannot sit between two wires). This apex support was what made the
+  first analytic loft golden constructible in v1 (a section-to-apex pyramid,
+  whose analytic volume is the golden anchor); offset datum planes have since
+  landed (df308e4), so two parallel offset circular sections — a
+  cylinder/frustum — are now authorable too (the ``loft-cylinder-offset``
+  golden). See GEOMETRY-QA for the full rationale.
 
 v1 limits (stated plainly — documented scope, not bugs): a RULED (straight)
 loft through the sections in list order — no guide rails, no tangency/normal
