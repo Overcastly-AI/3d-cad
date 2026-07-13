@@ -76,8 +76,9 @@ flagged, unchanged in substance, reordered below the above.
       box → pick top face → boss extrude (add) → body spans z 0..20, persists
       across reload; no-body + Escape-cancel covered; desktop + 1280×800
       screenshots. [src: product-auditor #2]
-- [ ] (P1, M) Click-specific edge/face selection for fillet/chamfer — **UI
-      leg** (backend/schema shipped 2026-07-13). ✅ **BACKEND DONE:** stage-1
+- [x] (P1, M) Click-specific edge/face selection for fillet/chamfer — **UI
+      leg** (backend/schema shipped 2026-07-13; UI shipped 2026-07-13). ✅
+      **BACKEND DONE:** stage-1
       `EdgeSignature` (curve + canonical endpoints + midpoint + length —
       topological-naming's **second** consumer, mirroring the face machinery),
       the `geometry.kernel.edges` resolver (edge enumeration + exactly-one
@@ -88,11 +89,16 @@ flagged, unchanged in substance, reordered below the above.
       wiring for picked refs (409-with-dependents), errors `subshape_unresolved`
       / `subshape_ambiguous`, golden `fillet-top-edge-40x25x10-r5` (ONE top edge
       rounded, neighbours sharp — the capability predicates can't express).
-      [topo-naming §10, GEOMETRY-QA 2026-07-13]. ⏳ **UI PENDING:** in-viewport
-      raycast picker → click one edge → echo the `/overlay` `EdgeSignature` into
-      an `EdgeSubshapeRef` → picked-edge fillet/chamfer; worked e2e (round one
-      edge, confirm only it rounds; reference persists across rebuild per §4.3);
-      screenshots. [src: roadmap, product-auditor #3, engineering-auditor]
+      [topo-naming §10, GEOMETRY-QA 2026-07-13]. ✅ **UI DONE:** Fillet/Chamfer
+      editors gained a "By rule"/"Pick edges" `SegmentedControl`; in "Pick
+      edges" the body's edges light up as `PickNode` diamonds (shared `measure`
+      brass highlights), clicking toggles them into a signature-keyed set
+      (`edge-pick-<i>`, `selected-count`), and submit echoes each picked
+      `/overlay` `EdgeSignature` into an `EdgeSubshapeRef` anchored on the last
+      body-affecting feature. e2e `fillet-edge-pick`: cube → pick ONE top edge →
+      r5 → faces 6→7 (neighbours sharp), holds across reload; rebuild errors
+      (`subshape_unresolved`/`_ambiguous`) surface in the tree's feature-error
+      row. [src: roadmap, product-auditor #3, engineering-auditor]
 - [ ] (P2, M) Mesh store: object-storage swap or explicit single-worker
       guard (engineering audit **F1**) — the in-process mesh LRU
       (`geometry/mesh_store.py`) is a process-global; evaluate and fetch
@@ -428,6 +434,10 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-13 — **Click-specific edge selection UI shipped** (Ready #2 complete).
+  Fillet/Chamfer "By rule"/"Pick edges" toggle → in-viewport edge `PickNode`s →
+  signature-keyed pick set → `EdgeSubshapeRef` payload; e2e `fillet-edge-pick`
+  (cube → one top edge → r5 → faces 6→7, neighbours sharp, holds on reload). [frontend-builder]
 - 2026-07-13 — **Click-specific edge selection BACKEND shipped** (Ready #2
   backend leg). Stage-1 `EdgeSignature` + `geometry.kernel.edges` resolver +
   additive picked `{kind:"edges"}` `EdgeSelector` member + `/overlay` edge

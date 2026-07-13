@@ -1,31 +1,44 @@
 /**
  * The fillet editor — a title-block strip anchored top-left of the viewport,
- * the same authoring seat the extrude/revolve/pattern editors use (you author
- * one feature at a time, so they share the anchor and the viewport keeps the
- * pixels). Keyboard-first: the radius field autofocuses, Enter commits, Escape
- * cancels — the sketcher's dimension grammar. Radius wears brass because it is
- * THE parametric handle of the feature.
+ * the same authoring seat the extrude/revolve/pattern editors use. Keyboard-
+ * first: the radius field autofocuses, Enter commits, Escape cancels — the
+ * sketcher's dimension grammar. Radius wears brass because it is THE parametric
+ * handle of the feature.
  *
- * The edge selector is a geometric PREDICATE, not a picked edge: "All edges" or
- * the edges parallel to a world axis. The copy says exactly that — click-
- * specific edge picking is a later item (design §2.4).
+ * Edges are chosen one of two ways (the "Selection" toggle): "By rule" — the
+ * geometric predicate cell (round everything / an axis), the fast path — or
+ * "Pick edges", where the body's edges light up in the viewport and clicking
+ * toggles which ones round. The picked set lives in the edge-pick store (shared
+ * with the overlay); this editor reads its count and builds the ref-based
+ * selector on submit. A picked-edge fillet is best-effort: a drastic upstream
+ * change can move a picked edge (topological naming §10) — the copy says so.
  */
-import { NumberField, Panel, PanelActionCell, SelectField } from "@loft/design";
+import {
+  NumberField,
+  Panel,
+  PanelActionCell,
+  SegmentedControl,
+  SelectField,
+} from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import type { FilletParams } from "../api/parts";
+import { useEdgePickStore } from "../features/edgePickStore";
 import {
   buildFilletParams,
   canSubmitFillet,
   EDGE_SELECTORS,
   type FilletForm,
   radiusError,
+  type SelectionMode,
 } from "../features/modify";
 
 export interface FilletEditorProps {
   mode: "create" | "edit";
   /** The seed form (new-fillet defaults, or an existing fillet's params). */
   initial: FilletForm;
+  /** The anchor for picked-edge refs — the last body-affecting feature's id. */
+  bodyFeatureId: string | null;
   /** Commit the built params (documents/geometry handle the rest). */
   onSubmit: (params: FilletParams) => void;
   onCancel: () => void;
@@ -38,6 +51,7 @@ export interface FilletEditorProps {
 export function FilletEditor({
   mode,
   initial,
+  bodyFeatureId,
   onSubmit,
   onCancel,
   saving,
@@ -46,11 +60,16 @@ export function FilletEditor({
   const [form, setForm] = useState<FilletForm>(initial);
   useEffect(() => setForm(initial), [initial]);
 
+  const picked = useEdgePickStore((s) => s.picked);
+  const overlayError = useEdgePickStore((s) => s.overlayError);
+  const setPicking = useEdgePickStore((s) => s.setPicking);
+  const clearPicks = useEdgePickStore((s) => s.clearPicks);
+
   const submit = useCallback(() => {
-    const params = buildFilletParams(form);
+    const params = buildFilletParams(form, picked, bodyFeatureId);
     if (params === null) return;
     onSubmit(params);
-  }, [form, onSubmit]);
+  }, [form, picked, bodyFeatureId, onSubmit]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -65,7 +84,15 @@ export function FilletEditor({
     [saving, submit, onCancel],
   );
 
-  const canSubmit = canSubmitFillet(form) && !saving;
+  const changeMode = useCallback(
+    (next: SelectionMode) => {
+      setForm((f) => ({ ...f, mode: next }));
+      setPicking(next === "pick");
+    },
+    [setPicking],
+  );
+
+  const canSubmit = canSubmitFillet(form, picked, bodyFeatureId) && !saving;
 
   return (
     <div
@@ -91,21 +118,80 @@ export function FilletEditor({
               onFocus={(e) => e.currentTarget.select()}
             />
 
-            <SelectField
-              label="Edges"
-              data-testid="fillet-edges"
-              value={form.edges}
-              options={EDGE_SELECTORS.map((o) => ({
-                value: o.id,
-                label: o.label,
-              }))}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  edges: e.target.value as FilletForm["edges"],
-                }))
-              }
+            <SegmentedControl<SelectionMode>
+              label="Selection"
+              value={form.mode}
+              onChange={changeMode}
+              options={[
+                {
+                  value: "rule",
+                  label: "By rule",
+                  "data-testid": "fillet-mode-rule",
+                },
+                {
+                  value: "pick",
+                  label: "Pick edges",
+                  "data-testid": "fillet-mode-pick",
+                },
+              ]}
             />
+
+            {form.mode === "rule" ? (
+              <SelectField
+                label="Edges"
+                data-testid="fillet-edges"
+                value={form.edges}
+                options={EDGE_SELECTORS.map((o) => ({
+                  value: o.id,
+                  label: o.label,
+                }))}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    edges: e.target.value as FilletForm["edges"],
+                  }))
+                }
+              />
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-body text-xs text-gauge">Edges</span>
+                  <button
+                    type="button"
+                    data-testid="fillet-pick-clear"
+                    disabled={picked.length === 0}
+                    onClick={clearPicks}
+                    className="font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:text-gauge disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <p
+                  data-testid="selected-count"
+                  aria-live="polite"
+                  className="font-data text-base text-mist"
+                >
+                  {picked.length === 0
+                    ? "No edges picked"
+                    : picked.length === 1
+                      ? "1 edge picked"
+                      : `${picked.length} edges picked`}
+                </p>
+                <p className="font-body text-xs text-gauge">
+                  Click edges in the view to round just those. A large upstream
+                  change can move a picked edge.
+                </p>
+                {overlayError ? (
+                  <p
+                    role="alert"
+                    data-testid="fillet-pick-error"
+                    className="font-body text-xs text-flag"
+                  >
+                    {overlayError}
+                  </p>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
 

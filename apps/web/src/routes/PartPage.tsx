@@ -24,6 +24,7 @@ import {
   datumFeatureCreate,
   datumFeatureUpdate,
   datumOnFaceFeatureCreate,
+  type EdgeSignature,
   evaluatePart,
   type ExtrudeParams,
   extrudeFeatureCreate,
@@ -115,7 +116,11 @@ import {
   type FilletForm,
   formFromChamferParams,
   formFromFilletParams,
+  pickedFromChamferParams,
+  pickedFromFilletParams,
 } from "../features/modify";
+import { useEdgePickStore } from "../features/edgePickStore";
+import { EdgePickOverlay } from "../viewport/EdgePickOverlay";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -871,12 +876,14 @@ export function PartPage() {
         kind: "fillet";
         mode: "create" | "edit";
         initial: FilletForm;
+        initialPicked: EdgeSignature[];
         featureId?: string;
       }
     | {
         kind: "chamfer";
         mode: "create" | "edit";
         initial: ChamferForm;
+        initialPicked: EdgeSignature[];
         featureId?: string;
       }
     | {
@@ -910,6 +917,46 @@ export function PartPage() {
     retry: false,
   });
   const pickableFaces = facePicking ? (facesQuery.data?.faces ?? null) : null;
+
+  // ---------------------------------------------------------------------
+  // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
+  // is the last body-affecting feature (the body the edges belong to) — the
+  // same rule face picking uses. The edge-pick store bridges the editor and
+  // the in-canvas overlay; PartPage owns the overlay fetch and the session
+  // lifecycle (open on a fillet/chamfer editor, close otherwise).
+  // ---------------------------------------------------------------------
+  const bodyFeatureId = useMemo(
+    () => lastBodyFeatureId(tree.data?.features ?? []),
+    [tree.data],
+  );
+  const edgePicking = useEdgePickStore((s) => s.active && s.picking);
+  const setEdgeOverlay = useEdgePickStore((s) => s.setOverlay);
+  const setEdgeOverlayError = useEdgePickStore((s) => s.setOverlayError);
+
+  const edgeOverlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: edgePicking && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (edgePicking && edgeOverlayQuery.data !== undefined) {
+      setEdgeOverlay(edgeOverlayQuery.data);
+    }
+  }, [edgePicking, edgeOverlayQuery.data, setEdgeOverlay]);
+
+  useEffect(() => {
+    if (edgePicking && edgeOverlayQuery.error) {
+      setEdgeOverlayError(
+        edgeOverlayQuery.error instanceof Error
+          ? edgeOverlayQuery.error.message
+          : "The edge overlay could not be built.",
+      );
+    }
+  }, [edgePicking, edgeOverlayQuery.error, setEdgeOverlayError]);
 
   /** Latest tree version, refetched if the query has none yet. */
   const freshTreeVersion = useCallback(async (): Promise<number> => {
@@ -1066,7 +1113,12 @@ export function PartPage() {
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({ kind: "fillet", mode: "create", initial: defaultFilletForm() });
+    setEditor({
+      kind: "fillet",
+      mode: "create",
+      initial: defaultFilletForm(),
+      initialPicked: [],
+    });
   }, []);
 
   const openCreateChamfer = useCallback(() => {
@@ -1077,6 +1129,7 @@ export function PartPage() {
       kind: "chamfer",
       mode: "create",
       initial: defaultChamferForm(),
+      initialPicked: [],
     });
   }, []);
 
@@ -1134,6 +1187,7 @@ export function PartPage() {
         mode: "edit",
         featureId: feature.id,
         initial: formFromFilletParams(feature.feature.params),
+        initialPicked: pickedFromFilletParams(feature.feature.params),
       });
     } else if (feature.feature.type === "chamfer") {
       setEditor({
@@ -1141,6 +1195,7 @@ export function PartPage() {
         mode: "edit",
         featureId: feature.id,
         initial: formFromChamferParams(feature.feature.params),
+        initialPicked: pickedFromChamferParams(feature.feature.params),
       });
     } else if (
       feature.feature.type === "datum" &&
@@ -1161,6 +1216,24 @@ export function PartPage() {
     setEditor(null);
     setEditorError(null);
   }, []);
+
+  // Edge-pick session lifecycle: a fillet/chamfer editor opens a session
+  // (seeded with its persisted picks + mode); anything else closes it. Keyed on
+  // `editor` identity, which only changes on an open/select/close, so the store
+  // never churns mid-edit. The overlay fetch + render gate on the store.
+  useEffect(() => {
+    const store = useEdgePickStore.getState();
+    if (
+      editor !== null &&
+      (editor.kind === "fillet" || editor.kind === "chamfer")
+    ) {
+      store.open(editor.initialPicked, editor.initial.mode === "pick");
+    } else {
+      store.close();
+    }
+  }, [editor]);
+  // Leaving the workspace tears the edge-pick session down.
+  useEffect(() => () => useEdgePickStore.getState().close(), []);
 
   // The shared save path for either body-affecting feature: read the freshest
   // tree_version, retry once on a stale-version race, then invalidate the tree
@@ -1695,6 +1768,7 @@ export function PartPage() {
                   <FilletEditor
                     mode={editor.mode}
                     initial={editor.initial}
+                    bodyFeatureId={bodyFeatureId}
                     onSubmit={submitFillet}
                     onCancel={closeEditor}
                     saving={editorSaving}
@@ -1704,6 +1778,7 @@ export function PartPage() {
                   <ChamferEditor
                     mode={editor.mode}
                     initial={editor.initial}
+                    bodyFeatureId={bodyFeatureId}
                     onSubmit={submitChamfer}
                     onCancel={closeEditor}
                     saving={editorSaving}
@@ -1759,6 +1834,7 @@ export function PartPage() {
         >
           <SketchScene solved={solvedLayers} facePicking={facePicking} />
           <MeasureOverlay />
+          {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
           {mode === "plane" && facePicking ? (
             <FacePickOverlay
               faces={pickableFaces}

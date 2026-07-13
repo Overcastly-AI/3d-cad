@@ -22,6 +22,7 @@ import {
   polylineSegments,
 } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
+import { concatPositions, Segments } from "./overlaySegments";
 
 /**
  * Overlay pick-node stacking, kept under the HUD strips (Viewport hud sits at
@@ -32,54 +33,6 @@ import { useMeasureStore } from "../measure/store";
  */
 const VERTEX_Z_RANGE: [number, number] = [36, 18];
 const EDGE_Z_RANGE: [number, number] = [17, 0];
-
-/** Concatenate positions buffers into one draw. */
-function concatPositions(buffers: readonly Float32Array[]): Float32Array {
-  const total = buffers.reduce((n, b) => n + b.length, 0);
-  const out = new Float32Array(total);
-  let offset = 0;
-  for (const b of buffers) {
-    out.set(b, offset);
-    offset += b.length;
-  }
-  return out;
-}
-
-/** One un-tonemapped line layer with GPU-resource disposal. */
-function Segments({
-  positions,
-  color,
-  depthTest = true,
-  renderOrder = 0,
-}: {
-  positions: Float32Array;
-  color: string;
-  depthTest?: boolean;
-  renderOrder?: number;
-}) {
-  const geometry = useMemo(() => {
-    const g = new BufferGeometry();
-    g.setAttribute("position", new Float32BufferAttribute(positions, 3));
-    return g;
-  }, [positions]);
-  useEffect(() => () => geometry.dispose(), [geometry]);
-  if (positions.length === 0) return null;
-  return (
-    <lineSegments
-      geometry={geometry}
-      frustumCulled={false}
-      renderOrder={renderOrder}
-    >
-      <lineBasicMaterial
-        color={color}
-        toneMapped={false}
-        depthTest={depthTest}
-        depthWrite={false}
-        transparent
-      />
-    </lineSegments>
-  );
-}
 
 /** Witness marks (screen-space points) with disposal. */
 function Marks({

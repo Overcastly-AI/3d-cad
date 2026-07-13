@@ -51,8 +51,14 @@ export type FilletFeature = components["schemas"]["FilletFeature"];
 export type FilletParams = components["schemas"]["FilletParamsV1"];
 export type ChamferFeature = components["schemas"]["ChamferFeature"];
 export type ChamferParams = components["schemas"]["ChamferParamsV1"];
-/** The shared fillet/chamfer edge-selector predicate (all-edges / axis-parallel). */
+/** The shared fillet/chamfer edge selector: a predicate OR picked-edge refs. */
 export type EdgeSelector = FilletParams["edges"];
+/** SPECIFIC picked edges named by stage-1 signature refs (`{kind:"edges"}`). */
+export type PickedEdgesSelector = components["schemas"]["PickedEdgesSelector"];
+/** Stage-1 reference to ONE edge of a body-affecting feature's result. */
+export type EdgeSubshapeRef = components["schemas"]["EdgeSubshapeRef"];
+/** The stage-1 geometric fingerprint an overlay edge carries and a ref echoes. */
+export type EdgeSignature = components["schemas"]["EdgeSignature"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =

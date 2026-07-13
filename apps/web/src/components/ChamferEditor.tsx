@@ -1,26 +1,36 @@
 /**
  * The chamfer editor — the fillet's twin (see FilletEditor): the same title-
  * block authoring seat, the same keyboard grammar (distance autofocuses, Enter
- * commits, Escape cancels), the same geometric edge-selector PREDICATE. It
- * differs only in the parametric handle: a symmetric bevel distance, not a
- * radius. Distance wears brass as THE parametric handle of the feature.
+ * commits, Escape cancels), and the same "Selection" toggle ("By rule" predicate
+ * vs. "Pick edges" click-picking). It differs only in the parametric handle: a
+ * symmetric bevel distance, not a radius. Distance wears brass as THE handle.
  */
-import { NumberField, Panel, PanelActionCell, SelectField } from "@loft/design";
+import {
+  NumberField,
+  Panel,
+  PanelActionCell,
+  SegmentedControl,
+  SelectField,
+} from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import type { ChamferParams } from "../api/parts";
+import { useEdgePickStore } from "../features/edgePickStore";
 import {
   buildChamferParams,
   canSubmitChamfer,
   type ChamferForm,
   distanceError,
   EDGE_SELECTORS,
+  type SelectionMode,
 } from "../features/modify";
 
 export interface ChamferEditorProps {
   mode: "create" | "edit";
   /** The seed form (new-chamfer defaults, or an existing chamfer's params). */
   initial: ChamferForm;
+  /** The anchor for picked-edge refs — the last body-affecting feature's id. */
+  bodyFeatureId: string | null;
   /** Commit the built params (documents/geometry handle the rest). */
   onSubmit: (params: ChamferParams) => void;
   onCancel: () => void;
@@ -33,6 +43,7 @@ export interface ChamferEditorProps {
 export function ChamferEditor({
   mode,
   initial,
+  bodyFeatureId,
   onSubmit,
   onCancel,
   saving,
@@ -41,11 +52,16 @@ export function ChamferEditor({
   const [form, setForm] = useState<ChamferForm>(initial);
   useEffect(() => setForm(initial), [initial]);
 
+  const picked = useEdgePickStore((s) => s.picked);
+  const overlayError = useEdgePickStore((s) => s.overlayError);
+  const setPicking = useEdgePickStore((s) => s.setPicking);
+  const clearPicks = useEdgePickStore((s) => s.clearPicks);
+
   const submit = useCallback(() => {
-    const params = buildChamferParams(form);
+    const params = buildChamferParams(form, picked, bodyFeatureId);
     if (params === null) return;
     onSubmit(params);
-  }, [form, onSubmit]);
+  }, [form, picked, bodyFeatureId, onSubmit]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -60,7 +76,15 @@ export function ChamferEditor({
     [saving, submit, onCancel],
   );
 
-  const canSubmit = canSubmitChamfer(form) && !saving;
+  const changeMode = useCallback(
+    (next: SelectionMode) => {
+      setForm((f) => ({ ...f, mode: next }));
+      setPicking(next === "pick");
+    },
+    [setPicking],
+  );
+
+  const canSubmit = canSubmitChamfer(form, picked, bodyFeatureId) && !saving;
 
   return (
     <div
@@ -86,21 +110,80 @@ export function ChamferEditor({
               onFocus={(e) => e.currentTarget.select()}
             />
 
-            <SelectField
-              label="Edges"
-              data-testid="chamfer-edges"
-              value={form.edges}
-              options={EDGE_SELECTORS.map((o) => ({
-                value: o.id,
-                label: o.label,
-              }))}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  edges: e.target.value as ChamferForm["edges"],
-                }))
-              }
+            <SegmentedControl<SelectionMode>
+              label="Selection"
+              value={form.mode}
+              onChange={changeMode}
+              options={[
+                {
+                  value: "rule",
+                  label: "By rule",
+                  "data-testid": "chamfer-mode-rule",
+                },
+                {
+                  value: "pick",
+                  label: "Pick edges",
+                  "data-testid": "chamfer-mode-pick",
+                },
+              ]}
             />
+
+            {form.mode === "rule" ? (
+              <SelectField
+                label="Edges"
+                data-testid="chamfer-edges"
+                value={form.edges}
+                options={EDGE_SELECTORS.map((o) => ({
+                  value: o.id,
+                  label: o.label,
+                }))}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    edges: e.target.value as ChamferForm["edges"],
+                  }))
+                }
+              />
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-body text-xs text-gauge">Edges</span>
+                  <button
+                    type="button"
+                    data-testid="chamfer-pick-clear"
+                    disabled={picked.length === 0}
+                    onClick={clearPicks}
+                    className="font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:text-gauge disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <p
+                  data-testid="selected-count"
+                  aria-live="polite"
+                  className="font-data text-base text-mist"
+                >
+                  {picked.length === 0
+                    ? "No edges picked"
+                    : picked.length === 1
+                      ? "1 edge picked"
+                      : `${picked.length} edges picked`}
+                </p>
+                <p className="font-body text-xs text-gauge">
+                  Click edges in the view to bevel just those. A large upstream
+                  change can move a picked edge.
+                </p>
+                {overlayError ? (
+                  <p
+                    role="alert"
+                    data-testid="chamfer-pick-error"
+                    className="font-body text-xs text-flag"
+                  >
+                    {overlayError}
+                  </p>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
 

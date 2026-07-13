@@ -21,13 +21,16 @@ topological-naming design doc. **Sketch-on-a-model-face now ships end-to-end**
 a click authors an `on_face` datum from the face signature and seats the
 sketch on it (basis reconstructed client-side to match the kernel exactly), and
 a boss extrudes on top — the product audit's #1 topological-naming consumer is
-done. **Click-specific edge selection (#2) now has its BACKEND + schema
-shipped** (2026-07-13): the SECOND `SubshapeRef` consumer — a stage-1
+done. **Click-specific edge selection (#2) now ships end-to-end**
+(backend + UI, 2026-07-13): the SECOND `SubshapeRef` consumer — a stage-1
 `EdgeSignature` and `geometry.kernel.edges` resolver, an additive picked-edge
 member on the fillet/chamfer `EdgeSelector` (predicate selectors byte-identical),
 `/overlay` edge signatures, and golden `fillet-top-edge-40x25x10-r5` (round ONE
-edge, leave its neighbours sharp — what predicates structurally can't do); the
-in-viewport edge-pick UI is the remaining leg. The engineering audit found no P0s (all gates
+edge, leave its neighbours sharp — what predicates structurally can't do). The
+Fillet/Chamfer editors now carry a "By rule"/"Pick edges" toggle; picking lights
+the body's edges as `PickNode` diamonds and submit echoes each edge's
+`EdgeSignature` into an `EdgeSubshapeRef` (e2e `fillet-edge-pick`: one top edge
+→ r5 → faces 6→7, neighbours sharp, holds on reload). The engineering audit found no P0s (all gates
 green, license/boundary hygiene clean) but flagged a real correctness cliff
 (F1: the in-process mesh LRU 404s once geometry scales past one worker/
 replica — masked by today's single-container compose) and a determinism-gate
@@ -164,15 +167,17 @@ item:
       it, basis reconstructed client-side to match the kernel exactly; e2e
       proves a boss adds on top at z 0..20. First real consumer of the
       topological-naming design.
-- 🚧 Click-specific edge selection for fillet/chamfer — **backend + schema
-      shipped 2026-07-13** (edge-pick UI pending). Stage-1 `EdgeSignature` +
+- ✅ Click-specific edge selection for fillet/chamfer — **backend + UI shipped
+      2026-07-13**. Stage-1 `EdgeSignature` +
       `geometry.kernel.edges` resolver (the SECOND `SubshapeRef` consumer,
       mirroring the face machinery), additive picked `{kind:"edges"}`
       `EdgeSelector` member (predicate selectors byte-identical, no
       `param_version` bump), `/overlay` edge signatures (pick↔resolve gate),
       dep-graph wiring, golden `fillet-top-edge-40x25x10-r5` (one edge rounded,
-      neighbours sharp); topological-naming §10. UI raycast edge-picker is the
-      remaining leg.
+      neighbours sharp); topological-naming §10. UI: Fillet/Chamfer "By
+      rule"/"Pick edges" toggle → in-viewport edge `PickNode`s → signature-keyed
+      pick set → `EdgeSubshapeRef` payload; e2e `fillet-edge-pick` rounds ONE top
+      edge (faces 6→7), neighbours sharp, holds across reload.
 - 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face
       backend now landed (UI picker pending); shell, draft, dedicated hole,
       multi-body boolean still unbuilt, several gated on face/edge picking
