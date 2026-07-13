@@ -94,6 +94,35 @@ def _sketch_on_feature_envelope(datum_id: str) -> dict[str, Any]:
     return {"type": "sketch", "version": 1, "params": params}
 
 
+def _datum_on_face_envelope(target_id: str) -> dict[str, Any]:
+    #: An on_face datum (docs/design/datum-planes.md §7) naming a PLANAR face of
+    #: an earlier body-affecting feature by a stage-1 SubshapeRef signature
+    #: (topological-naming.md §4). The signature values are illustrative — the
+    #: documents write path never resolves them, it only materializes the
+    #: SubshapeRef.feature_id into feature_dependencies.
+    return {
+        "type": "datum",
+        "version": 1,
+        "params": {
+            "kind": "on_face",
+            "offset_mm": 0.0,
+            "face": {
+                "kind": "subshape",
+                "feature_id": target_id,
+                "subshape_type": "face",
+                "selector": {
+                    "selector_version": 1,
+                    "signature": {
+                        "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                        "centroid": {"x": 20.0, "y": 12.5, "z": 10.0},
+                        "area_mm2": 1000.0,
+                    },
+                },
+            },
+        },
+    }
+
+
 def _extrude_envelope(sketch_id: str) -> dict[str, Any]:
     #: §6 — extrude params, verbatim (profile id substituted).
     return {
@@ -507,6 +536,68 @@ def test_reorder_sketch_before_datum_rejected(client: TestClient) -> None:
         "references_feature_id": datum_id,
     }
     assert sketch_id  # (fixture part is intact)
+
+
+def test_on_face_datum_blocks_deletion_of_referenced_body_feature(
+    client: TestClient, any_db_url: str
+) -> None:
+    """Review 🟡 (sketch-on-face): an on_face datum's face SubshapeRef names a
+    PLANAR face of a body-affecting feature (topo-naming §4). Its feature_id
+    materializes into feature_dependencies EXACTLY like a FeatureRef, so deleting
+    the referenced extrude is a write-time 409-with-dependents (§2.3) — the named
+    face reference is protected identically to a whole-feature reference."""
+    part_id = _create_part(client)
+    sketch_id, extrude_id = _sketch_and_extrude(client, part_id)  # orders 0, 1
+    datum = _create_feature(
+        client, part_id, "Plane1", _datum_on_face_envelope(extrude_id), 2
+    )
+    datum_id: str = datum["feature"]["id"]
+
+    edges = asyncio.run(
+        _fetch_all(
+            any_db_url,
+            sa.select(
+                FeatureDependency.feature_id,
+                FeatureDependency.references_feature_id,
+            ),
+        )
+    )
+    # sketch->? Extrude1->Sketch1 and Plane1->Extrude1 are the two edges.
+    assert (datum_id, extrude_id) in [(str(e[0]), str(e[1])) for e in edges]
+
+    response = client.delete(
+        f"/api/v1/parts/{part_id}/features/{extrude_id}?expected_tree_version=3",
+        headers=_headers(),
+    )
+    assert response.status_code == 409
+    error = _envelope_error(response.json())
+    assert error["code"] == "feature_has_dependents"
+    assert {d["id"] for d in error["details"]["dependents"]} == {datum_id}
+    assert sketch_id  # fixture intact
+
+
+def test_on_face_datum_rejects_non_body_affecting_target(client: TestClient) -> None:
+    """Review 🟡 (sketch-on-face): the on_face face slot accepts only
+    BODY_AFFECTING_FEATURE_TYPES (topo-naming §4 — a face is named on a body).
+    Pointing it at the SKETCH (not body-affecting) is a write-time
+    reference_type_invalid 422, never a datum that resolves against a
+    face-less feature."""
+    part_id = _create_part(client)
+    sketch_id, _extrude_id = _sketch_and_extrude(client, part_id)  # orders 0, 1
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Plane1",
+            "feature": _datum_on_face_envelope(sketch_id),  # sketch is not a body
+            "expected_tree_version": 2,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    error = _envelope_error(response.json())
+    assert error["code"] == "reference_type_invalid"
+    assert error["details"]["actual_type"] == "sketch"
+    assert error["details"]["slot"] == "face"
 
 
 # --- §2.3 delete pre-check + deferred backstop ---------------------------------------
