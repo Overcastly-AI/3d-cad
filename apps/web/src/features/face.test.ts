@@ -120,7 +120,9 @@ describe("lastBodyFeatureId", () => {
       "fillet",
       "chamfer",
       "shell",
+      "draft",
       "pattern",
+      "import",
     ]) {
       expect(lastBodyFeatureId([typed("x", type)])).toBe("x");
     }

@@ -38,6 +38,7 @@ import {
   type FeatureUpdate,
   fetchFeatureTree,
   fetchPart,
+  importStep,
   type OverlayFace,
   type PlanarFaceSignature,
   type FilletParams,
@@ -89,6 +90,7 @@ import {
   formFromParams,
   profileOptions,
 } from "../features/extrude";
+import { precheckStepFile, stepFeatureName } from "../features/import";
 import {
   type AxisOption,
   axisOptions,
@@ -936,6 +938,10 @@ export function PartPage() {
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState(false);
+  // STEP import (a discrete toolbar action, no editor panel): busy + the server
+  // envelope's own message on rejection, surfaced in the viewport HUD.
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
   const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
   const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
@@ -1048,9 +1054,54 @@ export function PartPage() {
     setSyncError(null);
     setEditor(null);
     setSelectedFeatureId(null);
+    setImportError(null);
     useMeasureStore.getState().deactivate();
     begin();
   }, [begin]);
+
+  // STEP import: read the chosen file's bytes and POST them to the import route
+  // as the base body (§2b). Client-side size/extension pre-checks give instant
+  // feedback, but the server is the source of truth — its envelope message
+  // (import_too_large / import_empty / import_not_step / import_with_prior_body)
+  // is surfaced verbatim. On success the tree + evaluate + mesh refetch so the
+  // imported body appears in BOTH the feature tree and the viewport (the #2
+  // render path every other feature creation uses).
+  const handleImportStep = useCallback(
+    (file: File) => {
+      useMeasureStore.getState().deactivate();
+      setEditor(null);
+      setSelectedFeatureId(null);
+      setImportError(null);
+      const preError = precheckStepFile(file);
+      if (preError !== null) {
+        setImportError(preError);
+        return;
+      }
+      setImporting(true);
+      void (async () => {
+        try {
+          const bytes = await file.arrayBuffer();
+          const response = await importStep(
+            partId,
+            bytes,
+            stepFeatureName(file.name),
+            await freshTreeVersion(),
+          );
+          setSelectedFeatureId(response.feature.id);
+          await refreshTreeAndBody();
+        } catch (error) {
+          setImportError(
+            error instanceof Error
+              ? error.message
+              : "The STEP file could not be imported.",
+          );
+        } finally {
+          setImporting(false);
+        }
+      })();
+    },
+    [partId, freshTreeVersion, refreshTreeAndBody],
+  );
 
   /** Toggle the Measure tool; arming it drops any open feature editor. */
   const toggleMeasure = useCallback(() => {
@@ -1833,6 +1884,9 @@ export function PartPage() {
           <CreateStrip
             treeReady={tree.data !== undefined}
             onNewSketch={handleNewSketch}
+            canImportStep={bodyFeatureId === null}
+            importingStep={importing}
+            onImportStep={handleImportStep}
             onNewDatum={openCreateDatum}
             canExtrude={hasSolvedSketch}
             onNewExtrude={openCreateExtrude}
@@ -1994,6 +2048,41 @@ export function PartPage() {
                     error={editorError}
                   />
                 )
+              ) : null}
+              {importing ? (
+                <div
+                  role="status"
+                  data-testid="import-step-status"
+                  className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
+                >
+                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                    Importing STEP
+                  </span>
+                  <span className="mt-1 block font-body text-xs text-mist">
+                    Reading the solid and building the base body.
+                  </span>
+                </div>
+              ) : importError !== null ? (
+                <div
+                  role="alert"
+                  data-testid="import-step-error"
+                  className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                >
+                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                    Import failed
+                  </span>
+                  <span className="mt-1 block font-body text-xs text-mist">
+                    {importError}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setImportError(null)}
+                    data-testid="import-step-dismiss"
+                    className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               ) : null}
               {regenerating ? (
                 <div

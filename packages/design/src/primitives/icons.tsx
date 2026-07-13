@@ -520,6 +520,24 @@ export const StepIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Import STEP = an external B-rep solid brought IN. The same isometric cube the
+ * export `StepIcon` draws (every edge is real), dropped to make room for a
+ * scribed arrow descending into its top face — the "bring it in" gesture. The
+ * incoming arrow is the one mark that separates it from export; same square-cap
+ * scribe vocabulary, so it reads as a member of the feature set, not an office
+ * "upload" glyph.
+ */
+export const ImportStepIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 11 L12 7 L20 11 L12 15 Z" />
+    <path d="M4 11 V17 L12 21 V15" />
+    <path d="M20 11 V17 L12 21" />
+    <path d="M12 1 V8" />
+    <path d="M9.5 5.5 L12 8.5 L14.5 5.5" />
+  </Icon>
+);
+
 /** STL = a faceted mesh (a triangulated strip — the approximation). */
 export const StlIcon = (p: IconProps) => (
   <Icon {...p}>

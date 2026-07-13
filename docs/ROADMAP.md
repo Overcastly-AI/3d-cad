@@ -15,14 +15,15 @@ qa-tester: four 6–16-feature parts — bracket/enclosure/duct/pulley — built
 clean, zero topological-naming failures) and surfaced three feature-coverage
 gaps (pattern is union-only; a ring of disjoint circles isn't one sketch
 profile; no UI warning before a thin-shell rim fillet collision) — filed to
-`docs/BACKLOG.md` Ready. **STEP import v1 landed** (`4964fab`,
-geometry-kernel side only): an `import` base feature reads STEP text and
-sets the body, modeled on via the existing topo-naming machinery. This is
-**half** the Interop UI leg — no gateway upload endpoint or UI yet, so the
-Interop scorecard row is NOT flipped; those two items lead `docs/BACKLOG.md`
-Ready (behind one P1 security fast-follow: bound the untrusted-STEP OCCT
-parse's wall-clock time before the upload UI raises exposure). See
-`docs/BACKLOG.md` Ready queue for the live priority order.
+`docs/BACKLOG.md` Ready. **STEP import shipped end-to-end** (`4964fab`
+kernel → gateway upload endpoint → UI file-picker, 2026-07-13): an `import`
+base feature reads STEP text and sets the body; the "Import STEP" toolbar
+affordance picks a local `.step`/`.stp`, uploads it via the generated client,
+and lands the imported body in the tree + viewport, modeled on via the
+existing topo-naming machinery. **The Interop scorecard row flips ❌→➖**
+(both UI-leg items done). One P1 security fast-follow remains open: bound the
+untrusted-STEP OCCT parse's wall-clock time. See `docs/BACKLOG.md` Ready
+queue for the live priority order.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -192,11 +193,16 @@ item:
       deviation). Docs: `docs/design/step-import.md`. **Gateway upload
       endpoint landed** (`POST /api/v1/parts/{id}/features/import`,
       streamed+size-capped raw STEP body → `import` feature via the existing
-      feature-append path). **Interop row is NOT flipped yet** — the UI
-      file-picker leg leads BACKLOG Ready (behind a P1 security fast-follow:
-      bound the untrusted-STEP OCCT parse's wall-clock time). Remaining after
-      that: IGES, multi-solid/assembly, sew/heal, blob-ref storage — all
-      BACKLOG Later.
+      feature-append path). **UI file-picker leg landed 2026-07-13** — an
+      "Import STEP" affordance leads the Create toolbar (enabled only as the
+      first body, disabled once a body exists), reads the chosen `.step`/`.stp`
+      bytes and POSTs them via the generated client, refetches the tree +
+      evaluate + mesh so the imported body appears in the tree AND viewport, and
+      surfaces the server's `import_*` envelope legibly; Playwright drives the
+      pick→body→model-on-it flow on the real stack. **Interop scorecard row
+      flips ❌→➖.** Still open (P1 security fast-follow): bound the
+      untrusted-STEP OCCT parse's wall-clock time. Remaining: IGES,
+      multi-solid/assembly, sew/heal, blob-ref storage — all BACKLOG Later.
 - ⬜ 2D drawings: views from model, dimensions, PDF/DXF export
 - ⬜ 3MF/OBJ export; mesh quality controls
 

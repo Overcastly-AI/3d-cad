@@ -656,6 +656,45 @@ export async function updateFeature(
   return data;
 }
 
+/**
+ * Import a STEP file as the part's BASE body: the raw file bytes ARE the
+ * request body (`application/octet-stream`, §2b), with the current tree version
+ * as the optimistic-concurrency guard and the file's base name as the feature
+ * name. The route + response type are generated (`@loft/ts-client`, CLAUDE.md
+ * DRY rule); this only streams the bytes and surfaces the server envelope on
+ * rejection (`import_too_large` / `import_empty` / `import_not_step` /
+ * `import_with_prior_body`), never swallowing it.
+ */
+export async function importStep(
+  partId: string,
+  bytes: ArrayBuffer,
+  name: string,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureMutationResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/parts/{part_id}/features/import",
+    {
+      params: {
+        path: { part_id: partId },
+        query: { expected_tree_version: expectedTreeVersion, name },
+      },
+      // The generated schema types the octet-stream body as `string`; the raw
+      // bytes pass straight through via a byte-identity serializer, and the
+      // content-type is set explicitly so the default JSON header isn't sent.
+      body: bytes as unknown as string,
+      bodySerializer: (raw: unknown) => raw as BodyInit,
+      headers: { "Content-Type": "application/octet-stream" },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The STEP file could not be imported."),
+    );
+  }
+  return data;
+}
+
 /** Create a feature at the tip of the tree (201; 422 on stale version). */
 export async function createFeature(
   partId: string,

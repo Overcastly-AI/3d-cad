@@ -17,6 +17,7 @@ import {
   type FilletParams,
   filletFeatureCreate,
   filletFeatureUpdate,
+  importStep,
   PartNameTakenError,
   type PatternParams,
   patternFeatureCreate,
@@ -153,6 +154,60 @@ describe("deletePart", () => {
     );
     await expect(deletePart(samplePart.id, client)).rejects.toThrow(
       /no such part/,
+    );
+  });
+});
+
+describe("importStep", () => {
+  const featureMutation = {
+    feature: { id: "44444444-4444-4444-4444-444444444444" },
+    tree_version: 1,
+  };
+
+  it("sends the raw bytes as octet-stream with the version + name query", async () => {
+    const bytes = new TextEncoder().encode("ISO-10303-21;\n").buffer;
+    let captured: Request | undefined;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        captured = request;
+        return Promise.resolve(json(featureMutation, 201));
+      },
+    });
+
+    await expect(
+      importStep("part-1", bytes, "bracket", 3, client),
+    ).resolves.toMatchObject({ feature: { id: expect.any(String) } });
+
+    expect(captured?.method).toBe("POST");
+    const url = new URL(captured?.url ?? "");
+    expect(url.pathname).toBe("/api/v1/parts/part-1/features/import");
+    expect(url.searchParams.get("expected_tree_version")).toBe("3");
+    expect(url.searchParams.get("name")).toBe("bracket");
+    expect(captured?.headers.get("content-type")).toBe(
+      "application/octet-stream",
+    );
+    // The exact bytes go on the wire — not a JSON-stringified copy.
+    expect(new TextDecoder().decode(await captured!.arrayBuffer())).toBe(
+      "ISO-10303-21;\n",
+    );
+  });
+
+  it("surfaces the server envelope message on a 422 rejection", async () => {
+    const bytes = new TextEncoder().encode("not step").buffer;
+    const client = clientReturning(
+      json(
+        {
+          error: {
+            code: "import_not_step",
+            message: "The uploaded file is not a STEP part-21 file.",
+          },
+        },
+        422,
+      ),
+    );
+    await expect(importStep("part-1", bytes, "x", 0, client)).rejects.toThrow(
+      /not a STEP part-21 file/,
     );
   });
 });

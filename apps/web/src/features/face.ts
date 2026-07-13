@@ -22,8 +22,11 @@ import type {
 
 /**
  * Feature types that produce/mutate the body chain — the acceptable anchor of a
- * face `SubshapeRef` (topo-naming §4). Mirrors the kernel's
- * `BODY_AFFECTING_FEATURE_TYPES`; `datum`/`sketch` are NOT body-affecting.
+ * face `SubshapeRef` (topo-naming §4). Mirrors the kernel's canonical
+ * `BODY_AFFECTING_FEATURE_TYPES` (`py_kit.schemas.features`) exactly;
+ * `datum`/`sketch` are NOT body-affecting. `import` produces the base body
+ * (step-import.md §1) — so a later face/edge pick can anchor to an imported
+ * part's geometry, and the import affordance disables once it exists.
  */
 export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "extrude",
@@ -33,7 +36,9 @@ export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "fillet",
   "chamfer",
   "shell",
+  "draft",
   "pattern",
+  "import",
 ]);
 
 /**

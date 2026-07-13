@@ -30,16 +30,16 @@ duplication:
   bolt/lightening-hole rings unusable); **F2** a ring of disjoint circles
   isn't one sketch profile (compounds with F1); **F3** no UI warning before a
   thin-shell rim fillet hits the (correct) OCCT collision failure.
-- **Interop row — still ❌, ➖ candidate (STEP import v1 landed 2026-07-13,
-  geometry-kernel side only).** `4964fab` proves an `import` base feature can
-  read STEP text and set the body, modeled on by every later feature — but
-  there is still no way for a user to actually get a STEP file into the
-  product: no gateway upload endpoint, no UI. **Do not read this as flipped**
-  until the end-to-end path (pick a file → upload → import feature → model on
-  it) works in the browser. The two blocking Ready items below (gateway
-  upload endpoint, import UI) close that gap; IGES/multi-solid/blob-storage
-  are deferred (Later). Note for the **vision-steward** to weigh once the UI
-  leg lands (VISION.md is vision-steward-owned, not touched here).
+- **Interop row — ➖ (STEP import shipped end-to-end 2026-07-13).** `4964fab`
+  (kernel) → gateway upload endpoint → UI file-picker: the full path — pick a
+  local STEP file → upload → `import` feature → imported body in the tree +
+  viewport → model on it (fillet/shell/sketch-on-face all work via the existing
+  topological-naming machinery) — now works in the browser, proven by
+  `import-step.spec.ts` on the real stack. IGES/multi-solid/blob-storage are
+  deferred (Later); one P1 security fast-follow (bound the untrusted-STEP OCCT
+  parse's wall-clock time) is still open. Note for the **vision-steward** to
+  weigh the ➖→ scorecard update (VISION.md is vision-steward-owned, not touched
+  here).
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
   access — later phases; untouched this pass.
 
@@ -50,10 +50,11 @@ selection, shell, and draft all shipped end-to-end and are archived below —
 **Part modeling flipped ➖→✅** (`3c23c73`) and the showcase stress test
 (`d8d3b87`) held it on real complex parts. **#0 leads on a code-review
 security finding, ahead of everything else per standing policy** (wrong
-geometry/security are always P0-adjacent). Two threads follow: **#1–#2
-complete the Interop UI leg** (STEP import v1 landed geometry-side only,
-`4964fab` — without these the Interop scorecard flip can't happen, since a
-user still can't get a STEP file into the product); **#3–#4** are the
+geometry/security are always P0-adjacent). **The Interop UI leg is now
+complete** (gateway upload endpoint + UI file-picker both shipped 2026-07-13;
+Interop scorecard row flipped ❌→➖) — the one remaining STEP item is the P1
+security fast-follow below (bound the untrusted-STEP OCCT parse time).
+**#3–#4** are the
 showcase's F1/F2 findings, which compound (pattern-a-cut + multi-hole-in-
 one-sketch both attack the same bolt-circle/lightening-hole daily-driver
 gap). #5 carries forward the engineering audit's mesh-store correctness
@@ -83,18 +84,19 @@ unchanged in substance.
       onto a part that already has a body is documents' new write-time 422
       `import_with_prior_body`. UI file-picker (part 2 of 2, below) is what
       flips the Interop row. [src: roadmap, engineering-auditor, step-import.md]
-- [ ] (P2, M) STEP import — UI file-picker (Interop UI leg, part 2 of 2;
-      **this is what actually flips the Interop scorecard row**) — an "Import
-      STEP" affordance (parts home or in-workspace) that opens a file picker,
-      posts to #1's endpoint, and lands the user on the imported part ready
-      to model on (fillet/cut/shell/sketch-on-face all already work on an
-      imported body via the existing topological-naming machinery — no new
-      kernel work). Depends on #1. Acceptance: pick a local STEP file → part
-      opens with the imported body rendered → apply one more feature (e.g. a
-      fillet) → export round-trips; legible UI error on
-      `import_parse_failed`/`import_not_single_solid`; screenshots;
-      `frontend-design` skill invoked. [src: roadmap, product-auditor,
-      step-import.md]
+- [x] (P2, M) STEP import — UI file-picker (Interop UI leg, part 2 of 2;
+      **flips the Interop scorecard row ❌→➖**) — landed 2026-07-13. An "Import
+      STEP" affordance leads the in-workspace Create toolbar (new scribed
+      import-cube glyph in `@loft/design`), enabled only as the first body and
+      disabled with a legible reason once one exists. It opens the native
+      picker (`.step,.stp`), reads the bytes, POSTs the raw octet-stream body
+      via the generated `@loft/ts-client`, then refetches tree + evaluate +
+      mesh so the imported body appears in the feature tree AND the r3f
+      viewport. All `import_*` envelopes surface legibly in a HUD alert; size/
+      extension pre-checked client-side for instant feedback. Playwright
+      (`import-step.spec.ts`) drives pick→body→disabled + error paths on the
+      real stack; desktop+laptop founder screenshots captured. `frontend-design`
+      skill invoked. [src: roadmap, product-auditor, step-import.md]
 - [ ] (P2, M) Pattern: array a cut, not just union (showcase **F1**) —
       `PatternFeature`'s `operation` is add-only (unions copies of the whole
       body); the two most natural pattern uses — bolt-circle mounting holes,

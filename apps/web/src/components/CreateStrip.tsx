@@ -19,6 +19,7 @@ import {
   DraftIcon,
   ExtrudeIcon,
   FilletIcon,
+  ImportStepIcon,
   LoftIcon,
   MeasureIcon,
   PatternIcon,
@@ -29,12 +30,24 @@ import {
   ToolButton,
   ToolGroup,
 } from "@loft/design";
+import { useRef } from "react";
 
 export interface CreateStripProps {
   /** The feature tree has loaded (buttons stay disabled until it has). */
   treeReady: boolean;
   /** Enter sketch mode — pick a plane, then L / R / C / A. */
   onNewSketch: () => void;
+  /**
+   * True when a STEP file may be imported: the part has no body yet. Import is
+   * a BASE feature — the first body-affecting one — so it disables (with a
+   * legible tooltip reason) once any body exists, like Extrude greys until a
+   * sketch solves.
+   */
+  canImportStep?: boolean;
+  /** An import is in flight (button disabled, its status shown in the viewport). */
+  importingStep?: boolean;
+  /** Bring an external solid in as the base body from a chosen `.step`/`.stp`. */
+  onImportStep?: (file: File) => void;
   /** Author a standalone datum (construction) plane the tree can reuse. */
   onNewDatum?: () => void;
   /** True when a solved sketch exists to extrude. */
@@ -82,6 +95,9 @@ export interface CreateStripProps {
 export function CreateStrip({
   treeReady,
   onNewSketch,
+  canImportStep = false,
+  importingStep = false,
+  onImportStep,
   onNewDatum,
   canExtrude,
   onNewExtrude,
@@ -101,6 +117,10 @@ export function CreateStrip({
   measuring = false,
   onToggleMeasure,
 }: CreateStripProps) {
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const importReady =
+    treeReady && canImportStep && !importingStep && onImportStep !== undefined;
+
   const filletReady = canModify && treeReady && onFillet !== undefined;
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
   const patternReady = canModify && treeReady && onPattern !== undefined;
@@ -113,7 +133,46 @@ export function CreateStrip({
       data-testid="create-strip"
       className="flex items-stretch divide-x divide-hairline"
     >
+      {/* The native file picker — kept in the DOM (hidden, non-tabbable) and
+          triggered by the Import button, so a `.step`/`.stp` choice streams
+          straight to the import route. Resetting the value lets the same file
+          be re-chosen after an error. */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".step,.stp"
+        data-testid="import-step-input"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file !== undefined && onImportStep !== undefined) {
+            onImportStep(file);
+          }
+        }}
+      />
+
       <ToolGroup aria-label="Create">
+        <ToolButton
+          icon={<ImportStepIcon />}
+          showLabel
+          label="Import"
+          data-testid="import-step-button"
+          aria-label={
+            importReady || (canImportStep && importingStep)
+              ? "Import STEP — bring an external solid in as the base body"
+              : "Import STEP — only the first body can be imported; this part already has one"
+          }
+          caption={
+            !canImportStep && onImportStep !== undefined
+              ? "A body already exists"
+              : undefined
+          }
+          disabled={!importReady}
+          onClick={() => importInputRef.current?.click()}
+        />
         <ToolButton
           icon={<SketchIcon />}
           showLabel
