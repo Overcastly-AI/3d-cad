@@ -67,13 +67,16 @@ class SubshapeAmbiguousError(FaceResolutionError):
 
 @dataclass(frozen=True)
 class PlanarFaceRecord:
-    """One planar face of a body: its transient index, boundary signature, and
-    resolved (offset-0) sketch plane. The single enumeration the pick side and
-    the resolve side share."""
+    """One planar face of a body: its transient index, boundary signature,
+    resolved (offset-0) sketch plane, and the kernel :class:`Face` itself. The
+    single enumeration the pick side and the resolve side share (the ``face``
+    field mirrors :class:`geometry.kernel.edges.EdgeRecord.edge` — a picked-face
+    consumer like shell needs the Face, not just its plane)."""
 
     index: int
     signature: PlanarFaceSignature
     plane: Plane
+    face: Face
 
 
 def _deterministic_x_dir(normal: Vector) -> Vector:
@@ -166,6 +169,7 @@ def planar_faces(body: Solid) -> list[PlanarFaceRecord]:
                 index=index,
                 signature=_signature_dto(normal, centroid, area),
                 plane=_face_plane(normal, centroid, 0.0),
+                face=face,
             )
         )
     return records
@@ -239,3 +243,43 @@ def resolve_face_plane(
         x_dir=plane.x_dir,
         z_dir=plane.z_dir,
     )
+
+
+def resolve_faces(body: Solid, targets: list[PlanarFaceSignature]) -> list[Face]:
+    """Resolve stage-1 face signatures to their planar :class:`Face`s.
+
+    The picked-FACE sibling of :func:`geometry.kernel.edges._resolve_picked_edges`
+    (the shell feature's face resolver): each *target* signature is matched
+    against the planar faces of *body* (:func:`planar_faces`), requiring EXACTLY
+    ONE match (§7.2 — refuse to guess). Two targets that resolve to the SAME face
+    collapse to one (idempotent), and the result is returned in ``body.faces()``
+    order so the shell input is deterministic regardless of pick order
+    (RESEARCH §9). An empty *targets* list resolves to an empty list — a valid
+    "seal every face" (fully-enclosed hollow) request, not an error.
+
+    Raises:
+        SubshapeUnresolvedError: a target matches no current planar face (the
+            referenced face no longer exists after the rebuild).
+        SubshapeAmbiguousError: a target matches two or more within tolerance (a
+            congruent twin) — an honest error, never a coin flip (RESEARCH §9).
+    """
+    records = planar_faces(body)
+    chosen: dict[int, Face] = {}
+    for target in targets:
+        matches = [r for r in records if _signatures_match(r.signature, target)]
+        if not matches:
+            raise SubshapeUnresolvedError(
+                "No planar face of the current body matches a picked face "
+                "signature (normal / centroid / area); the referenced face no "
+                "longer exists after the rebuild. Re-pick the face, or edit the "
+                "upstream feature back to a state where it resolves."
+            )
+        if len(matches) > 1:
+            raise SubshapeAmbiguousError(
+                f"{len(matches)} planar faces match a picked face signature "
+                "within tolerance; the reference is ambiguous (a congruent/"
+                "symmetric face). Refusing to guess — pick a face without a "
+                "congruent twin."
+            )
+        chosen[matches[0].index] = matches[0].face
+    return [chosen[index] for index in sorted(chosen)]

@@ -139,7 +139,10 @@ def test_two_matching_faces_is_subshape_ambiguous(monkeypatch: Any) -> None:
     that becomes load-bearing for edge/vertex signatures (stage 2)."""
     target = _top_face_signature()
     twin = PlanarFaceRecord(
-        index=0, signature=target, plane=resolve_face_plane(_box(), target, 0.0)
+        index=0,
+        signature=target,
+        plane=resolve_face_plane(_box(), target, 0.0),
+        face=planar_faces(_box())[0].face,
     )
 
     def _two_matching(_body: Solid) -> list[PlanarFaceRecord]:

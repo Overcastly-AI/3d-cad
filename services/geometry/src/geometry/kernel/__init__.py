@@ -37,6 +37,7 @@ from geometry.kernel.faces import (
     SubshapeUnresolvedError,
     planar_faces,
     resolve_face_plane,
+    resolve_faces,
 )
 from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
@@ -63,6 +64,7 @@ from geometry.kernel.revolve import (
     revolve_face,
 )
 from geometry.kernel.shapes import build_box, build_cylinder
+from geometry.kernel.shell import ShellError, ShellThicknessError, shell_body
 from geometry.kernel.sweep import (
     PathClosedError,
     PathEmptyError,
@@ -109,6 +111,8 @@ __all__ = [
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "RevolveError",
+    "ShellError",
+    "ShellThicknessError",
     "SubshapeAmbiguousError",
     "SubshapeUnresolvedError",
     "SweepError",
@@ -141,9 +145,11 @@ __all__ = [
     "resolve_axis_line",
     "resolve_edge",
     "resolve_face_plane",
+    "resolve_faces",
     "revolve_face",
     "select_edges",
     "selection_overlay",
+    "shell_body",
     "sweep_profile",
     "tessellate_glb",
 ]

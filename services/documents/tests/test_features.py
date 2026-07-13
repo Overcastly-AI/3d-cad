@@ -123,6 +123,40 @@ def _datum_on_face_envelope(target_id: str) -> dict[str, Any]:
     }
 
 
+def _shell_envelope(target_id: str) -> dict[str, Any]:
+    #: A shell feature whose picked-face selector names a PLANAR face of an
+    #: earlier body-affecting feature by a stage-1 SubshapeRef signature — the
+    #: SAME face-ref shape the on_face datum uses (topological-naming.md §4). The
+    #: documents write path never resolves the signature, it only materializes
+    #: the SubshapeRef.feature_id into feature_dependencies (like the on_face
+    #: datum), so deleting the referenced body feature is a 409-with-dependents.
+    return {
+        "type": "shell",
+        "version": 1,
+        "params": {
+            "thickness_mm": 2.0,
+            "faces": {
+                "kind": "faces",
+                "refs": [
+                    {
+                        "kind": "subshape",
+                        "feature_id": target_id,
+                        "subshape_type": "face",
+                        "selector": {
+                            "selector_version": 1,
+                            "signature": {
+                                "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                                "centroid": {"x": 20.0, "y": 12.5, "z": 10.0},
+                                "area_mm2": 1000.0,
+                            },
+                        },
+                    }
+                ],
+            },
+        },
+    }
+
+
 def _extrude_envelope(sketch_id: str) -> dict[str, Any]:
     #: §6 — extrude params, verbatim (profile id substituted).
     return {
@@ -573,6 +607,44 @@ def test_on_face_datum_blocks_deletion_of_referenced_body_feature(
     error = _envelope_error(response.json())
     assert error["code"] == "feature_has_dependents"
     assert {d["id"] for d in error["details"]["dependents"]} == {datum_id}
+    assert sketch_id  # fixture intact
+
+
+def test_shell_face_ref_blocks_deletion_of_referenced_body_feature(
+    client: TestClient, any_db_url: str
+) -> None:
+    """A shell's picked-face SubshapeRef names a PLANAR face of a body-affecting
+    feature (topo-naming §4) — the SAME face-ref shape sketch-on-face uses. Its
+    feature_id materializes into feature_dependencies EXACTLY like a FeatureRef,
+    so deleting the referenced extrude is a write-time 409-with-dependents
+    (§2.3): the picked opening is protected identically to a whole-feature
+    reference. (A shell with an EMPTY faces list carries no ref — no edge — so
+    this protection applies only to opened faces.)"""
+    part_id = _create_part(client)
+    sketch_id, extrude_id = _sketch_and_extrude(client, part_id)  # orders 0, 1
+    shell = _create_feature(client, part_id, "Shell1", _shell_envelope(extrude_id), 2)
+    shell_id: str = shell["feature"]["id"]
+
+    edges = asyncio.run(
+        _fetch_all(
+            any_db_url,
+            sa.select(
+                FeatureDependency.feature_id,
+                FeatureDependency.references_feature_id,
+            ),
+        )
+    )
+    # Shell1->Extrude1 is a dependency edge (alongside Extrude1->Sketch1).
+    assert (shell_id, extrude_id) in [(str(e[0]), str(e[1])) for e in edges]
+
+    response = client.delete(
+        f"/api/v1/parts/{part_id}/features/{extrude_id}?expected_tree_version=3",
+        headers=_headers(),
+    )
+    assert response.status_code == 409
+    error = _envelope_error(response.json())
+    assert error["code"] == "feature_has_dependents"
+    assert {d["id"] for d in error["details"]["dependents"]} == {shell_id}
     assert sketch_id  # fixture intact
 
 

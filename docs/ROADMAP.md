@@ -178,10 +178,21 @@ item:
       rule"/"Pick edges" toggle → in-viewport edge `PickNode`s → signature-keyed
       pick set → `EdgeSubshapeRef` payload; e2e `fillet-edge-pick` rounds ONE top
       edge (faces 6→7), neighbours sharp, holds across reload.
-- 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face
-      backend now landed (UI picker pending); shell, draft, dedicated hole,
-      multi-body boolean still unbuilt, several gated on face/edge picking
-      (BACKLOG Ready + Next).
+- ✅ Shell feature — **backend + golden shipped 2026-07-13** (UI picker
+      pending). `ShellFeature`/`ShellParamsV1` hollows the current body to a
+      uniform inward wall, opening the faces named by a `{kind:"faces"}`
+      `FaceSelector` (the SAME sketch-on-face `SubshapeRef` machinery, reused
+      not reinvented); `geometry.kernel.shell` inward `MakeThickSolid` +
+      `resolve_faces` (exactly-one / dedup / empty=sealed hollow), dep-graph
+      wiring, golden `shell-open-top-box-40x25x10-t2` (open-top box, analytic
+      3952 mm³), errors `no_prior_body` / `subshape_unresolved` /
+      `subshape_ambiguous` / `shell_thickness_too_large` / `shell_failed`
+      (GEOMETRY-QA 2026-07-13). Third `SubshapeRef` consumer after
+      sketch-on-face + edge-pick.
+- 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face +
+      shell backend now landed (both UI pickers pending); draft, dedicated
+      hole, multi-body boolean still unbuilt, several gated on face/edge
+      picking (BACKLOG Ready + Next).
 - 🚧 Two independent audits landed 2026-07-12 (`docs/AUDIT-PRODUCT.md`
       6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found (all gates
       green, boundaries/license clean); findings filed to BACKLOG (Ready:

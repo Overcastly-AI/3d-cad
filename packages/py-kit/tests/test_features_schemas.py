@@ -24,6 +24,7 @@ from py_kit.schemas.features import (
     FeatureTypeRegistry,
     FeatureUpdate,
     FilletFeature,
+    ShellFeature,
     SketchFeature,
     SketchParamsV1,
     SolvedSketchData,
@@ -258,6 +259,59 @@ def test_picked_edge_fillet_materializes_edge_dependencies() -> None:
     assert reference.allowed_types == BODY_AFFECTING_FEATURE_TYPES
     # The generic walk finds exactly the same ref (self-check balanced).
     assert [r.feature_id for r in iter_feature_refs(fillet)] == [ref_id]
+
+
+def _shell_with_faces(refs: list[dict[str, Any]]) -> ShellFeature:
+    return ShellFeature.model_validate(
+        {
+            "type": "shell",
+            "version": 1,
+            "params": {
+                "thickness_mm": 2.0,
+                "faces": {"kind": "faces", "refs": refs},
+            },
+        }
+    )
+
+
+def test_shell_face_refs_materialize_face_dependencies() -> None:
+    """A shell's picked-face selector surfaces each face SubshapeRef as a
+    dependency on a body-affecting feature (allowed types =
+    BODY_AFFECTING_FEATURE_TYPES) — the SAME wiring as the on_face datum and the
+    picked-edge fillet — and the generic walk finds the SAME refs so the
+    feature_references self-check stays balanced."""
+    ref_id = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000e5")
+    shell = _shell_with_faces(
+        [
+            {
+                "kind": "subshape",
+                "feature_id": str(ref_id),
+                "subshape_type": "face",
+                "selector": {
+                    "selector_version": 1,
+                    "signature": {
+                        "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                        "centroid": {"x": 20.0, "y": 12.5, "z": 10.0},
+                        "area_mm2": 1000.0,
+                    },
+                },
+            }
+        ]
+    )
+    (reference,) = feature_references(shell)
+    assert reference.slot == "faces[0]"
+    assert reference.ref.feature_id == ref_id
+    assert reference.allowed_types == BODY_AFFECTING_FEATURE_TYPES
+    assert [r.feature_id for r in iter_feature_refs(shell)] == [ref_id]
+
+
+def test_shell_empty_faces_is_sealed_hollow_with_no_references() -> None:
+    """DESIGN DECISION: an empty picked-face list is a valid SEALED hollow, not a
+    422 — so it carries NO ref, NO dependency edge (tree order is its only tie to
+    the prior body-affecting feature), and the self-check stays balanced."""
+    shell = _shell_with_faces([])
+    assert feature_references(shell) == ()
+    assert list(iter_feature_refs(shell)) == []
 
 
 def test_unknown_feature_type_rejected() -> None:

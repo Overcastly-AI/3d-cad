@@ -323,6 +323,48 @@ EdgeSelector = Annotated[
 ]
 
 
+# --- FACE selection — the picked-face sibling of the edge selector (§2.4/§10) ---
+#
+# The shell feature names the faces to REMOVE (leave open) as SPECIFIC picked
+# faces, each a stage-1 :class:`SubshapeRef` (the SAME planar-face signature the
+# sketch-on-a-face / on_face datum resolves — topo-naming §4, reused not
+# reinvented). There is NO face predicate today (no ``all_faces`` /
+# ``axis_normal`` analogue of the edge predicates): shell is inherently a
+# pick-the-openings operation, so v1 ships only the picked variant. A future
+# predicate joins additively as a ``kind``-discriminated union member (the
+# :data:`EdgeSelector` idiom) with no ``param_version`` bump — hence
+# ``FaceSelector`` is a plain single-member model today, discriminated on
+# ``kind: "faces"`` so that promotion is shape-compatible.
+
+
+class FaceSelector(BaseModel):
+    """The faces to REMOVE (leave open) in a shell, named by stage-1 signatures.
+
+    Each ref is a :class:`SubshapeRef` — the SAME planar-face signature the
+    ``on_face`` datum uses (topo-naming §4), resolved against the current body
+    nearest-within-tolerance, exactly one or an honest error. The face
+    signatures the geometry service resolves are the ones a pick UI echoes
+    straight from ``/overlay`` (the sketch-on-face pick set).
+
+    DESIGN DECISION (v1, docs/GEOMETRY-QA.md 2026-07-13): an EMPTY ``refs`` list
+    is a valid, meaningful selection — a **fully-enclosed hollow** (the standard
+    "hollow but sealed" case: a closed shell with a uniform-thickness cavity and
+    NO opening). A non-empty list opens exactly those faces. So — unlike the
+    picked-EDGE selector, whose empty list is a request-validation 422 (an empty
+    fillet is a silent no-op) — an empty picked-FACE list is a real operation and
+    carries no ``min_length``. Duplicate refs that resolve to the same face
+    collapse to one (idempotent) at resolution.
+    """
+
+    kind: Literal["faces"]
+    refs: list[SubshapeRef] = Field(
+        default_factory=list[SubshapeRef],
+        description="The planar faces to leave OPEN (each a stage-1 face "
+        "SubshapeRef resolved against the current body). EMPTY = a fully-enclosed "
+        "hollow (no opening) — a valid selection, not a 422 (design decision).",
+    )
+
+
 # --- §1.4 Per-type params (current versions) ------------------------------------
 
 
@@ -652,6 +694,41 @@ class ChamferParamsV1(BaseModel):
     )
 
 
+class ShellParamsV1(BaseModel):
+    """Hollow the current body to a uniform wall thickness, opening picked faces.
+
+    The housing / enclosure / cup primitive (a Part-modeling scorecard item):
+    the solid is thinned inward to a uniform wall of ``thickness_mm`` and the
+    faces named by ``faces`` are REMOVED, leaving those sides open. Like a
+    fillet/chamfer/pattern it modifies the implicit single body chain (design
+    §7.6), so it carries no whole-feature ``FeatureRef`` — its dependency on the
+    prior body-affecting feature is tree order. The picked openings ARE named
+    references, though: each :class:`SubshapeRef` in ``faces`` materializes into
+    ``feature_dependencies`` exactly like an ``on_face`` datum's face ref, so
+    deleting the referenced body feature is a write-time 409-with-dependents and
+    a reorder re-checks strict-backward.
+
+    Thickness is a UNIFORM INWARD offset (the wall grows into the solid, so the
+    outer envelope is unchanged). An empty ``faces`` list hollows to a sealed
+    (fully-enclosed) cavity; a non-empty list opens those faces
+    (:class:`FaceSelector`). A thickness that would collapse or self-intersect
+    the cavity (≥ the smallest half-wall) is a per-feature
+    ``shell_thickness_too_large`` rebuild error, never a silently wrong body
+    (docs/GEOMETRY-QA.md 2026-07-13).
+    """
+
+    thickness_mm: float = Field(
+        gt=0,
+        description="Uniform inward wall thickness (mm). Must be small enough "
+        "that the inward cavity does not self-intersect; too large is a "
+        "`shell_thickness_too_large` rebuild error.",
+    )
+    faces: FaceSelector = Field(
+        description="The faces to leave OPEN (a picked-face selector). Empty = a "
+        "fully-enclosed hollow with no opening (design decision)."
+    )
+
+
 # --- Pattern params (linear / circular) -----------------------------------------
 #
 # DESIGN DECISION (v1, BACKLOG #7 — recorded in docs/GEOMETRY-QA.md 2026-07-12):
@@ -880,6 +957,14 @@ class ChamferFeature(BaseModel):
     params: ChamferParamsV1
 
 
+class ShellFeature(BaseModel):
+    """``{"type": "shell", "version": 1, "params": {...}}`` envelope."""
+
+    type: Literal["shell"]
+    version: Literal[1]
+    params: ShellParamsV1
+
+
 class PatternFeature(BaseModel):
     """``{"type": "pattern", "version": 1, "params": {...}}`` envelope."""
 
@@ -900,6 +985,7 @@ Feature = Annotated[
     | LoftFeature
     | FilletFeature
     | ChamferFeature
+    | ShellFeature
     | PatternFeature,
     Field(discriminator="type"),
 ]
@@ -914,6 +1000,7 @@ FeatureEnvelope = (
     | LoftFeature
     | FilletFeature
     | ChamferFeature
+    | ShellFeature
     | PatternFeature
 )
 
@@ -1065,6 +1152,7 @@ FEATURE_REGISTRY.register(SweepFeature)
 FEATURE_REGISTRY.register(LoftFeature)
 FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.register(ChamferFeature)
+FEATURE_REGISTRY.register(ShellFeature)
 FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.validate_chains()
 
@@ -1076,7 +1164,7 @@ FEATURE_REGISTRY.validate_chains()
 #: a :class:`SubshapeRef` face reference (topo-naming §4: a face is named on a
 #: body-affecting feature's result). ``datum``/``sketch`` are NOT body-affecting.
 BODY_AFFECTING_FEATURE_TYPES = frozenset(
-    {"extrude", "revolve", "sweep", "loft", "fillet", "chamfer", "pattern"}
+    {"extrude", "revolve", "sweep", "loft", "fillet", "chamfer", "shell", "pattern"}
 )
 
 
@@ -1216,6 +1304,21 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                             f"edges[{index}]", ref, BODY_AFFECTING_FEATURE_TYPES
                         )
                     )
+        case ShellFeature():
+            # Shell hollows the implicit single body chain (design §7.6) and
+            # names the faces to REMOVE (leave open) as picked faces. Each
+            # SubshapeRef.feature_id materializes into feature_dependencies
+            # exactly like an on_face datum's face ref, so deleting the
+            # referenced body feature is a 409-with-dependents and a reorder
+            # re-checks strict-backward for the named face refs. An EMPTY faces
+            # list (a sealed hollow) carries no refs — no dependency edge, tree
+            # order is its only tie to the prior body-affecting feature.
+            for index, ref in enumerate(feature.params.faces.refs):
+                references.append(
+                    FeatureReference(
+                        f"faces[{index}]", ref, BODY_AFFECTING_FEATURE_TYPES
+                    )
+                )
         case PatternFeature():
             # A pattern replicates the implicit body about world-space direction/
             # axis vectors (no picked sub-geometry — independent of #1); its

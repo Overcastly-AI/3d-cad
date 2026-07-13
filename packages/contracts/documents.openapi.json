@@ -373,7 +373,7 @@
         "type": "object"
       },
       "EdgeSignature": {
-        "description": "\u00a72b stage-1 geometric fingerprint of an EDGE \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity),\nchosen to distinguish the edges of a manifold solid: the ``curve`` family\n(line/circle/other \u2014 a straight edge and an arc of equal length never\ncollide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted\nlexicographically so the signature is INDEPENDENT of the topological edge\norientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 \u2014 it\nseparates two collinear edges that share an endpoint, and pins a full-circle\nseam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT\nedges of an authored part differ in at least one field (endpoints/midpoint\nby whole mm, or length, or curve kind); genuinely congruent edges of a\nsymmetric part tie and resolve to an honest ``subshape_ambiguous`` (\u00a75),\nnever a guess. Matching is nearest-within-tolerance at the documented\nsubshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an\nad-hoc epsilon.",
+        "description": "\u00a72b stage-1 geometric fingerprint of an EDGE \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity),\nchosen to distinguish the edges of a manifold solid: the ``curve`` family\n(line/circle/other \u2014 a straight edge and an arc of equal length never\ncollide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted\nlexicographically so the signature is INDEPENDENT of the topological edge\norientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 \u2014 it\nseparates two collinear edges that share an endpoint, and pins a full-circle\nseam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT\nedges of an authored part differ in at least one field (endpoints/midpoint\nby whole mm, or length, or curve kind) \u2014 including the mirror-congruent\nedges of a symmetric part, which have DISTINCT absolute positions and so do\nNOT tie. Only edges that truly coincide in space (a boolean seam, a\nnon-manifold duplicate) resolve to an honest ``subshape_ambiguous`` (\u00a75),\nnever a guess. Matching is nearest-within-tolerance at the documented\nsubshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an\nad-hoc epsilon.",
         "properties": {
           "curve": {
             "description": "Curve family \u2014 line | circle | other (spline/ellipse/\u2026)",
@@ -557,6 +557,7 @@
                 "loft": "#/components/schemas/LoftFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
+                "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
                 "sweep": "#/components/schemas/SweepFeature"
               },
@@ -586,6 +587,9 @@
               },
               {
                 "$ref": "#/components/schemas/ChamferFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ShellFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -671,6 +675,29 @@
         "title": "ExtrudeParamsV1",
         "type": "object"
       },
+      "FaceSelector": {
+        "description": "The faces to REMOVE (leave open) in a shell, named by stage-1 signatures.\n\nEach ref is a :class:`SubshapeRef` \u2014 the SAME planar-face signature the\n``on_face`` datum uses (topo-naming \u00a74), resolved against the current body\nnearest-within-tolerance, exactly one or an honest error. The face\nsignatures the geometry service resolves are the ones a pick UI echoes\nstraight from ``/overlay`` (the sketch-on-face pick set).\n\nDESIGN DECISION (v1, docs/GEOMETRY-QA.md 2026-07-13): an EMPTY ``refs`` list\nis a valid, meaningful selection \u2014 a **fully-enclosed hollow** (the standard\n\"hollow but sealed\" case: a closed shell with a uniform-thickness cavity and\nNO opening). A non-empty list opens exactly those faces. So \u2014 unlike the\npicked-EDGE selector, whose empty list is a request-validation 422 (an empty\nfillet is a silent no-op) \u2014 an empty picked-FACE list is a real operation and\ncarries no ``min_length``. Duplicate refs that resolve to the same face\ncollapse to one (idempotent) at resolution.",
+        "properties": {
+          "kind": {
+            "const": "faces",
+            "title": "Kind",
+            "type": "string"
+          },
+          "refs": {
+            "description": "The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body). EMPTY = a fully-enclosed hollow (no opening) \u2014 a valid selection, not a 422 (design decision).",
+            "items": {
+              "$ref": "#/components/schemas/SubshapeRef"
+            },
+            "title": "Refs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "FaceSelector",
+        "type": "object"
+      },
       "FeatureCreate": {
         "description": "Create a feature. Appends at the tip; while rolled back, inserts\nimmediately after the bar and moves the bar to the new feature (\u00a73).",
         "properties": {
@@ -690,6 +717,7 @@
                 "loft": "#/components/schemas/LoftFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
+                "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
                 "sweep": "#/components/schemas/SweepFeature"
               },
@@ -719,6 +747,9 @@
               },
               {
                 "$ref": "#/components/schemas/ChamferFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ShellFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -824,6 +855,7 @@
                 "loft": "#/components/schemas/LoftFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
+                "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
                 "sweep": "#/components/schemas/SweepFeature"
               },
@@ -853,6 +885,9 @@
               },
               {
                 "$ref": "#/components/schemas/ChamferFeature"
+              },
+              {
+                "$ref": "#/components/schemas/ShellFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -965,6 +1000,7 @@
                     "loft": "#/components/schemas/LoftFeature",
                     "pattern": "#/components/schemas/PatternFeature",
                     "revolve": "#/components/schemas/RevolveFeature",
+                    "shell": "#/components/schemas/ShellFeature",
                     "sketch": "#/components/schemas/SketchFeature",
                     "sweep": "#/components/schemas/SweepFeature"
                   },
@@ -994,6 +1030,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/ChamferFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ShellFeature"
                   },
                   {
                     "$ref": "#/components/schemas/PatternFeature"
@@ -1664,6 +1703,52 @@
           "signature"
         ],
         "title": "SelectorV1",
+        "type": "object"
+      },
+      "ShellFeature": {
+        "description": "``{\"type\": \"shell\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/ShellParamsV1"
+          },
+          "type": {
+            "const": "shell",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "ShellFeature",
+        "type": "object"
+      },
+      "ShellParamsV1": {
+        "description": "Hollow the current body to a uniform wall thickness, opening picked faces.\n\nThe housing / enclosure / cup primitive (a Part-modeling scorecard item):\nthe solid is thinned inward to a uniform wall of ``thickness_mm`` and the\nfaces named by ``faces`` are REMOVED, leaving those sides open. Like a\nfillet/chamfer/pattern it modifies the implicit single body chain (design\n\u00a77.6), so it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the\nprior body-affecting feature is tree order. The picked openings ARE named\nreferences, though: each :class:`SubshapeRef` in ``faces`` materializes into\n``feature_dependencies`` exactly like an ``on_face`` datum's face ref, so\ndeleting the referenced body feature is a write-time 409-with-dependents and\na reorder re-checks strict-backward.\n\nThickness is a UNIFORM INWARD offset (the wall grows into the solid, so the\nouter envelope is unchanged). An empty ``faces`` list hollows to a sealed\n(fully-enclosed) cavity; a non-empty list opens those faces\n(:class:`FaceSelector`). A thickness that would collapse or self-intersect\nthe cavity (\u2265 the smallest half-wall) is a per-feature\n``shell_thickness_too_large`` rebuild error, never a silently wrong body\n(docs/GEOMETRY-QA.md 2026-07-13).",
+        "properties": {
+          "faces": {
+            "$ref": "#/components/schemas/FaceSelector",
+            "description": "The faces to leave OPEN (a picked-face selector). Empty = a fully-enclosed hollow with no opening (design decision)."
+          },
+          "thickness_mm": {
+            "description": "Uniform inward wall thickness (mm). Must be small enough that the inward cavity does not self-intersect; too large is a `shell_thickness_too_large` rebuild error.",
+            "exclusiveMinimum": 0.0,
+            "title": "Thickness Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "thickness_mm",
+          "faces"
+        ],
+        "title": "ShellParamsV1",
         "type": "object"
       },
       "SketchArc": {

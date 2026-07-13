@@ -37,6 +37,74 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-13 — Shell feature (hollow to a uniform wall, opening picked faces; BACKLOG BACKEND)
+
+**What shipped (backend + golden; the in-viewport face-pick UI is the follow-up
+slice).** A `shell` feature hollows the current body to a uniform inward wall
+thickness and removes (leaves open) the faces named by a `{kind:"faces", refs:
+SubshapeRef[]}` `FaceSelector` — the housing / enclosure / cup primitive. The
+**third** `SubshapeRef` consumer, reusing the 2026-07-12 planar-face signature
+machinery verbatim (`resolve_faces` mirrors the edge resolver's exactly-one/dedup
+shape): the faces to open are named by the SAME `PlanarFaceSignature`
+(normal/centroid/area) the sketch-on-face `on_face` datum resolves, NOT a
+parallel taxonomy.
+
+**DESIGN DECISION — empty faces = a fully-enclosed (sealed) hollow.** An empty
+`refs` list is a valid, meaningful selection (a closed shell with a uniform
+cavity and no opening — the standard "hollow but sealed" case), NOT a 422. This
+DIFFERS from the picked-EDGE selector (whose empty list is a request-validation
+422, because an empty fillet is a silent no-op): an empty picked-FACE list is a
+real operation, so `FaceSelector.refs` carries no `min_length`. Evidence: a
+sealed 40×25×10 / 2 mm hollow measures 5464 mm³ (cavity 36×21×6 = 4536) and — as
+expected for a closed hollow solid — has **2 disjoint shells** (outer skin +
+inner cavity surface), where the open-top golden has **1** (the opening joins
+inner and outer into one connected shell).
+
+**ANALYTIC ↔ OCCT-SHELL RECONCILIATION (the subtlety, resolved honestly).** The
+inward `MakeThickSolid` offset moves each RETAINED wall face inward by `t`, but
+NOT the removed face. So for the open-top box the cavity height is `10 − t` (one
+wall in z — the floor — not two), giving cavity 36×21×8 and volume `10000 −
+6048 = 3952`. The naïve "subtract 2 t from every dimension" guess (cavity height
+`10 − 2t = 6`) is WRONG for an open face — hand-derivation and OCCT agree only
+once the removed-face-has-no-wall rule is applied. Verified: harness volume =
+3952.0 **exactly** (Δ 0.0), so analytic and OCCT agree to the bit; the golden
+records the analytic 3952, not a measured-and-blessed number.
+
+**Golden `shell-open-top-box-40x25x10-t2` (open-top box, all-planar).** The
+40×25×10 box shelled to a 2 mm wall with the +Z top face opened. HAND-DERIVED,
+cross-checked against the harness:
+
+| quantity | analytic | harness | Δ |
+|---|---|---|---|
+| volume (mm³) | 10000 − 6048 = 3952 | 3952.0 | 0.0 |
+| surface_area (mm²) | 2300 + 1668 + 244 = 4212 | 4212.0 | 0.0 |
+| centroid.x / .y (mm) | 20 / 12.5 (two mirror planes) | 20.0 / 12.5 | 0.0 |
+| centroid.z (mm) | 13712/3952 = 3.4696356275303644 | 3.4696356275303653 | 8.9e-16 |
+| bbox | [0,0,0]..[40,25,10] (inward offset — envelope unchanged) | exact | — |
+| topology | 11 faces / 24 edges / 1 shell | exact | — |
+| mesh | 48 verts / 28 tris (10 rects @4/2 + 1 rim frame @8/8) | exact | — |
+
+Tolerance **1e-9** (PLANAR-geometry, measured-then-set, matching
+`chamfer-plate-d5`/`sketch-extrude`; worst deviation centroid.z 8.9e-16 →
+~1e6× headroom). Byte-determinism incl. **interpreter restart** PROVES the FACE
+ref resolves the same across a fresh rebuild (the sketch-on-face signature reused
+for openings); the STEP round-trip re-imports the all-planar hollow B-rep.
+
+**Error paths (per-feature, strict-prefix, never a 500).** `no_prior_body` (shell
+before any body-affecting feature); `subshape_unresolved` / `subshape_ambiguous`
+(a face ref that no longer resolves / a congruent twin — the shared subshape
+taxonomy); `shell_thickness_too_large` and `shell_failed` for a too-thick wall.
+**OCCT surfaces a too-thick wall two ways** (measured, build123d 0.11.1 / OCCT
+7.9), and the kernel catches BOTH rather than ship a wrong body: (a) it SILENTLY
+returns the un-hollowed body (walls merged, no material removed) — caught by the
+**material-removed invariant** (a valid inward shell strictly reduces volume) →
+`shell_thickness_too_large` (t=10 on the open-top box, the load-bearing guard
+against a silent full-volume solid); (b) it RAISES `StdFail_NotDone` when the
+offset cannot complete → `shell_failed`, the belt-and-braces bucket (t=12.5
+collapses the 25 mm depth). Dependency wiring: each opened face's
+`SubshapeRef.feature_id` materializes into `feature_dependencies`
+(409-with-dependents on delete); an empty (sealed) faces list carries none.
+
 ## 2026-07-13 — Click-specific edge selection for fillet/chamfer (stage-1 EDGE signature; BACKLOG #2 BACKEND)
 
 **What shipped (backend + schema foundation; the in-viewport edge-pick UI is the

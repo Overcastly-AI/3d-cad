@@ -20,8 +20,10 @@ axis, sharing extrude's profile + boolean plumbing), ``sweep`` (the first
 non-prismatic feature — sweeps a profile along a SECOND sketch's open path
 wire), ``loft`` (blends a solid through two or more ordered section sketches),
 ``fillet`` (rounds
-selected edges of that body chain) and ``chamfer`` (bevels selected edges; both
-body-affecting and both resolving edges through the shared geometric selector).
+selected edges of that body chain), ``chamfer`` (bevels selected edges; both
+body-affecting and both resolving edges through the shared geometric selector)
+and ``shell`` (hollows the body to a uniform wall, opening picked faces resolved
+through the SAME stage-1 planar-face signature the ``on_face`` datum uses).
 A feature that
 validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
@@ -69,6 +71,7 @@ from py_kit.schemas.features import (
     LoftFeature,
     PatternFeature,
     RevolveFeature,
+    ShellFeature,
     SketchFeature,
     SolvedSketchData,
     SweepFeature,
@@ -97,6 +100,8 @@ from geometry.kernel import (
     ProfileNotClosedError,
     ProfileUnsupportedError,
     RevolveError,
+    ShellError,
+    ShellThicknessError,
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
     SweepError,
@@ -115,8 +120,10 @@ from geometry.kernel import (
     measure_shape,
     resolve_axis_line,
     resolve_face_plane,
+    resolve_faces,
     revolve_face,
     select_edges,
+    shell_body,
     sweep_profile,
     tessellate_glb,
 )
@@ -728,6 +735,55 @@ def _evaluate_chamfer(
     return None
 
 
+def _evaluate_shell(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Hollow the current body to a uniform wall, opening picked faces (§4.3).
+
+    Shell modifies the implicit single body (design §7.6), so it needs a prior
+    body-affecting feature (``no_prior_body`` otherwise). The faces to REMOVE
+    (leave open) are resolved by the picked-FACE resolver
+    (:func:`resolve_faces` — the SAME stage-1 planar-face signature the
+    ``on_face`` datum uses, NOT a parallel taxonomy): a ref that no longer
+    resolves is ``subshape_unresolved``, a congruent twin ``subshape_ambiguous``.
+    An EMPTY faces list is a valid sealed (fully-enclosed) hollow — never an
+    error. A thickness that collapses the cavity is ``shell_thickness_too_large``
+    (OCCT's silent too-thick path, caught by the material-removed invariant); a
+    kernel offset failure is ``shell_failed`` (belt-and-braces). ``state.body``
+    is only replaced on success (strict-prefix rule tessellates the last-good
+    body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, ShellFeature), "registry dispatches on type='shell'"
+    params = feature.params
+
+    if state.body is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "Shell requires an existing body, but no body-affecting feature "
+                "precedes this one; add a feature that creates a body first."
+            ),
+        )
+
+    try:
+        faces = resolve_faces(
+            state.body, [ref.selector.signature for ref in params.faces.refs]
+        )
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(code="subshape_unresolved", message=str(exc))
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(code="subshape_ambiguous", message=str(exc))
+
+    try:
+        state.body = shell_body(state.body, faces, params.thickness_mm)
+    except ShellThicknessError as exc:
+        return FeatureError(code="shell_thickness_too_large", message=str(exc))
+    except ShellError as exc:
+        return FeatureError(code="shell_failed", message=str(exc))
+    return None
+
+
 def _evaluate_pattern(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -808,6 +864,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "loft": _evaluate_loft,
     "fillet": _evaluate_fillet,
     "chamfer": _evaluate_chamfer,
+    "shell": _evaluate_shell,
     "pattern": _evaluate_pattern,
 }
 

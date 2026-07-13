@@ -960,8 +960,10 @@ export interface components {
          *     separates two collinear edges that share an endpoint, and pins a full-circle
          *     seam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT
          *     edges of an authored part differ in at least one field (endpoints/midpoint
-         *     by whole mm, or length, or curve kind); genuinely congruent edges of a
-         *     symmetric part tie and resolve to an honest ``subshape_ambiguous`` (§5),
+         *     by whole mm, or length, or curve kind) — including the mirror-congruent
+         *     edges of a symmetric part, which have DISTINCT absolute positions and so do
+         *     NOT tie. Only edges that truly coincide in space (a boolean seam, a
+         *     non-manifold duplicate) resolve to an honest ``subshape_ambiguous`` (§5),
          *     never a guess. Matching is nearest-within-tolerance at the documented
          *     subshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an
          *     ad-hoc epsilon.
@@ -1157,7 +1159,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Id
              * Format: uuid
@@ -1247,6 +1249,37 @@ export interface components {
             profile: components["schemas"]["FeatureRef"];
         };
         /**
+         * FaceSelector
+         * @description The faces to REMOVE (leave open) in a shell, named by stage-1 signatures.
+         *
+         *     Each ref is a :class:`SubshapeRef` — the SAME planar-face signature the
+         *     ``on_face`` datum uses (topo-naming §4), resolved against the current body
+         *     nearest-within-tolerance, exactly one or an honest error. The face
+         *     signatures the geometry service resolves are the ones a pick UI echoes
+         *     straight from ``/overlay`` (the sketch-on-face pick set).
+         *
+         *     DESIGN DECISION (v1, docs/GEOMETRY-QA.md 2026-07-13): an EMPTY ``refs`` list
+         *     is a valid, meaningful selection — a **fully-enclosed hollow** (the standard
+         *     "hollow but sealed" case: a closed shell with a uniform-thickness cavity and
+         *     NO opening). A non-empty list opens exactly those faces. So — unlike the
+         *     picked-EDGE selector, whose empty list is a request-validation 422 (an empty
+         *     fillet is a silent no-op) — an empty picked-FACE list is a real operation and
+         *     carries no ``min_length``. Duplicate refs that resolve to the same face
+         *     collapse to one (idempotent) at resolution.
+         */
+        FaceSelector: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "faces";
+            /**
+             * Refs
+             * @description The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body). EMPTY = a fully-enclosed hollow (no opening) — a valid selection, not a 422 (design decision).
+             */
+            refs?: components["schemas"]["SubshapeRef"][];
+        };
+        /**
          * FeatureCreate
          * @description Create a feature. Appends at the tip; while rolled back, inserts
          *     immediately after the bar and moves the bar to the new feature (§3).
@@ -1258,7 +1291,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -1339,7 +1372,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Id
              * Format: uuid
@@ -1418,7 +1451,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["PatternFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["PatternFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -2233,6 +2266,55 @@ export interface components {
              * @description Volume (mm^3)
              */
             volume: number;
+        };
+        /**
+         * ShellFeature
+         * @description ``{"type": "shell", "version": 1, "params": {...}}`` envelope.
+         */
+        ShellFeature: {
+            params: components["schemas"]["ShellParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "shell";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * ShellParamsV1
+         * @description Hollow the current body to a uniform wall thickness, opening picked faces.
+         *
+         *     The housing / enclosure / cup primitive (a Part-modeling scorecard item):
+         *     the solid is thinned inward to a uniform wall of ``thickness_mm`` and the
+         *     faces named by ``faces`` are REMOVED, leaving those sides open. Like a
+         *     fillet/chamfer/pattern it modifies the implicit single body chain (design
+         *     §7.6), so it carries no whole-feature ``FeatureRef`` — its dependency on the
+         *     prior body-affecting feature is tree order. The picked openings ARE named
+         *     references, though: each :class:`SubshapeRef` in ``faces`` materializes into
+         *     ``feature_dependencies`` exactly like an ``on_face`` datum's face ref, so
+         *     deleting the referenced body feature is a write-time 409-with-dependents and
+         *     a reorder re-checks strict-backward.
+         *
+         *     Thickness is a UNIFORM INWARD offset (the wall grows into the solid, so the
+         *     outer envelope is unchanged). An empty ``faces`` list hollows to a sealed
+         *     (fully-enclosed) cavity; a non-empty list opens those faces
+         *     (:class:`FaceSelector`). A thickness that would collapse or self-intersect
+         *     the cavity (≥ the smallest half-wall) is a per-feature
+         *     ``shell_thickness_too_large`` rebuild error, never a silently wrong body
+         *     (docs/GEOMETRY-QA.md 2026-07-13).
+         */
+        ShellParamsV1: {
+            /** @description The faces to leave OPEN (a picked-face selector). Empty = a fully-enclosed hollow with no opening (design decision). */
+            faces: components["schemas"]["FaceSelector"];
+            /**
+             * Thickness Mm
+             * @description Uniform inward wall thickness (mm). Must be small enough that the inward cavity does not self-intersect; too large is a `shell_thickness_too_large` rebuild error.
+             */
+            thickness_mm: number;
         };
         /**
          * SketchArc
