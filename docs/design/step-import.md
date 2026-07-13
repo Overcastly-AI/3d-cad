@@ -24,7 +24,8 @@ already resolve against *any* body — including an imported one); RESEARCH §5
 The hard question this doc settles: **how imported geometry is represented and
 stored in the feature tree so a part re-evaluates deterministically** — and,
 because a STEP file is untrusted external input, how parse failures and
-oversize payloads stay legible (never a 500 or a hang). The kernel read itself
+oversize payloads stay legible (never a 500; parse-time bounding is an accepted
+v1 gap, see §6). The kernel read itself
 is easy (OCCT already reads STEP — the export round-trip uses it); the design
 weight is on the *contract*.
 
@@ -178,7 +179,7 @@ the evaluate response with no new DTO.
 
 ---
 
-## 5. Error paths + evaluation semantics (§4.3 — never a 500, never a hang)
+## 5. Error paths + evaluation semantics (§4.3 — never a 500; parse-time gap §6)
 
 All import failures are **per-feature `FeatureError` values inside a 200**
 (strict-prefix rule) — the py-kit error envelope stays reserved for
@@ -212,8 +213,18 @@ Verified failure modes: garbage bytes and empty input both return OCCT
   removes the ceiling from the tree entirely.
 - **OCCT parse failures are values, never crashes.** §5 — every read error maps
   to `import_parse_failed`; the reader is wrapped so no OCCT raise escapes as a
-  500, and the read is bounded work (no unbounded loop / network / recursion on
-  a fixed-size input).
+  500.
+- **Accepted risk (v1): the size cap bounds MEMORY, not parse TIME.** The 16 MiB
+  ceiling is a request-validation 422 *before* OCCT parses, so it bounds the
+  memory footprint of the payload — but it does **not** bound parse wall-clock
+  time. OCCT's STEP transfer is not guaranteed linear in input size; an
+  adversarial or degenerate part-21 can be super-linear, so a single import can
+  tie up its worker for an unbounded interval. The untrusted-file parse runs in
+  the sync threadpool. v1 mitigation is the size cap plus auth-gating (only
+  authenticated callers reach the evaluate path); this is accepted for v1. The
+  hard wall-clock bound — an arq job timeout and/or a subprocess-isolated parse
+  that can be killed — is **deferred to a tracked P1 fast-follow**, not shipped
+  in v1.
 - **Boundary hygiene.** `ImportParamsV1` is pure pydantic (two string literals +
   a bounded string). No kernel type crosses the boundary: the imported
   `build123d.Solid` lives only inside geometry evaluation state (like every

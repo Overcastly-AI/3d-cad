@@ -70,8 +70,12 @@ def import_step_solid(step_text: str) -> Solid:
 
     Raises:
         ImportParseError: OCCT could not read the payload (bad/empty/truncated
-            STEP), or the transfer raised. Never a hang: the work is bounded by
-            the fixed-size input.
+            STEP), or the transfer raised. The 16 MiB inline cap (a
+            request-validation 422 *before* OCCT parses) bounds MEMORY, not
+            parse TIME: OCCT's STEP transfer is not guaranteed linear, so an
+            adversarial/degenerate part-21 can be super-linear. Parse time is
+            best-effort in v1, not hard-bounded; a hard wall-clock bound (arq
+            job timeout / subprocess) is a tracked P1 fast-follow.
         ImportNotSingleSolidError: the file parsed but yielded zero or more than
             one solid (open shells, surfaces-only, or a multi-solid assembly).
             The message carries the shape stats (v1 healing report).
