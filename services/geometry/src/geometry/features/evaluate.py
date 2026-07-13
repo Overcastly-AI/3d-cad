@@ -23,7 +23,9 @@ wire), ``loft`` (blends a solid through two or more ordered section sketches),
 selected edges of that body chain), ``chamfer`` (bevels selected edges; both
 body-affecting and both resolving edges through the shared geometric selector)
 and ``shell`` (hollows the body to a uniform wall, opening picked faces resolved
-through the SAME stage-1 planar-face signature the ``on_face`` datum uses).
+through the SAME stage-1 planar-face signature the ``on_face`` datum uses) and
+``draft`` (tapers picked faces by an angle about a principal-datum neutral plane
+— the molding/casting release, reusing that SAME picked-face resolver).
 A feature that
 validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
@@ -58,6 +60,7 @@ from py_kit.schemas.features import (
     DatumOffsetParams,
     DatumOnFaceParams,
     DatumPlaneRef,
+    DraftFeature,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     EvaluateTreeResult,
@@ -83,6 +86,7 @@ from geometry.kernel import (
     AxisIntersectsProfileError,
     BooleanError,
     ChamferError,
+    DraftError,
     FilletError,
     LoftError,
     NoAxisError,
@@ -113,6 +117,7 @@ from geometry.kernel import (
     check_axis_clears_profile,
     circular_pattern,
     combine_body,
+    draft_body,
     extrude_face,
     fillet_body,
     linear_pattern,
@@ -784,6 +789,68 @@ def _evaluate_shell(
     return None
 
 
+def _evaluate_draft(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Taper picked faces of the current body by a constant angle (§4.3).
+
+    Draft modifies the implicit single body (design §7.6), so it needs a prior
+    body-affecting feature (``no_prior_body`` otherwise). The faces to TAPER are
+    resolved by the picked-FACE resolver (:func:`resolve_faces` — the SAME
+    stage-1 planar-face signature shell / the ``on_face`` datum use, NOT a
+    parallel taxonomy): a ref that no longer resolves is ``subshape_unresolved``,
+    a congruent twin ``subshape_ambiguous``. Unlike shell, an EMPTY selection has
+    nothing to taper → ``no_draft_faces`` (draft is not a no-op). The neutral
+    plane (the fixed plane, whose normal is the pull direction) is built from a
+    principal datum through the SAME :func:`build_datum_plane` an offset datum
+    uses (no picked geometry — independent of topological naming). A kernel draft
+    failure (angle too large / undraftable face — OCCT RAISES, never a silent bad
+    body) is ``draft_failed``. ``state.body`` is only replaced on success
+    (strict-prefix rule tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, DraftFeature), "registry dispatches on type='draft'"
+    params = feature.params
+
+    if state.body is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "Draft requires an existing body, but no body-affecting feature "
+                "precedes this one; add a feature that creates a body first."
+            ),
+        )
+
+    try:
+        faces = resolve_faces(
+            state.body, [ref.selector.signature for ref in params.faces.refs]
+        )
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(code="subshape_unresolved", message=str(exc))
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(code="subshape_ambiguous", message=str(exc))
+
+    if not faces:
+        return FeatureError(
+            code="no_draft_faces",
+            message=(
+                "Draft must taper at least one face, but the picked-face "
+                "selection is empty; pick the faces to taper."
+            ),
+        )
+
+    neutral = build_datum_plane(
+        params.neutral_plane.base,
+        params.neutral_plane.offset_mm,
+        params.neutral_plane.flip,
+    )
+    try:
+        state.body = draft_body(state.body, faces, neutral, params.angle_deg)
+    except DraftError as exc:
+        return FeatureError(code="draft_failed", message=str(exc))
+    return None
+
+
 def _evaluate_pattern(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -865,6 +932,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "fillet": _evaluate_fillet,
     "chamfer": _evaluate_chamfer,
     "shell": _evaluate_shell,
+    "draft": _evaluate_draft,
     "pattern": _evaluate_pattern,
 }
 

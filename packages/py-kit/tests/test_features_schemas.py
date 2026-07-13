@@ -15,6 +15,7 @@ from py_kit.schemas.features import (
     DatumFeature,
     DatumOffsetParams,
     DatumPlaneRef,
+    DraftFeature,
     ExtrudeFeature,
     Feature,
     FeatureCreate,
@@ -312,6 +313,65 @@ def test_shell_empty_faces_is_sealed_hollow_with_no_references() -> None:
     shell = _shell_with_faces([])
     assert feature_references(shell) == ()
     assert list(iter_feature_refs(shell)) == []
+
+
+def _draft_with_faces(refs: list[dict[str, Any]]) -> DraftFeature:
+    return DraftFeature.model_validate(
+        {
+            "type": "draft",
+            "version": 1,
+            "params": {
+                "angle_deg": 5.0,
+                "neutral_plane": {"base": "XY"},
+                "faces": {"kind": "faces", "refs": refs},
+            },
+        }
+    )
+
+
+def test_draft_face_refs_materialize_face_dependencies() -> None:
+    """A draft's picked-face selector surfaces each face SubshapeRef as a
+    dependency on a body-affecting feature (allowed types =
+    BODY_AFFECTING_FEATURE_TYPES) — the SAME wiring as shell / the on_face datum
+    — and the generic walk finds the SAME refs so the feature_references
+    self-check stays balanced."""
+    ref_id = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000d5")
+    draft = _draft_with_faces(
+        [
+            {
+                "kind": "subshape",
+                "feature_id": str(ref_id),
+                "subshape_type": "face",
+                "selector": {
+                    "selector_version": 1,
+                    "signature": {
+                        "normal": {"x": 1.0, "y": 0.0, "z": 0.0},
+                        "centroid": {"x": 40.0, "y": 20.0, "z": 10.0},
+                        "area_mm2": 800.0,
+                    },
+                },
+            }
+        ]
+    )
+    (reference,) = feature_references(draft)
+    assert reference.slot == "faces[0]"
+    assert reference.ref.feature_id == ref_id
+    assert reference.allowed_types == BODY_AFFECTING_FEATURE_TYPES
+    assert [r.feature_id for r in iter_feature_refs(draft)] == [ref_id]
+
+
+def test_draft_neutral_plane_defaults_are_the_base_datum() -> None:
+    """The v1 neutral plane needs only ``base``; ``offset_mm``/``flip`` default to
+    a plane ON the origin datum (pull = its normal). The neutral plane carries NO
+    reference (a principal datum, independent of topological naming), so a draft's
+    only refs are its picked faces."""
+    draft = _draft_with_faces([])
+    assert draft.params.neutral_plane.base == "XY"
+    assert draft.params.neutral_plane.offset_mm == 0.0
+    assert draft.params.neutral_plane.flip is False
+    # empty faces carries no ref — the self-check stays balanced.
+    assert feature_references(draft) == ()
+    assert list(iter_feature_refs(draft)) == []
 
 
 def test_unknown_feature_type_rejected() -> None:

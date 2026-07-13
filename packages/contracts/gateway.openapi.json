@@ -454,6 +454,96 @@
         "title": "DistanceConstraint",
         "type": "object"
       },
+      "DraftFeature": {
+        "description": "``{\"type\": \"draft\", \"version\": 1, \"params\": {...}}`` envelope.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/DraftParamsV1"
+          },
+          "type": {
+            "const": "draft",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "DraftFeature",
+        "type": "object"
+      },
+      "DraftNeutralPlaneV1": {
+        "description": "v1 draft neutral plane = a principal origin datum, offset + flipped.\n\nThe plane that stays FIXED under the draft (picked faces rotate about their\nintersection with it), and \u2014 because build123d's ``Solid.draft`` derives the\nPULL DIRECTION from ``neutral_plane.z_dir`` \u2014 also the pull direction (its\nnormal). Reuses the datum machinery (``geometry.kernel.build_datum_plane``,\nthe same ``base``/``offset_mm``/``flip`` an offset ``datum`` feature uses), so\nthe plane is a DETERMINISTIC pure function of its params (RESEARCH \u00a79), needs\nno picked geometry, and carries NO feature reference (independent of\ntopological naming #1).\n\n``kind`` defaults to ``\"datum\"`` and seeds a future additive union (a face-\npicked or datum-feature-referenced neutral plane joins as another ``kind``\nwith NO ``param_version`` bump \u2014 the :data:`PatternGeometry` / RevolveAxis\nidiom).",
+        "properties": {
+          "base": {
+            "description": "Origin datum the neutral plane is parallel to; its normal is the PULL direction (out of the mold). +Z for the default XY base.",
+            "enum": [
+              "XY",
+              "XZ",
+              "YZ"
+            ],
+            "title": "Base",
+            "type": "string"
+          },
+          "flip": {
+            "default": false,
+            "description": "Reverse the pull direction (negate the plane normal) \u2014 the OTHER mold half. Additive-optional; absent reads as False.",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "datum",
+            "default": "datum",
+            "title": "Kind",
+            "type": "string"
+          },
+          "offset_mm": {
+            "default": 0.0,
+            "description": "Signed distance along `base`'s normal (mm) to the neutral plane; 0 sits on the origin datum (the base). Any finite value is valid.",
+            "title": "Offset Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "base"
+        ],
+        "title": "DraftNeutralPlaneV1",
+        "type": "object"
+      },
+      "DraftParamsV1": {
+        "description": "Taper picked faces of the current body by a constant angle (design \u00a74.3).\n\nThe molding/casting RELEASE primitive (also tapered bosses/walls): the faces\nnamed by ``faces`` are tilted by ``angle_deg`` about their intersection with\nthe ``neutral_plane``, so a body pulls cleanly from a mold along the neutral\nplane's normal. Like a fillet/chamfer/shell it modifies the implicit single\nbody chain (design \u00a77.6), so it carries no whole-feature ``FeatureRef`` \u2014 its\ndependency on the prior body-affecting feature is tree order. The picked faces\nARE named references, though: each :class:`SubshapeRef` in ``faces``\nmaterializes into ``feature_dependencies`` exactly like a shell opening or an\n``on_face`` datum's face ref, so deleting the referenced body feature is a\nwrite-time 409-with-dependents and a reorder re-checks strict-backward.\n\n``faces`` reuses the SAME :class:`FaceSelector` shell uses (topo-naming \u00a74).\nUnlike shell \u2014 where an EMPTY selection is a meaningful sealed hollow \u2014 a\ndraft with NO faces has nothing to taper, so an empty selection is a\n``no_draft_faces`` rebuild error (draft must pick at least one face), never a\nsilent no-op.\n\nSIGN CONVENTION (measured against OCCT, docs/GEOMETRY-QA.md 2026-07-13): a\nPOSITIVE ``angle_deg`` tapers each face INWARD toward the pull direction \u2014\nthe top (the ``neutral_plane``-normal end) NARROWS, the standard mold\nrelease. A NEGATIVE angle tapers OUTWARD (the far end widens \u2014 the opposite\nmold half). An angle too large for the geometry (the tapered faces collapse\nto zero width / self-intersect) is a ``draft_failed`` rebuild error \u2014 OCCT\nRAISES on that path, it never silently returns a bad body (unlike shell, so\nno material-validity guard is needed \u2014 investigation recorded in\ndocs/GEOMETRY-QA.md), so ``draft_failed`` is never a silently wrong solid.\n\nv1 limits (documented scope, not bugs): ONE constant angle, principal-datum\nneutral plane only (see :class:`DraftNeutralPlaneV1`), planar/cylindrical/\nconical faces only (a face OCCT cannot draft is a ``draft_failed``). NO\nvariable-angle, NO parting-line, NO face-picked neutral plane (all later,\nadditive \u2014 no ``param_version`` bump).",
+        "properties": {
+          "angle_deg": {
+            "description": "Draft angle (degrees). POSITIVE tapers INWARD toward the pull direction (top narrows \u2014 mold release); NEGATIVE tapers outward. An angle too large for the geometry is a `draft_failed` rebuild error.",
+            "exclusiveMaximum": 90.0,
+            "exclusiveMinimum": -90.0,
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "faces": {
+            "$ref": "#/components/schemas/FaceSelector",
+            "description": "The faces to TAPER (a picked-face selector, the SAME stage-1 signature shell/on_face use). Must name at least one face \u2014 an empty selection is a `no_draft_faces` rebuild error (draft is not a no-op)."
+          },
+          "neutral_plane": {
+            "$ref": "#/components/schemas/DraftNeutralPlaneV1",
+            "description": "The fixed plane the picked faces rotate about; its normal is the pull direction (:class:`DraftNeutralPlaneV1`)."
+          }
+        },
+        "required": [
+          "faces",
+          "angle_deg",
+          "neutral_plane"
+        ],
+        "title": "DraftParamsV1",
+        "type": "object"
+      },
       "EdgeSelectorV1": {
         "description": "Stage-1 edge selector payload: the geometric signature alone (\u00a73, \u00a74).\n\nThe edge sibling of :class:`SelectorV1`. ``selector_version`` is the\ndiscriminator of the (currently single-member) edge selector union,\ndecoupled from feature ``param_version`` (\u00a74); stage 2 adds a signature +\nprovenance member additively, with no change to persisted v1 rows.",
         "properties": {
@@ -743,6 +833,7 @@
               "mapping": {
                 "chamfer": "#/components/schemas/ChamferFeature",
                 "datum": "#/components/schemas/DatumFeature",
+                "draft": "#/components/schemas/DraftFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
                 "loft": "#/components/schemas/LoftFeature",
@@ -781,6 +872,9 @@
               },
               {
                 "$ref": "#/components/schemas/ShellFeature"
+              },
+              {
+                "$ref": "#/components/schemas/DraftFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -959,6 +1053,7 @@
               "mapping": {
                 "chamfer": "#/components/schemas/ChamferFeature",
                 "datum": "#/components/schemas/DatumFeature",
+                "draft": "#/components/schemas/DraftFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
                 "loft": "#/components/schemas/LoftFeature",
@@ -997,6 +1092,9 @@
               },
               {
                 "$ref": "#/components/schemas/ShellFeature"
+              },
+              {
+                "$ref": "#/components/schemas/DraftFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -1131,6 +1229,7 @@
               "mapping": {
                 "chamfer": "#/components/schemas/ChamferFeature",
                 "datum": "#/components/schemas/DatumFeature",
+                "draft": "#/components/schemas/DraftFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
                 "loft": "#/components/schemas/LoftFeature",
@@ -1169,6 +1268,9 @@
               },
               {
                 "$ref": "#/components/schemas/ShellFeature"
+              },
+              {
+                "$ref": "#/components/schemas/DraftFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -1322,6 +1424,7 @@
                   "mapping": {
                     "chamfer": "#/components/schemas/ChamferFeature",
                     "datum": "#/components/schemas/DatumFeature",
+                    "draft": "#/components/schemas/DraftFeature",
                     "extrude": "#/components/schemas/ExtrudeFeature",
                     "fillet": "#/components/schemas/FilletFeature",
                     "loft": "#/components/schemas/LoftFeature",
@@ -1360,6 +1463,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/ShellFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DraftFeature"
                   },
                   {
                     "$ref": "#/components/schemas/PatternFeature"

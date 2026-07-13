@@ -192,10 +192,24 @@ item:
       vs-open copy → `FaceSelector` payload; e2e `shell.spec` renders an open-top
       hollow (8,000→3,392 mm³) and a sealed hollow (3,904 mm³). Third
       `SubshapeRef` consumer after sketch-on-face + edge-pick.
+- 🚧 Draft feature — **backend + golden shipped 2026-07-13** (pick-to-taper UI
+      is the follow-up). `DraftFeature`/`DraftParamsV1` tapers picked faces by
+      `angle_deg` about a `DraftNeutralPlaneV1` principal-datum neutral plane
+      (pull = the plane normal), reusing the SAME `{kind:"faces"}` `FaceSelector`
+      `SubshapeRef` machinery shell uses (fourth consumer); `geometry.kernel.draft`
+      wraps build123d `Solid.draft` (`BRepOffsetAPI_DraftAngle`). Golden
+      `draft-frustum-box-40x40x20-5deg`: a 40×40×20 box, four sides drafted 5°
+      inward about the XY base → an analytic square frustum (29,282.008 mm³),
+      byte-deterministic incl. interpreter restart + STEP round-trip. v1 scope:
+      one constant angle, principal-datum neutral plane, no variable-angle /
+      parting-line. Errors `no_prior_body` / `subshape_unresolved` /
+      `no_draft_faces` / `draft_failed` — OCCT RAISES on collapse, so (unlike
+      shell) no silent-bad-body guard is needed (GEOMETRY-QA 2026-07-13).
 - 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face +
-      shell now landed end-to-end (backend + UI); draft, dedicated
-      hole, multi-body boolean still unbuilt, several gated on face/edge
-      picking (BACKLOG Ready + Next).
+      shell landed end-to-end (backend + UI); draft **backend + golden shipped
+      2026-07-13** (`DraftFeature`, frustum golden 29,282.008 mm³, pick-to-taper
+      UI pending); dedicated hole, multi-body boolean still unbuilt, several
+      gated on face/edge picking (BACKLOG Ready + Next).
 - 🚧 Two independent audits landed 2026-07-12 (`docs/AUDIT-PRODUCT.md`
       6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found (all gates
       green, boundaries/license clean); findings filed to BACKLOG (Ready:

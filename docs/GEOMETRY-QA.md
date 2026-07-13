@@ -37,6 +37,93 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-13 — Draft feature (taper picked faces by an angle; BACKLOG BACKEND)
+
+**What shipped (backend + golden; the in-viewport pick-to-taper UI is the
+follow-up slice).** A `draft` feature tapers the current body's picked faces by a
+constant angle about a neutral plane — the molding/casting **release** primitive
+(also tapered bosses/walls). The **fourth** `SubshapeRef` consumer, reusing the
+planar-face signature machinery verbatim: the faces to taper are named by the
+SAME `{kind:"faces", refs: SubshapeRef[]}` `FaceSelector` shell uses, resolved by
+the SAME `resolve_faces` (exactly-one / dedup / deterministic order), NOT a
+parallel taxonomy. Kernel: `geometry.kernel.draft.draft_body` wraps build123d
+`Solid.draft` (`BRepOffsetAPI_DraftAngle` underneath).
+
+**v1 SCOPE DECISION — principal-datum neutral plane, pull = its normal (stated
+plainly, for the pick-UI follow-up).** The neutral plane (the fixed plane the
+faces rotate about) AND the pull direction are ONE `DraftNeutralPlaneV1` = a
+principal origin datum (`base` XY/XZ/YZ) + `offset_mm` + `flip`, resolved through
+the SAME `build_datum_plane` an offset datum uses. This is deliberate: build123d's
+`Solid.draft` derives the pull direction from `neutral_plane.z_dir`, so one datum
+fixes both. It reuses the datum machinery rather than inventing a picker, is a
+deterministic pure function (no picked geometry → no feature reference beyond the
+tapered faces), and covers the canonical "taper these faces by N° about the base
+plane, pull +Z". **What v1 does NOT do** (future ADDITIVE increments — a
+`kind`-discriminated neutral-plane member, no `param_version` bump): a neutral
+plane PICKED as a planar face or REFERENCED as a datum feature; VARIABLE-angle
+draft; PARTING-LINE draft. One constant angle about one principal-datum plane.
+
+**SIGN CONVENTION (measured against OCCT, build123d 0.11.1 / OCCT 7.9).** A
+POSITIVE `angle_deg` tapers each face INWARD toward the pull direction (the
+pull-normal end NARROWS) — the standard mold release; NEGATIVE tapers outward
+(the far end widens — the other mold half). Measured on the 40×40×20 box drafted
+about the XY base (pull +Z): +5° → 29 282.008 mm³ (< the 32 000 box); −5° →
+34 881.28 mm³ (> box, top overhangs so bbox.x > 40). Confirmed by direct
+measurement, not assumed.
+
+**Golden `draft-frustum-box-40x40x20-5deg` (square frustum, all-planar-slanted).**
+A 40×40×20 box (sketch 40×40 → extrude 20), all four side faces (+X/−X/+Y/−Y)
+drafted 5° inward about the XY base (neutral z=0, pull +Z) → a truncated square
+pyramid. The base stays 40×40 (it lies on the neutral plane); the top shrinks to
+`40 − 2·h·tan5° = 36.50045…` per side. HAND-DERIVED (analytic frustum), then
+cross-checked against the harness:
+
+| quantity | analytic | harness | Δ |
+|---|---|---|---|
+| volume (mm³) | `h/3·(A_b + A_t + √(A_b·A_t))` = 29282.008273789652 | 29282.00827378966 | 7.3e-12 |
+| surface_area (mm²) | 1600 + top² + 4·trapezoid(slant `h/cos5°`) = 6003.990013236674 | …675 | 9.1e-13 |
+| centroid.x / .y (mm) | 20 / 20 (two mirror planes) | 20.0 / 20.0 | 0.0 |
+| centroid.z (mm) | `∫z·A(z)dz / V` = 9.695243014314576 | 9.695243014314576 | 0.0 |
+| bbox | [0,0,0]..[40,40,20] (base on neutral plane, top shrinks inward) | max exact, min ~5e-16 | — |
+| topology | 6 faces / 12 edges / 1 shell (frustum ≡ box topology; faces tilt in place) | exact | — |
+| mesh | 24 verts / 12 tris (6 planar quads @4/2) | exact | — |
+
+Tolerance **1e-9** (SLANTED-PLANAR, measured-then-set, matching the
+revolve/fillet posture; worst deviation volume 7.3e-12 ≈ 2 ulp of 29 282 →
+~130× headroom — float round-off between the tan/cos-based analytic value and
+OCCT's Gauss-quadrature GProp, the faces being planar so exact-in-principle).
+Byte-determinism incl. **interpreter restart** PROVES the four FACE refs resolve
+the same across a fresh rebuild; the STEP round-trip re-imports the all-planar
+(slanted) frustum B-rep.
+
+**OCCT-DRAFT SILENT-BAD-BODY INVESTIGATION (the shell question, answered).**
+Shell needed a material-removed invariant guard because OCCT could SILENTLY return
+the un-hollowed body. **Draft does NOT have that failure mode.** Swept the full
+angle range (inward AND outward, up to and past the geometric collapse) on the
+box: every angle either produced a **valid single solid** (`BRepCheck_Analyzer`
+valid) OR OCCT **RAISED** — never a silently invalid/unchanged body. The collapse
+(the tapered faces pinch to zero width / self-intersect — e.g. the square's 40-wide
+top at 45° for h=20, or a rectangle's short side earlier) surfaces as a
+`Standard_ConstructionError` from `BRepOffsetAPI_DraftAngle` (or a
+`StdFail_NotDone` build123d re-raises as `DraftAngleError`). So **no material-
+validity guard is needed** — `draft_body` catches the raise (→ `DraftError` →
+`draft_failed`) plus the single-solid check, and that is sufficient: never a
+silently wrong solid. (Guard cost had we needed it: `BRepCheck` ≈ 0.67 ms — cheap,
+but unnecessary here.)
+
+**Error paths (per-feature, strict-prefix, never a 500).** `no_prior_body` (draft
+before any body-affecting feature); `subshape_unresolved` / `subshape_ambiguous`
+(a face ref that no longer resolves / a congruent twin — the shared subshape
+taxonomy); `no_draft_faces` (an EMPTY face selection — draft has nothing to
+taper, so unlike shell's empty=sealed-hollow this is a rebuild error, never a
+silent no-op); `draft_failed` (angle too large / undraftable face — OCCT raises,
+per the investigation above). `angle_deg` out of `(-90, 90)` is a request-
+validation 422 (shared model). Dependency wiring: each tapered face's
+`SubshapeRef.feature_id` materializes into `feature_dependencies`
+(409-with-dependents on delete), exactly like a shell opening.
+
+---
+
 ## 2026-07-13 — Shell feature (hollow to a uniform wall, opening picked faces; BACKLOG BACKEND)
 
 **What shipped (backend + golden; the in-viewport face-pick UI is the follow-up
@@ -266,6 +353,8 @@ consumes. `subshape_ambiguous` for faces is unreachable-but-guarded (above).
 | `sketch-extrude-offset-plane-40x25x10` | FIRST OFFSET-DATUM golden (offset/datum planes): datum→sketch→extrude tree — the `sketch-extrude` rectangle sketched on an XY-offset-**+30** `datum` feature, extruded 10 mm → the base box translated +30 Z, proving `resolve_sketch_plane`→`Plane.XY.offset(30)` lands the body where the math says; origin-datum path unchanged (offset 0 reproduces `Plane.XY` byte-for-byte) | 1e-9 (rigid translation of an exact origin-datum extrude, measured-then-set; vol worst 1.82e-12, area/AABB EXACTLY 0.0, centroid ≤ 3.6e-15) | 6 / 12 / 1 | 24 / 12 |
 | `loft-cylinder-offset-r10-h30` | **THE LOFT THE LOFT NOTE DEFERRED** (two-parallel-circles → cylinder, now authorable via offset planes): datum→datum→sketch→sketch→loft tree — two equal r=10 circles on XY-offset-0 and XY-offset-30 datums ruled-lofted into a right circular cylinder; analytic V = π·r²·h = 3000π, true-cylinder topology 3/3/1, mesh matches the primitive `cylinder-r10-h25` (same r → 126-segment circle) | 2e-7 (AABB-padding-limited, SAME class as `loft-pyramid`: the lofted lateral surface carries OCCT ~1e-7 tol → optimal AABB padded ~1e-7; vol EXACTLY 0.0, area 4.55e-13, centroid ≤ 1.8e-15) | 3 / 3 / 1 | 506 / 500 |
 | `boss-on-face-40x40x10-20x20x10` | **FIRST SKETCH-ON-A-MODEL-FACE golden** (stage-1 topological naming, BACKLOG #1 backend): sketch→extrude→**datum-on-face**→sketch→extrude — a 20×20 boss whose sketch sits on the base box's TOP FACE, resolved from a stage-1 `SubshapeRef` signature (normal +Z / centroid (0,0,10) / area 1600) matched against the rebuilt body; locks the datum-from-face resolver (planar-face enumeration + exactly-one signature match) + the deterministic derived sketch basis (origin=face centroid, z_dir=normal, x_dir pinned from the normal) + the fuse. Analytic V = 16000+4000 = 20000 mm³, all-planar, mesh hand-derived incl. the shoulder square-annulus (8v/8t). Face reference proven to resolve deterministically across a rebuild (in-process + interpreter-restart gates re-run the signature match) | 1e-9 (all-planar fuse, NO AABB padding, measured-then-set; vol/AABB EXACTLY 0.0, surface_area worst 9.1e-13, centroid ≤ 2.7e-15) | 11 / 24 / 1 | 48 / 28 |
+| `shell-open-top-box-40x25x10-t2` | SHELL golden (hollow to a uniform wall, opening a picked face; the **third** `SubshapeRef` consumer): sketch→extrude→shell — the 40×25×10 box hollowed to a 2 mm inward wall with the +Z top face left open (resolved from a stage-1 face signature, the SAME machinery sketch-on-face uses) → an open-top box. `MakeThickSolid` inward offset; analytic V = 10000 − 6048 (cavity 36×21×8, the open face carries no wall) = 3952 mm³ | 1e-9 (all-planar, measured-then-set; vol/area EXACTLY 0.0, centroid.z 8.9e-16) | 11 / 24 / 1 | 48 / 28 |
+| `draft-frustum-box-40x40x20-5deg` | DRAFT golden (taper picked faces by an angle; the **fourth** `SubshapeRef` consumer): sketch→extrude→draft — the 40×40×20 box's four side faces drafted 5° inward about the XY base (`DraftNeutralPlaneV1`, pull +Z) → an analytic square frustum. `BRepOffsetAPI_DraftAngle` via build123d `Solid.draft`; the base stays 40×40 (on the neutral plane), the top shrinks to `40−2·h·tan5°`. Locks the picked-face resolver reuse + neutral-plane-from-datum + the sign convention (positive = inward) + the OCCT-raises-on-collapse finding (no silent-bad-body guard needed, unlike shell). Analytic V = h/3·(A_b+A_t+√(A_b·A_t)) = 29282.008 mm³ | 1e-9 (slanted-planar, measured-then-set; vol worst 7.3e-12, area 9.1e-13, centroid EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL

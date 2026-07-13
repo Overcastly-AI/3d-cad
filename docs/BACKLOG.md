@@ -203,8 +203,16 @@ flagged, unchanged in substance, reordered below the above.
       a sealed hollow); `shell.spec.ts` real-stack e2e proves an open-top hollow
       (8,000→3,392 mm³) + a sealed hollow (3,904 mm³). [src: roadmap, competitive]
 - [ ] (P2, M) Draft feature — angle selected faces relative to a pull
-      direction. Depends on face/edge picking (Ready, above). [src: roadmap,
-      competitive]
+      direction. ✅ **BACKEND DONE 2026-07-13:** `DraftFeature`/`DraftParamsV1`
+      (`angle_deg` + a reused `{kind:"faces", refs: SubshapeRef[]}` face selector
+      + a `DraftNeutralPlaneV1` principal-datum neutral plane; pull = its normal);
+      `geometry.kernel.draft` (build123d `Solid.draft`/`BRepOffsetAPI_DraftAngle`),
+      `resolve_faces` reuse, dep-graph wiring, golden
+      `draft-frustum-box-40x40x20-5deg` (29,282.008 mm³ frustum), errors
+      `no_prior_body` / `subshape_unresolved` / `no_draft_faces` / `draft_failed`
+      (OCCT RAISES on collapse — no silent-bad-body guard needed, unlike shell)
+      [GEOMETRY-QA 2026-07-13]. **UI (pick to taper) is the follow-up** — depends
+      on face picking (Ready, above). [src: roadmap, competitive]
 - [ ] (P2, S) Units system — mm-only today; a per-part or per-workspace unit
       preference (in/mm) with display-layer conversion (kernel stays mm
       internally per CLAUDE.md tolerances). Independent. [src: roadmap]
@@ -445,6 +453,13 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-13 — **Draft feature BACKEND shipped**. `DraftFeature`/`DraftParamsV1`
+  (`angle_deg` + reused `FaceSelector` picked faces + `DraftNeutralPlaneV1`
+  principal-datum neutral plane, pull = normal); `geometry.kernel.draft`
+  (`Solid.draft`/`BRepOffsetAPI_DraftAngle`), golden
+  `draft-frustum-box-40x40x20-5deg` (29,282.008 mm³ frustum), errors incl.
+  `no_draft_faces`/`draft_failed` (OCCT raises on collapse — no silent-bad-body
+  guard needed). Pick-to-taper UI is the follow-up.
 - 2026-07-13 — **Shell feature UI shipped** (backend shipped same day). Shell tool
   in Modify (scribed `ShellIcon`, `H`, body-gated) → `ShellEditor` brass thickness
   + store-driven multi-select planar-face pick (reuses `PickNode`/overlay), honest

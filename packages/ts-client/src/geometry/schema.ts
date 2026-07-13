@@ -760,6 +760,115 @@ export interface components {
             value_mm: number;
         };
         /**
+         * DraftFeature
+         * @description ``{"type": "draft", "version": 1, "params": {...}}`` envelope.
+         */
+        DraftFeature: {
+            params: components["schemas"]["DraftParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "draft";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * DraftNeutralPlaneV1
+         * @description v1 draft neutral plane = a principal origin datum, offset + flipped.
+         *
+         *     The plane that stays FIXED under the draft (picked faces rotate about their
+         *     intersection with it), and — because build123d's ``Solid.draft`` derives the
+         *     PULL DIRECTION from ``neutral_plane.z_dir`` — also the pull direction (its
+         *     normal). Reuses the datum machinery (``geometry.kernel.build_datum_plane``,
+         *     the same ``base``/``offset_mm``/``flip`` an offset ``datum`` feature uses), so
+         *     the plane is a DETERMINISTIC pure function of its params (RESEARCH §9), needs
+         *     no picked geometry, and carries NO feature reference (independent of
+         *     topological naming #1).
+         *
+         *     ``kind`` defaults to ``"datum"`` and seeds a future additive union (a face-
+         *     picked or datum-feature-referenced neutral plane joins as another ``kind``
+         *     with NO ``param_version`` bump — the :data:`PatternGeometry` / RevolveAxis
+         *     idiom).
+         */
+        DraftNeutralPlaneV1: {
+            /**
+             * Base
+             * @description Origin datum the neutral plane is parallel to; its normal is the PULL direction (out of the mold). +Z for the default XY base.
+             * @enum {string}
+             */
+            base: "XY" | "XZ" | "YZ";
+            /**
+             * Flip
+             * @description Reverse the pull direction (negate the plane normal) — the OTHER mold half. Additive-optional; absent reads as False.
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * Kind
+             * @default datum
+             * @constant
+             */
+            kind: "datum";
+            /**
+             * Offset Mm
+             * @description Signed distance along `base`'s normal (mm) to the neutral plane; 0 sits on the origin datum (the base). Any finite value is valid.
+             * @default 0
+             */
+            offset_mm: number;
+        };
+        /**
+         * DraftParamsV1
+         * @description Taper picked faces of the current body by a constant angle (design §4.3).
+         *
+         *     The molding/casting RELEASE primitive (also tapered bosses/walls): the faces
+         *     named by ``faces`` are tilted by ``angle_deg`` about their intersection with
+         *     the ``neutral_plane``, so a body pulls cleanly from a mold along the neutral
+         *     plane's normal. Like a fillet/chamfer/shell it modifies the implicit single
+         *     body chain (design §7.6), so it carries no whole-feature ``FeatureRef`` — its
+         *     dependency on the prior body-affecting feature is tree order. The picked faces
+         *     ARE named references, though: each :class:`SubshapeRef` in ``faces``
+         *     materializes into ``feature_dependencies`` exactly like a shell opening or an
+         *     ``on_face`` datum's face ref, so deleting the referenced body feature is a
+         *     write-time 409-with-dependents and a reorder re-checks strict-backward.
+         *
+         *     ``faces`` reuses the SAME :class:`FaceSelector` shell uses (topo-naming §4).
+         *     Unlike shell — where an EMPTY selection is a meaningful sealed hollow — a
+         *     draft with NO faces has nothing to taper, so an empty selection is a
+         *     ``no_draft_faces`` rebuild error (draft must pick at least one face), never a
+         *     silent no-op.
+         *
+         *     SIGN CONVENTION (measured against OCCT, docs/GEOMETRY-QA.md 2026-07-13): a
+         *     POSITIVE ``angle_deg`` tapers each face INWARD toward the pull direction —
+         *     the top (the ``neutral_plane``-normal end) NARROWS, the standard mold
+         *     release. A NEGATIVE angle tapers OUTWARD (the far end widens — the opposite
+         *     mold half). An angle too large for the geometry (the tapered faces collapse
+         *     to zero width / self-intersect) is a ``draft_failed`` rebuild error — OCCT
+         *     RAISES on that path, it never silently returns a bad body (unlike shell, so
+         *     no material-validity guard is needed — investigation recorded in
+         *     docs/GEOMETRY-QA.md), so ``draft_failed`` is never a silently wrong solid.
+         *
+         *     v1 limits (documented scope, not bugs): ONE constant angle, principal-datum
+         *     neutral plane only (see :class:`DraftNeutralPlaneV1`), planar/cylindrical/
+         *     conical faces only (a face OCCT cannot draft is a ``draft_failed``). NO
+         *     variable-angle, NO parting-line, NO face-picked neutral plane (all later,
+         *     additive — no ``param_version`` bump).
+         */
+        DraftParamsV1: {
+            /**
+             * Angle Deg
+             * @description Draft angle (degrees). POSITIVE tapers INWARD toward the pull direction (top narrows — mold release); NEGATIVE tapers outward. An angle too large for the geometry is a `draft_failed` rebuild error.
+             */
+            angle_deg: number;
+            /** @description The faces to TAPER (a picked-face selector, the SAME stage-1 signature shell/on_face use). Must name at least one face — an empty selection is a `no_draft_faces` rebuild error (draft is not a no-op). */
+            faces: components["schemas"]["FaceSelector"];
+            /** @description The fixed plane the picked faces rotate about; its normal is the pull direction (:class:`DraftNeutralPlaneV1`). */
+            neutral_plane: components["schemas"]["DraftNeutralPlaneV1"];
+        };
+        /**
          * EdgeSelectorV1
          * @description Stage-1 edge selector payload: the geometric signature alone (§3, §4).
          *
@@ -989,7 +1098,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"];
             /**
              * Id
              * Format: uuid

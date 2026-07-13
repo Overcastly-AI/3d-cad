@@ -729,6 +729,124 @@ class ShellParamsV1(BaseModel):
     )
 
 
+# --- Draft params — taper picked faces by an angle (mold/casting release) --------
+#
+# Draft tapers picked faces AWAY FROM (or toward) a pull direction by a small
+# angle: the classic molding/casting release, but also tapered bosses/walls. It
+# reuses the picked-FACE :class:`FaceSelector` machinery shell shipped (topo-
+# naming §4) — pick the faces to taper, resolved against the current body by the
+# SAME stage-1 planar-face signature the ``on_face`` datum uses, NOT a parallel
+# taxonomy.
+#
+# v1 SCOPE DECISION (docs/GEOMETRY-QA.md 2026-07-13 — stated plainly, not
+# oversold): the NEUTRAL PLANE (the plane that stays fixed — faces rotate about
+# their intersection with it) and the PULL DIRECTION are a PRINCIPAL ORIGIN DATUM
+# (XY/XZ/YZ) with an optional offset + flip, reusing the datum machinery
+# (``build_datum_plane``) rather than inventing a new picker. The pull direction
+# IS that plane's normal (build123d ``Solid.draft`` derives the pull from
+# ``neutral_plane.z_dir``), so one datum fixes both. This covers the canonical
+# case — "taper these faces by N° about the base plane, pull +Z" — and the base/
+# offset/flip knobs cover the other principal planes and offset heights.
+#
+# What v1 does NOT do (future ADDITIVE increments — a ``kind``-discriminated
+# neutral-plane member or new params, NO ``param_version`` bump — the RevolveAxis
+# idiom): a neutral plane PICKED as a planar face (SubshapeRef) or referenced as a
+# datum feature; VARIABLE-angle draft; PARTING-LINE draft (the neutral line split
+# across a face). One constant angle about one principal-datum neutral plane.
+
+
+class DraftNeutralPlaneV1(BaseModel):
+    """v1 draft neutral plane = a principal origin datum, offset + flipped.
+
+    The plane that stays FIXED under the draft (picked faces rotate about their
+    intersection with it), and — because build123d's ``Solid.draft`` derives the
+    PULL DIRECTION from ``neutral_plane.z_dir`` — also the pull direction (its
+    normal). Reuses the datum machinery (``geometry.kernel.build_datum_plane``,
+    the same ``base``/``offset_mm``/``flip`` an offset ``datum`` feature uses), so
+    the plane is a DETERMINISTIC pure function of its params (RESEARCH §9), needs
+    no picked geometry, and carries NO feature reference (independent of
+    topological naming #1).
+
+    ``kind`` defaults to ``"datum"`` and seeds a future additive union (a face-
+    picked or datum-feature-referenced neutral plane joins as another ``kind``
+    with NO ``param_version`` bump — the :data:`PatternGeometry` / RevolveAxis
+    idiom).
+    """
+
+    kind: Literal["datum"] = "datum"
+    base: Literal["XY", "XZ", "YZ"] = Field(
+        description="Origin datum the neutral plane is parallel to; its normal is "
+        "the PULL direction (out of the mold). +Z for the default XY base."
+    )
+    offset_mm: float = Field(
+        default=0.0,
+        allow_inf_nan=False,
+        description="Signed distance along `base`'s normal (mm) to the neutral "
+        "plane; 0 sits on the origin datum (the base). Any finite value is valid.",
+    )
+    flip: bool = Field(
+        default=False,
+        description="Reverse the pull direction (negate the plane normal) — the "
+        "OTHER mold half. Additive-optional; absent reads as False.",
+    )
+
+
+class DraftParamsV1(BaseModel):
+    """Taper picked faces of the current body by a constant angle (design §4.3).
+
+    The molding/casting RELEASE primitive (also tapered bosses/walls): the faces
+    named by ``faces`` are tilted by ``angle_deg`` about their intersection with
+    the ``neutral_plane``, so a body pulls cleanly from a mold along the neutral
+    plane's normal. Like a fillet/chamfer/shell it modifies the implicit single
+    body chain (design §7.6), so it carries no whole-feature ``FeatureRef`` — its
+    dependency on the prior body-affecting feature is tree order. The picked faces
+    ARE named references, though: each :class:`SubshapeRef` in ``faces``
+    materializes into ``feature_dependencies`` exactly like a shell opening or an
+    ``on_face`` datum's face ref, so deleting the referenced body feature is a
+    write-time 409-with-dependents and a reorder re-checks strict-backward.
+
+    ``faces`` reuses the SAME :class:`FaceSelector` shell uses (topo-naming §4).
+    Unlike shell — where an EMPTY selection is a meaningful sealed hollow — a
+    draft with NO faces has nothing to taper, so an empty selection is a
+    ``no_draft_faces`` rebuild error (draft must pick at least one face), never a
+    silent no-op.
+
+    SIGN CONVENTION (measured against OCCT, docs/GEOMETRY-QA.md 2026-07-13): a
+    POSITIVE ``angle_deg`` tapers each face INWARD toward the pull direction —
+    the top (the ``neutral_plane``-normal end) NARROWS, the standard mold
+    release. A NEGATIVE angle tapers OUTWARD (the far end widens — the opposite
+    mold half). An angle too large for the geometry (the tapered faces collapse
+    to zero width / self-intersect) is a ``draft_failed`` rebuild error — OCCT
+    RAISES on that path, it never silently returns a bad body (unlike shell, so
+    no material-validity guard is needed — investigation recorded in
+    docs/GEOMETRY-QA.md), so ``draft_failed`` is never a silently wrong solid.
+
+    v1 limits (documented scope, not bugs): ONE constant angle, principal-datum
+    neutral plane only (see :class:`DraftNeutralPlaneV1`), planar/cylindrical/
+    conical faces only (a face OCCT cannot draft is a ``draft_failed``). NO
+    variable-angle, NO parting-line, NO face-picked neutral plane (all later,
+    additive — no ``param_version`` bump).
+    """
+
+    faces: FaceSelector = Field(
+        description="The faces to TAPER (a picked-face selector, the SAME stage-1 "
+        "signature shell/on_face use). Must name at least one face — an empty "
+        "selection is a `no_draft_faces` rebuild error (draft is not a no-op)."
+    )
+    angle_deg: float = Field(
+        gt=-90.0,
+        lt=90.0,
+        allow_inf_nan=False,
+        description="Draft angle (degrees). POSITIVE tapers INWARD toward the "
+        "pull direction (top narrows — mold release); NEGATIVE tapers outward. "
+        "An angle too large for the geometry is a `draft_failed` rebuild error.",
+    )
+    neutral_plane: DraftNeutralPlaneV1 = Field(
+        description="The fixed plane the picked faces rotate about; its normal is "
+        "the pull direction (:class:`DraftNeutralPlaneV1`)."
+    )
+
+
 # --- Pattern params (linear / circular) -----------------------------------------
 #
 # DESIGN DECISION (v1, BACKLOG #7 — recorded in docs/GEOMETRY-QA.md 2026-07-12):
@@ -965,6 +1083,14 @@ class ShellFeature(BaseModel):
     params: ShellParamsV1
 
 
+class DraftFeature(BaseModel):
+    """``{"type": "draft", "version": 1, "params": {...}}`` envelope."""
+
+    type: Literal["draft"]
+    version: Literal[1]
+    params: DraftParamsV1
+
+
 class PatternFeature(BaseModel):
     """``{"type": "pattern", "version": 1, "params": {...}}`` envelope."""
 
@@ -986,6 +1112,7 @@ Feature = Annotated[
     | FilletFeature
     | ChamferFeature
     | ShellFeature
+    | DraftFeature
     | PatternFeature,
     Field(discriminator="type"),
 ]
@@ -1001,6 +1128,7 @@ FeatureEnvelope = (
     | FilletFeature
     | ChamferFeature
     | ShellFeature
+    | DraftFeature
     | PatternFeature
 )
 
@@ -1153,6 +1281,7 @@ FEATURE_REGISTRY.register(LoftFeature)
 FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.register(ChamferFeature)
 FEATURE_REGISTRY.register(ShellFeature)
+FEATURE_REGISTRY.register(DraftFeature)
 FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.validate_chains()
 
@@ -1164,7 +1293,17 @@ FEATURE_REGISTRY.validate_chains()
 #: a :class:`SubshapeRef` face reference (topo-naming §4: a face is named on a
 #: body-affecting feature's result). ``datum``/``sketch`` are NOT body-affecting.
 BODY_AFFECTING_FEATURE_TYPES = frozenset(
-    {"extrude", "revolve", "sweep", "loft", "fillet", "chamfer", "shell", "pattern"}
+    {
+        "extrude",
+        "revolve",
+        "sweep",
+        "loft",
+        "fillet",
+        "chamfer",
+        "shell",
+        "draft",
+        "pattern",
+    }
 )
 
 
@@ -1313,6 +1452,20 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             # re-checks strict-backward for the named face refs. An EMPTY faces
             # list (a sealed hollow) carries no refs — no dependency edge, tree
             # order is its only tie to the prior body-affecting feature.
+            for index, ref in enumerate(feature.params.faces.refs):
+                references.append(
+                    FeatureReference(
+                        f"faces[{index}]", ref, BODY_AFFECTING_FEATURE_TYPES
+                    )
+                )
+        case DraftFeature():
+            # Draft tapers picked faces of the implicit single body chain (design
+            # §7.6) and names them as picked faces (the SAME FaceSelector shell
+            # uses). Each SubshapeRef.feature_id materializes into
+            # feature_dependencies exactly like a shell opening, so deleting the
+            # referenced body feature is a 409-with-dependents and a reorder
+            # re-checks strict-backward for the named face refs. The neutral plane
+            # is a principal datum (no picked geometry — no ref).
             for index, ref in enumerate(feature.params.faces.refs):
                 references.append(
                     FeatureReference(

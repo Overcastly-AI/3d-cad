@@ -11,6 +11,7 @@ service boundary.
 from build123d import Solid
 
 from geometry.kernel.chamfer import ChamferError, chamfer_body
+from geometry.kernel.draft import DraftError, draft_body
 from geometry.kernel.edges import (
     EdgeRecord,
     NoEdgesSelectedError,
@@ -89,6 +90,7 @@ __all__ = [
     "AxisIntersectsProfileError",
     "BooleanError",
     "ChamferError",
+    "DraftError",
     "EdgeIndexError",
     "EdgeRecord",
     "FaceResolutionError",
@@ -127,6 +129,7 @@ __all__ = [
     "check_axis_clears_profile",
     "circular_pattern",
     "combine_body",
+    "draft_body",
     "edge_signature_dto",
     "enumerate_edges",
     "evaluate_export",
