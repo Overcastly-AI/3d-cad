@@ -71,7 +71,7 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 | Sketching & constraints | ➖ | **Flipped ❌→➖ this pass**: the profile-authoring/editing-tool cluster this row's own prior Notes named as the remaining blocker now ships end-to-end, each independently code-reviewed APPROVE with a real-stack e2e. Trim/extend (backend `3710ee9`, UI `79fee47`, e2e `sketch-trim-extend.spec.ts`) ends "every vertex must be placed exactly." Offset (backend `6036200`, UI `fa97a14`, e2e `sketch-offset.spec.ts`) adds the parallel-curve-at-distance used for ribs/webs/walls. Mirror (backend `7c7dbc5`, UI `0768977`, e2e `sketch-mirror.spec.ts`) replaces hand-adding one `symmetric` constraint per point-pair. Sketch fillet/chamfer corner tools (backend `a0302e4` + non-90° coverage `97f9bbb`, UI `7297e1b`, e2e `sketch-fillet-chamfer.spec.ts`) make a rounded corner one click instead of a manually-placed-and-twice-constrained tangent arc. Splines (backend `18fe6a8`, UI `f88df01`, e2e `sketch-spline.spec.ts`) close what the prior pass called "a hard capability gap, not an ergonomics one": an interpolating C2 B-spline through fit points that extrudes into a real curved B-rep face. An id-collision fix (`e9e4450`) hardened trim under reuse. Combined with last pass's full relational-constraint set (tangent/perpendicular/parallel/equal/symmetric/concentric) and construction geometry, a working engineer can now run a complete real sketch session — rough-draw, trim/clean-up, offset a wall, mirror a symmetric half, round a corner, drop in a free-form curve, constrain it — without hitting a flatly-impossible operation. That earns parity, not ✅: two gaps remain, both real but narrower than "half the toolkit is missing." (1) Over-constraint *diagnosis* is still index-only (`sketch_conflicting` reports raw constraint indices; `planegcs_solver.py` does carry `redundant` internally but it isn't surfaced as the incumbents' redundant-vs-conflicting classification with a suggested fix) — an engineer debugging a bad sketch gets a list of numbers, not a diagnosis. (2) Sketch dimensions take only a literal value — no expressions (`width/2`) and no driving-vs-driven distinction (COMPETITIVE.md, unbuilt) — so parametric relationships between dimensions must be hand-solved instead of typed. (3) Splines are v1 non-constrained (fixed geometry once drawn; `18fe6a8`'s own commit message: "planegcs has no spline primitive"). None of these three block *drawing and extruding a real profile* the way the missing tools did; they block *editing it fluently over a session*, which is why this is ➖ (real parity on session tooling) and not ✅ (incumbents still out-diagnose and out-parameterize us). |
 | Part modeling (features, history) | ✅ | **Flipped ➖→✅ this pass**: the prior pass held this row short of ✅ on four named blockers — predicate-only edge selection, no shell, no draft, single-body-only. Three are now closed with QA evidence; the fourth is a real, honestly-scoped scope boundary, not a hole in the daily-driver workflow. **Click-specific edge selection** (`71e771d` backend + `c18453c` UI, both reviewed APPROVE): a stage-1 edge `SubshapeRef` lets an engineer click ONE edge and fillet/chamfer it while its neighbours stay sharp — e2e-proven (`fillet-edge-pick.spec.ts`: a single-edge fillet on a 20 mm cube adds exactly one face, 6→7, vs. 26 for an all-edges fillet; re-resolves after reload via the rebuild-surviving signature). The `all_edges`/`axis_parallel`-only limitation named last pass is closed. **Shell** (`617fc7f` backend + `6cf7a75` UI, reviewed): hollows a body to a uniform wall thickness with picked faces left open, reusing the same `SubshapeRef` face machinery sketch-on-face proved. GEOMETRY-QA's `shell-open-top-box-40x25x10-t2` golden is exact to 1e-9 and — notably — the review process found and closed a real correctness risk: OCCT's `MakeThickSolid` can silently return the un-hollowed body on a bad thickness, so `shell_thickness_too_large` is a load-bearing material-removed invariant guard, not a cosmetic error path (GEOMETRY-QA 2026-07-13). **Draft** (`caec623` backend + `a663db7` UI, reviewed): tapers picked faces by an angle about a neutral plane. Golden `draft-frustum-box-40x40x20-5deg` reproduces the hand-derived analytic frustum to 1e-9, and the review swept the full ±angle range through `BRepCheck_Analyzer` and confirmed draft's failure mode is always a hard OCCT raise, never shell's silent-bad-body risk — so no extra guard was needed, and that finding is itself recorded evidence the row isn't being taken on faith. Combined with holes (multi-loop cut, prior pass) and multi-plane/sketch-on-face (prior pass), the feature set for a SINGLE connected solid is now genuinely comprehensive: sketch → extrude/revolve/sweep/loft → fillet/chamfer(click-specific-edge) → pattern → shell → draft → holes, on origin planes, offset planes, or a picked model face, with a real (stage-1) topological-naming reference surviving rebuilds throughout. That is what a working engineer models the overwhelming majority of real mechanical parts with — brackets, housings, shafts, plates, ducts, enclosures — because most real parts are one connected solid with local features, not an assembly-of-bodies collapsed into one file. **The one remaining gap, and it's real:** no booleans between independently-built bodies (union/subtract/intersect two separate solids) — a part that is genuinely multiple lumps combined (e.g. a casting merged with a machined boss modeled as a separate body, or a subtractive multi-tool cut) can't be built. That's a scope boundary on an uncommon workflow, not a blocker on the common one, which is why this earns ✅ rather than holding at ➖ for a gap most parts never hit. Two history-editing niceties also remain unshipped (reorder/suppress/patch-a-mid-tree-feature; edge selection still lacks a compound multi-edge picker) — real but smaller than what closed this pass. Multi-body/boolean, reorder/suppress, and multi-edge-select are the honest ➖-vs-incumbent-parity-plus items, tracked as their own forward BACKLOG, not blockers on this row. |
 | Assemblies & mates | ❌ | Not started (Phase 3) |
-| Interop (STEP/IGES/STL) | ❌ | Half-flipped, deepened but not flipped. EXPORT now covers what an engineer actually MODELS, not just bare primitives: `POST /api/v1/export/tree` (gateway `POST /api/v1/parts/{id}/export?format=`) evaluates a sketch→extrude→fillet/chamfer tree and exports the last-good body, byte-deterministic, tree goldens round-tripped at 0.0 (extrude/chamfer) and 1.26e-10 (fillet), the download proven through a real browser in the Phase 1 exit-gate e2e (commits aad27d9/ff6b226, GEOMETRY-QA 2026-07-11). IMPORT still doesn't exist (Phase 4) — an engineer cannot bring a real STEP/IGES file from another tool IN, only export what was built here. No IGES either direction. ➖ requires both directions; the flip is gated entirely on import. |
+| Interop (STEP/IGES/STL) | ➖ | **Flipped ❌→➖ this pass**: the prior Notes named the flip as "gated entirely on import" — import now ships end-to-end, so both directions work. **Kernel** (`4964fab`): an external STEP part comes in as a body-affecting BASE `import` feature (inline params); round-trip golden `import-step-box-10x20x30` asserts import ≡ inverse-of-export at tol 1e-7, **measured 0.0 deviation**, byte-deterministic across interpreter restarts (docstring honesty-corrected at `250ac4e`). **Gateway** (`4b453f1`): `POST /api/v1/parts/{id}/features/import` — auth-gated, 16 MiB cap enforced at 422 BEFORE the body is buffered/parsed, a prior-body guard (import must be the base feature), contracts regenerated. **UI** (`a015f4e`): "Import STEP" leads the Create strip (a base-only move, disabled once a body exists); a file-picker lands the external part as the base body, rendered in the viewport and measurable (OCCT mass-props: 6,000 mm³ / 10×20×30), re-exportable, and reload-persistent. Playwright e2e on the real stack (`import-step.spec.ts`, 5 specs green): valid STEP → body in tree+viewport+reload-persist; non-STEP file → legible error, no body; oversize file → rejected client-side before upload; desktop + 1280×800 screenshots (`docs/screenshots/import-step-*`). Combined with export (already shipped, prior pass), a working engineer can now bring a real external STEP part IN, model on it (fillet/shell/sketch-on-face all work via the existing topological-naming machinery), and export it back OUT. **Held at ➖, not ✅ — the honest gaps:** (1) STEP-only, no IGES either direction; (2) inline-only representation — large files bloat the feature-tree JSON, the blob-backed `kind:"blob"` successor is seeded in the design doc but unshipped; (3) single-solid only — multi-solid/assembly/compound STEP files are rejected with a legible error, not imported; (4) no mesh/sew/repair healing for messy real-world CAD (v1 is "one legible solid or a clear error," not a healing pipeline); (5) the untrusted-parse wall-clock/DoS bound is a tracked **P1** fast-follow — the 16 MiB cap bounds memory, not parse time, so an adversarial STEP file can still pin a worker. |
 | Drawings & documentation | ❌ | Not started (Phase 4) |
 | Performance on real parts | ❌ | Per-golden perf tripwires live in the geometry gates (~4–5 ms warm on primitives vs 2 s ceiling), but there are no real parts yet and no benchmark suite. |
 | Collaboration & versioning | ❌ | Not started (Phase 3) |
@@ -82,39 +82,45 @@ and the open-source incumbent (FreeCAD). Legend: ✅ better · ➖ parity ·
 Every row starts ❌ except the structural one. That's the honest baseline;
 the loop's job is to flip rows and never let this table go stale.
 
-Last re-scored 2026-07-13 (vision-steward), fifth pass this cycle, against
-git log through `a663db7` (draft authoring UI) plus `docs/GEOMETRY-QA.md`
-and the e2e suite (`fillet-edge-pick.spec.ts`, `shell.spec.ts`,
-`draft.spec.ts`, plus the prior passes' specs). **Part modeling flipped
-➖→✅**: the four blockers the prior pass named — predicate-only edge
-selection, no shell, no draft, single-body-only — are three-quarters closed
-with QA evidence this pass. Click-specific edge selection (`71e771d`/
-`c18453c`) lets an engineer round exactly one edge and leave neighbours
-sharp (e2e: 6→7 faces vs. 26 for all-edges). Shell (`617fc7f`/`6cf7a75`)
-hollows to a wall thickness with a live-OCCT-verified material-removed guard
-(golden exact to 1e-9). Draft (`caec623`/`a663db7`) tapers picked faces by an
-angle, golden exact to 1e-9, with a BRepCheck sweep confirming OCCT never
-silently mis-builds a draft. That closes three of the four named blockers;
-the fourth — booleans between independently-built bodies — remains unbuilt,
-but is a scope boundary on an uncommon "assembly of separate bodies in one
-file" workflow, not a blocker on the common "one connected solid with local
-features" workflow the vast majority of real mechanical parts are. The
-single-body feature set is now comprehensive end-to-end (sketch → extrude/
-revolve/sweep/loft → fillet/chamfer(click-edge) → pattern → shell → draft →
-holes, on origin/offset/face-picked planes, with a rebuild-surviving stage-1
-naming reference throughout) — enough that a working engineer can model a
-real bracket/housing/shaft/duct-class part today, which earns ✅ over holding
-at ➖ for a gap most single-part modeling sessions never hit. Multi-body/
-booleans, feature-tree reorder/suppress, and multi-edge-select are recorded
-as the honest parity-plus items still open, tracked as forward BACKLOG, not
-as blockers on this row. **Sketching held at ➖** (unchanged — no
-sketching-cluster commits this pass). Interop, Assemblies, Drawings,
-Collaboration, Extensibility, Agent access, Performance unchanged — no
-commits touching those rows this pass. Nearest flips: multi-body booleans +
-feature-tree reorder/suppress on Part modeling (✅→superiority candidates,
-lower urgency now the row is ✅); over-constraint classification + dimension
-expressions on Sketching (➖→✅ candidates); Interop-import (Phase 4);
-Assemblies/mates and Drawings (Phase 3/4, not started).
+Last re-scored 2026-07-13 (vision-steward), sixth pass this cycle, against
+git log through `a015f4e` (STEP-import UI) plus the `import-step.spec.ts`
+e2e suite. **Interop flipped ❌→➖**: the fifth pass's own Notes named the
+row as "gated entirely on import" — import now ships end-to-end (kernel
+`4964fab` → gateway `4b453f1` → UI `a015f4e`), completing the second
+direction alongside export (shipped two passes prior). Round-trip golden
+`import-step-box-10x20x30` measures 0.0 deviation import-vs-inverse-of-export;
+the gateway upload endpoint is auth-gated with a 16 MiB cap enforced before
+buffering and a prior-body guard; the UI's "Import STEP" affordance lands the
+external part as the base body, rendered and measurable in the viewport, with
+5 Playwright specs green on the real stack (valid import + reload-persist,
+non-STEP error, oversize rejection, desktop + laptop screenshots). Held short
+of ✅: STEP-only (no IGES), inline-only representation (blob storage seeded,
+unshipped), single-solid only (no multi-solid/assembly), no healing for messy
+files, and the untrusted-parse wall-clock bound is an open P1. No other rows
+moved this pass — no commits touching Sketching, Part modeling, Assemblies,
+Drawings, Performance, Collaboration, Extensibility, or Agent access.
+Nearest flips: IGES + multi-solid/assembly + blob storage on Interop
+(➖→ parity-plus candidates, tracked BACKLOG Later); the open P1 parse-time
+bound (security fast-follow, not a scorecard gate); multi-body booleans +
+feature-tree reorder/suppress on Part modeling; over-constraint
+classification + dimension expressions on Sketching; Assemblies/mates and
+Drawings remain not-started (Phase 3/4).
+
+---
+
+Prior pass (2026-07-13, fifth pass this cycle, against git log through
+`a663db7`, draft authoring UI): **Part modeling flipped ➖→✅** — the four
+blockers the pass before it named (predicate-only edge selection, no shell,
+no draft, single-body-only) closed three-quarters with QA evidence: click-
+specific edge selection (`71e771d`/`c18453c`, e2e 6→7 faces vs. 26 for
+all-edges), shell (`617fc7f`/`6cf7a75`, golden exact to 1e-9 with a live-OCCT
+material-removed guard), draft (`caec623`/`a663db7`, golden exact to 1e-9,
+BRepCheck-swept). The fourth — booleans between independently-built bodies —
+stayed unbuilt but scoped as an uncommon-workflow boundary, not a blocker on
+the single-connected-solid case most real parts are. Multi-body/booleans,
+reorder/suppress, and multi-edge-select carried forward as parity-plus items.
+Sketching held at ➖ (unchanged); Interop, Assemblies, Drawings,
+Collaboration, Extensibility, Agent access, Performance unchanged.
 
 ---
 
