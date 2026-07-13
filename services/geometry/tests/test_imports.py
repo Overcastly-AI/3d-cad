@@ -143,10 +143,12 @@ def test_import_parse_timeout_fires_and_is_not_a_hang() -> None:
 def test_import_parse_timeout_reaps_subprocess_no_fd_leak() -> None:
     """Repeated timeouts leak no file descriptors or zombie subprocesses.
 
-    ``subprocess.run`` kills THEN waits before re-raising ``TimeoutExpired``, so
-    each aborted parse is fully reaped and its pipes closed. Proven by a stable
-    open-fd count across a batch of forced timeouts — a leaked pipe or zombie
-    would grow it monotonically.
+    This asserts the file-descriptor property: a stable open-fd count across a
+    batch of forced timeouts — a leaked pipe or temp-file fd would grow it
+    monotonically. Zombie-freedom is not separately asserted here (a zombie
+    consumes no fd) because it is guaranteed by construction: ``subprocess.run``
+    kills THEN waits (reaps) before re-raising ``TimeoutExpired``, so no aborted
+    child is ever left unreaped.
     """
     # Warm-up so first-call import machinery doesn't skew the baseline count.
     with pytest.raises(ImportParseTimeoutError):

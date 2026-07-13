@@ -113,6 +113,12 @@ def _run_parse_worker(step_text: str, timeout_s: float) -> TopoDS_Shape:
     re-raising ``TimeoutExpired``), so no process or file descriptor leaks across
     repeated calls. The temp dir — holding the STEP in and the BREP out — is
     removed on every exit path by the context manager.
+
+    The child's stdout/stderr are sent to ``DEVNULL``, not captured: OCCT's STEP
+    reader is chatty on malformed input (per-entity warnings ∝ input size), and
+    capturing that would buffer untrusted-input-proportional diagnostics in the
+    *parent* — which the SIGKILL does not reclaim. We never read the output, so
+    discarding it both closes that amplification vector and is strictly simpler.
     """
     with tempfile.TemporaryDirectory(prefix="loft-step-import-") as tmp:
         in_path = os.path.join(tmp, "part.step")
@@ -122,7 +128,8 @@ def _run_parse_worker(step_text: str, timeout_s: float) -> TopoDS_Shape:
         try:
             completed = subprocess.run(
                 [sys.executable, _WORKER_PATH, in_path, out_path],
-                capture_output=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 timeout=timeout_s,
             )
         except subprocess.TimeoutExpired as exc:

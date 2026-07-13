@@ -25,7 +25,10 @@ class GeometrySettings(BaseServiceSettings):
     #: runs in a killable subprocess (docs/design/step-import.md §6, BACKLOG P1).
     #: A parse exceeding this is SIGKILLed and surfaces as ``import_parse_timeout``
     #: so a degenerate/adversarial part-21 cannot pin a worker. Env:
-    #: ``STEP_IMPORT_TIMEOUT_SECONDS``.
+    #: ``STEP_IMPORT_TIMEOUT_SECONDS``. NOTE: the bound spans the whole child
+    #: lifetime, including the ~0.9s OCP cold-import, so the effective parse
+    #: budget is roughly this minus ~1s — do not set it below ~1s or every import
+    #: false-times-out. Default 5.0s leaves ~4s of real parse headroom.
     step_import_timeout_seconds: float = 5.0
 
 
