@@ -314,4 +314,45 @@ feature-tree.md`: features table vs JSONB tradeoff, versioned param
   held ❌ — fillet/chamfer UI gap discovered + sweep/loft/face-picking
   named); new 10-item Ready queue restocked from COMPETITIVE.md + a
   code-inspection finding (fillet/chamfer buttons wired but never connected).
+
+## [Phase 2: Ready batch 4 — sketch-on-face → STEP import v1] — 2026-07-12 to 2026-07-13
+
+- **docs(board): groom after product+engineering audit pass** (570d236,
+  2026-07-12) — ticked multi-loop holes (audit's #1 gap); re-sequenced Ready
+  per product audit (sketch-on-face ahead of edge-selection); interleaved
+  engineering-audit F1/F4 into Ready; downgraded dedicated Hole P2→P3.
+- **feat(geometry+web): sketch-on-a-model-face** (f3202c6, 8c1b9cc) —
+  stage-1 planar-face `SubshapeRef`, `on_face` datum, "Pick a face" picker;
+  topological-naming consumer #1; e2e proves a boss adds on top.
+- **feat(geometry+web): click-specific edge selection for fillet/chamfer**
+  (71e771d, c18453c) — stage-1 `EdgeSignature` + picked-edge `EdgeSelector`
+  member; consumer #2; e2e `fillet-edge-pick` rounds one edge, not neighbours.
+- **feat(geometry+web): shell feature** (617fc7f, 6cf7a75) —
+  `ShellFeature`/`ShellParamsV1` hollows a body via picked open faces
+  (reuses the sketch-on-face `SubshapeRef`); golden
+  `shell-open-top-box-40x25x10-t2`; e2e `shell.spec`.
+- **feat(geometry+web): draft feature** (caec623, a663db7) —
+  `DraftFeature`/`DraftParamsV1` tapers picked faces about a neutral plane;
+  golden `draft-frustum-box-40x40x20-5deg`; e2e `draft.spec`.
+- **test(geometry): circular-pattern determinism golden** (c507ecf,
+  engineering audit F4 first slice) — `pattern-circular-4x-quadrant-box`.
+- **test(web): multi-loop profile holes e2e** (998736f) — proves the
+  audit's #1 gap through the real browser (topology 6→8 faces).
+- **docs(vision): Part modeling flips ➖→✅** (3c23c73) — sketch-on-face,
+  edge-pick, shell, draft close the named blockers; multi-body boolean is
+  the one remaining scope boundary.
+- **feat(geometry): STEP import v1** (4964fab) — `ImportFeature` reads
+  inline STEP text and sets the body (geometry-kernel side only); golden
+  `import-step-box-10x20x30`; design `docs/design/step-import.md`. Flips
+  Interop toward ➖ once the gateway-upload + UI legs land (BACKLOG Ready).
+- **docs(showcase): complex-part gallery + Part-modeling stress test**
+  (d8d3b87) — four real 6–16-feature parts (bracket/enclosure/duct/pulley)
+  held the Part-modeling ✅ flip, no P0; surfaced feature-coverage gaps F1
+  (pattern union-only), F2 (disjoint-circle-ring profile), F3 (thin-shell
+  fillet UI warning) — filed to BACKLOG.
+- **docs(board): groom after STEP import + showcase** (this pass,
+  2026-07-13) — filed Interop UI-leg items (gateway upload, import UI) as
+  the actual flip path; filed showcase F1–F3 + a partial-shell forward note;
+  filed a P1 security fast-follow (code-reviewer: no wall-clock bound on the
+  untrusted-STEP OCCT parse); archived 6 shipped items to Done batch 4.
   [backlog-groomer]

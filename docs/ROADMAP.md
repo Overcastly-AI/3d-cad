@@ -2,42 +2,27 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 2 — Parametric core.** The sketch session-tool cluster,
-offset/datum planes (backend + picker UI), and loft (backend + UI, #8) all
-shipped through commit 1e3d422…18d1eaa (2026-07-12) — see `CHANGELOG.md` for
-full detail. **Multi-loop closed profiles → holes shipped** (`a36e436`,
-2026-07-12): the product audit's #1 daily-driver gap — one sketch (outer
-boundary + N inner loops) now extrudes/cuts a plate with N through-holes,
-shared across extrude/revolve/sweep/loft, no topological naming required.
-Two independent audits landed the same day (`docs/AUDIT-PRODUCT.md` 6c1e600,
-`docs/AUDIT-ENGINEERING.md` 9ecec33) and **re-sequenced the next foundational
-unlock**: rather than face/edge picking as one undifferentiated item, the
-product audit orders topological naming's two consumers — **sketch-on-a-
-model-face ranks ahead of click-specific edge selection** (sketch-on-face
-unblocks whole classes of second features; edge selection only refines
-fillet/chamfer). Both are `SubshapeRef`-based and gated on the already-shipped
-topological-naming design doc. **Sketch-on-a-model-face now ships end-to-end**
-(backend + UI, 2026-07-12): "Pick a face" highlights the body's planar faces,
-a click authors an `on_face` datum from the face signature and seats the
-sketch on it (basis reconstructed client-side to match the kernel exactly), and
-a boss extrudes on top — the product audit's #1 topological-naming consumer is
-done. **Click-specific edge selection (#2) now ships end-to-end**
-(backend + UI, 2026-07-13): the SECOND `SubshapeRef` consumer — a stage-1
-`EdgeSignature` and `geometry.kernel.edges` resolver, an additive picked-edge
-member on the fillet/chamfer `EdgeSelector` (predicate selectors byte-identical),
-`/overlay` edge signatures, and golden `fillet-top-edge-40x25x10-r5` (round ONE
-edge, leave its neighbours sharp — what predicates structurally can't do). The
-Fillet/Chamfer editors now carry a "By rule"/"Pick edges" toggle; picking lights
-the body's edges as `PickNode` diamonds and submit echoes each edge's
-`EdgeSignature` into an `EdgeSubshapeRef` (e2e `fillet-edge-pick`: one top edge
-→ r5 → faces 6→7, neighbours sharp, holds on reload). The engineering audit found no P0s (all gates
-green, license/boundary hygiene clean) but flagged a real correctness cliff
-(F1: the in-process mesh LRU 404s once geometry scales past one worker/
-replica — masked by today's single-container compose) and a determinism-gate
-hole on shipped geometry (F4: circular-pattern has no golden); both are
-interleaved into the Ready queue rather than deferred. VISION.md's 2026-07-12
-re-score flipped Sketching ❌→➖; Part modeling stays ❌, sketch-on-face now
-its sharpest gap. See `docs/BACKLOG.md` Ready queue.
+**Current focus: Phase 2 — Parametric core, converging; Phase 4 interop
+pulled forward.** Sketch-on-a-model-face and click-specific edge selection
+(both `SubshapeRef`-based, topological-naming consumers #1–#2), shell, and
+draft all shipped backend+UI through 2026-07-13 (`a663db7`) — full evidence
+in `CHANGELOG.md`. **Part modeling flipped ➖→✅** (`3c23c73`): sketch →
+extrude/revolve/sweep/loft → fillet/chamfer(pick-or-predicate) → pattern →
+shell → draft → holes now covers a single connected solid comprehensively;
+multi-body boolean (independently-built solids) is the one honest remaining
+scope boundary. **The flip held under a real stress test** (`d8d3b87`,
+qa-tester: four 6–16-feature parts — bracket/enclosure/duct/pulley — built
+clean, zero topological-naming failures) and surfaced three feature-coverage
+gaps (pattern is union-only; a ring of disjoint circles isn't one sketch
+profile; no UI warning before a thin-shell rim fillet collision) — filed to
+`docs/BACKLOG.md` Ready. **STEP import v1 landed** (`4964fab`,
+geometry-kernel side only): an `import` base feature reads STEP text and
+sets the body, modeled on via the existing topo-naming machinery. This is
+**half** the Interop UI leg — no gateway upload endpoint or UI yet, so the
+Interop scorecard row is NOT flipped; those two items lead `docs/BACKLOG.md`
+Ready (behind one P1 security fast-follow: bound the untrusted-STEP OCCT
+parse's wall-clock time before the upload UI raises exposure). See
+`docs/BACKLOG.md` Ready queue for the live priority order.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -159,70 +144,33 @@ item:
       panel, units system (BACKLOG Next).
 - 🚧 Competitive feature-discovery — `docs/COMPETITIVE.md` first pass landed
       2026-07-12; feeds Ready restocks as the queue runs thin.
-- ✅ Sketch-on-a-model-face — **backend + UI shipped 2026-07-12** (stage-1
-      planar-face `SubshapeRef` signature, `on_face` datum variant,
-      datum-from-face resolver, `/overlay` face enumeration, golden
-      `boss-on-face-40x40x10-20x20x10`; topological-naming §9). UI: "Pick a
-      face" in-viewport planar-face picker → `on_face` datum → sketch seated on
-      it, basis reconstructed client-side to match the kernel exactly; e2e
-      proves a boss adds on top at z 0..20. First real consumer of the
-      topological-naming design.
-- ✅ Click-specific edge selection for fillet/chamfer — **backend + UI shipped
-      2026-07-13**. Stage-1 `EdgeSignature` +
-      `geometry.kernel.edges` resolver (the SECOND `SubshapeRef` consumer,
-      mirroring the face machinery), additive picked `{kind:"edges"}`
-      `EdgeSelector` member (predicate selectors byte-identical, no
-      `param_version` bump), `/overlay` edge signatures (pick↔resolve gate),
-      dep-graph wiring, golden `fillet-top-edge-40x25x10-r5` (one edge rounded,
-      neighbours sharp); topological-naming §10. UI: Fillet/Chamfer "By
-      rule"/"Pick edges" toggle → in-viewport edge `PickNode`s → signature-keyed
-      pick set → `EdgeSubshapeRef` payload; e2e `fillet-edge-pick` rounds ONE top
-      edge (faces 6→7), neighbours sharp, holds across reload.
-- ✅ Shell feature — **backend + UI shipped 2026-07-13**.
-      `ShellFeature`/`ShellParamsV1` hollows the current body to a
-      uniform inward wall, opening the faces named by a `{kind:"faces"}`
-      `FaceSelector` (the SAME sketch-on-face `SubshapeRef` machinery, reused
-      not reinvented); `geometry.kernel.shell` inward `MakeThickSolid` +
-      `resolve_faces` (exactly-one / dedup / empty=sealed hollow), dep-graph
-      wiring, golden `shell-open-top-box-40x25x10-t2`, errors `no_prior_body` /
-      `subshape_unresolved` / `shell_thickness_too_large` / `shell_failed`
-      (GEOMETRY-QA 2026-07-13). **UI:** Shell tool in Modify (scribed icon, `H`,
-      body-gated) → `ShellEditor` brass thickness + a store-driven multi-select
-      planar-face pick (reusing the `PickNode`/overlay machinery), honest sealed-
-      vs-open copy → `FaceSelector` payload; e2e `shell.spec` renders an open-top
-      hollow (8,000→3,392 mm³) and a sealed hollow (3,904 mm³). Third
-      `SubshapeRef` consumer after sketch-on-face + edge-pick.
-- ✅ Draft feature — **backend + golden + UI shipped 2026-07-13** (end-to-end).
-      `DraftEditor`: scribed Draft tool in Modify (accelerator `D`, body-gated),
-      a brass **angle** handle with the signed-convention copy, the shell face
-      overlay reused for pick-to-taper (live count, empty = `no_draft_faces`
-      submit-guard), and a **neutral-plane** picker mirroring the datum offset
-      idiom (base XY/XZ/YZ + offset + flip). `draft.spec.ts` real-stack e2e:
-      a tapered frustum (8,000→6,681.83 mm³) + a legible `draft_failed` on
-      too-large angle.
-      `DraftFeature`/`DraftParamsV1` tapers picked faces by
-      `angle_deg` about a `DraftNeutralPlaneV1` principal-datum neutral plane
-      (pull = the plane normal), reusing the SAME `{kind:"faces"}` `FaceSelector`
-      `SubshapeRef` machinery shell uses (fourth consumer); `geometry.kernel.draft`
-      wraps build123d `Solid.draft` (`BRepOffsetAPI_DraftAngle`). Golden
-      `draft-frustum-box-40x40x20-5deg`: a 40×40×20 box, four sides drafted 5°
-      inward about the XY base → an analytic square frustum (29,282.008 mm³),
-      byte-deterministic incl. interpreter restart + STEP round-trip. v1 scope:
-      one constant angle, principal-datum neutral plane, no variable-angle /
-      parting-line. Errors `no_prior_body` / `subshape_unresolved` /
-      `no_draft_faces` / `draft_failed` — OCCT RAISES on collapse, so (unlike
-      shell) no silent-bad-body guard is needed (GEOMETRY-QA 2026-07-13).
-- 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face +
-      shell + draft landed end-to-end (backend + UI); draft **shipped
-      2026-07-13** (`DraftFeature`, frustum golden 29,282.008 mm³, `DraftEditor`
-      pick-to-taper); dedicated hole, multi-body boolean still unbuilt, several
-      gated on face/edge picking (BACKLOG Ready + Next).
-- 🚧 Two independent audits landed 2026-07-12 (`docs/AUDIT-PRODUCT.md`
-      6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found (all gates
-      green, boundaries/license clean); findings filed to BACKLOG (Ready:
-      mesh-store scale cliff F1, circular-pattern determinism gap F4; Next:
-      revolve construction-axis UX trap, evaluate_tree tessellation churn F2,
-      spline tolerance F5).
+- ✅ Sketch-on-a-model-face — backend + UI, 2026-07-12; topological-naming
+      consumer #1 (`SubshapeRef`-based `on_face` datum); e2e proves a boss
+      extrudes on a picked planar face. Full evidence: `CHANGELOG.md`.
+- ✅ Click-specific edge selection for fillet/chamfer — backend + UI,
+      2026-07-13; consumer #2 (`EdgeSignature`); e2e `fillet-edge-pick`
+      rounds one edge, neighbours stay sharp. Full evidence: `CHANGELOG.md`.
+- ✅ Shell feature — backend + UI, 2026-07-13; hollows a body, picked faces
+      stay open (reuses the sketch-on-face `SubshapeRef`). Full evidence:
+      `CHANGELOG.md`.
+- ✅ Draft feature — backend + UI, 2026-07-13; tapers picked faces about a
+      neutral plane. Full evidence: `CHANGELOG.md`.
+- ✅ Part-modeling breadth — **Part modeling row flipped ➖→✅**
+      (`3c23c73`): sketch → extrude/revolve/sweep/loft →
+      fillet/chamfer(pick-or-predicate) → pattern → shell → draft → holes now
+      covers a single connected solid comprehensively. Multi-body boolean
+      (independently-built solids) is the one remaining scope boundary
+      (BACKLOG Later). Dedicated hole feature also deferred (P3) — multi-loop
+      cut covers the common bolt-circle case.
+- ✅ Showcase stress test (`d8d3b87`, qa-tester) — four real 6–16-feature
+      parts held the Part-modeling ✅ flip on complex geometry (no P0, zero
+      topological-naming failures) and surfaced three feature-coverage gaps
+      (pattern union-only, disjoint-circle-ring profile, thin-shell fillet
+      UI warning) — filed to BACKLOG Ready/Later.
+- 🚧 Product + engineering audits (2026-07-12, `docs/AUDIT-PRODUCT.md`
+      6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found; findings
+      filed to BACKLOG (mesh-store scale cliff, remaining determinism-golden
+      slices, revolve construction-axis trap, evaluate_tree tessellation churn).
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
 
@@ -235,20 +183,17 @@ item:
 
 ## Phase 4 — Interop & drawings ⬜
 
-- 🚧 STEP/IGES import with healing report — **STEP import v1 (geometry-side)
-      pulled forward 2026-07-13** (discovery-indicated: flips the VISION Interop
-      row from ❌ toward ➖ — export already round-trips exact, so the row was
-      gated purely on import). An `import` BASE feature reads inline STEP text
-      through a pinned single-solid `STEPControl_Reader` and sets the part's
-      body; every later feature (fillet/cut/shell/sketch-on-face) then works on
-      the imported body via the existing topological-naming machinery. Golden
-      `import-step-box-10x20x30` proves import ≡ the inverse of export (0.0
-      deviation) + byte-determinism incl. interpreter restart. v1 = single solid
-      or legible error (`import_parse_failed` / `import_not_single_solid`);
-      healing report = honest shape stats. Docs: `docs/design/step-import.md`,
-      GEOMETRY-QA 2026-07-13. **Remaining:** gateway upload endpoint + UI (the
-      "open a STEP" affordance), IGES, multi-solid/assembly, sew/heal, blob-ref
-      storage (§2a — removes the inline size cap).
+- 🚧 STEP/IGES import with healing report — **STEP import v1 landed
+      2026-07-13, geometry-kernel side only** (`4964fab`): an `import` base
+      feature reads inline STEP text through a pinned single-solid
+      `STEPControl_Reader`, sets the part's body, and every later feature
+      works on it via the existing topological-naming machinery. Golden
+      `import-step-box-10x20x30` proves import ≡ inverse-of-export (0.0
+      deviation). Docs: `docs/design/step-import.md`. **Interop row is NOT
+      flipped yet** — no gateway upload endpoint or UI leads BACKLOG Ready
+      (behind a P1 security fast-follow: bound the untrusted-STEP OCCT
+      parse's wall-clock time). Remaining after that: IGES, multi-solid/
+      assembly, sew/heal, blob-ref storage — all BACKLOG Later.
 - ⬜ 2D drawings: views from model, dimensions, PDF/DXF export
 - ⬜ 3MF/OBJ export; mesh quality controls
 
