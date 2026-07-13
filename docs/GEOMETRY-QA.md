@@ -2155,3 +2155,85 @@ gated in `tests/test_imports.py`.
 Findings filed this pass: none red — all shipped capabilities have golden
 coverage and all gates are green with zero measured deviation. Gaps above
 are queued as coverage work, not defects.
+
+---
+
+## 2026-07-13 — INDEPENDENT VERIFICATION: pattern-cut-6hole-boltcircle-60x60x10 (Ready #3, commit 4dbe93e)
+
+Second-pair-of-eyes pass on the first pattern-of-a-cut golden. Analytic
+**re-derived from scratch** (author's `derivation[]` read only AFTER my own
+numbers were fixed) so a wrong hand-derivation could not be enshrined. Verdict
+at bottom.
+
+### 1. Analytic, independently derived (matches expected.json exactly)
+| quantity | my from-scratch derivation | expected.json | match |
+|---|---|---|---|
+| volume | 60²·10 − 6·π·4²·10 = 36000 − 960π = **32984.0710525538** | 32984.0710525538 | ✓ |
+| surface_area | 2·(3600 − 6π·16) + 4·(60·10) + 6·(2π·4·10) = **10504.778684233861** | 10504.778684233861 | ✓ |
+| centroid | (0,0,5) — 6 hole centres at R=20, θ=0..300° sum to (−3.6e-15, 3.6e-15)≈origin | (0,0,5) | ✓ |
+| AABB | holes interior (reach 20+4=24 < 30) → [−30,−30,0]..[30,30,10] | same | ✓ |
+| topology | Euler–Poincaré: V−E+F−R = 20−30+12−12 = −10 = 2(S−G), G=6 → 12 faces / 30 edges / 1 shell | 12/30/1 | ✓ |
+
+Topology independently reconstructed (not copied): F=2 caps+4 sides+6 cyl=12;
+E=10 top+10 bottom+4 corners+6 seams=30; V=8 corners+6·2 seam-verts=20; R=12
+inner loops; genus 6. The generalized Euler–Poincaré identity closes exactly,
+so the count is self-consistent for a 6-through-hole plate, not merely asserted.
+
+### 2. Hole placement — the new code path's real test (PASS, zero deviation)
+Extracted the 6 cylindrical face axes from the built B-rep. The pattern placed
+holes at **exactly** the bolt-circle positions, max center+radius deviation
+**0.000e+00**:
+
+    k=0 (+20.0000000000, +0.0000000000) r=4   ang  0.00°
+    k=1 (+10.0000000000,+17.3205080757) r=4   ang 60.00°
+    k=2 (-10.0000000000,+17.3205080757) r=4   ang120.00°
+    k=3 (-20.0000000000, +0.0000000000) r=4   ang180.00°
+    k=4 (-10.0000000000,-17.3205080757) r=4   ang240.00°
+    k=5 (+10.0000000000,-17.3205080757) r=4   ang300.00°
+
+Rotation centre (origin), 60° step, and radius are all correct — arraying the
+cut put the holes where a bolt circle belongs. model.json encodes seed (20,0) +
+circular pattern {axis_point (0,0,0), +Z, 360°, count 6}; the code path resolved
+that to the six positions above with bitwise-clean trig at k=0/3 (θ=0/180°).
+
+### 3. Live reproduction at HEAD (in-process; did NOT run just e2e)
+`pytest test_goldens.py` (all 86) green; `test_step_roundtrip.py` (all 22, incl.
+this golden's tree round-trip + byte-determinism) green. Measured vs my analytic:
+
+| quantity | measured | deviation vs analytic |
+|---|---|---|
+| volume | 32984.071052553816 | **1.455e-11** |
+| surface_area | 10504.778684233857 | 3.638e-12 |
+| centroid.x / .y | −2.76e-17 / −5.51e-17 | on-axis (≈0) |
+| centroid.z | 5.0 | 0.0 (exact) |
+| AABB (all 6 bounds) | [−30,−30,0]..[30,30,10] | 0.0 (exact) |
+| mesh | 3060 verts / 3060 tris | exact match |
+
+My independent worst residual **1.455e-11** matches the author's stated 1.46e-11.
+
+### 4. Tolerance honesty (1e-8)
+Worst measured deviation = **1.455e-11** (volume). Golden tol **1e-8** → **687×
+headroom** (my number; author claims ~690×, consistent). Honest caveat, reported
+loudly: the residual does **not strictly require** 1e-8 — a 1e-9 bound would also
+pass here with ~68× headroom, and 1e-8 is a *conservative* CI-host/libm margin,
+not a floor forced by this host's measurement. It is **not masking
+nondeterminism**: determinism is byte-checked separately (§5, single hash) and
+centroid.z/AABB are fp-exact. Relative to sibling pattern goldens (~1.1e-12 worst)
+the rotated-curved-cut path is genuinely ~13× heavier, so a looser-than-1e-9
+ceiling is defensible; the 1e-8 choice + rationale are documented in the
+docstring. Still 10× tighter than the 1e-7 kernel bound. **No loosening,
+no defect** — the bound is generous but honestly documented.
+
+### 5. Determinism (PASS — one distinct GLB hash)
+3 in-process rebuilds + 2 separate interpreter invocations → single GLB SHA-256
+`9aed5b6453d0aa6e…` in every case (the 5-rotated-boolean-cut chain is the stated
+risk; it is stable). `glb_bytes == len(glb) == 96944`.
+
+### VERDICT: TRUSTWORTHY — golden accepted
+Analytic re-derived from scratch matches to the last digit; topology closes under
+Euler–Poincaré; the pattern placed all six holes at the exact bolt-circle
+positions (0.0 deviation) — the whole point of a pattern-of-cut path; mass-property
+residuals (worst 1.455e-11) sit 687× inside a documented, honestly-justified 1e-8;
+determinism is byte-stable across rebuilds and interpreters. Reaches the same solid
+as #4 (ring golden) via a different feature path and origin, verified independently
+— not assumed equal. No red findings.
