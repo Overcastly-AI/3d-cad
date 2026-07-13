@@ -207,6 +207,23 @@ def _extrude_envelope(sketch_id: str) -> dict[str, Any]:
     }
 
 
+#: A minimal STEP part-21 payload for an import base feature
+#: (docs/design/step-import.md §2b — inline STEP text). Documents never parses
+#: the geometry; it stores `data` verbatim as the feature's params.
+STEP_TEXT = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
+
+
+def _import_envelope(data: str = STEP_TEXT) -> dict[str, Any]:
+    #: An import base feature (docs/design/step-import.md §1): body-affecting,
+    #: produces the base body from its inline STEP text, no picked geometry / no
+    #: FeatureRef (materializes no dependency edge).
+    return {
+        "type": "import",
+        "version": 1,
+        "params": {"kind": "inline", "format": "step", "data": data},
+    }
+
+
 @pytest.fixture
 def client(any_db_url: str) -> Iterator[TestClient]:
     settings = DocumentsSettings(postgres_url=any_db_url)
@@ -1135,6 +1152,75 @@ def test_unloadable_param_version_fails_loudly(
         )
     assert response.status_code == 500
     assert _envelope_error(response.json())["code"] == "internal_error"
+
+
+# --- import base feature (docs/design/step-import.md) ---------------------------
+
+
+def test_import_creates_base_feature_with_inline_step(client: TestClient) -> None:
+    """An import onto an empty part persists the STEP text verbatim as params."""
+    part_id = _create_part(client)
+    created = _create_feature(client, part_id, "Import1", _import_envelope(), 0)
+    assert created["feature"]["feature"] == _import_envelope()
+    assert created["tree_version"] == 1
+    # Import carries no references, so it materializes no dependency edges.
+    tree = _tree(client, part_id)
+    [feature] = tree["features"]
+    assert feature["feature"]["params"]["data"] == STEP_TEXT
+
+
+def test_import_allowed_after_non_body_features(client: TestClient) -> None:
+    """A datum/sketch before an import is fine — neither produces a body."""
+    part_id = _create_part(client)
+    _create_feature(client, part_id, "Datum1", _datum_envelope(), 0)
+    _create_feature(client, part_id, "Sketch1", _sketch_envelope(), 1)
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Import1",
+            "feature": _import_envelope(),
+            "expected_tree_version": 2,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_import_with_prior_body_rejected(client: TestClient) -> None:
+    """An import cannot follow a body-producing feature (step-import.md §1)."""
+    part_id = _create_part(client)
+    _, extrude_id = _sketch_and_extrude(client, part_id)
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Import1",
+            "feature": _import_envelope(),
+            "expected_tree_version": 2,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    error = _envelope_error(response.json())
+    assert error["code"] == "import_with_prior_body"
+    assert error["details"]["prior_feature_id"] == extrude_id
+    assert error["details"]["prior_feature_type"] == "extrude"
+
+
+def test_second_import_rejected_as_prior_body(client: TestClient) -> None:
+    """A second import also trips the guard — import IS body-affecting."""
+    part_id = _create_part(client)
+    _create_feature(client, part_id, "Import1", _import_envelope(), 0)
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Import2",
+            "feature": _import_envelope("ISO-10303-21;\nEND-ISO-10303-21;\n"),
+            "expected_tree_version": 1,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _envelope_error(response.json())["code"] == "import_with_prior_body"
 
 
 # --- scoping --------------------------------------------------------------------

@@ -5022,6 +5022,93 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/features/import": {
+      "post": {
+        "description": "Import an uploaded STEP file as the part's base body.\n\nThe STEP file is the raw request body. It is size-capped as it streams\n(oversize \u2192 422 ``import_too_large`` before the body is fully read \u2014 \u00a76),\nthen decoded and mapped to an ``import`` feature whose inline\n``params.data`` is the STEP text (\u00a72b). Persistence reuses the ordinary\ndocuments feature-append path (``POST /features``), so an import onto a\npart that already has a body is documents' legible 422\n``import_with_prior_body`` envelope, re-surfaced verbatim (\u00a71). An empty\nupload or a file lacking the ISO-10303-21 header is a clean 422 here,\nbefore anything goes upstream.",
+        "operationId": "import_step_api_v1_parts__part_id__features_import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optimistic-concurrency guard: the tree_version the client last saw (as on every feature mutation)",
+            "in": "query",
+            "name": "expected_tree_version",
+            "required": true,
+            "schema": {
+              "description": "Optimistic-concurrency guard: the tree_version the client last saw (as on every feature mutation)",
+              "minimum": 0,
+              "title": "Expected Tree Version",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User-facing name for the created import feature",
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "default": "Imported STEP",
+              "description": "User-facing name for the created import feature",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "The STEP part-21 file bytes (raw request body).",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Step",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/features/order": {
       "put": {
         "description": "Apply a full permutation of the tree (backward-only refs re-checked).",

@@ -73,18 +73,16 @@ unchanged in substance.
       path (pre-existing, sharpened here). Acceptance: a pathological/slow
       STEP file cannot pin a worker indefinitely — returns a clean per-feature
       timeout error, not a hang. [src: code-reviewer, 4964fab]
-- [ ] (P2, M) STEP import — gateway upload endpoint (Interop UI leg, part
-      1 of 2) — a multipart `POST` on the gateway that accepts a `.step`/
-      `.stp` file and maps it into the existing `ImportFeature`'s
-      `params.data` (inline STEP text, `4964fab`). Documents-side persistence
-      needs no new work — the feature-tree storage already added for `import`
-      covers it. Acceptance: upload a STEP file through the gateway, confirm
-      an `import` feature is created with the file's content as `data` and
-      evaluates to the correct body (reuse `import-step-box-10x20x30`'s
-      source file as the smoke fixture); size-bounded 422 above
-      `MAX_INLINE_STEP_CHARS` (16 MiB) with a legible error; auth-protected
-      like other part-mutating endpoints. [src: roadmap, engineering-auditor,
-      step-import.md]
+- [x] (P2, M) STEP import — gateway upload endpoint (Interop UI leg, part
+      1 of 2) — `POST /api/v1/parts/{id}/features/import`: the STEP file is
+      the RAW request body, streamed and size-capped chunk-by-chunk (oversize
+      → 422 `import_too_large` BEFORE the body is fully read, the earliest DoS
+      guard — a buffered multipart part would read the whole body first),
+      decoded and mapped to an `import` feature via the existing documents
+      feature-append path. Empty/non-STEP → clean 422; auth-gated; an import
+      onto a part that already has a body is documents' new write-time 422
+      `import_with_prior_body`. UI file-picker (part 2 of 2, below) is what
+      flips the Interop row. [src: roadmap, engineering-auditor, step-import.md]
 - [ ] (P2, M) STEP import — UI file-picker (Interop UI leg, part 2 of 2;
       **this is what actually flips the Interop scorecard row**) — an "Import
       STEP" affordance (parts home or in-workspace) that opens a file picker,

@@ -26,6 +26,7 @@ from fastapi import APIRouter, Query, status
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from py_kit.schemas.features import (
+    BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
@@ -96,6 +97,44 @@ async def _get_feature(
     if feature is None or feature.part_id != part.id:
         raise NotFoundError("Feature not found.", code="feature_not_found")
     return feature
+
+
+def _reject_import_with_prior_body(
+    envelope: FeatureEnvelope,
+    position: int,
+    features: list[db.Feature],
+) -> None:
+    """Guard the import base-feature invariant (docs/design/step-import.md §1).
+
+    An ``import`` SETS the part's base body, so — like the geometry service's
+    per-feature ``import_with_prior_body`` rebuild error (§5) — it is only valid
+    when no body-producing feature precedes it. Enforcing it at write time turns
+    the "STEP onto a part that already has a body" case into a legible 422 at
+    upload/create, rather than a feature that is persisted only to fail every
+    later evaluation. Non-body-affecting features before the import (an early
+    datum or sketch) are fine — only a prior body is rejected.
+    """
+    if envelope.type != "import":
+        return
+    prior_body = next(
+        (
+            feature
+            for feature in features
+            if feature.order_index < position
+            and feature.type in BODY_AFFECTING_FEATURE_TYPES
+        ),
+        None,
+    )
+    if prior_body is not None:
+        raise ValidationApiError(
+            "An import sets the part's base body, so it cannot follow another "
+            "body-producing feature.",
+            code="import_with_prior_body",
+            details={
+                "prior_feature_id": str(prior_body.id),
+                "prior_feature_type": prior_body.type,
+            },
+        )
 
 
 def _validate_references(
@@ -305,6 +344,7 @@ async def create_feature(
     bar_index = _bar_index(part, features)
     position = len(features) if bar_index is None else bar_index + 1
 
+    _reject_import_with_prior_body(request.feature, position, features)
     target_ids = _validate_references(request.feature, position, features_by_id)
 
     await _shift_indexes(session, part.id, position, +1)

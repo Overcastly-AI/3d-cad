@@ -494,6 +494,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/features/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Step
+         * @description Import an uploaded STEP file as the part's base body.
+         *
+         *     The STEP file is the raw request body. It is size-capped as it streams
+         *     (oversize → 422 ``import_too_large`` before the body is fully read — §6),
+         *     then decoded and mapped to an ``import`` feature whose inline
+         *     ``params.data`` is the STEP text (§2b). Persistence reuses the ordinary
+         *     documents feature-append path (``POST /features``), so an import onto a
+         *     part that already has a body is documents' legible 422
+         *     ``import_with_prior_body`` envelope, re-surfaced verbatim (§1). An empty
+         *     upload or a file lacking the ISO-10303-21 header is a clean 422 here,
+         *     before anything goes upstream.
+         */
+        post: operations["import_step_api_v1_parts__part_id__features_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/features/order": {
         parameters: {
             query?: never;
@@ -3962,6 +3992,47 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["FeatureCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_step_api_v1_parts__part_id__features_import_post: {
+        parameters: {
+            query: {
+                /** @description Optimistic-concurrency guard: the tree_version the client last saw (as on every feature mutation) */
+                expected_tree_version: number;
+                /** @description User-facing name for the created import feature */
+                name?: string;
+            };
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The STEP part-21 file bytes (raw request body). */
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
             };
         };
         responses: {

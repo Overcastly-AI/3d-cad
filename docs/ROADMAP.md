@@ -189,11 +189,14 @@ item:
       `STEPControl_Reader`, sets the part's body, and every later feature
       works on it via the existing topological-naming machinery. Golden
       `import-step-box-10x20x30` proves import ≡ inverse-of-export (0.0
-      deviation). Docs: `docs/design/step-import.md`. **Interop row is NOT
-      flipped yet** — no gateway upload endpoint or UI leads BACKLOG Ready
-      (behind a P1 security fast-follow: bound the untrusted-STEP OCCT
-      parse's wall-clock time). Remaining after that: IGES, multi-solid/
-      assembly, sew/heal, blob-ref storage — all BACKLOG Later.
+      deviation). Docs: `docs/design/step-import.md`. **Gateway upload
+      endpoint landed** (`POST /api/v1/parts/{id}/features/import`,
+      streamed+size-capped raw STEP body → `import` feature via the existing
+      feature-append path). **Interop row is NOT flipped yet** — the UI
+      file-picker leg leads BACKLOG Ready (behind a P1 security fast-follow:
+      bound the untrusted-STEP OCCT parse's wall-clock time). Remaining after
+      that: IGES, multi-solid/assembly, sew/heal, blob-ref storage — all
+      BACKLOG Later.
 - ⬜ 2D drawings: views from model, dimensions, PDF/DXF export
 - ⬜ 3MF/OBJ export; mesh quality controls
 
