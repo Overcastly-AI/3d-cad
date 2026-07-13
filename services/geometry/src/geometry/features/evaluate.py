@@ -67,6 +67,7 @@ from py_kit.schemas.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
     ExtrudeFeature,
+    ExtrudeParamsV1,
     FeatureData,
     FeatureError,
     FeatureRef,
@@ -119,6 +120,7 @@ from geometry.kernel import (
     build_loft_section,
     build_path_wire,
     build_profile_face,
+    build_profile_faces,
     chamfer_body,
     check_axis_clears_profile,
     circular_pattern,
@@ -351,26 +353,23 @@ def _evaluate_sketch(
     return None
 
 
-def _resolve_profile_face(
+def _resolve_solved_profile(
     profile: FeatureRef, state: EvaluationState
-) -> tuple[Face, Plane, SolvedSketch] | FeatureError:
-    """Resolve a profile FeatureRef to its ``(face, plane, solved sketch)``.
+) -> tuple[Plane, SolvedSketch] | FeatureError:
+    """Resolve a profile FeatureRef to its ``(plane, solved sketch)``.
 
-    The shared front half of every body-affecting feature that consumes a
-    sketch profile (extrude, revolve — CLAUDE.md DRY rule): it re-checks the
-    §2.2 reference rule (documents enforces it at write time; geometry must not
-    trust its callers), then builds the single closed profile face through the
-    shared :func:`build_profile_face` (construction geometry excluded there).
-    Both failure flavours are returned as per-feature errors pinned to the
-    upstream sketch, so the caller just propagates them.
+    The reference-resolution front half shared by :func:`_resolve_profile_face`
+    (single region — add/revolve/loft/sweep) and :func:`_resolve_profile_faces`
+    (N disjoint cut regions — CLAUDE.md DRY rule): it re-checks the §2.2
+    reference rule (documents enforces it at write time; geometry must not trust
+    its callers). Anything not an ok sketch of this prefix (unknown id,
+    non-sketch feature, or a sketch the strict-prefix rule never reached)
+    resolves to a ``reference_unresolved`` error pinned to the upstream id.
     """
     profile_id = profile.feature_id
     solved = state.solved_sketches.get(profile_id)
     plane = state.sketch_planes.get(profile_id)
     if solved is None or plane is None:
-        # Anything not an ok sketch of this prefix (unknown id, non-sketch
-        # feature, or a sketch the strict-prefix rule never reached) resolves
-        # to nothing.
         return FeatureError(
             code="reference_unresolved",
             message=(
@@ -379,19 +378,71 @@ def _resolve_profile_face(
             ),
             upstream_feature_id=profile_id,
         )
-    try:
-        face = build_profile_face(plane, solved.entities)
-    except ProfileNotClosedError as exc:
+    return plane, solved
+
+
+def _profile_build_error(exc: Exception, profile_id: uuid.UUID) -> FeatureError:
+    """Map a profile-builder exception onto its per-feature error code.
+
+    Single mapping point (CLAUDE.md DRY rule) for both profile resolvers:
+    ``ProfileNotClosedError``/``ProfileUnsupportedError`` from the shared
+    profile builders become per-feature errors pinned to the upstream sketch.
+    """
+    if isinstance(exc, ProfileNotClosedError):
         return FeatureError(
             code="profile_not_closed", message=str(exc), upstream_feature_id=profile_id
         )
-    except ProfileUnsupportedError as exc:
-        return FeatureError(
-            code="profile_unsupported",
-            message=str(exc),
-            upstream_feature_id=profile_id,
-        )
+    assert isinstance(exc, ProfileUnsupportedError)
+    return FeatureError(
+        code="profile_unsupported", message=str(exc), upstream_feature_id=profile_id
+    )
+
+
+def _resolve_profile_face(
+    profile: FeatureRef, state: EvaluationState
+) -> tuple[Face, Plane, SolvedSketch] | FeatureError:
+    """Resolve a profile FeatureRef to its ``(face, plane, solved sketch)``.
+
+    The shared front half of every SINGLE-region body-affecting feature that
+    consumes a sketch profile (extrude-add, revolve, loft, sweep — CLAUDE.md DRY
+    rule): reference-resolves through :func:`_resolve_solved_profile`, then
+    builds the single closed profile face through the shared
+    :func:`build_profile_face` (construction geometry excluded there). Disjoint
+    loops are a multi-body sketch and stay a ``profile_unsupported`` error here
+    — the multi-region relaxation is CUT-only (:func:`_resolve_profile_faces`).
+    """
+    resolved = _resolve_solved_profile(profile, state)
+    if isinstance(resolved, FeatureError):
+        return resolved
+    plane, solved = resolved
+    try:
+        face = build_profile_face(plane, solved.entities)
+    except (ProfileNotClosedError, ProfileUnsupportedError) as exc:
+        return _profile_build_error(exc, profile.feature_id)
     return face, plane, solved
+
+
+def _resolve_profile_faces(
+    profile: FeatureRef, state: EvaluationState
+) -> tuple[list[Face], Plane] | FeatureError:
+    """Resolve a profile FeatureRef to its ``(region faces, plane)`` for a CUT.
+
+    The multi-region sibling of :func:`_resolve_profile_face`, used ONLY by the
+    subtractive extrude path (§4.3): N disjoint closed loops resolve to N
+    independent removal regions through :func:`build_profile_faces` — no shared
+    outer boundary required. A single-region sketch (one loop, or one outer
+    boundary + interior holes) resolves to a one-element list byte-identical to
+    the single-face path, so the plate-with-holes cut is unchanged.
+    """
+    resolved = _resolve_solved_profile(profile, state)
+    if isinstance(resolved, FeatureError):
+        return resolved
+    plane, solved = resolved
+    try:
+        faces = build_profile_faces(plane, solved.entities)
+    except (ProfileNotClosedError, ProfileUnsupportedError) as exc:
+        return _profile_build_error(exc, profile.feature_id)
+    return faces, plane
 
 
 def _evaluate_extrude(
@@ -408,13 +459,50 @@ def _evaluate_extrude(
     feature = item.feature
     assert isinstance(feature, ExtrudeFeature), "registry dispatches on type='extrude'"
     params = feature.params
+    reverse = params.direction == "reverse"
 
+    if params.operation == "cut":
+        return _evaluate_extrude_cut(params, state, reverse)
+
+    # ADD: a single closed region (one loop, or one outer boundary + interior
+    # holes). N disjoint loops would be N separate solids — multi-body, which
+    # Loft does NOT support — so build_profile_face keeps rejecting them as
+    # ``profile_unsupported``; the multi-region relaxation is CUT-only below.
     resolved = _resolve_profile_face(params.profile, state)
     if isinstance(resolved, FeatureError):
         return resolved
     face, plane, _ = resolved
 
-    if params.operation == "cut" and state.body is None:
+    tool = extrude_face(face, plane, params.distance_mm, reverse)
+    try:
+        state.body = combine_body(state.body, tool, "add")
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+    return None
+
+
+def _evaluate_extrude_cut(
+    params: ExtrudeParamsV1, state: EvaluationState, reverse: bool
+) -> FeatureError | None:
+    """Subtract one OR MORE disjoint profile regions from the body (§4.3).
+
+    The CUT branch of :func:`_evaluate_extrude`: N disjoint closed loops resolve
+    to N independent removal regions (showcase F2 — a ring of lightening holes
+    cut in one feature), each prism-extruded and cut from the running body in a
+    deterministic order (:func:`build_profile_faces` sorts the regions). A
+    single-region sketch resolves to exactly one tool, byte-identical to the
+    former single-cut path (plate-with-holes cut unchanged). Cutting A then B is
+    the same removal as cutting their union, and each step reuses
+    :func:`combine_body`'s single-solid body-chain guarantee (design §7.6);
+    ``state.body`` is only replaced once every region cuts cleanly, preserving
+    last-good semantics on a mid-cut failure.
+    """
+    resolved = _resolve_profile_faces(params.profile, state)
+    if isinstance(resolved, FeatureError):
+        return resolved
+    faces, plane = resolved
+
+    if state.body is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -423,11 +511,14 @@ def _evaluate_extrude(
             ),
         )
 
-    tool = extrude_face(face, plane, params.distance_mm, params.direction == "reverse")
+    body = state.body
     try:
-        state.body = combine_body(state.body, tool, params.operation)
+        for face in faces:
+            tool = extrude_face(face, plane, params.distance_mm, reverse)
+            body = combine_body(body, tool, "cut")
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
+    state.body = body
     return None
 
 

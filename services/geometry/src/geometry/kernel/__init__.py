@@ -28,6 +28,7 @@ from geometry.kernel.extrude import (
     ProfileUnsupportedError,
     build_datum_plane,
     build_profile_face,
+    build_profile_faces,
     combine_body,
     extrude_face,
 )
@@ -133,6 +134,7 @@ __all__ = [
     "build_loft_section",
     "build_path_wire",
     "build_profile_face",
+    "build_profile_faces",
     "build_shape",
     "chamfer_body",
     "check_axis_clears_profile",

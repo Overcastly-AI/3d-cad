@@ -431,6 +431,36 @@ pattern) are all golden-covered.
 
 ---
 
+## 2026-07-13 — Multi-disjoint-loop CUT (showcase **F2**, BACKLOG #4): `sketch-extrude-plate-6hole-ring-cut-60x60x10`
+
+**What shipped.** A sketch of N disjoint closed loops with no enclosing outer
+boundary is now a valid **CUT** profile: `build_profile_faces` (new, CUT-only)
+partitions the loops into N independent removal regions via `_group_regions`
+(same sampled `is_inside` containment test + `_wire_sort_key` deterministic
+ordering the single-region classifier uses), and the extrude CUT branch
+subtracts them from the running body in sorted order. Cutting A then B is the
+same removal as cutting their union, and each step reuses `combine_body`'s
+single-solid body-chain guarantee (§7.6).
+
+**Add-vs-cut guard preserved.** The relaxation is CUT-only: ADD/revolve/loft/
+sweep keep the single-region `build_profile_face`, so an ADD of disjoint loops
+stays a multi-body `profile_unsupported` error (Loft does not support
+multi-body). The single-outer + interior-holes path (plate-with-holes) is
+**byte-unchanged** for both add and cut — a single-region sketch returns a
+one-element face list identical to `build_profile_face`.
+
+**Golden.** `sketch-extrude-plate-6hole-ring-cut-60x60x10`: a 60×60×10 plate
+cut by six disjoint r4 circles on a ring of radius 20 about (30,30), in ONE
+subtractive extrude. Analytic V = 60²·10 − 6·π·4²·10 = 36000 − 960π =
+32984.0710525538 mm³; 12 faces (2 caps + 4 walls + 6 hole cylinders) / 30 edges
+/ 1 shell; 3060 v / 3060 t. Tolerance 1e-9 (curved-geometry ceiling, the
+extrude/plate-with-holes posture); measured worst deviation 1.46e-11 on volume
+(~69× under the ceiling — the six sequential cut booleans accumulate more
+ulp-scale error than the two-hole single-cut plate), surface_area 3.64e-12,
+centroid ≤ 2.14e-14 (x/y at ring float-trig ulp; z exact), AABB exactly 0.0.
+The add-vs-cut guard + nested-two-deep-loop + disjoint-cut determinism paths
+are additionally pinned in `tests/test_extrude.py`.
+
 ## 2026-07-12 — Circular-pattern determinism golden (engineering-audit **F4**, first slice): `pattern-circular-4x-quadrant-box`
 
 **Finding closed (first slice).** F4 flagged that `circular_pattern` — the one

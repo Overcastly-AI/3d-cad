@@ -170,6 +170,11 @@ item:
       topological-naming failures) and surfaced three feature-coverage gaps
       (pattern union-only, disjoint-circle-ring profile, thin-shell fillet
       UI warning) — filed to BACKLOG Ready/Later.
+- ✅ Multi-disjoint-loop CUT (2026-07-13, showcase **F2**/BACKLOG #4) — a
+      sketch of N disjoint circles (no enclosing outer boundary) now cuts N
+      independent holes in ONE feature (`build_profile_faces`/`_group_regions`);
+      add-vs-cut guard preserved (ADD of disjoint loops stays a multi-body
+      error); new 6-hole-ring-cut golden. Kills the pulley's 16-feature ring.
 - 🚧 Product + engineering audits (2026-07-12, `docs/AUDIT-PRODUCT.md`
       6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found; findings
       filed to BACKLOG (mesh-store scale cliff, remaining determinism-golden

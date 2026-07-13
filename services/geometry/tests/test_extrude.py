@@ -603,6 +603,137 @@ def test_plate_with_holes_is_byte_deterministic() -> None:
     assert first.content == second.content
 
 
+# --- Multi-disjoint-loop CUT: N independent removal regions (showcase F2) -------------
+
+
+def test_cut_of_disjoint_loops_removes_each_region_in_one_feature() -> None:
+    """A sketch of THREE disjoint circles with no enclosing outer boundary,
+    extrude-CUT through a 40x25x10 block, removes all three through-holes in ONE
+    feature (BACKLOG #4 / showcase F2). Volume = 10000 - 3*pi*4^2*10; the three
+    cylindrical hole walls raise the face count to 6 block + 3 = 9. This is the
+    path build_profile_faces unlocks: N disjoint loops -> N cut tools."""
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                circle_sketch(SKETCH2_ID, (10.0, 12.5), 4.0, count=3),
+                extrude_input(EXTRUDE2_ID, SKETCH2_ID, 10.0, operation="cut"),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 4
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        10000.0 - 3.0 * math.pi * 16.0 * 10.0, abs=EXTRUDE_TOL
+    )
+    # 6 block faces + one cylindrical wall per through-hole; top/bottom stay one
+    # face each (now pierced). Cut booleans are clean()ed.
+    assert result.properties.topology.faces == 9
+
+
+def test_add_of_disjoint_loops_stays_multi_body_error_but_cut_succeeds() -> None:
+    """The add-vs-cut guard, pinned on the SAME disjoint sketch: an ADD extrude
+    of two disjoint loops is a multi-body sketch -> profile_unsupported (Loft
+    does NOT support multi-body), while the identical sketch used as a CUT after
+    a body succeeds as two independent removal regions. The relaxation is
+    CUT-only; the add path is byte-unchanged."""
+    disjoint = circle_sketch(SKETCH_ID, (12.0, 12.5), 4.0, count=2)
+
+    add = _post(_request([disjoint, extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0)]))
+    assert add.features[1].status == "error"
+    assert add.features[1].error is not None
+    assert add.features[1].error.code == "profile_unsupported"
+    assert "outer boundary" in add.features[1].error.message.lower()
+
+    cut = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH2_ID),
+                extrude_input(EXTRUDE2_ID, SKETCH2_ID, 10.0),
+                circle_sketch(SKETCH_ID, (12.0, 12.5), 4.0, count=2),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0, operation="cut"),
+            ]
+        )
+    )
+    assert [r.status for r in cut.features] == ["ok"] * 4
+    assert cut.properties is not None
+    assert cut.properties.volume == pytest.approx(
+        10000.0 - 2.0 * math.pi * 16.0 * 10.0, abs=EXTRUDE_TOL
+    )
+
+
+def test_single_outer_multiloop_cut_is_unchanged_by_the_relaxation() -> None:
+    """Regression guard: a single-outer-boundary + inner-hole profile CUT still
+    resolves to ONE region (build_profile_faces returns a one-element list), so
+    the plate-with-hole cut leaves the pillar under the hole exactly as before
+    the multi-region path existed — pi*5^2*10, unchanged from
+    test_cut_with_holed_profile_leaves_material_under_holes."""
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                plate_with_holes_sketch(SKETCH2_ID, [((20.0, 12.5), 5.0)]),
+                extrude_input(EXTRUDE2_ID, SKETCH2_ID, 10.0, operation="cut"),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 4
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        math.pi * 25.0 * 10.0, abs=EXTRUDE_TOL
+    )
+
+
+def test_cut_with_loop_nested_two_deep_is_profile_unsupported() -> None:
+    """Three concentric circles (r15 > r10 > r5) put the innermost loop TWO
+    levels deep — a hole inside a hole. The CUT multi-region partition supports
+    disjoint regions of one outer boundary + interior holes, not deeper nesting,
+    so this is a legible profile_unsupported, never a 500."""
+    nested = circle_sketch(SKETCH2_ID, (20.0, 12.5), 15.0)
+    nested["feature"]["params"]["entities"] += [
+        _circle("m", (20.0, 12.5), 10.0),
+        _circle("i", (20.0, 12.5), 5.0),
+    ]
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID, 0.0, 0.0, 40.0, 25.0),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                nested,
+                extrude_input(EXTRUDE2_ID, SKETCH2_ID, 10.0, operation="cut"),
+            ]
+        )
+    )
+
+    assert result.features[3].status == "error"
+    error = result.features[3].error
+    assert error is not None
+    assert error.code == "profile_unsupported"
+
+
+def test_disjoint_cut_is_byte_deterministic() -> None:
+    """Determinism holds with N disjoint cut regions (RESEARCH §9): _group_regions
+    orders the regions by a geometric key, so the multi-cut body — and its
+    content-addressed mesh id — is byte-reproducible across identical requests."""
+    payload = _request(
+        [
+            rectangle_sketch(SKETCH_ID),
+            extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+            circle_sketch(SKETCH2_ID, (10.0, 12.5), 4.0, count=3),
+            extrude_input(EXTRUDE2_ID, SKETCH2_ID, 10.0, operation="cut"),
+        ]
+    )
+    first = client.post("/api/v1/evaluate", json=payload)
+    second = client.post("/api/v1/evaluate", json=payload)
+
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
+
+
 def test_points_only_sketch_has_nothing_to_extrude() -> None:
     """Point entities are construction geometry — a points-only profile is
     profile_not_closed, with a message saying nothing is extrudable."""

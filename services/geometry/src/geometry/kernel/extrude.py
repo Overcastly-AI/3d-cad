@@ -234,44 +234,38 @@ def _wire_sort_key(wire: Wire) -> tuple[float, float, float, float]:
     return (face.area, centre.X, centre.Y, centre.Z)
 
 
-def _build_face_with_holes(wires: Sequence[Wire]) -> Face:
-    """Classify 2+ closed loops into one outer boundary + inner holes → face.
+def _wire_strictly_inside(inner: Wire, outer_face: Face) -> bool:
+    """Whether *inner* lies strictly inside *outer_face* (v1 containment test).
 
-    v1 classification rule (documented limit, not an accident): the loop of
-    **largest enclosed area** is the OUTER boundary; every other loop is a hole
-    subtracted from it. Each hole must lie **strictly inside** the outer
-    boundary and the holes must be **mutually disjoint** — a single outer
-    boundary with N non-overlapping, non-nested interior holes (the bolt-circle
-    / plate-with-holes case). Anything else is rejected as
-    :class:`ProfileUnsupportedError` with a legible message, never a 500:
-
-    * a loop not contained by the outer boundary ⇒ the sketch has disjoint
-      outer boundaries (a multi-region / multi-body sketch), a separate future
-      item;
-    * a hole crossing the outer boundary, or holes that overlap or nest, leave
-      OCCT with an invalid face — caught here by the validity backstop.
+    THE single containment predicate (CLAUDE.md DRY rule) shared by the
+    single-region classifier (:func:`_build_face_with_holes`) and the
+    multi-region partition (:func:`_group_regions`): a whole loop poking outside
+    the boundary is caught when any of the ``_INNER_CONTAINMENT_SAMPLES``
+    perimeter samples lands outside, with OCCT's own face-validity check the
+    geometry-exact backstop for anything between samples.
     """
-    outer_wire = max(wires, key=_wire_area)
-    outer_face = Face(outer_wire)
-    inner_wires = [wire for wire in wires if wire is not outer_wire]
-
-    for inner in inner_wires:
-        contained = all(
-            outer_face.is_inside(
-                inner.position_at(index / _INNER_CONTAINMENT_SAMPLES),
-                tolerance=PROFILE_WIRE_TOLERANCE,
-            )
-            for index in range(_INNER_CONTAINMENT_SAMPLES)
+    return all(
+        outer_face.is_inside(
+            inner.position_at(index / _INNER_CONTAINMENT_SAMPLES),
+            tolerance=PROFILE_WIRE_TOLERANCE,
         )
-        if not contained:
-            raise ProfileUnsupportedError(
-                f"Sketch profile has {len(wires)} closed loops that are not all "
-                "enclosed by a single outer boundary (a loop lies outside it or "
-                "crosses it); extrude builds one body from one outer boundary "
-                "with interior holes in v1 — separate regions (multi-body) and "
-                "boundary-crossing loops are a later item."
-            )
+        for index in range(_INNER_CONTAINMENT_SAMPLES)
+    )
 
+
+def _region_face(outer_wire: Wire, inner_wires: Sequence[Wire]) -> Face:
+    """Build ONE region's face from its outer boundary + interior holes.
+
+    Shared final step of the single-region classifier
+    (:func:`_build_face_with_holes`) and the multi-region CUT partition
+    (:func:`_group_regions`): holes are subtracted in the deterministic
+    inner-wire order (RESEARCH §9), and OCCT's own validity check is the
+    geometry-exact backstop for a hole that crosses the boundary, overlaps
+    another hole, or nests. A region with no holes is a plain face (a bare loop
+    in a ring of disjoint cut regions).
+    """
+    if not inner_wires:
+        return Face(outer_wire)
     try:
         face = Face(outer_wire, sorted(inner_wires, key=_wire_sort_key))
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
@@ -286,6 +280,129 @@ def _build_face_with_holes(wires: Sequence[Wire]) -> Face:
             "nest; v1 supports one outer boundary with disjoint interior holes."
         )
     return face
+
+
+def _build_face_with_holes(wires: Sequence[Wire]) -> Face:
+    """Classify 2+ closed loops into ONE outer boundary + inner holes → face.
+
+    v1 classification rule (documented limit, not an accident): the loop of
+    **largest enclosed area** is the OUTER boundary; every other loop is a hole
+    subtracted from it. Each hole must lie **strictly inside** the outer
+    boundary and the holes must be **mutually disjoint** — a single outer
+    boundary with N non-overlapping, non-nested interior holes (the bolt-circle
+    / plate-with-holes case). Anything else is rejected as
+    :class:`ProfileUnsupportedError` with a legible message, never a 500:
+
+    * a loop not contained by the outer boundary ⇒ the sketch has disjoint
+      outer boundaries (a multi-region / multi-body sketch) — supported for a
+      CUT via :func:`build_profile_faces`, still an error for ADD/revolve/loft/
+      sweep (a single body is one outer boundary with interior holes);
+    * a hole crossing the outer boundary, or holes that overlap or nest, leave
+      OCCT with an invalid face — caught by :func:`_region_face`'s backstop.
+    """
+    outer_wire = max(wires, key=_wire_area)
+    outer_face = Face(outer_wire)
+    inner_wires = [wire for wire in wires if wire is not outer_wire]
+
+    for inner in inner_wires:
+        if not _wire_strictly_inside(inner, outer_face):
+            raise ProfileUnsupportedError(
+                f"Sketch profile has {len(wires)} closed loops that are not all "
+                "enclosed by a single outer boundary (a loop lies outside it or "
+                "crosses it); extrude builds one body from one outer boundary "
+                "with interior holes in v1 — separate regions (multi-body) and "
+                "boundary-crossing loops are a later item."
+            )
+    return _region_face(outer_wire, inner_wires)
+
+
+def _group_regions(wires: Sequence[Wire]) -> list[tuple[Wire, list[Wire]]]:
+    """Partition 2+ closed loops into DISJOINT regions (outer + interior holes).
+
+    The multi-region generalization of :func:`_build_face_with_holes`, consumed
+    ONLY by the CUT extrude path (:func:`build_profile_faces`). Each region is
+    one outer boundary and the holes strictly inside it; the regions are
+    mutually disjoint — so N separate loops (a ring of lightening holes) become
+    N independent removal tools, while one outer boundary + interior holes stays
+    a single region (byte-identical to the plate-with-holes face). Containment
+    uses the SAME :func:`_wire_strictly_inside` test the single-region
+    classifier uses; ordering is deterministic (RESEARCH §9) — regions and holes
+    both sort by :func:`_wire_sort_key`, so the same sketch always feeds the same
+    cut-tool order.
+
+    Raises:
+        ProfileUnsupportedError: a loop nested more than one level deep (a hole
+            inside a hole) — outside v1's one-level outer/hole model.
+    """
+    faces = [Face(wire) for wire in wires]
+    containers: list[list[int]] = [
+        [
+            j
+            for j, outer_face in enumerate(faces)
+            if j != i and _wire_strictly_inside(wire, outer_face)
+        ]
+        for i, wire in enumerate(wires)
+    ]
+
+    roots = [i for i, conts in enumerate(containers) if not conts]
+    holes_by_root: dict[int, list[int]] = {root: [] for root in roots}
+    for i, conts in enumerate(containers):
+        if not conts:
+            continue
+        # A hole has exactly one container, and that container must itself be a
+        # region root (depth 0): >1 container, or a container that is itself a
+        # hole, is a loop nested two deep — outside v1.
+        if len(conts) > 1 or conts[0] not in holes_by_root:
+            raise ProfileUnsupportedError(
+                f"Sketch profile has {len(wires)} closed loops with a loop "
+                "nested more than one level deep (a hole inside a hole); a CUT "
+                "supports disjoint regions of one outer boundary with interior "
+                "holes, not deeper nesting."
+            )
+        holes_by_root[conts[0]].append(i)
+
+    regions = [
+        (wires[root], [wires[hole] for hole in holes_by_root[root]]) for root in roots
+    ]
+    regions.sort(key=lambda region: _wire_sort_key(region[0]))
+    return regions
+
+
+def _profile_wires(plane: Plane, entities: Sequence[SketchEntity]) -> list[Wire]:
+    """Assemble solved sketch entities into their CLOSED profile wires.
+
+    The shared front half of :func:`build_profile_face` and
+    :func:`build_profile_faces` (CLAUDE.md DRY rule): construction geometry is
+    excluded exactly once, edges are built in entity-list order (determinism,
+    RESEARCH §9 — filtering does not reorder), and every combined wire must
+    close.
+
+    Raises:
+        ProfileNotClosedError: no curve entities, or some loop does not close.
+    """
+    edges: list[Edge] = []
+    for entity in entities:
+        # THE single profile-exclusion point (design §2.4 semantics): every
+        # body-affecting feature that consumes a sketch profile builds it
+        # through here, so construction geometry is dropped exactly once.
+        if entity.construction:
+            continue
+        edges.extend(entity_edges(plane, entity))
+
+    if not edges:
+        raise ProfileNotClosedError(
+            "Sketch contains no profile curves (only construction geometry "
+            "and/or points); nothing to extrude."
+        )
+
+    wires = Wire.combine(edges, tol=PROFILE_WIRE_TOLERANCE)
+    for wire in wires:
+        if not wire.is_closed:
+            raise ProfileNotClosedError(
+                "Sketch profile is not a closed loop; close the boundary (e.g. "
+                "with coincident constraints) before extruding."
+            )
+    return list(wires)
 
 
 def build_profile_face(plane: Plane, entities: Sequence[SketchEntity]) -> Face:
@@ -311,33 +428,39 @@ def build_profile_face(plane: Plane, entities: Sequence[SketchEntity]) -> Face:
             disjoint, strictly-interior holes (disjoint outer boundaries /
             crossing / overlapping / nested holes — all legible, never a 500).
     """
-    edges: list[Edge] = []
-    for entity in entities:
-        # THE single profile-exclusion point (design §2.4 semantics): every
-        # body-affecting feature that consumes a sketch profile builds it via
-        # this function, so construction geometry is dropped here exactly once,
-        # never per-feature. Input list order is preserved (determinism,
-        # RESEARCH §9) — filtering does not reorder.
-        if entity.construction:
-            continue
-        edges.extend(entity_edges(plane, entity))
-
-    if not edges:
-        raise ProfileNotClosedError(
-            "Sketch contains no profile curves (only construction geometry "
-            "and/or points); nothing to extrude."
-        )
-
-    wires = Wire.combine(edges, tol=PROFILE_WIRE_TOLERANCE)
-    for wire in wires:
-        if not wire.is_closed:
-            raise ProfileNotClosedError(
-                "Sketch profile is not a closed loop; close the boundary (e.g. "
-                "with coincident constraints) before extruding."
-            )
+    wires = _profile_wires(plane, entities)
     if len(wires) == 1:
         return Face(wires[0])
     return _build_face_with_holes(wires)
+
+
+def build_profile_faces(plane: Plane, entities: Sequence[SketchEntity]) -> list[Face]:
+    """Assemble solved sketch entities into ONE OR MORE disjoint region faces.
+
+    The multi-region sibling of :func:`build_profile_face`, consumed ONLY by the
+    **CUT** extrude path: N disjoint closed loops become N independent removal
+    regions (a ring of lightening holes cut in a single feature — showcase F2),
+    with **no shared outer boundary required**. A single-region sketch (one
+    loop, or one outer boundary + interior holes) returns a one-element list
+    whose face is byte-identical to :func:`build_profile_face`, so the
+    plate-with-holes cut path is unchanged. ADD/revolve/loft/sweep still resolve
+    through :func:`build_profile_face`, which rejects disjoint loops as a
+    multi-body sketch — the add-vs-cut distinction lives at the feature layer,
+    which calls this only for ``operation == "cut"``.
+
+    Region ordering is deterministic (RESEARCH §9): :func:`_group_regions` sorts
+    the regions (and their holes) by :func:`_wire_sort_key`, so the same sketch
+    always yields the same cut-tool sequence.
+
+    Raises:
+        ProfileNotClosedError: no curve entities, or some loop does not close.
+        ProfileUnsupportedError: a loop nested more than one level deep, or a
+            region's holes cross/overlap/nest (all legible, never a 500).
+    """
+    wires = _profile_wires(plane, entities)
+    if len(wires) == 1:
+        return [Face(wires[0])]
+    return [_region_face(outer, holes) for outer, holes in _group_regions(wires)]
 
 
 def extrude_face(

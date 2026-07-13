@@ -113,19 +113,17 @@ unchanged in substance.
       unaffected (regression golden); worked e2e on a lightening-hole ring;
       new golden. Compounds with the next item. [src: product-auditor
       showcase-QA F1, competitive]
-- [ ] (P2, M) Sketch: multi-disjoint-loop profile support for cut (showcase
-      **F2**) — a sketch of N disjoint circles with no enclosing outer
-      boundary is rejected `profile_unsupported` ("N closed loops not all
-      enclosed by a single outer boundary"); combined with F1 this forces one
-      sketch+cut pair per hole (the showcase pulley needed 16 features for a
-      6-hole ring, `docs/showcase-parts.md` F2). Extend profile resolution to
-      accept N disjoint closed loops as N independent removal regions on cut
-      (no shared outer boundary required) — either this or the item above
-      alone covers the common case; both together is best. Acceptance: a
-      sketch of 6 disjoint circles + extrude(cut) removes 6 separate holes in
-      one feature; existing single-outer-boundary multi-loop behavior
-      (holes-in-a-plate) unaffected; worked e2e; new golden. [src:
-      product-auditor showcase-QA F2, competitive]
+- [x] (P2, M) Sketch: multi-disjoint-loop profile support for cut (showcase
+      **F2**) — DONE. `build_profile_faces` (new, CUT-only) partitions N
+      disjoint closed loops into N independent removal regions
+      (`_group_regions`) and the extrude CUT branch subtracts them in one
+      feature; ADD/revolve/loft/sweep keep the single-region
+      `build_profile_face` (disjoint loops stay a multi-body
+      `profile_unsupported`), and the single-outer + interior-holes path is
+      byte-unchanged for add and cut. New golden
+      `sketch-extrude-plate-6hole-ring-cut-60x60x10` (6-hole ring cut in one
+      feature, V = 60²·10 − 6·π·4²·10, dev ≤1.5e-11); add-vs-cut guard +
+      nested-loop + determinism tests in `test_extrude.py`.
 - [ ] (P2, M) Mesh store: object-storage swap or explicit single-worker
       guard (engineering audit **F1**) — the in-process mesh LRU
       (`geometry/mesh_store.py`) is a process-global; evaluate and fetch
@@ -506,6 +504,9 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 Older entries (incl. 2026-07-12/13 sketch-on-face/edge-pick/shell/draft/
 STEP-import-v1 ship notes) live in `CHANGELOG.md`.
 
+- 2026-07-13 — Shipped multi-disjoint-loop CUT (#4, showcase F2): N disjoint
+  loops → N cut regions in one feature (`build_profile_faces`/`_group_regions`);
+  add-vs-cut guard preserved; new 6-hole-ring-cut golden. [kernel-architect]
 - 2026-07-13 — Groomed after STEP import v1 (`4964fab`, geometry-side only)
   + showcase stress test (`d8d3b87`, held, no P0). Filed the Interop UI-leg
   items (gateway upload + import UI — the actual flip path), showcase F1–F3

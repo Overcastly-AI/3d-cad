@@ -1,0 +1,173 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000fc",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000000a1",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 60.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": {
+                "x": 60.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 60.0,
+                "y": 60.0
+              }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": {
+                "x": 60.0,
+                "y": 60.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 60.0
+              }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 60.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000000b1",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000000a1"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000000a2",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "h1",
+              "kind": "circle",
+              "center": {
+                "x": 50.0,
+                "y": 30.0
+              },
+              "radius": 4.0
+            },
+            {
+              "id": "h2",
+              "kind": "circle",
+              "center": {
+                "x": 40.0,
+                "y": 47.32050807568877
+              },
+              "radius": 4.0
+            },
+            {
+              "id": "h3",
+              "kind": "circle",
+              "center": {
+                "x": 20.000000000000004,
+                "y": 47.32050807568878
+              },
+              "radius": 4.0
+            },
+            {
+              "id": "h4",
+              "kind": "circle",
+              "center": {
+                "x": 10.0,
+                "y": 30.000000000000004
+              },
+              "radius": 4.0
+            },
+            {
+              "id": "h5",
+              "kind": "circle",
+              "center": {
+                "x": 19.999999999999993,
+                "y": 12.679491924311233
+              },
+              "radius": 4.0
+            },
+            {
+              "id": "h6",
+              "kind": "circle",
+              "center": {
+                "x": 40.0,
+                "y": 12.679491924311229
+              },
+              "radius": 4.0
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000000b2",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000000a2"
+          },
+          "distance_mm": 10.0,
+          "operation": "cut",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}
