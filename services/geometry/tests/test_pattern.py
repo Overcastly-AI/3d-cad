@@ -408,6 +408,141 @@ def test_add_pattern_after_a_cut_hole_still_unions_whole_body() -> None:
     assert result.properties.volume > 1000.0
 
 
+FILLET_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
+
+
+def _fillet_vertical_edges(feature_id: uuid.UUID, radius_mm: float) -> dict[str, Any]:
+    """A fillet of the 4 Z-parallel edges (axis_parallel predicate) — a plain
+    body-affecting feature to sit BETWEEN a cut and a pattern so the pattern's
+    immediately-preceding source is a fillet, not the extrude-cut."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "fillet",
+            "version": 1,
+            "params": {
+                "edges": {"kind": "axis_parallel", "axis": "Z"},
+                "radius_mm": radius_mm,
+            },
+        },
+    }
+
+
+def test_pattern_after_an_intervening_fillet_unions_whole_body_not_recut() -> None:
+    """Inference-boundary guard (the review 🟡): a cut -> fillet -> pattern tree
+    must take the WHOLE-BODY UNION path, NOT re-cut the hole. The pattern's
+    immediately-preceding body-affecting feature is the FILLET (an add-class
+    mutate), not the extrude-cut, so ``_pattern_cut_tools`` returns ``None`` and
+    the pattern unions whole-body copies of the filleted, drilled plate — this
+    locks the ``isinstance(source, ExtrudeFeature) and operation == "cut"``
+    boundary: a non-cut preceding feature => union.
+
+    Discriminator: a +X linear pattern (spacing 6, count 3) UNIONS three
+    overlapping copies of the 60x60 plate → the body EXTENDS to x=42 and GAINS
+    material (volume well over one 36000 mm^3 plate). Were the boundary broken
+    (the fillet ignored, the underlying cut re-inferred as the source), the
+    pattern would instead drill 3 holes into the SINGLE plate: max.x would stay
+    30 and the volume would DROP below 36000 (~34e3), which both asserts reject.
+    """
+    result = _post(
+        _request(
+            [
+                rect_sketch(SKETCH_ID, -30.0, -30.0, 30.0, 30.0),
+                extrude_input(BODY_ID, SKETCH_ID, 10.0),
+                circle_sketch(HOLE_ID, 20.0, 0.0, 4.0),
+                extrude_input(CUT_ID, HOLE_ID, 10.0, operation="cut"),
+                # The intervening fillet becomes the source; the pattern UNIONS.
+                _fillet_vertical_edges(FILLET_ID, 4.0),
+                linear_pattern_input(
+                    PATTERN_ID, direction=(1.0, 0.0, 0.0), spacing_mm=6.0, count=3
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 6
+    assert result.properties is not None
+    bbox = result.properties.bounding_box
+    # UNION extended the body along +X to 42 (a re-cut keeps the plate at 30).
+    assert bbox.max.x == pytest.approx(42.0, abs=PATTERN_TOL)
+    assert bbox.min.x == pytest.approx(-30.0, abs=PATTERN_TOL)
+    # A whole-body union of three overlapping filleted plates >> one 36000 plate;
+    # a 3-hole re-cut of the single plate would instead be < 36000 (~34e3).
+    assert result.properties.volume > 40000.0
+    assert result.properties.topology.shells == 1
+
+
+# --- Pattern of a MULTI-REGION (#4) cut: replicate ALL tools (#4 x #3) ----------------
+
+MULTI_HOLE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a4")
+
+
+def _multi_circle_sketch(
+    feature_id: uuid.UUID, centers: list[tuple[float, float]], radius: float
+) -> dict[str, Any]:
+    """A sketch of N disjoint circles (N closed loops) → one multi-region cut
+    (the #4 path: one extrude-cut feature removing N tools)."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(XY_PLANE),
+                "entities": [
+                    {
+                        "id": f"h{i + 1}",
+                        "kind": "circle",
+                        "center": {"x": cx, "y": cy},
+                        "radius": radius,
+                    }
+                    for i, (cx, cy) in enumerate(centers)
+                ],
+                "constraints": [],
+            },
+        },
+    }
+
+
+def test_pattern_of_a_multi_region_cut_replicates_all_tools() -> None:
+    """#4 x #3 composition — ``_pattern_cut_tools`` returning a tool-list > 1,
+    end to end. A SINGLE multi-region cut (TWO disjoint r3 holes at x=15,
+    y=+/-10) patterned -X (spacing 20, count 3) replicates BOTH tools at every
+    placement → holes at x in {15,-5,-25} times y in {+/-10} = 2 x 3 = SIX
+    holes, not two. Volume matches the analytic (plate minus six r3 through-
+    holes), the topology proves exactly six holes, and the result is
+    byte-deterministic (RESEARCH §9)."""
+    payload = _request(
+        [
+            rect_sketch(SKETCH_ID, -30.0, -30.0, 30.0, 30.0),
+            extrude_input(BODY_ID, SKETCH_ID, 10.0),
+            _multi_circle_sketch(MULTI_HOLE_ID, [(15.0, 10.0), (15.0, -10.0)], 3.0),
+            extrude_input(CUT_ID, MULTI_HOLE_ID, 10.0, operation="cut"),
+            linear_pattern_input(
+                PATTERN_ID, direction=(-1.0, 0.0, 0.0), spacing_mm=20.0, count=3
+            ),
+        ]
+    )
+    first = client.post("/api/v1/evaluate", json=payload)
+    second = client.post("/api/v1/evaluate", json=payload)
+    assert first.status_code == second.status_code == 200
+    # Determinism: the multi-tool cut path is a pure function of the tree.
+    assert first.content == second.content
+
+    result = EvaluateTreeResult.model_validate(first.json())
+    assert [r.status for r in result.features] == ["ok"] * 5
+    assert result.properties is not None
+    plate = 60.0 * 60.0 * 10.0
+    six_holes = 6 * math.pi * 3.0**2 * 10.0
+    assert result.properties.volume == pytest.approx(plate - six_holes, abs=PATTERN_TOL)
+    # 2 caps + 4 side walls + 6 cylinder walls = 12 faces ⇒ exactly SIX holes
+    # (each tool of the 2-region cut replicated across all three placements).
+    assert result.properties.topology.faces == 12
+    assert result.properties.topology.shells == 1
+    # y=+/-10 holes mirror about y=0 → centroid.y is exactly 0 by symmetry.
+    assert result.properties.centroid.y == pytest.approx(0.0, abs=PATTERN_TOL)
+
+
 # --- Error paths are per-feature values, never transport failures ---------------------
 
 

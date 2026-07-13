@@ -37,6 +37,20 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-13 — SCOPE NOTE: pattern-of-cut inference is extrude-cut-specific (v1)
+
+Recording the known v1 limit honestly (code-review 🟢 on #3). A pattern infers
+its array-a-cut mode ONLY when the immediately-preceding body-affecting feature
+is an **extrude** with `operation="cut"` (`_pattern_cut_tools`, evaluate.py). A
+`revolve` (or sweep/loft) with `operation="cut"` — e.g. a turned groove —
+preceding a pattern silently takes the WHOLE-BODY UNION path, NOT an arrayed
+cut. Forward scope item: generalize the cut-source inference to every
+subtractive body op (or an explicit pattern mode/source ref). The current
+boundary is now regression-guarded in `tests/test_pattern.py`
+(`test_pattern_after_an_intervening_fillet_unions_whole_body_not_recut` — a
+non-cut preceding feature ⇒ union — and
+`test_pattern_of_a_multi_region_cut_replicates_all_tools` — the #4×#3 path).
+
 ## 2026-07-13 — INDEPENDENT VERIFICATION: multi-disjoint-loop CUT golden `sketch-extrude-plate-6hole-ring-cut-60x60x10` (commit 75a50b7, Ready #4)
 
 Second-set-of-eyes pass on the golden shipped in 75a50b7. Goal: re-derive the
