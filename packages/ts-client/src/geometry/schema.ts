@@ -520,7 +520,7 @@ export interface components {
              * Edges
              * @description Which edges of the current body to bevel (geometric predicate, not topological naming — design §2.4; same selector union as fillet)
              */
-            edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"];
+            edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"] | components["schemas"]["PickedEdgesSelector"];
         };
         /**
          * CircularPatternParamsV1
@@ -758,6 +758,99 @@ export interface components {
              * @description Line length (mm)
              */
             value_mm: number;
+        };
+        /**
+         * EdgeSelectorV1
+         * @description Stage-1 edge selector payload: the geometric signature alone (§3, §4).
+         *
+         *     The edge sibling of :class:`SelectorV1`. ``selector_version`` is the
+         *     discriminator of the (currently single-member) edge selector union,
+         *     decoupled from feature ``param_version`` (§4); stage 2 adds a signature +
+         *     provenance member additively, with no change to persisted v1 rows.
+         */
+        EdgeSelectorV1: {
+            /**
+             * Selector Version
+             * @default 1
+             * @constant
+             */
+            selector_version: 1;
+            signature: components["schemas"]["EdgeSignature"];
+        };
+        /**
+         * EdgeSignature
+         * @description §2b stage-1 geometric fingerprint of an EDGE — typed, kernel-free.
+         *
+         *     Full-precision invariants (§7.2 forbids quantizing the stored identity),
+         *     chosen to distinguish the edges of a manifold solid: the ``curve`` family
+         *     (line/circle/other — a straight edge and an arc of equal length never
+         *     collide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted
+         *     lexicographically so the signature is INDEPENDENT of the topological edge
+         *     orientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 — it
+         *     separates two collinear edges that share an endpoint, and pins a full-circle
+         *     seam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT
+         *     edges of an authored part differ in at least one field (endpoints/midpoint
+         *     by whole mm, or length, or curve kind); genuinely congruent edges of a
+         *     symmetric part tie and resolve to an honest ``subshape_ambiguous`` (§5),
+         *     never a guess. Matching is nearest-within-tolerance at the documented
+         *     subshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an
+         *     ad-hoc epsilon.
+         */
+        EdgeSignature: {
+            /**
+             * Curve
+             * @description Curve family — line | circle | other (spline/ellipse/…)
+             * @enum {string}
+             */
+            curve: "line" | "circle" | "other";
+            /** @description One endpoint, world mm; the lexicographically SMALLER of the two so the pair is orientation-independent (full precision) */
+            end_a: components["schemas"]["Vec3"];
+            /** @description The other endpoint, world mm; the lexicographically LARGER. Equals end_a for a closed edge (a full circle's coincident seam). */
+            end_b: components["schemas"]["Vec3"];
+            /**
+             * Length Mm
+             * @description Edge arc length (mm), full precision
+             */
+            length_mm: number;
+            /** @description Curve midpoint (param 0.5), world mm (full precision) */
+            midpoint: components["schemas"]["Vec3"];
+            /**
+             * Subshape Type
+             * @default edge
+             * @constant
+             */
+            subshape_type: "edge";
+        };
+        /**
+         * EdgeSubshapeRef
+         * @description Stage-1 reference to ONE edge of a body-affecting feature's result.
+         *
+         *     The edge sibling of :class:`SubshapeRef` (topological-naming.md §4/§10).
+         *     ``feature_id`` is the stage-1 anchor — "the prior body-affecting feature
+         *     whose body I signature-match against" (§4) — and materializes into
+         *     ``feature_dependencies`` like a :class:`SubshapeRef`/:class:`FeatureRef` (via
+         *     the widened :func:`iter_feature_refs` / :func:`feature_references`), so
+         *     deleting that feature is a write-time 409-with-dependents and a reorder
+         *     re-checks strict-backward. ``subshape_type`` is ``"edge"``. A pick UI echoes
+         *     a picked edge's ``/overlay`` :class:`EdgeSignature` straight into ``selector``.
+         */
+        EdgeSubshapeRef: {
+            /**
+             * Feature Id
+             * Format: uuid
+             */
+            feature_id: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "subshape";
+            selector: components["schemas"]["EdgeSelectorV1"];
+            /**
+             * Subshape Type
+             * @constant
+             */
+            subshape_type: "edge";
         };
         /**
          * EdgeTarget
@@ -1128,7 +1221,7 @@ export interface components {
              * Edges
              * @description Which edges of the current body to round (geometric predicate, not topological naming — design §2.4)
              */
-            edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"];
+            edges: components["schemas"]["AllEdgesSelector"] | components["schemas"]["AxisParallelEdgesSelector"] | components["schemas"]["PickedEdgesSelector"];
             /**
              * Radius Mm
              * @description Fillet radius (mm)
@@ -1393,7 +1486,9 @@ export interface components {
          *     The list position of this edge in :attr:`OverlayResult.edges` is its
          *     transient 0-based index — the SAME ordinal ``body.edges()`` yields, so
          *     passing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures
-         *     THIS edge. Not stable across edits (topological naming is Phase 2).
+         *     THIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-
+         *     surviving reference is :attr:`signature` (topological naming) — echo it into
+         *     an ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.
          */
         OverlayEdge: {
             /** @description Edge end vertex, world mm (curve param 1); equals start for a closed edge such as a full circle */
@@ -1409,6 +1504,8 @@ export interface components {
              * @description Ordered world-mm points to draw the edge as a polyline (>= 2 points, start..end inclusive). A straight edge is exactly [start, end]; a curved edge is sampled to the request tree's linear_deflection — the SAME tolerance policy as the mesh, no new epsilon.
              */
             polyline: components["schemas"]["Vec3"][];
+            /** @description Stage-1 edge signature (curve/endpoints/midpoint/length) — the SAME fingerprint the fillet/chamfer picked-edge resolver matches against (one enumeration: pick side == resolve side, an order-equality gate proves it). Echo it into an EdgeSubshapeRef to round THIS edge. Unlike the transient index, it survives rebuilds (best-effort, stage 1). */
+            signature: components["schemas"]["EdgeSignature"];
             /** @description Edge start vertex, world mm (curve param 0) */
             start: components["schemas"]["Vec3"];
         };
@@ -1569,6 +1666,32 @@ export interface components {
              * @enum {string}
              */
             kind: "perpendicular";
+        };
+        /**
+         * PickedEdgesSelector
+         * @description SPECIFIC picked edges, named by stage-1 :class:`EdgeSignature` refs.
+         *
+         *     The topological-naming variant (design §2.4/§10) — the "the edge I clicked"
+         *     selection the predicates (``all_edges`` / ``axis_parallel``) structurally
+         *     cannot express: an engineer rounds ONE edge and leaves its neighbour sharp.
+         *     Each ref is an :class:`EdgeSubshapeRef` carrying an :class:`EdgeSignature`
+         *     the geometry service resolves against the current body — nearest-within-
+         *     tolerance, exactly one or an honest error. At least one ref (``min_length=1``
+         *     — an empty picked-edge selection is a request-validation 422, never a silent
+         *     no-op). Added BESIDE the predicates (design §7.6), not replacing them:
+         *     ``all_edges``/``axis_parallel`` remain the right tool for SET selections.
+         */
+        PickedEdgesSelector: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "edges";
+            /**
+             * Refs
+             * @description The specific picked edges (>= 1), each a stage-1 EdgeSignature reference resolved against the current body
+             */
+            refs: components["schemas"]["EdgeSubshapeRef"][];
         };
         /**
          * PlanarFaceSignature

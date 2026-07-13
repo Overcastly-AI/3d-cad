@@ -37,6 +37,70 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-13 — Click-specific edge selection for fillet/chamfer (stage-1 EDGE signature; BACKLOG #2 BACKEND)
+
+**What shipped (backend + schema foundation; the in-viewport edge-pick UI is the
+follow-up slice).** Fillet/chamfer can now round ONE specific edge and leave its
+neighbours sharp — the capability the `all_edges`/`axis_parallel` predicates
+structurally cannot express (topological-naming.md §1.2). The SECOND
+`SubshapeRef` consumer, built by mirroring the 2026-07-12 planar-face machinery
+for edges (see topo-naming §10).
+
+**EdgeSignature scheme (stage 1).** An edge is named by a geometric **signature**
+— `curve` family (line/circle/other) + two **canonically-ordered endpoints**
+(`end_a`/`end_b`, sorted lexicographically so it is INDEPENDENT of OCCT's edge
+orientation) + `midpoint` (curve param 0.5) + `length_mm`, all full precision
+(§7.2, no quantizing), NOT an enumeration index (the §1.3 silent-retarget trap).
+Resolution enumerates the rebuilt body's edges (`geometry.kernel.edges.
+enumerate_edges`, `body.edges()` order), matches nearest-within-tolerance, and
+requires **exactly one** or errors. Match tolerances (documented, the face
+tolerances' twins): endpoints + midpoint ≤ 1e-6 mm, length rel ≤ 1e-6, curve
+family exact. **Honest fidelity delta:** the topo-naming §2b sketch showed an
+`adjacent_faces` field; the shipped signature OMITS adjacency — endpoints +
+midpoint + length + curve already separate the distinct edges of a manifold solid
+(extract on real need, not the first imagined one), and it stays additive later.
+
+**HONEST STABILITY LIMIT (mirrors faces, not oversold).** Best-effort, NOT
+structurally non-retargeting: resolves the same edge across the common edits,
+fails honestly (`subshape_unresolved` / `subshape_ambiguous`) for most others,
+but a drastic change CAN retarget to a congruent edge without erroring (stage-2
+provenance closes that). **Unlike faces, edge `subshape_ambiguous` is genuinely
+reachable** (a symmetric part's congruent edges — §1.2), so the exactly-one rule
+is load-bearing here.
+
+**Golden `fillet-top-edge-40x25x10-r5` (the capability predicate-only cannot do).**
+The 40×25×10 plate with EXACTLY ONE top edge rounded (r=5) — the front-top edge
+(length 40), named by an `EdgeSignature`, its three neighbour top edges left
+SHARP. Contrast `fillet-plate-r5` (predicate `axis_parallel Z` rounds all 4
+vertical edges). HAND-DERIVED analytic values, cross-checked against the harness:
+
+| quantity | analytic | harness | Δ |
+|---|---|---|---|
+| volume (mm³) | 9000 + 250π = 9785.398163397449 | 9785.398163397447 | 2.2e-12 |
+| surface_area (mm²) | 2850 + 112.5π = 3203.4291735288516 | exact | 0.0 |
+| centroid.x (mm) | 20 (mirror plane x=20) | 20.0 | 0.0 |
+| centroid.y (mm) | 12.749642075576444 (formula) | 12.749642075576446 | 2e-15 |
+| centroid.z (mm) | 4.914839098070588 (formula) | 4.91483909807059 | ~2e-15 |
+| topology | 7 faces / 15 edges / 1 shell (Euler 10−15+7=2) | exact | — |
+| mesh | 154 verts / 140 tris (26+4N, 12+4N, N=32) | exact | — |
+
+Tolerance **1e-9** (curved-geometry, measured-then-set, matching `fillet-plate-r5`;
+worst deviation volume 2.2e-12 → ~5e2× headroom). Byte-determinism incl.
+interpreter restart PROVES the edge resolves the same across a fresh rebuild; the
+STEP round-trip re-approximates the single trimmed cylindrical fillet surface.
+
+**Pick↔resolve same-enumeration (the measurement/faces lesson, applied to edges).**
+`/overlay` edges now each carry the SAME `EdgeSignature` the fillet/chamfer picked
+resolver matches, built by the SAME `geometry.kernel.edges` helper over the SAME
+`body.edges()` enumeration — `test_edges.py` asserts overlay-edge-signatures ==
+resolver enumeration (order + bytes) and that a picked overlay signature resolves
+back to its edge. **Backward-compat confirmed:** the `edges` picked member is
+additive on the `EdgeSelector` union — existing predicate selectors validate +
+evaluate byte-identically (no `param_version` bump; `fillet-plate-r5` /
+`chamfer-plate-d5` goldens unchanged). Dependency wiring: a picked selector
+materializes each `EdgeSubshapeRef.feature_id` into `feature_dependencies`
+(409-with-dependents on delete), predicate selectors carry none (as before).
+
 ## 2026-07-12 — Sketch-on-a-model-face (datum-from-face, stage-1 topological naming; BACKLOG #1 BACKEND)
 
 **What shipped (backend + schema foundation; the viewport raycast picker is

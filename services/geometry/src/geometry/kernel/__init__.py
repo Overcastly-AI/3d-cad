@@ -11,7 +11,14 @@ service boundary.
 from build123d import Solid
 
 from geometry.kernel.chamfer import ChamferError, chamfer_body
-from geometry.kernel.edges import NoEdgesSelectedError, select_edges
+from geometry.kernel.edges import (
+    EdgeRecord,
+    NoEdgesSelectedError,
+    edge_signature_dto,
+    enumerate_edges,
+    resolve_edge,
+    select_edges,
+)
 from geometry.kernel.export import export_step_bytes, export_stl_bytes
 from geometry.kernel.extrude import (
     DATUM_PLANES,
@@ -81,6 +88,7 @@ __all__ = [
     "BooleanError",
     "ChamferError",
     "EdgeIndexError",
+    "EdgeRecord",
     "FaceResolutionError",
     "FilletError",
     "LoftError",
@@ -115,6 +123,8 @@ __all__ = [
     "check_axis_clears_profile",
     "circular_pattern",
     "combine_body",
+    "edge_signature_dto",
+    "enumerate_edges",
     "evaluate_export",
     "evaluate_tessellation",
     "export_solid",
@@ -129,6 +139,7 @@ __all__ = [
     "measure_targets",
     "planar_faces",
     "resolve_axis_line",
+    "resolve_edge",
     "resolve_face_plane",
     "revolve_face",
     "select_edges",

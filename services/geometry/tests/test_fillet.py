@@ -143,6 +143,33 @@ def fillet_input(
     }
 
 
+def _edge_ref(
+    feature_id: uuid.UUID,
+    end_a: tuple[float, float, float],
+    end_b: tuple[float, float, float],
+    midpoint: tuple[float, float, float],
+    length_mm: float,
+    curve: str = "line",
+) -> dict[str, Any]:
+    """A stage-1 EdgeSubshapeRef naming ONE edge by its signature (topo-naming)."""
+    return {
+        "kind": "subshape",
+        "feature_id": str(feature_id),
+        "subshape_type": "edge",
+        "selector": {
+            "selector_version": 1,
+            "signature": {
+                "subshape_type": "edge",
+                "curve": curve,
+                "end_a": {"x": end_a[0], "y": end_a[1], "z": end_a[2]},
+                "end_b": {"x": end_b[0], "y": end_b[1], "z": end_b[2]},
+                "midpoint": {"x": midpoint[0], "y": midpoint[1], "z": midpoint[2]},
+                "length_mm": length_mm,
+            },
+        },
+    }
+
+
 def _request(features: list[dict[str, Any]]) -> dict[str, Any]:
     return {"part_id": str(PART_ID), "tree_version": 6, "features": features}
 
@@ -233,6 +260,108 @@ def test_all_edges_rounds_every_edge() -> None:
     # and never adds material.
     assert result.properties.volume < 10000.0
     assert result.properties.topology.shells == 1
+
+
+# --- Picked-edge selection (topological naming §2.4/§10) -----------------------------
+
+
+#: The selective-fillet golden's analytic figures (full derivation in
+#: goldens/fillet-top-edge-40x25x10-r5/expected.json): the 40x25x10 plate with
+#: ONE top edge rounded — front-top edge, length 40, r=5.
+ONE_EDGE_VOLUME = 9000.0 + 250.0 * math.pi  # 9785.398163397449 mm^3
+
+
+def test_picked_edge_rounds_only_the_named_edge() -> None:
+    """The capability predicates cannot express: round exactly ONE top edge
+    (front-top, midpoint (20,0,10)) and leave its three neighbour top edges
+    sharp. The analytic one-edge volume, and the new curved topology 7/15/1 —
+    contrast `all_edges`/`axis_parallel` which round a whole set."""
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                fillet_input(
+                    FILLET_ID,
+                    {
+                        "kind": "edges",
+                        "refs": [
+                            _edge_ref(
+                                EXTRUDE_ID,
+                                (0.0, 0.0, 10.0),
+                                (40.0, 0.0, 10.0),
+                                (20.0, 0.0, 10.0),
+                                40.0,
+                            )
+                        ],
+                    },
+                    5.0,
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(ONE_EDGE_VOLUME, abs=FILLET_TOL)
+    assert result.properties.topology.faces == 7
+    assert result.properties.topology.edges == 15
+    assert result.properties.topology.shells == 1
+
+
+def test_picked_edge_that_no_longer_exists_is_subshape_unresolved() -> None:
+    """A picked signature that matches no current edge is an honest per-feature
+    `subshape_unresolved` (topo-naming §5), never a 500 and never a silent
+    wrong-edge retarget: the midpoint is at z=99, where no edge lives."""
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                fillet_input(
+                    FILLET_ID,
+                    {
+                        "kind": "edges",
+                        "refs": [
+                            _edge_ref(
+                                EXTRUDE_ID,
+                                (0.0, 0.0, 99.0),
+                                (40.0, 0.0, 99.0),
+                                (20.0, 0.0, 99.0),
+                                40.0,
+                            )
+                        ],
+                    },
+                    5.0,
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "error"]
+    error = result.features[2].error
+    assert error is not None
+    assert error.code == "subshape_unresolved"
+    # last-good body is the un-filleted extrude (§4.3 honest fallback).
+    assert result.last_good_feature_id == EXTRUDE_ID
+
+
+def test_empty_picked_refs_rejected_at_request_validation(
+    assert_validation_envelope: Any,
+) -> None:
+    """A picked-edge selector needs >= 1 ref (min_length): an empty refs list is
+    a transport/validation 422, never a silent no-op fillet."""
+    payload = _request(
+        [
+            rectangle_sketch(SKETCH_ID),
+            extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+            fillet_input(FILLET_ID, {"kind": "edges", "refs": []}, 5.0),
+        ]
+    )
+    response = client.post("/api/v1/evaluate", json=payload)
+
+    assert response.status_code == 422
+    assert_validation_envelope(response.json())
 
 
 # --- Error paths are per-feature values, never transport failures --------------------

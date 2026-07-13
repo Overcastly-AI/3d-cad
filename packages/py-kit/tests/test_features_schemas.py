@@ -10,7 +10,10 @@ from typing import Any, Literal
 
 import pytest
 from py_kit.schemas.features import (
+    BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
+    DatumFeature,
+    DatumOffsetParams,
     DatumPlaneRef,
     ExtrudeFeature,
     Feature,
@@ -175,6 +178,86 @@ def test_fillet_has_no_feature_references() -> None:
     )
     assert feature_references(envelope) == ()
     assert list(iter_feature_refs(envelope)) == []
+
+
+def test_legacy_kindless_datum_params_validate_as_offset() -> None:
+    """Review 🟡 (sketch-on-face): the datum before-validator backward-compat
+    contract (datum-planes §4/§7). A datum params blob persisted BEFORE the
+    on_face variant carries no ``kind`` discriminator; DatumFeature injects
+    ``kind: "offset"`` so it validates to a DatumOffsetParams IDENTICAL to the
+    same blob with ``kind`` explicit — additive, no ``param_version`` bump, every
+    legacy row unchanged."""
+    legacy_params: dict[str, Any] = {"base": "XY", "offset_mm": 30.0, "flip": False}
+    loaded = DatumFeature.model_validate(
+        {"type": "datum", "version": 1, "params": legacy_params}  # NO kind
+    )
+    assert isinstance(loaded.params, DatumOffsetParams)
+    assert loaded.params.kind == "offset"
+
+    explicit = DatumFeature.model_validate(
+        {
+            "type": "datum",
+            "version": 1,
+            "params": {
+                "kind": "offset",
+                "base": "XY",
+                "offset_mm": 30.0,
+                "flip": False,
+            },
+        }
+    )
+    # Byte-identical params both ways — the injected kind is the ONLY difference,
+    # and it is the default, so the validated models are equal.
+    assert loaded.params == explicit.params
+    assert loaded.model_dump() == explicit.model_dump()
+
+    # The registry read path (documents lazy-load) reaches the same model.
+    via_registry = FEATURE_REGISTRY.load("datum", 1, legacy_params)
+    assert via_registry.model_dump() == loaded.model_dump()
+
+
+def test_picked_edge_fillet_materializes_edge_dependencies() -> None:
+    """The topo-naming §10 wiring: a fillet with a PICKED edge selector surfaces
+    each EdgeSubshapeRef as a dependency on a body-affecting feature (allowed
+    types = BODY_AFFECTING_FEATURE_TYPES), and the generic walk finds the SAME
+    refs so the feature_references self-check stays balanced. Predicate fillets
+    still carry no ref (test_fillet_has_no_feature_references) — backward-compat."""
+    ref_id = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000ed")
+    fillet = FilletFeature.model_validate(
+        {
+            "type": "fillet",
+            "version": 1,
+            "params": {
+                "edges": {
+                    "kind": "edges",
+                    "refs": [
+                        {
+                            "kind": "subshape",
+                            "feature_id": str(ref_id),
+                            "subshape_type": "edge",
+                            "selector": {
+                                "selector_version": 1,
+                                "signature": {
+                                    "curve": "line",
+                                    "end_a": {"x": 0.0, "y": 0.0, "z": 10.0},
+                                    "end_b": {"x": 40.0, "y": 0.0, "z": 10.0},
+                                    "midpoint": {"x": 20.0, "y": 0.0, "z": 10.0},
+                                    "length_mm": 40.0,
+                                },
+                            },
+                        }
+                    ],
+                },
+                "radius_mm": 5.0,
+            },
+        }
+    )
+    (reference,) = feature_references(fillet)
+    assert reference.slot == "edges[0]"
+    assert reference.ref.feature_id == ref_id
+    assert reference.allowed_types == BODY_AFFECTING_FEATURE_TYPES
+    # The generic walk finds exactly the same ref (self-check balanced).
+    assert [r.feature_id for r in iter_feature_refs(fillet)] == [ref_id]
 
 
 def test_unknown_feature_type_rejected() -> None:

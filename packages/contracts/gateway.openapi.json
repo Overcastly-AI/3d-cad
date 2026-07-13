@@ -158,7 +158,8 @@
             "discriminator": {
               "mapping": {
                 "all_edges": "#/components/schemas/AllEdgesSelector",
-                "axis_parallel": "#/components/schemas/AxisParallelEdgesSelector"
+                "axis_parallel": "#/components/schemas/AxisParallelEdgesSelector",
+                "edges": "#/components/schemas/PickedEdgesSelector"
               },
               "propertyName": "kind"
             },
@@ -168,6 +169,9 @@
               },
               {
                 "$ref": "#/components/schemas/AxisParallelEdgesSelector"
+              },
+              {
+                "$ref": "#/components/schemas/PickedEdgesSelector"
               }
             ],
             "title": "Edges"
@@ -448,6 +452,104 @@
           "value_mm"
         ],
         "title": "DistanceConstraint",
+        "type": "object"
+      },
+      "EdgeSelectorV1": {
+        "description": "Stage-1 edge selector payload: the geometric signature alone (\u00a73, \u00a74).\n\nThe edge sibling of :class:`SelectorV1`. ``selector_version`` is the\ndiscriminator of the (currently single-member) edge selector union,\ndecoupled from feature ``param_version`` (\u00a74); stage 2 adds a signature +\nprovenance member additively, with no change to persisted v1 rows.",
+        "properties": {
+          "selector_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Selector Version",
+            "type": "integer"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/EdgeSignature"
+          }
+        },
+        "required": [
+          "signature"
+        ],
+        "title": "EdgeSelectorV1",
+        "type": "object"
+      },
+      "EdgeSignature": {
+        "description": "\u00a72b stage-1 geometric fingerprint of an EDGE \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity),\nchosen to distinguish the edges of a manifold solid: the ``curve`` family\n(line/circle/other \u2014 a straight edge and an arc of equal length never\ncollide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted\nlexicographically so the signature is INDEPENDENT of the topological edge\norientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 \u2014 it\nseparates two collinear edges that share an endpoint, and pins a full-circle\nseam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT\nedges of an authored part differ in at least one field (endpoints/midpoint\nby whole mm, or length, or curve kind); genuinely congruent edges of a\nsymmetric part tie and resolve to an honest ``subshape_ambiguous`` (\u00a75),\nnever a guess. Matching is nearest-within-tolerance at the documented\nsubshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an\nad-hoc epsilon.",
+        "properties": {
+          "curve": {
+            "description": "Curve family \u2014 line | circle | other (spline/ellipse/\u2026)",
+            "enum": [
+              "line",
+              "circle",
+              "other"
+            ],
+            "title": "Curve",
+            "type": "string"
+          },
+          "end_a": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "One endpoint, world mm; the lexicographically SMALLER of the two so the pair is orientation-independent (full precision)"
+          },
+          "end_b": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "The other endpoint, world mm; the lexicographically LARGER. Equals end_a for a closed edge (a full circle's coincident seam)."
+          },
+          "length_mm": {
+            "description": "Edge arc length (mm), full precision",
+            "exclusiveMinimum": 0.0,
+            "title": "Length Mm",
+            "type": "number"
+          },
+          "midpoint": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Curve midpoint (param 0.5), world mm (full precision)"
+          },
+          "subshape_type": {
+            "const": "edge",
+            "default": "edge",
+            "title": "Subshape Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "curve",
+          "end_a",
+          "end_b",
+          "midpoint",
+          "length_mm"
+        ],
+        "title": "EdgeSignature",
+        "type": "object"
+      },
+      "EdgeSubshapeRef": {
+        "description": "Stage-1 reference to ONE edge of a body-affecting feature's result.\n\nThe edge sibling of :class:`SubshapeRef` (topological-naming.md \u00a74/\u00a710).\n``feature_id`` is the stage-1 anchor \u2014 \"the prior body-affecting feature\nwhose body I signature-match against\" (\u00a74) \u2014 and materializes into\n``feature_dependencies`` like a :class:`SubshapeRef`/:class:`FeatureRef` (via\nthe widened :func:`iter_feature_refs` / :func:`feature_references`), so\ndeleting that feature is a write-time 409-with-dependents and a reorder\nre-checks strict-backward. ``subshape_type`` is ``\"edge\"``. A pick UI echoes\na picked edge's ``/overlay`` :class:`EdgeSignature` straight into ``selector``.",
+        "properties": {
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "subshape",
+            "title": "Kind",
+            "type": "string"
+          },
+          "selector": {
+            "$ref": "#/components/schemas/EdgeSelectorV1"
+          },
+          "subshape_type": {
+            "const": "edge",
+            "title": "Subshape Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "feature_id",
+          "subshape_type",
+          "selector"
+        ],
+        "title": "EdgeSubshapeRef",
         "type": "object"
       },
       "EdgeTarget": {
@@ -1284,7 +1386,8 @@
             "discriminator": {
               "mapping": {
                 "all_edges": "#/components/schemas/AllEdgesSelector",
-                "axis_parallel": "#/components/schemas/AxisParallelEdgesSelector"
+                "axis_parallel": "#/components/schemas/AxisParallelEdgesSelector",
+                "edges": "#/components/schemas/PickedEdgesSelector"
               },
               "propertyName": "kind"
             },
@@ -1294,6 +1397,9 @@
               },
               {
                 "$ref": "#/components/schemas/AxisParallelEdgesSelector"
+              },
+              {
+                "$ref": "#/components/schemas/PickedEdgesSelector"
               }
             ],
             "title": "Edges"
@@ -1661,7 +1767,7 @@
         "type": "object"
       },
       "OverlayEdge": {
-        "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures\nTHIS edge. Not stable across edits (topological naming is Phase 2).",
+        "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures\nTHIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-\nsurviving reference is :attr:`signature` (topological naming) \u2014 echo it into\nan ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.",
         "properties": {
           "end": {
             "$ref": "#/components/schemas/Vec3",
@@ -1685,6 +1791,10 @@
             "title": "Polyline",
             "type": "array"
           },
+          "signature": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Stage-1 edge signature (curve/endpoints/midpoint/length) \u2014 the SAME fingerprint the fillet/chamfer picked-edge resolver matches against (one enumeration: pick side == resolve side, an order-equality gate proves it). Echo it into an EdgeSubshapeRef to round THIS edge. Unlike the transient index, it survives rebuilds (best-effort, stage 1)."
+          },
           "start": {
             "$ref": "#/components/schemas/Vec3",
             "description": "Edge start vertex, world mm (curve param 0)"
@@ -1694,7 +1804,8 @@
           "kind",
           "start",
           "end",
-          "polyline"
+          "polyline",
+          "signature"
         ],
         "title": "OverlayEdge",
         "type": "object"
@@ -1964,6 +2075,31 @@
           "b"
         ],
         "title": "PerpendicularConstraint",
+        "type": "object"
+      },
+      "PickedEdgesSelector": {
+        "description": "SPECIFIC picked edges, named by stage-1 :class:`EdgeSignature` refs.\n\nThe topological-naming variant (design \u00a72.4/\u00a710) \u2014 the \"the edge I clicked\"\nselection the predicates (``all_edges`` / ``axis_parallel``) structurally\ncannot express: an engineer rounds ONE edge and leaves its neighbour sharp.\nEach ref is an :class:`EdgeSubshapeRef` carrying an :class:`EdgeSignature`\nthe geometry service resolves against the current body \u2014 nearest-within-\ntolerance, exactly one or an honest error. At least one ref (``min_length=1``\n\u2014 an empty picked-edge selection is a request-validation 422, never a silent\nno-op). Added BESIDE the predicates (design \u00a77.6), not replacing them:\n``all_edges``/``axis_parallel`` remain the right tool for SET selections.",
+        "properties": {
+          "kind": {
+            "const": "edges",
+            "title": "Kind",
+            "type": "string"
+          },
+          "refs": {
+            "description": "The specific picked edges (>= 1), each a stage-1 EdgeSignature reference resolved against the current body",
+            "items": {
+              "$ref": "#/components/schemas/EdgeSubshapeRef"
+            },
+            "minItems": 1,
+            "title": "Refs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "refs"
+        ],
+        "title": "PickedEdgesSelector",
         "type": "object"
       },
       "PlanarFaceSignature": {

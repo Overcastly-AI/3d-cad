@@ -44,14 +44,24 @@ export function edgeSelector(id: EdgeSelectorId): EdgeSelector {
   }
 }
 
-/** Seed the ruled-cell id from an existing selector (edit path). */
+/**
+ * Seed the ruled-cell id from an existing selector (edit path).
+ *
+ * The backend added a `{ kind: "edges" }` picked-edge selector (topological
+ * naming — click-specific fillet/chamfer). The in-viewport picker that AUTHORS
+ * it is a follow-up UI slice; until it lands, a persisted picked selector has no
+ * predicate-cell equivalent, so this predicate chooser falls back to `all_edges`
+ * (forward-compat, not a data change — the stored selector is untouched).
+ */
 export function edgeSelectorId(selector: EdgeSelector): EdgeSelectorId {
-  if (selector.kind === "all_edges") return "all_edges";
-  return selector.axis === "X"
-    ? "axis_x"
-    : selector.axis === "Y"
-      ? "axis_y"
-      : "axis_z";
+  if (selector.kind === "axis_parallel") {
+    return selector.axis === "X"
+      ? "axis_x"
+      : selector.axis === "Y"
+        ? "axis_y"
+        : "axis_z";
+  }
+  return "all_edges";
 }
 
 /** Trim trailing zeros so 5 shows as "5", not "5.000"; -0 renders as "0". */

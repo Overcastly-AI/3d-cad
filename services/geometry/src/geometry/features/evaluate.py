@@ -675,6 +675,10 @@ def _evaluate_fillet(
         edges = select_edges(state.body, params.edges)
     except NoEdgesSelectedError as exc:
         return FeatureError(code="no_fillet_edges", message=str(exc))
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(code="subshape_unresolved", message=str(exc))
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(code="subshape_ambiguous", message=str(exc))
 
     try:
         state.body = fillet_body(state.body, edges, params.radius_mm)
@@ -712,6 +716,10 @@ def _evaluate_chamfer(
         edges = select_edges(state.body, params.edges)
     except NoEdgesSelectedError as exc:
         return FeatureError(code="no_chamfer_edges", message=str(exc))
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(code="subshape_unresolved", message=str(exc))
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(code="subshape_ambiguous", message=str(exc))
 
     try:
         state.body = chamfer_body(state.body, edges, params.distance_mm)

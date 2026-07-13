@@ -19,6 +19,7 @@ from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
 from py_kit import REQUEST_ID_HEADER
 from py_kit.db import async_dsn
+from py_kit.schemas.features import EdgeSignature
 from py_kit.schemas.geometry import Vec3
 from py_kit.schemas.overlay import OverlayEdge, OverlayRequest, OverlayResult
 from py_kit.schemas.parts import PRINCIPAL_HEADER
@@ -99,6 +100,13 @@ RESULT = OverlayResult(
             start=Vec3(x=0.0, y=0.0, z=0.0),
             end=Vec3(x=10.0, y=0.0, z=0.0),
             polyline=[Vec3(x=0.0, y=0.0, z=0.0), Vec3(x=10.0, y=0.0, z=0.0)],
+            signature=EdgeSignature(
+                curve="line",
+                end_a=Vec3(x=0.0, y=0.0, z=0.0),
+                end_b=Vec3(x=10.0, y=0.0, z=0.0),
+                midpoint=Vec3(x=5.0, y=0.0, z=0.0),
+                length_mm=10.0,
+            ),
         )
     ],
     faces=[],

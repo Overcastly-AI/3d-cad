@@ -1,33 +1,88 @@
-"""Geometric edge selection — the shared edge-reference plumbing for
-body-modifying features (fillet, chamfer).
+"""Edge selection + stage-1 edge SIGNATURES — the shared edge-reference
+plumbing for body-modifying features (fillet, chamfer).
 
-Both fillet and chamfer must name edges of the CURRENT body chain. v1 resolves
-that reference by a **deterministic geometric predicate**, NOT topological
-naming (design §2.4 — that is Phase 2's ``SubshapeRef``). ``all_edges`` selects
-every edge; ``axis_parallel`` selects every straight edge parallel to a world
-axis (the vertical edges of an upright prism are ``axis: "Z"``). The predicate
-is evaluated against the body that exists at the feature's point in the tree,
-so it survives rebuilds without a name map — and it is honestly limited: "the
-edge I clicked" is Phase 2.
+Both fillet and chamfer must name edges of the CURRENT body chain. Two families,
+both resolved here against ``body.edges()`` (OCCT's deterministic traversal):
 
-This module is the single home of that resolution (CLAUDE.md DRY rule — the
-second real consumer, chamfer, made the extraction from fillet earned rather
-than speculative). The kernel feature modules (:mod:`geometry.kernel.fillet`,
+* **Predicates** (design §2.4): ``all_edges`` selects every edge; ``axis_parallel``
+  selects every straight edge parallel to a world axis (the vertical edges of an
+  upright prism are ``axis: "Z"``). Re-selection by geometry each rebuild, so it
+  survives without a name map — but it selects SETS: it structurally cannot round
+  ONE edge and leave its neighbour sharp.
+* **Picked edges** (topological naming, design §2.4/§10 — the SECOND
+  ``SubshapeRef`` consumer, mirroring :mod:`geometry.kernel.faces`): each edge is
+  named by a stage-1 :class:`~py_kit.schemas.features.EdgeSignature` (curve kind +
+  canonically-ordered endpoints + midpoint + length), matched
+  nearest-within-tolerance, requiring EXACTLY ONE match — so an engineer rounds
+  the specific edge they clicked.
+
+The signature functions here feed the PICK side
+(:mod:`geometry.kernel.overlay`, the selection overlay) and the RESOLVE side
+(:func:`select_edges`) through the SAME ``body.edges()`` enumeration and the SAME
+:func:`edge_signature_dto`, so a picked edge resolves back to itself — the
+same-enumeration lesson from measurement/faces, asserted by an order-equality
+gate (``test_edges.py``).
+
+HONEST STAGE-1 LIMIT (topological-naming.md §7.3, mirroring faces): signature
+matching is BEST-EFFORT, not the structural non-retarget guarantee of stage 2.
+It resolves the same edge across the common edits and FAILS HONESTLY
+(:class:`SubshapeUnresolvedError` / :class:`SubshapeAmbiguousError`) for most
+others, but a drastic model change can retarget to a coincidentally-congruent
+edge without erroring. Unlike faces, edge ambiguity is REACHABLE on real bodies
+(a symmetric part's congruent edges — §1.2), so the exactly-one rule is
+load-bearing here.
+
+Match tolerances (documented, NOT ad-hoc — CLAUDE.md; sized in docs/GEOMETRY-QA.md,
+mirroring the face tolerances): the intended edge is the SAME edge on a clean
+rebuild, so residuals are ulp-scale; the bounds below are tight enough that two
+DISTINCT edges of an authored part never collide, loose enough to absorb kernel
+jitter.
+
+The kernel feature modules (:mod:`geometry.kernel.fillet`,
 :mod:`geometry.kernel.chamfer`) own only the OCCT modeling call; the feature
-layer maps the neutral :class:`NoEdgesSelectedError` onto each feature's own
-``no_fillet_edges`` / ``no_chamfer_edges`` code.
+layer maps :class:`NoEdgesSelectedError` onto ``no_fillet_edges`` /
+``no_chamfer_edges`` and the subshape errors onto ``subshape_unresolved`` /
+``subshape_ambiguous`` (design §4.3).
 
-Determinism (RESEARCH §9): selection filters ``body.edges()`` (OCCT's
-deterministic traversal) by a pure predicate, so the selected set and its
-order are a pure function of the body.
+Determinism (RESEARCH §9): both families filter/match ``body.edges()`` by a pure
+function, so the selected set and its order are a pure function of the body.
 """
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
+# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
+
+import math
+from dataclasses import dataclass
 
 from build123d import Edge, GeomType, Solid, Vector
 from py_kit.schemas.features import (
     AllEdgesSelector,
     AxisParallelEdgesSelector,
     EdgeSelector,
+    EdgeSignature,
+    PickedEdgesSelector,
 )
+from py_kit.schemas.geometry import Vec3
+
+# The two subshape-resolution errors are generic (defined alongside the face
+# resolver); edge resolution reuses them rather than minting a parallel taxonomy.
+from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
+
+#: OCCT ``GeomType`` → :class:`EdgeSignature` curve family. Anything not a
+#: straight line or a circle is ``other`` (ellipse, spline, …) — still fully
+#: signed by endpoints + midpoint + length.
+_EDGE_CURVE_KIND: dict[GeomType, str] = {
+    GeomType.LINE: "line",
+    GeomType.CIRCLE: "circle",
+}
+
+#: Endpoint / midpoint match tolerance (mm) — the face ``_CENTROID_TOL_MM`` twin.
+#: Two distinct edges of an authored part separate by whole mm; the intended edge
+#: is bit-identical on a clean rebuild (ulp residuals).
+_EDGE_POINT_TOL_MM = 1e-6
+
+#: Relative length match tolerance — the face ``_AREA_REL_TOL`` twin.
+_EDGE_LENGTH_REL_TOL = 1e-6
 
 #: World-axis direction vectors for the ``axis_parallel`` selector.
 _AXIS_DIRECTIONS: dict[str, Vector] = {
@@ -55,6 +110,161 @@ class NoEdgesSelectedError(ValueError):
     ``no_fillet_edges`` / ``no_chamfer_edges`` code (design §4.3)."""
 
 
+@dataclass(frozen=True)
+class EdgeRecord:
+    """One edge of a body: its transient index, stage-1 signature, and the kernel
+    :class:`Edge`. The single enumeration the pick side and the resolve side
+    share (mirrors :class:`geometry.kernel.faces.PlanarFaceRecord`)."""
+
+    index: int
+    signature: EdgeSignature
+    edge: Edge
+
+
+def _vec(vector: Vector) -> Vec3:
+    """A build123d ``Vector`` (world mm) as a boundary :class:`Vec3`."""
+    return Vec3(x=float(vector.X), y=float(vector.Y), z=float(vector.Z))
+
+
+def _canonical_endpoints(edge: Edge) -> tuple[Vector, Vector]:
+    """The edge's two endpoints in a canonical, orientation-independent order.
+
+    Sorted lexicographically by (x, y, z), so the signature does not depend on
+    which way OCCT oriented the edge (topological orientation and geometric
+    parametrisation can disagree — the same subtlety the overlay handles). For a
+    closed edge (a full circle) both endpoints coincide, so order is moot.
+    """
+    a = edge @ 0.0
+    b = edge @ 1.0
+    if (a.X, a.Y, a.Z) <= (b.X, b.Y, b.Z):
+        return a, b
+    return b, a
+
+
+def edge_signature_dto(edge: Edge) -> EdgeSignature:
+    """The stage-1 :class:`EdgeSignature` of *edge* (curve + endpoints + mid + len).
+
+    THE single signature construction (CLAUDE.md DRY rule) shared by the pick
+    side (:mod:`geometry.kernel.overlay`) and the resolve side
+    (:func:`enumerate_edges`), so an edge's overlay signature is byte-for-byte the
+    one the resolver matches against — the same-enumeration guarantee. All metrics
+    come from the exact B-rep (build123d ``@`` sampling + ``.length``), never a
+    tessellation.
+    """
+    end_a, end_b = _canonical_endpoints(edge)
+    return EdgeSignature(
+        curve=_EDGE_CURVE_KIND.get(edge.geom_type, "other"),  # pyright: ignore[reportArgumentType]
+        end_a=_vec(end_a),
+        end_b=_vec(end_b),
+        midpoint=_vec(edge @ 0.5),
+        length_mm=float(edge.length),
+    )
+
+
+def enumerate_edges(body: Solid) -> list[EdgeRecord]:
+    """Every edge of *body* in ``body.edges()`` order (deterministic).
+
+    THE shared enumeration (CLAUDE.md DRY rule): the selection overlay builds its
+    pickable edge list from the SAME edges + :func:`edge_signature_dto`, and
+    :func:`_resolve_picked_edges` matches against these records, so a signature the
+    overlay hands a client resolves back to the SAME edge (order-equality gate) —
+    byte-for-byte the ``body.edges()`` order measurement resolves ``EdgeTarget``
+    against.
+    """
+    return [
+        EdgeRecord(index=index, signature=edge_signature_dto(edge), edge=edge)
+        for index, edge in enumerate(body.edges())
+    ]
+
+
+def _distance(a: Vec3, b: Vec3) -> float:
+    return math.dist((a.x, a.y, a.z), (b.x, b.y, b.z))
+
+
+def _edge_signatures_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
+    """Nearest-within-tolerance match of two edge signatures (§7.2).
+
+    Same curve family, both canonically-ordered endpoints within the linear
+    tolerance, midpoint within the linear tolerance, and length within a relative
+    tolerance. Compared field by field so a lone in-tolerance candidate is a
+    unique match and two are an honest ambiguity (never a guess).
+    """
+    if candidate.curve != target.curve:
+        return False
+    if _distance(candidate.end_a, target.end_a) > _EDGE_POINT_TOL_MM:
+        return False
+    if _distance(candidate.end_b, target.end_b) > _EDGE_POINT_TOL_MM:
+        return False
+    if _distance(candidate.midpoint, target.midpoint) > _EDGE_POINT_TOL_MM:
+        return False
+    length_ref = max(abs(target.length_mm), 1.0)
+    length_delta = abs(candidate.length_mm - target.length_mm)
+    return length_delta / length_ref <= _EDGE_LENGTH_REL_TOL
+
+
+def resolve_edge(body: Solid, target: EdgeSignature) -> Edge:
+    """Resolve a stage-1 edge signature to its edge (exactly one or an error).
+
+    Matches *target* against the edges of *body* (:func:`enumerate_edges`) and
+    requires EXACTLY ONE match (§7.2 — refuse to guess).
+
+    Raises:
+        SubshapeUnresolvedError: zero matching edges (the referenced edge no
+            longer exists after the rebuild).
+        SubshapeAmbiguousError: two or more within tolerance (a congruent twin) —
+            an honest error, never a coin flip (determinism, RESEARCH §9).
+    """
+    matches = [
+        record
+        for record in enumerate_edges(body)
+        if _edge_signatures_match(record.signature, target)
+    ]
+    if not matches:
+        raise SubshapeUnresolvedError(
+            "No edge of the current body matches the stored edge signature "
+            "(curve / endpoints / midpoint / length); the referenced edge no "
+            "longer exists after the rebuild. Re-pick the edge, or edit the "
+            "upstream feature back to a state where it resolves."
+        )
+    if len(matches) > 1:
+        raise SubshapeAmbiguousError(
+            f"{len(matches)} edges match the stored edge signature within "
+            "tolerance; the reference is ambiguous (a congruent/symmetric edge). "
+            "Refusing to guess — pick an edge without a congruent twin."
+        )
+    return matches[0].edge
+
+
+def _resolve_picked_edges(body: Solid, selector: PickedEdgesSelector) -> list[Edge]:
+    """Resolve each picked edge ref to its edge; dedupe; return in body order.
+
+    Every ref must resolve to exactly one edge (:func:`resolve_edge`). Two refs
+    that resolve to the same edge collapse to one (idempotent). Returned in
+    ``body.edges()`` order so the fillet/chamfer input is deterministic
+    regardless of pick order (RESEARCH §9).
+    """
+    records = enumerate_edges(body)
+    chosen: dict[int, Edge] = {}
+    for ref in selector.refs:
+        target = ref.selector.signature
+        matches = [r for r in records if _edge_signatures_match(r.signature, target)]
+        if not matches:
+            raise SubshapeUnresolvedError(
+                "No edge of the current body matches a picked edge signature "
+                "(curve / endpoints / midpoint / length); the referenced edge no "
+                "longer exists after the rebuild. Re-pick it, or edit the upstream "
+                "feature back to a state where it resolves."
+            )
+        if len(matches) > 1:
+            raise SubshapeAmbiguousError(
+                f"{len(matches)} edges match a picked edge signature within "
+                "tolerance; the reference is ambiguous (a congruent/symmetric "
+                "edge). Refusing to guess — pick an edge without a congruent twin."
+            )
+        chosen[matches[0].index] = matches[0].edge
+    return [chosen[index] for index in sorted(chosen)]
+
+
 def _is_axis_parallel(edge: Edge, axis: Vector) -> bool:
     """True when *edge* is a straight line parallel to *axis*.
 
@@ -71,10 +281,17 @@ def _is_axis_parallel(edge: Edge, axis: Vector) -> bool:
 
 
 def select_edges(body: Solid, selector: EdgeSelector) -> list[Edge]:
-    """Resolve the geometric edge selector against *body* (design §2.4).
+    """Resolve an edge selector against *body* (design §2.4/§10).
 
-    Deterministic: filters ``body.edges()`` (OCCT's deterministic order) by a
-    pure predicate. Raises :class:`NoEdgesSelectedError` when nothing matches.
+    Deterministic: a PREDICATE selector filters ``body.edges()`` (OCCT's
+    deterministic order) by a pure predicate; a PICKED selector matches each
+    stage-1 signature against that same enumeration, exactly one or an honest
+    error.
+
+    Raises:
+        NoEdgesSelectedError: a predicate matched no edge (nothing to modify).
+        SubshapeUnresolvedError: a picked signature matches no current edge.
+        SubshapeAmbiguousError: a picked signature matches a congruent twin.
     """
     match selector:
         case AllEdgesSelector():
@@ -82,10 +299,17 @@ def select_edges(body: Solid, selector: EdgeSelector) -> list[Edge]:
         case AxisParallelEdgesSelector():
             axis = _AXIS_DIRECTIONS[selector.axis]
             edges = [e for e in body.edges() if _is_axis_parallel(e, axis)]
+        case PickedEdgesSelector():
+            # Picked-edge resolution raises the subshape errors directly (a
+            # picked signature that no longer resolves is not the same outcome as
+            # a predicate matching nothing); refs are >= 1, each resolving to one
+            # edge, so the result is never empty.
+            return _resolve_picked_edges(body, selector)
 
     if not edges:
         raise NoEdgesSelectedError(
             "The edge selector matched no edge of the body; nothing to modify "
-            "(v1 selects edges geometrically, not by picking — design §2.4)."
+            "(the predicate selectors re-select edges geometrically — design "
+            "§2.4)."
         )
     return edges

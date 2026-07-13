@@ -160,7 +160,100 @@ class SubshapeRef(BaseModel):
     selector: Selector
 
 
-# --- §2.4 EdgeSelector — deterministic edge selection (NOT topological naming) ---
+# --- Stage-1 topological naming: EDGE signatures (topological-naming.md §2b/§10) ---
+#
+# The SECOND SubshapeRef consumer the topo-naming design anticipated (§10, "edge
+# selection is BACKLOG #2"), mirroring the planar-face signature above. An
+# EdgeSubshapeRef names ONE edge of a body-affecting feature's result by a
+# geometric SIGNATURE (§2b), NOT an enumeration index (§1.3 rejects indices).
+# Same stage-1 posture as the face signature, stated with the same honesty: a
+# signature is BEST-EFFORT — it resolves the same edge across the common edits
+# (parametric changes that do not move the edge; upstream inserts that do not
+# touch it) and FAILS HONESTLY (``subshape_unresolved`` / ``subshape_ambiguous``)
+# for most others, but a drastic model change CAN retarget to a
+# coincidentally-congruent edge without erroring. It is NOT structurally
+# non-retargeting; only stage-2 provenance (coordinate-blind) makes that
+# structural. Unlike faces, edge ``subshape_ambiguous`` IS reachable with real
+# bodies (a symmetric part has genuinely congruent edges — the §1.2 four vertical
+# edges), so the exactly-one-or-error rule is load-bearing here, not defensive.
+
+
+class EdgeSignature(BaseModel):
+    """§2b stage-1 geometric fingerprint of an EDGE — typed, kernel-free.
+
+    Full-precision invariants (§7.2 forbids quantizing the stored identity),
+    chosen to distinguish the edges of a manifold solid: the ``curve`` family
+    (line/circle/other — a straight edge and an arc of equal length never
+    collide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted
+    lexicographically so the signature is INDEPENDENT of the topological edge
+    orientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 — it
+    separates two collinear edges that share an endpoint, and pins a full-circle
+    seam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT
+    edges of an authored part differ in at least one field (endpoints/midpoint
+    by whole mm, or length, or curve kind); genuinely congruent edges of a
+    symmetric part tie and resolve to an honest ``subshape_ambiguous`` (§5),
+    never a guess. Matching is nearest-within-tolerance at the documented
+    subshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an
+    ad-hoc epsilon.
+    """
+
+    subshape_type: Literal["edge"] = "edge"
+    curve: Literal["line", "circle", "other"] = Field(
+        description="Curve family — line | circle | other (spline/ellipse/…)"
+    )
+    end_a: Vec3 = Field(
+        description="One endpoint, world mm; the lexicographically SMALLER of the "
+        "two so the pair is orientation-independent (full precision)"
+    )
+    end_b: Vec3 = Field(
+        description="The other endpoint, world mm; the lexicographically LARGER. "
+        "Equals end_a for a closed edge (a full circle's coincident seam)."
+    )
+    midpoint: Vec3 = Field(
+        description="Curve midpoint (param 0.5), world mm (full precision)"
+    )
+    length_mm: float = Field(gt=0, description="Edge arc length (mm), full precision")
+
+
+class EdgeSelectorV1(BaseModel):
+    """Stage-1 edge selector payload: the geometric signature alone (§3, §4).
+
+    The edge sibling of :class:`SelectorV1`. ``selector_version`` is the
+    discriminator of the (currently single-member) edge selector union,
+    decoupled from feature ``param_version`` (§4); stage 2 adds a signature +
+    provenance member additively, with no change to persisted v1 rows.
+    """
+
+    selector_version: Literal[1] = 1
+    signature: EdgeSignature
+
+
+#: Version-discriminated edge selector union (§4). One member (stage 1) today,
+#: so a plain alias; stage 2 promotes it to a discriminated union — the same
+#: idiom as the face :data:`Selector`.
+EdgeSubshapeSelector = EdgeSelectorV1
+
+
+class EdgeSubshapeRef(BaseModel):
+    """Stage-1 reference to ONE edge of a body-affecting feature's result.
+
+    The edge sibling of :class:`SubshapeRef` (topological-naming.md §4/§10).
+    ``feature_id`` is the stage-1 anchor — "the prior body-affecting feature
+    whose body I signature-match against" (§4) — and materializes into
+    ``feature_dependencies`` like a :class:`SubshapeRef`/:class:`FeatureRef` (via
+    the widened :func:`iter_feature_refs` / :func:`feature_references`), so
+    deleting that feature is a write-time 409-with-dependents and a reorder
+    re-checks strict-backward. ``subshape_type`` is ``"edge"``. A pick UI echoes
+    a picked edge's ``/overlay`` :class:`EdgeSignature` straight into ``selector``.
+    """
+
+    kind: Literal["subshape"]
+    feature_id: uuid.UUID
+    subshape_type: Literal["edge"]
+    selector: EdgeSubshapeSelector
+
+
+# --- §2.4 EdgeSelector — deterministic edge selection (predicate + picked) ---
 #
 # Body-modifying features (fillet, chamfer) must name edges of the CURRENT body
 # chain. v1 topological naming (design §2.4 ``SubshapeRef``) is a Phase 2 item,
@@ -192,10 +285,35 @@ class AxisParallelEdgesSelector(BaseModel):
     axis: Literal["X", "Y", "Z"]
 
 
-#: Discriminated edge-selection union for body-modifying features. A
-#: ``subshape`` variant (Phase 2 topological naming, design §2.4) is additive.
+class PickedEdgesSelector(BaseModel):
+    """SPECIFIC picked edges, named by stage-1 :class:`EdgeSignature` refs.
+
+    The topological-naming variant (design §2.4/§10) — the "the edge I clicked"
+    selection the predicates (``all_edges`` / ``axis_parallel``) structurally
+    cannot express: an engineer rounds ONE edge and leaves its neighbour sharp.
+    Each ref is an :class:`EdgeSubshapeRef` carrying an :class:`EdgeSignature`
+    the geometry service resolves against the current body — nearest-within-
+    tolerance, exactly one or an honest error. At least one ref (``min_length=1``
+    — an empty picked-edge selection is a request-validation 422, never a silent
+    no-op). Added BESIDE the predicates (design §7.6), not replacing them:
+    ``all_edges``/``axis_parallel`` remain the right tool for SET selections.
+    """
+
+    kind: Literal["edges"]
+    refs: list[EdgeSubshapeRef] = Field(
+        min_length=1,
+        description="The specific picked edges (>= 1), each a stage-1 "
+        "EdgeSignature reference resolved against the current body",
+    )
+
+
+#: Discriminated edge-selection union for body-modifying features. The
+#: ``edges`` (picked, topological-naming) member is ADDITIVE beside the two
+#: predicates — existing ``all_edges``/``axis_parallel`` selectors validate and
+#: evaluate byte-identically, so fillet/chamfer ``param_version`` stays 1.
 EdgeSelector = Annotated[
-    AllEdgesSelector | AxisParallelEdgesSelector, Field(discriminator="kind")
+    AllEdgesSelector | AxisParallelEdgesSelector | PickedEdgesSelector,
+    Field(discriminator="kind"),
 ]
 
 
@@ -956,18 +1074,27 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
 )
 
 
-def iter_feature_refs(value: Any) -> Iterator[FeatureRef | SubshapeRef]:
-    """Every :class:`FeatureRef` OR :class:`SubshapeRef` reachable in a model tree.
+#: The named-subshape reference kinds (face + edge) — both carry a graph-joining
+#: ``feature_id`` and are yielded WHOLE by the walk (their signature payloads
+#: carry no nested refs). A runtime alias so the ``isinstance`` check and the
+#: type annotations below cannot drift apart.
+AnyRef = FeatureRef | SubshapeRef | EdgeSubshapeRef
+
+
+def iter_feature_refs(value: Any) -> Iterator[AnyRef]:
+    """Every :class:`FeatureRef` / :class:`SubshapeRef` / :class:`EdgeSubshapeRef`
+    reachable in a model tree.
 
     Generic pydantic walk (models, lists, tuples, dict values) so extraction can
     never drift from the schema (design §2.3) — a new ref-bearing field is found
-    without touching this function. Both ref kinds carry a ``feature_id`` that
-    joins the dependency graph; topo-naming §4 widened this walk to also yield
-    :class:`SubshapeRef` (a named face reference), which is yielded WHOLE and not
-    descended into (its only graph-relevant field is ``feature_id`` — its
-    signature payload carries no refs).
+    without touching this function. Every ref kind carries a ``feature_id`` that
+    joins the dependency graph; topo-naming §4/§10 widened this walk to yield the
+    named face (:class:`SubshapeRef`) AND edge (:class:`EdgeSubshapeRef`)
+    references, each yielded WHOLE and not descended into (their only
+    graph-relevant field is ``feature_id`` — their signature payloads carry no
+    refs).
     """
-    if isinstance(value, FeatureRef | SubshapeRef):
+    if isinstance(value, FeatureRef | SubshapeRef | EdgeSubshapeRef):
         yield value
     elif isinstance(value, BaseModel):
         for name in type(value).model_fields:
@@ -986,13 +1113,14 @@ class FeatureReference:
 
     ``allowed_types`` empty means NO feature type is acceptable in that slot
     (e.g. a sketch plane in v1 accepts datum planes only — design §2.1). ``ref``
-    is a :class:`FeatureRef` (a whole-feature reference) OR a :class:`SubshapeRef`
-    (a named face of a body-affecting feature — topo-naming §4); both expose a
-    ``feature_id`` that documents materializes into ``feature_dependencies``.
+    is a :class:`FeatureRef` (a whole-feature reference), a :class:`SubshapeRef`
+    (a named face — topo-naming §4), or an :class:`EdgeSubshapeRef` (a named edge
+    — §10); all expose a ``feature_id`` that documents materializes into
+    ``feature_dependencies``.
     """
 
     slot: str
-    ref: FeatureRef | SubshapeRef
+    ref: AnyRef
     allowed_types: frozenset[str]
 
 
@@ -1065,14 +1193,27 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                         f"profiles[{index}]", section, frozenset({"sketch"})
                     )
                 )
-        case FilletFeature() | ChamferFeature() | PatternFeature():
-            # No FeatureRef: fillet/chamfer modify the implicit single body
-            # chain (design §7.6) and select edges by a geometric predicate,
-            # not by a per-feature subshape reference (design §2.4); a pattern
-            # replicates that same implicit body about world-space direction/
-            # axis vectors (no picked sub-geometry — independent of #1). Their
-            # ordering dependency on the prior body-affecting feature is the
-            # tree order.
+        case FilletFeature() | ChamferFeature():
+            # Fillet/chamfer modify the implicit single body chain (design §7.6).
+            # A PREDICATE selector (all_edges / axis_parallel) carries no ref —
+            # it re-selects edges geometrically each rebuild, its only dependency
+            # on the prior body-affecting feature is tree order (as before). A
+            # PICKED selector (topo-naming §10) names SPECIFIC edges of a
+            # body-affecting feature's result: each EdgeSubshapeRef.feature_id
+            # materializes into feature_dependencies exactly like a datum-on-face
+            # SubshapeRef, so deleting that body feature is a 409-with-dependents
+            # and a reorder re-checks strict-backward for the named edge refs.
+            if isinstance(feature.params.edges, PickedEdgesSelector):
+                for index, ref in enumerate(feature.params.edges.refs):
+                    references.append(
+                        FeatureReference(
+                            f"edges[{index}]", ref, BODY_AFFECTING_FEATURE_TYPES
+                        )
+                    )
+        case PatternFeature():
+            # A pattern replicates the implicit body about world-space direction/
+            # axis vectors (no picked sub-geometry — independent of #1); its
+            # dependency on the prior body-affecting feature is tree order.
             pass
         case _:
             assert_never(feature)  # exhaustive: new types must map their slots

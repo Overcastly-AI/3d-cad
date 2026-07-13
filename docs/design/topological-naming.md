@@ -1,9 +1,11 @@
 # Topological Naming — Design
 
 Status: **stage-1 PLANAR-FACE signature IMPLEMENTED for datum-from-face**
-(2026-07-12, backend + schema; see §9 scoping delta and `docs/GEOMETRY-QA.md`).
-The rest — edge/vertex signatures, the stage-2 provenance half, and the
-in-viewport picker — remains design-only. Originally: **revised after
+(2026-07-12; §9) **+ stage-1 EDGE signature IMPLEMENTED for click-specific
+fillet/chamfer** (2026-07-13, backend + schema; see §10 scoping delta and
+`docs/GEOMETRY-QA.md`). The rest — vertex signatures, the stage-2 provenance
+half, and the in-viewport picker (the edge-pick UI slice) — remains design-only.
+Originally: **revised after
 code-reviewer request-changes** (2026-07-11; see §8 review log). This doc
 specifies how a
 `SubshapeRef` (the variant reserved by
@@ -856,3 +858,85 @@ of a manifold solid cannot share a centroid, so the exactly-one rule always
 finds one (the ambiguity branch is guarded-but-defensive, becoming load-bearing
 for edge/vertex signatures). This is stated so no reader mistakes "faces don't
 tie in practice" for "signatures never retarget."
+
+---
+
+## 10. Scoping delta — stage-1 EDGE signature, implemented (2026-07-13)
+
+Backend + schema for the SECOND consumer, **click-specific fillet/chamfer**
+(the §3 "edge selection is BACKLOG #2" item; the first non-face `SubshapeRef`).
+Owner: kernel-architect. Evidence: `docs/GEOMETRY-QA.md` (2026-07-13), golden
+`fillet-top-edge-40x25x10-r5`, `test_edges.py`. This is the "second consumer"
+the topo-naming design anticipated, built by mirroring the §9 face machinery for
+edges — same stage-1 posture, same honesty.
+
+**Mechanism (which of §2–§4 landed):**
+
+- **§2b geometric signature only, EDGES.** `EdgeSignature`
+  (`py_kit.schemas.features`) = `subshape_type:"edge"` + `curve`
+  (line/circle/other) + two canonically-ordered endpoints `end_a`/`end_b` +
+  `midpoint` (curve param 0.5) + `length_mm` — full precision (§7.2, no
+  quantizing). **Fidelity delta from the §2b sketch, flagged honestly:** the §2b
+  illustrative edge signature carried an `adjacent_faces` list (a sorted
+  mini-face-signature per neighbour). The **shipped** stage-1 edge signature does
+  **NOT** include adjacency — endpoints + midpoint + length + curve kind already
+  distinguish the distinct edges of a manifold solid (two distinct edges differ
+  in at least one, by whole mm), so adjacency was dropped as not-yet-needed
+  complexity (extract on real need, not the first imagined one). Adjacency
+  remains available as an additive signature field if a future case needs finer
+  discrimination; its absence does not weaken the honest-failure posture (a moved
+  edge still surfaces as `subshape_unresolved`/`subshape_ambiguous` where
+  detectable). Vertex signatures remain unspecified/unshipped (Open Question 10).
+- **§4 typed selector union, degenerate to one member.** `EdgeSelectorV1`
+  (`selector_version:1` + `signature`); the edge selector alias is a plain
+  member until stage 2, same idiom as the face `Selector`. `EdgeSubshapeRef` =
+  `kind:"subshape"` + `feature_id` + `subshape_type:"edge"` + `selector`.
+- **`EdgeSelector` predicate union gains a `kind:"edges"` picked member.** The
+  fillet/chamfer `EdgeSelector` — previously `all_edges | axis_parallel` — gains
+  a `PickedEdgesSelector` (`kind:"edges"`, `refs: EdgeSubshapeRef[]`, min 1),
+  discriminated on `kind`. **Purely additive** (design §4/§2.4): every persisted
+  `all_edges`/`axis_parallel` selector validates and evaluates BYTE-IDENTICALLY,
+  so fillet/chamfer `param_version` stays 1 and the existing fillet/chamfer
+  goldens are unchanged. The predicates are NOT deprecated (§7.6) — they remain
+  the right tool for SET selections; `edges` is added beside them for the
+  singular "the edge I clicked" selection the predicates structurally cannot
+  express (§1.2).
+- **§4 dependency-graph wiring landed as described (the "not purely additive"
+  part), extended to fillet/chamfer.** `iter_feature_refs` now yields
+  `FeatureRef | SubshapeRef | EdgeSubshapeRef`; `FeatureReference.ref` widened to
+  that; the `walked == mapped` self-check balances with all three kinds. A
+  fillet/chamfer with a PICKED selector surfaces each `EdgeSubshapeRef.feature_id`
+  as a dependency (allowed targets = `BODY_AFFECTING_FEATURE_TYPES`), so deleting
+  the named body feature is a write-time 409-with-dependents and reorder
+  re-checks strict-backward — **new for fillet/chamfer**, which carried no
+  reference under a predicate selector (and still carry none there). `feature_id`
+  is the **stage-1 anchor** (the body-chain tip the signature matches against),
+  per §4.
+- **Resolution (`geometry.kernel.edges`).** Enumerate the rebuilt body's edges in
+  `body.edges()` order → match the stored signature nearest-within-tolerance →
+  **exactly one or error**. `select_edges` gained the `PickedEdgesSelector` case
+  (each ref → exactly one edge; deduped; returned in `body.edges()` order for
+  determinism). Match tolerances (documented, not ad-hoc — the face tolerances'
+  twins): endpoints + midpoint ≤ 1e-6 mm, length rel ≤ 1e-6, curve family exact.
+- **Error codes (per-feature, strict-prefix, never 500):** the fillet/chamfer
+  handlers map `SubshapeUnresolvedError` → `subshape_unresolved` and
+  `SubshapeAmbiguousError` → `subshape_ambiguous` (the SAME codes the datum-on-
+  face path uses), beside the existing `no_fillet_edges`/`no_chamfer_edges`
+  (predicate matched nothing) and `fillet_failed`/`chamfer_failed` (kernel).
+- **Pick↔resolve same enumeration.** `/overlay` edges (`OverlayEdge`) now each
+  carry the SAME `EdgeSignature` the resolver matches, built by the SAME
+  `geometry.kernel.edges` helper over the SAME `body.edges()` enumeration —
+  asserted by an order-equality gate (`test_edges.py`), the measurement/faces
+  lesson applied to edges. A pick UI echoes an overlay edge's `signature`
+  straight into an `EdgeSubshapeRef`.
+
+**Honest guarantee (per-stage tiers, §6.5/§7.3):** T0 parametric edits that
+don't move the edge **resolve**; T1/T2 are **best-effort at stage 1** — an edit
+that removes/moves the edge is an honest `subshape_unresolved` /
+`subshape_ambiguous`, but a drastic change **can** retarget to a
+coincidentally-congruent edge **without erroring** (the residual signature hole,
+§1.3/§2b). Stage 1 does **not** ship the §6.3 mis-resolve telemetry yet; that
+(and the structural non-retarget guarantee) waits on stage-2 provenance.
+**Unlike faces,** edge `subshape_ambiguous` is genuinely REACHABLE — a symmetric
+part has congruent edges (the §1.2 four vertical edges) — so the exactly-one rule
+is load-bearing here, not merely defensive.

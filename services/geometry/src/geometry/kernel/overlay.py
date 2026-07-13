@@ -37,6 +37,7 @@ from py_kit.schemas.overlay import (
     OverlayResult,
 )
 
+from geometry.kernel.edges import edge_signature_dto
 from geometry.kernel.faces import face_signature_dto
 
 #: OCCT ``GeomType`` → overlay edge kind (a rendering hint only). Anything not a
@@ -85,7 +86,11 @@ def selection_overlay(body: Solid, linear_deflection: float) -> OverlayResult:
 
     ``edges`` is in ``body.edges()`` order — byte-for-byte the enumeration
     :func:`geometry.kernel.measure.measure_targets` resolves ``EdgeTarget.index``
-    against — so ``edges[i]`` is the edge ``EdgeTarget(index=i)`` measures.
+    against — so ``edges[i]`` is the edge ``EdgeTarget(index=i)`` measures. Each
+    edge also carries the SAME stage-1 signature
+    :func:`geometry.kernel.edges.resolve_edge` matches a fillet/chamfer
+    picked-edge ``EdgeSubshapeRef`` against — one enumeration, pick side ==
+    resolve side.
     ``vertices`` is in ``body.vertices()`` order with EXACT coordinates.
     ``faces`` is in ``body.faces()`` order; each planar face carries the SAME
     stage-1 signature :func:`geometry.kernel.faces.resolve_face_plane` matches a
@@ -107,6 +112,11 @@ def selection_overlay(body: Solid, linear_deflection: float) -> OverlayResult:
                 start=polyline[0],
                 end=polyline[-1],
                 polyline=polyline,
+                # SAME stage-1 signature the fillet/chamfer picked-edge resolver
+                # matches against, built by the SAME geometry.kernel.edges helper
+                # over the SAME body.edges() enumeration — pick side == resolve
+                # side (order-equality gate).
+                signature=edge_signature_dto(edge),
             )
         )
 

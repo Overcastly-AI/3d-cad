@@ -30,7 +30,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from py_kit.schemas.features import EvaluateTreeRequest, PlanarFaceSignature
+from py_kit.schemas.features import (
+    EdgeSignature,
+    EvaluateTreeRequest,
+    PlanarFaceSignature,
+)
 from py_kit.schemas.geometry import Vec3
 
 #: Edge curve family, enough for the client to pick a hover/label style. Exact
@@ -45,7 +49,9 @@ class OverlayEdge(BaseModel):
     The list position of this edge in :attr:`OverlayResult.edges` is its
     transient 0-based index — the SAME ordinal ``body.edges()`` yields, so
     passing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures
-    THIS edge. Not stable across edits (topological naming is Phase 2).
+    THIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-
+    surviving reference is :attr:`signature` (topological naming) — echo it into
+    an ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.
     """
 
     kind: OverlayEdgeKind = Field(
@@ -63,6 +69,13 @@ class OverlayEdge(BaseModel):
         "[start, end]; a curved edge is sampled to the request tree's "
         "linear_deflection — the SAME tolerance policy as the mesh, no new "
         "epsilon."
+    )
+    signature: EdgeSignature = Field(
+        description="Stage-1 edge signature (curve/endpoints/midpoint/length) — "
+        "the SAME fingerprint the fillet/chamfer picked-edge resolver matches "
+        "against (one enumeration: pick side == resolve side, an order-equality "
+        "gate proves it). Echo it into an EdgeSubshapeRef to round THIS edge. "
+        "Unlike the transient index, it survives rebuilds (best-effort, stage 1)."
     )
 
 
