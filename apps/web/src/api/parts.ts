@@ -63,6 +63,10 @@ export type ShellFeature = components["schemas"]["ShellFeature"];
 export type ShellParams = components["schemas"]["ShellParamsV1"];
 /** The shell's picked-face selector: the faces to leave OPEN (empty = sealed). */
 export type FaceSelector = components["schemas"]["FaceSelector"];
+export type DraftFeature = components["schemas"]["DraftFeature"];
+export type DraftParams = components["schemas"]["DraftParamsV1"];
+/** The draft neutral (parting) plane: a principal datum, offset + flipped. */
+export type DraftNeutralPlane = components["schemas"]["DraftNeutralPlaneV1"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =
@@ -528,6 +532,42 @@ export function shellFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: shellFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by draft create and update. */
+function draftFeatureEnvelope(params: DraftParams): DraftFeature {
+  return { type: "draft", version: 1, params };
+}
+
+/**
+ * The create payload for a draft feature: taper the picked faces of the current
+ * body chain by a constant angle about a neutral (parting) plane — the mold-
+ * release primitive (design §4.3, the shell/fillet sibling: no `FeatureRef`, it
+ * acts on the implicit body chain at its point in the tree; the tapered faces
+ * ARE named face refs). Unlike shell, an empty face set is a `no_draft_faces`
+ * rebuild error, so the editor guards it. Pure — unit-tested against the types.
+ */
+export function draftFeatureCreate(
+  name: string,
+  params: DraftParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: draftFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing draft (no rename). */
+export function draftFeatureUpdate(
+  params: DraftParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: draftFeatureEnvelope(params),
   };
 }
 

@@ -16,6 +16,7 @@
 import {
   ChamferIcon,
   DatumIcon,
+  DraftIcon,
   ExtrudeIcon,
   FilletIcon,
   LoftIcon,
@@ -68,6 +69,8 @@ export interface CreateStripProps {
   onPattern?: () => void;
   /** Hollow the current body to a uniform wall, opening picked faces (H). */
   onShell?: () => void;
+  /** Taper picked faces for mold release about a neutral plane (D). */
+  onDraft?: () => void;
   /** A solid body exists to inspect — the Measure tool lights up. */
   canMeasure?: boolean;
   /** The Measure tool is armed (picking targets in the viewport). */
@@ -93,6 +96,7 @@ export function CreateStrip({
   onChamfer,
   onPattern,
   onShell,
+  onDraft,
   canMeasure = false,
   measuring = false,
   onToggleMeasure,
@@ -101,6 +105,7 @@ export function CreateStrip({
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
   const patternReady = canModify && treeReady && onPattern !== undefined;
   const shellReady = canModify && treeReady && onShell !== undefined;
+  const draftReady = canModify && treeReady && onDraft !== undefined;
 
   return (
     <div
@@ -237,6 +242,20 @@ export function CreateStrip({
           }
           disabled={!shellReady}
           onClick={onShell}
+        />
+        <ToolButton
+          icon={<DraftIcon />}
+          showLabel
+          label="Draft"
+          shortcut="D"
+          data-testid="new-draft"
+          aria-label={
+            draftReady
+              ? "Draft — taper picked faces for mold release about a neutral plane (D)"
+              : "Draft — create a body first"
+          }
+          disabled={!draftReady}
+          onClick={onDraft}
         />
       </ToolGroup>
 

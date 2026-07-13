@@ -202,7 +202,7 @@ flagged, unchanged in substance, reordered below the above.
       face pick reusing the `PickNode`/overlay machinery), honest copy (no picks =
       a sealed hollow); `shell.spec.ts` real-stack e2e proves an open-top hollow
       (8,000→3,392 mm³) + a sealed hollow (3,904 mm³). [src: roadmap, competitive]
-- [ ] (P2, M) Draft feature — angle selected faces relative to a pull
+- [x] (P2, M) Draft feature — angle selected faces relative to a pull
       direction. ✅ **BACKEND DONE 2026-07-13:** `DraftFeature`/`DraftParamsV1`
       (`angle_deg` + a reused `{kind:"faces", refs: SubshapeRef[]}` face selector
       + a `DraftNeutralPlaneV1` principal-datum neutral plane; pull = its normal);
@@ -211,8 +211,13 @@ flagged, unchanged in substance, reordered below the above.
       `draft-frustum-box-40x40x20-5deg` (29,282.008 mm³ frustum), errors
       `no_prior_body` / `subshape_unresolved` / `no_draft_faces` / `draft_failed`
       (OCCT RAISES on collapse — no silent-bad-body guard needed, unlike shell)
-      [GEOMETRY-QA 2026-07-13]. **UI (pick to taper) is the follow-up** — depends
-      on face picking (Ready, above). [src: roadmap, competitive]
+      [GEOMETRY-QA 2026-07-13]. ✅ **UI DONE 2026-07-13:** `DraftEditor` (scribed
+      Draft tool in Modify, accelerator **D**; brass **angle** handle with the
+      signed-convention copy; the shell face overlay reused for pick-to-taper
+      with a live count; a **neutral-plane** picker mirroring the datum
+      offset-plane idiom — base XY/XZ/YZ + offset + flip); `draft.spec.ts`
+      real-stack e2e proves a tapered frustum (8,000→6,681.83 mm³) + a legible
+      `draft_failed` on too-large angle. [src: roadmap, competitive]
 - [ ] (P2, S) Units system — mm-only today; a per-part or per-workspace unit
       preference (in/mm) with display-layer conversion (kernel stays mm
       internally per CLAUDE.md tolerances). Independent. [src: roadmap]
@@ -453,6 +458,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-13 — **Draft feature UI shipped** (backend shipped same day). Draft tool
+  in Modify (scribed `DraftIcon`, `D`, body-gated) → `DraftEditor`: brass angle
+  handle + reused shell face overlay (pick-to-taper) + datum-idiom neutral-plane
+  picker. `draft.spec.ts` proves a tapered frustum (8,000→6,681.83 mm³) + a
+  legible `draft_failed`.
 - 2026-07-13 — **Draft feature BACKEND shipped**. `DraftFeature`/`DraftParamsV1`
   (`angle_deg` + reused `FaceSelector` picked faces + `DraftNeutralPlaneV1`
   principal-datum neutral plane, pull = normal); `geometry.kernel.draft`

@@ -192,8 +192,15 @@ item:
       vs-open copy → `FaceSelector` payload; e2e `shell.spec` renders an open-top
       hollow (8,000→3,392 mm³) and a sealed hollow (3,904 mm³). Third
       `SubshapeRef` consumer after sketch-on-face + edge-pick.
-- 🚧 Draft feature — **backend + golden shipped 2026-07-13** (pick-to-taper UI
-      is the follow-up). `DraftFeature`/`DraftParamsV1` tapers picked faces by
+- ✅ Draft feature — **backend + golden + UI shipped 2026-07-13** (end-to-end).
+      `DraftEditor`: scribed Draft tool in Modify (accelerator `D`, body-gated),
+      a brass **angle** handle with the signed-convention copy, the shell face
+      overlay reused for pick-to-taper (live count, empty = `no_draft_faces`
+      submit-guard), and a **neutral-plane** picker mirroring the datum offset
+      idiom (base XY/XZ/YZ + offset + flip). `draft.spec.ts` real-stack e2e:
+      a tapered frustum (8,000→6,681.83 mm³) + a legible `draft_failed` on
+      too-large angle.
+      `DraftFeature`/`DraftParamsV1` tapers picked faces by
       `angle_deg` about a `DraftNeutralPlaneV1` principal-datum neutral plane
       (pull = the plane normal), reusing the SAME `{kind:"faces"}` `FaceSelector`
       `SubshapeRef` machinery shell uses (fourth consumer); `geometry.kernel.draft`
@@ -206,9 +213,9 @@ item:
       `no_draft_faces` / `draft_failed` — OCCT RAISES on collapse, so (unlike
       shell) no silent-bad-body guard is needed (GEOMETRY-QA 2026-07-13).
 - 🚧 Part-modeling breadth — **Part modeling row stays ❌**: sketch-on-face +
-      shell landed end-to-end (backend + UI); draft **backend + golden shipped
-      2026-07-13** (`DraftFeature`, frustum golden 29,282.008 mm³, pick-to-taper
-      UI pending); dedicated hole, multi-body boolean still unbuilt, several
+      shell + draft landed end-to-end (backend + UI); draft **shipped
+      2026-07-13** (`DraftFeature`, frustum golden 29,282.008 mm³, `DraftEditor`
+      pick-to-taper); dedicated hole, multi-body boolean still unbuilt, several
       gated on face/edge picking (BACKLOG Ready + Next).
 - 🚧 Two independent audits landed 2026-07-12 (`docs/AUDIT-PRODUCT.md`
       6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found (all gates

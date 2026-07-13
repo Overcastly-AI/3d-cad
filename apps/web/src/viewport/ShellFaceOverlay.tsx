@@ -21,7 +21,18 @@ import { faceLabel, faceSignatureKey, isPickableFace } from "../features/face";
 import { useFacePickStore } from "../features/facePickStore";
 import { occtToScene } from "../measure/geometry";
 
-export function ShellFaceOverlay() {
+export interface ShellFaceOverlayProps {
+  /**
+   * Prefix for each pick node's `data-testid` (e.g. `shell-face` → `shell-face-3`).
+   * The shell and draft editors share this ONE store-driven overlay (only one is
+   * ever open), so QA drives each by its own prefix. Defaults to `shell-face`.
+   */
+  testIdPrefix?: string;
+}
+
+export function ShellFaceOverlay({
+  testIdPrefix = "shell-face",
+}: ShellFaceOverlayProps = {}) {
   const overlay = useFacePickStore((s) => s.overlay);
   const picked = useFacePickStore((s) => s.picked);
   const hoverFace = useFacePickStore((s) => s.hoverFace);
@@ -54,7 +65,7 @@ export function ShellFaceOverlay() {
             <PickNode
               shape="face"
               selected={pickedKeys.has(faceSignatureKey(face.signature))}
-              data-testid={`shell-face-${face.index}`}
+              data-testid={`${testIdPrefix}-${face.index}`}
               aria-label={faceLabel(face.index, face.signature)}
               onClick={() => toggle(face.signature)}
               onPointerOver={() => setHoverFace(face.index)}

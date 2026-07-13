@@ -388,6 +388,26 @@ export const ShellIcon = (p: IconProps) => (
 );
 
 /**
+ * Draft = the mold-release taper — a wall tilted off a fixed parting plane so
+ * the part pulls cleanly from a die. A trapezoid whose TOP NARROWS (the tapered
+ * wall) rises from a dashed neutral/parting plane (the fixed line the faces
+ * rotate about), with a short arrow off the top marking the pull direction (out
+ * of the mold). The slanted walls ARE the draft angle; the dashed parting line
+ * is the thing no other glyph shows, so it reads as "taper for release", never a
+ * corner bevel (chamfer) or a hollow (shell).
+ */
+export const DraftIcon = (p: IconProps) => (
+  <Icon {...p}>
+    {/* The neutral / parting plane the faces pivot about (fixed, dashed). */}
+    <path d="M3 18 H21" strokeDasharray="2.4 2" />
+    {/* The tapered wall rising off it — the top narrows toward the pull. */}
+    <path d="M5 18 L8.5 6 H15.5 L19 18" />
+    {/* Pull direction — out of the mold, along the neutral-plane normal. */}
+    <path d="M12 6 V2 M12 2 L10.6 3.5 M12 2 L13.4 3.5" />
+  </Icon>
+);
+
+/**
  * Pattern = the seed body copied into an array — a 2×2 grid of square cells,
  * the top-left one punched to mark the seed (instance 0). Reads as "repeat",
  * and its square cells tie it to the title-block grid rather than a generic

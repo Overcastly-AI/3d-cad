@@ -24,6 +24,9 @@ import {
   datumFeatureCreate,
   datumFeatureUpdate,
   datumOnFaceFeatureCreate,
+  type DraftParams,
+  draftFeatureCreate,
+  draftFeatureUpdate,
   type EdgeSignature,
   evaluatePart,
   type ExtrudeParams,
@@ -64,6 +67,7 @@ import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CreateStrip } from "../components/CreateStrip";
 import { DatumEditor } from "../components/DatumEditor";
+import { DraftEditor } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
@@ -131,6 +135,12 @@ import {
   formFromShellParams,
   pickedFacesFromShellParams,
 } from "../features/shell";
+import {
+  defaultDraftForm,
+  type DraftForm,
+  formFromDraftParams,
+  pickedFacesFromDraftParams,
+} from "../features/draft";
 import { useFacePickStore } from "../features/facePickStore";
 import { ShellFaceOverlay } from "../viewport/ShellFaceOverlay";
 import { SketchDro } from "../components/SketchDro";
@@ -906,6 +916,13 @@ export function PartPage() {
         featureId?: string;
       }
     | {
+        kind: "draft";
+        mode: "create" | "edit";
+        initial: DraftForm;
+        initialPickedFaces: PlanarFaceSignature[];
+        featureId?: string;
+      }
+    | {
         kind: "datum";
         mode: "create" | "edit";
         initial: DatumForm;
@@ -977,7 +994,8 @@ export function PartPage() {
     }
   }, [edgePicking, edgeOverlayQuery.error, setEdgeOverlayError]);
 
-  // Shell face picking. A shell editor arms a face-pick session; the pickable
+  // Face picking (shell + draft). A shell OR draft editor arms a face-pick
+  // session on the SAME store (only one editor is open at a time); the pickable
   // face overlay for the current body is fetched exactly as the edge/measure
   // overlays are (same request/key — one cache entry, faces line up with the
   // rendered body). The anchor for a picked face's `SubshapeRef` is the same
@@ -1201,6 +1219,22 @@ export function PartPage() {
     });
   }, []);
 
+  // A draft, like shell, tapers the current BODY's picked faces (no sketch
+  // profile) — it only needs a solid to exist (canModify), so it mirrors the
+  // shell guard. It opens with zero picked faces; Apply stays disabled until at
+  // least one face is picked (a draft with no faces is `no_draft_faces`).
+  const openCreateDraft = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "draft",
+      mode: "create",
+      initial: defaultDraftForm(),
+      initialPickedFaces: [],
+    });
+  }, []);
+
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
   const openCreateDatum = useCallback(() => {
@@ -1273,6 +1307,14 @@ export function PartPage() {
         initial: formFromShellParams(feature.feature.params),
         initialPickedFaces: pickedFacesFromShellParams(feature.feature.params),
       });
+    } else if (feature.feature.type === "draft") {
+      setEditor({
+        kind: "draft",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromDraftParams(feature.feature.params),
+        initialPickedFaces: pickedFacesFromDraftParams(feature.feature.params),
+      });
     } else if (
       feature.feature.type === "datum" &&
       feature.feature.params.kind === "offset"
@@ -1311,19 +1353,22 @@ export function PartPage() {
   // Leaving the workspace tears the edge-pick session down.
   useEffect(() => () => useEdgePickStore.getState().close(), []);
 
-  // Shell face-pick session lifecycle: a shell editor opens a session (seeded
-  // with its persisted open-faces), anything else closes it. Keyed on `editor`
-  // identity (only changes on open/select/close), so the store never churns
-  // mid-edit. The overlay fetch + render gate on the store.
+  // Face-pick session lifecycle: a shell OR draft editor opens a session
+  // (seeded with its persisted picked faces), anything else closes it. Keyed on
+  // `editor` identity (only changes on open/select/close), so the store never
+  // churns mid-edit. The overlay fetch + render gate on the store.
   useEffect(() => {
     const store = useFacePickStore.getState();
-    if (editor !== null && editor.kind === "shell") {
+    if (
+      editor !== null &&
+      (editor.kind === "shell" || editor.kind === "draft")
+    ) {
       store.open(editor.initialPickedFaces);
     } else {
       store.close();
     }
   }, [editor]);
-  // Leaving the workspace tears the shell face-pick session down.
+  // Leaving the workspace tears the face-pick session down.
   useEffect(() => () => useFacePickStore.getState().close(), []);
 
   // The shared save path for either body-affecting feature: read the freshest
@@ -1507,6 +1552,23 @@ export function PartPage() {
         current.mode === "create",
         current.featureId,
         "The shell could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitDraft = useCallback(
+    (params: DraftParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "draft") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "draft").length + 1;
+      runFeatureSave(
+        (version) => draftFeatureCreate(`Draft${nextIndex}`, params, version),
+        (version) => draftFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The draft could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -1716,6 +1778,9 @@ export function PartPage() {
       } else if (key === "h" && hasBody) {
         event.preventDefault();
         openCreateShell();
+      } else if (key === "d" && hasBody) {
+        event.preventDefault();
+        openCreateDraft();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -1729,6 +1794,7 @@ export function PartPage() {
     openCreateSweep,
     openCreateLoft,
     openCreateShell,
+    openCreateDraft,
   ]);
 
   // The body is the hero: once a solid renders, the profile sketch that
@@ -1781,6 +1847,7 @@ export function PartPage() {
             onChamfer={openCreateChamfer}
             onPattern={openCreatePattern}
             onShell={openCreateShell}
+            onDraft={openCreateDraft}
             canMeasure={hasBody}
             measuring={measureActive}
             onToggleMeasure={toggleMeasure}
@@ -1907,6 +1974,16 @@ export function PartPage() {
                     saving={editorSaving}
                     error={editorError}
                   />
+                ) : editor.kind === "draft" ? (
+                  <DraftEditor
+                    mode={editor.mode}
+                    initial={editor.initial}
+                    bodyFeatureId={bodyFeatureId}
+                    onSubmit={submitDraft}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
                 ) : (
                   <DatumEditor
                     mode={editor.mode}
@@ -1958,7 +2035,13 @@ export function PartPage() {
           <SketchScene solved={solvedLayers} facePicking={facePicking} />
           <MeasureOverlay />
           {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
-          {mode === "off" && shellPicking ? <ShellFaceOverlay /> : null}
+          {mode === "off" && shellPicking ? (
+            <ShellFaceOverlay
+              testIdPrefix={
+                editor?.kind === "draft" ? "draft-face" : "shell-face"
+              }
+            />
+          ) : null}
           {mode === "plane" && facePicking ? (
             <FacePickOverlay
               faces={pickableFaces}
