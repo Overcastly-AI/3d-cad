@@ -470,6 +470,7 @@ consumes. `subshape_ambiguous` for faces is unreachable-but-guarded (above).
 | `revolve-annulus-r10-20-h15` | FIRST REVOLVE golden (solid of revolution): sketch→revolve tree — a rectangle [r 10..20]×[h 0..15] revolved 360° about a CONSTRUCTION centerline into an annular cylinder; shares extrude's `build_profile_face`/`combine_body`; GProp over two coaxial cylinders + two annular caps, periodic seam-edge topology, STEP re-approximation of the revolved cylinders | 1e-9 (curved-geometry, measured-then-set; observed worst 1.82e-12 on volume) | 4 / 6 / 1 | 1012 / 1008 |
 | `pattern-linear-3x-bar` | FIRST PATTERN golden (linear pattern, #7): sketch→extrude→pattern tree — a unit cube LINEAR-patterned +X (spacing 6, count 3, overlapping) so the copies fuse into a connected bar [0,22]×[0,10]×[0,10]; locks the pattern handler + placement math (unit dir × spacing × k) + variadic fuse + single-solid finalize (§7.6), and STEP round-trip of the patterned body | 1e-9 (all-planar union, measured-then-set; volume/area/centroid/AABB EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
 | `pattern-circular-4x-quadrant-box` | FIRST CIRCULAR-PATTERN golden (audit **F4** — the trig-heaviest body op, previously with only an in-process volume unit test and NO cross-interpreter determinism gate): sketch→extrude→circular-pattern tree — the quadrant-1 unit prism [0,10]³ CIRCULAR-patterned about +Z through the origin (angle 360°, count 4, step 90°) so the four copies TILE the four quadrants and fuse into one clean box [-10,10]×[-10,10]×[0,10]; locks the circular handler + rotation placement (Axis rotate 90/180/270°) + fuse + single-solid finalize (§7.6) + clean() seam collapse, and puts the trig-heaviest op on the **interpreter-restart byte-determinism** gate. Analytic V = 4·1000 = 4000 mm³ (quadrants share only zero-measure faces → no volume overlap, unlike the linear golden), centroid on-axis (0,0,5) by 4-fold symmetry | 1e-9 (rotation-placed union, measured-then-set; 90/180/270° cos/sin NOT fp-exact → worst residual 1.1e-12 on volume, centroid.x 3.9e-16 on-axis, AABB ≤ 2e-15) | 6 / 12 / 1 | 24 / 12 |
+| `pattern-cut-6hole-boltcircle-60x60x10` | FIRST PATTERN-OF-A-CUT golden (BACKLOG **#3** / showcase **F1**): sketch→extrude add→sketch→extrude **cut**→circular-pattern — a 60×60×10 plate, ONE r4 hole cut at (20,0), then a circular pattern (360°, count 6) that arrays the CUT (option a: the source feature is the extrude-cut, so the tool is reconstructed and REMOVED at each placement) into a 6-hole bolt circle — **6 holes removed, not 6 bodies added**. Locks the pattern cut-source inference (`prev_body_feature` is an extrude-cut) + tool reconstruction from the source's already-solved profile + `circular_pattern_cut` rotated-tool placement + variadic `body.cut` + single-solid finalize (§7.6) + clean() seam collapse. Analytic V = 36000 − 960π = 32984.071 mm³ (six disjoint holes, no overlap), centroid on-axis (0,0,5) by 6-fold symmetry; generalizes the 2-hole plate (8/18) by +4 cylinder faces / +12 edges | 1e-8 (rotated curved CUT, measured-then-set; both non-fp-exact rotation AND a boolean cut through curved walls → worst residual 1.46e-11 on volume, ~13× the whole-body-rotation golden, centroid.x/.y ≤ 5.5e-17 on-axis, AABB EXACTLY 0.0; 10× tighter than the 1e-7 kernel bound) | 12 / 30 / 1 | 3060 / 3060 |
 | `sweep-circle-r8-h30` | FIRST SWEEP golden (first NON-PRISMATIC feature, #7): sketch→sketch→sweep tree — an r=8 circle profile swept along a SECOND sketch's straight 30 mm OPEN path (vertical line on XZ) into a right circular cylinder; locks the sweep handler + two-sketch FeatureRef resolution (profile + open path wire) + open-wire assembly (shared per-entity edge builder) + `Solid.sweep`; cross-checks that `Solid.sweep` reproduces `build_cylinder`'s exact B-rep/mesh by a different code path | 1e-9 (curved-geometry ceiling, measured-then-set; observed worst 1.44e-15 on centroid, vol/area/AABB EXACTLY 0.0) | 3 / 3 / 1 | 506 / 500 |
 | `sketch-spline-extrude` | FIRST FREE-FORM golden (fit-point spline, #6): sketch→extrude tree with a closed profile of 3 lines + 1 interpolating C2 B-spline (`Edge.make_spline`) closing the loop through 4 fit points; locks the non-constrained-spline solver pass-through, the spline profile edge, GProp/tessellation over a B-spline-bounded face, and STEP round-trip. A spline region has NO closed-form mass properties → **measured-then-set** (not analytic) | 1e-6 (measured-then-set, non-analytic curved boundary; on-host deviation 0.0 by byte-determinism gate; 1e-6 = cross-host libm headroom, still 100× tighter than kernel 1e-4 mm) | 6 / 12 / 1 | 372 / 448 |
 | `loft-pyramid-sq20-h30` | FIRST LOFT golden (second NON-PRISMATIC feature, #8): sketch→sketch→loft tree — a 20×20 square section on XY ruled-lofted to a single APEX point 30 mm up +Z into a right square pyramid; locks the loft handler + per-section ordered FeatureRef resolution + loft-to-a-point (a point section → `Vertex`) + `Solid.make_loft(ruled=True)`; analytic pyramid volume a²·h/3 = 4000 mm³, all faces PLANAR so mesh is hand-derivable. NB: a cylinder/frustum golden needs two PARALLEL offset sections (unauthorable — datums are origin-only + mutually perpendicular), hence the apex pyramid | 2e-7 (AABB-padding-limited: ThruSections faces carry OCCT ~1e-7 modeling tolerance → optimal AABB padded ~1e-7; ceiling = 2× kernel linear tol; vol worst 1.82e-12, area EXACTLY 0.0, centroid ≤ 3.7e-16) | 5 / 8 / 1 | 16 / 6 |
@@ -503,6 +504,59 @@ the <2-section 422) is additionally pinned by `tests/test_loft.py`. No shipped
 modeling capability lacks a golden as of the 2026-07-12 loft entry — the seven
 body-affecting features (extrude, revolve, sweep, loft, fillet, chamfer,
 pattern) are all golden-covered.
+
+---
+
+## 2026-07-13 — Pattern arrays a CUT, not just a union (showcase **F1**, BACKLOG #3): `pattern-cut-6hole-boltcircle-60x60x10`
+
+**What shipped.** A circular/linear `pattern` can now REMOVE material at each
+arrayed position, so the two most common patterns — bolt-circle mounting holes
+and lightening-hole rings — finally use `pattern` instead of N hand-authored
+cut features (the showcase pulley needed 6). One hole-cut + a circular pattern
+(count 6, 360°) drills a 6-hole bolt circle: **6 holes removed, not 6 bodies
+added.**
+
+**DESIGN DECISION (option a — infer the source feature's operation; NO schema
+change).** The brief offered (a) infer the combine mode from the source
+feature's operation vs (b) add an `operation`/`mode` discriminator to
+`PatternParams`. Chose **(a)**: `PatternParamsV1` already carries no
+`FeatureRef` — a pattern depends on the prior body-affecting feature by TREE
+ORDER (like fillet/chamfer), so the evaluator infers the mode from the
+**immediately-preceding body-affecting feature** (`EvaluationState.prev_body_feature`,
+set by the main loop). When it is an extrude-**CUT**, the pattern arrays that
+cut's TOOL (reconstructed from the source's already-solved profile via the
+shared `_resolve_profile_faces` + `extrude_face`, a pure/deterministic function
+of the same inputs the cut used, so the seed hole and the patterned copies are
+the identical tool) and BOOLEAN-CUTS the copies from the body
+(`circular_pattern_cut` / `linear_pattern_cut` → new `_cut_and_finalize`). Any
+other source (an add, an intervening fillet) → the original whole-body UNION
+path, **byte-identical** (the add-pattern goldens `pattern-linear-3x-bar` /
+`pattern-circular-4x-quadrant-box` still pass unchanged, and the ADD-after-a-cut
+inference boundary is regression-guarded in `test_pattern.py`).
+
+Option (a) needs no `param_version` bump, no new Field, and **no frontend
+toggle** — the existing UI's "add a pattern after a cut" already means "array
+the cut". Option (b) would have been redundant (the source cut already implies
+cut intent) AND still needed the same tool reconstruction. `just gen-check`
+stays clean (no contract change).
+
+**Scope / limits (honest, documented — not bugs).** v1 pattern-of-cut arrays an
+extrude-CUT source only (the showcase F1 case); a revolve/sweep/loft cut, or a
+cut shadowed by an intervening body-affecting feature, falls back to the union
+path (additive future work). A patterned cut that consumes the whole body is
+`pattern_failed`; one that severs the body into disjoint lumps is
+`pattern_disjoint` (§7.6 single body chain) — both per-feature errors preserving
+the last-good body, never a silently bad solid.
+
+**Golden `pattern-cut-6hole-boltcircle-60x60x10`.** Analytic V = 36000 − 960π =
+32984.071 mm³, centroid on-axis (0,0,5) by 6-fold symmetry, 12 faces / 30 edges
+/ 1 shell (the 2-hole plate + 4 cylinder faces / +12 edges), mesh 3060 v / 3060
+t. **Tolerance 1e-8, measured-then-set:** the rotated curved cut is a
+numerically heavier path than the pure-translation (exact 0.0) or whole-body
+rotation (~1.1e-12) pattern goldens — worst measured residual 1.46e-11 on
+volume, ~690× headroom, still 10× tighter than the 1e-7 kernel bound. Rides the
+same in-process + interpreter-restart byte-determinism and STEP round-trip gates
+as every golden.
 
 ---
 

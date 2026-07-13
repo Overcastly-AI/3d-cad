@@ -18,6 +18,7 @@ assertions use the documented tree-golden tolerance (measured-then-set,
 """
 
 import json
+import math
 import uuid
 from pathlib import Path
 from typing import Any
@@ -83,7 +84,10 @@ def rect_sketch(
 
 
 def extrude_input(
-    feature_id: uuid.UUID, profile_id: uuid.UUID, distance_mm: float
+    feature_id: uuid.UUID,
+    profile_id: uuid.UUID,
+    distance_mm: float,
+    operation: str = "add",
 ) -> dict[str, Any]:
     return {
         "id": str(feature_id),
@@ -93,8 +97,33 @@ def extrude_input(
             "params": {
                 "profile": {"kind": "feature", "feature_id": str(profile_id)},
                 "distance_mm": distance_mm,
-                "operation": "add",
+                "operation": operation,
                 "direction": "normal",
+            },
+        },
+    }
+
+
+def circle_sketch(
+    feature_id: uuid.UUID, cx: float, cy: float, radius: float
+) -> dict[str, Any]:
+    """A single circle on XY (one closed loop), no constraints (zero residual)."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(XY_PLANE),
+                "entities": [
+                    {
+                        "id": "c1",
+                        "kind": "circle",
+                        "center": {"x": cx, "y": cy},
+                        "radius": radius,
+                    }
+                ],
+                "constraints": [],
             },
         },
     }
@@ -267,6 +296,116 @@ def test_linear_pattern_along_y_shifts_the_whole_body() -> None:
     bbox = result.properties.bounding_box
     assert bbox.max.y == pytest.approx(22.0, abs=PATTERN_TOL)
     assert bbox.max.x == pytest.approx(10.0, abs=PATTERN_TOL)
+
+
+# --- Pattern-of-a-cut: array a CUT, not just a union (BACKLOG #3 / showcase F1) -------
+
+HOLE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+CUT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
+
+
+def _drilled_plate_tree(pattern: dict[str, Any]) -> dict[str, Any]:
+    """A 60x60x10 plate + a SINGLE r4 through-hole cut at (20,0), then *pattern*.
+
+    The pattern's immediately-preceding body-affecting feature is the extrude
+    CUT, so a circular/linear pattern here must array THAT CUT (option a) —
+    remove a hole at each placement, not union whole-body copies.
+    """
+    return _request(
+        [
+            rect_sketch(SKETCH_ID, -30.0, -30.0, 30.0, 30.0),
+            extrude_input(BODY_ID, SKETCH_ID, 10.0),
+            circle_sketch(HOLE_ID, 20.0, 0.0, 4.0),
+            extrude_input(CUT_ID, HOLE_ID, 10.0, operation="cut"),
+            pattern,
+        ]
+    )
+
+
+def test_circular_pattern_of_a_cut_removes_n_holes_not_adds_bodies() -> None:
+    """The acceptance (BACKLOG #3): one hole-cut + circular pattern (count 6,
+    360°) drills a 6-hole bolt circle — volume = plate minus SIX holes, and a
+    single connected solid (12 faces), NOT six unioned plates."""
+    result = _post(_drilled_plate_tree(circular_pattern_input(PATTERN_ID, count=6)))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "ok", "ok"]
+    assert result.properties is not None
+    plate = 60.0 * 60.0 * 10.0
+    six_holes = 6 * math.pi * 4.0**2 * 10.0
+    assert result.properties.volume == pytest.approx(plate - six_holes, abs=PATTERN_TOL)
+    # A drilled plate is one solid with the six cylinder walls — not six bodies.
+    assert result.properties.topology.faces == 12
+    assert result.properties.topology.shells == 1
+    # Centroid on the pattern axis (origin) by 6-fold symmetry.
+    assert result.properties.centroid.x == pytest.approx(0.0, abs=PATTERN_TOL)
+    assert result.properties.centroid.y == pytest.approx(0.0, abs=PATTERN_TOL)
+
+
+def test_linear_pattern_of_a_cut_drills_a_row_of_holes() -> None:
+    """A linear pattern after a hole-cut removes a ROW of holes (the cut path is
+    not circular-specific): seed at (20,0) + copies at -X spacing 20, count 3 ->
+    holes at x = 20, 0, -20, all interior to the 60-wide plate."""
+    result = _post(
+        _drilled_plate_tree(
+            linear_pattern_input(
+                PATTERN_ID, direction=(-1.0, 0.0, 0.0), spacing_mm=20.0, count=3
+            )
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "ok", "ok"]
+    assert result.properties is not None
+    plate = 60.0 * 60.0 * 10.0
+    three_holes = 3 * math.pi * 4.0**2 * 10.0
+    assert result.properties.volume == pytest.approx(
+        plate - three_holes, abs=PATTERN_TOL
+    )
+    assert result.properties.topology.shells == 1
+
+
+def test_cut_pattern_count_one_leaves_the_single_seed_hole() -> None:
+    """count == 1 after a cut is a no-op: exactly the one seed hole remains
+    (plate minus ONE hole), never the whole-body union fallback."""
+    result = _post(_drilled_plate_tree(circular_pattern_input(PATTERN_ID, count=1)))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "ok", "ok"]
+    assert result.properties is not None
+    plate = 60.0 * 60.0 * 10.0
+    one_hole = math.pi * 4.0**2 * 10.0
+    assert result.properties.volume == pytest.approx(plate - one_hole, abs=PATTERN_TOL)
+
+
+def test_add_pattern_after_a_cut_hole_still_unions_whole_body() -> None:
+    """Regression guard for the inference boundary: when the LAST body-affecting
+    feature is an ADD (not a cut), the pattern still UNIONS whole-body copies.
+    Here a plate with one hole is additively extruded-bossed, THEN patterned —
+    the boss (an add) is the source, so the pattern unions, it does not drill."""
+    boss_sketch = uuid.UUID("00000000-0000-0000-0000-0000000000a3")
+    boss_extrude = uuid.UUID("00000000-0000-0000-0000-0000000000b3")
+    result = _post(
+        _request(
+            [
+                rect_sketch(SKETCH_ID, 0.0, 0.0, 10.0, 10.0),
+                extrude_input(BODY_ID, SKETCH_ID, 10.0),
+                circle_sketch(HOLE_ID, 5.0, 5.0, 2.0),
+                extrude_input(CUT_ID, HOLE_ID, 10.0, operation="cut"),
+                # An ADD boss becomes the new source; the pattern must union.
+                rect_sketch(boss_sketch, 0.0, 0.0, 10.0, 10.0),
+                extrude_input(boss_extrude, boss_sketch, 10.0),
+                linear_pattern_input(
+                    PATTERN_ID, direction=(1.0, 0.0, 0.0), spacing_mm=6.0, count=3
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 7
+    assert result.properties is not None
+    # UNION of the whole holed body along +X (overlapping copies): the bar
+    # spans x in [0, 22]; a drilled result would instead be < the seed volume.
+    bbox = result.properties.bounding_box
+    assert bbox.max.x == pytest.approx(22.0, abs=PATTERN_TOL)
+    assert result.properties.volume > 1000.0
 
 
 # --- Error paths are per-feature values, never transport failures ---------------------

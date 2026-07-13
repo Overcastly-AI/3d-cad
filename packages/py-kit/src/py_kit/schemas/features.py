@@ -873,13 +873,22 @@ class DraftParamsV1(BaseModel):
 # hidden inaccuracy (no solid-delta subtraction, which (A) needs and which can
 # leave slivers). Its honest limitations (stated plainly, GEOMETRY-QA):
 #   * it arrays the WHOLE body-so-far — any base is dragged to each placement.
-#     Feature-scoped patterning (replicating only one chosen feature's tool
+#     Feature-scoped ADD patterning (replicating only one chosen boss's tool
 #     solid onto a fixed base) needs per-feature tool tracking and is future
 #     work (#7 follow-up), NOT this version.
-#   * additive UNION only — v1 has no cut/hole arrays.
 #   * the copies must merge into ONE connected solid (§7.6 single body chain);
 #     a pattern whose instances are disjoint is a per-feature `pattern_disjoint`
 #     rebuild error until multi-body parts land.
+#
+# CUT-ARRAY EXTENSION (BACKLOG #3 / showcase F1 — recorded in docs/GEOMETRY-QA.md
+# 2026-07-13, option (a)): a pattern also arrays a CUT (bolt-circle / lightening
+# holes). NO schema change — the mode is INFERRED at rebuild from the
+# immediately-preceding body-affecting feature (this envelope carries no
+# FeatureRef; the dependency is tree order). When that source is an extrude-cut,
+# the geometry service reconstructs its tool and REMOVES a copy at each
+# placement, so one hole-cut + a pattern drills N holes. The DTO is unchanged;
+# the whole decision lives in the geometry evaluator (geometry.features.evaluate)
+# and geometry.kernel.pattern, keeping this boundary model add/cut-agnostic.
 #
 # All pattern VALUE validation (count, spacing, direction/axis magnitude, angle)
 # lives at rebuild in geometry.kernel.pattern, surfacing as per-feature

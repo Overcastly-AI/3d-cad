@@ -60,7 +60,9 @@ from geometry.kernel.pattern import (
     PatternError,
     PatternSpacingError,
     circular_pattern,
+    circular_pattern_cut,
     linear_pattern,
+    linear_pattern_cut,
 )
 from geometry.kernel.properties import measure_shape
 from geometry.kernel.revolve import (
@@ -139,6 +141,7 @@ __all__ = [
     "chamfer_body",
     "check_axis_clears_profile",
     "circular_pattern",
+    "circular_pattern_cut",
     "combine_body",
     "draft_body",
     "edge_signature_dto",
@@ -153,6 +156,7 @@ __all__ = [
     "glb_stats",
     "import_step_solid",
     "linear_pattern",
+    "linear_pattern_cut",
     "loft_sections",
     "measure_shape",
     "measure_targets",

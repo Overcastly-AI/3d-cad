@@ -13,9 +13,10 @@ multi-body boolean (independently-built solids) is the one honest remaining
 scope boundary. **The flip held under a real stress test** (`d8d3b87`,
 qa-tester: four 6–16-feature parts — bracket/enclosure/duct/pulley — built
 clean, zero topological-naming failures) and surfaced three feature-coverage
-gaps (pattern is union-only; a ring of disjoint circles isn't one sketch
-profile; no UI warning before a thin-shell rim fillet collision) — filed to
-`docs/BACKLOG.md` Ready. **STEP import shipped end-to-end** (`4964fab`
+gaps — of which **pattern-a-cut (F1) and multi-disjoint-loop cut (F2) are now
+CLOSED** (bolt-circle / lightening-hole rings drill via one hole-cut + a
+pattern, or one multi-circle cut sketch); the thin-shell rim fillet UI warning
+(F3) remains filed to `docs/BACKLOG.md` Ready. **STEP import shipped end-to-end** (`4964fab`
 kernel → gateway upload endpoint → UI file-picker, 2026-07-13): an `import`
 base feature reads STEP text and sets the body; the "Import STEP" toolbar
 affordance picks a local `.step`/`.stp`, uploads it via the generated client,
@@ -175,6 +176,13 @@ item:
       independent holes in ONE feature (`build_profile_faces`/`_group_regions`);
       add-vs-cut guard preserved (ADD of disjoint loops stays a multi-body
       error); new 6-hole-ring-cut golden. Kills the pulley's 16-feature ring.
+- ✅ Pattern arrays a CUT (2026-07-13, showcase **F1**/BACKLOG #3) — a
+      circular/linear `pattern` after a hole-cut REMOVES a hole at each
+      placement (bolt circles, lightening rings) instead of unioning whole-body
+      copies. Option (a): the mode is inferred from the immediately-preceding
+      body-affecting feature (no schema change, no `param_version` bump, no
+      frontend toggle); add-pattern path byte-identical (regression-guarded);
+      new `pattern-cut-6hole-boltcircle` golden.
 - 🚧 Product + engineering audits (2026-07-12, `docs/AUDIT-PRODUCT.md`
       6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found; findings
       filed to BACKLOG (mesh-store scale cliff, remaining determinism-golden

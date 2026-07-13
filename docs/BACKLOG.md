@@ -27,9 +27,10 @@ duplication:
   properties matched hand-derivation to 0.01%, zero topological-naming
   failures). It also surfaced three real feature-coverage gaps (not engine
   defects), filed below: **F1** pattern is union-only (can't array a cut —
-  bolt/lightening-hole rings unusable); **F2** a ring of disjoint circles
-  isn't one sketch profile (compounds with F1); **F3** no UI warning before a
-  thin-shell rim fillet hits the (correct) OCCT collision failure.
+  bolt/lightening-hole rings unusable — **CLOSED 2026-07-13**, #3); **F2** a
+  ring of disjoint circles isn't one sketch profile (**CLOSED 2026-07-13**, #4);
+  **F3** no UI warning before a thin-shell rim fillet hits the (correct) OCCT
+  collision failure (open).
 - **Interop row — ➖ (STEP import shipped end-to-end 2026-07-13).** `4964fab`
   (kernel) → gateway upload endpoint → UI file-picker: the full path — pick a
   local STEP file → upload → `import` feature → imported body in the tree +
@@ -100,18 +101,19 @@ unchanged in substance.
       (`import-step.spec.ts`) drives pick→body→disabled + error paths on the
       real stack; desktop+laptop founder screenshots captured. `frontend-design`
       skill invoked. [src: roadmap, product-auditor, step-import.md]
-- [ ] (P2, M) Pattern: array a cut, not just union (showcase **F1**) —
-      `PatternFeature`'s `operation` is add-only (unions copies of the whole
-      body); the two most natural pattern uses — bolt-circle mounting holes,
-      lightening-hole rings — are cuts, so neither can use `pattern` today (the
-      showcase pulley needed 6 hand-authored cut features instead of one
-      pattern, `docs/showcase-parts.md` F1). Likely needs pattern to replicate
-      the *source feature's operation* (cut vs. add) against its dependency
-      rather than always unioning copies of the current body. Acceptance: a
-      single circular-hole cut feature + `pattern` (count 6, 360°) produces 6
-      holes removed, not 6 bodies added; existing add-pattern behavior
-      unaffected (regression golden); worked e2e on a lightening-hole ring;
-      new golden. Compounds with the next item. [src: product-auditor
+- [x] (P2, M) Pattern: array a cut, not just union (showcase **F1**) — DONE
+      (2026-07-13). Option (a): the pattern infers its combine mode from the
+      immediately-preceding body-affecting feature (`EvaluationState.prev_body_feature`)
+      — when that source is an extrude-CUT, the cut's tool is reconstructed from
+      its already-solved profile and REMOVED at each placement
+      (`circular_pattern_cut`/`linear_pattern_cut`); one hole-cut + pattern
+      (count 6, 360°) drills a 6-hole bolt circle (6 holes removed, not 6 bodies
+      added). NO schema change / `param_version` bump / frontend toggle (the
+      source cut implies cut intent); add-pattern path byte-identical
+      (regression-guarded by the two add-pattern goldens + the ADD-after-cut
+      boundary test). New `pattern-cut-6hole-boltcircle-60x60x10` golden
+      (analytic 36000−960π, worst dev 1.46e-11 @ tol 1e-8); `test_pattern.py`
+      cut/linear/count-1 cases. `gen-check` clean. [src: product-auditor
       showcase-QA F1, competitive]
 - [x] (P2, M) Sketch: multi-disjoint-loop profile support for cut (showcase
       **F2**) — DONE. `build_profile_faces` (new, CUT-only) partitions N

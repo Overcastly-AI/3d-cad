@@ -58,6 +58,7 @@ from build123d import Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
     ChamferFeature,
+    CircularPatternParamsV1,
     DatumFeature,
     DatumOffsetParams,
     DatumOnFaceParams,
@@ -69,6 +70,7 @@ from py_kit.schemas.features import (
     ExtrudeFeature,
     ExtrudeParamsV1,
     FeatureData,
+    FeatureEnvelope,
     FeatureError,
     FeatureRef,
     FeatureResult,
@@ -77,6 +79,7 @@ from py_kit.schemas.features import (
     LinearPatternParamsV1,
     LoftFeature,
     PatternFeature,
+    PatternGeometry,
     RevolveFeature,
     ShellFeature,
     SketchFeature,
@@ -124,12 +127,14 @@ from geometry.kernel import (
     chamfer_body,
     check_axis_clears_profile,
     circular_pattern,
+    circular_pattern_cut,
     combine_body,
     draft_body,
     extrude_face,
     fillet_body,
     import_step_solid,
     linear_pattern,
+    linear_pattern_cut,
     loft_sections,
     measure_shape,
     resolve_axis_line,
@@ -197,6 +202,12 @@ class EvaluationState:
     )
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
     body: Solid | None = None
+    #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
+    #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern
+    #: reads it to infer whether it should array a CUT (source = a preceding
+    #: extrude-cut, BACKLOG #3) or union whole-body copies (the default). Holds a
+    #: validated feature envelope — never serialized, exactly like ``body``.
+    prev_body_feature: FeatureEnvelope | None = None
 
 
 #: One feature handler: evaluate the item, record outputs on ``state``, and
@@ -963,22 +974,95 @@ def _evaluate_draft(
     return None
 
 
+def _pattern_cut_tools(state: EvaluationState) -> list[Solid] | None:
+    """The removal tools to array-cut, or ``None`` to array-union (BACKLOG #3).
+
+    Option (a): a pattern infers its combine mode from the IMMEDIATELY-preceding
+    body-affecting feature (``state.prev_body_feature``, tree order — no new
+    schema field, no picked reference, so independent of topological naming #1).
+    When that source is an extrude-CUT, its removal tool(s) are RECONSTRUCTED
+    from the source's already-solved profile — a pure, deterministic function of
+    the same solved sketch + params the cut itself used (:func:`_resolve_profile_faces`
+    + :func:`extrude_face`), so the seed hole (placement 0) and the patterned
+    copies (placements 1..count-1) are the identical tool. Any other source (an
+    add, a fillet, an intervening feature) returns ``None`` — the pattern unions
+    whole-body copies exactly as before (the add-pattern path is unchanged).
+
+    The source cut already succeeded in this prefix (strict-prefix rule), so
+    reconstruction cannot fail; a defensive ``FeatureError`` from the resolver
+    (which must not happen) falls back to ``None`` rather than crash.
+    """
+    source = state.prev_body_feature
+    if not isinstance(source, ExtrudeFeature) or source.params.operation != "cut":
+        return None
+    resolved = _resolve_profile_faces(source.params.profile, state)
+    if isinstance(resolved, FeatureError):
+        return None
+    faces, plane = resolved
+    reverse = source.params.direction == "reverse"
+    return [
+        extrude_face(face, plane, source.params.distance_mm, reverse) for face in faces
+    ]
+
+
+def _apply_pattern(
+    body: Solid, geometry: PatternGeometry, tools: list[Solid] | None
+) -> Solid:
+    """Dispatch one pattern to its kernel op (linear/circular x union/cut).
+
+    ``tools is None`` selects the ADD (union whole-body copies) path — the
+    original behavior, byte-identical; a tool list selects the CUT path
+    (BACKLOG #3). Kept as one funnel so both geometry kinds share the one
+    ``pattern_*`` error mapping in :func:`_evaluate_pattern`.
+    """
+    if isinstance(geometry, LinearPatternParamsV1):
+        direction = (geometry.direction.x, geometry.direction.y, geometry.direction.z)
+        if tools is not None:
+            return linear_pattern_cut(
+                body, tools, direction, geometry.spacing_mm, geometry.count
+            )
+        return linear_pattern(body, direction, geometry.spacing_mm, geometry.count)
+
+    assert isinstance(geometry, CircularPatternParamsV1)  # closed union
+    axis_point = (geometry.axis_point.x, geometry.axis_point.y, geometry.axis_point.z)
+    axis_direction = (
+        geometry.axis_direction.x,
+        geometry.axis_direction.y,
+        geometry.axis_direction.z,
+    )
+    if tools is not None:
+        return circular_pattern_cut(
+            body, tools, axis_point, axis_direction, geometry.angle_deg, geometry.count
+        )
+    return circular_pattern(
+        body, axis_point, axis_direction, geometry.angle_deg, geometry.count
+    )
+
+
 def _evaluate_pattern(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Replicate the current body into a linear row / circular ring (§4.3).
+    """Array a source solid into a linear row / circular ring — union OR cut (§4.3).
 
-    v1 DESIGN DECISION (option B, docs/GEOMETRY-QA.md): a pattern arrays the
-    CURRENT single body — everything modelled so far — and unions the copies
-    into the body chain (design §7.6). It operates on the implicit body about
-    world-space direction/axis vectors (no picked sub-geometry — independent of
-    topological naming, #1), so like fillet/chamfer it needs a prior
-    body-affecting feature (``no_target_body`` otherwise). Every pattern value
-    is validated in :mod:`geometry.kernel.pattern` and mapped 1:1 to a
-    per-feature ``pattern_*`` code — bad count/spacing/direction/axis/angle,
-    ``pattern_disjoint`` (instances do not merge into one solid), or the kernel
-    ``pattern_failed``. ``state.body`` is only replaced on success (strict-prefix
-    rule tessellates the last-good body, §4.3).
+    v1 DESIGN DECISION (docs/GEOMETRY-QA.md 2026-07-12/2026-07-13): a pattern
+    places rigid copies of a source solid about world-space direction/axis
+    vectors (no picked sub-geometry — independent of topological naming, #1), so
+    like fillet/chamfer it needs a prior body-affecting feature
+    (``no_target_body`` otherwise). Two combine modes, inferred (option a) from
+    the IMMEDIATELY-preceding body-affecting feature (:func:`_pattern_cut_tools`):
+
+    * when it is an extrude-CUT (a bolt-circle hole, a lightening hole —
+      BACKLOG #3 / showcase F1), the copies of that cut's tool are REMOVED at
+      each placement, so one hole-cut + pattern makes N holes, not N bodies;
+    * otherwise the copies of the WHOLE current body are UNIONED into the chain
+      (the original add-pattern, unchanged — BACKLOG #7).
+
+    Every pattern value is validated in :mod:`geometry.kernel.pattern` and mapped
+    1:1 to a per-feature ``pattern_*`` code — bad count/spacing/direction/axis/
+    angle, ``pattern_disjoint`` (instances do not merge into / the cut severs one
+    solid), or the kernel ``pattern_failed`` (incl. a cut that removes the whole
+    body). ``state.body`` is only replaced on success (strict-prefix rule
+    tessellates the last-good body, §4.3).
     """
     feature = item.feature
     assert isinstance(feature, PatternFeature), "registry dispatches on type='pattern'"
@@ -993,27 +1077,9 @@ def _evaluate_pattern(
             ),
         )
 
-    geometry = feature.params.pattern
+    tools = _pattern_cut_tools(state)
     try:
-        if isinstance(geometry, LinearPatternParamsV1):
-            state.body = linear_pattern(
-                state.body,
-                (geometry.direction.x, geometry.direction.y, geometry.direction.z),
-                geometry.spacing_mm,
-                geometry.count,
-            )
-        else:
-            state.body = circular_pattern(
-                state.body,
-                (geometry.axis_point.x, geometry.axis_point.y, geometry.axis_point.z),
-                (
-                    geometry.axis_direction.x,
-                    geometry.axis_direction.y,
-                    geometry.axis_direction.z,
-                ),
-                geometry.angle_deg,
-                geometry.count,
-            )
+        state.body = _apply_pattern(state.body, feature.params.pattern, tools)
     except PatternCountError as exc:
         return FeatureError(code="pattern_bad_count", message=str(exc))
     except PatternSpacingError as exc:
@@ -1078,6 +1144,27 @@ def _evaluate_import(
     except ImportNotSingleSolidError as exc:
         return FeatureError(code="import_not_single_solid", message=str(exc))
     return None
+
+
+#: Feature types whose ok evaluation mutates ``state.body`` (design §7.6). The
+#: main loop records the last such feature as ``state.prev_body_feature`` so a
+#: pattern can infer its combine mode from the immediately-preceding
+#: body-affecting feature (BACKLOG #3). Sketch/datum are absent — they produce
+#: input geometry / a plane, never a body.
+_BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
+    {
+        "extrude",
+        "revolve",
+        "sweep",
+        "loft",
+        "fillet",
+        "chamfer",
+        "shell",
+        "draft",
+        "pattern",
+        "import",
+    }
+)
 
 
 #: The dispatcher registry (§4): feature ``type`` discriminator → handler.
@@ -1217,6 +1304,12 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
                 )
             )
             last_good_feature_id = item.id
+            # Record the last ok body-affecting feature so the NEXT feature (a
+            # pattern) can infer its source (BACKLOG #3). Set AFTER dispatch, so
+            # a pattern reads the feature BEFORE it, then this advances to the
+            # pattern itself.
+            if item.feature.type in _BODY_AFFECTING_TYPES:
+                state.prev_body_feature = item.feature
         else:
             results.append(
                 FeatureResult(feature_id=item.id, status="error", error=error)
