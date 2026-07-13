@@ -32,6 +32,7 @@ export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "loft",
   "fillet",
   "chamfer",
+  "shell",
   "pattern",
 ]);
 
@@ -96,4 +97,55 @@ export function isPickableFace(
   face: OverlayFace,
 ): face is OverlayFace & { signature: PlanarFaceSignature } {
   return face.planar && face.signature != null;
+}
+
+/** A short accessible name for a planar face from its centroid (shared by the
+ * sketch-on-face and shell face overlays — one label grammar). */
+export function faceLabel(
+  index: number,
+  signature: PlanarFaceSignature,
+): string {
+  const round = (n: number) => Math.round(n * 10) / 10;
+  const { x, y, z } = signature.centroid;
+  return `Planar face ${index + 1}, centred at ${round(x)}, ${round(y)}, ${round(z)} millimetres`;
+}
+
+/**
+ * A stable string key for a full-precision planar-face signature — its identity
+ * for set membership + toggling (the face twin of `edgeSignatureKey`). Two
+ * DISTINCT faces of an authored part differ in at least one of (normal,
+ * centroid, area), so the key collides only for genuinely identical faces —
+ * exactly what a toggle should treat as the same pick.
+ */
+export function faceSignatureKey(signature: PlanarFaceSignature): string {
+  const p = (v: { x: number; y: number; z: number }): string =>
+    `${v.x},${v.y},${v.z}`;
+  return [p(signature.normal), p(signature.centroid), signature.area_mm2].join(
+    "|",
+  );
+}
+
+/** True when a face signature is already in the picked (open) set, by identity. */
+export function isFacePicked(
+  picked: readonly PlanarFaceSignature[],
+  signature: PlanarFaceSignature,
+): boolean {
+  const key = faceSignatureKey(signature);
+  return picked.some((s) => faceSignatureKey(s) === key);
+}
+
+/**
+ * Toggle a face into/out of the picked (open) set: a repeat click on a chosen
+ * face removes it, a click on an unchosen face appends it (order preserved —
+ * the set is a small authored list). The shell "faces to open" twin of
+ * `toggleEdge`.
+ */
+export function toggleFace(
+  picked: readonly PlanarFaceSignature[],
+  signature: PlanarFaceSignature,
+): PlanarFaceSignature[] {
+  const key = faceSignatureKey(signature);
+  return isFacePicked(picked, signature)
+    ? picked.filter((s) => faceSignatureKey(s) !== key)
+    : [...picked, signature];
 }

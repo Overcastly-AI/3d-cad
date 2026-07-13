@@ -22,6 +22,7 @@ import {
   MeasureIcon,
   PatternIcon,
   RevolveIcon,
+  ShellIcon,
   SketchIcon,
   SweepIcon,
   ToolButton,
@@ -65,6 +66,8 @@ export interface CreateStripProps {
   onChamfer?: () => void;
   /** Repeat the current body into a linear/circular array (P). */
   onPattern?: () => void;
+  /** Hollow the current body to a uniform wall, opening picked faces (H). */
+  onShell?: () => void;
   /** A solid body exists to inspect — the Measure tool lights up. */
   canMeasure?: boolean;
   /** The Measure tool is armed (picking targets in the viewport). */
@@ -89,6 +92,7 @@ export function CreateStrip({
   onFillet,
   onChamfer,
   onPattern,
+  onShell,
   canMeasure = false,
   measuring = false,
   onToggleMeasure,
@@ -96,6 +100,7 @@ export function CreateStrip({
   const filletReady = canModify && treeReady && onFillet !== undefined;
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
   const patternReady = canModify && treeReady && onPattern !== undefined;
+  const shellReady = canModify && treeReady && onShell !== undefined;
 
   return (
     <div
@@ -218,6 +223,20 @@ export function CreateStrip({
           }
           disabled={!patternReady}
           onClick={onPattern}
+        />
+        <ToolButton
+          icon={<ShellIcon />}
+          showLabel
+          label="Shell"
+          shortcut="H"
+          data-testid="new-shell"
+          aria-label={
+            shellReady
+              ? "Shell — hollow the body to a uniform wall, opening picked faces (H)"
+              : "Shell — create a body first"
+          }
+          disabled={!shellReady}
+          onClick={onShell}
         />
       </ToolGroup>
 

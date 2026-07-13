@@ -368,6 +368,26 @@ export const ChamferIcon = (p: IconProps) => (
 );
 
 /**
+ * Shell = the solid hollowed to a uniform wall with an OPEN top — the housing /
+ * enclosure primitive. An isometric box whose top rim is drawn twice (outer +
+ * an inset inner rim): the gap between the two rims IS the wall thickness, and
+ * the open mouth reads as "material scooped out, this face left open". Its box
+ * vocabulary ties it to the extrude solid; the double rim is the thing no other
+ * feature glyph shows, so it says "hollow wall", not "cut".
+ */
+export const ShellIcon = (p: IconProps) => (
+  <Icon {...p}>
+    {/* The outer open mouth (top rim of the box). */}
+    <path d="M4 8 L12 4 L20 8 L12 12 Z" />
+    {/* The inner mouth — inset by the wall thickness (the reveal). */}
+    <path d="M7.5 8 L12 6 L16.5 8 L12 10 Z" />
+    {/* Outer walls dropping to the base + the near vertical edge. */}
+    <path d="M4 8 V15 L12 19 L20 15 V8" />
+    <path d="M12 12 V19" />
+  </Icon>
+);
+
+/**
  * Pattern = the seed body copied into an array — a 2×2 grid of square cells,
  * the top-left one punched to mark the seed (instance 0). Reads as "repeat",
  * and its square cells tie it to the title-block grid rather than a generic

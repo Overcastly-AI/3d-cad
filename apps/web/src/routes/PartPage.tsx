@@ -50,6 +50,9 @@ import {
   type RevolveParams,
   revolveFeatureCreate,
   revolveFeatureUpdate,
+  type ShellParams,
+  shellFeatureCreate,
+  shellFeatureUpdate,
   type SweepParams,
   sweepFeatureCreate,
   sweepFeatureUpdate,
@@ -68,6 +71,7 @@ import { LoftEditor } from "../components/LoftEditor";
 import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
 import { RevolveEditor } from "../components/RevolveEditor";
+import { ShellEditor } from "../components/ShellEditor";
 import { SweepEditor } from "../components/SweepEditor";
 import {
   defaultDatumForm,
@@ -121,6 +125,14 @@ import {
 } from "../features/modify";
 import { useEdgePickStore } from "../features/edgePickStore";
 import { EdgePickOverlay } from "../viewport/EdgePickOverlay";
+import {
+  defaultShellForm,
+  type ShellForm,
+  formFromShellParams,
+  pickedFacesFromShellParams,
+} from "../features/shell";
+import { useFacePickStore } from "../features/facePickStore";
+import { ShellFaceOverlay } from "../viewport/ShellFaceOverlay";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -887,6 +899,13 @@ export function PartPage() {
         featureId?: string;
       }
     | {
+        kind: "shell";
+        mode: "create" | "edit";
+        initial: ShellForm;
+        initialPickedFaces: PlanarFaceSignature[];
+        featureId?: string;
+      }
+    | {
         kind: "datum";
         mode: "create" | "edit";
         initial: DatumForm;
@@ -957,6 +976,40 @@ export function PartPage() {
       );
     }
   }, [edgePicking, edgeOverlayQuery.error, setEdgeOverlayError]);
+
+  // Shell face picking. A shell editor arms a face-pick session; the pickable
+  // face overlay for the current body is fetched exactly as the edge/measure
+  // overlays are (same request/key — one cache entry, faces line up with the
+  // rendered body). The anchor for a picked face's `SubshapeRef` is the same
+  // `bodyFeatureId` fillet/chamfer use (the last body-affecting feature).
+  const shellPicking = useFacePickStore((s) => s.active);
+  const setShellOverlay = useFacePickStore((s) => s.setOverlay);
+  const setShellOverlayError = useFacePickStore((s) => s.setOverlayError);
+
+  const shellOverlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: shellPicking && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (shellPicking && shellOverlayQuery.data !== undefined) {
+      setShellOverlay(shellOverlayQuery.data);
+    }
+  }, [shellPicking, shellOverlayQuery.data, setShellOverlay]);
+
+  useEffect(() => {
+    if (shellPicking && shellOverlayQuery.error) {
+      setShellOverlayError(
+        shellOverlayQuery.error instanceof Error
+          ? shellOverlayQuery.error.message
+          : "The face overlay could not be built.",
+      );
+    }
+  }, [shellPicking, shellOverlayQuery.error, setShellOverlayError]);
 
   /** Latest tree version, refetched if the query has none yet. */
   const freshTreeVersion = useCallback(async (): Promise<number> => {
@@ -1133,6 +1186,21 @@ export function PartPage() {
     });
   }, []);
 
+  // A shell, like fillet/chamfer/pattern, hollows the current BODY (no sketch
+  // profile) — it only needs a solid to exist (canModify), so it mirrors their
+  // guard. It opens with zero picked faces: a sealed hollow is a valid default.
+  const openCreateShell = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "shell",
+      mode: "create",
+      initial: defaultShellForm(),
+      initialPickedFaces: [],
+    });
+  }, []);
+
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
   const openCreateDatum = useCallback(() => {
@@ -1197,6 +1265,14 @@ export function PartPage() {
         initial: formFromChamferParams(feature.feature.params),
         initialPicked: pickedFromChamferParams(feature.feature.params),
       });
+    } else if (feature.feature.type === "shell") {
+      setEditor({
+        kind: "shell",
+        mode: "edit",
+        featureId: feature.id,
+        initial: formFromShellParams(feature.feature.params),
+        initialPickedFaces: pickedFacesFromShellParams(feature.feature.params),
+      });
     } else if (
       feature.feature.type === "datum" &&
       feature.feature.params.kind === "offset"
@@ -1234,6 +1310,21 @@ export function PartPage() {
   }, [editor]);
   // Leaving the workspace tears the edge-pick session down.
   useEffect(() => () => useEdgePickStore.getState().close(), []);
+
+  // Shell face-pick session lifecycle: a shell editor opens a session (seeded
+  // with its persisted open-faces), anything else closes it. Keyed on `editor`
+  // identity (only changes on open/select/close), so the store never churns
+  // mid-edit. The overlay fetch + render gate on the store.
+  useEffect(() => {
+    const store = useFacePickStore.getState();
+    if (editor !== null && editor.kind === "shell") {
+      store.open(editor.initialPickedFaces);
+    } else {
+      store.close();
+    }
+  }, [editor]);
+  // Leaving the workspace tears the shell face-pick session down.
+  useEffect(() => () => useFacePickStore.getState().close(), []);
 
   // The shared save path for either body-affecting feature: read the freshest
   // tree_version, retry once on a stale-version race, then invalidate the tree
@@ -1399,6 +1490,23 @@ export function PartPage() {
         current.mode === "create",
         current.featureId,
         "The chamfer could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitShell = useCallback(
+    (params: ShellParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "shell") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "shell").length + 1;
+      runFeatureSave(
+        (version) => shellFeatureCreate(`Shell${nextIndex}`, params, version),
+        (version) => shellFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The shell could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -1605,6 +1713,9 @@ export function PartPage() {
       } else if (key === "l" && canLoft) {
         event.preventDefault();
         openCreateLoft();
+      } else if (key === "h" && hasBody) {
+        event.preventDefault();
+        openCreateShell();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -1617,6 +1728,7 @@ export function PartPage() {
     openCreatePattern,
     openCreateSweep,
     openCreateLoft,
+    openCreateShell,
   ]);
 
   // The body is the hero: once a solid renders, the profile sketch that
@@ -1668,6 +1780,7 @@ export function PartPage() {
             onFillet={openCreateFillet}
             onChamfer={openCreateChamfer}
             onPattern={openCreatePattern}
+            onShell={openCreateShell}
             canMeasure={hasBody}
             measuring={measureActive}
             onToggleMeasure={toggleMeasure}
@@ -1784,6 +1897,16 @@ export function PartPage() {
                     saving={editorSaving}
                     error={editorError}
                   />
+                ) : editor.kind === "shell" ? (
+                  <ShellEditor
+                    mode={editor.mode}
+                    initial={editor.initial}
+                    bodyFeatureId={bodyFeatureId}
+                    onSubmit={submitShell}
+                    onCancel={closeEditor}
+                    saving={editorSaving}
+                    error={editorError}
+                  />
                 ) : (
                   <DatumEditor
                     mode={editor.mode}
@@ -1835,6 +1958,7 @@ export function PartPage() {
           <SketchScene solved={solvedLayers} facePicking={facePicking} />
           <MeasureOverlay />
           {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
+          {mode === "off" && shellPicking ? <ShellFaceOverlay /> : null}
           {mode === "plane" && facePicking ? (
             <FacePickOverlay
               faces={pickableFaces}

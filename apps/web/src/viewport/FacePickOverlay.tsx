@@ -15,15 +15,8 @@ import { useThree } from "@react-three/fiber";
 import { useEffect } from "react";
 
 import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
-import { isPickableFace } from "../features/face";
+import { faceLabel, isPickableFace } from "../features/face";
 import { occtToScene } from "../measure/geometry";
-
-/** A short accessible name for a planar face from its centroid. */
-function faceLabel(index: number, signature: PlanarFaceSignature): string {
-  const round = (n: number) => Math.round(n * 10) / 10;
-  const { x, y, z } = signature.centroid;
-  return `Planar face ${index + 1}, centred at ${round(x)}, ${round(y)}, ${round(z)} millimetres`;
-}
 
 export interface FacePickOverlayProps {
   /** The evaluated body's faces (from `OverlayResult.faces`), or null. */

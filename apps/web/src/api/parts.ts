@@ -59,6 +59,10 @@ export type PickedEdgesSelector = components["schemas"]["PickedEdgesSelector"];
 export type EdgeSubshapeRef = components["schemas"]["EdgeSubshapeRef"];
 /** The stage-1 geometric fingerprint an overlay edge carries and a ref echoes. */
 export type EdgeSignature = components["schemas"]["EdgeSignature"];
+export type ShellFeature = components["schemas"]["ShellFeature"];
+export type ShellParams = components["schemas"]["ShellParamsV1"];
+/** The shell's picked-face selector: the faces to leave OPEN (empty = sealed). */
+export type FaceSelector = components["schemas"]["FaceSelector"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =
@@ -489,6 +493,41 @@ export function chamferFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: chamferFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by shell create and update. */
+function shellFeatureEnvelope(params: ShellParams): ShellFeature {
+  return { type: "shell", version: 1, params };
+}
+
+/**
+ * The create payload for a shell feature: hollow the current body chain to a
+ * uniform inward wall, leaving the picked faces open (design §7.6, the
+ * fillet/chamfer sibling — no `FeatureRef`, it acts on the implicit body chain
+ * at its point in the tree; the picked openings ARE named face refs). An empty
+ * `faces` list is a valid sealed hollow. Pure — unit-tested against the types.
+ */
+export function shellFeatureCreate(
+  name: string,
+  params: ShellParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: shellFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing shell (no rename). */
+export function shellFeatureUpdate(
+  params: ShellParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: shellFeatureEnvelope(params),
   };
 }
 

@@ -188,20 +188,20 @@ flagged, unchanged in substance, reordered below the above.
       (code-noted "same path, untested"). Acceptance: one `*-cut-*` golden
       and one revolve-or-sweep-on-offset golden, same determinism gate as
       existing goldens. [src: engineering-auditor F4, geometry-qa]
-- [ ] (P2, S) Shell feature — **UI leg** (backend/schema/golden shipped
-      2026-07-13). ✅ **BACKEND DONE:** `ShellFeature`/`ShellParamsV1`
-      (`thickness_mm` + a `{kind:"faces", refs: SubshapeRef[]}` `FaceSelector`
-      naming the faces to REMOVE, reusing the sketch-on-face `SubshapeRef` —
-      no parallel taxonomy), `geometry.kernel.shell` inward `MakeThickSolid`
-      hollow + `resolve_faces` (exactly-one/dedup/empty=sealed), `feature_
-      dependencies` wiring (409-with-dependents), golden
-      `shell-open-top-box-40x25x10-t2` (open-top box, 3952 mm³ analytic),
-      errors `no_prior_body` / `subshape_unresolved` / `subshape_ambiguous` /
-      `shell_thickness_too_large` / `shell_failed` [GEOMETRY-QA 2026-07-13].
-      **DESIGN:** empty faces = a sealed (fully-enclosed) hollow. ⬜ **UI
-      PENDING:** a shell editor + in-viewport planar-face pick set (reuse the
-      sketch-on-face `PickNode` machinery) echoing `/overlay` face signatures
-      into the `FaceSelector`. [src: roadmap, competitive]
+- [x] (P2, S) Shell feature — **UI leg shipped 2026-07-13** (backend/schema/
+      golden shipped 2026-07-13). ✅ **BACKEND DONE:** `ShellFeature`/
+      `ShellParamsV1` (`thickness_mm` + a `{kind:"faces", refs: SubshapeRef[]}`
+      `FaceSelector` naming the faces to REMOVE, reusing the sketch-on-face
+      `SubshapeRef` — no parallel taxonomy), `geometry.kernel.shell` inward
+      `MakeThickSolid` hollow + `resolve_faces` (exactly-one/dedup/empty=sealed),
+      `feature_dependencies` wiring, golden `shell-open-top-box-40x25x10-t2`,
+      errors `no_prior_body` / `subshape_unresolved` / `shell_thickness_too_large`
+      / `shell_failed` [GEOMETRY-QA 2026-07-13]. ✅ **UI DONE:** Shell tool in the
+      Modify group (scribed `ShellIcon`, `H` accelerator, gated on a body);
+      `ShellEditor` (brass thickness handle + a store-driven multi-select planar-
+      face pick reusing the `PickNode`/overlay machinery), honest copy (no picks =
+      a sealed hollow); `shell.spec.ts` real-stack e2e proves an open-top hollow
+      (8,000→3,392 mm³) + a sealed hollow (3,904 mm³). [src: roadmap, competitive]
 - [ ] (P2, M) Draft feature — angle selected faces relative to a pull
       direction. Depends on face/edge picking (Ready, above). [src: roadmap,
       competitive]
@@ -445,6 +445,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-13 — **Shell feature UI shipped** (backend shipped same day). Shell tool
+  in Modify (scribed `ShellIcon`, `H`, body-gated) → `ShellEditor` brass thickness
+  + store-driven multi-select planar-face pick (reuses `PickNode`/overlay), honest
+  sealed-vs-open copy → `FaceSelector`; e2e `shell.spec` proves an open-top hollow
+  (8,000→3,392 mm³) + a sealed hollow (3,904 mm³). [frontend-builder]
 - 2026-07-13 — **Shell feature BACKEND shipped**. `ShellFeature`/`ShellParamsV1`
   + `{kind:"faces"}` `FaceSelector` (reuses the sketch-on-face `SubshapeRef`),
   `geometry.kernel.shell` inward hollow + `resolve_faces`, dep-graph wiring,

@@ -6,10 +6,14 @@ import type {
   PlanarFaceSignature,
 } from "../api/parts";
 import {
+  faceLabel,
+  faceSignatureKey,
   faceSubshapeRef,
+  isFacePicked,
   isPickableFace,
   lastBodyFeatureId,
   onFaceDatumParams,
+  toggleFace,
 } from "./face";
 
 /**
@@ -115,6 +119,7 @@ describe("lastBodyFeatureId", () => {
       "loft",
       "fillet",
       "chamfer",
+      "shell",
       "pattern",
     ]) {
       expect(lastBodyFeatureId([typed("x", type)])).toBe("x");
@@ -132,5 +137,60 @@ describe("isPickableFace", () => {
 
   it("rejects a non-planar face (no signature)", () => {
     expect(isPickableFace(curved)).toBe(false);
+  });
+});
+
+// A second, distinct planar face (a different normal + centroid + area).
+const SIGNATURE_B: PlanarFaceSignature = {
+  normal: { x: 0, y: 0, z: -1 },
+  centroid: { x: 10, y: 10, z: 0 },
+  area_mm2: 400,
+  subshape_type: "face",
+  surface: "plane",
+};
+
+describe("faceLabel", () => {
+  it("names a face from its 1-based index + rounded centroid", () => {
+    expect(faceLabel(0, SIGNATURE)).toBe(
+      "Planar face 1, centred at 10, 10, 10 millimetres",
+    );
+  });
+});
+
+describe("faceSignatureKey", () => {
+  it("distinguishes two distinct faces", () => {
+    expect(faceSignatureKey(SIGNATURE)).not.toBe(faceSignatureKey(SIGNATURE_B));
+  });
+
+  it("is stable for an equal signature (a fresh object)", () => {
+    expect(faceSignatureKey({ ...SIGNATURE })).toBe(
+      faceSignatureKey(SIGNATURE),
+    );
+  });
+});
+
+describe("toggleFace", () => {
+  it("adds an unpicked face, preserving order", () => {
+    expect(toggleFace([SIGNATURE], SIGNATURE_B)).toEqual([
+      SIGNATURE,
+      SIGNATURE_B,
+    ]);
+  });
+
+  it("removes an already-picked face (a repeat click)", () => {
+    expect(toggleFace([SIGNATURE, SIGNATURE_B], SIGNATURE)).toEqual([
+      SIGNATURE_B,
+    ]);
+  });
+
+  it("matches by identity, not reference (an equal fresh object toggles off)", () => {
+    expect(toggleFace([SIGNATURE], { ...SIGNATURE })).toEqual([]);
+  });
+});
+
+describe("isFacePicked", () => {
+  it("reports membership by signature identity", () => {
+    expect(isFacePicked([SIGNATURE], { ...SIGNATURE })).toBe(true);
+    expect(isFacePicked([SIGNATURE], SIGNATURE_B)).toBe(false);
   });
 });
