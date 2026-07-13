@@ -28,9 +28,14 @@ matching is BEST-EFFORT, not the structural non-retarget guarantee of stage 2.
 It resolves the same edge across the common edits and FAILS HONESTLY
 (:class:`SubshapeUnresolvedError` / :class:`SubshapeAmbiguousError`) for most
 others, but a drastic model change can retarget to a coincidentally-congruent
-edge without erroring. Unlike faces, edge ambiguity is REACHABLE on real bodies
-(a symmetric part's congruent edges — §1.2), so the exactly-one rule is
-load-bearing here.
+edge without erroring. The exactly-one rule is load-bearing — it refuses to
+guess rather than mis-resolve — but note WHAT it actually guards: the signature
+encodes ABSOLUTE world coordinates (endpoints/midpoint), so the mirror-congruent
+edges of a symmetric part have DISTINCT signatures and never tie (a picked edge
+resolves only to the edge at that position, never its displaced twin). The
+genuine ambiguity source is two edges that truly COINCIDE in space — a boolean
+seam, a non-manifold duplicate, or a near-collision within tolerance; there the
+resolver raises :class:`SubshapeAmbiguousError` instead of picking one.
 
 Match tolerances (documented, NOT ad-hoc — CLAUDE.md; sized in docs/GEOMETRY-QA.md,
 mirroring the face tolerances): the intended edge is the SAME edge on a clean

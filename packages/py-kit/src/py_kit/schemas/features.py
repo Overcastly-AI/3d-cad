@@ -173,9 +173,13 @@ class SubshapeRef(BaseModel):
 # for most others, but a drastic model change CAN retarget to a
 # coincidentally-congruent edge without erroring. It is NOT structurally
 # non-retargeting; only stage-2 provenance (coordinate-blind) makes that
-# structural. Unlike faces, edge ``subshape_ambiguous`` IS reachable with real
-# bodies (a symmetric part has genuinely congruent edges — the §1.2 four vertical
-# edges), so the exactly-one-or-error rule is load-bearing here, not defensive.
+# structural. The exactly-one-or-error rule is load-bearing, but note WHAT it
+# guards: the signature is ABSOLUTE-position-based, so mirror-congruent edges of
+# a symmetric part have DISTINCT signatures and never tie — a picked edge
+# resolves only to the edge at that position. The real ``subshape_ambiguous``
+# source is two edges that truly COINCIDE in space (a boolean seam, a
+# non-manifold duplicate, a near-collision within tolerance), where the resolver
+# refuses to guess.
 
 
 class EdgeSignature(BaseModel):
@@ -190,8 +194,10 @@ class EdgeSignature(BaseModel):
     separates two collinear edges that share an endpoint, and pins a full-circle
     seam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT
     edges of an authored part differ in at least one field (endpoints/midpoint
-    by whole mm, or length, or curve kind); genuinely congruent edges of a
-    symmetric part tie and resolve to an honest ``subshape_ambiguous`` (§5),
+    by whole mm, or length, or curve kind) — including the mirror-congruent
+    edges of a symmetric part, which have DISTINCT absolute positions and so do
+    NOT tie. Only edges that truly coincide in space (a boolean seam, a
+    non-manifold duplicate) resolve to an honest ``subshape_ambiguous`` (§5),
     never a guess. Matching is nearest-within-tolerance at the documented
     subshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an
     ad-hoc epsilon.

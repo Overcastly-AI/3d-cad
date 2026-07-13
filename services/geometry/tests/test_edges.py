@@ -165,12 +165,14 @@ def test_curve_kind_discriminates_a_line_from_an_arc() -> None:
 
 
 def test_congruent_edges_are_subshape_ambiguous(monkeypatch: Any) -> None:
-    """The exactly-one rule refuses to guess between congruent edges (§7.2).
-    Two distinct edges of a manifold solid cannot really share endpoints AND a
-    midpoint, so — like the faces test — the tie is forced via the enumeration.
-    Unlike faces this branch is genuinely reachable at the SET level (a symmetric
-    part's four congruent vertical edges all satisfy one picked signature only
-    when tolerances are loosened), so it stays load-bearing for edges."""
+    """The exactly-one rule refuses to guess between two edges that share a
+    signature (§7.2), rather than mis-resolving to one. The tie is forced via the
+    enumeration (two records with the same signature), standing in for two edges
+    that truly COINCIDE in space — a boolean seam or a non-manifold duplicate.
+    Note the tie is NOT produced by a symmetric part's mirror-congruent edges:
+    the signature encodes absolute position, so those four vertical edges have
+    DISTINCT signatures and each resolves uniquely — that is exactly why the
+    same-position selective fillet is unambiguous."""
     box = _box()
     target = _front_top_edge_signature()
     twin = EdgeRecord(index=0, signature=target, edge=box.edges()[0])
