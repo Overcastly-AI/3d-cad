@@ -660,6 +660,28 @@ by its owning item or a groom pass:
    swaps the LRU for content-addressed MinIO writes plus gateway streaming
    (the default posture above) without touching `EvaluateTreeResult`, the
    key format, or any caller.
+   **Single-worker guard (2026-07-13, engineering audit F1).** The in-process
+   LRU is only correct on **one process**: under `WEB_CONCURRENCY > 1` the
+   evaluate writer and the `GET /api/v1/meshes/{id}` reader land on independent
+   workers with independent stores, so a fetch misses ~(N-1)/N of the time and
+   404s a mesh that genuinely exists — a *silent, intermittent* correctness
+   cliff on the "cloud-native/self-hostable" claim (compose already provisions
+   `S3_URL`/`S3_BUCKET`, implying a multi-replica readiness that isn't real
+   yet). Chosen v1 = **fail loud, not swap blind.** This sandbox has no docker
+   daemon (no real MinIO) and no `moto`, so the swap's headline test — a
+   2-worker evaluate→fetch smoke against real object storage — *cannot be
+   genuinely verified here*; shipping an unexercised S3 swap would violate the
+   QA-real-artifact mandate (tests-pass ≠ works). Instead
+   `geometry.mesh_store.assert_single_worker_mesh_store` (called from
+   `build_app`, so it fires at the uvicorn `geometry.main:app` import) **refuses
+   to start** on `WEB_CONCURRENCY > 1` with a message pointing here.
+   `WEB_CONCURRENCY` is the canonical knob because uvicorn reads it to default
+   its worker count; replica-level fan-out (compose `scale` / k8s `replicas` >
+   1) is the same hazard, gated by the readiness note in `docker-compose.yml`.
+   The MinIO swap stays the **forward goal** and a Ready backlog item — its
+   acceptance now explicitly requires a *real*-MinIO CI smoke (2-worker /
+   2-replica evaluate→fetch round-trip), since an in-process `moto` mock would
+   not prove the cross-process path this guard protects.
 9. **GLB lifecycle / GC.** Content-addressed artifacts (§4.4) are never
    overwritten, so every tree mutation can strand an orphan in object
    storage. v1 accepts unbounded growth in dev; a retention/GC policy

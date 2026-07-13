@@ -150,6 +150,12 @@ services:
       # Setting REDIS_URL flips the readiness check from "skipped";
       # the real ping lands with the arq worker.
       REDIS_URL: redis://redis:6379/0
+      # READINESS: geometry is SINGLE-WORKER ONLY until the MinIO-backed mesh
+      # store lands. The mesh store is an in-process LRU; WEB_CONCURRENCY>1 (or
+      # `docker compose up --scale geometry=N` / k8s replicas>1) 404s evaluated
+      # meshes across workers ~(N-1)/N of the time, so the service REFUSES to
+      # start on WEB_CONCURRENCY>1 (engineering audit F1, feature-tree.md §7.8).
+      # S3_URL/S3_BUCKET are provisioned for that forward swap, not consumed yet.
       S3_URL: http://minio:9000
       S3_BUCKET: ${S3_BUCKET:-loft}
     ports:

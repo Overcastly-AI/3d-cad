@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
 
 from geometry.api import router
+from geometry.mesh_store import assert_single_worker_mesh_store
 
 TITLE = "Loft Geometry"
 VERSION = "0.1.0"
@@ -20,6 +21,13 @@ class GeometrySettings(BaseServiceSettings):
 
     service_name: str = "geometry"
     port: int = 8002
+
+    #: Worker fan-out (env ``WEB_CONCURRENCY``, the knob uvicorn reads to default
+    #: its worker count). MUST stay 1 while the mesh store is the in-process LRU:
+    #: ``build_app`` refuses to start on >1 so a multi-worker deploy fails loud
+    #: instead of 404-ing meshes across worker processes (engineering audit F1,
+    #: docs/design/feature-tree.md §7.8). Lifts when the MinIO swap lands.
+    web_concurrency: int = 1
 
     #: Hard wall-clock bound (seconds) on the untrusted OCCT STEP parse, which
     #: runs in a killable subprocess (docs/design/step-import.md §6, BACKLOG P1).
@@ -33,8 +41,15 @@ class GeometrySettings(BaseServiceSettings):
 
 
 def build_app(settings: GeometrySettings | None = None) -> FastAPI:
-    """Build the geometry app with its Redis (queue) readiness check."""
+    """Build the geometry app with its Redis (queue) readiness check.
+
+    Raises :class:`~geometry.mesh_store.MeshStoreMultiWorkerError` when
+    ``WEB_CONCURRENCY > 1``: the in-process mesh store can't serve across
+    workers until the object-storage swap lands (design §7.8). Fail loud at
+    import/startup beats a silent cross-worker 404.
+    """
     settings = settings or GeometrySettings()
+    assert_single_worker_mesh_store(settings.web_concurrency)
 
     async def redis() -> str:
         """Redis/queue readiness.

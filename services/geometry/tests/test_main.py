@@ -6,8 +6,10 @@ tests/test_api.py; the worker task by tests/test_worker.py.
 
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from geometry.main import GeometrySettings, app, build_app
+from geometry.mesh_store import MeshStoreMultiWorkerError
 from py_kit import InternalError
 
 
@@ -15,6 +17,20 @@ def test_default_settings() -> None:
     settings = GeometrySettings()
     assert settings.service_name == "geometry"
     assert settings.port == 8002
+    assert settings.web_concurrency == 1  # single-worker default (§7.8 guard)
+
+
+def test_build_app_boots_clean_on_single_worker() -> None:
+    # The safe default topology stays healthy — the guard never fires at 1.
+    service = build_app(GeometrySettings(web_concurrency=1))
+    assert TestClient(service).get("/healthz").status_code == 200
+
+
+def test_build_app_refuses_multiworker() -> None:
+    # WEB_CONCURRENCY>1 would split the in-process mesh store across workers and
+    # 404 evaluated meshes intermittently — fail loud at startup instead (F1).
+    with pytest.raises(MeshStoreMultiWorkerError):
+        build_app(GeometrySettings(web_concurrency=2))
 
 
 def test_healthz() -> None:

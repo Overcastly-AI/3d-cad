@@ -59,8 +59,8 @@ security fast-follow below (bound the untrusted-STEP OCCT parse time).
 **#3–#4** are the
 showcase's F1/F2 findings, which compound (pattern-a-cut + multi-hole-in-
 one-sketch both attack the same bolt-circle/lightening-hole daily-driver
-gap). #5 carries forward the engineering audit's mesh-store correctness
-cliff (F1). #6–#8 are the sketch-session polish from the last re-score,
+gap). #5's fail-loud single-worker guard shipped 2026-07-13 (engineering
+audit F1 closed as a cliff); the item now tracks only the forward MinIO swap. #6–#8 are the sketch-session polish from the last re-score,
 unchanged in substance.
 
 - [x] (P1, S) STEP import: hard wall-clock bound on the OCCT parse of
@@ -126,21 +126,21 @@ unchanged in substance.
       `sketch-extrude-plate-6hole-ring-cut-60x60x10` (6-hole ring cut in one
       feature, V = 60²·10 − 6·π·4²·10, dev ≤1.5e-11); add-vs-cut guard +
       nested-loop + determinism tests in `test_extrude.py`.
-- [ ] (P2, M) Mesh store: object-storage swap or explicit single-worker
-      guard (engineering audit **F1**) — the in-process mesh LRU
-      (`geometry/mesh_store.py`) is a process-global; evaluate and fetch
-      landing on different workers/replicas 404s the mesh ~(N−1)/N of the
-      time. Masked today (compose runs 1 geometry container, uvicorn
-      defaults to 1 worker) but compose already provisions `S3_URL`/
-      `S3_BUCKET` implying multi-replica readiness that isn't real yet — a
-      correctness cliff on the "cloud-native/self-hostable" claim. v1
-      acceptable scope: EITHER land the MinIO-backed mesh store (feature-tree
-      design doc §7.8, preferred) OR add an enforced single-worker guard +
-      readiness note gating any `--workers>1`/replica>1 deploy until the
-      swap lands. Acceptance: a 2-worker smoke test round-trips
-      evaluate→fetch without 404 (swap path) OR startup fails loud on
-      `--workers>1` with a clear message pointing at §7.8 (guard path);
-      GEOMETRY-QA/ROADMAP §7.8 updated to say which. [src: engineering-auditor F1]
+- [ ] (P2, M) Mesh store: MinIO-backed object-storage swap (engineering audit
+      **F1**, forward goal). **Guard leg shipped 2026-07-13** — geometry now
+      REFUSES to start on `WEB_CONCURRENCY > 1` (`assert_single_worker_mesh_store`,
+      fires at the `geometry.main:app` import) so the in-process LRU's
+      cross-worker 404 is a loud startup failure, not a silent ~(N−1)/N miss;
+      readiness note added to `docker-compose.yml`; design §7.8 records the
+      choice. **Remaining scope:** swap the in-process LRU for content-addressed
+      MinIO writes (key stays `sha256:<hex>`, byte-for-byte the current DTO
+      contract — no `EvaluateTreeResult`/caller change) plus the gateway
+      mesh-streaming path (§7.8 default posture), then lift the guard. Acceptance
+      (unchanged headline, now the swap's alone): a **real-MinIO** 2-worker /
+      2-replica smoke round-trips evaluate→fetch without 404 **in CI** — this
+      sandbox can't prove it (no docker daemon, no `moto`; a `moto` in-process
+      mock wouldn't exercise the cross-process path), so the swap MUST NOT land
+      without that CI gate. Depends on: nothing new. [src: engineering-auditor F1]
 - [ ] (P2, S) Sketch: over-constraint classification — upgrade
       `sketch_conflicting` from raw constraint indices to a classified
       redundant-vs-conflicting diagnosis with a suggested fix, surfaced in
@@ -506,6 +506,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 Older entries (incl. 2026-07-12/13 sketch-on-face/edge-pick/shell/draft/
 STEP-import-v1 ship notes) live in `CHANGELOG.md`.
 
+- 2026-07-13 — Shipped mesh-store single-worker guard (#5, engineering audit
+  F1): geometry refuses to start on `WEB_CONCURRENCY > 1` instead of 404-ing
+  meshes across workers; fail-loud v1 over a blind MinIO swap the sandbox
+  can't exercise. MinIO swap stays Ready, gated on a real-MinIO CI smoke.
+  [kernel-architect]
 - 2026-07-13 — Shipped multi-disjoint-loop CUT (#4, showcase F2): N disjoint
   loops → N cut regions in one feature (`build_profile_faces`/`_group_regions`);
   add-vs-cut guard preserved; new 6-hole-ring-cut golden. [kernel-architect]

@@ -5,7 +5,13 @@ covered in ``test_extrude.py``; this file pins the store's own contract:
 idempotent puts, LRU eviction at capacity, and recency updates.
 """
 
-from geometry.mesh_store import MeshStore, mesh_glb_key
+import pytest
+from geometry.mesh_store import (
+    MeshStore,
+    MeshStoreMultiWorkerError,
+    assert_single_worker_mesh_store,
+    mesh_glb_key,
+)
 
 
 def test_put_is_idempotent_and_content_addressed() -> None:
@@ -33,3 +39,23 @@ def test_eviction_is_least_recently_used() -> None:
     assert store.get(key_a) == b"a"
     assert store.get(key_b) is None  # evicted
     assert store.get(key_c) == b"c"
+
+
+# --- §7.8 single-worker guard (engineering audit F1) -----------------------
+
+
+@pytest.mark.parametrize("workers", [1, 0, -1])
+def test_single_worker_guard_allows_non_multiworker(workers: int) -> None:
+    # 1 = the safe default; 0/-1 are not "more than one process" so they never
+    # split the store across workers — the guard only fires on genuine fan-out.
+    assert assert_single_worker_mesh_store(workers) is None
+
+
+@pytest.mark.parametrize("workers", [2, 4, 16])
+def test_single_worker_guard_refuses_multiworker(workers: int) -> None:
+    with pytest.raises(MeshStoreMultiWorkerError) as exc:
+        assert_single_worker_mesh_store(workers)
+
+    message = str(exc.value)
+    assert f"WEB_CONCURRENCY={workers}" in message
+    assert "§7.8" in message  # actionable pointer to the design decision

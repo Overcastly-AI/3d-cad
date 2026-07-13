@@ -187,6 +187,14 @@ item:
       6c1e600, `docs/AUDIT-ENGINEERING.md` 9ecec33): no P0s found; findings
       filed to BACKLOG (mesh-store scale cliff, remaining determinism-golden
       slices, revolve construction-axis trap, evaluate_tree tessellation churn).
+- ✅ Mesh-store single-worker guard (2026-07-13, engineering audit **F1**/
+      BACKLOG #5) — the in-process mesh LRU 404s across workers/replicas, so
+      geometry now REFUSES to start on `WEB_CONCURRENCY > 1`
+      (`assert_single_worker_mesh_store`, fires at the `geometry.main:app`
+      import) instead of silently 404-ing ~(N-1)/N of evaluated-mesh fetches.
+      Fail-loud v1 chosen over a blind MinIO swap the sandbox can't exercise
+      (no docker daemon / no `moto`). The MinIO-backed content-addressed swap
+      stays the forward Ready item, gated on a real-MinIO 2-worker CI smoke.
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
 

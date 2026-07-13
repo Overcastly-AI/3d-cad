@@ -1820,6 +1820,20 @@ counts, pinned exactly.
 - **Mesh delivery (§7.8 interim):** `GET /api/v1/meshes/{sha256:…}` serves
   the GLB from a bounded in-process LRU; miss = 404 `mesh_not_found`
   (re-evaluate). Object storage is the documented successor.
+  **Single-worker guard (2026-07-13, engineering audit F1):** the in-process
+  LRU is only correct on one process, so `build_app` refuses to start on
+  `WEB_CONCURRENCY > 1` (raises `MeshStoreMultiWorkerError`, fires at the
+  uvicorn `geometry.main:app` import) — a multi-worker deploy would 404
+  evaluated meshes across workers ~(N-1)/N of the time. **Verified in-sandbox:**
+  `test_main.py` (boots clean at the default 1, raises at 2) + `test_mesh_store.py`
+  (guard allows 1/0/-1, refuses 2/4/16, message names `WEB_CONCURRENCY=` and
+  §7.8); `WEB_CONCURRENCY=3 python -c 'import geometry.main'` exits non-zero.
+  **NOT verifiable here / CI gap:** the true cross-worker (or cross-replica)
+  evaluate→fetch round-trip needs the MinIO-backed swap under real object
+  storage — this sandbox has no docker daemon and no `moto`, and a `moto`
+  in-process mock would not prove the cross-process path anyway. The swap
+  remains the forward goal; its acceptance requires a real-MinIO 2-worker /
+  2-replica smoke in CI.
 
 Performance: warm evaluate-tree (solve + extrude + GProp + tessellate)
 averages ~8.3 ms — table row added below.
