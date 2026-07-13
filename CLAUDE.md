@@ -260,3 +260,23 @@ recipe here in the same commit as the fix.**
   then `kill` those pids (parents + children) so the suite reboots from current
   code. Agents that need a stack mid-run should boot **isolated** ports (e.g.
   :8010/:8012) and tear them down, leaving the shared stack untouched.
+- **Founder screenshots are refresh-on-demand, not a per-run output.** `just
+  e2e` used to rewrite ~90 PNGs under `docs/screenshots/` every run, forcing a
+  noise commit. Two churn sources: (1) the per-run random session email in the
+  header (`uniqueEmail()`), and (2) Chromium's screenshot pixels are **not**
+  byte-identical across a full run even with software GL — sub-pixel raster/
+  camera state flips a few AA pixels (thousands over a dense sketch grid) purely
+  from browser-process state; it's byte-stable in isolation but not under load,
+  so pure determinism can't win. Fix (all in `apps/web`, one seam in
+  `e2e/fixtures.ts`): the shared `test` fixture wraps `page.screenshot` to
+  normalise the header email, freeze animations/caret, wait for `document.fonts.
+  ready`, and **skip the file write for `docs/screenshots/**` unless
+  `UPDATE_SCREENSHOTS=1`**. Routine e2e captures (still exercising the render)
+  but never overwrites the committed PNGs → tree stays clean. To refresh the
+  founder shots deliberately: `UPDATE_SCREENSHOTS=1 pnpm --filter @loft/web e2e`
+  (config forces portable software-GL rendering so any contributor regenerates
+  near-identical baselines). Specs import `test`/`expect` from `./fixtures`, not
+  `@playwright/test`. NB: `reducedMotion` is NOT a top-level Playwright `use`
+  option in 1.56 (`use.contextOptions.reducedMotion`), and enabling it snaps the
+  r3f camera, which shifts face-pick screen coords and flakes the pick specs —
+  left off deliberately.

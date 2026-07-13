@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 import { SESSION_STORAGE_KEY } from "../src/auth/session";
 import {

@@ -16,6 +16,49 @@ export function uniqueEmail(): string {
   return `e2e-${Date.now()}-${Math.floor(Math.random() * 1e9)}@example.com`;
 }
 
+/**
+ * A fixed, fixed-length display email substituted into the header ONLY while a
+ * founder screenshot is captured (see `fixtures.ts`). The registration email is
+ * still per-run unique for DB isolation; this just stabilises the pixels so
+ * `just e2e` stops re-writing ~90 PNGs every run. Fixed length matters: the
+ * `session-email` span lives in the right-aligned header cluster, so a variable
+ * email width also reflows its neighbours — a constant string freezes the whole
+ * cluster, which masking the email box alone would not.
+ */
+export const SCREENSHOT_SESSION_EMAIL = "engineer@example.com";
+
+/**
+ * Swap the header's session email for `SCREENSHOT_SESSION_EMAIL`, run `capture`,
+ * then restore the real text. Restoring keeps functional assertions that read
+ * the real email (auth/full-flow) correct — only the screenshot frame differs.
+ */
+export async function withStableSessionEmail<T>(
+  page: Page,
+  capture: () => Promise<T>,
+): Promise<T> {
+  const previous = await page.evaluate((stable) => {
+    const el = document.querySelector<HTMLElement>(
+      '[data-testid="session-email"]',
+    );
+    if (!el) return null;
+    const prior = el.textContent;
+    el.textContent = stable;
+    return prior;
+  }, SCREENSHOT_SESSION_EMAIL);
+  try {
+    return await capture();
+  } finally {
+    if (previous !== null) {
+      await page.evaluate((prior) => {
+        const el = document.querySelector<HTMLElement>(
+          '[data-testid="session-email"]',
+        );
+        if (el) el.textContent = prior;
+      }, previous);
+    }
+  }
+}
+
 export interface RegisteredAccount {
   email: string;
   token: string;

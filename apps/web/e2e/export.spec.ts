@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 import { expectRenderedModel, SCREENSHOT_DIR, seedSession } from "./support";
 
