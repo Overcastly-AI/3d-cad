@@ -25,7 +25,9 @@ body-affecting and both resolving edges through the shared geometric selector)
 and ``shell`` (hollows the body to a uniform wall, opening picked faces resolved
 through the SAME stage-1 planar-face signature the ``on_face`` datum uses) and
 ``draft`` (tapers picked faces by an angle about a principal-datum neutral plane
-— the molding/casting release, reusing that SAME picked-face resolver).
+— the molding/casting release, reusing that SAME picked-face resolver) and
+``import`` (brings an external STEP part in as the part's BASE body — the first
+non-modeled body source, docs/design/step-import.md).
 A feature that
 validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
@@ -70,6 +72,7 @@ from py_kit.schemas.features import (
     FeatureRef,
     FeatureResult,
     FilletFeature,
+    ImportFeature,
     LinearPatternParamsV1,
     LoftFeature,
     PatternFeature,
@@ -88,6 +91,8 @@ from geometry.kernel import (
     ChamferError,
     DraftError,
     FilletError,
+    ImportNotSingleSolidError,
+    ImportParseError,
     LoftError,
     NoAxisError,
     NoEdgesSelectedError,
@@ -120,6 +125,7 @@ from geometry.kernel import (
     draft_body,
     extrude_face,
     fillet_body,
+    import_step_solid,
     linear_pattern,
     loft_sections,
     measure_shape,
@@ -919,6 +925,50 @@ def _evaluate_pattern(
     return None
 
 
+def _evaluate_import(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Import an external STEP part as the part's BASE body (§4.3).
+
+    v1 DESIGN DECISION (docs/design/step-import.md §1): an ``import`` is a
+    body-affecting BASE feature — like the first extrude it does not modify a
+    prior body, it SETS ``state.body`` to the imported solid. Because v1 has no
+    ``add``/``cut`` operation and no multi-body support (design §7.6), an import
+    with a body already present is an honest ``import_with_prior_body`` error
+    (a positioned insert against an existing body is future work, §7).
+
+    The inline STEP text is read deterministically (units pinned to mm, RESEARCH
+    §9) through :func:`import_step_solid`. Kernel failures surface as per-feature
+    errors pinned to this feature — ``import_parse_failed`` (unparseable bytes)
+    or ``import_not_single_solid`` (zero / multiple solids; the message carries
+    the shape stats, the v1 healing report). ``state.body`` is only set on
+    success. Size/emptiness of ``data`` is a request-validation 422 upstream
+    (§6), so it never reaches here.
+    """
+    feature = item.feature
+    assert isinstance(feature, ImportFeature), "registry dispatches on type='import'"
+    params = feature.params
+
+    if state.body is not None:
+        return FeatureError(
+            code="import_with_prior_body",
+            message=(
+                "Import creates the part's base body, but a body already exists "
+                "in this tree; an import must be the body-creating feature. "
+                "Combining an imported solid with an existing body is not "
+                "supported yet."
+            ),
+        )
+
+    try:
+        state.body = import_step_solid(params.data)
+    except ImportParseError as exc:
+        return FeatureError(code="import_parse_failed", message=str(exc))
+    except ImportNotSingleSolidError as exc:
+        return FeatureError(code="import_not_single_solid", message=str(exc))
+    return None
+
+
 #: The dispatcher registry (§4): feature ``type`` discriminator → handler.
 #: Consulted by key only; no iteration order participates (RESEARCH §9
 #: determinism). New feature types plug in here.
@@ -934,6 +984,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "shell": _evaluate_shell,
     "draft": _evaluate_draft,
     "pattern": _evaluate_pattern,
+    "import": _evaluate_import,
 }
 
 

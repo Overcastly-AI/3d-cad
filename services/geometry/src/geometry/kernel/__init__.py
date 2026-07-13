@@ -41,6 +41,11 @@ from geometry.kernel.faces import (
     resolve_faces,
 )
 from geometry.kernel.fillet import FilletError, fillet_body
+from geometry.kernel.imports import (
+    ImportNotSingleSolidError,
+    ImportParseError,
+    import_step_solid,
+)
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
 from geometry.kernel.overlay import selection_overlay
@@ -95,6 +100,8 @@ __all__ = [
     "EdgeRecord",
     "FaceResolutionError",
     "FilletError",
+    "ImportNotSingleSolidError",
+    "ImportParseError",
     "LoftError",
     "MeasureError",
     "NoAxisError",
@@ -140,6 +147,7 @@ __all__ = [
     "extrude_face",
     "fillet_body",
     "glb_stats",
+    "import_step_solid",
     "linear_pattern",
     "loft_sections",
     "measure_shape",

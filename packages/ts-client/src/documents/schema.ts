@@ -764,7 +764,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
             /**
              * Id
              * Format: uuid
@@ -856,7 +856,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -916,7 +916,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
             /**
              * Id
              * Format: uuid
@@ -975,7 +975,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -1054,6 +1054,66 @@ export interface components {
              * @enum {string}
              */
             kind: "horizontal";
+        };
+        /**
+         * ImportFeature
+         * @description ``{"type": "import", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-affecting BASE feature (docs/design/step-import.md §1): it produces
+         *     the imported solid as the part's base body, rather than modifying a prior
+         *     one. ``params`` is :class:`ImportParamsV1` (inline STEP text in v1).
+         */
+        ImportFeature: {
+            params: components["schemas"]["ImportParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "import";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * ImportParamsV1
+         * @description Bring an external STEP solid in as the part's base body (v1, inline).
+         *
+         *     ``data`` is the STEP AP214 part-21 TEXT inline (docs/design/step-import.md
+         *     §2b), bounded by :data:`MAX_INLINE_STEP_CHARS` — an oversize or empty payload
+         *     is a request-validation 422 at the boundary (§6), never a per-feature rebuild
+         *     error. The geometry service reads it deterministically through a pinned
+         *     ``STEPControl_Reader`` (units pinned to mm, RESEARCH §9): the same bytes yield
+         *     a byte-identical body/mesh across rebuilds and interpreter restarts.
+         *
+         *     v1 accepts EXACTLY ONE solid; a compound / open shells / surfaces-only file
+         *     is an honest ``import_not_single_solid`` rebuild error whose message carries
+         *     the shape stats (the v1 "healing report" — §4), and unparseable bytes are
+         *     ``import_parse_failed`` (§5). Sewing/repair, multi-solid assemblies, IGES,
+         *     and a positioned insert against an existing body are deferred (§7).
+         *
+         *     ``kind``/``format`` default so a future blob-ref source (§2a) and IGES join
+         *     additively with no ``param_version`` bump.
+         */
+        ImportParamsV1: {
+            /**
+             * Data
+             * @description STEP AP214 part-21 file text (inline). Bounded/non-empty at parse time (422); parsed to exactly one solid by the geometry service.
+             */
+            data: string;
+            /**
+             * Format
+             * @default step
+             * @constant
+             */
+            format: "step";
+            /**
+             * Kind
+             * @default inline
+             * @constant
+             */
+            kind: "inline";
         };
         /**
          * LinearPatternParamsV1

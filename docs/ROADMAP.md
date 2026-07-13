@@ -235,7 +235,20 @@ item:
 
 ## Phase 4 — Interop & drawings ⬜
 
-- ⬜ STEP/IGES import with healing report
+- 🚧 STEP/IGES import with healing report — **STEP import v1 (geometry-side)
+      pulled forward 2026-07-13** (discovery-indicated: flips the VISION Interop
+      row from ❌ toward ➖ — export already round-trips exact, so the row was
+      gated purely on import). An `import` BASE feature reads inline STEP text
+      through a pinned single-solid `STEPControl_Reader` and sets the part's
+      body; every later feature (fillet/cut/shell/sketch-on-face) then works on
+      the imported body via the existing topological-naming machinery. Golden
+      `import-step-box-10x20x30` proves import ≡ the inverse of export (0.0
+      deviation) + byte-determinism incl. interpreter restart. v1 = single solid
+      or legible error (`import_parse_failed` / `import_not_single_solid`);
+      healing report = honest shape stats. Docs: `docs/design/step-import.md`,
+      GEOMETRY-QA 2026-07-13. **Remaining:** gateway upload endpoint + UI (the
+      "open a STEP" affordance), IGES, multi-solid/assembly, sew/heal, blob-ref
+      storage (§2a — removes the inline size cap).
 - ⬜ 2D drawings: views from model, dimensions, PDF/DXF export
 - ⬜ 3MF/OBJ export; mesh quality controls
 

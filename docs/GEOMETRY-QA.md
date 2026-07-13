@@ -37,6 +37,54 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-13 — STEP import v1 (bring an external part in as the base body)
+
+**What shipped (geometry-side; gateway upload + UI are follow-ups).** An
+`import` BASE feature reads inline STEP AP214 text and SETS the part's single
+body (docs/design/step-import.md) — the inverse of the STEP export that already
+round-trips exact. Kernel: `geometry.kernel.imports.import_step_solid` uses a
+low-level `STEPControl_Reader` (not build123d `import_step`, which reads a path
+only and runs the heavier XCAF path) with the target unit pinned to mm on every
+read, so the result is independent of process `Interface_Static` history.
+
+**Determinism (RESEARCH §9) — measured, not assumed.** OCCT STEP read is a pure
+function of the file bytes once units are pinned. Evidence (build123d 0.11.1 /
+OCCT 7.9): a 10×20×30 box exported then re-imported measures **exactly** vol
+6000.0, area 2200.0, centroid (5,10,15), bbox `[0,0,0]..[10,20,30]`, topology
+6/12/1 — **0.0 deviation** on every value vs the analytic box; re-export of the
+imported solid is **byte-identical across two independent interpreter runs**.
+
+**Round-trip golden — import ≡ inverse-of-export.** New golden
+`import-step-box-10x20x30`: its `model.json` carries the byte-deterministic STEP
+export of the box golden as the import feature's inline `data`; `expected.json`
+asserts the identical analytic mass properties + topology (tolerance 1e-7, a
+ceiling — measured 0.0). Through the shared golden runner this also proves
+byte-determinism in-process AND across an interpreter restart for free. This is
+the import counterpart to `test_step_roundtrip`'s export-direction 0.0 result.
+
+**Healing report scope (v1 = single solid or legible error).** Exactly one
+`TopAbs_SOLID` → accepted. Zero/multiple solids (open shells, surfaces-only, a
+multi-solid assembly) → `import_not_single_solid`, whose message carries the
+shape stats (solids/shells/faces) — the honest v1 healing report. Verified: a
+compound of two disjoint boxes reads as a `TopAbs_COMPOUND` with 2 solids and is
+rejected with that count. Sewing/repair, IGES, and multi-body are deferred.
+
+**Error taxonomy (per-feature, never a 500/hang; §4.3).** Garbage/empty/truncated
+bytes → OCCT `IFSelect_RetFail` → `import_parse_failed` (verified: no raise, no
+hang). A transfer raise is caught → `import_parse_failed`. An import with a body
+already present → `import_with_prior_body` (v1 imports are the base body; a
+positioned insert against an existing body is future work). The inline size
+bound (`MAX_INLINE_STEP_CHARS` = 16 MiB) and empty `data` are a
+request-validation **422** at the boundary (rejected before storage and before
+OCCT parses) — the strongest DoS guard, deliberately not a rebuild error.
+
+**Security/tenancy flag (for the blob-ref successor, §2a).** v1 stores the STEP
+inline in the feature tree (documents/Postgres — already tenant-scoped), so no
+new tenancy question arises. A future blob-backed STEP **is tenant-sensitive**
+(authored proprietary CAD, unlike a derived mesh) and MUST NOT reuse the
+content-addressed-mesh "auth-gated, not tenant-scoped" pattern (RESEARCH §5) — it
+needs per-owner scoping. Flagged now so it is designed, not defaulted.
+
 ## 2026-07-13 — Draft feature (taper picked faces by an angle; BACKLOG BACKEND)
 
 **What shipped (backend + golden; the in-viewport pick-to-taper UI is the

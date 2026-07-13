@@ -27,12 +27,13 @@ duplication:
   as previously ordered. Both are Ready below, sketch-on-face first. A
   dedicated Hole feature is now lower-priority (Next, P3): multi-loop cut
   already covers the common bolt-circle case.
-- **Interop row — product audit flags as possibly understated:** export
-  round-trips exact (STEP out → reopened at identical volume, verified this
-  pass), so the export half is solid, not partial — the row is fairly gated
-  on import (Phase 4) but the *degree* of "not there yet" may read too harsh.
-  Note for the **vision-steward** to weigh at next re-score (VISION.md is
-  vision-steward-owned, not touched here).
+- **Interop row — ❌→➖ candidate (STEP import v1 landed 2026-07-13):** export
+  round-trips exact AND an external STEP part can now be brought IN (single-solid
+  `import` base feature) and modeled on (fillet/cut/shell/sketch-on-face). Both
+  halves of the round trip work; what keeps it ➖ not ✅ is the UI leg (no "open a
+  STEP" affordance yet), IGES, and multi-solid/assembly. Note for the
+  **vision-steward** to weigh at next re-score (VISION.md is vision-steward-owned,
+  not touched here).
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
   access — later phases; untouched this pass.
 
@@ -458,6 +459,15 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-13 — **STEP import v1 (geometry-side) shipped — Phase 4 interop pulled
+  forward** (flips VISION Interop ❌→➖: export already exact, import was the gate).
+  `ImportFeature`/`ImportParamsV1` (inline STEP text, size-bounded 422); pinned
+  single-solid `STEPControl_Reader` (`geometry.kernel.imports`); golden
+  `import-step-box-10x20x30` proves import ≡ inverse-of-export (0.0 deviation) +
+  interpreter-restart determinism; errors `import_parse_failed` /
+  `import_not_single_solid` / `import_with_prior_body`. Design:
+  `docs/design/step-import.md`. Follow-ups: gateway upload + UI, IGES, multi-solid,
+  blob-ref storage.
 - 2026-07-13 — **Draft feature UI shipped** (backend shipped same day). Draft tool
   in Modify (scribed `DraftIcon`, `D`, body-gated) → `DraftEditor`: brass angle
   handle + reused shell face overlay (pick-to-taper) + datum-idiom neutral-plane

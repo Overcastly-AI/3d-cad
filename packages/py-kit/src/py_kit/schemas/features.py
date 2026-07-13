@@ -39,6 +39,15 @@ from py_kit.schemas.sketch import EntityId, SketchDefinition, SolvedSketch
 #: Upper bound for a user-facing feature name ("Sketch1", "Extrude1").
 FEATURE_NAME_MAX_LENGTH = 200
 
+#: Hard ceiling on an INLINE STEP payload carried in an import feature's params
+#: (docs/design/step-import.md §6). A v1 request-validation bound on untrusted
+#: external input: an oversize STEP is a 422 at the boundary — rejected BEFORE
+#: documents stores it and BEFORE OCCT parses it (the earliest, strongest DoS
+#: guard), never a per-feature rebuild error. 16 MiB balances "real mechanical
+#: parts fit inline" against "JSONB / request-size / parse-time DoS"; the
+#: content-addressed blob-ref successor (§2a) removes this ceiling from the tree.
+MAX_INLINE_STEP_CHARS = 16 * 1024 * 1024
+
 #: Non-empty (post-strip), bounded feature name.
 FeatureName = Annotated[
     str,
@@ -971,6 +980,54 @@ class PatternParamsV1(BaseModel):
     )
 
 
+# --- Import params — bring an external STEP part in as the base body ------------
+#
+# DESIGN DECISION (v1, docs/design/step-import.md): an `import` feature is a
+# BODY-AFFECTING BASE feature — like the first extrude it does not modify a prior
+# body, it SETS the part's single body chain (§7.6) to the imported solid, and
+# every later feature (fillet, cut, shell, sketch-on-face) then operates on that
+# body with no new machinery. v1 carries the STEP AP214 part-21 text INLINE
+# (option 2b — self-contained, no new storage dependency), bounded hard by
+# MAX_INLINE_STEP_CHARS. The `kind` SOURCE discriminator seeds the additive
+# migration to a content-addressed blob reference (§2a: a `kind: "blob"` member
+# joins with NO param_version bump — the RevolveAxis/DatumParams idiom), and the
+# `format` discriminator seeds IGES (a future `format: "iges"` literal). Import
+# carries no picked geometry and no FeatureRef — its body is a pure function of
+# its own params — so it materializes no feature_dependencies edge (like an
+# offset datum), yet it IS body-affecting, so a later SubshapeRef may name a face
+# or edge of the imported body ("sketch on an imported part's face").
+
+
+class ImportParamsV1(BaseModel):
+    """Bring an external STEP solid in as the part's base body (v1, inline).
+
+    ``data`` is the STEP AP214 part-21 TEXT inline (docs/design/step-import.md
+    §2b), bounded by :data:`MAX_INLINE_STEP_CHARS` — an oversize or empty payload
+    is a request-validation 422 at the boundary (§6), never a per-feature rebuild
+    error. The geometry service reads it deterministically through a pinned
+    ``STEPControl_Reader`` (units pinned to mm, RESEARCH §9): the same bytes yield
+    a byte-identical body/mesh across rebuilds and interpreter restarts.
+
+    v1 accepts EXACTLY ONE solid; a compound / open shells / surfaces-only file
+    is an honest ``import_not_single_solid`` rebuild error whose message carries
+    the shape stats (the v1 "healing report" — §4), and unparseable bytes are
+    ``import_parse_failed`` (§5). Sewing/repair, multi-solid assemblies, IGES,
+    and a positioned insert against an existing body are deferred (§7).
+
+    ``kind``/``format`` default so a future blob-ref source (§2a) and IGES join
+    additively with no ``param_version`` bump.
+    """
+
+    kind: Literal["inline"] = "inline"
+    format: Literal["step"] = "step"
+    data: str = Field(
+        min_length=1,
+        max_length=MAX_INLINE_STEP_CHARS,
+        description="STEP AP214 part-21 file text (inline). Bounded/non-empty at "
+        "parse time (422); parsed to exactly one solid by the geometry service.",
+    )
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -1099,6 +1156,19 @@ class PatternFeature(BaseModel):
     params: PatternParamsV1
 
 
+class ImportFeature(BaseModel):
+    """``{"type": "import", "version": 1, "params": {...}}`` envelope.
+
+    A body-affecting BASE feature (docs/design/step-import.md §1): it produces
+    the imported solid as the part's base body, rather than modifying a prior
+    one. ``params`` is :class:`ImportParamsV1` (inline STEP text in v1).
+    """
+
+    type: Literal["import"]
+    version: Literal[1]
+    params: ImportParamsV1
+
+
 #: Discriminated union of the CURRENT version of every feature type — this is
 #: what the OpenAPI contract exports (design §1.4). Older stored versions are
 #: upcast on read via :data:`FEATURE_REGISTRY`.
@@ -1113,7 +1183,8 @@ Feature = Annotated[
     | ChamferFeature
     | ShellFeature
     | DraftFeature
-    | PatternFeature,
+    | PatternFeature
+    | ImportFeature,
     Field(discriminator="type"),
 ]
 
@@ -1130,6 +1201,7 @@ FeatureEnvelope = (
     | ShellFeature
     | DraftFeature
     | PatternFeature
+    | ImportFeature
 )
 
 
@@ -1283,6 +1355,7 @@ FEATURE_REGISTRY.register(ChamferFeature)
 FEATURE_REGISTRY.register(ShellFeature)
 FEATURE_REGISTRY.register(DraftFeature)
 FEATURE_REGISTRY.register(PatternFeature)
+FEATURE_REGISTRY.register(ImportFeature)
 FEATURE_REGISTRY.validate_chains()
 
 
@@ -1303,6 +1376,9 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         "shell",
         "draft",
         "pattern",
+        # `import` produces the base body (step-import.md §1), so its faces/edges
+        # are nameable by a later SubshapeRef — "sketch on an imported part's face".
+        "import",
     }
 )
 
@@ -1476,6 +1552,12 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             # A pattern replicates the implicit body about world-space direction/
             # axis vectors (no picked sub-geometry — independent of #1); its
             # dependency on the prior body-affecting feature is tree order.
+            pass
+        case ImportFeature():
+            # An import PRODUCES the base body from its own inline STEP params
+            # (step-import.md §1) — no picked geometry, no FeatureRef, so it
+            # materializes no feature_dependencies edge (like an offset datum /
+            # a pattern). Its body is a pure function of `data`.
             pass
         case _:
             assert_never(feature)  # exhaustive: new types must map their slots

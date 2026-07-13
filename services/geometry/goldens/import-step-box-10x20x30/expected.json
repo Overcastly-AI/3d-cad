@@ -1,0 +1,27 @@
+{
+  "description": "FIRST IMPORT GOLDEN — round-trip proof that STEP import is the inverse of STEP export (docs/design/step-import.md §9). The `data` in model.json is the byte-deterministic STEP export of the 10x20x30 box (the box-10x20x30 primitive golden), brought in by an `import` BASE feature that SETS the part's body. Asserts the imported body has the IDENTICAL analytic mass properties and topology as the original box, proving import preserves geometry losslessly. Locks the full evaluate-tree import path: pinned STEPControl_Reader (units mm, RESEARCH §9) -> single-solid extraction -> GProp on the imported body -> tessellation -> content-addressed GLB. Through the shared golden runner this also proves import byte-determinism in-process AND across an interpreter restart for free.",
+  "derivation": [
+    "Expectations are the box-10x20x30 primitive golden's HAND-DERIVED analytic values (geometry-gates skill: never record from harness output). Import must reproduce them exactly or it has corrupted the geometry.",
+    "The imported solid is the 10x20x30 box: volume = 10 * 20 * 30 = 6000 mm^3.",
+    "surface_area = 2*(10*20) + 2*(10*30) + 2*(20*30) = 400 + 600 + 1200 = 2200 mm^2.",
+    "centroid = (10/2, 20/2, 30/2) = (5, 10, 15) mm by symmetry; the export/import preserves world position, so the box stays at min corner [0,0,0].",
+    "bounding_box = [0,0,0]..[10,20,30]: the STEP carries the world coordinates unchanged.",
+    "topology: a rectangular prism is 6 planar faces, 12 straight edges, 1 closed shell — identical to the box primitive golden (STEP re-approximation of a planar B-rep is lossless, same result test_step_roundtrip records for export).",
+    "mesh: each planar rectangular face tessellates to exactly 2 triangles (6 * 2 = 12); faceted per-face normals mean no vertex sharing across faces, so 6 faces * 4 corners = 24 vertices (same convention as box-10x20x30).",
+    "MEASURED 2026-07-13 (build123d 0.11.1 / OCCT 7.9) through the real evaluate_tree import path: volume 6000.0, area 2200.0, centroid (5,10,15), bbox exact, topology 6/12/1, mesh 24/12 — 0.0 deviation on EVERY value vs the analytic box. Re-export of the imported solid is byte-identical across two independent interpreter runs (same sha256).",
+    "GLB byte size is deliberately NOT pinned (brittle across glTF-writer upgrades); it is asserted internally consistent and byte-deterministic by the runner."
+  ],
+  "tolerance": 1e-7,
+  "tolerance_rationale": "The standing planar 1e-7 kernel bound (CLAUDE.md conventions), matching the box-10x20x30 primitive golden and the STEP round-trip conftest ROUNDTRIP_TOL. This is a CEILING, not a fit: the measured import deviation vs the analytic box is EXACTLY 0.0 on every mass property, bbox bound, and centroid component (2026-07-13) — STEP round-trip of a planar B-rep is lossless, the same 0.0 result test_step_roundtrip records for the export direction. A non-zero deviation here is a DEFECT to root-cause to the import reader, export, or kernel — never tolerance noise to absorb (geometry-gates skill). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 6000.0,
+    "surface_area": 2200.0,
+    "centroid": { "x": 5.0, "y": 10.0, "z": 15.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 10.0, "y": 20.0, "z": 30.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}
