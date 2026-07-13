@@ -37,6 +37,81 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-13 — INDEPENDENT VERIFICATION: multi-disjoint-loop CUT golden `sketch-extrude-plate-6hole-ring-cut-60x60x10` (commit 75a50b7, Ready #4)
+
+Second-set-of-eyes pass on the golden shipped in 75a50b7. Goal: re-derive the
+analytic **from scratch** (not trust the author's derivation) so a wrong
+hand-derivation can't get enshrined, then confirm live reproduction,
+determinism headroom, and tolerance honesty. **VERDICT: golden is TRUSTWORTHY —
+PASS on all four checks.** No findings filed.
+
+**1. Analytic re-derived independently (bit-exact agreement).** Computed in a
+clean interpreter with no reference to `expected.json`:
+
+| quantity | independent re-derivation | golden `expected.json` | diff |
+|---|---|---|---|
+| volume | 60²·10 − 6·π·4²·10 = 36000 − 960π = `32984.0710525538` | `32984.0710525538` | **0.0** |
+| surface_area | (7200 − 192π) + 2400 + 480π = 9600 + 288π = `10504.778684233861` | `10504.778684233861` | **0.0** |
+| centroid | (30, 30, 5) by ring symmetry (Σ centres = (180,180)) | (30, 30, 5) | 0.0 |
+| AABB | [0,0,0]..[60,60,10] (holes interior, don't touch walls) | same | 0.0 |
+
+Hole ring cross-checked: centres (30+20cos60k, 30+20sin60k) reproduce
+model.json's six circle centres to ≤1 ulp; adjacent-centre spacing
+2·20·sin30° = 20 mm > Σr 8 mm (disjoint confirmed), min edge clearance 10 mm >
+r 4 (clean through-cuts). The volume/SA formulas the author wrote are the ones
+I derive; the pinned constants are correct to float64.
+
+**Topology re-derived and Euler-checked (not just counted).** 12 faces (2 caps
++ 4 side walls + 6 cylinder walls), 30 edges (10 top loop + 10 bottom + 4
+vertical box corners + 6 cylinder seams), 1 shell. Independently by
+Euler-Poincaré with V=20 (8 box corners + 12 hole seam vertices), R=12 (6 inner
+loops per cap), S=1, genus G=6: V−E+F−R = 20−30+12−12 = −10 = 2(S−G) = 2(1−6).
+Holds exactly — the 12/30/1 counts are the right counts for a plate with six
+through-holes (a capped face with inner hole loops stays ONE face; holes add
+topology only via the six cylinder walls). Mesh 3060 v / 3060 t re-derived from
+the 126-seg/circle rule and matches.
+
+**2. Live reproduction at HEAD (in-process, no `just e2e` — frontend agent
+running Playwright).** `pytest test_goldens.py -k 6hole-ring-cut` → 4/4 pass.
+Measured deviations of the live kernel vs my independent analytic (build123d
+0.11.1 / OCCT 7.9):
+
+- volume dev **1.455e-11** mm³ (tol 1e-9 → **68.7× headroom**)
+- surface_area dev **3.638e-12** mm²
+- centroid dev ≤ **2.13e-14** mm (x/y at ring float-trig ulp; z exactly 5)
+- AABB dev **0.0** on all six bounds; topology 12/30/1 exact; mesh 3060/3060 exact
+
+These reproduce the author's documented worst-case numbers exactly. Full
+`test_goldens.py` + `test_step_roundtrip.py` sweep: **103 passed** (98 s), no
+collateral regression.
+
+**3. Determinism — genuine headroom, not masking.** 8 back-to-back rebuilds →
+a single distinct GLB SHA-256 and a single distinct `repr()` volume/surface
+value (bit-identical, not merely within-tol). Cross-interpreter-restart leg of
+the runner passes. Critically, the 1.455e-11 volume deviation is a **fixed,
+reproducible ulp offset**, not a fluctuating value drifting under the ceiling —
+so the six-sequential-cut boolean chain is deterministic and 1e-9 is not hiding
+nondeterminism. This is the strongest reason the tolerance is honest.
+
+**STEP round-trip (independent measure).** model → STEP AP214 → re-import →
+re-measure: topology preserved **exactly** (12/30/1 → 12/30/1); vol dev
+7.28e-11, SA dev 1.09e-10, centroid dev ≤1.39e-13 — all within the round-trip
+gate's bound (passes), export re-tessellation faithful.
+
+**4. Tolerance honesty.** 1e-9 is the correct curved-geometry per-model ceiling
+here: worst observed deviation is 1.455e-11 (volume), giving 68.7× headroom —
+tight enough that any *real* geometric error (a mis-cut hole, a dropped tool, a
+wrong radius) would move volume/SA by ≫1e-9 and trip the gate, yet loose enough
+to absorb libm/platform variation across CI hosts. It is 100× tighter than the
+standing planar 1e-7 bound and matches the extrude/cylinder/plate-with-holes
+posture. The bound was measured-then-set, not copied. **Not loose enough to
+hide a real error.** Worst-case deviation on record: **1.455e-11 mm³ (volume).**
+
+Evidence commands (all in-process, `services/geometry`): `uv run --project .
+pytest tests/test_goldens.py tests/test_step_roundtrip.py -k 6hole-ring-cut`;
+8× rebuild digest/repr comparison. No defects filed — analytic is correct,
+gates green, tolerance honest.
+
 ## 2026-07-13 — STEP import v1 (bring an external part in as the base body)
 
 **What shipped (geometry-side; gateway upload + UI are follow-ups).** An
