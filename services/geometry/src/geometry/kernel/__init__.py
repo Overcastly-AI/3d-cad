@@ -44,6 +44,7 @@ from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.imports import (
     ImportNotSingleSolidError,
     ImportParseError,
+    ImportParseTimeoutError,
     import_step_solid,
 )
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
@@ -102,6 +103,7 @@ __all__ = [
     "FilletError",
     "ImportNotSingleSolidError",
     "ImportParseError",
+    "ImportParseTimeoutError",
     "LoftError",
     "MeasureError",
     "NoAxisError",

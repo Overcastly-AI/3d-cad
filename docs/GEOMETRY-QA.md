@@ -1944,6 +1944,17 @@ finding, not absorbed into the tolerance.
 | 2026-07-11 | sketch-extrude-40x25x10 (full evaluate-tree: solve + extrude + GProp + tessellate) | ~8.3 ms | < 2 s (tripwire) |
 | 2026-07-11 | fillet-plate-r5 (evaluate-tree: solve + extrude + fillet + GProp + tessellate) | ~33 ms | < 2 s (tripwire) |
 | 2026-07-11 | chamfer-plate-d5 (evaluate-tree: solve + extrude + chamfer + GProp + tessellate) | ~28 ms | < 2 s (tripwire) |
+| 2026-07-13 | import-step-box-10x20x30 (evaluate-tree: **killable-subprocess** STEP parse + GProp + tessellate) | ~0.9 s | < 2 s (tripwire) |
+
+**Import parse runs out-of-process (security bound, 2026-07-13).** The untrusted
+OCCT STEP parse (`ReadFile` → `TransferRoots`) now runs in a spawned, killable
+subprocess bounded by `step_import_timeout_seconds` (default 5 s) so an
+adversarial/degenerate part-21 cannot pin a worker (docs/design/step-import.md
+§6, BACKLOG P1). The ~0.9 s per import feature is cold-OCP spawn cost (the worker
+imports OCP alone, not build123d) — still well inside the 2 s tripwire and
+confined to the import path; `import-step-box-10x20x30` still measures **0.0
+deviation** through the subprocess+BREP boundary. Timeout + no-fd/zombie-leak are
+gated in `tests/test_imports.py`.
 
 ### Gaps / coverage list for future passes
 

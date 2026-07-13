@@ -10,6 +10,7 @@ exercise the code paths and error taxonomy.
 """
 
 import io
+import os
 import uuid
 from typing import Any
 
@@ -25,6 +26,7 @@ from geometry.features import evaluate_tree
 from geometry.kernel import (
     ImportNotSingleSolidError,
     ImportParseError,
+    ImportParseTimeoutError,
     export_step_bytes,
     import_step_solid,
     measure_shape,
@@ -110,7 +112,93 @@ def test_import_step_solid_rejects_multi_solid_with_stats() -> None:
     assert "found 2" in str(excinfo.value)
 
 
+# --- hard wall-clock bound (design §6, BACKLOG P1) ------------------------------
+
+
+def _open_fd_count() -> int:
+    """Open file descriptors of THIS process (Linux) — a leak detector."""
+    return len(os.listdir("/proc/self/fd"))
+
+
+def test_import_parse_timeout_fires_and_is_not_a_hang() -> None:
+    """A parse that exceeds the wall-clock bound raises ImportParseTimeoutError.
+
+    Technique (documented): the untrusted parse runs in a spawned OCP-only
+    subprocess that costs ~0.9 s of cold OCCT import before it can even read, so
+    a sub-100 ms bound ALWAYS trips the timeout deterministically (OCP import is
+    never that fast) — forcing a real SIGKILL of a subprocess mid-work, the exact
+    adversarial-parse condition, without needing a synthetic pathological
+    part-21. The call must return promptly (near the bound + reap), never hang.
+    """
+    import time
+
+    start = time.monotonic()
+    with pytest.raises(ImportParseTimeoutError):
+        import_step_solid(_box_step_text(), timeout_s=0.05)
+    elapsed = time.monotonic() - start
+    # Killed near the bound + reap overhead — nowhere near a full parse/hang.
+    assert elapsed < 5.0
+
+
+def test_import_parse_timeout_reaps_subprocess_no_fd_leak() -> None:
+    """Repeated timeouts leak no file descriptors or zombie subprocesses.
+
+    ``subprocess.run`` kills THEN waits before re-raising ``TimeoutExpired``, so
+    each aborted parse is fully reaped and its pipes closed. Proven by a stable
+    open-fd count across a batch of forced timeouts — a leaked pipe or zombie
+    would grow it monotonically.
+    """
+    # Warm-up so first-call import machinery doesn't skew the baseline count.
+    with pytest.raises(ImportParseTimeoutError):
+        import_step_solid(_box_step_text(), timeout_s=0.05)
+    before = _open_fd_count()
+    for _ in range(5):
+        with pytest.raises(ImportParseTimeoutError):
+            import_step_solid(_box_step_text(), timeout_s=0.05)
+    after = _open_fd_count()
+    assert after <= before
+
+
+def test_valid_step_still_imports_through_the_subprocess_bound() -> None:
+    """The bound does not perturb a valid parse — a box still round-trips exactly.
+
+    Guards that spawning the killable worker + BREP boundary preserves geometry
+    (the golden asserts 0.0 deviation end-to-end; this pins it at the kernel).
+    """
+    original = Solid.make_box(10, 20, 30)
+    imported = import_step_solid(
+        export_step_bytes(original).decode("utf-8"), timeout_s=30.0
+    )
+    got = measure_shape(imported)
+    want = measure_shape(original)
+    assert got.volume == pytest.approx(want.volume, abs=1e-7)
+    assert got.surface_area == pytest.approx(want.surface_area, abs=1e-7)
+    assert got.topology == want.topology
+
+
 # --- evaluate handler -----------------------------------------------------------
+
+
+def test_import_parse_timeout_is_per_feature_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configured tiny bound surfaces as ``import_parse_timeout`` (200, not 500).
+
+    Proves the full config wiring: ``STEP_IMPORT_TIMEOUT_SECONDS`` env →
+    ``GeometrySettings`` → the evaluate handler → the kernel subprocess bound →
+    a per-feature error inside a 200 under the strict-prefix rule.
+    """
+    monkeypatch.setenv("STEP_IMPORT_TIMEOUT_SECONDS", "0.05")
+    payload = _request(
+        [{"id": str(IMPORT_ID), "feature": _import_feature(_box_step_text())}]
+    )
+    response = client.post("/api/v1/evaluate", json=payload)
+    assert response.status_code == 200
+    result = EvaluateTreeResult.model_validate(response.json())
+    (only,) = result.features
+    assert only.status == "error"
+    assert only.error is not None and only.error.code == "import_parse_timeout"
+    assert result.properties is None
 
 
 def test_import_feature_sets_base_body() -> None:

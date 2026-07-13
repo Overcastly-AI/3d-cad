@@ -36,8 +36,9 @@ duplication:
   viewport → model on it (fillet/shell/sketch-on-face all work via the existing
   topological-naming machinery) — now works in the browser, proven by
   `import-step.spec.ts` on the real stack. IGES/multi-solid/blob-storage are
-  deferred (Later); one P1 security fast-follow (bound the untrusted-STEP OCCT
-  parse's wall-clock time) is still open. Note for the **vision-steward** to
+  deferred (Later); the P1 security fast-follow (hard wall-clock bound on the
+  untrusted-STEP OCCT parse) shipped 2026-07-13 (killable subprocess, default
+  5 s, `import_parse_timeout`). Note for the **vision-steward** to
   weigh the ➖→ scorecard update (VISION.md is vision-steward-owned, not touched
   here).
 - Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
@@ -61,19 +62,21 @@ gap). #5 carries forward the engineering audit's mesh-store correctness
 cliff (F1). #6–#8 are the sketch-session polish from the last re-score,
 unchanged in substance.
 
-- [ ] (P1, S) STEP import: hard wall-clock bound on the OCCT parse of
-      untrusted files (code-review finding, `4964fab`) — `STEPControl_Reader.
-      ReadFile`/`TransferRoots` runs in FastAPI's bounded threadpool with no
-      time bound; the 16 MiB cap bounds memory, not parse *time* —
-      adversarial/degenerate part-21 can be super-linear and pin a worker,
-      and enough concurrent uploads soft-DoS the geometry service. First
-      untrusted-external-file surface, about to get a friendly upload UI
-      (#1–#2 below) that raises exposure — fix before or alongside those.
-      Route import evaluation through the arq worker with a job timeout, or
-      subprocess-bound the OCCT parse; also hardens the general REST eval
-      path (pre-existing, sharpened here). Acceptance: a pathological/slow
-      STEP file cannot pin a worker indefinitely — returns a clean per-feature
-      timeout error, not a hang. [src: code-reviewer, 4964fab]
+- [x] (P1, S) STEP import: hard wall-clock bound on the OCCT parse of
+      untrusted files (code-review finding, `4964fab`) — **shipped 2026-07-13.**
+      The unbounded-time OCCT calls (`ReadFile`/`TransferRoots`) now run in a
+      spawned, **killable subprocess** (`geometry.kernel._step_parse_worker`,
+      OCP-only, invoked by path) bounded by `subprocess.run(timeout=…)`; a parse
+      exceeding `step_import_timeout_seconds` (env `STEP_IMPORT_TIMEOUT_SECONDS`,
+      default 5 s) is SIGKILLed + reaped → per-feature `import_parse_timeout`
+      inside a 200, never a hang/500/zombie. Subprocess chosen over an arq job
+      timeout because `/evaluate` is synchronous and documents calls it inline —
+      isolating only the untrusted parse (BREP back across the boundary) is the
+      surgical change; a thread/`signal.alarm` bound cannot interrupt OCCT C++ or
+      fire in threadpool threads. Determinism preserved (mm pinned in the fresh
+      child; golden still 0.0 deviation). Tests: forced-timeout fires + returns
+      promptly, no fd/zombie leak across repeated timeouts, per-feature code via
+      the endpoint (`tests/test_imports.py`). [src: code-reviewer, 4964fab]
 - [x] (P2, M) STEP import — gateway upload endpoint (Interop UI leg, part
       1 of 2) — `POST /api/v1/parts/{id}/features/import`: the STEP file is
       the RAW request body, streamed and size-capped chunk-by-chunk (oversize

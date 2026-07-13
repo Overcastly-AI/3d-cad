@@ -93,6 +93,7 @@ from geometry.kernel import (
     FilletError,
     ImportNotSingleSolidError,
     ImportParseError,
+    ImportParseTimeoutError,
     LoftError,
     NoAxisError,
     NoEdgesSelectedError,
@@ -150,6 +151,20 @@ from geometry.sketch import (
 #: never import a solver package). ``PlanegcsSketchSolver`` is stateless —
 #: every solve builds a fresh system — so one shared instance is safe.
 _SOLVER: SketchSolver = PlanegcsSketchSolver()
+
+
+def _step_import_timeout_s() -> float:
+    """The configured hard wall-clock bound for the untrusted STEP parse (§6).
+
+    Resolved from ``GeometrySettings.step_import_timeout_seconds`` (the py-kit
+    config knob) rather than hardcoded in the kernel hot path. Imported lazily
+    to avoid a cycle (``geometry.main`` imports this module through the API) —
+    the worker-module precedent. Only consulted when an ``import`` feature is
+    evaluated, so the per-call settings read is negligible.
+    """
+    from geometry.main import GeometrySettings
+
+    return GeometrySettings().step_import_timeout_seconds
 
 
 @dataclass
@@ -938,12 +953,15 @@ def _evaluate_import(
     (a positioned insert against an existing body is future work, §7).
 
     The inline STEP text is read deterministically (units pinned to mm, RESEARCH
-    §9) through :func:`import_step_solid`. Kernel failures surface as per-feature
-    errors pinned to this feature — ``import_parse_failed`` (unparseable bytes)
-    or ``import_not_single_solid`` (zero / multiple solids; the message carries
-    the shape stats, the v1 healing report). ``state.body`` is only set on
-    success. Size/emptiness of ``data`` is a request-validation 422 upstream
-    (§6), so it never reaches here.
+    §9) through :func:`import_step_solid`, whose untrusted OCCT parse runs in a
+    killable subprocess bounded by the configured ``step_import_timeout_seconds``
+    (design §6, BACKLOG P1). Kernel failures surface as per-feature errors pinned
+    to this feature — ``import_parse_timeout`` (the parse exceeded the wall-clock
+    bound and was killed), ``import_parse_failed`` (unparseable bytes) or
+    ``import_not_single_solid`` (zero / multiple solids; the message carries the
+    shape stats, the v1 healing report). ``state.body`` is only set on success.
+    Size/emptiness of ``data`` is a request-validation 422 upstream (§6), so it
+    never reaches here.
     """
     feature = item.feature
     assert isinstance(feature, ImportFeature), "registry dispatches on type='import'"
@@ -961,7 +979,9 @@ def _evaluate_import(
         )
 
     try:
-        state.body = import_step_solid(params.data)
+        state.body = import_step_solid(params.data, timeout_s=_step_import_timeout_s())
+    except ImportParseTimeoutError as exc:
+        return FeatureError(code="import_parse_timeout", message=str(exc))
     except ImportParseError as exc:
         return FeatureError(code="import_parse_failed", message=str(exc))
     except ImportNotSingleSolidError as exc:

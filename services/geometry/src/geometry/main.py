@@ -21,6 +21,13 @@ class GeometrySettings(BaseServiceSettings):
     service_name: str = "geometry"
     port: int = 8002
 
+    #: Hard wall-clock bound (seconds) on the untrusted OCCT STEP parse, which
+    #: runs in a killable subprocess (docs/design/step-import.md §6, BACKLOG P1).
+    #: A parse exceeding this is SIGKILLed and surfaces as ``import_parse_timeout``
+    #: so a degenerate/adversarial part-21 cannot pin a worker. Env:
+    #: ``STEP_IMPORT_TIMEOUT_SECONDS``.
+    step_import_timeout_seconds: float = 5.0
+
 
 def build_app(settings: GeometrySettings | None = None) -> FastAPI:
     """Build the geometry app with its Redis (queue) readiness check."""

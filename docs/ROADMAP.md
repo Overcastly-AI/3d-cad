@@ -21,9 +21,11 @@ base feature reads STEP text and sets the body; the "Import STEP" toolbar
 affordance picks a local `.step`/`.stp`, uploads it via the generated client,
 and lands the imported body in the tree + viewport, modeled on via the
 existing topo-naming machinery. **The Interop scorecard row flips ❌→➖**
-(both UI-leg items done). One P1 security fast-follow remains open: bound the
-untrusted-STEP OCCT parse's wall-clock time. See `docs/BACKLOG.md` Ready
-queue for the live priority order.
+(both UI-leg items done). The P1 security fast-follow — a hard wall-clock bound
+on the untrusted-STEP OCCT parse — **shipped 2026-07-13**: the parse runs in a
+killable subprocess (default 5 s, `import_parse_timeout`), so a degenerate
+part-21 can no longer pin a worker. See `docs/BACKLOG.md` Ready queue for the
+live priority order.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -200,9 +202,12 @@ item:
       evaluate + mesh so the imported body appears in the tree AND viewport, and
       surfaces the server's `import_*` envelope legibly; Playwright drives the
       pick→body→model-on-it flow on the real stack. **Interop scorecard row
-      flips ❌→➖.** Still open (P1 security fast-follow): bound the
-      untrusted-STEP OCCT parse's wall-clock time. Remaining: IGES,
-      multi-solid/assembly, sew/heal, blob-ref storage — all BACKLOG Later.
+      flips ❌→➖.** **P1 security fast-follow shipped 2026-07-13:** the
+      untrusted OCCT parse runs in a killable subprocess bounded by
+      `step_import_timeout_seconds` (default 5 s) → per-feature
+      `import_parse_timeout`, so a degenerate part-21 can't pin a worker
+      (docs/design/step-import.md §6). Remaining: IGES, multi-solid/assembly,
+      sew/heal, blob-ref storage — all BACKLOG Later.
 - ⬜ 2D drawings: views from model, dimensions, PDF/DXF export
 - ⬜ 3MF/OBJ export; mesh quality controls
 

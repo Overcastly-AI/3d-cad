@@ -24,8 +24,8 @@ already resolve against *any* body — including an imported one); RESEARCH §5
 The hard question this doc settles: **how imported geometry is represented and
 stored in the feature tree so a part re-evaluates deterministically** — and,
 because a STEP file is untrusted external input, how parse failures and
-oversize payloads stay legible (never a 500; parse-time bounding is an accepted
-v1 gap, see §6). The kernel read itself
+oversize payloads stay legible (never a 500; the parse is hard-bounded in
+wall-clock time by a killable subprocess, see §6). The kernel read itself
 is easy (OCCT already reads STEP — the export round-trip uses it); the design
 weight is on the *contract*.
 
@@ -179,7 +179,7 @@ the evaluate response with no new DTO.
 
 ---
 
-## 5. Error paths + evaluation semantics (§4.3 — never a 500; parse-time gap §6)
+## 5. Error paths + evaluation semantics (§4.3 — never a 500; parse-time bounded §6)
 
 All import failures are **per-feature `FeatureError` values inside a 200**
 (strict-prefix rule) — the py-kit error envelope stays reserved for
@@ -190,6 +190,7 @@ dispatcher's belt-and-braces `evaluation_failed` (never a tree-wide 500).
 | Situation | Surface | Code |
 |---|---|---|
 | STEP text OCCT cannot parse (`ReadFile` ≠ `RetDone`, or a transfer raise) | per-feature error, 200 | `import_parse_failed` |
+| Parse exceeds the wall-clock bound → killable subprocess SIGKILLed (§6) | per-feature error, 200 | `import_parse_timeout` |
 | Parsed but not exactly one solid (0, or ≥2; open shells; surfaces only) | per-feature error, 200 | `import_not_single_solid` |
 | Import with a body already present in the prefix | per-feature error, 200 | `import_with_prior_body` |
 | `data` empty or over the size bound (§6) | **request-validation 422** | pydantic `validation_error` |
@@ -214,17 +215,39 @@ Verified failure modes: garbage bytes and empty input both return OCCT
 - **OCCT parse failures are values, never crashes.** §5 — every read error maps
   to `import_parse_failed`; the reader is wrapped so no OCCT raise escapes as a
   500.
-- **Accepted risk (v1): the size cap bounds MEMORY, not parse TIME.** The 16 MiB
-  ceiling is a request-validation 422 *before* OCCT parses, so it bounds the
-  memory footprint of the payload — but it does **not** bound parse wall-clock
-  time. OCCT's STEP transfer is not guaranteed linear in input size; an
-  adversarial or degenerate part-21 can be super-linear, so a single import can
-  tie up its worker for an unbounded interval. The untrusted-file parse runs in
-  the sync threadpool. v1 mitigation is the size cap plus auth-gating (only
-  authenticated callers reach the evaluate path); this is accepted for v1. The
-  hard wall-clock bound — an arq job timeout and/or a subprocess-isolated parse
-  that can be killed — is **deferred to a tracked P1 fast-follow**, not shipped
-  in v1.
+- **Hard wall-clock bound on the untrusted parse — SHIPPED (2026-07-13, P1
+  fast-follow).** The 16 MiB size cap is a request-validation 422 *before* OCCT
+  parses, so it bounds the payload's **memory** footprint — but OCCT's STEP
+  transfer is not guaranteed linear in input size, so an adversarial or
+  degenerate part-21 can be super-linear and bound only in **time**. The two
+  unbounded-time OCCT calls (`ReadFile` → `TransferRoots`) therefore run in a
+  **separate, killable subprocess** (`geometry.kernel._step_parse_worker`,
+  invoked by file path so it imports OCP alone — ~0.9 s cold — not the whole
+  kernel), spawned with `subprocess.run(..., timeout=…)`. A parse that exceeds
+  the bound is **SIGKILLed and reaped** (`subprocess.run` kills then waits before
+  re-raising) and surfaces as the per-feature `import_parse_timeout` error inside
+  a 200 (strict-prefix rule) — never a hang, a 500, or a leaked/zombie process.
+  A thread / `signal.alarm` bound would NOT work here: it cannot interrupt OCCT
+  C++ mid-transfer and signals do not fire in FastAPI threadpool threads, so the
+  bound has to be a real out-of-process kill.
+  - **Configurable.** `GeometrySettings.step_import_timeout_seconds` (env
+    `STEP_IMPORT_TIMEOUT_SECONDS`), **default 5.0 s** — comfortably clears a real
+    mechanical part's transfer while capping an adversarial one. The evaluate
+    handler passes it into `import_step_solid(..., timeout_s=…)`; the kernel
+    never hardcodes the value in the hot path.
+  - **Determinism unaffected (strengthened, even).** Units are pinned to mm in
+    the worker's FRESH process, so the read is independent of any ambient
+    `Interface_Static` state; the transferred shape crosses the process boundary
+    as a lossless BREP and the null / single-solid taxonomy stays in the parent.
+    The `import-step-box-10x20x30` golden still measures **0.0 deviation**
+    end-to-end through this subprocess path.
+  - **Residual (accepted).** The bound is on *time*, not memory: a payload up to
+    the 16 MiB cap can still allocate proportionally during the parse (now in the
+    child process, so a kill also reclaims that memory). Per-call subprocess
+    spawn adds ~0.9 s to an import feature's rebuild — well inside the 2 s
+    tessellation tripwire (docs/GEOMETRY-QA.md Gate 4) and confined to the import
+    path. A blob-backed source (§2a) that avoids re-shipping/re-parsing bytes on
+    every rebuild is the follow-up that removes the repeated cost.
 - **Boundary hygiene.** `ImportParamsV1` is pure pydantic (two string literals +
   a bounded string). No kernel type crosses the boundary: the imported
   `build123d.Solid` lives only inside geometry evaluation state (like every
