@@ -185,8 +185,19 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       full `AssemblySolveInput`; the first REAL bolted solve (two plates, two
       holes each) lands the free plate at the analytic pose (`well_constrained`,
       ~1e-8), with stale/ambiguous/wrong-instance/non-circular refs raising a
-      clean `AssemblyDefinitionError`. **Next: v1 #4** — gateway assembly
-      endpoints proxying the documents CRUD with per-route auth.
+      clean `AssemblyDefinitionError`. **v1 #5 landed** (the v1 DoD, "bolt two
+      parts together and see it"): `geometry.assembly.evaluate_assembly` +
+      `POST /api/v1/assembly/evaluate` — evaluate each UNIQUE part once (dedup
+      by `part_key` → one content-addressed mesh shared across instances),
+      resolve + solve to a solved world `Placement` per instance, analytic
+      combined mass-property roll-up (Σ volumes, mass-weighted centroid,
+      transformed-bbox union — no re-meshing/boolean); the solved transform is
+      applied at RENDER time over the shared mesh. First assembly golden
+      `assembly-two-plates-bolted` (solved transforms == analytic within 1e-6,
+      combined props == roll-up, byte-deterministic across interpreter restart,
+      shared-mesh dedup) + per-instance/per-mate error + diagnosis tests.
+      **Next: v1 #4** — gateway assembly endpoints proxying the documents CRUD
+      (+ the new geometry `assembly/evaluate`) with per-route auth.
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).

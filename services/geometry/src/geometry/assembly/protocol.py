@@ -36,9 +36,37 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Literal, Protocol
 
-from py_kit.schemas.assemblies import Mate, Placement
+from py_kit.schemas.assemblies import (
+    AssemblyOverconstraintClass,
+    AssemblySolveDiagnosis,
+    AssemblySolveStatus,
+    Mate,
+    Placement,
+)
 from py_kit.schemas.geometry import Vec3
 from pydantic import BaseModel, Field
+
+# ``AssemblySolveStatus`` / ``AssemblyOverconstraintClass`` /
+# ``AssemblySolveDiagnosis`` now live in the boundary schema
+# (:mod:`py_kit.schemas.assemblies`) so the evaluation RESULT can carry them
+# without a parallel copy (CLAUDE.md DRY rule). They are re-exported here so
+# every existing ``geometry.assembly`` import site is unchanged.
+__all__ = [
+    "AssemblyDefinitionError",
+    "AssemblyOverconstraintClass",
+    "AssemblySolveDiagnosis",
+    "AssemblySolveInput",
+    "AssemblySolveMethod",
+    "AssemblySolveResult",
+    "AssemblySolveStatus",
+    "AssemblySolver",
+    "ResolvedAxis",
+    "ResolvedFace",
+    "ResolvedMateGeometry",
+    "SolvedInstancePlacement",
+    "SolverInstance",
+    "SolverMate",
+]
 
 
 class AssemblyDefinitionError(ValueError):
@@ -118,61 +146,9 @@ class AssemblySolveInput(BaseModel):
 
 # --- diagnosis + result ---------------------------------------------------------
 
-#: Solve outcome, mirroring the sketch solver's status vocabulary (design §2.4).
-#: Only ``conflicting`` / ``not_converged`` are fatal (a per-mate error at the
-#: evaluation layer, #5); ``under_constrained`` and ``over_constrained`` still
-#: return a valid best-fit placement.
-AssemblySolveStatus = Literal[
-    "well_constrained",
-    "under_constrained",
-    "over_constrained",
-    "conflicting",
-    "not_converged",
-]
-
 #: Which solve path produced the placements — the closed-form tree fast path
 #: (design §2.2) or the numerical Levenberg-Marquardt fallback.
 AssemblySolveMethod = Literal["closed_form", "numeric"]
-
-#: Over-constraint kind, mirroring ``SketchOverconstraintClass``.
-AssemblyOverconstraintClass = Literal["redundant", "conflicting"]
-
-
-class AssemblySolveDiagnosis(BaseModel):
-    """Structured diagnosis, mirroring ``SketchConstraintDiagnosis`` (design §2.4).
-
-    Read by field, never a parsed message. ``remaining_dof`` is first-class for
-    the under-constrained case; ``conflicting_mates`` / ``redundant_mates`` name
-    offending mates by id for the over/conflict cases.
-    """
-
-    classification: AssemblyOverconstraintClass | None = Field(
-        default=None,
-        description="'redundant' (removable, still solves) or 'conflicting' "
-        "(contradictory); None for a purely under-constrained diagnosis.",
-    )
-    remaining_dof: int = Field(
-        default=0,
-        ge=0,
-        description="Degrees of freedom left free at the seed (0 = fully located).",
-    )
-    removable: bool = Field(
-        default=False,
-        description="True when the assembly still solves after removing the named "
-        "redundant mates (the redundant case); False for a genuine conflict.",
-    )
-    conflicting_mates: list[uuid.UUID] = Field(
-        default_factory=list["uuid.UUID"],
-        description="Ids of mutually-unsatisfiable mates (conflicting case).",
-    )
-    redundant_mates: list[uuid.UUID] = Field(
-        default_factory=list["uuid.UUID"],
-        description="Ids of consistent-but-superfluous, removable mates.",
-    )
-    message: str = Field(description="Human-readable diagnosis.")
-    suggested_fix: str | None = Field(
-        default=None, description="Actionable hint, e.g. 'Remove mate <id>'."
-    )
 
 
 class SolvedInstancePlacement(BaseModel):

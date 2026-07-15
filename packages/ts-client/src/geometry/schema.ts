@@ -1,6 +1,40 @@
 // GENERATED — do not edit; run `just gen`.
 // Types for the geometry service (source contract: packages/contracts/geometry.openapi.json).
 export interface paths {
+    "/api/v1/assembly/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Evaluate Assembly Route
+         * @description Evaluate an assembly to solved placements + shared meshes (design §4).
+         *
+         *     Stateless (CLAUDE.md): documents sends the assembly graph — each instance's
+         *     part feature list + authored placement + the ordered mates — and geometry is
+         *     the sole evaluator. Each UNIQUE part is evaluated + tessellated ONCE
+         *     (content-addressed; two instances of a part share one mesh), the mate solver
+         *     produces a solved world :class:`Placement` per instance, and the response
+         *     carries per-instance ``{shared mesh id, solved placement}`` + an analytic
+         *     combined mass-property roll-up. The SOLVED transform is applied at RENDER
+         *     time (per-instance transform over the shared mesh), never baked into the GLB.
+         *
+         *     A bad part / mate / solve is a **200 with a typed per-entry error or a
+         *     non-``well_constrained`` status** (mirroring ``/evaluate``'s strict-prefix
+         *     posture, §4.3); the py-kit envelope stays reserved for transport/validation
+         *     failures of this call itself.
+         */
+        post: operations["evaluate_assembly_route_api_v1_assembly_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/evaluate": {
         parameters: {
             query?: never;
@@ -431,6 +465,77 @@ export interface components {
             kind: "all_edges";
         };
         /**
+         * AngleMate
+         * @description Two planar faces held at a fixed angle (fast-follow, design §5).
+         *
+         *     The angular sibling of :class:`DistanceMate`: the coincident residual with
+         *     the angle between the two normals targeted at ``angle_deg`` (§2.3). In the
+         *     schema now; not v1-solver scope.
+         */
+        AngleMate: {
+            /** @description First planar face */
+            a: components["schemas"]["MateFaceRef"];
+            /**
+             * Angle Deg
+             * @description Target angle between the two face normals (degrees)
+             */
+            angle_deg: number;
+            /** @description Second planar face */
+            b: components["schemas"]["MateFaceRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "angle";
+        };
+        /**
+         * AssemblySolveDiagnosis
+         * @description Structured diagnosis, mirroring ``SketchConstraintDiagnosis`` (design §2.4).
+         *
+         *     Read by field, never a parsed message. ``remaining_dof`` is first-class for
+         *     the under-constrained case; ``conflicting_mates`` / ``redundant_mates`` name
+         *     offending mates by id for the over/conflict cases.
+         */
+        AssemblySolveDiagnosis: {
+            /**
+             * Classification
+             * @description 'redundant' (removable, still solves) or 'conflicting' (contradictory); None for a purely under-constrained diagnosis.
+             */
+            classification?: ("redundant" | "conflicting") | null;
+            /**
+             * Conflicting Mates
+             * @description Ids of mutually-unsatisfiable mates (conflicting case).
+             */
+            conflicting_mates?: string[];
+            /**
+             * Message
+             * @description Human-readable diagnosis.
+             */
+            message: string;
+            /**
+             * Redundant Mates
+             * @description Ids of consistent-but-superfluous, removable mates.
+             */
+            redundant_mates?: string[];
+            /**
+             * Remaining Dof
+             * @description Degrees of freedom left free at the seed (0 = fully located).
+             * @default 0
+             */
+            remaining_dof: number;
+            /**
+             * Removable
+             * @description True when the assembly still solves after removing the named redundant mates (the redundant case); False for a genuine conflict.
+             * @default false
+             */
+            removable: boolean;
+            /**
+             * Suggested Fix
+             * @description Actionable hint, e.g. 'Remove mate <id>'.
+             */
+            suggested_fix?: string | null;
+        };
+        /**
          * AxisParallelEdgesSelector
          * @description Every straight edge parallel to a world axis (e.g. Z = the vertical
          *     edges of an upright prism). Curved edges never match — an arc has no
@@ -569,6 +674,32 @@ export interface components {
             kind: "coincident";
         };
         /**
+         * CoincidentMate
+         * @description Two planar faces made coplanar + flush (design §2.1/§2.3).
+         *
+         *     ``flush`` chooses the normal sense: ``True`` = normals anti-parallel (the
+         *     mating faces touch, the common bolted-flush case); ``False`` = normals
+         *     parallel (faces back-to-back). The residual is a coplanar gap of zero plus
+         *     the (anti)parallel normal constraint (§2.3).
+         */
+        CoincidentMate: {
+            /** @description First planar face */
+            a: components["schemas"]["MateFaceRef"];
+            /** @description Second planar face */
+            b: components["schemas"]["MateFaceRef"];
+            /**
+             * Flush
+             * @description True = normals anti-parallel (mating faces touch); False = normals parallel (back-to-back)
+             * @default true
+             */
+            flush: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "coincident";
+        };
+        /**
          * ConcentricConstraint
          * @description Two circles/arcs share a center point.
          *
@@ -593,6 +724,25 @@ export interface components {
              * @enum {string}
              */
             kind: "concentric";
+        };
+        /**
+         * ConcentricMate
+         * @description Two axes (from circular edges) made collinear (design §2.1/§2.3).
+         *
+         *     The bolt/pin half of the canonical joint: hole and shaft axes aligned. The
+         *     residual makes the two directions parallel and the two lines coincident
+         *     (§2.3).
+         */
+        ConcentricMate: {
+            /** @description First axis */
+            a: components["schemas"]["MateAxisRef"];
+            /** @description Second axis */
+            b: components["schemas"]["MateAxisRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "concentric";
         };
         /**
          * CylinderParams
@@ -774,6 +924,30 @@ export interface components {
              * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
              */
             value_mm: number;
+        };
+        /**
+         * DistanceMate
+         * @description Two planar faces held a fixed distance apart (fast-follow, design §5).
+         *
+         *     ``coincident`` with a non-zero offset in the residual (§2.3) — the same
+         *     solver, one extra scalar. In the schema now so it joins the solver
+         *     additively; not v1-solver scope.
+         */
+        DistanceMate: {
+            /** @description First planar face */
+            a: components["schemas"]["MateFaceRef"];
+            /** @description Second planar face */
+            b: components["schemas"]["MateFaceRef"];
+            /**
+             * Distance Mm
+             * @description Signed gap between the two faces along the normal (mm)
+             */
+            distance_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "distance";
         };
         /**
          * DraftFeature
@@ -1049,6 +1223,88 @@ export interface components {
             kind: "equal";
         };
         /**
+         * EvaluateAssemblyRequest
+         * @description Evaluate an assembly graph to solved placements + shared meshes (§4).
+         *
+         *     Documents flattens rigid sub-assemblies into this recursive structure
+         *     before sending (or geometry recurses — the rigid-group result is identical,
+         *     §1.4/§4). Deterministic (RESEARCH §9): the same request yields an identical
+         *     result — bitwise-stable mesh ids AND solved transforms — in-process and
+         *     across an interpreter restart.
+         */
+        EvaluateAssemblyRequest: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Instances
+             * @description The assembly's instances (result order preserved)
+             */
+            instances: components["schemas"]["EvaluatedInstance"][];
+            /**
+             * Linear Deflection
+             * @description Presentation tessellation parameter (mm), never persisted
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /**
+             * Mates
+             * @description The mate graph; processed in order_index order (determinism)
+             */
+            mates?: components["schemas"]["EvaluatedMate"][];
+            /**
+             * Version
+             * @description Echoed back; cache/correlation key
+             */
+            version: number;
+        };
+        /**
+         * EvaluateAssemblyResult
+         * @description Per-instance shared-mesh + solved transform, plus the analytic roll-up (§4).
+         *
+         *     The output is per-instance ``{content-addressed mesh, solved transform}``,
+         *     NOT a baked combined GLB (design §4): the viewport instances the shared part
+         *     meshes with the solved transforms (r3f instancing). ``properties`` /
+         *     ``bounding_box`` are a closed-form roll-up over instances (Σ volumes,
+         *     mass-weighted centroid, transformed-bbox union — no re-meshing, no boolean),
+         *     ``None`` when no instance produced a body. A feature/mate failure is a 200
+         *     with typed per-entry errors; the envelope stays reserved for
+         *     transport/validation failures (design §4).
+         */
+        EvaluateAssemblyResult: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /** @description Combined assembly AABB (transformed-bbox union) */
+            bounding_box?: components["schemas"]["BoundingBox"] | null;
+            /** @description Remaining DOF + offending mate ids; None for a clean well_constrained solve (design §2.4) */
+            diagnosis?: components["schemas"]["AssemblySolveDiagnosis"] | null;
+            /**
+             * Instances
+             * @description Same order as the request instances
+             */
+            instances: components["schemas"]["InstancePlacementResult"][];
+            /**
+             * Mate Errors
+             * @description Per-mate resolution failures (dropped from the solve, §4)
+             */
+            mate_errors?: components["schemas"]["MateEvaluationError"][];
+            /** @description Combined assembly mass properties (roll-up, §4) */
+            properties?: components["schemas"]["ShapeProperties"] | null;
+            /**
+             * Status
+             * @description Assembly-level solve outcome
+             * @enum {string}
+             */
+            status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
+            /** Version */
+            version: number;
+        };
+        /**
          * EvaluateTreeRequest
          * @description Evaluate an ordered, validated, current-version feature list (§4.2).
          *
@@ -1123,6 +1379,87 @@ export interface components {
              * @description Feature identity for refs + result keying
              */
             id: string;
+        };
+        /**
+         * EvaluatedInstance
+         * @description One assembly instance as the evaluator sees it (design §4).
+         *
+         *     ``part_key`` is the DEDUP key — ``f"{ref_document_id}@{version-or-tip}"`` —
+         *     so two instances of the SAME part evaluate once and share one
+         *     content-addressed mesh (the central perf win, design §4 step 1). ``features``
+         *     is the part's ordered feature prefix (reuses the feature-tree §4 contract
+         *     VERBATIM), so geometry stays the sole evaluator and documents sends intent,
+         *     never a kernel body. ``placement`` is the authored seed pose the solver
+         *     starts from; ``grounded`` fixes it at that pose (0 DOF — the solver anchor).
+         */
+        EvaluatedInstance: {
+            /**
+             * Features
+             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Grounded
+             * @description Fix this instance at its placement (0 DOF) — the solver anchor; an assembly with none grounded floats (under_constrained, §1.2)
+             * @default false
+             */
+            grounded: boolean;
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description Instance identity (result keying)
+             */
+            instance_id: string;
+            /**
+             * Part Key
+             * @description Dedup key f'{ref_document_id}@{version-or-tip}': instances sharing it evaluate once and share one content-addressed mesh (§4)
+             */
+            part_key: string;
+            /**
+             * @description Authored seed pose (§2.3)
+             * @default {
+             *       "orientation": {
+             *         "w": 1,
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       },
+             *       "position": {
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       }
+             *     }
+             */
+            placement: components["schemas"]["Placement"];
+        };
+        /**
+         * EvaluatedMate
+         * @description One mate plus the persisted-row identity the solver + diagnosis need.
+         *
+         *     ``mate_id`` names the mate in the diagnosis (offending / redundant sets) and
+         *     in a per-mate resolution error; ``order_index`` fixes the deterministic
+         *     processing order (design §2.2). ``mate`` is the discriminated
+         *     :data:`Mate` union member. Mirrors :class:`MateResponse` minus the
+         *     assembly id (the request already scopes one assembly).
+         */
+        EvaluatedMate: {
+            /**
+             * Mate
+             * @description The mate (discriminated on `type`)
+             */
+            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"];
+            /**
+             * Mate Id
+             * Format: uuid
+             * @description Persisted mate id (names it in diagnosis)
+             */
+            mate_id: string;
+            /**
+             * Order Index
+             * @description Deterministic processing order (design §2.2)
+             */
+            order_index: number;
         };
         /**
          * ExportRequest
@@ -1487,6 +1824,36 @@ export interface components {
             kind: "inline";
         };
         /**
+         * InstancePlacementResult
+         * @description One instance's evaluation output: its shared mesh + solved pose (§4).
+         *
+         *     ``part_mesh_glb_id`` is a content address SHARED across every instance of a
+         *     part (the dedup contract, §4/§6.4) — ``None`` only when the instance's part
+         *     produced no body (``error`` then explains why). ``placement`` is the SOLVED
+         *     world pose (the authored seed for a failed / un-solved instance).
+         *     ``properties`` are the part's OWN mass properties (for BOM / inspection).
+         *     ``error`` is a typed per-instance failure inside a 200 (design §4, mirroring
+         *     feature-tree §4.3) — e.g. the part's failing feature error — never a 4xx.
+         */
+        InstancePlacementResult: {
+            /** @description Typed per-instance failure inside a 200 (the part's failing feature error / no_body), never a transport 4xx (design §4) */
+            error?: components["schemas"]["FeatureError"] | null;
+            /**
+             * Instance Id
+             * Format: uuid
+             */
+            instance_id: string;
+            /**
+             * Part Mesh Glb Id
+             * @description Content-addressed shared part mesh (sha256:<hex>), or null when the part produced no body
+             */
+            part_mesh_glb_id: string | null;
+            /** @description SOLVED world pose (seed if unsolved) */
+            placement: components["schemas"]["Placement"];
+            /** @description The part's own mass properties (BOM/inspection) */
+            properties?: components["schemas"]["ShapeProperties"] | null;
+        };
+        /**
          * LinearPatternParamsV1
          * @description A linear (row/grid-line) pattern along a world-space direction.
          *
@@ -1514,6 +1881,34 @@ export interface components {
              * @description Centre-to-centre step between consecutive instances along `direction` (mm); must be > 0 (a `pattern_bad_spacing` rebuild error otherwise). Validated at rebuild, not at parse (see module note).
              */
             spacing_mm: number;
+        };
+        /**
+         * LockMate
+         * @description Rigidly fix two instances' relative pose — 0 DOF (design §2.1/§2.3).
+         *
+         *     Trivial for the solver (it fixes a relative pose, 0 iterative work) and
+         *     covers weldments/press-fits. References two instances directly by id (no
+         *     picked geometry) — the relative-pose residual drives ``b``'s pose to a fixed
+         *     transform of ``a``'s (§2.3).
+         */
+        LockMate: {
+            /**
+             * A Instance Id
+             * Format: uuid
+             * @description First (anchor) instance
+             */
+            a_instance_id: string;
+            /**
+             * B Instance Id
+             * Format: uuid
+             * @description Second (locked) instance
+             */
+            b_instance_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "lock";
         };
         /**
          * LoftFeature
@@ -1587,6 +1982,79 @@ export interface components {
              * @description Ordered earlier sketch features (>= 2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
              */
             profiles: components["schemas"]["FeatureRef"][];
+        };
+        /**
+         * MateAxisRef
+         * @description An axis derived from a CIRCULAR edge of an instance's part body (§2.1).
+         *
+         *     v1 derives an axis from a circular edge (``curve == "circle"``) — reusing
+         *     :class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and
+         *     plane give the axis (design §2.1). This deliberately avoids needing a
+         *     cylindrical-face signature (a clean additive future member): a hole rim and
+         *     a shaft rim are both circular edges, enough for the canonical bolt joint.
+         */
+        MateAxisRef: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The instance whose part body carries this axis edge
+             */
+            instance_id: string;
+            /**
+             * Kind
+             * @default axis
+             * @constant
+             */
+            kind: "axis";
+            /** @description Stage-1 edge signature (curve == 'circle'; reused from features) whose centre + plane define the axis */
+            signature: components["schemas"]["EdgeSignature"];
+        };
+        /**
+         * MateEvaluationError
+         * @description A per-mate resolution failure inside a 200 (design §4).
+         *
+         *     A mate whose geometry could not be resolved against the evaluated bodies —
+         *     ``subshape_unresolved`` / ``subshape_ambiguous`` (from the reused stage-1
+         *     resolver, #3's chained error) or a reference to an unavailable instance — is
+         *     reported here and DROPPED from the solve (the assembly still renders every
+         *     instance it can place, degrading to under-constrained rather than failing
+         *     the whole evaluation, design §4). A CONFLICTING (unsatisfiable) mate is not
+         *     here — it is named in :attr:`AssemblySolveDiagnosis.conflicting_mates`.
+         */
+        MateEvaluationError: {
+            /** @description Typed per-mate failure (code + message) */
+            error: components["schemas"]["FeatureError"];
+            /**
+             * Mate Id
+             * Format: uuid
+             */
+            mate_id: string;
+        };
+        /**
+         * MateFaceRef
+         * @description A planar face of an instance's part body (design §1.5/§2.1).
+         *
+         *     ``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`
+         *     the ``on_face`` datum resolves (topological-naming.md §9) — reused verbatim,
+         *     not a parallel taxonomy. ``instance_id`` scopes the face to one instance's
+         *     resolved part body (the geometry service resolves the signature against that
+         *     body in the part's local frame, §4).
+         */
+        MateFaceRef: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The instance whose part body carries this face
+             */
+            instance_id: string;
+            /**
+             * Kind
+             * @default face
+             * @constant
+             */
+            kind: "face";
+            /** @description Stage-1 planar-face signature (reused from features) */
+            signature: components["schemas"]["PlanarFaceSignature"];
         };
         /**
          * MeasureRequest
@@ -1916,6 +2384,29 @@ export interface components {
             refs: components["schemas"]["EdgeSubshapeRef"][];
         };
         /**
+         * Placement
+         * @description A rigid pose — translation + orientation — of an instance (design §2.3).
+         *
+         *     ``position`` is the world-mm translation; ``orientation`` defaults to the
+         *     identity quaternion so an authored instance with no rotation carries a
+         *     minimal placement. On the wire everywhere (authored seed AND solved result,
+         *     §4) so the solver never converts representation at the boundary.
+         */
+        Placement: {
+            /**
+             * @description Unit quaternion orientation; identity (0,0,0,1) by default
+             * @default {
+             *       "w": 1,
+             *       "x": 0,
+             *       "y": 0,
+             *       "z": 0
+             *     }
+             */
+            orientation: components["schemas"]["Quat"];
+            /** @description Translation, world mm */
+            position: components["schemas"]["Vec3"];
+        };
+        /**
          * PlanarFaceSignature
          * @description §2b stage-1 geometric fingerprint of a PLANAR face — typed, kernel-free.
          *
@@ -1975,6 +2466,39 @@ export interface components {
             kind: "point";
             /** @description World-space coordinates of the point (mm) */
             position: components["schemas"]["Vec3"];
+        };
+        /**
+         * Quat
+         * @description Unit quaternion — the solver's internal orientation representation (§2.3).
+         *
+         *     Gimbal-free, minimal, and renormalises cleanly under iteration (design
+         *     §2.3), so no lossy Euler/matrix conversion crosses the boundary. All four
+         *     components are required — a partial quaternion is a request-validation 422,
+         *     never a silently-defaulted rotation. Identity is ``(0, 0, 0, 1)``; the
+         *     solver renormalises to the unit sphere, so an authored value need not be
+         *     exactly unit-length.
+         */
+        Quat: {
+            /**
+             * W
+             * @description Scalar part (full precision); 1 for identity
+             */
+            w: number;
+            /**
+             * X
+             * @description Vector part i-component (full precision)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Vector part j-component (full precision)
+             */
+            y: number;
+            /**
+             * Z
+             * @description Vector part k-component (full precision)
+             */
+            z: number;
         };
         /**
          * RadiusConstraint
@@ -3048,6 +3572,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    evaluate_assembly_route_api_v1_assembly_evaluate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateAssemblyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateAssemblyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     evaluate_api_v1_evaluate_post: {
         parameters: {
             query?: never;

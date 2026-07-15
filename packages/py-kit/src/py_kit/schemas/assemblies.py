@@ -23,8 +23,18 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from py_kit.schemas.features import EdgeSignature, PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from py_kit.schemas.features import (
+    EdgeSignature,
+    EvaluatedFeatureInput,
+    FeatureError,
+    PlanarFaceSignature,
+)
+from py_kit.schemas.geometry import (
+    DEFAULT_LINEAR_DEFLECTION,
+    BoundingBox,
+    ShapeProperties,
+    Vec3,
+)
 
 #: Upper bound for a user-facing assembly name ("Gearbox", "Bracket Stack").
 ASSEMBLY_NAME_MAX_LENGTH = 200
@@ -438,3 +448,231 @@ class MateMutationResponse(BaseModel):
 
     mate: MateResponse
     doc_version: int
+
+
+# --- solve status + diagnosis (§2.4) --------------------------------------------
+#
+# THE boundary source of truth for the solve outcome (CLAUDE.md DRY rule): the
+# geometry service's ``AssemblySolver`` (``geometry.assembly.protocol``) imports
+# these back rather than defining a parallel copy, so the solver's status and the
+# evaluation result's status are the SAME type. They mirror the sketch solver's
+# ``SketchOverconstraintClass`` / ``SketchConstraintDiagnosis`` vocabulary so the
+# UI and tests share one mental model across the 2D and 3D solvers (design §2.4).
+
+#: Solve outcome, mirroring the sketch solver's status vocabulary (design §2.4).
+#: Only ``conflicting`` / ``not_converged`` are fatal (a per-mate error at the
+#: evaluation layer); ``under_constrained`` and ``over_constrained`` still return
+#: a valid best-fit placement (an ungrounded assembly is a non-fatal
+#: ``under_constrained`` by its 6 free rigid-body DOF, design §1.2).
+AssemblySolveStatus = Literal[
+    "well_constrained",
+    "under_constrained",
+    "over_constrained",
+    "conflicting",
+    "not_converged",
+]
+
+#: Over-constraint kind, mirroring ``SketchOverconstraintClass`` (design §2.4).
+AssemblyOverconstraintClass = Literal["redundant", "conflicting"]
+
+
+class AssemblySolveDiagnosis(BaseModel):
+    """Structured diagnosis, mirroring ``SketchConstraintDiagnosis`` (design §2.4).
+
+    Read by field, never a parsed message. ``remaining_dof`` is first-class for
+    the under-constrained case; ``conflicting_mates`` / ``redundant_mates`` name
+    offending mates by id for the over/conflict cases.
+    """
+
+    classification: AssemblyOverconstraintClass | None = Field(
+        default=None,
+        description="'redundant' (removable, still solves) or 'conflicting' "
+        "(contradictory); None for a purely under-constrained diagnosis.",
+    )
+    remaining_dof: int = Field(
+        default=0,
+        ge=0,
+        description="Degrees of freedom left free at the seed (0 = fully located).",
+    )
+    removable: bool = Field(
+        default=False,
+        description="True when the assembly still solves after removing the named "
+        "redundant mates (the redundant case); False for a genuine conflict.",
+    )
+    conflicting_mates: list[uuid.UUID] = Field(
+        default_factory=list["uuid.UUID"],
+        description="Ids of mutually-unsatisfiable mates (conflicting case).",
+    )
+    redundant_mates: list[uuid.UUID] = Field(
+        default_factory=list["uuid.UUID"],
+        description="Ids of consistent-but-superfluous, removable mates.",
+    )
+    message: str = Field(description="Human-readable diagnosis.")
+    suggested_fix: str | None = Field(
+        default=None, description="Actionable hint, e.g. 'Remove mate <id>'."
+    )
+
+
+# --- §4 evaluation contract (documents → geometry → gateway → web) --------------
+#
+# Mirrors ``EvaluateTreeRequest`` / ``EvaluateTreeResult`` (feature-tree.md §4):
+# one transport-agnostic request/response pair, pure pydantic (no kernel type
+# crosses the boundary — CLAUDE.md). documents sends INTENT (each part's feature
+# list + the mate graph), geometry is the sole evaluator, and the response is
+# per-instance {content-addressed mesh + solved transform} + an analytic
+# combined-property roll-up. The SOLVED transform is applied at RENDER time (a
+# per-instance transform over a SHARED part mesh), never baked into the GLB
+# (design §4) — two instances of one part share a single content-addressed mesh.
+
+
+class EvaluatedMate(BaseModel):
+    """One mate plus the persisted-row identity the solver + diagnosis need.
+
+    ``mate_id`` names the mate in the diagnosis (offending / redundant sets) and
+    in a per-mate resolution error; ``order_index`` fixes the deterministic
+    processing order (design §2.2). ``mate`` is the discriminated
+    :data:`Mate` union member. Mirrors :class:`MateResponse` minus the
+    assembly id (the request already scopes one assembly).
+    """
+
+    mate_id: uuid.UUID = Field(description="Persisted mate id (names it in diagnosis)")
+    order_index: int = Field(
+        ge=0, description="Deterministic processing order (design §2.2)"
+    )
+    mate: Mate = Field(description="The mate (discriminated on `type`)")
+
+
+class EvaluatedInstance(BaseModel):
+    """One assembly instance as the evaluator sees it (design §4).
+
+    ``part_key`` is the DEDUP key — ``f"{ref_document_id}@{version-or-tip}"`` —
+    so two instances of the SAME part evaluate once and share one
+    content-addressed mesh (the central perf win, design §4 step 1). ``features``
+    is the part's ordered feature prefix (reuses the feature-tree §4 contract
+    VERBATIM), so geometry stays the sole evaluator and documents sends intent,
+    never a kernel body. ``placement`` is the authored seed pose the solver
+    starts from; ``grounded`` fixes it at that pose (0 DOF — the solver anchor).
+    """
+
+    instance_id: uuid.UUID = Field(description="Instance identity (result keying)")
+    part_key: str = Field(
+        description="Dedup key f'{ref_document_id}@{version-or-tip}': instances "
+        "sharing it evaluate once and share one content-addressed mesh (§4)"
+    )
+    features: list[EvaluatedFeatureInput] = Field(
+        description="The part's ordered feature prefix (feature-tree §4 contract)"
+    )
+    placement: Placement = Field(
+        default=IDENTITY_PLACEMENT, description="Authored seed pose (§2.3)"
+    )
+    grounded: bool = Field(
+        default=False,
+        description="Fix this instance at its placement (0 DOF) — the solver "
+        "anchor; an assembly with none grounded floats (under_constrained, §1.2)",
+    )
+
+
+class EvaluateAssemblyRequest(BaseModel):
+    """Evaluate an assembly graph to solved placements + shared meshes (§4).
+
+    Documents flattens rigid sub-assemblies into this recursive structure
+    before sending (or geometry recurses — the rigid-group result is identical,
+    §1.4/§4). Deterministic (RESEARCH §9): the same request yields an identical
+    result — bitwise-stable mesh ids AND solved transforms — in-process and
+    across an interpreter restart.
+    """
+
+    assembly_id: uuid.UUID
+    version: int = Field(description="Echoed back; cache/correlation key")
+    instances: list[EvaluatedInstance] = Field(
+        description="The assembly's instances (result order preserved)"
+    )
+    mates: list[EvaluatedMate] = Field(
+        default_factory=list["EvaluatedMate"],
+        description="The mate graph; processed in order_index order (determinism)",
+    )
+    linear_deflection: float = Field(
+        default=DEFAULT_LINEAR_DEFLECTION,
+        gt=0,
+        description="Presentation tessellation parameter (mm), never persisted",
+    )
+
+
+class InstancePlacementResult(BaseModel):
+    """One instance's evaluation output: its shared mesh + solved pose (§4).
+
+    ``part_mesh_glb_id`` is a content address SHARED across every instance of a
+    part (the dedup contract, §4/§6.4) — ``None`` only when the instance's part
+    produced no body (``error`` then explains why). ``placement`` is the SOLVED
+    world pose (the authored seed for a failed / un-solved instance).
+    ``properties`` are the part's OWN mass properties (for BOM / inspection).
+    ``error`` is a typed per-instance failure inside a 200 (design §4, mirroring
+    feature-tree §4.3) — e.g. the part's failing feature error — never a 4xx.
+    """
+
+    instance_id: uuid.UUID
+    part_mesh_glb_id: str | None = Field(
+        description="Content-addressed shared part mesh (sha256:<hex>), or null "
+        "when the part produced no body"
+    )
+    placement: Placement = Field(description="SOLVED world pose (seed if unsolved)")
+    properties: ShapeProperties | None = Field(
+        default=None, description="The part's own mass properties (BOM/inspection)"
+    )
+    error: FeatureError | None = Field(
+        default=None,
+        description="Typed per-instance failure inside a 200 (the part's failing "
+        "feature error / no_body), never a transport 4xx (design §4)",
+    )
+
+
+class MateEvaluationError(BaseModel):
+    """A per-mate resolution failure inside a 200 (design §4).
+
+    A mate whose geometry could not be resolved against the evaluated bodies —
+    ``subshape_unresolved`` / ``subshape_ambiguous`` (from the reused stage-1
+    resolver, #3's chained error) or a reference to an unavailable instance — is
+    reported here and DROPPED from the solve (the assembly still renders every
+    instance it can place, degrading to under-constrained rather than failing
+    the whole evaluation, design §4). A CONFLICTING (unsatisfiable) mate is not
+    here — it is named in :attr:`AssemblySolveDiagnosis.conflicting_mates`.
+    """
+
+    mate_id: uuid.UUID
+    error: FeatureError = Field(description="Typed per-mate failure (code + message)")
+
+
+class EvaluateAssemblyResult(BaseModel):
+    """Per-instance shared-mesh + solved transform, plus the analytic roll-up (§4).
+
+    The output is per-instance ``{content-addressed mesh, solved transform}``,
+    NOT a baked combined GLB (design §4): the viewport instances the shared part
+    meshes with the solved transforms (r3f instancing). ``properties`` /
+    ``bounding_box`` are a closed-form roll-up over instances (Σ volumes,
+    mass-weighted centroid, transformed-bbox union — no re-meshing, no boolean),
+    ``None`` when no instance produced a body. A feature/mate failure is a 200
+    with typed per-entry errors; the envelope stays reserved for
+    transport/validation failures (design §4).
+    """
+
+    assembly_id: uuid.UUID
+    version: int
+    instances: list[InstancePlacementResult] = Field(
+        description="Same order as the request instances"
+    )
+    status: AssemblySolveStatus = Field(description="Assembly-level solve outcome")
+    diagnosis: AssemblySolveDiagnosis | None = Field(
+        default=None,
+        description="Remaining DOF + offending mate ids; None for a clean "
+        "well_constrained solve (design §2.4)",
+    )
+    mate_errors: list[MateEvaluationError] = Field(
+        default_factory=list["MateEvaluationError"],
+        description="Per-mate resolution failures (dropped from the solve, §4)",
+    )
+    properties: ShapeProperties | None = Field(
+        default=None, description="Combined assembly mass properties (roll-up, §4)"
+    )
+    bounding_box: BoundingBox | None = Field(
+        default=None, description="Combined assembly AABB (transformed-bbox union)"
+    )

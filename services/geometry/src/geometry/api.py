@@ -14,6 +14,10 @@ from py_kit.errors import NotFoundError, ValidationApiError
 
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
+from py_kit.schemas.assemblies import (
+    EvaluateAssemblyRequest,
+    EvaluateAssemblyResult,
+)
 from py_kit.schemas.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
@@ -44,6 +48,7 @@ from py_kit.schemas.sketch import (
     SketchOffsetResult,
 )
 
+from geometry.assembly import evaluate_assembly
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
@@ -108,6 +113,29 @@ def evaluate(request: EvaluateTreeRequest) -> EvaluateTreeResult:
     stays reserved for transport/validation failures of this call itself.
     """
     return evaluate_tree(request).result
+
+
+@router.post("/assembly/evaluate")
+def evaluate_assembly_route(
+    request: EvaluateAssemblyRequest,
+) -> EvaluateAssemblyResult:
+    """Evaluate an assembly to solved placements + shared meshes (design §4).
+
+    Stateless (CLAUDE.md): documents sends the assembly graph — each instance's
+    part feature list + authored placement + the ordered mates — and geometry is
+    the sole evaluator. Each UNIQUE part is evaluated + tessellated ONCE
+    (content-addressed; two instances of a part share one mesh), the mate solver
+    produces a solved world :class:`Placement` per instance, and the response
+    carries per-instance ``{shared mesh id, solved placement}`` + an analytic
+    combined mass-property roll-up. The SOLVED transform is applied at RENDER
+    time (per-instance transform over the shared mesh), never baked into the GLB.
+
+    A bad part / mate / solve is a **200 with a typed per-entry error or a
+    non-``well_constrained`` status** (mirroring ``/evaluate``'s strict-prefix
+    posture, §4.3); the py-kit envelope stays reserved for transport/validation
+    failures of this call itself.
+    """
+    return evaluate_assembly(request)
 
 
 _MESH_RESPONSES: dict[int | str, dict[str, Any]] = {

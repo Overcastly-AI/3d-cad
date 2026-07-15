@@ -7,6 +7,7 @@ the numerics against SYNTHETIC resolved geometry; item #3 wires the real
 mate-geometry-ref resolution into :class:`SolverMate.geometry`.
 """
 
+from geometry.assembly.evaluate import evaluate_assembly
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
     AssemblyOverconstraintClass,
@@ -50,5 +51,6 @@ __all__ = [
     "SolverInstance",
     "SolverMate",
     "build_assembly_solve_input",
+    "evaluate_assembly",
     "resolve_mate_geometry",
 ]

@@ -111,25 +111,27 @@ nit, no user impact, stays Later).
       the gateway against isolated documents+gateway ports (CLAUDE.md
       recipe); contracts regenerated. Depends on: #1 (documents API to
       proxy). [src: design/assemblies.md §3]
-- [ ] (P1, M) Assemblies v1 #5 — assembly evaluation + shared-mesh
-      tessellation — **"bolt two parts together and see it," the v1 DoD.**
-      The full `EvaluateAssemblyRequest`/`Result` pipeline (design doc §4):
-      evaluate each UNIQUE part once (dedup by `part_key`), call #2+#3's
-      resolver/solver for the solved world `Placement` per instance,
-      tessellate + `store_mesh_glb` each unique part ONCE (content-
-      addressed, reused across instances of the same part), compose
-      analytic combined properties (Σ volumes, mass-weighted centroid, bbox
-      union — no re-meshing, no boolean). New golden
-      `assembly-two-plates-bolted` (design doc §6.1): plate A grounded,
-      plate B mated coincident+concentric — assert each solved `Placement`
-      equals the hand-derived analytic transform within a documented
-      tolerance, and combined mass properties equal the analytic roll-up.
-      Solve-determinism gate (§6.2, bitwise-identical across runs/fresh
-      interpreter). Shared-mesh-dedup test (§6.4): the same part instanced
-      twice yields ONE `part_mesh_glb_id` referenced by two placements.
-      Per-mate/per-instance errors surface as a typed `FeatureError` inside
-      a 200, never a transport 4xx. Depends on: #2, #3. [src: design/
-      assemblies.md §4, §6]
+- [x] (P1, M) Assemblies v1 #5 — assembly evaluation + shared-mesh
+      tessellation — **DONE 2026-07-15. "bolt two parts together and see it,"
+      the v1 DoD.** `geometry.assembly.evaluate_assembly` +
+      `POST /api/v1/assembly/evaluate` (additive `EvaluateAssemblyRequest`/
+      `Result`, `EvaluatedInstance`/`Mate`, `InstancePlacementResult`,
+      `MateEvaluationError` in `py_kit.schemas.assemblies`;
+      `AssemblySolveStatus`/`AssemblySolveDiagnosis` moved to the boundary,
+      solver imports them back). Evaluate each UNIQUE part once (dedup by
+      `part_key`, reusing `evaluate_tree` → one content-addressed mesh shared
+      by all instances), resolve every mate against the real bodies (#3), solve
+      (#2) to a solved world `Placement` per instance, analytic combined
+      roll-up (Σ volumes, mass-weighted centroid, transformed-bbox union,
+      summed topology — no re-meshing, no boolean); solved transform applied at
+      RENDER time over the shared mesh. Golden `assembly-two-plates-bolted`
+      (§6.1): A grounded, B mated coincident+2×concentric → each solved
+      `Placement` == analytic transform within 1e-6 (worst dev 1.2e-8), combined
+      props == analytic roll-up, `well_constrained`. Determinism gate byte-
+      identical across in-process rebuild + fresh interpreter. Shared-mesh dedup
+      + under/conflicting/ungrounded/bodyless-part/unresolvable-mate error tests
+      (`test_assembly_evaluate.py`). Full lint/pyright + geometry suite +
+      gen-check green. [src: design/assemblies.md §4, §6]
 - [ ] (P1, M) Assemblies v1 #6 — frontend assembly tree + instance
       placement + mate authoring — apps/web: an assembly workspace (sibling
       of `/parts/{id}`), an instance list (add-instance-from-a-part picker,

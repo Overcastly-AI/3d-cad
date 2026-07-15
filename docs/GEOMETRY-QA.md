@@ -13,6 +13,10 @@ go green.
 # golden-model harness (mass props / topology / mesh / determinism):
 uv run pytest services/geometry/tests/test_goldens.py -v
 
+# assembly golden harness (solved transforms / combined roll-up / shared-mesh
+# dedup / solve-determinism across interpreter restart):
+uv run pytest services/geometry/tests/test_assembly_goldens.py -v
+
 # STEP round-trip fidelity gate (kernel-level):
 uv run pytest services/geometry/tests/test_step_roundtrip.py -v
 
@@ -36,6 +40,60 @@ for a feature tree — `geometry.harness` owns the dispatch) + `expected.json`
 discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
+
+## 2026-07-15 — Assemblies v1 #5: assembly evaluation + shared-mesh + first assembly golden
+
+**What shipped (the v1 DoD — "bolt two parts together and see it").** The
+end-to-end §4 pipeline `geometry.assembly.evaluate_assembly` +
+`POST /api/v1/assembly/evaluate`: evaluate each UNIQUE part once (dedup by
+`part_key`, reusing `evaluate_tree` → one content-addressed mesh shared across
+instances), resolve every mate against the real bodies (#3), solve (#2) to a
+solved world `Placement` per instance, and roll up combined mass properties
+ANALYTICALLY (Σ volumes, mass-weighted centroid, transformed-bbox union, summed
+topology — no re-meshing, no boolean). The solved transform is applied at RENDER
+time over the shared mesh, never baked into a GLB. DTOs are additive in
+`py_kit.schemas.assemblies` (`EvaluateAssemblyRequest`/`Result`,
+`EvaluatedInstance`/`Mate`, `InstancePlacementResult`, `MateEvaluationError`);
+`AssemblySolveStatus`/`AssemblySolveDiagnosis` moved to the boundary schema (the
+solver imports them back — one source of truth).
+
+**First assembly golden `assembly-two-plates-bolted` (design §6.1).** Two
+instances of the plate-with-2-holes part (A grounded at origin, B mated
+coincident + two concentric, seeded displaced + spun ~5.7° about z). All
+correspondences are vertical (parallel) so the closed-form fast path correctly
+defers to the numeric LM. Hand-derived vs. solved (2026-07-15, build123d 0.11.1 /
+OCCT 7.9, numpy BLAS pinned to 1 thread):
+
+| quantity | analytic | measured deviation |
+|---|---|---|
+| B solved position | (0, 0, 10) mm | ≤ 1.2e-8 mm |
+| B solved orientation | identity | ≤ 1e-8 (rotation matrix) |
+| combined volume | 16858.407346410208 mm³ | 0.0 (exact Σ) |
+| combined surface_area | 7228.318530717958 mm² | 0.0 (exact Σ) |
+| combined centroid | (20, 12.5, 10) mm | ≤ 1.1e-9 mm |
+| combined AABB | [0,0,0]..[40,25,20] mm | ≤ 1.2e-8 mm |
+| combined topology | 16 faces / 36 edges / 2 shells | exact (summed) |
+
+Documented per-model `tolerance` 1e-6 (SOLVER-convergence bound, ~85× the 1.2e-8
+worst case; the same posture as `test_assembly_resolve`'s `RESOLVE_TOL`, NOT the
+kernel's 1e-7 planar bound — this measures the numeric mate solve, not the
+B-rep). Determinism gate: byte-identical result JSON across in-process rebuilds
+AND a fresh interpreter (the #2 BLAS pin holds cross-process). Shared-mesh dedup
+asserted: both instances carry ONE distinct `part_mesh_glb_id` (§6.4).
+
+**Error posture (never a 500/hang, §4), covered by `test_assembly_evaluate.py`:**
+a bodyless/dangling part → per-instance `no_body` error (dropped from the solve,
+the valid instances still place); an unresolvable mate → per-mate
+`subshape_unresolved`/`subshape_ambiguous` in `mate_errors` (dropped, assembly
+degrades to under-constrained); an ungrounded assembly → non-fatal
+`under_constrained` with `remaining_dof ≥ 6` (rendered at seed); conflicting
+mates → `conflicting` with the offending mate ids named.
+
+**Adding an ASSEMBLY golden** requires zero runner changes: drop
+`services/geometry/goldens-assembly/<name>/model.json` (a serialized
+`EvaluateAssemblyRequest`) + `expected.json` (hand-derived solved placements +
+combined props + `status` + `distinct_mesh_count`, per-model `tolerance` +
+`tolerance_rationale`). Same discovery-inventory guards as the part goldens.
 
 ## 2026-07-13 — SCOPE NOTE: pattern-of-cut inference is extrude-cut-specific (v1)
 
