@@ -39,6 +39,7 @@ from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, export_res
 
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
+from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import forward, raise_upstream_error
 
 #: Human-readable upstream name for shared error surfaces.
@@ -163,7 +164,7 @@ async def reorder_features(
     return FeatureTreeResponse.model_validate_json(upstream.content)
 
 
-@router.post("/{part_id}/evaluate")
+@router.post("/{part_id}/evaluate", dependencies=[COMPUTE_RATE_LIMIT])
 async def evaluate_part(
     part_id: uuid.UUID, user: CurrentUser, http_request: Request
 ) -> EvaluateTreeResult:
@@ -207,7 +208,12 @@ _EXPORT_RESPONSES = export_responses(
 )
 
 
-@router.post("/{part_id}/export", response_class=Response, responses=_EXPORT_RESPONSES)
+@router.post(
+    "/{part_id}/export",
+    response_class=Response,
+    responses=_EXPORT_RESPONSES,
+    dependencies=[COMPUTE_RATE_LIMIT],
+)
 async def export_part(
     part_id: uuid.UUID,
     format: Annotated[

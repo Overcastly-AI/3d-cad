@@ -9,6 +9,9 @@ dependencies = [
     "pydantic-settings>=2.7",
     "structlog>=24.4",
     "arq>=0.26",
+    # redis.asyncio backs py_kit.ratelimit (MIT). Already present transitively
+    # via arq; pinned here as a direct dependency since py-kit imports it.
+    "redis>=5",
     "uvicorn>=0.32",
     # py_kit.db / py_kit.alembic_env (shared persistence plumbing). DB drivers
     # (asyncpg, aiosqlite) stay with the services — py-kit is driver-agnostic.

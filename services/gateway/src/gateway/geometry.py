@@ -40,6 +40,7 @@ from py_kit.schemas.sketch import (
 from pydantic import BaseModel
 
 from gateway.auth import CurrentUser
+from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import create_upstream_client, forward, raise_upstream_error
 
 #: Upstream call budget — tessellation is CPU-bound and may take a while.
@@ -97,7 +98,12 @@ _TESSELLATE_RESPONSES = tessellate_responses(
 # itself stays identity-free, so the principal never travels upstream
 # (RESEARCH §3). Kept out of the docstring so the generated OpenAPI
 # description — and thus the committed contracts — does not drift.
-@router.post("/tessellate", response_class=Response, responses=_TESSELLATE_RESPONSES)
+@router.post(
+    "/tessellate",
+    response_class=Response,
+    responses=_TESSELLATE_RESPONSES,
+    dependencies=[COMPUTE_RATE_LIMIT],
+)
 async def tessellate(
     request: TessellateRequest, user: CurrentUser, http_request: Request
 ) -> Response:
@@ -116,7 +122,7 @@ async def tessellate(
 
 
 # Auth-protected, identity-free upstream (same posture as ``/tessellate``).
-@router.post("/tessellate/meta")
+@router.post("/tessellate/meta", dependencies=[COMPUTE_RATE_LIMIT])
 async def tessellate_meta(
     request: TessellateRequest, user: CurrentUser, http_request: Request
 ) -> TessellationMetadata:
@@ -190,7 +196,12 @@ _EXPORT_RESPONSES = export_responses(
 
 
 # Auth-protected (same rationale + posture as ``/tessellate`` above — audit F7).
-@router.post("/export", response_class=Response, responses=_EXPORT_RESPONSES)
+@router.post(
+    "/export",
+    response_class=Response,
+    responses=_EXPORT_RESPONSES,
+    dependencies=[COMPUTE_RATE_LIMIT],
+)
 async def export(
     request: ExportRequest, user: CurrentUser, http_request: Request
 ) -> Response:
@@ -208,7 +219,7 @@ async def export(
     )
 
 
-@router.post("/assembly/evaluate")
+@router.post("/assembly/evaluate", dependencies=[COMPUTE_RATE_LIMIT])
 async def assembly_evaluate(
     request: EvaluateAssemblyRequest, user: CurrentUser, http_request: Request
 ) -> EvaluateAssemblyResult:
@@ -231,7 +242,7 @@ async def assembly_evaluate(
     return EvaluateAssemblyResult.model_validate_json(upstream.content)
 
 
-@router.post("/measure")
+@router.post("/measure", dependencies=[COMPUTE_RATE_LIMIT])
 async def measure(
     request: MeasureRequest, user: CurrentUser, http_request: Request
 ) -> MeasureResult:
@@ -251,7 +262,7 @@ async def measure(
     return MeasureResult.model_validate_json(upstream.content)
 
 
-@router.post("/overlay")
+@router.post("/overlay", dependencies=[COMPUTE_RATE_LIMIT])
 async def overlay(
     request: OverlayRequest, user: CurrentUser, http_request: Request
 ) -> OverlayResult:
@@ -271,7 +282,7 @@ async def overlay(
     return OverlayResult.model_validate_json(upstream.content)
 
 
-@router.post("/sketch/trim")
+@router.post("/sketch/trim", dependencies=[COMPUTE_RATE_LIMIT])
 async def sketch_trim(
     request: SketchEditRequest, user: CurrentUser, http_request: Request
 ) -> SketchEditResult:
@@ -291,7 +302,7 @@ async def sketch_trim(
     return SketchEditResult.model_validate_json(upstream.content)
 
 
-@router.post("/sketch/extend")
+@router.post("/sketch/extend", dependencies=[COMPUTE_RATE_LIMIT])
 async def sketch_extend(
     request: SketchEditRequest, user: CurrentUser, http_request: Request
 ) -> SketchEditResult:
@@ -308,7 +319,7 @@ async def sketch_extend(
     return SketchEditResult.model_validate_json(upstream.content)
 
 
-@router.post("/sketch/offset")
+@router.post("/sketch/offset", dependencies=[COMPUTE_RATE_LIMIT])
 async def sketch_offset(
     request: SketchOffsetRequest, user: CurrentUser, http_request: Request
 ) -> SketchOffsetResult:
@@ -327,7 +338,7 @@ async def sketch_offset(
     return SketchOffsetResult.model_validate_json(upstream.content)
 
 
-@router.post("/sketch/mirror")
+@router.post("/sketch/mirror", dependencies=[COMPUTE_RATE_LIMIT])
 async def sketch_mirror(
     request: SketchMirrorRequest, user: CurrentUser, http_request: Request
 ) -> SketchMirrorResult:
@@ -346,7 +357,7 @@ async def sketch_mirror(
     return SketchMirrorResult.model_validate_json(upstream.content)
 
 
-@router.post("/sketch/fillet")
+@router.post("/sketch/fillet", dependencies=[COMPUTE_RATE_LIMIT])
 async def sketch_fillet(
     request: SketchFilletRequest, user: CurrentUser, http_request: Request
 ) -> SketchCornerResult:
@@ -366,7 +377,7 @@ async def sketch_fillet(
     return SketchCornerResult.model_validate_json(upstream.content)
 
 
-@router.post("/sketch/chamfer")
+@router.post("/sketch/chamfer", dependencies=[COMPUTE_RATE_LIMIT])
 async def sketch_chamfer(
     request: SketchChamferRequest, user: CurrentUser, http_request: Request
 ) -> SketchCornerResult:

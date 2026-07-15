@@ -21,6 +21,7 @@ import uvicorn
 from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
 from py_kit.db import DatabaseState, postgres_readiness
+from py_kit.ratelimit import RateLimiter
 
 from gateway.assemblies import router as assemblies_router
 from gateway.auth import auth_router, resolve_auth_config
@@ -64,6 +65,7 @@ def build_app(
     *,
     geometry_transport: httpx.AsyncBaseTransport | None = None,
     documents_transport: httpx.AsyncBaseTransport | None = None,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     """Build the gateway app.
 
@@ -76,6 +78,10 @@ def build_app(
 
     The ``*_transport`` parameters let tests hand each upstream client an
     ``httpx.MockTransport``; production always passes ``None`` (real network).
+    ``rate_limiter`` is likewise a test seam: an injected limiter (e.g.
+    fake-Redis-backed) is used as-is and its lifecycle left to the caller;
+    production passes ``None`` and the lifespan builds one from settings
+    (Redis-backed, or a no-op when rate limiting is disabled/unconfigured).
     """
     settings = settings or GatewaySettings()
     auth_config = resolve_auth_config(
@@ -87,7 +93,7 @@ def build_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-        """Own startup/shutdown resources: upstream clients + DB engine."""
+        """Own startup/shutdown resources: upstream clients + DB + limiter."""
         client = create_geometry_client(settings.geometry_url, geometry_transport)
         app.state.geometry_client = client
         documents_client = create_documents_client(
@@ -97,12 +103,19 @@ def build_app(
         if settings.postgres_url is not None:
             database.start(settings.postgres_url)
         app.state.database = database
+        # Injected limiter (tests) is used as-is and NOT closed here — the
+        # caller owns it; otherwise build one from settings and own its pool.
+        owns_limiter = rate_limiter is None
+        limiter = rate_limiter or RateLimiter.from_settings(settings)
+        app.state.rate_limiter = limiter
         try:
             yield
         finally:
             await client.aclose()
             await documents_client.aclose()
             await database.dispose()
+            if owns_limiter and limiter is not None:
+                await limiter.aclose()
 
     async def geometry() -> str:
         """Best-effort, REPORT-ONLY geometry reachability ("ok"/"unreachable").

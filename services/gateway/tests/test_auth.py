@@ -289,9 +289,11 @@ def test_me_rejects_alg_none_token(client: TestClient) -> None:
     because decode pins ``algorithms=[HS256]``."""
     body = _register(client)
     now = int(datetime.now(UTC).timestamp())
+    # Forging an unsigned token deliberately passes key=None; current pyjwt
+    # stubs type ``key`` as non-optional, hence the reportArgumentType ignore.
     unsigned = pyjwt.encode(  # pyright: ignore[reportUnknownMemberType]
         {"sub": body["user"]["id"], "iat": now, "exp": now + 600},
-        None,
+        None,  # pyright: ignore[reportArgumentType]
         algorithm="none",
     )
     response = client.get("/api/v1/auth/me", headers=_bearer(unsigned))

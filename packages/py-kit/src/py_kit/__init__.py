@@ -13,6 +13,7 @@ from py_kit.errors import (
     ConflictError,
     InternalError,
     NotFoundError,
+    RateLimitExceededError,
     UnauthorizedError,
     UpstreamUnavailableError,
     ValidationApiError,
@@ -26,6 +27,7 @@ from py_kit.logging import (
     get_logger,
 )
 from py_kit.queue import QueueClient, QueueConfigurationError, redis_settings
+from py_kit.ratelimit import RateLimiter
 
 __all__ = [
     "REQUEST_ID_HEADER",
@@ -36,6 +38,8 @@ __all__ = [
     "NotFoundError",
     "QueueClient",
     "QueueConfigurationError",
+    "RateLimitExceededError",
+    "RateLimiter",
     "ReadinessCheck",
     "UnauthorizedError",
     "UpstreamUnavailableError",

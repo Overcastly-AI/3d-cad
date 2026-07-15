@@ -26,14 +26,16 @@ _logger = get_logger("py_kit.errors")
 class ApiError(Exception):
     """Base API error. Subclasses fix the HTTP status and default code.
 
-    ``headers`` (class-level) lets a subclass attach response headers to the
-    rendered envelope — e.g. the RFC 6750 ``WWW-Authenticate`` challenge on
-    :class:`UnauthorizedError`.
+    ``default_headers`` (class-level) lets a subclass attach response headers
+    to the rendered envelope — e.g. the RFC 6750 ``WWW-Authenticate`` challenge
+    on :class:`UnauthorizedError`. A per-instance ``headers`` override lets a
+    single error carry a computed header (e.g. ``Retry-After`` on
+    :class:`RateLimitExceededError`).
     """
 
     status_code: int = 500
     code: str = "internal_error"
-    headers: ClassVar[dict[str, str] | None] = None
+    default_headers: ClassVar[dict[str, str] | None] = None
 
     def __init__(
         self,
@@ -41,12 +43,19 @@ class ApiError(Exception):
         *,
         code: str | None = None,
         details: Any = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         if code is not None:
             self.code = code
         self.details = details
+        #: Response headers for THIS error — the per-instance override when
+        #: given, otherwise the subclass ``default_headers``. Read by the
+        #: envelope renderer in :func:`install_error_handlers`.
+        self.headers: dict[str, str] | None = (
+            headers if headers is not None else self.default_headers
+        )
 
 
 class UnauthorizedError(ApiError):
@@ -61,7 +70,7 @@ class UnauthorizedError(ApiError):
 
     status_code = 401
     code = "unauthorized"
-    headers: ClassVar[dict[str, str] | None] = {"WWW-Authenticate": "Bearer"}
+    default_headers: ClassVar[dict[str, str] | None] = {"WWW-Authenticate": "Bearer"}
 
 
 class NotFoundError(ApiError):
@@ -102,6 +111,27 @@ class UpstreamUnavailableError(ApiError):
 
     status_code = 502
     code = "upstream_unavailable"
+
+
+class RateLimitExceededError(ApiError):
+    """The caller exceeded its request-rate budget (HTTP 429).
+
+    Carries a ``Retry-After`` header (RFC 9110, delta-seconds) computed from
+    the limiter's window so a client can back off precisely, and echoes the
+    ``limit``/``window_s``/``retry_after_s`` in ``details``. Raised by the
+    shared :class:`py_kit.ratelimit.RateLimiter`.
+    """
+
+    status_code = 429
+    code = "rate_limited"
+
+    def __init__(
+        self, message: str, *, retry_after_s: int, details: Any = None
+    ) -> None:
+        super().__init__(
+            message, details=details, headers={"Retry-After": str(retry_after_s)}
+        )
+        self.retry_after_s = retry_after_s
 
 
 def error_response(
