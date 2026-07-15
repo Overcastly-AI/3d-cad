@@ -803,22 +803,10 @@ export interface SolveInfo {
   redundant: number[];
 }
 
-/**
- * Conflicting sketches come back as a per-feature error whose message embeds
- * the offending indices ("… conflicting constraint indices: [3, 4]" — the
- * geometry service's `sketch_conflicting` error). Parsed here so the UI can
- * flag the exact glyphs; an unparsable message degrades to no highlights,
- * never a crash. (Territory note: promoting these indices into a structured
- * error field is a backend change — see the return report.)
- */
-export function parseConflictIndices(message: string): number[] {
-  const match = /\[([\d,\s]*)\]/.exec(message);
-  if (match?.[1] === undefined) return [];
-  return match[1]
-    .split(",")
-    .map((part) => Number.parseInt(part.trim(), 10))
-    .filter((n) => Number.isInteger(n) && n >= 0);
-}
+// Conflicting sketches now carry their offending constraint ids in the TYPED
+// `FeatureError.sketch_diagnosis` field (BACKLOG #6), read directly in
+// PartPage — the former `parseConflictIndices` regex over the human message
+// was removed once the backend promoted the ids to a structured field.
 
 /** DRO SOLVE cell: value text + ink. Status vocabulary stays terse (DRO). */
 export function formatSolveCell(

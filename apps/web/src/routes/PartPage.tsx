@@ -150,11 +150,7 @@ import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
-import {
-  parseConflictIndices,
-  resolveSketchKey,
-  type SolveInfo,
-} from "../sketch/constraints";
+import { resolveSketchKey, type SolveInfo } from "../sketch/constraints";
 import {
   faceSpecFromDatum,
   offsetBasis,
@@ -520,11 +516,14 @@ export function PartPage() {
     }
     if (result.status === "error" && result.error != null) {
       if (result.error.code === "sketch_conflicting") {
+        // BACKLOG #6: read the offending ids from the TYPED diagnosis, not by
+        // regex-parsing the human message (brittle, now removed).
+        const diag = result.error.sketch_diagnosis;
         store.adoptSolved(null, {
           status: "conflicting",
           dof: null,
-          conflicting: parseConflictIndices(result.error.message),
-          redundant: [],
+          conflicting: diag?.conflicting_constraints ?? [],
+          redundant: diag?.redundant_constraints ?? [],
         });
         return;
       }

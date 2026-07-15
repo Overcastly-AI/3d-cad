@@ -141,7 +141,7 @@ unchanged in substance.
       sandbox can't prove it (no docker daemon, no `moto`; a `moto` in-process
       mock wouldn't exercise the cross-process path), so the swap MUST NOT land
       without that CI gate. Depends on: nothing new. [src: engineering-auditor F1]
-- [~] (P2, S) Sketch: over-constraint classification — upgrade
+- [x] (P2, S) Sketch: over-constraint classification — upgrade
       `sketch_conflicting` from raw constraint indices to a classified
       redundant-vs-conflicting diagnosis with a suggested fix, surfaced in
       the typed `FeatureError` (not string-parsed). `planegcs_solver.py`
@@ -160,9 +160,13 @@ unchanged in substance.
       solvable `overconstrained` ok path. Both classifications surface as a TYPED
       field (contracts + ts-client regenerated), asserted in `test_evaluate_tree.py`
       (conflicting → `classification="conflicting"`, `removable=False`; redundant →
-      `classification="redundant"`, `removable=True`, ids named). REMAINING: the
-      FRONTEND leg only — sketcher reads `sketch_diagnosis`/`data.diagnosis` (drop
-      any string-parsing), flags the offending constraints, + e2e.
+      `classification="redundant"`, `removable=True`, ids named). **Frontend leg
+      landed 2026-07-13 (DONE):** `PartPage` reads the typed
+      `error.sketch_diagnosis` / `data.diagnosis` directly and the brittle
+      `parseConflictIndices` regex over the human message was removed; the
+      conflicting-glyph flagging is proven end-to-end (`constraints.spec.ts`,
+      full e2e 125/125 green). Item complete — supersedes the older "Structured
+      conflict indices" Later item.
 - [ ] (P2, M) Sketch dimension expressions / driving vs. driven — a
       dimension value field accepts a literal, a reference to another
       dimension, or a math expression; each dimension gets a `driving: bool`

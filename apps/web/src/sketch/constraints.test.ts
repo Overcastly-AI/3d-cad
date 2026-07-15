@@ -8,7 +8,6 @@ import {
   dimensionEditorAnchor,
   formatDimensionMm,
   formatSolveCell,
-  parseConflictIndices,
   reconcileConstraints,
   resolveSketchKey,
   sameConstraint,
@@ -666,15 +665,6 @@ describe("formatDimensionMm", () => {
 });
 
 describe("solve feedback", () => {
-  it("parses conflicting indices out of the geometry error message", () => {
-    expect(
-      parseConflictIndices(
-        "Sketch constraints are mutually unsatisfiable (conflicting constraint indices: [0, 2]).",
-      ),
-    ).toEqual([0, 2]);
-    expect(parseConflictIndices("no indices here")).toEqual([]);
-  });
-
   it("formats the DRO SOLVE cell per status", () => {
     expect(formatSolveCell(null, true)).toEqual({
       value: "SOLVING…",
