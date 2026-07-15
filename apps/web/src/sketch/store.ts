@@ -171,6 +171,12 @@ export interface SketchState {
   finishPlacement: () => void;
   /** Select-tool click at a raw (unsnapped) plane point. */
   selectAt: (point: Point2D, toleranceMm: number) => void;
+  /**
+   * Toggle one exact pick into/out of the selection — the DOM fit-point
+   * handles' path (a keyboard/pointer surface that names the pick directly,
+   * rather than the coordinate raycast `selectAt` does). Same toggle rule.
+   */
+  togglePick: (pick: SketchPick) => void;
   setHoverPick: (pick: SketchPick | null) => void;
   clearSelection: () => void;
   /** Apply a constraint verb to the selection (H/V/X/C add; D/R edit). */
@@ -371,6 +377,13 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
       hint: null,
     });
   },
+
+  togglePick: (pick) =>
+    set((state) => ({
+      selection: toggleSelection(state.selection, [pick]),
+      selectedConstraint: null,
+      hint: null,
+    })),
 
   setHoverPick: (hoverPick) => set({ hoverPick }),
   clearSelection: () => set({ selection: [], selectedConstraint: null }),

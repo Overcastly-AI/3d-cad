@@ -510,6 +510,87 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
   );
 }
 
+/**
+ * Fit-point handles for the spline being worked on — the pick/constrain surface
+ * for a spline's through-points. The fit points already render as brass dots
+ * (`definingPoints`) and pick by the same raycast path as any endpoint; these
+ * DOM handles add the keyboard-focusable, screen-reader-named, e2e-drivable
+ * affordance on top. They read as diamonds (a rotated square) so a spline's
+ * through-point is legible as its own thing next to a line endpoint's dot,
+ * while staying in the one brass handle language — boldness stays where the
+ * sketcher already spent it.
+ *
+ * Restraint: they appear ONLY when the spline is ENGAGED under the select tool
+ * (hovered, or it or one of its fit points is selected), so the viewport stays
+ * quiet at rest and the handles wake on approach. Clicking one toggles that fit
+ * point into the selection — the same `EntityPointRef` a coincident / fixed /
+ * symmetric constraint then consumes, unchanged.
+ */
+function SplineHandles({ basis }: { basis: PlaneBasis }) {
+  const tool = useSketchStore((state) => state.tool);
+  const entities = useSketchStore((state) => state.entities);
+  const selection = useSketchStore((state) => state.selection);
+  const hoverPick = useSketchStore((state) => state.hoverPick);
+  const togglePick = useSketchStore((state) => state.togglePick);
+
+  const engaged = useMemo(() => {
+    if (tool !== "select") return [];
+    return entities.filter((entity) => {
+      if (entity.kind !== "spline") return false;
+      const inSelection = selection.some(
+        (pick) =>
+          (pick.kind === "entity" && pick.id === entity.id) ||
+          (pick.kind === "point" && pick.entity === entity.id),
+      );
+      const underHover =
+        (hoverPick?.kind === "entity" && hoverPick.id === entity.id) ||
+        (hoverPick?.kind === "point" && hoverPick.entity === entity.id);
+      return inSelection || underHover;
+    });
+  }, [tool, entities, selection, hoverPick]);
+
+  if (engaged.length === 0) return null;
+
+  return (
+    <group>
+      {engaged.flatMap((spline) =>
+        (spline.kind === "spline" ? spline.points : []).map((point, index) => {
+          const name = `fit${index}`;
+          const selected = selection.some(
+            (pick) =>
+              pick.kind === "point" &&
+              pick.entity === spline.id &&
+              pick.point === name,
+          );
+          return (
+            <Html
+              key={`${spline.id}-${name}`}
+              position={planeToWorld(basis, point)}
+              center
+              zIndexRange={GLYPH_Z_RANGE}
+            >
+              <button
+                type="button"
+                data-testid={`fit-handle-${spline.id}-${index}`}
+                data-selected={selected || undefined}
+                aria-pressed={selected}
+                aria-label={`Spline ${spline.id} fit point ${index + 1}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  togglePick({ kind: "point", entity: spline.id, point: name });
+                }}
+                className={`block h-2.5 w-2.5 rotate-45 cursor-pointer border border-brass motion-safe:transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass ${
+                  selected ? "bg-brass" : "bg-anvil/60 hover:bg-brass/40"
+                }`}
+              />
+            </Html>
+          );
+        }),
+      )}
+    </group>
+  );
+}
+
 export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
   const constraints = useSketchStore((state) => state.constraints);
   const entities = useSketchStore((state) => state.entities);
@@ -581,6 +662,7 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
           </Html>
         );
       })}
+      <SplineHandles basis={basis} />
       <DimensionEditor basis={basis} />
       <OffsetEditor basis={basis} />
       <CornerEditor basis={basis} />

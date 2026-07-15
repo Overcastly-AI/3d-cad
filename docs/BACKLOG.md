@@ -16,8 +16,8 @@ independently each pass; this note only points the queue at it, no
 duplication:
 
 - **Sketching row — ➖.** Residual gaps: (1) over-constraint diagnosis is
-  index-only; (2) no dimension expressions/driving-vs-driven; (3) splines are
-  v1 non-constrained. All three in Ready below.
+  index-only; (2) no dimension expressions/driving-vs-driven. Spline
+  constrainability (v1.1) landed 2026-07-15 (backend + frontend).
 - **Part modeling row — flipped ➖→✅ this pass (`3c23c73`).** Sketch-on-face,
   click-specific edge selection, shell, and draft all landed backend+UI,
   closing the last named blockers; multi-body boolean (independently-built
@@ -200,9 +200,10 @@ unchanged in substance.
       height=`width/2`→10; driven reference tracks edited geometry without
       over-constraining; bad expression → diagnostic) + founder screenshots at
       1440 & 1280. [src: competitive]
-- [~] (P2, M) Sketch: constrainable splines (v1.1) — fit-point constraint
+- [x] (P2, M) Sketch: constrainable splines (v1.1) — fit-point constraint
       mapping (each fit point becomes a solver point, not a native spline
-      primitive; tangency deferred). **Backend leg landed 2026-07-15 (DONE):**
+      primitive; tangency deferred). **Backend + frontend landed 2026-07-15.**
+      Backend leg (DONE):
       `EntityPointRef.point` gained a `SplineFitPointName` form (`"fit0"`,
       `"fit1"`, … zero-based; additive, no `param_version` bump — existing
       line/arc/circle refs unchanged); `planegcs_solver` adds each *referenced*
@@ -213,14 +214,17 @@ unchanged in substance.
       a coincident-linked line; an out-of-range `"fitN"` is a clean
       `SketchDefinitionError`. Geometry + py-kit suites cover the worked
       coincident-to-line reshape, DOF changes, and validation; contracts +
-      ts-client regenerated (gen-check clean). Frontend leg below.
-- [ ] (P2, S) Sketch: spline fit-point constrain UI (v1.1 frontend leg) —
-      pick a spline fit point (hit-test the `"fitN"` handles) and apply the
-      point-level constraints (coincident/fixed/symmetric; distance/H/V via the
-      linked-line gesture) against the shipped backend contract; DOF readout
-      reflects constrained fit points. Worked e2e: constrain a fit point to a
-      line, confirm the spline reshapes on solve. [src: product-auditor,
-      competitive]
+      ts-client regenerated (gen-check clean).
+- [x] (P2, S) Sketch: spline fit-point constrain UI (v1.1 frontend leg) —
+      **landed 2026-07-15.** `namedPoints` now exposes a spline's fit points as
+      `"fitN"`, so they pick / hover / select / constrain through the existing
+      point path (coincident / fixed / symmetric route the ref through
+      unchanged; distance/H/V via the linked-line gesture). Diamond fit-point
+      handles (testid'd, focusable, `aria-pressed`) wake when the spline is
+      engaged. e2e `spline-constraint.spec.ts`: fit point coincident to a fixed
+      endpoint → solver moves it onto the endpoint, spline reshapes, DOF readout
+      reflects it; before/after screenshots at 1440 & 1280. [src: product-
+      auditor, competitive]
 
 ## Next (P2)
 

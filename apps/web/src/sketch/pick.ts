@@ -54,10 +54,16 @@ export function namedPoints(
         { point: "end", at: entity.end },
       ];
     case "spline":
-      // STUB (#6b upgrades): v1 splines are non-constrained (no solver-
-      // addressable named point), so they expose none to the pick/constraint
-      // layer. Snapping to fit points arrives with the draw tool (#6b).
-      return [];
+      // A spline's fit points ARE its constraint-addressable points: the Nth
+      // fit point is `fitN` — zero-based, no leading zeros (the EntityPointRef
+      // contract). Exposing them here is the whole seam: a fit point then
+      // picks, hovers, selects, and constrains (coincident / fixed / symmetric)
+      // through the exact same path as a line's `start`/`end` — it is just
+      // another EntityPointRef.
+      return entity.points.map((at, index) => ({
+        point: `fit${index}`,
+        at,
+      }));
   }
 }
 

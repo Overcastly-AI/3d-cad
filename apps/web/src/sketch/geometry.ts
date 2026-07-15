@@ -152,7 +152,8 @@ export function definingPoints(entity: SketchEntity): Point2D[] {
     case "arc":
       return [entity.center, entity.start, entity.end];
     case "spline":
-      // STUB (#6b upgrades): the fit points ARE the spline's defining points.
+      // The fit points ARE the spline's defining points — the same brass dots
+      // a constraint now addresses as `fitN` (see `namedPoints`).
       return entity.points;
   }
 }

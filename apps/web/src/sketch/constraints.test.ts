@@ -292,6 +292,50 @@ describe("applyConstraintAction", () => {
     });
   });
 
+  it("coincident routes a spline fit point through unchanged", () => {
+    const spline: SketchEntity = {
+      id: "e6",
+      kind: "spline",
+      points: [
+        { x: 0, y: 0 },
+        { x: 10, y: 20 },
+        { x: 20, y: 0 },
+      ],
+      construction: false,
+    };
+    const fitPick: SketchPick = { kind: "point", entity: "e6", point: "fit0" };
+    const result = applyConstraintAction(
+      "coincident",
+      [fitPick, pickPoint("e1", "end")],
+      [...entities, spline],
+      [],
+    );
+    expect(result).toEqual({
+      outcome: "added",
+      constraints: [
+        {
+          kind: "coincident",
+          a: { entity: "e6", point: "fit0" },
+          b: { entity: "e1", point: "end" },
+        },
+      ],
+    });
+    // The fit point is a normal EntityPointRef the entity-ref walk resolves.
+    expect(
+      result.outcome === "added"
+        ? constraintEntityRefs(result.constraints[0] as SketchConstraint)
+        : [],
+    ).toEqual(["e6", "e1"]);
+  });
+
+  it("fixed anchors a spline fit point", () => {
+    const fitPick: SketchPick = { kind: "point", entity: "e6", point: "fit2" };
+    expect(applyConstraintAction("fixed", [fitPick], entities, [])).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "fixed", point: { entity: "e6", point: "fit2" } }],
+    });
+  });
+
   it("refuses a duplicate coincident regardless of point order", () => {
     const existing: SketchConstraint[] = [
       {

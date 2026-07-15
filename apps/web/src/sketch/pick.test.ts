@@ -44,6 +44,23 @@ describe("namedPoints", () => {
       "end",
     ]);
   });
+
+  it("exposes a spline's fit points as fitN (zero-based, no leading zeros)", () => {
+    const spline: SketchEntity = {
+      id: "e4",
+      kind: "spline",
+      points: [
+        { x: 0, y: 0 },
+        { x: 10, y: 20 },
+        { x: 20, y: 0 },
+      ],
+      construction: false,
+    };
+    const named = namedPoints(spline);
+    expect(named.map((n) => n.point)).toEqual(["fit0", "fit1", "fit2"]);
+    // Each fitN resolves to its Nth fit coordinate — the pick's anchor.
+    expect(named[1]?.at).toEqual({ x: 10, y: 20 });
+  });
 });
 
 describe("curveDistance", () => {
@@ -108,6 +125,22 @@ describe("pickCandidates", () => {
 
   it("returns nothing outside the tolerance", () => {
     expect(pickCandidates([line], { x: 20, y: 9 }, 2)).toEqual([]);
+  });
+
+  it("picks a spline fit point like any defining point", () => {
+    const spline: SketchEntity = {
+      id: "e4",
+      kind: "spline",
+      points: [
+        { x: 0, y: 0 },
+        { x: 10, y: 20 },
+        { x: 20, y: 0 },
+      ],
+      construction: false,
+    };
+    // Near the middle fit point: the point pick wins over the curve.
+    const picks = pickCandidates([spline], { x: 10.4, y: 20.2 }, 2);
+    expect(picks[0]).toEqual({ kind: "point", entity: "e4", point: "fit1" });
   });
 
   it("stacks coincident corner points in entity order (click-through)", () => {

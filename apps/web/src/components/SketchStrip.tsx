@@ -118,7 +118,7 @@ const TOOLS: ReadonlyArray<{
     tool: "spline",
     label: "Spline",
     keyHint: "S",
-    name: "Spline tool (S) — click fit points, Enter or double-click to finish; free-form, not constrainable yet",
+    name: "Spline tool (S) — click fit points, Enter or double-click to finish; each fit point constrains like any point (coincident / fixed / symmetric)",
     icon: <SplineIcon />,
   },
 ];
@@ -657,8 +657,9 @@ function CornerPrompt({
 /**
  * The Spline tool's fit-point guide, hung from the band into the viewport. It
  * counts placed points and, once two are held, offers the keyboard-first finish
- * (Enter / double-click). Honest about v1: a spline is free-form fixed geometry
- * — not constrainable yet, but valid as part of a closed extrude/revolve loop.
+ * (Enter / double-click). Once committed, each fit point constrains like any
+ * point (coincident / fixed / symmetric); the spline is also valid as part of a
+ * closed extrude/revolve loop.
  */
 function SplinePrompt({ count }: { count: number }) {
   const ready = count >= 2;
@@ -674,7 +675,8 @@ function SplinePrompt({ count }: { count: number }) {
           <span className="text-mist" data-testid="spline-count">
             {count} fit points
           </span>{" "}
-          · Enter or double-click to finish · free-form, not constrainable yet
+          · Enter or double-click to finish · fit points constrain like any
+          point
         </span>
       ) : (
         <span>
