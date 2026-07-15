@@ -185,3 +185,204 @@ can't drill a hole.
   import, which is fair, but the export half is genuinely solid, not partial.
 - **Sketching — ➖ (accurate).** Matches the hands-off read; the session
   toolkit is real.
+
+---
+
+## Pass 2026-07-15 — re-baseline post sketching/interop/hole batch (HEAD `a1c42be`)
+
+**Verdict: YES for a single real *part*; NO for a real *project*.** Since the
+last pass the three walls I hit — bolt holes, sketch-on-a-model-face, and
+click-one-edge fillet — are all gone. I re-ran each and they work. A working
+engineer can now sit down and model a real single-body part end to end
+(sketch → constrain with expressions → extrude → sketch-on-face → bolt-circle
+holes → shell → draft → fillet one edge → export STEP → reopen it), and bring
+an external STEP part IN to model on. That is a genuine daily-driver threshold
+crossed for *part* modeling. **But the moment the job is a real *project* — two
+parts that bolt together, or a part someone else has to manufacture from a
+dimensioned drawing — the product has no answer.** There is no assembly
+context and no drawing output. That, not any remaining part-modeling gap, is
+now the single thing between Loft and real daily-driver adoption.
+
+### How this pass was run (evidence basis)
+
+Same constraint as the prior pass: no Docker daemon in this sandbox
+(`docker ps` → no socket), so gateway/documents (Postgres/Redis/MinIO) can't
+boot. The **geometry service is the modeling engine** and is stateless, so it
+was booted isolated (`uvicorn geometry.main:app` on :8012 per the CLAUDE.md
+recipe, torn down after) and driven with **real feature-tree `POST /evaluate`
+payloads** — the exact trees `documents` persists and sends. The UI was judged
+from the committed `docs/screenshots/` (135 PNGs, current at HEAD) and web
+source. Every geometry result below is a live API transcript against HEAD, not
+a code reading.
+
+### What I modeled, and what happened (live `/evaluate` transcripts)
+
+The prior pass's three walls are gone. I re-attempted each:
+
+1. **Bolt holes / bolt circle — WORKS.** Plate 80×60×8 with a **4-corner hole
+   pattern in one multi-loop cut sketch** (outer rect + 4 r3 circles) →
+   `vol = 37495.2 mm³` (= 38400 − 4·π·9·8), 10 faces, one solid. Also
+   **pattern-a-cut** (cut one hole, linear-pattern it) → `vol = 37947.6`, a
+   clean two-hole plate, no whole-body duplication. The single most-hit gap
+   from last pass — "a bolt circle cannot be authored" — is closed.
+2. **Sketch on a model face — WORKS.** 20×20 boss on the plate's top face via
+   an `on_face` datum with a `SubshapeRef` signature → `vol = 42400.0` exact
+   (38400 + 20·20·10). Resolves through rebuilds. The second wall is gone.
+3. **Fillet one specific edge — WORKS** (confirmed from the shipped
+   `fillet-edge-pick-rounded` golden + screenshot: a single-edge fillet takes
+   a 20 cube 6→7 faces, neighbours sharp). The third wall is gone.
+4. **Dimension expressions — WORK.** A fully-constrained rectangle with
+   `width=40` and `height = "width/2"` solves to height 20, `vol = 4000`, and
+   the solved-sketch payload echoes `height → value_mm 20.0, expression
+   "width/2"`. (An under-constrained variant let the dimension edit *open* the
+   loop — a real reminder that parametric-edit robustness depends on a fully
+   constrained sketch; the UI's auto-coincidence rect tool mitigates this, but
+   it's a sharp edge for hand-built geometry.)
+5. **Two-way interop — WORKS end to end.** Exported an 80×60×8 plate tree to
+   STEP (15.4 KB, valid `ISO-10303-21`), **re-imported it as a base `import`
+   feature**, sketched-on-its-top-face, cut a hole (`operation:"cut",
+   direction:"reverse"` — see friction #5), and **re-exported valid STEP**
+   (19.4 KB). Bring an external part in, model on it, ship it back out — the
+   full loop the prior pass rated 0 on the import half now runs.
+
+### Where it breaks — the *project* walls
+
+6. **Multi-body — HARD WALL.** A tree with a second **disjoint** additive
+   solid (`extrude … operation:"add"` that doesn't touch the existing body)
+   fails: `boolean_failed`. You cannot have two separate lumps in one part.
+7. **Boolean intersect — ABSENT.** `operation` accepts only `add`/`cut`
+   (422 `literal_error: Input should be 'add' or 'cut'`). No intersect/common,
+   so mold/tooling "keep the overlap" and combine-intersect modeling are
+   impossible.
+8. **Assemblies — ABSENT.** No assembly document, no part instances, no
+   mate/joint, no BOM anywhere in gateway/documents/web (grep confirms; the
+   toolbar is IMPORT·SKETCH·DATUM·EXTRUDE·REVOLVE·SWEEP·LOFT·FILLET·CHAMFER·
+   PATTERN·SHELL·DRAFT·MEASURE — no assembly). The moment a project is two
+   parts that bolt together, there is nowhere to put the second part.
+9. **Drawings — ABSENT.** No 2D view generation, no dimensioned sheet, no
+   PDF/DXF. A finished part can leave as STEP/STL only — no drawing to hand a
+   machinist.
+
+### Daily-driver readiness ratings (1–5)
+
+| Capability | Rating | Δ vs 07-12 | Note |
+|---|---|---|---|
+| Sketching (draw + tools + constraints + **expressions**) | **5** | +1 | Over-constraint diagnosis, dimension expressions/driving-driven, constrainable splines all verified live. Genuinely at-or-past incumbent parity. |
+| Extrude / revolve / loft / sweep | **4** | +1 | Breadth solid; multi-loop profiles give every one holes for free. |
+| Datum / sketch-on-face | **4** | +3 | On-face datum with surviving `SubshapeRef` works, incl. on imported bodies. Off-origin planar faces carry sketches now. |
+| Fillet / chamfer (click-specific edge) | **4** | +2 | One-edge pick works; residual is no compound multi-edge picker in one op. |
+| **Holes / bolt patterns** | **4** | +3 | Multi-loop cut + pattern-a-cut author bolt circles & hole grids. Held off 5: no dedicated Hole feature (through/blind/cbore/csink semantics) and one-direction-only pattern. |
+| Multi-body / booleans between bodies | **1** | 0 | Single connected solid only; no intersect; disjoint add → `boolean_failed`. |
+| History-edit ergonomics | **3** | n/a | Edit-mid-tree (PATCH) + rollback bar are real and good. No drag-reorder in UI (backend `PUT order` exists, unwired), no suppress, no undo/redo. |
+| Measurement / mass-props | **4** | 0 | Exact B-rep distance/angle + a live mass-properties/topology panel. |
+| Interop — export **and import** (STEP) | **4** | +4 imp | Full two-way round-trip verified. Held off 5: STEP-only (no IGES), single-solid, no healing. |
+| **Assemblies & mates** | **0** | 0 | Absent. |
+| **Drawings / 2D output** | **0** | 0 | Absent. |
+| UI / UX | **5** | +1 | Premium, viewport-hero, dense instrument panels. A real wedge vs. incumbents' dated chrome. |
+
+### Biggest workflow-friction points in the flows that DO exist
+
+- **F1 — Pattern is one-direction only.** A 2×2 corner-hole grid (the most
+  common plate pattern) needs *two* linear patterns or a multi-loop sketch;
+  there is no rectangular/2-direction pattern and no **mirror-a-feature**.
+  Incumbents give a 2D rectangular pattern and feature-mirror as one op each.
+- **F2 — Disjoint-add fails with a cryptic `boolean_failed`.** An engineer who
+  models a second lump (natural muscle memory) gets a kernel-flavoured error,
+  not "a second disconnected body isn't supported yet." The message doesn't
+  teach the boundary.
+- **F3 — No dedicated Hole feature.** Holes are cut circles: geometrically
+  fine, but no through/blind/counterbore/countersink/tapped semantics — which
+  also means no hole callouts to inherit when drawings arrive.
+- **F4 — Cut-on-a-face defaults outward.** A hole cut from a top face needs
+  `direction:"reverse"` (normal points +Z, away from material) — silent
+  no-material-removed if you guess wrong. A Hole feature or auto-through-cut
+  would erase this trap.
+- **F5 — No drag-reorder / no suppress / no undo-redo in the UI.** Editing a
+  mid-tree feature works, but you can't drag to reorder (backend supports it),
+  can't suppress a feature to test a variant, and can't undo a bad edit — all
+  daily incumbent muscle-memory.
+
+### Competitive read — what a SolidWorks/Fusion/Onshape/FreeCAD user misses first
+
+Single-part modeling is now close enough that an incumbent user would be
+pleasantly surprised, then hit the missing **part/assembly/drawing triad**:
+
+1. **Assembly context (all four incumbents center it).** Insert components,
+   mate/joint them, check interference, drive with a global skeleton. Loft has
+   no container above a single part. This is the first thing a returning
+   engineer reaches for after part #1.
+2. **Drawings (2D dimensioned output).** Every incumbent turns a model into a
+   dimensioned print → PDF/DXF for the shop. Loft exports STEP/STL only.
+3. **Multi-body + boolean intersect** (SolidWorks multibody, Fusion
+   combine/intersect) — tooling, molds, split-and-combine.
+4. **Feature-mirror + 2D pattern**, **suppress/rollback-to-here editing**,
+   **undo/redo** — the everyday history-tree ergonomics.
+
+### The single highest-value gap now, and the #1 call
+
+**#1 — Assemblies (part instances + mates). Do this next.** WHY:
+
+- The operating question has advanced to *"model a real part **and a real
+  project**."* Part is now answered *yes*; **project is answered *no* the
+  instant there are two related parts**, and that is the majority of real
+  mechanical work (nothing is one lonely bracket). Every other gap is inside a
+  single part; assemblies is the missing *container* the whole product is
+  organized around in every incumbent.
+- It's the earliest wall a re-evaluating engineer hits after the (now good)
+  single-part flow — "where do I put the mating part?" — so it gates the
+  *adoption decision*, not just a feature.
+- The foundations it needs already exist and are proven: STEP import (bring a
+  purchased part in), an evaluate pipeline that produces placeable bodies, a
+  constraint solver the team has shown it can build twice (sketch + expression
+  evaluator). Mates are a 3D restatement of a solved problem.
+
+**Honest counter-argument (why it's close):** **Drawings** is the strongest
+#2 and has a real claim to #1 — it's a *smaller, more self-contained* build
+(project view → auto-dimension → PDF/DXF) that makes the parts Loft can
+*already* model **deliverable to a machine shop**, completing the make-loop for
+the 80% single-part case without the harder 3D-mate-solver work. The reason it
+lands #2 not #1: STEP export **already** provides a real manufacturing path
+(STEP→CAM, STEP→print) for modern shops, so the deliverable loop isn't fully
+blocked the way multi-part *design* is — and you draw assemblies too, so
+drawings compounds better *after* assemblies exist. If the team wants the
+lowest-risk high-value increment instead of the highest-ceiling one, ship
+drawings first; if it wants to answer "is this a real CAD system," ship
+assemblies. I call **assemblies**, narrowly.
+
+### Prioritized recommendations (P0–P3, one line each)
+
+- **P0 — Assemblies v1:** an assembly document that instances parts + a
+  mate/joint solver (coincident/concentric/distance/angle) — the missing
+  project container; unblocks all multi-part work. *(#1 do-this-next)*
+- **P0 — Drawings v1:** model → orthographic + iso views → auto/manual
+  dimensions → PDF/DXF export — makes already-modellable parts shop-deliverable.
+- **P1 — Multi-body + boolean intersect:** allow disjoint solids in one part
+  and add `operation:"intersect"` (combine/common) — unlocks tooling/mold/
+  split workflows; a cheaper adjacent win than assemblies.
+- **P1 — Dedicated Hole feature:** through/blind/counterbore/countersink/tapped
+  with standard sizes, auto-through and correct cut direction — erases friction
+  F3+F4 and seeds hole callouts for drawings.
+- **P1 — History-tree ergonomics:** wire drag-reorder (backend already exists),
+  add feature **suppress**, and **undo/redo** — everyday incumbent muscle memory.
+- **P2 — Feature-mirror + 2-direction (rectangular) pattern** — closes friction
+  F1; both are one-op in every incumbent.
+- **P2 — Friendlier multi-body error:** replace `boolean_failed` on a disjoint
+  add with "a second disconnected body isn't supported yet" (friction F2).
+- **P3 — IGES + multi-solid STEP import** and mesh/sew/heal for messy real-world
+  files — turns interop from "one clean solid" toward true supplier-file intake.
+
+### Scorecard rows that look stale / should be checked
+
+- **Part modeling — ✅ (accurate for a *single connected solid*).** Verified
+  live: holes, sketch-on-face, edge-pick fillet, expressions all work.
+  Multi-body/boolean-intersect remains the honest scope boundary; the ✅ is
+  earned but is a *part*-scope ✅, not a *project*-scope one.
+- **Interop — ➖ (accurate).** Two-way round-trip verified live
+  (export→import→model-on→re-export). Still short of ✅: STEP-only,
+  single-solid, no healing.
+- **Sketching — ✅ (accurate, arguably the strongest row).** Expressions +
+  driving/driven + constrainable splines verified live; at incumbent parity.
+- **Assemblies ❌, Drawings ❌ — accurate and now the *headline* gaps.** With
+  Sketching/Part/Interop solid, these two ❌ rows are what the operating
+  question fails on. The next scorecard flip that matters most to the
+  daily-driver verdict is one of these two, not another part-modeling nicety.
