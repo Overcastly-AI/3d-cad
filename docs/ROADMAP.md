@@ -163,8 +163,10 @@ frontend). Deferred past v1 (design doc §5): distance/angle mates,
 interference detection, exploded views, BOM formatting, STEP-assembly
 export, flexible sub-assemblies, part-version pinning-as-default.
 
-- 🚧 Assemblies: instances, mates/joints — v1 scope above; BOM deferred to a
-      trivial documents-side read model once instances exist. **v1 #1 landed**:
+- 🚧 Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
+      items, backend→gateway→frontend); "bolt two parts together and see it" is
+      real end-to-end.** BOM deferred to a trivial documents-side read model
+      once instances exist. **v1 #1 landed**:
       the documents foundation — `py_kit.schemas.assemblies` (Placement/Quat,
       the discriminated 5-mate union, MateFace/AxisRef reusing the feature
       signatures), `assemblies`/`instances`/`mates` tables (migration `0003`),
@@ -203,8 +205,21 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       with `CurrentUser` from day one (heeding audit F7). The principal reaches
       documents (`X-Loft-User`), never geometry (identity-free hop); upstream
       422/409/404 envelopes re-surfaced verbatim. Contracts regenerated
-      (7 new gateway paths). **Next: v1 #6** — frontend assembly tree +
-      instance placement + mate authoring (apps/web).
+      (7 new gateway paths). **v1 #6 landed — Assemblies v1 MVP COMPLETE
+      (all 6 items):** the apps/web assembly workspace (`/assemblies` register +
+      `/assemblies/{id}`, sibling of the part editor) — a Components/Mates
+      title-block tree with drafting **balloon** item numbers (the signature
+      device shared by tree + viewport; grounded ⏚ anchor), the multi-instance
+      viewport (each unique `part_mesh_glb_id` fetched + parsed ONCE, drawn per
+      instance at its solved `Placement` via a scene-frame transform — dedup +
+      render-time transform, never a baked combined GLB), mate authoring reusing
+      the face/edge pick overlays (planar face on each of two instances →
+      Coincident, circular hole edge on each → Concentric, two instances → Lock)
+      → POST → re-evaluate → the free part **snaps** seed-apart → bolted
+      (reduced-motion-aware), and the solve title block (status + typed DOF
+      diagnosis + combined roll-up). e2e `assembly.spec.ts` (desktop + 1280×800)
+      proves it live; `frontend-design` skill run; founder before/after shots.
+      **"Bolt two parts together and see it" is real in the browser.**
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).

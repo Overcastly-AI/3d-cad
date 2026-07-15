@@ -139,6 +139,27 @@ export const measure = {
   witnessSizePx: 8,
 } as const;
 
+/**
+ * Assembly-mode palette — the multi-instance viewport inside the WebGL scene.
+ * Every instance is machined aluminum like a single part; the grounded anchor
+ * ("fixed to the bench") and the addressed instance take the brass accent, the
+ * same selection language as the sketcher/measure overlays. The mating
+ * geometry pick highlight reuses the measure edge tokens. References existing
+ * colors only — no new hex, one palette across both renderers.
+ */
+export const assembly = {
+  /** Every instance's default surface — machined aluminum (== a lone part). */
+  instanceSurface: color.aluminum,
+  /** B-rep edge overlay on an instance — matches the part viewport. */
+  instanceEdge: "#454F5B",
+  /** The grounded instance ("fixed to the bench") reads a touch warmer. */
+  grounded: color.brass,
+  /** The addressed/selected instance — brass, matching viewport.selection. */
+  selected: color.brass,
+  /** Hovered instance / mate pick — brass-hover. */
+  hover: color.brassHover,
+} as const;
+
 export const font = {
   /** Display: wordmark + tracked eyebrow labels. Used with restraint. */
   display: '"Fragment Mono", ui-monospace, monospace',

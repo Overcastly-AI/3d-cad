@@ -10,12 +10,12 @@ import {
 } from "react";
 
 import {
-  createPart,
-  deletePart,
-  type PartResponse,
-  PartNameTakenError,
-  fetchParts,
-} from "../api/parts";
+  type AssemblyResponse,
+  AssemblyNameTakenError,
+  createAssembly,
+  deleteAssembly,
+  fetchAssemblies,
+} from "../api/assemblies";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
 import { WorkspaceNav } from "../components/WorkspaceNav";
@@ -23,77 +23,75 @@ import { formatDate } from "../lib/format";
 import { validatePartName } from "../lib/partName";
 
 /**
- * The parts home — the landing surface after sign-in (frontend-design pass,
- * 2026-07-11). Not a card grid of thumbnails we cannot render yet: a DRAWING
- * REGISTER. Parts are filed oldest-first, each a scribed sheet number, its
- * title, and its dates — a machinist's flat-file drawer, honest about having
- * no previews. The register is the hero; the create line scribes a new sheet.
- * The bench (SheetGrid) carries over from the un-issued sign-in sheet.
+ * The assemblies register — the sibling of the parts home. Same drawing-flat-
+ * file drawer: assemblies filed oldest-first, each a scribed sheet number, its
+ * title, and its dates. Opening one enters the assembly workspace (instances +
+ * mates + the multi-instance viewport). The register is the hero; the create
+ * line scribes a new assembly sheet.
  */
-export function PartsPage() {
-  const parts = useQuery({
-    queryKey: ["parts"],
-    queryFn: () => fetchParts(),
+export function AssembliesPage() {
+  const assemblies = useQuery({
+    queryKey: ["assemblies"],
+    queryFn: () => fetchAssemblies(),
     staleTime: 30_000,
   });
 
-  const list = parts.data ?? [];
-  const empty = parts.isSuccess && list.length === 0;
+  const list = assemblies.data ?? [];
+  const empty = assemblies.isSuccess && list.length === 0;
 
   return (
     <div className="flex h-full flex-col">
       <TopBar>
-        <Chip data-testid="status-chip">Parts</Chip>
+        <Chip data-testid="status-chip">Assemblies</Chip>
       </TopBar>
       <main className="relative min-h-0 grow overflow-y-auto bg-carbide">
         <SheetGrid />
-        {/* Sheet border, matching the sign-in un-issued sheet. */}
         <div
           className="pointer-events-none absolute inset-3 border border-hairline"
           aria-hidden="true"
         />
         <div className="relative mx-auto max-w-3xl px-4 py-8 sm:px-8 sm:py-12">
-          <WorkspaceNav active="parts" />
+          <WorkspaceNav active="assemblies" />
           <section
             className="mt-4 border border-hairline bg-anvil text-mist"
-            data-testid="parts-register"
+            data-testid="assemblies-register"
           >
             <header className="flex items-baseline gap-3 border-b border-hairline px-3 py-3">
               <h2 className="font-display text-2xs uppercase tracking-[0.2em] text-gauge">
-                Parts register
+                Assembly register
               </h2>
               <span className="grow" />
               <RegisterCount
-                loading={parts.isLoading}
-                error={parts.isError}
+                loading={assemblies.isLoading}
+                error={assemblies.isError}
                 count={list.length}
               />
             </header>
 
-            {parts.isError ? (
+            {assemblies.isError ? (
               <p
                 role="alert"
-                data-testid="parts-error"
+                data-testid="assemblies-error"
                 className="px-3 py-6 font-body text-sm text-flag"
               >
-                {parts.error instanceof Error
-                  ? parts.error.message
-                  : "Your parts could not be loaded."}
+                {assemblies.error instanceof Error
+                  ? assemblies.error.message
+                  : "Your assemblies could not be loaded."}
               </p>
-            ) : parts.isLoading ? (
+            ) : assemblies.isLoading ? (
               <p
                 role="status"
-                data-testid="parts-loading"
+                data-testid="assemblies-loading"
                 className="px-3 py-6 font-data text-xs text-gauge"
               >
-                Loading parts…
+                Loading assemblies…
               </p>
             ) : empty ? (
               <EmptyRegister />
             ) : (
               <>
                 <CreateLine />
-                <PartsTable parts={list} />
+                <AssembliesTable assemblies={list} />
               </>
             )}
           </section>
@@ -113,23 +111,26 @@ function RegisterCount({
   count: number;
 }) {
   if (error) return null;
-  const label = loading ? "—" : count === 1 ? "1 part" : `${count} parts`;
+  const label = loading
+    ? "—"
+    : count === 1
+      ? "1 assembly"
+      : `${count} assemblies`;
   return (
     <span
       className="font-data text-xs tabular-nums text-gauge"
-      data-testid="parts-count"
+      data-testid="assemblies-count"
     >
       {label}
     </span>
   );
 }
 
-/** The register's rows — a real table so the columns carry meaning for AT. */
-function PartsTable({ parts }: { parts: PartResponse[] }) {
+function AssembliesTable({ assemblies }: { assemblies: AssemblyResponse[] }) {
   return (
-    <table className="w-full border-collapse" data-testid="parts-table">
+    <table className="w-full border-collapse" data-testid="assemblies-table">
       <caption className="sr-only">
-        Your parts, oldest first. Open a part to model it, or delete it.
+        Your assemblies, oldest first. Open one to compose it, or delete it.
       </caption>
       <thead>
         <tr className="border-b border-hairline">
@@ -143,8 +144,12 @@ function PartsTable({ parts }: { parts: PartResponse[] }) {
         </tr>
       </thead>
       <tbody>
-        {parts.map((part, index) => (
-          <PartRow key={part.id} part={part} index={index + 1} />
+        {assemblies.map((assembly, index) => (
+          <AssemblyRow
+            key={assembly.id}
+            assembly={assembly}
+            index={index + 1}
+          />
         ))}
       </tbody>
     </table>
@@ -169,14 +174,20 @@ function Th({
   );
 }
 
-/** One filed sheet: scribe number, title (opens the workspace), dates, delete. */
-function PartRow({ part, index }: { part: PartResponse; index: number }) {
+function AssemblyRow({
+  assembly,
+  index,
+}: {
+  assembly: AssemblyResponse;
+  index: number;
+}) {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
 
   const remove = useMutation({
-    mutationFn: () => deletePart(part.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["parts"] }),
+    mutationFn: () => deleteAssembly(assembly.id),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["assemblies"] }),
   });
 
   const sheetNo = String(index).padStart(3, "0");
@@ -184,8 +195,8 @@ function PartRow({ part, index }: { part: PartResponse; index: number }) {
   if (confirming) {
     return (
       <tr
-        data-testid="part-row"
-        data-part-id={part.id}
+        data-testid="assembly-row"
+        data-assembly-id={assembly.id}
         data-confirming="true"
         className="border-b border-hairline last:border-b-0 bg-carbide"
       >
@@ -194,18 +205,18 @@ function PartRow({ part, index }: { part: PartResponse; index: number }) {
         </td>
         <td colSpan={3} className="px-3 py-2">
           <span className="font-body text-sm text-mist">
-            Delete <span className="font-data text-flag">{part.name}</span>?
+            Delete <span className="font-data text-flag">{assembly.name}</span>?
             This cannot be undone.
           </span>
           {remove.isError ? (
             <span
               role="alert"
               className="ml-2 font-body text-xs text-flag"
-              data-testid="part-delete-error"
+              data-testid="assembly-delete-error"
             >
               {remove.error instanceof Error
                 ? remove.error.message
-                : "The part could not be deleted."}
+                : "The assembly could not be deleted."}
             </span>
           ) : null}
         </td>
@@ -214,7 +225,7 @@ function PartRow({ part, index }: { part: PartResponse; index: number }) {
             <Button
               onClick={() => setConfirming(false)}
               disabled={remove.isPending}
-              data-testid="part-delete-cancel"
+              data-testid="assembly-delete-cancel"
             >
               Cancel
             </Button>
@@ -222,7 +233,7 @@ function PartRow({ part, index }: { part: PartResponse; index: number }) {
               variant="danger"
               onClick={() => remove.mutate()}
               disabled={remove.isPending}
-              data-testid="part-delete-confirm"
+              data-testid="assembly-delete-confirm"
             >
               {remove.isPending ? "Deleting…" : "Delete"}
             </Button>
@@ -234,8 +245,8 @@ function PartRow({ part, index }: { part: PartResponse; index: number }) {
 
   return (
     <tr
-      data-testid="part-row"
-      data-part-id={part.id}
+      data-testid="assembly-row"
+      data-assembly-id={assembly.id}
       className="group border-b border-hairline last:border-b-0 hover:bg-carbide focus-within:bg-carbide"
     >
       <td className="px-3 py-2 text-right font-data text-xs tabular-nums text-gauge">
@@ -243,26 +254,26 @@ function PartRow({ part, index }: { part: PartResponse; index: number }) {
       </td>
       <td className="px-3 py-2">
         <Link
-          to="/parts/$partId"
-          params={{ partId: part.id }}
-          data-testid="part-open"
+          to="/assemblies/$assemblyId"
+          params={{ assemblyId: assembly.id }}
+          data-testid="assembly-open"
           className="rounded-sm font-body text-sm text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline"
         >
-          {part.name}
+          {assembly.name}
         </Link>
       </td>
       <td className="hidden px-3 py-2 font-data text-xs tabular-nums text-gauge sm:table-cell">
-        {formatDate(part.created_at)}
+        {formatDate(assembly.created_at)}
       </td>
       <td className="hidden px-3 py-2 font-data text-xs tabular-nums text-gauge md:table-cell">
-        {formatDate(part.updated_at)}
+        {formatDate(assembly.updated_at)}
       </td>
       <td className="px-3 py-2 text-right">
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          data-testid="part-delete"
-          aria-label={`Delete ${part.name}`}
+          data-testid="assembly-delete"
+          aria-label={`Delete ${assembly.name}`}
           className="rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none transition-colors duration-fast hover:text-flag focus-visible:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
         >
           Delete
@@ -272,11 +283,6 @@ function PartRow({ part, index }: { part: PartResponse; index: number }) {
   );
 }
 
-/**
- * The scribe line: a blank register entry waiting for a name. Keyboard-first —
- * pressing "n" anywhere on the page focuses it; Enter files the part. A
- * duplicate name (409) pins its message to the field.
- */
 function CreateLine() {
   const inputRef = useRef<HTMLInputElement>(null);
   const focus = useCallback(() => inputRef.current?.focus(), []);
@@ -304,36 +310,37 @@ function CreateLine() {
 
   return (
     <div className="border-b border-hairline px-3 py-3">
-      <CreatePartForm inputRef={inputRef} submitLabel="New part" />
+      <CreateAssemblyForm inputRef={inputRef} submitLabel="New assembly" />
     </div>
   );
 }
 
-/** First-run: an invitation, not a blank drawer. */
 function EmptyRegister() {
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => inputRef.current?.focus(), []);
   return (
-    <div className="px-4 py-10 sm:px-8 sm:py-14" data-testid="parts-empty">
+    <div className="px-4 py-10 sm:px-8 sm:py-14" data-testid="assemblies-empty">
       <p className="font-display text-2xs uppercase tracking-[0.2em] text-gauge">
         Empty register
       </p>
       <h3 className="mt-2 font-body text-lg text-mist">
-        Nothing filed here yet.
+        No assemblies filed yet.
       </h3>
       <p className="mt-1 max-w-md font-body text-sm text-gauge">
-        Name your first part to open a fresh sheet — sketch it, extrude it, and
-        it will be filed here for next time.
+        Name your first assembly, then add parts to it, ground one, and bolt the
+        rest together with mates.
       </p>
       <div className="mt-5 max-w-md">
-        <CreatePartForm inputRef={inputRef} submitLabel="Create first part" />
+        <CreateAssemblyForm
+          inputRef={inputRef}
+          submitLabel="Create first assembly"
+        />
       </div>
     </div>
   );
 }
 
-/** The shared create control — a name cell + the one brass action. */
-function CreatePartForm({
+function CreateAssemblyForm({
   inputRef,
   submitLabel,
 }: {
@@ -345,21 +352,21 @@ function CreatePartForm({
   const [fieldError, setFieldError] = useState<string | null>(null);
 
   const create = useMutation({
-    mutationFn: (value: string) => createPart(value),
+    mutationFn: (value: string) => createAssembly(value),
     onSuccess: async () => {
       setName("");
       setFieldError(null);
-      await queryClient.invalidateQueries({ queryKey: ["parts"] });
+      await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
       inputRef.current?.focus();
     },
     onError: (error) => {
-      if (error instanceof PartNameTakenError) {
+      if (error instanceof AssemblyNameTakenError) {
         setFieldError(error.message);
       } else {
         setFieldError(
           error instanceof Error
             ? error.message
-            : "The part could not be created.",
+            : "The assembly could not be created.",
         );
       }
     },
@@ -380,17 +387,17 @@ function CreatePartForm({
       className="flex items-end gap-3"
       onSubmit={submit}
       noValidate
-      data-testid="create-part-form"
+      data-testid="create-assembly-form"
     >
       <TextField
         ref={inputRef}
-        label="Part name"
+        label="Assembly name"
         value={name}
         error={fieldError}
-        placeholder="e.g. Bracket plate"
+        placeholder="e.g. Bolted plates"
         autoComplete="off"
         disabled={create.isPending}
-        data-testid="create-part-name"
+        data-testid="create-assembly-name"
         className="grow"
         onChange={(event) => {
           setName(event.currentTarget.value);
@@ -401,7 +408,7 @@ function CreatePartForm({
         type="submit"
         variant="solid"
         disabled={create.isPending}
-        data-testid="create-part-submit"
+        data-testid="create-assembly-submit"
         className="mb-[1px] shrink-0"
       >
         {create.isPending ? "Creating…" : submitLabel}

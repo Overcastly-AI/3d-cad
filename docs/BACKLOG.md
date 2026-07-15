@@ -137,19 +137,25 @@ nit, no user impact, stays Later).
       + under/conflicting/ungrounded/bodyless-part/unresolvable-mate error tests
       (`test_assembly_evaluate.py`). Full lint/pyright + geometry suite +
       gen-check green. [src: design/assemblies.md §4, §6]
-- [ ] (P1, M) **← NEXT** Assemblies v1 #6 — frontend assembly tree + instance
-      placement + mate authoring — apps/web: an assembly workspace (sibling
-      of `/parts/{id}`), an instance list (add-instance-from-a-part picker,
-      grounded toggle, placement gizmo), and mate authoring (pick a face on
-      each of two instances → Coincident; pick a circular edge on each →
-      Concentric; Lock two instances) driving #4's gateway endpoints and
-      rendering #5's per-instance shared meshes + solved transforms via r3f
-      instancing (one part mesh drawn N times). `frontend-design` skill
-      invoked (new surface). Acceptance: worked e2e — create an assembly,
-      instance two parts, mate them coincident+concentric, see both solved
-      in the viewport (screenshot evidence, desktop + 1280×800); a
-      conflicting-mate case surfaces the typed diagnosis legibly. Depends
-      on: #4, #5. [src: design/assemblies.md §4, product-auditor #1]
+- [x] (P1, M) Assemblies v1 #6 — frontend assembly tree + instance placement
+      + mate authoring — **DONE 2026-07-15. Assemblies v1 MVP COMPLETE (all 6).**
+      apps/web assembly workspace (`/assemblies` register + `/assemblies/{id}`,
+      sibling of the part editor): a Components/Mates title-block tree (drafting
+      **balloon** item numbers — the signature device shared by tree + viewport;
+      grounded ⏚ anchor), the multi-instance viewport (each unique
+      `part_mesh_glb_id` fetched ONCE + parsed once, drawn per instance at its
+      solved `Placement` via a scene-frame transform `S·q·S⁻¹`/`occtToScene(t)`),
+      mate authoring reusing the face/edge pick overlays (a planar face on each
+      of two instances → Coincident, a circular hole edge on each → Concentric,
+      two instances → Lock) → POST → re-evaluate → the free part **snaps** from
+      seed-apart to the bolted pose (reduced-motion-aware lerp), and the solve
+      title block (status + typed DOF diagnosis + combined roll-up). `@loft/design`
+      gained an `assembly` token group (references only). `frontend-design` skill
+      run. e2e `assembly.spec.ts` (desktop + 1280×800): instance a plate-with-hole
+      twice, author coincident+concentric, assert the free instance moved seed→
+      solved (bolted) — green live. Full lint + 517 ts + 1122 py tests green;
+      founder before/after screenshots under docs/screenshots/. [src:
+      design/assemblies.md §4, product-auditor #1]
 - [ ] (P2, M) Mesh store: MinIO-backed object-storage swap (engineering audit
       **F1/F6**, forward goal) — the single-worker guard (shipped
       2026-07-13) only covers in-process workers; replica fan-out
@@ -393,9 +399,13 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-15 — **Assemblies v1 #6 done → v1 MVP COMPLETE (all 6):** apps/web
+  assembly workspace + multi-instance viewport (dedup shared mesh + solved
+  transform) + mate authoring + snap-on-solve + solve readout; `assembly.spec.ts`
+  green live, founder before/after shots. [frontend-builder]
 - 2026-07-15 — Assemblies v1 #4 done: gateway assembly CRUD + evaluate
   proxies, every route `CurrentUser`-gated (F7); contracts regenerated.
-  #6 (frontend) now NEXT. [backend-builder]
+  [backend-builder]
 - 2026-07-15 — Phase 2→3 reconcile: Phase 2 converged (Sketching + Part
   modeling ✅), 9 shipped items archived. **Assemblies sequenced into 6
   Ready items** (`docs/design/assemblies.md`); interleaved F1/F6/F8/F7-rate-

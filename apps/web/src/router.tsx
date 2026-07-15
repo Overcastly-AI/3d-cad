@@ -5,6 +5,8 @@ import {
   Outlet,
 } from "@tanstack/react-router";
 
+import { AssembliesPage } from "./routes/AssembliesPage";
+import { AssemblyPage } from "./routes/AssemblyPage";
 import { AuthedLayout } from "./routes/AuthedLayout";
 import { ModelerPage } from "./routes/ModelerPage";
 import { PartPage } from "./routes/PartPage";
@@ -52,9 +54,29 @@ export const partRoute = createRoute({
   component: PartPage,
 });
 
+/** The assemblies register — sibling of the parts home. */
+const assembliesRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/assemblies",
+  component: AssembliesPage,
+});
+
+/** Assembly workspace: instance/mate tree + multi-instance viewport. */
+export const assemblyRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/assemblies/$assemblyId",
+  component: AssemblyPage,
+});
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
-  authedRoute.addChildren([indexRoute, firstLightRoute, partRoute]),
+  authedRoute.addChildren([
+    indexRoute,
+    firstLightRoute,
+    partRoute,
+    assembliesRoute,
+    assemblyRoute,
+  ]),
 ]);
 
 export const router = createRouter({ routeTree });
