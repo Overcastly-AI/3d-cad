@@ -305,3 +305,110 @@ formatting (the flat BOM data is a free documents-side roll-up), STEP-assembly
 IO, flexible sub-assemblies, part-version pinning-as-default, mate-driven
 motion. Smallest useful v1 = instances + placement + the three mates + the
 solver + shared-mesh assembly tessellation in the viewport.
+
+## 11. Drawings — 2D projection, the drawing document, dimensioning, export
+
+**Status:** decision record backing the full design in
+[`docs/design/drawings.md`](./design/drawings.md) (kernel-architect, 2026-07-15;
+`code-reviewer`-gated before implementation). Drawings are the product audit's
+headline ❌ #2 (`docs/AUDIT-PRODUCT.md`, 2026-07-15): a finished part can leave
+only as STEP/STL — there is no dimensioned print to hand a machinist. This section
+records the load-bearing decisions; the design doc carries the schema, the HLR
+pipeline, and the phasing.
+
+**Decision — 2D projection / hidden-line removal (the crux): OCCT exact HLR
+(`HLRBRep_Algo`).** Hidden-line removal from a B-rep is in-kernel already —
+`OCP.HLRBRep` (`HLRBRep_Algo`, `HLRBRep_HLRToShape`, and the polygonal
+`HLRBRep_PolyAlgo`), `OCP.HLRAlgo.HLRAlgo_Projector`, `OCP.gp.gp_Ax2` all import
+in this repo's geometry env — **no new dependency**. v1 uses **exact HLR**
+(`HLRBRep_Algo`), not poly-HLR: a dimensioned print needs true geometry (a hole
+projects to a real **circle** a diameter reads off of, not a facet fan), it reuses
+the exact bodies `evaluate_tree`/`evaluate_assembly` already produce, and analytic
+edges canonicalise cleanly for determinism. Poly-HLR (`HLRBRep_PolyAlgo`) is the
+**deferred perf/robustness escape hatch** (a marked lower-fidelity *preview* only),
+mirroring the assembly solver's fast-path/general-solver split. A view projects a
+**part** (one evaluated body → HLR) or an **assembly** (per-instance bodies at
+solved transforms composed into a `TopoDS_Compound` → HLR the compound, so
+inter-part occlusion is one kernel pass — reusing the §10 assembly evaluation).
+Output is visible (`VCompound`+`OutLineVCompound`, drawn **solid**) + hidden
+(`HCompound`+`OutLineHCompound`, drawn **dashed**) 2D edges. **This is the pillar's
+genuine risk** (design §1.5), stated as plainly as the mate solver was: exact HLR
+is **slow and occasionally fragile on complex parts**, and its edge enumeration
+order is construction-dependent (the `TopExp_Explorer`/topological-naming §1.1
+hazard). Mitigations: a **canonical edge sort** (the §9 byte-determinism gate
+applied to HLR — lexicographic on a 2D signature tuple, fixed decimal formatter),
+per-view caching, a per-view wall-clock budget, the poly fallback, and an honest
+`view_projection_failed` per-view error (never a 500). Section/detail/broken/
+auxiliary views are **deferred** (section needs a cutting-plane boolean before
+HLR).
+
+**Decision — drawing document model:** a **drawing is a new first-class document
+type** in `services/documents` (its own `drawings`/`sheets`/`views`/`dimensions`/
+`annotations` tables), sibling of part and assembly, **not** a part feature or an
+assembly. A drawing is a *layout* (sheets of views + dimensions + annotations that
+reference a part/assembly **by id**), so it reuses the assembly patterns
+(owner-scoped auth, uniform-404, OCC `version`, alembic-only DDL, the
+pydantic→OpenAPI→ts-client DRY flow via a new `py_kit.schemas.drawings` sibling of
+`schemas.assemblies`) but not its tables. It is a pure **leaf consumer** — nothing
+references a drawing, so no acyclicity walk is needed. **Version pinning** carries
+the *identical honest constraint* as assemblies (§10 / assemblies §1.3):
+`views.ref_pinned_version` is pin-ready but **v1 resolves to the referenced
+document's TIP** because immutable part versioning does not exist yet; the
+tip→pinned flip is additive and lands with the Phase 3 versioning item —
+drawings and assemblies flip together.
+
+**Decision — dimensioning references model geometry, NOT projected 2D geometry.**
+v1 dimension set: **`linear`** (an edge's length, or point-to-point via two edge
+**endpoints**), **`diameter`** / **`radius`** (a circular edge), **`angular`**
+(two straight edges) — all **manually placed** (auto-dimension is out of scope).
+Critically, a dimension names a **model subshape** via the **shipped
+`EdgeSignature`/`SubshapeRef` topological-naming machinery** (topo-naming §10) —
+the SAME fingerprints a fillet and a `concentric` mate use — **not** a projected
+2D edge index (which would be the silent-retarget failure, topo-naming §1.3, one
+boundary removed). The projection carries a **model-edge→projected-2D-edge map** so
+a dimension traces its named model edge to the drawn geometry at generation time; a
+part edit that removes the edge is an honest `subshape_unresolved` on that
+dimension, never a wrong number. Point-to-point uses an **edge + canonical
+endpoint** (`end_a`/`end_b`, already in `EdgeSignature`), so **no vertex signature
+is needed** (those stay unshipped — topo-naming Open Q 10). v1 measures
+**projected** length (true for standard views) and surfaces a **`foreshortened`
+flag** when an edge is not parallel to the view plane; true-length + auxiliary
+views are deferred.
+
+**Decision — export: SVG in v1** (PDF + DXF fast-follow). SVG is trivial from 2D
+edges, **browser-native** (it is *both* the interactive render and the artifact),
+and fully byte-controllable for the determinism gate — and needs **no
+dependency**. PDF (shop-standard) via **reportlab** (BSD) and DXF (CAD-interchange)
+via **ezdxf** (MIT) are the fast-follow writers behind the same composition seam;
+**all three libs are permissive — no GPL/AGPL** (§8). **Geometry composes the
+artifact** (not a new concern): it already owns projection + dimension resolution +
+the content-addressed artifact-to-object-storage machinery (STEP/STL, `mesh_store`),
+so a composed SVG/PDF/DXF is one more artifact-by-reference; documents owns the
+drawing *document* (intent) and never composes vectors.
+
+**Decision — service boundaries + crossing representation:** **documents** owns the
+drawing document + cross-doc integrity (delete-a-referenced-part 409, extending the
+assembly dependency machinery) — kernel-free, all pydantic. **geometry** evaluates
+the referenced part/assembly, runs HLR, resolves each dimension's `EdgeSignature`
++ measures its value, and composes the artifact. **gateway** aggregates; **web**
+talks only to the gateway. **No kernel type crosses** — the two neutral out-forms
+are (1) a **`ViewGeometry` DTO** (projected edges as typed 2D primitives
+`Line2D|Arc2D|Circle2D|Polyline2D` with `visible:bool`, + resolved dimension
+geometry + the edge→signature map for pick) — a neutral polyline/primitive DTO, the
+drawings analogue of the mesh, **no `TopoDS`/`gp_`/HLR handle**; and (2) the
+**composed artifact by content-addressed reference** (`svg_id = sha256:…`, served
+from the reused mesh-store-style store, exactly as `mesh_glb_id`).
+
+**Frontend (noted, designed later):** a **client-side 2D sheet editor over the
+neutral `ViewGeometry` DTO** (place views, drag dimensions, pick/snap locally) with
+geometry as the projection/resolution/composition engine and the **exported
+artifact server-composed**; render-only-server-SVG is the honest fallback if the
+editor proves too heavy. Designed under the standing design mandate later.
+
+**Deferred (design §7):** PDF/DXF export (fast-follow), assembly drawings + BOM
+tables/balloons, section/detail/broken/auxiliary views, auto-dimensioning, GD&T +
+surface finish + hole callouts, sheet templates, poly-HLR preview wiring,
+true-length/drawing-driven dimensions, part-version pinning-as-default. **Smallest
+useful v1 = one part → auto-laid-out 3 orthographic + 1 iso views (exact HLR) → a
+few manual linear/diameter/radius/angular dimensions referencing `EdgeSignature`
+→ byte-deterministic SVG export**, with a new golden in the same commit.
