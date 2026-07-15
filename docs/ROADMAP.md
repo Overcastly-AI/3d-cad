@@ -164,7 +164,13 @@ interference detection, exploded views, BOM formatting, STEP-assembly
 export, flexible sub-assemblies, part-version pinning-as-default.
 
 - 🚧 Assemblies: instances, mates/joints — v1 scope above; BOM deferred to a
-      trivial documents-side read model once instances exist.
+      trivial documents-side read model once instances exist. **v1 #1 landed**:
+      the documents foundation — `py_kit.schemas.assemblies` (Placement/Quat,
+      the discriminated 5-mate union, MateFace/AxisRef reusing the feature
+      signatures), `assemblies`/`instances`/`mates` tables (migration `0003`),
+      and the owner-scoped CRUD API with OCC (`doc_version`), write-time
+      acyclicity, and cross-document 409-with-dependents. **Next: v1 #2** —
+      the `AssemblySolver` numeric core (the flagged §2.4 risk).
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).

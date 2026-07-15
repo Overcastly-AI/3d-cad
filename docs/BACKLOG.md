@@ -58,24 +58,18 @@ promoted from Next — security-adjacent debt outranks polish even mid-pillar.
 real but low severity/likelihood, stays Next) and F5 (spline epsilon — P3
 nit, no user impact, stays Later).
 
-- [ ] (P1, M) Assemblies v1 #1 — document model + CRUD API (documents) —
-      new `py_kit.schemas.assemblies`: `Placement`/`Quat`, `MateFaceRef`/
-      `MateAxisRef` (reusing `PlanarFaceSignature`/`EdgeSignature` verbatim),
-      a v1 `Mate` discriminated union of exactly `lock`/`coincident`/
-      `concentric` (`distance`/`angle` join additively later per
-      `feature-tree.md` §1.4 — not v1 scope). New alembic migration:
-      `assemblies`/`instances`/`mates` tables per `docs/design/assemblies.md`
-      §1.2 (owner-scoped, `doc_version` OCC counter,
-      `UNIQUE(assembly_id, order_index)`). CRUD API mirrors the part/feature
-      pattern: owner-scoped auth, uniform 404, optimistic-concurrency 422 on
-      stale `expected_version`, acyclicity enforced at write time
-      (`assembly_cycle` 422), 409-with-dependents when a referenced part is
-      deleted (mirrors `feature_dependencies`). Acceptance: unit tests for
-      CRUD, cycle rejection (A→B→A), 409-dependents, stale-version 422;
-      `just gen`/`gen-check` clean. Depends on: nothing new — the foundation
-      every other assemblies item builds on. [src: design/assemblies.md,
+- [x] (P1, M) Assemblies v1 #1 — document model + CRUD API (documents) — **DONE
+      2026-07-15.** `py_kit.schemas.assemblies` (Placement/Quat, MateFace/AxisRef
+      reusing PlanarFaceSignature/EdgeSignature verbatim, the discriminated
+      5-mate union lock/coincident/concentric/distance/angle), `assemblies`/
+      `instances`/`mates` tables (migration `0003`, deferrable instance order
+      unique, ref_document_id app-enforced not FK), owner-scoped CRUD with OCC
+      (`doc_version` 422-on-stale), write-time acyclicity (`assembly_cycle`
+      422, DFS over sub-assembly edges), cross-document 409-with-dependents on
+      deleting an instanced part/sub-assembly. Full lint/pyright + 1044 py
+      tests (SQLite + real PG) + gen-check green. [src: design/assemblies.md,
       product-auditor #1]
-- [ ] (P1, M) Assemblies v1 #2 — `AssemblySolver` core (geometry, numeric)
+- [ ] (P1, M) **← NEXT** Assemblies v1 #2 — `AssemblySolver` core (geometry, numeric)
       — **THE FLAGGED RISK** (design doc §2.4). New `AssemblySolver` protocol
       mirroring `SketchSolver` (RESEARCH §2): quaternion 6-DOF free
       instances, deterministic damped Gauss-Newton/LM seeded from authored

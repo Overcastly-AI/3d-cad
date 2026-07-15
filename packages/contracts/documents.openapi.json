@@ -16,6 +16,175 @@
         "title": "AllEdgesSelector",
         "type": "object"
       },
+      "AngleMate": {
+        "description": "Two planar faces held at a fixed angle (fast-follow, design \u00a75).\n\nThe angular sibling of :class:`DistanceMate`: the coincident residual with\nthe angle between the two normals targeted at ``angle_deg`` (\u00a72.3). In the\nschema now; not v1-solver scope.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/MateFaceRef",
+            "description": "First planar face"
+          },
+          "angle_deg": {
+            "description": "Target angle between the two face normals (degrees)",
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "b": {
+            "$ref": "#/components/schemas/MateFaceRef",
+            "description": "Second planar face"
+          },
+          "type": {
+            "const": "angle",
+            "default": "angle",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b",
+          "angle_deg"
+        ],
+        "title": "AngleMate",
+        "type": "object"
+      },
+      "AssemblyCreate": {
+        "description": "Create an assembly owned by the calling user (design \u00a71.2).",
+        "properties": {
+          "name": {
+            "description": "Assembly name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "AssemblyCreate",
+        "type": "object"
+      },
+      "AssemblyGraphResponse": {
+        "description": "An assembly plus its full instance + mate graph and concurrency token.\n\nThe read model a client renders (design \u00a71.2): the assembly header, its\ninstances in ``order_index`` order, its mates in ``order_index`` order, and\nthe ``doc_version`` the client echoes as its next ``expected_version``.",
+        "properties": {
+          "assembly": {
+            "$ref": "#/components/schemas/AssemblyResponse"
+          },
+          "doc_version": {
+            "description": "Echoed OCC token (== assembly.doc_version)",
+            "title": "Doc Version",
+            "type": "integer"
+          },
+          "instances": {
+            "items": {
+              "$ref": "#/components/schemas/InstanceResponse"
+            },
+            "title": "Instances",
+            "type": "array"
+          },
+          "mates": {
+            "items": {
+              "$ref": "#/components/schemas/MateResponse"
+            },
+            "title": "Mates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "assembly",
+          "doc_version",
+          "instances",
+          "mates"
+        ],
+        "title": "AssemblyGraphResponse",
+        "type": "object"
+      },
+      "AssemblyListResponse": {
+        "description": "The caller's assemblies, oldest first (wrapper leaves room for paging).",
+        "properties": {
+          "assemblies": {
+            "items": {
+              "$ref": "#/components/schemas/AssemblyResponse"
+            },
+            "title": "Assemblies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "assemblies"
+        ],
+        "title": "AssemblyListResponse",
+        "type": "object"
+      },
+      "AssemblyResponse": {
+        "description": "An assembly as stored \u2014 identity, ownership, and its concurrency token.\n\nMirrors :class:`~py_kit.schemas.parts.PartResponse` plus the ``doc_version``\nOCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "doc_version": {
+            "description": "Monotonic optimistic-concurrency counter (design \u00a71.2)",
+            "title": "Doc Version",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "description": "Owning user id (gateway-verified)",
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "owner_id",
+          "doc_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AssemblyResponse",
+        "type": "object"
+      },
+      "AssemblyUpdate": {
+        "description": "Rename an assembly. Bumps ``doc_version`` (any mutation bumps \u2014 \u00a71.2).",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard: the doc_version the client last saw; a stale value is rejected 422 (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "name": {
+            "description": "New assembly name",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "name"
+        ],
+        "title": "AssemblyUpdate",
+        "type": "object"
+      },
       "AxisParallelEdgesSelector": {
         "description": "Every straight edge parallel to a world axis (e.g. Z = the vertical\nedges of an upright prism). Curved edges never match \u2014 an arc has no\nsingle direction. Deterministic and rebuild-stable: a geometric predicate,\nnot a stored edge id.",
         "properties": {
@@ -166,6 +335,37 @@
         "title": "CoincidentConstraint",
         "type": "object"
       },
+      "CoincidentMate": {
+        "description": "Two planar faces made coplanar + flush (design \u00a72.1/\u00a72.3).\n\n``flush`` chooses the normal sense: ``True`` = normals anti-parallel (the\nmating faces touch, the common bolted-flush case); ``False`` = normals\nparallel (faces back-to-back). The residual is a coplanar gap of zero plus\nthe (anti)parallel normal constraint (\u00a72.3).",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/MateFaceRef",
+            "description": "First planar face"
+          },
+          "b": {
+            "$ref": "#/components/schemas/MateFaceRef",
+            "description": "Second planar face"
+          },
+          "flush": {
+            "default": true,
+            "description": "True = normals anti-parallel (mating faces touch); False = normals parallel (back-to-back)",
+            "title": "Flush",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "coincident",
+            "default": "coincident",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "title": "CoincidentMate",
+        "type": "object"
+      },
       "ConcentricConstraint": {
         "description": "Two circles/arcs share a center point.\n\nRelates two whole circle/arc entities by id (order immaterial); the solver\nties their centers together (there is no separate radius relation \u2014 use\n:class:`EqualConstraint` for that). Removes two degrees of freedom. Both\nentities must be a circle or an arc; a line has no center and is rejected.",
         "properties": {
@@ -193,6 +393,31 @@
           "b"
         ],
         "title": "ConcentricConstraint",
+        "type": "object"
+      },
+      "ConcentricMate": {
+        "description": "Two axes (from circular edges) made collinear (design \u00a72.1/\u00a72.3).\n\nThe bolt/pin half of the canonical joint: hole and shaft axes aligned. The\nresidual makes the two directions parallel and the two lines coincident\n(\u00a72.3).",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/MateAxisRef",
+            "description": "First axis"
+          },
+          "b": {
+            "$ref": "#/components/schemas/MateAxisRef",
+            "description": "Second axis"
+          },
+          "type": {
+            "const": "concentric",
+            "default": "concentric",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "title": "ConcentricMate",
         "type": "object"
       },
       "DatumFeature": {
@@ -390,6 +615,37 @@
           "entity"
         ],
         "title": "DistanceConstraint",
+        "type": "object"
+      },
+      "DistanceMate": {
+        "description": "Two planar faces held a fixed distance apart (fast-follow, design \u00a75).\n\n``coincident`` with a non-zero offset in the residual (\u00a72.3) \u2014 the same\nsolver, one extra scalar. In the schema now so it joins the solver\nadditively; not v1-solver scope.",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/MateFaceRef",
+            "description": "First planar face"
+          },
+          "b": {
+            "$ref": "#/components/schemas/MateFaceRef",
+            "description": "Second planar face"
+          },
+          "distance_mm": {
+            "description": "Signed gap between the two faces along the normal (mm)",
+            "title": "Distance Mm",
+            "type": "number"
+          },
+          "type": {
+            "const": "distance",
+            "default": "distance",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b",
+          "distance_mm"
+        ],
+        "title": "DistanceMate",
         "type": "object"
       },
       "DraftFeature": {
@@ -1408,6 +1664,232 @@
         "title": "ImportParamsV1",
         "type": "object"
       },
+      "InstanceCreate": {
+        "description": "Add an instance referencing a part/sub-assembly by id (design \u00a71.2).\n\n``ref_document_id`` is a cross-document reference, not an FK (design \u00a71.2):\ndocuments enforces its integrity at write time (existence, acyclicity), not\nthe DB. ``placement`` defaults to identity; ``grounded`` fixes the instance\nat its placement (0 DOF) \u2014 the solver's anchor (v1 wants at least one\ngrounded instance per assembly, \u00a71.2). ``order_index`` is a stable\ndisplay/BOM order, appended at the tip when omitted.",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "grounded": {
+            "default": false,
+            "description": "Fix this instance at its placement (0 DOF) \u2014 the solver anchor; v1 wants >= 1 grounded instance per assembly (\u00a71.2)",
+            "title": "Grounded",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Instance name (\"Bracket <1>\")",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/Placement",
+            "default": {
+              "orientation": {
+                "w": 1.0,
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0
+              },
+              "position": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0
+              }
+            },
+            "description": "Authored seed pose (\u00a72.3)"
+          },
+          "ref_document_id": {
+            "description": "The part / sub-assembly document this instance references",
+            "format": "uuid",
+            "title": "Ref Document Id",
+            "type": "string"
+          },
+          "ref_document_kind": {
+            "description": "'part' or 'assembly' (a rigid sub-assembly nests, \u00a71.4)",
+            "enum": [
+              "part",
+              "assembly"
+            ],
+            "title": "Ref Document Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "ref_document_id",
+          "ref_document_kind",
+          "name"
+        ],
+        "title": "InstanceCreate",
+        "type": "object"
+      },
+      "InstanceMutationResponse": {
+        "description": "Result of a single-instance mutation: the instance + the new version.",
+        "properties": {
+          "doc_version": {
+            "title": "Doc Version",
+            "type": "integer"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/InstanceResponse"
+          }
+        },
+        "required": [
+          "instance",
+          "doc_version"
+        ],
+        "title": "InstanceMutationResponse",
+        "type": "object"
+      },
+      "InstanceResponse": {
+        "description": "An instance as stored (design \u00a71.2).",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "grounded": {
+            "title": "Grounded",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "order_index": {
+            "description": "Stable display/BOM order (NOT an evaluation order \u2014 an assembly is a graph, design \u00a71.1)",
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/Placement"
+          },
+          "ref_document_id": {
+            "format": "uuid",
+            "title": "Ref Document Id",
+            "type": "string"
+          },
+          "ref_document_kind": {
+            "enum": [
+              "part",
+              "assembly"
+            ],
+            "title": "Ref Document Kind",
+            "type": "string"
+          },
+          "ref_pinned_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pinned referenced-document version, or null = track tip. NULL in v1 (design \u00a71.3 \u2014 the schema is pin-ready).",
+            "title": "Ref Pinned Version"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "assembly_id",
+          "ref_document_id",
+          "ref_document_kind",
+          "ref_pinned_version",
+          "name",
+          "placement",
+          "grounded",
+          "order_index",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "InstanceResponse",
+        "type": "object"
+      },
+      "InstanceUpdate": {
+        "description": "Re-place / rename / (un)ground an instance (design \u00a71.2).\n\nEvery field is optional; at least one must be provided. Any mutation bumps\n``doc_version``. Re-pointing the referenced document is NOT an update \u2014 that\nis a delete + recreate (it changes the graph edge the acyclicity walk sees).",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "grounded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grounded"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "order_index": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New stable display/BOM position (reorder). Renumbered dense by the service.",
+            "title": "Order Index"
+          },
+          "placement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Placement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "InstanceUpdate",
+        "type": "object"
+      },
       "LinearPatternParamsV1": {
         "description": "A linear (row/grid-line) pattern along a world-space direction.\n\n``count`` INCLUDES the seed (instance 0 = the existing body), so a row of\nN total bodies is ``count = N``; ``count = 1`` is a no-op (seed only).\nCopies are placed at ``spacing_mm * k`` along the unit ``direction`` for\n``k = 1..count-1``. See the module design note above for what \"the body\"\nmeans and the connected-solid requirement.",
         "properties": {
@@ -1438,6 +1920,35 @@
           "count"
         ],
         "title": "LinearPatternParamsV1",
+        "type": "object"
+      },
+      "LockMate": {
+        "description": "Rigidly fix two instances' relative pose \u2014 0 DOF (design \u00a72.1/\u00a72.3).\n\nTrivial for the solver (it fixes a relative pose, 0 iterative work) and\ncovers weldments/press-fits. References two instances directly by id (no\npicked geometry) \u2014 the relative-pose residual drives ``b``'s pose to a fixed\ntransform of ``a``'s (\u00a72.3).",
+        "properties": {
+          "a_instance_id": {
+            "description": "First (anchor) instance",
+            "format": "uuid",
+            "title": "A Instance Id",
+            "type": "string"
+          },
+          "b_instance_id": {
+            "description": "Second (locked) instance",
+            "format": "uuid",
+            "title": "B Instance Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "lock",
+            "default": "lock",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "a_instance_id",
+          "b_instance_id"
+        ],
+        "title": "LockMate",
         "type": "object"
       },
       "LoftFeature": {
@@ -1491,6 +2002,184 @@
           "operation"
         ],
         "title": "LoftParamsV1",
+        "type": "object"
+      },
+      "MateAxisRef": {
+        "description": "An axis derived from a CIRCULAR edge of an instance's part body (\u00a72.1).\n\nv1 derives an axis from a circular edge (``curve == \"circle\"``) \u2014 reusing\n:class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and\nplane give the axis (design \u00a72.1). This deliberately avoids needing a\ncylindrical-face signature (a clean additive future member): a hole rim and\na shaft rim are both circular edges, enough for the canonical bolt joint.",
+        "properties": {
+          "instance_id": {
+            "description": "The instance whose part body carries this axis edge",
+            "format": "uuid",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "axis",
+            "default": "axis",
+            "title": "Kind",
+            "type": "string"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Stage-1 edge signature (curve == 'circle'; reused from features) whose centre + plane define the axis"
+          }
+        },
+        "required": [
+          "instance_id",
+          "signature"
+        ],
+        "title": "MateAxisRef",
+        "type": "object"
+      },
+      "MateCreate": {
+        "description": "Add a mate to an assembly (design \u00a71.2/\u00a72.1).\n\n``mate`` is the discriminated :data:`Mate` union; the instances it names\n(via :func:`mate_instance_ids`) must belong to this assembly (documents\nchecks membership at write time). ``order_index`` is a stable order for\ndeterminism (\u00a72.2), appended at the tip when omitted.",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "mate": {
+            "description": "The mate (discriminated on `type`)",
+            "discriminator": {
+              "mapping": {
+                "angle": "#/components/schemas/AngleMate",
+                "coincident": "#/components/schemas/CoincidentMate",
+                "concentric": "#/components/schemas/ConcentricMate",
+                "distance": "#/components/schemas/DistanceMate",
+                "lock": "#/components/schemas/LockMate"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CoincidentMate"
+              },
+              {
+                "$ref": "#/components/schemas/ConcentricMate"
+              },
+              {
+                "$ref": "#/components/schemas/DistanceMate"
+              },
+              {
+                "$ref": "#/components/schemas/AngleMate"
+              },
+              {
+                "$ref": "#/components/schemas/LockMate"
+              }
+            ],
+            "title": "Mate"
+          }
+        },
+        "required": [
+          "expected_version",
+          "mate"
+        ],
+        "title": "MateCreate",
+        "type": "object"
+      },
+      "MateFaceRef": {
+        "description": "A planar face of an instance's part body (design \u00a71.5/\u00a72.1).\n\n``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`\nthe ``on_face`` datum resolves (topological-naming.md \u00a79) \u2014 reused verbatim,\nnot a parallel taxonomy. ``instance_id`` scopes the face to one instance's\nresolved part body (the geometry service resolves the signature against that\nbody in the part's local frame, \u00a74).",
+        "properties": {
+          "instance_id": {
+            "description": "The instance whose part body carries this face",
+            "format": "uuid",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "face",
+            "default": "face",
+            "title": "Kind",
+            "type": "string"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/PlanarFaceSignature",
+            "description": "Stage-1 planar-face signature (reused from features)"
+          }
+        },
+        "required": [
+          "instance_id",
+          "signature"
+        ],
+        "title": "MateFaceRef",
+        "type": "object"
+      },
+      "MateMutationResponse": {
+        "description": "Result of a single-mate mutation: the mate + the new version.",
+        "properties": {
+          "doc_version": {
+            "title": "Doc Version",
+            "type": "integer"
+          },
+          "mate": {
+            "$ref": "#/components/schemas/MateResponse"
+          }
+        },
+        "required": [
+          "mate",
+          "doc_version"
+        ],
+        "title": "MateMutationResponse",
+        "type": "object"
+      },
+      "MateResponse": {
+        "description": "A mate as stored, with its params envelope reassembled (design \u00a71.2).",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mate": {
+            "discriminator": {
+              "mapping": {
+                "angle": "#/components/schemas/AngleMate",
+                "coincident": "#/components/schemas/CoincidentMate",
+                "concentric": "#/components/schemas/ConcentricMate",
+                "distance": "#/components/schemas/DistanceMate",
+                "lock": "#/components/schemas/LockMate"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CoincidentMate"
+              },
+              {
+                "$ref": "#/components/schemas/ConcentricMate"
+              },
+              {
+                "$ref": "#/components/schemas/DistanceMate"
+              },
+              {
+                "$ref": "#/components/schemas/AngleMate"
+              },
+              {
+                "$ref": "#/components/schemas/LockMate"
+              }
+            ],
+            "title": "Mate"
+          },
+          "order_index": {
+            "description": "Stable order (determinism, \u00a72.2); relative position only",
+            "title": "Order Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "assembly_id",
+          "order_index",
+          "mate"
+        ],
+        "title": "MateResponse",
         "type": "object"
       },
       "ParallelConstraint": {
@@ -1703,6 +2392,30 @@
         "title": "PickedEdgesSelector",
         "type": "object"
       },
+      "Placement": {
+        "description": "A rigid pose \u2014 translation + orientation \u2014 of an instance (design \u00a72.3).\n\n``position`` is the world-mm translation; ``orientation`` defaults to the\nidentity quaternion so an authored instance with no rotation carries a\nminimal placement. On the wire everywhere (authored seed AND solved result,\n\u00a74) so the solver never converts representation at the boundary.",
+        "properties": {
+          "orientation": {
+            "$ref": "#/components/schemas/Quat",
+            "default": {
+              "w": 1.0,
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "description": "Unit quaternion orientation; identity (0,0,0,1) by default"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Translation, world mm"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "Placement",
+        "type": "object"
+      },
       "PlanarFaceSignature": {
         "description": "\u00a72b stage-1 geometric fingerprint of a PLANAR face \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity): the\noutward unit ``normal``, the area ``centroid`` (world mm), and the\n``area_mm2``. A planar face is uniquely fixed among a body's faces by\n(normal, centroid, area) in the common case; congruent twins of a symmetric\npart tie and resolve to an honest ``subshape_ambiguous`` (\u00a75), never a guess.\nMatching is nearest-within-tolerance at the documented subshape tolerance\n(geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.",
         "properties": {
@@ -1758,6 +2471,39 @@
           "y"
         ],
         "title": "Point2D",
+        "type": "object"
+      },
+      "Quat": {
+        "description": "Unit quaternion \u2014 the solver's internal orientation representation (\u00a72.3).\n\nGimbal-free, minimal, and renormalises cleanly under iteration (design\n\u00a72.3), so no lossy Euler/matrix conversion crosses the boundary. All four\ncomponents are required \u2014 a partial quaternion is a request-validation 422,\nnever a silently-defaulted rotation. Identity is ``(0, 0, 0, 1)``; the\nsolver renormalises to the unit sphere, so an authored value need not be\nexactly unit-length.",
+        "properties": {
+          "w": {
+            "description": "Scalar part (full precision); 1 for identity",
+            "title": "W",
+            "type": "number"
+          },
+          "x": {
+            "description": "Vector part i-component (full precision)",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Vector part j-component (full precision)",
+            "title": "Y",
+            "type": "number"
+          },
+          "z": {
+            "description": "Vector part k-component (full precision)",
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "w"
+        ],
+        "title": "Quat",
         "type": "object"
       },
       "RadiusConstraint": {
@@ -2585,6 +3331,695 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/assemblies": {
+      "get": {
+        "description": "The caller's assemblies, oldest first (deterministic id tiebreak).",
+        "operationId": "list_assemblies_api_v1_assemblies_get",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Assemblies",
+        "tags": [
+          "assemblies"
+        ]
+      },
+      "post": {
+        "description": "Create an assembly (201; envelope 409 on a duplicate name for this owner).",
+        "operationId": "create_assembly_api_v1_assemblies_post",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssemblyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Assembly",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}": {
+      "delete": {
+        "description": "Delete an owned assembly; 409 when instanced as a sub-assembly elsewhere.\n\nThe assembly\u2192instances/mates CASCADE removes its own graph. A 409-with-\ndependents pre-check (design \u00a71.2, mirroring the part 409) refuses the\ndelete while ANOTHER assembly still instances this one as a sub-assembly,\nlisting the referencing assemblies.",
+        "operationId": "delete_assembly_api_v1_assemblies__assembly_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Assembly",
+        "tags": [
+          "assemblies"
+        ]
+      },
+      "get": {
+        "description": "One owned assembly with its full instance + mate graph (uniform 404).",
+        "operationId": "get_assembly_api_v1_assemblies__assembly_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Assembly",
+        "tags": [
+          "assemblies"
+        ]
+      },
+      "patch": {
+        "description": "Rename an assembly (bumps ``doc_version``; envelope 409 on a name clash).",
+        "operationId": "update_assembly_api_v1_assemblies__assembly_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssemblyUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Assembly",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/instances": {
+      "post": {
+        "description": "Add an instance referencing a part / sub-assembly (append at the tip).\n\nEnforces cross-document integrity (\u00a71.2): the referenced document must exist\nand belong to the caller (else ``ref_document_not_found`` 422), and a\nsub-assembly reference must not create a cycle (``assembly_cycle`` 422 \u2014\nwalked here, never a stack overflow at eval).",
+        "operationId": "create_instance_api_v1_assemblies__assembly_id__instances_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Instance",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/instances/{instance_id}": {
+      "delete": {
+        "description": "Remove an instance; also removes mates that reference it (bumps version).\n\nA mate is a constraint EDGE, meaningless without both endpoints \u2014 so\ndeleting an instance cascades to the mates naming it (documents-side, since\nthe mate's instance refs live in JSONB, not a DB FK). Both instances and\nmates are renumbered dense. Returns the updated graph (the client's new\n``doc_version``).",
+        "operationId": "delete_instance_api_v1_assemblies__assembly_id__instances__instance_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "instance_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Instance Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "in": "query",
+            "name": "expected_version",
+            "required": true,
+            "schema": {
+              "description": "Optimistic-concurrency guard (design \u00a71.2)",
+              "minimum": 0,
+              "title": "Expected Version",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Instance",
+        "tags": [
+          "assemblies"
+        ]
+      },
+      "patch": {
+        "description": "Re-place / rename / (un)ground / reorder an instance (bumps ``doc_version``).\n\nRe-pointing the referenced document is deliberately NOT an update (it\nchanges the graph edge the acyclicity walk sees) \u2014 delete + recreate.",
+        "operationId": "update_instance_api_v1_assemblies__assembly_id__instances__instance_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "instance_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Instance Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Instance",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/mates": {
+      "post": {
+        "description": "Add a mate (append at the tip). Every instance it names must belong to\nthis assembly (``mate_instance_unknown`` 422 otherwise).",
+        "operationId": "create_mate_api_v1_assemblies__assembly_id__mates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MateMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Mate",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/mates/{mate_id}": {
+      "delete": {
+        "description": "Remove a mate; renumbers the rest dense (bumps ``doc_version``).",
+        "operationId": "delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "mate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Mate Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "in": "query",
+            "name": "expected_version",
+            "required": true,
+            "schema": {
+              "description": "Optimistic-concurrency guard (design \u00a71.2)",
+              "minimum": 0,
+              "title": "Expected Version",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Mate",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
     "/api/v1/parts": {
       "get": {
         "description": "The caller's parts, oldest first (deterministic id tiebreak).",
@@ -2699,7 +4134,7 @@
     },
     "/api/v1/parts/{part_id}": {
       "delete": {
-        "description": "Delete an owned part (204; uniform 404 for unknown/foreign ids).\n\nDeletion is unconditional BY DESIGN even when the part has a feature\ntree: the parts\u2192features CASCADE removes the tree, and the deferred\ntarget-side FK on feature_dependencies makes that legal at commit time\n(docs/design/feature-tree.md \u00a72.3 \u2014 the 409-with-dependents pre-check\napplies to deleting a single FEATURE, never the whole part).",
+        "description": "Delete an owned part (204; uniform 404 for unknown/foreign ids).\n\nDeletion removes the part's own feature tree unconditionally: the\nparts\u2192features CASCADE removes the tree, and the deferred target-side FK on\nfeature_dependencies makes that legal at commit time (docs/design/feature-\ntree.md \u00a72.3 \u2014 the intra-part 409-with-dependents pre-check applies to\ndeleting a single FEATURE, never the whole part).\n\nBut a part still INSTANCED by an assembly is a cross-document dependent\n(docs/design/assemblies.md \u00a71.2): deleting it is a friendly 409-with-\ndependents listing the referencing assemblies, mirroring the feature 409,\nso an assembly is never left with a dangling instance reference.",
         "operationId": "delete_part_api_v1_parts__part_id__delete",
         "parameters": [
           {

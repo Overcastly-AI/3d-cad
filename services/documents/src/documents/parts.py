@@ -28,7 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from documents.db import Part
+from documents.db import Assembly, Instance, Part
 
 _logger = get_logger("documents.parts")
 
@@ -81,6 +81,63 @@ async def get_owned_part(
     return part
 
 
+async def get_owned_assembly(
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    assembly_id: uuid.UUID,
+    *,
+    for_update: bool = False,
+) -> Assembly:
+    """The owner's assembly, or a uniform 404 (unknown id == foreign id).
+
+    The assembly sibling of :func:`get_owned_part` (docs/design/assemblies.md
+    §1.1 reuses the part model's PATTERNS). ``for_update`` row-locks the
+    assembly (Postgres) so concurrent instance/mate mutations serialize on the
+    assembly row — the ``doc_version`` bump is then race-free. SQLAlchemy's
+    SQLite dialect ignores FOR UPDATE (single-writer anyway).
+    """
+    assembly = await session.get(
+        Assembly, assembly_id, with_for_update=for_update or None
+    )
+    if assembly is None or assembly.owner_id != owner_id:
+        raise NotFoundError("Assembly not found.", code="assembly_not_found")
+    return assembly
+
+
+async def reject_if_instanced(
+    session: AsyncSession, document_id: uuid.UUID, *, code: str
+) -> None:
+    """409-with-dependents when instances reference *document_id* (design §1.2).
+
+    The cross-document analogue of ``feature_dependencies``' friendly 409: a
+    part/sub-assembly still instanced by an assembly cannot be deleted out from
+    under it. Lists the referencing assemblies (id + name) so the caller can
+    re-point or remove those instances first. Shared by the part delete
+    (:func:`delete_part`) and the assembly delete (``documents.assemblies``) so
+    the pre-check is defined once (DRY).
+    """
+    dependents = (
+        await session.execute(
+            select(Assembly.id, Assembly.name)
+            .join(Instance, Instance.assembly_id == Assembly.id)
+            .where(Instance.ref_document_id == document_id)
+            .distinct()
+            .order_by(Assembly.name)
+        )
+    ).all()
+    if dependents:
+        raise ConflictError(
+            f"Document is referenced by {len(dependents)} assembly instance(s); "
+            "remove those instances first.",
+            code=code,
+            details={
+                "dependents": [
+                    {"id": str(dep_id), "name": name} for dep_id, name in dependents
+                ]
+            },
+        )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_part(
     request: PartCreate, owner_id: Principal, session: SessionDep
@@ -125,13 +182,19 @@ async def delete_part(
 ) -> None:
     """Delete an owned part (204; uniform 404 for unknown/foreign ids).
 
-    Deletion is unconditional BY DESIGN even when the part has a feature
-    tree: the parts→features CASCADE removes the tree, and the deferred
-    target-side FK on feature_dependencies makes that legal at commit time
-    (docs/design/feature-tree.md §2.3 — the 409-with-dependents pre-check
-    applies to deleting a single FEATURE, never the whole part).
+    Deletion removes the part's own feature tree unconditionally: the
+    parts→features CASCADE removes the tree, and the deferred target-side FK on
+    feature_dependencies makes that legal at commit time (docs/design/feature-
+    tree.md §2.3 — the intra-part 409-with-dependents pre-check applies to
+    deleting a single FEATURE, never the whole part).
+
+    But a part still INSTANCED by an assembly is a cross-document dependent
+    (docs/design/assemblies.md §1.2): deleting it is a friendly 409-with-
+    dependents listing the referencing assemblies, mirroring the feature 409,
+    so an assembly is never left with a dangling instance reference.
     """
     part = await get_owned_part(session, owner_id, part_id)
+    await reject_if_instanced(session, part_id, code="part_has_dependents")
     await session.delete(part)
     await session.commit()
     _logger.info("part_deleted", part_id=str(part_id), owner_id=str(owner_id))

@@ -1,6 +1,162 @@
 // GENERATED — do not edit; run `just gen`.
 // Types for the documents service (source contract: packages/contracts/documents.openapi.json).
 export interface paths {
+    "/api/v1/assemblies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Assemblies
+         * @description The caller's assemblies, oldest first (deterministic id tiebreak).
+         */
+        get: operations["list_assemblies_api_v1_assemblies_get"];
+        put?: never;
+        /**
+         * Create Assembly
+         * @description Create an assembly (201; envelope 409 on a duplicate name for this owner).
+         */
+        post: operations["create_assembly_api_v1_assemblies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly
+         * @description One owned assembly with its full instance + mate graph (uniform 404).
+         */
+        get: operations["get_assembly_api_v1_assemblies__assembly_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Assembly
+         * @description Delete an owned assembly; 409 when instanced as a sub-assembly elsewhere.
+         *
+         *     The assembly→instances/mates CASCADE removes its own graph. A 409-with-
+         *     dependents pre-check (design §1.2, mirroring the part 409) refuses the
+         *     delete while ANOTHER assembly still instances this one as a sub-assembly,
+         *     listing the referencing assemblies.
+         */
+        delete: operations["delete_assembly_api_v1_assemblies__assembly_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Assembly
+         * @description Rename an assembly (bumps ``doc_version``; envelope 409 on a name clash).
+         */
+        patch: operations["update_assembly_api_v1_assemblies__assembly_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Instance
+         * @description Add an instance referencing a part / sub-assembly (append at the tip).
+         *
+         *     Enforces cross-document integrity (§1.2): the referenced document must exist
+         *     and belong to the caller (else ``ref_document_not_found`` 422), and a
+         *     sub-assembly reference must not create a cycle (``assembly_cycle`` 422 —
+         *     walked here, never a stack overflow at eval).
+         */
+        post: operations["create_instance_api_v1_assemblies__assembly_id__instances_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/instances/{instance_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Instance
+         * @description Remove an instance; also removes mates that reference it (bumps version).
+         *
+         *     A mate is a constraint EDGE, meaningless without both endpoints — so
+         *     deleting an instance cascades to the mates naming it (documents-side, since
+         *     the mate's instance refs live in JSONB, not a DB FK). Both instances and
+         *     mates are renumbered dense. Returns the updated graph (the client's new
+         *     ``doc_version``).
+         */
+        delete: operations["delete_instance_api_v1_assemblies__assembly_id__instances__instance_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Instance
+         * @description Re-place / rename / (un)ground / reorder an instance (bumps ``doc_version``).
+         *
+         *     Re-pointing the referenced document is deliberately NOT an update (it
+         *     changes the graph edge the acyclicity walk sees) — delete + recreate.
+         */
+        patch: operations["update_instance_api_v1_assemblies__assembly_id__instances__instance_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/mates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Mate
+         * @description Add a mate (append at the tip). Every instance it names must belong to
+         *     this assembly (``mate_instance_unknown`` 422 otherwise).
+         */
+        post: operations["create_mate_api_v1_assemblies__assembly_id__mates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/mates/{mate_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Mate
+         * @description Remove a mate; renumbers the rest dense (bumps ``doc_version``).
+         */
+        delete: operations["delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts": {
         parameters: {
             query?: never;
@@ -43,11 +199,16 @@ export interface paths {
          * Delete Part
          * @description Delete an owned part (204; uniform 404 for unknown/foreign ids).
          *
-         *     Deletion is unconditional BY DESIGN even when the part has a feature
-         *     tree: the parts→features CASCADE removes the tree, and the deferred
-         *     target-side FK on feature_dependencies makes that legal at commit time
-         *     (docs/design/feature-tree.md §2.3 — the 409-with-dependents pre-check
-         *     applies to deleting a single FEATURE, never the whole part).
+         *     Deletion removes the part's own feature tree unconditionally: the
+         *     parts→features CASCADE removes the tree, and the deferred target-side FK on
+         *     feature_dependencies makes that legal at commit time (docs/design/feature-
+         *     tree.md §2.3 — the intra-part 409-with-dependents pre-check applies to
+         *     deleting a single FEATURE, never the whole part).
+         *
+         *     But a part still INSTANCED by an assembly is a cross-document dependent
+         *     (docs/design/assemblies.md §1.2): deleting it is a friendly 409-with-
+         *     dependents listing the referencing assemblies, mirroring the feature 409,
+         *     so an assembly is never left with a dangling instance reference.
          */
         delete: operations["delete_part_api_v1_parts__part_id__delete"];
         options?: never;
@@ -198,6 +359,122 @@ export interface components {
             kind: "all_edges";
         };
         /**
+         * AngleMate
+         * @description Two planar faces held at a fixed angle (fast-follow, design §5).
+         *
+         *     The angular sibling of :class:`DistanceMate`: the coincident residual with
+         *     the angle between the two normals targeted at ``angle_deg`` (§2.3). In the
+         *     schema now; not v1-solver scope.
+         */
+        AngleMate: {
+            /** @description First planar face */
+            a: components["schemas"]["MateFaceRef"];
+            /**
+             * Angle Deg
+             * @description Target angle between the two face normals (degrees)
+             */
+            angle_deg: number;
+            /** @description Second planar face */
+            b: components["schemas"]["MateFaceRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "angle";
+        };
+        /**
+         * AssemblyCreate
+         * @description Create an assembly owned by the calling user (design §1.2).
+         */
+        AssemblyCreate: {
+            /**
+             * Name
+             * @description Assembly name; unique per owner, whitespace-trimmed, 1-200 characters
+             */
+            name: string;
+        };
+        /**
+         * AssemblyGraphResponse
+         * @description An assembly plus its full instance + mate graph and concurrency token.
+         *
+         *     The read model a client renders (design §1.2): the assembly header, its
+         *     instances in ``order_index`` order, its mates in ``order_index`` order, and
+         *     the ``doc_version`` the client echoes as its next ``expected_version``.
+         */
+        AssemblyGraphResponse: {
+            assembly: components["schemas"]["AssemblyResponse"];
+            /**
+             * Doc Version
+             * @description Echoed OCC token (== assembly.doc_version)
+             */
+            doc_version: number;
+            /** Instances */
+            instances: components["schemas"]["InstanceResponse"][];
+            /** Mates */
+            mates: components["schemas"]["MateResponse"][];
+        };
+        /**
+         * AssemblyListResponse
+         * @description The caller's assemblies, oldest first (wrapper leaves room for paging).
+         */
+        AssemblyListResponse: {
+            /** Assemblies */
+            assemblies: components["schemas"]["AssemblyResponse"][];
+        };
+        /**
+         * AssemblyResponse
+         * @description An assembly as stored — identity, ownership, and its concurrency token.
+         *
+         *     Mirrors :class:`~py_kit.schemas.parts.PartResponse` plus the ``doc_version``
+         *     OCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.
+         */
+        AssemblyResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Doc Version
+             * @description Monotonic optimistic-concurrency counter (design §1.2)
+             */
+            doc_version: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Owner Id
+             * Format: uuid
+             * @description Owning user id (gateway-verified)
+             */
+            owner_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * AssemblyUpdate
+         * @description Rename an assembly. Bumps ``doc_version`` (any mutation bumps — §1.2).
+         */
+        AssemblyUpdate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard: the doc_version the client last saw; a stale value is rejected 422 (design §1.2)
+             */
+            expected_version: number;
+            /**
+             * Name
+             * @description New assembly name
+             */
+            name: string;
+        };
+        /**
          * AxisParallelEdgesSelector
          * @description Every straight edge parallel to a world axis (e.g. Z = the vertical
          *     edges of an upright prism). Curved edges never match — an arc has no
@@ -307,6 +584,32 @@ export interface components {
             kind: "coincident";
         };
         /**
+         * CoincidentMate
+         * @description Two planar faces made coplanar + flush (design §2.1/§2.3).
+         *
+         *     ``flush`` chooses the normal sense: ``True`` = normals anti-parallel (the
+         *     mating faces touch, the common bolted-flush case); ``False`` = normals
+         *     parallel (faces back-to-back). The residual is a coplanar gap of zero plus
+         *     the (anti)parallel normal constraint (§2.3).
+         */
+        CoincidentMate: {
+            /** @description First planar face */
+            a: components["schemas"]["MateFaceRef"];
+            /** @description Second planar face */
+            b: components["schemas"]["MateFaceRef"];
+            /**
+             * Flush
+             * @description True = normals anti-parallel (mating faces touch); False = normals parallel (back-to-back)
+             * @default true
+             */
+            flush: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "coincident";
+        };
+        /**
          * ConcentricConstraint
          * @description Two circles/arcs share a center point.
          *
@@ -331,6 +634,25 @@ export interface components {
              * @enum {string}
              */
             kind: "concentric";
+        };
+        /**
+         * ConcentricMate
+         * @description Two axes (from circular edges) made collinear (design §2.1/§2.3).
+         *
+         *     The bolt/pin half of the canonical joint: hole and shaft axes aligned. The
+         *     residual makes the two directions parallel and the two lines coincident
+         *     (§2.3).
+         */
+        ConcentricMate: {
+            /** @description First axis */
+            a: components["schemas"]["MateAxisRef"];
+            /** @description Second axis */
+            b: components["schemas"]["MateAxisRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "concentric";
         };
         /**
          * DatumFeature
@@ -495,6 +817,30 @@ export interface components {
              * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
              */
             value_mm: number;
+        };
+        /**
+         * DistanceMate
+         * @description Two planar faces held a fixed distance apart (fast-follow, design §5).
+         *
+         *     ``coincident`` with a non-zero offset in the residual (§2.3) — the same
+         *     solver, one extra scalar. In the schema now so it joins the solver
+         *     additively; not v1-solver scope.
+         */
+        DistanceMate: {
+            /** @description First planar face */
+            a: components["schemas"]["MateFaceRef"];
+            /** @description Second planar face */
+            b: components["schemas"]["MateFaceRef"];
+            /**
+             * Distance Mm
+             * @description Signed gap between the two faces along the normal (mm)
+             */
+            distance_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "distance";
         };
         /**
          * DraftFeature
@@ -1134,6 +1480,149 @@ export interface components {
             kind: "inline";
         };
         /**
+         * InstanceCreate
+         * @description Add an instance referencing a part/sub-assembly by id (design §1.2).
+         *
+         *     ``ref_document_id`` is a cross-document reference, not an FK (design §1.2):
+         *     documents enforces its integrity at write time (existence, acyclicity), not
+         *     the DB. ``placement`` defaults to identity; ``grounded`` fixes the instance
+         *     at its placement (0 DOF) — the solver's anchor (v1 wants at least one
+         *     grounded instance per assembly, §1.2). ``order_index`` is a stable
+         *     display/BOM order, appended at the tip when omitted.
+         */
+        InstanceCreate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /**
+             * Grounded
+             * @description Fix this instance at its placement (0 DOF) — the solver anchor; v1 wants >= 1 grounded instance per assembly (§1.2)
+             * @default false
+             */
+            grounded: boolean;
+            /**
+             * Name
+             * @description Instance name ("Bracket <1>")
+             */
+            name: string;
+            /**
+             * @description Authored seed pose (§2.3)
+             * @default {
+             *       "orientation": {
+             *         "w": 1,
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       },
+             *       "position": {
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       }
+             *     }
+             */
+            placement: components["schemas"]["Placement"];
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The part / sub-assembly document this instance references
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' or 'assembly' (a rigid sub-assembly nests, §1.4)
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+        };
+        /**
+         * InstanceMutationResponse
+         * @description Result of a single-instance mutation: the instance + the new version.
+         */
+        InstanceMutationResponse: {
+            /** Doc Version */
+            doc_version: number;
+            instance: components["schemas"]["InstanceResponse"];
+        };
+        /**
+         * InstanceResponse
+         * @description An instance as stored (design §1.2).
+         */
+        InstanceResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Grounded */
+            grounded: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Order Index
+             * @description Stable display/BOM order (NOT an evaluation order — an assembly is a graph, design §1.1)
+             */
+            order_index: number;
+            placement: components["schemas"]["Placement"];
+            /**
+             * Ref Document Id
+             * Format: uuid
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+            /**
+             * Ref Pinned Version
+             * @description Pinned referenced-document version, or null = track tip. NULL in v1 (design §1.3 — the schema is pin-ready).
+             */
+            ref_pinned_version: number | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * InstanceUpdate
+         * @description Re-place / rename / (un)ground an instance (design §1.2).
+         *
+         *     Every field is optional; at least one must be provided. Any mutation bumps
+         *     ``doc_version``. Re-pointing the referenced document is NOT an update — that
+         *     is a delete + recreate (it changes the graph edge the acyclicity walk sees).
+         */
+        InstanceUpdate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /** Grounded */
+            grounded?: boolean | null;
+            /** Name */
+            name?: string | null;
+            /**
+             * Order Index
+             * @description New stable display/BOM position (reorder). Renumbered dense by the service.
+             */
+            order_index?: number | null;
+            placement?: components["schemas"]["Placement"] | null;
+        };
+        /**
          * LinearPatternParamsV1
          * @description A linear (row/grid-line) pattern along a world-space direction.
          *
@@ -1161,6 +1650,34 @@ export interface components {
              * @description Centre-to-centre step between consecutive instances along `direction` (mm); must be > 0 (a `pattern_bad_spacing` rebuild error otherwise). Validated at rebuild, not at parse (see module note).
              */
             spacing_mm: number;
+        };
+        /**
+         * LockMate
+         * @description Rigidly fix two instances' relative pose — 0 DOF (design §2.1/§2.3).
+         *
+         *     Trivial for the solver (it fixes a relative pose, 0 iterative work) and
+         *     covers weldments/press-fits. References two instances directly by id (no
+         *     picked geometry) — the relative-pose residual drives ``b``'s pose to a fixed
+         *     transform of ``a``'s (§2.3).
+         */
+        LockMate: {
+            /**
+             * A Instance Id
+             * Format: uuid
+             * @description First (anchor) instance
+             */
+            a_instance_id: string;
+            /**
+             * B Instance Id
+             * Format: uuid
+             * @description Second (locked) instance
+             */
+            b_instance_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "lock";
         };
         /**
          * LoftFeature
@@ -1234,6 +1751,111 @@ export interface components {
              * @description Ordered earlier sketch features (>= 2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
              */
             profiles: components["schemas"]["FeatureRef"][];
+        };
+        /**
+         * MateAxisRef
+         * @description An axis derived from a CIRCULAR edge of an instance's part body (§2.1).
+         *
+         *     v1 derives an axis from a circular edge (``curve == "circle"``) — reusing
+         *     :class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and
+         *     plane give the axis (design §2.1). This deliberately avoids needing a
+         *     cylindrical-face signature (a clean additive future member): a hole rim and
+         *     a shaft rim are both circular edges, enough for the canonical bolt joint.
+         */
+        MateAxisRef: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The instance whose part body carries this axis edge
+             */
+            instance_id: string;
+            /**
+             * Kind
+             * @default axis
+             * @constant
+             */
+            kind: "axis";
+            /** @description Stage-1 edge signature (curve == 'circle'; reused from features) whose centre + plane define the axis */
+            signature: components["schemas"]["EdgeSignature"];
+        };
+        /**
+         * MateCreate
+         * @description Add a mate to an assembly (design §1.2/§2.1).
+         *
+         *     ``mate`` is the discriminated :data:`Mate` union; the instances it names
+         *     (via :func:`mate_instance_ids`) must belong to this assembly (documents
+         *     checks membership at write time). ``order_index`` is a stable order for
+         *     determinism (§2.2), appended at the tip when omitted.
+         */
+        MateCreate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
+            /**
+             * Mate
+             * @description The mate (discriminated on `type`)
+             */
+            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"];
+        };
+        /**
+         * MateFaceRef
+         * @description A planar face of an instance's part body (design §1.5/§2.1).
+         *
+         *     ``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`
+         *     the ``on_face`` datum resolves (topological-naming.md §9) — reused verbatim,
+         *     not a parallel taxonomy. ``instance_id`` scopes the face to one instance's
+         *     resolved part body (the geometry service resolves the signature against that
+         *     body in the part's local frame, §4).
+         */
+        MateFaceRef: {
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description The instance whose part body carries this face
+             */
+            instance_id: string;
+            /**
+             * Kind
+             * @default face
+             * @constant
+             */
+            kind: "face";
+            /** @description Stage-1 planar-face signature (reused from features) */
+            signature: components["schemas"]["PlanarFaceSignature"];
+        };
+        /**
+         * MateMutationResponse
+         * @description Result of a single-mate mutation: the mate + the new version.
+         */
+        MateMutationResponse: {
+            /** Doc Version */
+            doc_version: number;
+            mate: components["schemas"]["MateResponse"];
+        };
+        /**
+         * MateResponse
+         * @description A mate as stored, with its params envelope reassembled (design §1.2).
+         */
+        MateResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mate */
+            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"];
+            /**
+             * Order Index
+             * @description Stable order (determinism, §2.2); relative position only
+             */
+            order_index: number;
         };
         /**
          * ParallelConstraint
@@ -1398,6 +2020,29 @@ export interface components {
             refs: components["schemas"]["EdgeSubshapeRef"][];
         };
         /**
+         * Placement
+         * @description A rigid pose — translation + orientation — of an instance (design §2.3).
+         *
+         *     ``position`` is the world-mm translation; ``orientation`` defaults to the
+         *     identity quaternion so an authored instance with no rotation carries a
+         *     minimal placement. On the wire everywhere (authored seed AND solved result,
+         *     §4) so the solver never converts representation at the boundary.
+         */
+        Placement: {
+            /**
+             * @description Unit quaternion orientation; identity (0,0,0,1) by default
+             * @default {
+             *       "w": 1,
+             *       "x": 0,
+             *       "y": 0,
+             *       "z": 0
+             *     }
+             */
+            orientation: components["schemas"]["Quat"];
+            /** @description Translation, world mm */
+            position: components["schemas"]["Vec3"];
+        };
+        /**
          * PlanarFaceSignature
          * @description §2b stage-1 geometric fingerprint of a PLANAR face — typed, kernel-free.
          *
@@ -1441,6 +2086,39 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /**
+         * Quat
+         * @description Unit quaternion — the solver's internal orientation representation (§2.3).
+         *
+         *     Gimbal-free, minimal, and renormalises cleanly under iteration (design
+         *     §2.3), so no lossy Euler/matrix conversion crosses the boundary. All four
+         *     components are required — a partial quaternion is a request-validation 422,
+         *     never a silently-defaulted rotation. Identity is ``(0, 0, 0, 1)``; the
+         *     solver renormalises to the unit sphere, so an authored value need not be
+         *     exactly unit-length.
+         */
+        Quat: {
+            /**
+             * W
+             * @description Scalar part (full precision); 1 for identity
+             */
+            w: number;
+            /**
+             * X
+             * @description Vector part i-component (full precision)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Vector part j-component (full precision)
+             */
+            y: number;
+            /**
+             * Z
+             * @description Vector part k-component (full precision)
+             */
+            z: number;
         };
         /**
          * RadiusConstraint
@@ -2056,6 +2734,369 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_assemblies_api_v1_assemblies_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_assembly_api_v1_assemblies_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssemblyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_api_v1_assemblies__assembly_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_assembly_api_v1_assemblies__assembly_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_assembly_api_v1_assemblies__assembly_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssemblyUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_instance_api_v1_assemblies__assembly_id__instances_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_instance_api_v1_assemblies__assembly_id__instances__instance_id__delete: {
+        parameters: {
+            query: {
+                /** @description Optimistic-concurrency guard (design §1.2) */
+                expected_version: number;
+            };
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+                instance_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_instance_api_v1_assemblies__assembly_id__instances__instance_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+                instance_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_mate_api_v1_assemblies__assembly_id__mates_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MateMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete: {
+        parameters: {
+            query: {
+                /** @description Optimistic-concurrency guard (design §1.2) */
+                expected_version: number;
+            };
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+                mate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_parts_api_v1_parts_get: {
         parameters: {
             query?: never;

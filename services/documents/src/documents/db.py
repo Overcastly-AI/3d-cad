@@ -33,6 +33,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
+from py_kit.schemas.assemblies import (
+    ASSEMBLY_NAME_MAX_LENGTH,
+    INSTANCE_NAME_MAX_LENGTH,
+)
 from py_kit.schemas.features import FEATURE_NAME_MAX_LENGTH
 from py_kit.schemas.parts import PART_NAME_MAX_LENGTH
 from sqlalchemy.dialects import postgresql
@@ -206,4 +210,189 @@ class FeatureDependency(Base):
         return (
             f"FeatureDependency(feature_id={self.feature_id!r}, "
             f"references_feature_id={self.references_feature_id!r})"
+        )
+
+
+class Assembly(Base):
+    """An assembly — a graph of instances + mates (docs/design/assemblies.md §1.1).
+
+    A FIRST-CLASS document type, sibling of :class:`Part` under the document
+    umbrella (design §1.1) — its own tables, reusing the part model's PATTERNS
+    (owner-scoped auth, uniform-404 visibility, an optimistic-concurrency
+    counter, alembic-only DDL) but NOT its tables: an assembly is a graph, not
+    an ordered single-body feature history. ``owner_id`` is the gateway-verified
+    user id (no cross-service FK — RESEARCH §3, same posture as :class:`Part`);
+    ``(owner_id, name)`` is unique so the constraint enforces one name per owner
+    and its backing index serves the owner-scoped list scan.
+    """
+
+    __tablename__ = "assemblies"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
+    name: Mapped[str] = mapped_column(
+        sa.String(ASSEMBLY_NAME_MAX_LENGTH), nullable=False
+    )
+    #: Monotonic optimistic-concurrency counter — bumped in the same
+    #: transaction as ANY instance/mate mutation (assemblies.md §1.2).
+    doc_version: Mapped[int] = mapped_column(
+        sa.BigInteger(), nullable=False, default=0, server_default=sa.text("0")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("owner_id", "name", name="uq_assemblies_owner_name"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"Assembly(id={self.id!r}, owner_id={self.owner_id!r}, name={self.name!r})"
+        )
+
+
+class Instance(Base):
+    """One placed instance of a part / sub-assembly in an assembly (§1.2).
+
+    References another DOCUMENT (a part or a sub-assembly) by id — a
+    CROSS-DOCUMENT reference, NOT a DB FK (design §1.2): like :class:`Part`'s
+    ``owner_id``, integrity is app-enforced in documents at write time
+    (existence, acyclicity, 409-with-dependents), because the reference must
+    survive the referenced doc's independent lifecycle. ``ref_pinned_version``
+    is present but NULL in v1 (design §1.3 — the schema is pin-ready; v1 tracks
+    the referenced document's tip). ``placement`` is the Placement DTO (§1.5)
+    stored as JSONB. ``order_index`` is a stable display/BOM order — NOT an
+    evaluation order (an assembly is a graph, not a linear history — §1.1); it
+    is renumbered dense on insert/delete/reorder exactly like a feature's.
+    ``uq_instances_assembly_order`` is DEFERRABLE INITIALLY DEFERRED on Postgres
+    (migration only; SQLite cannot express it — the split documented for
+    :class:`Feature`), but app code renumbers collision-free so it is correct
+    under IMMEDIATE checking too.
+    """
+
+    __tablename__ = "instances"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    assembly_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("assemblies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: Cross-document reference (part / sub-assembly) — app-enforced, no FK.
+    ref_document_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
+    ref_document_kind: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    #: Pin-ready (§1.3): NULL in v1 = track the referenced document's tip.
+    ref_pinned_version: Mapped[int | None] = mapped_column(
+        sa.BigInteger(), nullable=True
+    )
+    name: Mapped[str] = mapped_column(
+        sa.String(INSTANCE_NAME_MAX_LENGTH), nullable=False
+    )
+    grounded: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.text("false")
+    )
+    #: The Placement DTO (position + quaternion), JSONB on Postgres.
+    placement: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    #: Dense 0..n-1 stable order; renumbered on insert/delete/reorder.
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        # DEFERRABLE INITIALLY DEFERRED on Postgres via the migration; SQLite
+        # cannot parse deferrable UNIQUE (see :class:`Feature`). Its backing
+        # index also serves the ordered instance scan — no separate index.
+        sa.UniqueConstraint(
+            "assembly_id", "order_index", name="uq_instances_assembly_order"
+        ),
+        # Reverse lookup of "which instances reference document X" — the
+        # cross-document 409-with-dependents pre-check (design §1.2).
+        sa.Index("ix_instances_ref_document", "ref_document_id"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"Instance(id={self.id!r}, assembly_id={self.assembly_id!r}, "
+            f"ref_document_id={self.ref_document_id!r})"
+        )
+
+
+class Mate(Base):
+    """One constraint edge of an assembly's mate graph (design §1.2/§2.1).
+
+    ``type`` is promoted to a real column (indexable/filterable) exactly as a
+    :class:`Feature`'s is; ``params`` holds the full :data:`~py_kit.schemas.
+    assemblies.Mate` payload (including its ``type`` discriminator) as JSONB and
+    is ALWAYS the output of a successful pydantic validation — py-kit models are
+    the gate, never a JSON CHECK. The instances a mate constrains live INSIDE
+    ``params`` (the mate's geometry/instance refs), so — like the cross-document
+    ``ref_document_id`` — membership is app-enforced at write time, not a DB FK.
+    ``order_index`` is a stable order for solve determinism (§2.2), renumbered
+    dense on insert/delete.
+    """
+
+    __tablename__ = "mates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    assembly_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("assemblies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: Dense 0..n-1 stable order (determinism); renumbered on insert/delete.
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    type: Mapped[str] = mapped_column(sa.String(32), nullable=False)
+    params: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "assembly_id", "order_index", name="uq_mates_assembly_order"
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"Mate(id={self.id!r}, assembly_id={self.assembly_id!r}, "
+            f"type={self.type!r})"
         )

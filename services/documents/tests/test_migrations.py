@@ -104,6 +104,43 @@ def test_0002_offline_downgrade_drops_everything(
     assert "DROP TABLE features" in sql
 
 
+def test_0003_offline_sql_matches_design_ddl(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0002:0003")
+
+    # §1.2 — assemblies header: OCC counter + one-name-per-owner unique.
+    assert "doc_version BIGINT DEFAULT 0 NOT NULL" in sql
+    assert "CONSTRAINT uq_assemblies_owner_name UNIQUE (owner_id, name)" in sql
+    # §1.2 — instances: deferrable order unique so renumber shuffles are legal.
+    assert (
+        "CONSTRAINT uq_instances_assembly_order UNIQUE (assembly_id, order_index) "
+        "DEFERRABLE INITIALLY DEFERRED" in sql
+    )
+    # §1.2 — assembly→instances CASCADE; ref_document_id is NOT an FK.
+    assert "REFERENCES assemblies (id) ON DELETE CASCADE" in sql
+    assert "FOREIGN KEY(ref_document_id)" not in sql
+    assert "ref_pinned_version BIGINT" in sql
+    assert "placement JSONB NOT NULL" in sql
+    # §1.2 — reverse-lookup index for the cross-document 409 pre-check.
+    assert (
+        "CREATE INDEX ix_instances_ref_document ON instances (ref_document_id)" in sql
+    )
+    # §1.2 — mates: plain order unique + JSONB params.
+    assert "CONSTRAINT uq_mates_assembly_order UNIQUE (assembly_id, order_index)" in sql
+    assert "params JSONB NOT NULL" in sql
+
+
+def test_0003_offline_downgrade_drops_everything(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0003:0002", downgrade=True)
+    assert "DROP TABLE mates" in sql
+    assert "DROP INDEX ix_instances_ref_document" in sql
+    assert "DROP TABLE instances" in sql
+    assert "DROP TABLE assemblies" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:
@@ -126,6 +163,9 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "parts",
         "features",
         "feature_dependencies",
+        "assemblies",
+        "instances",
+        "mates",
         "alembic_version",
     }
 
@@ -134,10 +174,16 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
     assert "features" not in remaining
     assert "feature_dependencies" not in remaining
     assert "parts" not in remaining  # 0001 downgrade too
+    assert "assemblies" not in remaining
+    assert "instances" not in remaining
+    assert "mates" not in remaining
 
     alembic_runner(pg_url, "head")
     assert asyncio.run(_table_names(pg_url)) >= {
         "parts",
         "features",
         "feature_dependencies",
+        "assemblies",
+        "instances",
+        "mates",
     }
