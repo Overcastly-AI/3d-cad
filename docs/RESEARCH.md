@@ -222,3 +222,86 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   across runs.
 - **Performance budgets:** wall-clock ceilings for reference rebuilds and
   tessellation; regressions fail the gate.
+
+## 10. Assemblies — document model, mates, and the 3D mate solver
+
+**Status:** decision record backing the full design in
+[`docs/design/assemblies.md`](./design/assemblies.md) (kernel-architect,
+2026-07-15; `code-reviewer`-gated before implementation). Assemblies are the
+product audit's #1 pillar (`docs/AUDIT-PRODUCT.md`, 2026-07-15): the product
+answers "model a real part" *yes* but "model a real project" *no* the instant
+there are two parts that bolt together. This section records the load-bearing
+decisions; the design doc carries the schema, residual math, and phasing.
+
+**Decision — document model:** an **assembly is a new first-class document
+type** in `services/documents` (its own `assemblies`/`instances`/`mates`
+tables), **not** an extension of the part feature tree. An assembly is a graph
+of instances + mates, not an ordered single-body history, so the part model's
+strict-backward / single-body-chain / strict-prefix invariants do not apply.
+It **reuses the part model's patterns** (owner-scoped auth, uniform-404,
+optimistic-concurrency `version` counter, alembic-only DDL, and the
+pydantic→OpenAPI→ts-client DRY flow via a new `py_kit.schemas.assemblies`
+sibling of `schemas.features`) but not its tables. Instances reference a part
+or sub-assembly document **by id**; sub-assemblies nest and are **rigid** in v1.
+
+**Decision — version pinning:** the schema carries `ref_pinned_version`
+(pin-ready), but **v1 resolves to the referenced document's TIP** because
+immutable part versioning does not yet exist (`Part.tree_version` is a mutable
+fencing counter, not a snapshot — feature-tree §7.7; real versioning is a
+separate Phase 3 item). Pinning is the correct long-term *default*
+(determinism-across-time, no spooky-action-at-a-distance) and becomes an
+**additive** flip (tip→pinned) the moment the versioning item lands. Within any
+single evaluation the result is already a deterministic pure function.
+
+**Decision — the 3D constraint solver (the crux/risk): BUILD OUR OWN**, a
+minimal deterministic **rigid-body mate solver** in `services/geometry` behind
+an `AssemblySolver` protocol that mirrors `SketchSolver` (§2). **Not** a
+library — the survey found none both mature-in-Python and license-clean:
+SolveSpace / `py-slvs` / `python-solvespace` are **GPLv3 (forbidden, §8**, the
+same rejection as §2's sketch spike); FreeCAD's **OndselSolver** is LGPL-2.1
+(license-OK) but C++, unpackaged on PyPI, and a heavyweight MBD engine — a
+*future spike*, not a v1 dependency; planegcs is **2D-only**. Each free instance
+is a rigid transform (translation + **unit quaternion**, 6 DOF); grounded
+instances are fixed; mates become residual equations solved by a deterministic
+damped Gauss-Newton / Levenberg-Marquardt (numpy/scipy core, no kernel type in
+the numeric solver), seeded from authored placements, **no random restarts** —
+so same assembly in ⇒ **bitwise-identical transforms** out (§9 determinism
+gate, extended to 3D). A **closed-form tree fast path** (transforms propagate
+from a grounded root) handles the common bolt-two-parts case without iteration.
+Building it keeps determinism in our hands and avoids GPL; the risk is the
+general N-body solve, mitigated by a narrow mate set + rigid sub-assemblies +
+the fast path.
+
+**Decision — v1 mate set:** `lock`, `coincident` (planar face-face),
+`concentric` (axis from a **circular edge**, reusing `EdgeSignature` — no
+cylindrical-face signature needed in v1) — the trio that fully locates a
+bolted/pinned joint. `distance`/`angle` are the immediate fast-follow (same
+solver, offset residual). A mate **references part geometry** via the existing
+stage-1 `PlanarFaceSignature`/`EdgeSignature` machinery (topological-naming
+§9/§10), keyed by `instance_id`, resolved **inside geometry** against each
+instance's evaluated part body (nearest-within-tolerance, exactly-one-or-honest-
+error). Under/over/conflicting-constrained diagnosis **mirrors the sketch
+solver's `SketchConstraintDiagnosis` vocabulary** (remaining-DOF from Jacobian
+rank; redundant-vs-conflicting; offending mate ids; suggested fix) — under-
+constrained solves and renders at best-fit (not an error), conflicting is the
+per-mate error.
+
+**Decision — service boundaries:** **documents** owns the assembly document +
+cross-document integrity/acyclicity (kernel-free, all pydantic). **geometry**
+resolves mate geometry references, evaluates each unique part body once
+(dedup + shared cached mesh), **runs the mate solver** (its residuals need
+resolved kernel geometry — documents cannot), tessellates, and later does
+interference (OCCT boolean-common) + STEP-assembly export (OCCT XCAF).
+**No kernel type crosses the boundary** — instances cross as feature lists +
+`Placement` (quaternion) DTOs in, and per-instance content-addressed mesh refs +
+solved `Placement` + `ShapeProperties` out (the §5 mesh-store contract). The
+assembly render output is **per-instance {shared mesh + solved transform}**, not
+a baked GLB — instances of one part share one cached mesh (perf), combined mass
+properties are an **analytic roll-up** (no re-mesh, no boolean). `apps/web`
+talks only to the gateway.
+
+**Deferred (design doc §5):** interference, exploded views, BOM export
+formatting (the flat BOM data is a free documents-side roll-up), STEP-assembly
+IO, flexible sub-assemblies, part-version pinning-as-default, mate-driven
+motion. Smallest useful v1 = instances + placement + the three mates + the
+solver + shared-mesh assembly tessellation in the viewport.
