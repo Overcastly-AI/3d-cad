@@ -15,220 +15,185 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication:
 
-- **Sketching row — flipped ➖→✅ 2026-07-15 (vision-steward).** All three
-  residual gaps this note tracked — over-constraint diagnosis index-only,
-  no dimension expressions/driving-vs-driven, non-constrainable splines —
-  shipped backend+frontend+e2e this pass. Forward parity-plus items (not
-  scorecard-gating): spline tangency (deferred, needs a native planegcs
-  spline primitive), no direct fit-point-to-fit-point distance/H/V constraint
-  kind, dimension expressions are arithmetic-only (no trig/units/functions).
-- **Part modeling row — flipped ➖→✅ this pass (`3c23c73`).** Sketch-on-face,
-  click-specific edge selection, shell, and draft all landed backend+UI,
-  closing the last named blockers; multi-body boolean (independently-built
-  solids) is the one honest remaining scope boundary, not a daily-driver
-  blocker. **Showcase stress test held the flip** (`d8d3b87`, qa-tester: four
-  real 6–16-feature parts — bracket/enclosure/duct/pulley — built clean, mass
-  properties matched hand-derivation to 0.01%, zero topological-naming
-  failures). It also surfaced three real feature-coverage gaps (not engine
-  defects), filed below: **F1** pattern is union-only (can't array a cut —
-  bolt/lightening-hole rings unusable — **CLOSED 2026-07-13**, #3); **F2** a
-  ring of disjoint circles isn't one sketch profile (**CLOSED 2026-07-13**, #4);
-  **F3** no UI warning before a thin-shell rim fillet hits the (correct) OCCT
-  collision failure (open).
-- **Interop row — ➖ (STEP import shipped end-to-end 2026-07-13).** `4964fab`
-  (kernel) → gateway upload endpoint → UI file-picker: the full path — pick a
-  local STEP file → upload → `import` feature → imported body in the tree +
-  viewport → model on it (fillet/shell/sketch-on-face all work via the existing
-  topological-naming machinery) — now works in the browser, proven by
-  `import-step.spec.ts` on the real stack. IGES/multi-solid/blob-storage are
-  deferred (Later); the P1 security fast-follow (hard wall-clock bound on the
-  untrusted-STEP OCCT parse) shipped 2026-07-13 (killable subprocess, default
-  5 s, `import_parse_timeout`). Note for the **vision-steward** to
-  weigh the ➖→ scorecard update (VISION.md is vision-steward-owned, not touched
-  here).
-- Assemblies, Drawings, Performance, Collaboration, Extensibility, Agent
-  access — later phases; untouched this pass.
+- **Sketching, Part modeling — both ✅ (2026-07-15).** Sketching's last three
+  gaps (over-constraint diagnosis, dimension expressions/driving-driven,
+  constrainable splines) closed this batch (`a1c42be`); Part modeling held
+  under the showcase stress test the pass before. Residual, non-gating scope
+  boundaries: multi-body boolean, spline tangency, expression functions/units.
+- **Interop — ➖.** STEP import shipped end-to-end (upload → sketch-on-it →
+  re-export), verified live by the product-auditor. IGES, multi-solid,
+  healing report deferred (Later).
+- **Assemblies, Drawings — ❌, now the headline gaps.** Both auditors and the
+  founder converge on **Assemblies as #1** (product audit 2026-07-15: "the
+  missing project container" — most real mechanical work is two-or-more
+  parts, not one lonely bracket). Drawings is the audit's honest #2/near-#1
+  counter-argument (smaller build, completes the make-loop for the
+  already-solid single-part case via STEP-to-shop) — not sequenced this
+  pass; pick up once assemblies v1 has landing room or if Ready runs dry.
+- **Unfiled-but-named product-audit follow-ups** (history-tree drag-reorder/
+  suppress, feature-mirror + 2-direction pattern, a friendlier
+  `boolean_failed` message) — next groom pass, once assemblies v1 has room.
+- **`docs/COMPETITIVE.md` is stale** (dated 2026-07-12 — pre-dates Phase 2's
+  close and the assemblies design doc); flagged for the vision-steward to
+  refresh against the Phase 3 focus.
+- Performance, Collaboration, Extensibility, Agent access — untouched, later
+  phases.
 
 ## Ready (top of queue)
 
-Restocked 2026-07-13 (HEAD `d8d3b87`). Sketch-on-face, click-specific edge
-selection, shell, and draft all shipped end-to-end and are archived below —
-**Part modeling flipped ➖→✅** (`3c23c73`) and the showcase stress test
-(`d8d3b87`) held it on real complex parts. **#0 leads on a code-review
-security finding, ahead of everything else per standing policy** (wrong
-geometry/security are always P0-adjacent). **The Interop UI leg is now
-complete** (gateway upload endpoint + UI file-picker both shipped 2026-07-13;
-Interop scorecard row flipped ❌→➖) — the one remaining STEP item is the P1
-security fast-follow below (bound the untrusted-STEP OCCT parse time).
-**#3–#4** are the
-showcase's F1/F2 findings, which compound (pattern-a-cut + multi-hole-in-
-one-sketch both attack the same bolt-circle/lightening-hole daily-driver
-gap). #5's fail-loud single-worker guard shipped 2026-07-13 (engineering
-audit F1 closed as a cliff); the item now tracks only the forward MinIO swap. #6–#8 are the sketch-session polish from the last re-score,
-unchanged in substance.
+Restocked 2026-07-15 (HEAD `36dc3d9`) — major reconcile at the Phase 2→3
+boundary. **Phase 2 (parametric core) converged this batch**: Sketching and
+Part modeling both closed to ✅; every item that carried that work is
+archived below (Done, Phase 2 batch 5). **Assemblies is now the queue's
+spine** — the founder-chosen #1 (`docs/design/assemblies.md`, endorsed
+architecture decision), sequenced into 6 dependency-ordered slices: **#1**
+the documents foundation → **#2/#3** the flagged-risk solver + mate-geometry
+resolution → **#4** gateway → **#5** the v1 DoD golden (evaluation +
+shared-mesh tessellation) → **#6** frontend. **#7–#8 interleave real,
+independent audit debt** (MinIO mesh-store swap F1/F6; STEP re-parse caching
+F8) — pick up whenever a builder frees up, not gated on the assemblies
+dependency chain. **#9 (rate limiting)** is F7's unbuilt second half,
+promoted from Next — security-adjacent debt outranks polish even mid-pillar.
+**Judged OUT of Ready this pass:** F2 (evaluate_tree tessellation churn —
+real but low severity/likelihood, stays Next) and F5 (spline epsilon — P3
+nit, no user impact, stays Later).
 
-- [x] (P1, S) STEP import: hard wall-clock bound on the OCCT parse of
-      untrusted files (code-review finding, `4964fab`) — **shipped 2026-07-13.**
-      The unbounded-time OCCT calls (`ReadFile`/`TransferRoots`) now run in a
-      spawned, **killable subprocess** (`geometry.kernel._step_parse_worker`,
-      OCP-only, invoked by path) bounded by `subprocess.run(timeout=…)`; a parse
-      exceeding `step_import_timeout_seconds` (env `STEP_IMPORT_TIMEOUT_SECONDS`,
-      default 5 s) is SIGKILLed + reaped → per-feature `import_parse_timeout`
-      inside a 200, never a hang/500/zombie. Subprocess chosen over an arq job
-      timeout because `/evaluate` is synchronous and documents calls it inline —
-      isolating only the untrusted parse (BREP back across the boundary) is the
-      surgical change; a thread/`signal.alarm` bound cannot interrupt OCCT C++ or
-      fire in threadpool threads. Determinism preserved (mm pinned in the fresh
-      child; golden still 0.0 deviation). Tests: forced-timeout fires + returns
-      promptly, no fd/zombie leak across repeated timeouts, per-feature code via
-      the endpoint (`tests/test_imports.py`). [src: code-reviewer, 4964fab]
-- [x] (P2, M) STEP import — gateway upload endpoint (Interop UI leg, part
-      1 of 2) — `POST /api/v1/parts/{id}/features/import`: the STEP file is
-      the RAW request body, streamed and size-capped chunk-by-chunk (oversize
-      → 422 `import_too_large` BEFORE the body is fully read, the earliest DoS
-      guard — a buffered multipart part would read the whole body first),
-      decoded and mapped to an `import` feature via the existing documents
-      feature-append path. Empty/non-STEP → clean 422; auth-gated; an import
-      onto a part that already has a body is documents' new write-time 422
-      `import_with_prior_body`. UI file-picker (part 2 of 2, below) is what
-      flips the Interop row. [src: roadmap, engineering-auditor, step-import.md]
-- [x] (P2, M) STEP import — UI file-picker (Interop UI leg, part 2 of 2;
-      **flips the Interop scorecard row ❌→➖**) — landed 2026-07-13. An "Import
-      STEP" affordance leads the in-workspace Create toolbar (new scribed
-      import-cube glyph in `@loft/design`), enabled only as the first body and
-      disabled with a legible reason once one exists. It opens the native
-      picker (`.step,.stp`), reads the bytes, POSTs the raw octet-stream body
-      via the generated `@loft/ts-client`, then refetches tree + evaluate +
-      mesh so the imported body appears in the feature tree AND the r3f
-      viewport. All `import_*` envelopes surface legibly in a HUD alert; size/
-      extension pre-checked client-side for instant feedback. Playwright
-      (`import-step.spec.ts`) drives pick→body→disabled + error paths on the
-      real stack; desktop+laptop founder screenshots captured. `frontend-design`
-      skill invoked. [src: roadmap, product-auditor, step-import.md]
-- [x] (P2, M) Pattern: array a cut, not just union (showcase **F1**) — DONE
-      (2026-07-13). Option (a): the pattern infers its combine mode from the
-      immediately-preceding body-affecting feature (`EvaluationState.prev_body_feature`)
-      — when that source is an extrude-CUT, the cut's tool is reconstructed from
-      its already-solved profile and REMOVED at each placement
-      (`circular_pattern_cut`/`linear_pattern_cut`); one hole-cut + pattern
-      (count 6, 360°) drills a 6-hole bolt circle (6 holes removed, not 6 bodies
-      added). NO schema change / `param_version` bump / frontend toggle (the
-      source cut implies cut intent); add-pattern path byte-identical
-      (regression-guarded by the two add-pattern goldens + the ADD-after-cut
-      boundary test). New `pattern-cut-6hole-boltcircle-60x60x10` golden
-      (analytic 36000−960π, worst dev 1.46e-11 @ tol 1e-8); `test_pattern.py`
-      cut/linear/count-1 cases. `gen-check` clean. [src: product-auditor
-      showcase-QA F1, competitive]
-- [x] (P2, M) Sketch: multi-disjoint-loop profile support for cut (showcase
-      **F2**) — DONE. `build_profile_faces` (new, CUT-only) partitions N
-      disjoint closed loops into N independent removal regions
-      (`_group_regions`) and the extrude CUT branch subtracts them in one
-      feature; ADD/revolve/loft/sweep keep the single-region
-      `build_profile_face` (disjoint loops stay a multi-body
-      `profile_unsupported`), and the single-outer + interior-holes path is
-      byte-unchanged for add and cut. New golden
-      `sketch-extrude-plate-6hole-ring-cut-60x60x10` (6-hole ring cut in one
-      feature, V = 60²·10 − 6·π·4²·10, dev ≤1.5e-11); add-vs-cut guard +
-      nested-loop + determinism tests in `test_extrude.py`.
+- [ ] (P1, M) Assemblies v1 #1 — document model + CRUD API (documents) —
+      new `py_kit.schemas.assemblies`: `Placement`/`Quat`, `MateFaceRef`/
+      `MateAxisRef` (reusing `PlanarFaceSignature`/`EdgeSignature` verbatim),
+      a v1 `Mate` discriminated union of exactly `lock`/`coincident`/
+      `concentric` (`distance`/`angle` join additively later per
+      `feature-tree.md` §1.4 — not v1 scope). New alembic migration:
+      `assemblies`/`instances`/`mates` tables per `docs/design/assemblies.md`
+      §1.2 (owner-scoped, `doc_version` OCC counter,
+      `UNIQUE(assembly_id, order_index)`). CRUD API mirrors the part/feature
+      pattern: owner-scoped auth, uniform 404, optimistic-concurrency 422 on
+      stale `expected_version`, acyclicity enforced at write time
+      (`assembly_cycle` 422), 409-with-dependents when a referenced part is
+      deleted (mirrors `feature_dependencies`). Acceptance: unit tests for
+      CRUD, cycle rejection (A→B→A), 409-dependents, stale-version 422;
+      `just gen`/`gen-check` clean. Depends on: nothing new — the foundation
+      every other assemblies item builds on. [src: design/assemblies.md,
+      product-auditor #1]
+- [ ] (P1, M) Assemblies v1 #2 — `AssemblySolver` core (geometry, numeric)
+      — **THE FLAGGED RISK** (design doc §2.4). New `AssemblySolver` protocol
+      mirroring `SketchSolver` (RESEARCH §2): quaternion 6-DOF free
+      instances, deterministic damped Gauss-Newton/LM seeded from authored
+      placement (grounded instances fixed, no random restarts), the §2.2
+      closed-form fast path for a mate-tree rooted at a grounded instance,
+      full diagnosis vocabulary (`well_constrained`/`under_constrained`/
+      `over_constrained`-redundant/`conflicting`/`not_converged`,
+      remaining-DOF via Jacobian rank, offending mate ids named,
+      `removable` flag) mirroring `SketchConstraintDiagnosis`. Tested
+      standalone against **synthetic** residuals (no OCCT, no mate-geometry
+      resolution yet — that's #3) so the numeric core is provable in
+      isolation. Acceptance: unit tests — two-instance `lock` solve;
+      `coincident`+`concentric` solve matches a hand-derived analytic
+      transform; an under-constrained case reports the correct
+      `remaining_dof`; a conflicting pair reports `conflicting` + the right
+      mate ids; a determinism test (bitwise-identical transforms across
+      repeated runs AND a fresh interpreter, mirroring `test_goldens.py`'s
+      restart-probe). No GPL/AGPL dependency (RESEARCH §8 — numpy/scipy
+      only, license-checked in the same commit). Depends on: nothing new
+      (numeric-only, parallel to #1). [src: design/assemblies.md §2,
+      engineering risk]
+- [ ] (P1, M) Assemblies v1 #3 — mate-geometry-ref resolution (geometry) —
+      resolves a `MateFaceRef` against the `PlanarFaceSignature` resolver an
+      `on_face` datum already uses, and a `MateAxisRef` against the
+      `EdgeSignature` resolver (`curve == "circle"`, axis = normal through
+      the seam-point centre) — **reusing the exact stage-1 signature
+      machinery** (`topological-naming.md` §9), exactly-one-or-honest-error
+      (`subshape_unresolved`/`subshape_ambiguous`, never a silent skip).
+      Wires the resolved (point, normal)/(point, direction) pairs into #2's
+      `AssemblySolver` residuals, replacing synthetic test fixtures with
+      real OCCT-derived geometry. Acceptance: unit tests — a resolved
+      coincident+concentric pair reproduces #2's analytic-transform test
+      against a REAL evaluated part body (not synthetic); an ambiguous/
+      missing signature returns the typed error, never a 500. Depends on:
+      #2 (solver protocol), the existing `geometry.kernel.faces`/`.edges`
+      resolvers. [src: design/assemblies.md §2.1, §4]
+- [ ] (P1, M) Assemblies v1 #4 — gateway assembly endpoints — proxy the
+      documents CRUD (assembly/instance/mate create/get/list/delete) with
+      `CurrentUser` auth on every route from day one (closing the F7-class
+      gap proactively instead of retrofitting later). Acceptance: a
+      401-without-token test per route; an integration test drives
+      create-assembly → add-two-instances → add-a-lock-mate → get through
+      the gateway against isolated documents+gateway ports (CLAUDE.md
+      recipe); contracts regenerated. Depends on: #1 (documents API to
+      proxy). [src: design/assemblies.md §3]
+- [ ] (P1, M) Assemblies v1 #5 — assembly evaluation + shared-mesh
+      tessellation — **"bolt two parts together and see it," the v1 DoD.**
+      The full `EvaluateAssemblyRequest`/`Result` pipeline (design doc §4):
+      evaluate each UNIQUE part once (dedup by `part_key`), call #2+#3's
+      resolver/solver for the solved world `Placement` per instance,
+      tessellate + `store_mesh_glb` each unique part ONCE (content-
+      addressed, reused across instances of the same part), compose
+      analytic combined properties (Σ volumes, mass-weighted centroid, bbox
+      union — no re-meshing, no boolean). New golden
+      `assembly-two-plates-bolted` (design doc §6.1): plate A grounded,
+      plate B mated coincident+concentric — assert each solved `Placement`
+      equals the hand-derived analytic transform within a documented
+      tolerance, and combined mass properties equal the analytic roll-up.
+      Solve-determinism gate (§6.2, bitwise-identical across runs/fresh
+      interpreter). Shared-mesh-dedup test (§6.4): the same part instanced
+      twice yields ONE `part_mesh_glb_id` referenced by two placements.
+      Per-mate/per-instance errors surface as a typed `FeatureError` inside
+      a 200, never a transport 4xx. Depends on: #2, #3. [src: design/
+      assemblies.md §4, §6]
+- [ ] (P1, M) Assemblies v1 #6 — frontend assembly tree + instance
+      placement + mate authoring — apps/web: an assembly workspace (sibling
+      of `/parts/{id}`), an instance list (add-instance-from-a-part picker,
+      grounded toggle, placement gizmo), and mate authoring (pick a face on
+      each of two instances → Coincident; pick a circular edge on each →
+      Concentric; Lock two instances) driving #4's gateway endpoints and
+      rendering #5's per-instance shared meshes + solved transforms via r3f
+      instancing (one part mesh drawn N times). `frontend-design` skill
+      invoked (new surface). Acceptance: worked e2e — create an assembly,
+      instance two parts, mate them coincident+concentric, see both solved
+      in the viewport (screenshot evidence, desktop + 1280×800); a
+      conflicting-mate case surfaces the typed diagnosis legibly. Depends
+      on: #4, #5. [src: design/assemblies.md §4, product-auditor #1]
 - [ ] (P2, M) Mesh store: MinIO-backed object-storage swap (engineering audit
-      **F1**, forward goal). **Guard leg shipped 2026-07-13** — geometry now
-      REFUSES to start on `WEB_CONCURRENCY > 1` (`assert_single_worker_mesh_store`,
-      fires at the `geometry.main:app` import) so the in-process LRU's
-      cross-worker 404 is a loud startup failure, not a silent ~(N−1)/N miss;
-      readiness note added to `docker-compose.yml`; design §7.8 records the
-      choice. **Remaining scope:** swap the in-process LRU for content-addressed
+      **F1/F6**, forward goal) — the single-worker guard (shipped
+      2026-07-13) only covers in-process workers; replica fan-out
+      (`docker compose --scale`, k8s `replicas>1`) still reproduces the
+      intermittent-404 cliff since `_STORE` is process-global (F6, Pass 2).
+      **Remaining scope:** swap the in-process LRU for content-addressed
       MinIO writes (key stays `sha256:<hex>`, byte-for-byte the current DTO
-      contract — no `EvaluateTreeResult`/caller change) plus the gateway
-      mesh-streaming path (§7.8 default posture), then lift the guard. Acceptance
-      (unchanged headline, now the swap's alone): a **real-MinIO** 2-worker /
-      2-replica smoke round-trips evaluate→fetch without 404 **in CI** — this
-      sandbox can't prove it (no docker daemon, no `moto`; a `moto` in-process
-      mock wouldn't exercise the cross-process path), so the swap MUST NOT land
-      without that CI gate. Depends on: nothing new. [src: engineering-auditor F1]
-- [x] (P2, S) Sketch: over-constraint classification — upgrade
-      `sketch_conflicting` from raw constraint indices to a classified
-      redundant-vs-conflicting diagnosis with a suggested fix, surfaced in
-      the typed `FeatureError` (not string-parsed). `planegcs_solver.py`
-      already computes `redundant` internally per VISION.md's 2026-07-12
-      re-score — this item is exposing it, not deriving it fresh. Depends
-      on: nothing new. Acceptance: a deliberately over-constrained sketch
-      (e.g. two conflicting distance dims) returns distinct redundant vs.
-      conflicting classifications with the offending constraint ids named
-      in the message; frontend reads the typed field instead of parsing
-      text; worked e2e; supersedes the older "Structured conflict indices"
-      Later item. [src: product-auditor, competitive]
-      **Backend COMPLETE 2026-07-13 (3 commits):** (1) `SketchConstraintDiagnosis`
-      DTO + `classify_overconstraint` classifier (py-kit, unit-tested); (2) wired
-      onto `FeatureError.sketch_diagnosis` for the unsolvable `sketch_conflicting`
-      path; (3) wired onto `SolvedSketchData.diagnosis` for the redundant-but-
-      solvable `overconstrained` ok path. Both classifications surface as a TYPED
-      field (contracts + ts-client regenerated), asserted in `test_evaluate_tree.py`
-      (conflicting → `classification="conflicting"`, `removable=False`; redundant →
-      `classification="redundant"`, `removable=True`, ids named). **Frontend leg
-      landed 2026-07-13 (DONE):** `PartPage` reads the typed
-      `error.sketch_diagnosis` / `data.diagnosis` directly and the brittle
-      `parseConflictIndices` regex over the human message was removed; the
-      conflicting-glyph flagging is proven end-to-end (`constraints.spec.ts`,
-      full e2e 125/125 green). Item complete — supersedes the older "Structured
-      conflict indices" Later item.
-- [x] (P2, M) Sketch dimension expressions / driving vs. driven — a
-      dimension value field accepts a literal, a reference to another
-      dimension, or a math expression; each dimension gets a `driving` flag
-      (driving = feeds the solver, driven = read-only/informational).
-      **COMPLETE 2026-07-15 (backend + frontend).**
-      **Backend leg landed 2026-07-15 (DONE):** dimension-constraint schema
-      grew additive optional `name`/`expression`/`driving` (py-kit
-      `DimensionConstraint` base on distance+radius; `driving` nullable,
-      None=driving, backward-compat, no `param_version` bump); a safe
-      recursive-descent evaluator (`geometry.sketch.expression`, NOT `eval`)
-      resolves `+ - * / ( )`, unary minus, decimals, and dimension-name refs
-      over a dependency graph with cycle / unknown-ref / driven-ref / div-zero
-      → clean `sketch_invalid` (never a 500/hang); driving dims feed the solver
-      their evaluated value, driven dims are excluded and their value is read
-      back from the solved geometry onto the new `SolvedSketch.dimensions[]`
-      readouts. Proven in `test_sketch_expression.py` (width=20,
-      height="width/2" → 10; driven dim leaves a DOF instead of
-      over-constraining; readout tracks edited geometry; literal goldens
-      byte-identical). Contracts + ts-client regenerated (gen-check clean).
-      **Frontend leg landed 2026-07-15 (DONE):** the inline dimension editor
-      (`ConstraintGlyphs.tsx`) gained an `ExpressionField` primitive
-      (`packages/design`) — a literal stays `value_mm`, a non-numeric entry is
-      sent as `expression`, with a brass "= 10 mm" resolved echo — plus an
-      optional reference-name `TextField` (identifier-hinted, server owns
-      uniqueness) and a DRIVING/DRIVEN `SegmentedControl`. Driven dims send
-      `driving:false`, render in reference parentheses `(20)` in quiet gauge
-      ink, and their readout is measured from `SolvedSketch.dimensions[]` (lined
-      up by `constraint_index`); a driving expression shows its evaluated value.
-      `sketch_invalid` surfaces in the `SolveDiagnostic` stamp + a DRO "INVALID
-      EXPRESSION" cell. Worked e2e `dimension-expressions.spec.ts` (width=20,
-      height=`width/2`→10; driven reference tracks edited geometry without
-      over-constraining; bad expression → diagnostic) + founder screenshots at
-      1440 & 1280. [src: competitive]
-- [x] (P2, M) Sketch: constrainable splines (v1.1) — fit-point constraint
-      mapping (each fit point becomes a solver point, not a native spline
-      primitive; tangency deferred). **Backend + frontend landed 2026-07-15.**
-      Backend leg (DONE):
-      `EntityPointRef.point` gained a `SplineFitPointName` form (`"fit0"`,
-      `"fit1"`, … zero-based; additive, no `param_version` bump — existing
-      line/arc/circle refs unchanged); `planegcs_solver` adds each *referenced*
-      fit point as a GCS point (unreferenced ones stay out → unconstrained
-      spline keeps zero added DOF, byte-identical, spline golden green) and
-      rebuilds the spline through the solved fit positions. Fit points take
-      coincident/fixed/symmetric directly, and distance/horizontal/vertical via
-      a coincident-linked line; an out-of-range `"fitN"` is a clean
-      `SketchDefinitionError`. Geometry + py-kit suites cover the worked
-      coincident-to-line reshape, DOF changes, and validation; contracts +
-      ts-client regenerated (gen-check clean).
-- [x] (P2, S) Sketch: spline fit-point constrain UI (v1.1 frontend leg) —
-      **landed 2026-07-15.** `namedPoints` now exposes a spline's fit points as
-      `"fitN"`, so they pick / hover / select / constrain through the existing
-      point path (coincident / fixed / symmetric route the ref through
-      unchanged; distance/H/V via the linked-line gesture). Diamond fit-point
-      handles (testid'd, focusable, `aria-pressed`) wake when the spline is
-      engaged. e2e `spline-constraint.spec.ts`: fit point coincident to a fixed
-      endpoint → solver moves it onto the endpoint, spline reshapes, DOF readout
-      reflects it; before/after screenshots at 1440 & 1280. [src: product-
-      auditor, competitive]
+      contract) plus the gateway mesh-streaming path (§7.8 default posture),
+      then lift the guard. Worth interleaving with assemblies (not
+      blocking): more instances per assembly means more meshes competing
+      for the 64-slot LRU, so this swap's payoff grows with #5 above.
+      Acceptance: a **real-MinIO** 2-worker/2-replica smoke round-trips
+      evaluate→fetch without 404 **in CI** (this sandbox can't prove it — no
+      docker daemon, no `moto` cross-process fidelity) — the swap MUST NOT
+      land without that CI gate. [src: engineering-auditor F1/F6]
+- [ ] (P2, M) STEP import: cache the transferred body across evaluations
+      (engineering audit **F8**) — `_evaluate_import` re-spawns the parse
+      subprocess (~0.9 s cold start) and re-parses up to 16 MiB of part-21
+      on EVERY feature-tree evaluation, because the imported STEP is stored
+      inline and `evaluate_tree` re-runs the whole prefix on every edit — a
+      per-edit latency floor on the interop workflow that never improves
+      regardless of tree depth. Fix: cache the transferred body keyed on
+      the import params' content hash (the STEP text is immutable once
+      stored) — either at the evaluation-state level or a small
+      process-level LRU keyed on the hash. Acceptance: a test asserts the
+      parse subprocess is invoked ONCE per distinct upload across N
+      sequential feature-tree evaluations sharing that import, not N times;
+      existing import goldens/tests unaffected; the killable-subprocess
+      timeout bound (P1 security, shipped) is preserved for the one real
+      parse. Depends on: nothing new. [src: engineering-auditor F8]
+- [ ] (P2, M) Rate limiting + request-size caps (py-kit middleware — DRY
+      home) — pre-deploy hardening, the unbuilt half of audit F7 (whose
+      auth gap shipped 2026-07-15, `36dc3d9`). Covers the unauthenticated
+      auth endpoints AND the per-principal geometry-compute surface
+      (tessellate/export/measure/overlay — now all auth-gated but still
+      unbounded per-caller). Promoted to Ready this pass: security-adjacent
+      cross-cutting debt outranks new-pillar polish even while assemblies is
+      the headline priority. Acceptance: a per-principal request-rate cap
+      (429 beyond the limit) on the geometry-compute routes + auth
+      endpoints, unit-tested; documented default limits. [src: code-reviewer,
+      eng-audit F7]
 
 ## Next (P2)
 
@@ -243,27 +208,36 @@ unchanged in substance.
       succeeds using the centerline; existing real-edge-as-axis path
       unaffected; worked e2e. [src: product-auditor]
 - [ ] (P2, S) evaluate_tree: skip tessellation/store for export/measure
-      callers (engineering audit **F2**) — thread a bool through
-      `evaluate_tree` so `export_tree`/measure (which never fetch the GLB)
-      don't churn the 64-slot mesh LRU with never-fetched entries, evicting
-      live interactive-session meshes. Acceptance: export/measure requests
-      no longer call `store_mesh_glb` (test asserts cache occupancy
-      unchanged after N exports); evaluate-for-viewport path unaffected.
-      [src: engineering-auditor F2]
+      callers (engineering audit **F2**, now also `/overlay` — 3 non-fetching
+      callers) — thread a bool through `evaluate_tree` so `export_tree`/
+      measure/overlay (which never fetch the GLB) don't churn the 64-slot
+      mesh LRU with never-fetched entries, evicting live interactive-session
+      meshes. Acceptance: export/measure/overlay requests no longer call
+      `store_mesh_glb` (test asserts cache occupancy unchanged after N
+      calls); evaluate-for-viewport path unaffected. [src: engineering-
+      auditor F2]
+- [ ] (P2, M) Multi-body + boolean intersect (product audit Pass 2 — "a
+      cheaper adjacent win than assemblies") — allow a disjoint additive
+      solid in one part (today: `boolean_failed`) and add
+      `operation:"intersect"` alongside add/cut. **Tension note:** VISION.md
+      frames this as a non-blocking scope boundary now that Part modeling is
+      ✅; the fresh product audit rates it P1 ("unlocks tooling/mold/split
+      workflows"). Bumped P3→P2 this pass to reflect that reweighing, but
+      kept behind assemblies (the founder's explicit #1) rather than in
+      Ready. [src: product-auditor Pass 2, competitive, roadmap]
 - [ ] (P2, S) Geometry QA: boolean-cut + revolve/sweep-on-offset-plane
-      determinism goldens (engineering audit **F4**, remaining slices — the
-      circular-pattern slice shipped, archived below) — all remaining
-      goldens are additive-only and no offset-plane golden exercises
-      revolve/sweep (code-noted "same path, untested"). Acceptance: one
-      `*-cut-*` golden and one revolve-or-sweep-on-offset golden, same
-      determinism gate as existing goldens. [src: engineering-auditor F4,
-      geometry-qa]
+      determinism goldens (engineering audit **F4**, remaining slice — cut
+      goldens shipped, circular-pattern golden shipped) — no offset-plane
+      golden exercises revolve/sweep (code-noted "same path, untested").
+      Acceptance: one revolve-or-sweep-on-offset golden, same determinism
+      gate as existing goldens. [src: engineering-auditor F4, geometry-qa]
 - [ ] (P2, S) Units system — mm-only today; a per-part or per-workspace unit
       preference (in/mm) with display-layer conversion (kernel stays mm
       internally per CLAUDE.md tolerances). Independent. [src: roadmap]
 - [ ] (P2, M) Undo/redo across feature operations — UI-level action history,
       distinct from the rollback bar (which moves the build point, not an
-      action stack). Independent. [src: roadmap, competitive]
+      action stack). Independent. [src: roadmap, competitive, product-auditor
+      Pass 2 history-tree ergonomics]
 - [ ] (P2, M) Performance benchmark suite with CI budgets — formalize the
       ad-hoc per-golden warm-rebuild numbers already in GEOMETRY-QA.md
       (3.8 ms–33 ms today) into a tracked suite with committed budgets and a
@@ -275,22 +249,17 @@ unchanged in substance.
 - [ ] (P2, M) arq/redis queue runtime — move geometry evaluation from
       sync-inline to the real queue path; geometry gates gain queue-path
       coverage (GEOMETRY-QA gap #2). [src: roadmap, geometry-qa]
-- [ ] (P2, M) Rate limiting + request-size caps (py-kit middleware — DRY home)
-      — pre-deploy hardening. Covers the unauthenticated auth endpoints AND the
-      per-principal geometry-compute surface (the unbuilt half of audit F7,
-      whose auth gap shipped 2026-07-15). [src: code-reviewer, eng-audit F7]
 
 ## Later (P3)
 
 - [ ] (P3, M) Hole feature — face-based placement (point on a face + depth,
       optionally counterbore/countersink), distinct from a sketched-circle
-      extrude cut. **Downgraded P2→P3 this pass:** multi-loop closed-profile
-      cuts now cover the common bolt-circle/mounting-hole case the product
-      audit was pushing this for; a dedicated Hole feature is a nicety
+      extrude cut. Multi-loop closed-profile cuts cover the common
+      bolt-circle/mounting-hole case; a dedicated Hole feature is a nicety
       (counterbore/countersink, no sketch needed) once face picking lands,
       not the unblocker it was before multi-loop shipped. Depends on
-      face/edge picking (Ready, above) landing — needs a stable face
-      reference. [src: roadmap, product-auditor, competitive]
+      face/edge picking (shipped) — needs a stable face reference. [src:
+      roadmap, product-auditor, competitive]
 - [ ] (P3, S) Spline profile builder: named tolerance + non-consecutive-
       coincidence guard (engineering audit **F5**) — promote the inline
       `abs_tol=1e-9` (kernel/extrude.py:186) to the module's existing
@@ -301,10 +270,6 @@ unchanged in substance.
 - [ ] (P3, M) Thread feature — cosmetic/modeled threads on a hole/cylinder,
       driven by a thread-standard library. Pairs with the hole feature
       above. [src: competitive]
-- [ ] (P3, M) Multi-body boolean — join/cut/intersect between solid bodies.
-      VISION.md names this the one remaining Part-modeling scope boundary
-      post-✅-flip (uncommon workflow, not a daily-driver blocker). [src:
-      competitive, roadmap]
 - [ ] (P3, S) UI: warn before a fillet radius risks a thin-shell rim
       collision (showcase **F3**) — filleting all rim edges of a thin shell
       at r ≥ half the wall thickness correctly fails `fillet_failed` (OCCT
@@ -334,10 +299,10 @@ unchanged in substance.
       — the three deferred scope items from `4964fab`'s v1: (1) IGES as a
       second import format alongside STEP; (2) multi-solid source files
       (today: single-solid or a legible `import_not_single_solid` error) —
-      likely couples to Phase 3 assemblies rather than shipping standalone;
-      (3) a real sew/repair healing report beyond raw shape stats. Split into
-      independent slices when picked up. [src: roadmap, geometry-qa,
-      step-import.md]
+      likely couples to the assemblies pillar rather than shipping
+      standalone; (3) a real sew/repair healing report beyond raw shape
+      stats. Split into independent slices when picked up. [src: roadmap,
+      geometry-qa, step-import.md]
 - [ ] (P3, S) py-kit: align FastAPI 422 OpenAPI schema with the py-kit error
       envelope (currently documents HTTPValidationError)
       [src: kernel-architect]
@@ -392,190 +357,46 @@ Full evidence for every line below lives in `CHANGELOG.md`.
       pytest exit-5 gate, OpenAPI dedupe helper, readyz detail hygiene,
       corrupt-GLB surfacing. [src: code-reviewer]
 
-### Phase 1 — Ready batch 1 (through commit 565e337)
+### Phase 1 (through commit ff6b226)
 
-- [x] (P1, M) STEP/STL export endpoints + UI download — geometry endpoint,
-      gateway proxy, title-block download UI; endpoint-level STEP round-trip
-      at 0.0 deviation; Interop's first shipped half. [src: roadmap, geometry-qa]
-- [x] (P1, S) First curved golden: `cylinder-r10-h25` — closes GEOMETRY-QA
-      gap #1 (curved GProp, seam-edge topology, curved STEP round-trip).
-      [src: geometry-qa]
-- [x] (P1, M) Feature-tree persistence design doc — `docs/design/
-      feature-tree.md`, code-reviewer-endorsed after one revision round.
+- [x] (P1, M) STEP/STL export endpoints + UI download, first curved golden,
+      feature-tree persistence design doc, `SketchSolver`+planegcs adoption,
+      auth v1 (backend+web), documents parts CRUD, `just e2e` wiring.
+      [src: roadmap, geometry-qa]
+- [x] (P1, M) Feature-tree persistence (documents API + geometry evaluate
+      slice), sketch model + solver API, sketcher UI (plane/entity authoring
+      + constraints/solve feedback), extrude (add/cut) end-to-end.
       [src: roadmap]
-- [x] (P1, M) SketchSolver interface + planegcs spike — verdict: planegcs
-      adopted (LGPL-2.1 verified), benchmark rectangle at 0.0 deviation.
-      [src: research]
-- [x] (P1, M) Auth v1 backend — argon2id + HS256 JWT register/login/me,
-      fail-fast `JWT_SECRET` posture. [src: roadmap]
-- [x] (P1, M) Documents service: parts CRUD — owner-scoped CRUD, alembic
-      `0001_parts`, gateway aggregation. [src: roadmap]
-- [x] (P1, S) Auth v1 web sign-in — login/register + session persistence,
-      15/15 Playwright green. [src: roadmap]
-- [x] (P1, S) `just e2e` wiring — `scripts/e2e.sh` runs geometry gates +
-      Playwright (GEOMETRY-QA gap #6). [src: geometry-qa]
+- [x] (P1, M) Gateway mesh-fetch proxy, viewport renders evaluated bodies,
+      extrude UI + feature-tree edit/rollback, parts home UI, fillet,
+      chamfer, export-from-tree, full-flow Playwright exit gate.
+      [src: roadmap, product-auditor, engineering-auditor]
 
-### Phase 1 — Ready batch 2 (through commit 11eaa65)
+### Phase 2 (through commit a1c42be) — parametric core converges
 
-- [x] (P1, M) Feature-tree persistence — documents schema + API slice —
-      alembic `0002_feature_tree`, feature CRUD/reorder/rollback, reference
-      rules, 409/422 conflict handling. [src: roadmap]
-- [x] (P1, M) Feature-tree persistence — geometry evaluate slice — stateless
-      `POST /api/v1/evaluate`, ordered dispatch, strict-prefix partial
-      results. [src: roadmap]
-- [x] (P1, M) Sketch model + solver API — typed sketch entity/constraint
-      schemas, §6 worked example solved end-to-end at 0.0 deviation.
-      [src: roadmap]
-- [x] (P1, S) Sketcher UI — plane + entity authoring — `/parts/{id}`
-      workspace, datum-plane pick, L/R/C/A tools, persistence e2e 19/19.
-      [src: roadmap]
-- [x] (P1, M) Sketcher UI — constraints + solve feedback — H/V/D/R/X/C
-      verbs, in-viewport glyphs, DRO DOF cell, conflict diagnostics; e2e
-      25/25. [src: roadmap]
-- [x] (P1, M) Extrude (add/cut) end-to-end — first body-affecting feature +
-      golden `sketch-extrude-40x25x10`, strict-prefix error rule, §7.8
-      interim mesh endpoint. [src: roadmap]
-
-### Phase 1 — Ready batch 3 / exit gate (through commit ff6b226)
-
-- [x] (P1, S) Gateway mesh-fetch proxy — content-addressed GLB proxy,
-      auth-protected, byte-identical to geometry's endpoint. [src: geometry-qa,
-      product-auditor]
-- [x] (P1, M) Viewport renders evaluated-tree bodies — extruded bodies
-      visible for the first time (aluminium + B-rep edges, title-block
-      inspector). [src: product-auditor, engineering-auditor]
-- [x] (P1, M) Extrude feature UI + feature-tree edit/rollback — title-block
-      authoring editor, selectable tree rows, brass rollback bar.
-      [src: frontend-builder]
-- [x] (P1, S) Parts home UI — drawing-register create/list/open/delete,
-      closes the last navigation gap before the exit gate. [src: frontend-builder]
-- [x] (P1, M) Fillet feature — geometric edge selection, golden
-      `fillet-plate-r5` (first curved-topology-class fillet) at 1e-9.
-      [src: roadmap, product-auditor]
-- [x] (P1, M) Chamfer feature — reuses fillet's shared `select_edges`, golden
-      `chamfer-plate-d5` (all-planar, exact 0.0 STEP round-trip).
-      [src: roadmap, product-auditor]
-- [x] (P1, M) Export-from-tree — `POST /api/v1/export/tree` +
-      `POST /api/v1/parts/{id}/export`, closes GEOMETRY-QA gap #8.
-      [src: geometry-qa, roadmap]
-- [x] (P1, M) Full-flow Playwright e2e — the Phase 1 exit gate: login →
-      sketch → extrude → edit param → export, desktop + 1280×800 + touch
-      smoke. [src: frontend-builder]
-
-### Phase 2 — Ready batch 1 (through commit 5777656)
-
-- [x] (P1, M) Topological naming strategy — design doc —
-      `docs/design/topological-naming.md`, staged hybrid signature+
-      provenance, additive `SubshapeRef`; code-reviewer-endorsed. [src:
-      roadmap, engineering-auditor]
-- [x] (P1, S) Sketch: construction geometry — `construction: bool` field +
-      `N` keyboard toggle, dashed/muted render, excluded from the extrude
-      profile check. [src: product-auditor, roadmap]
-- [x] (P1, M) Sketch constraints — tangent/perpendicular/parallel — 3
-      planegcs `ConstraintKind`s + P/L/T verbs + ∥/⊥/T glyphs, worked e2e.
-      [src: product-auditor, roadmap]
-- [x] (P1, M) Sketch constraints — equal/symmetric/concentric — the
-      remaining 3 kinds + E/S/O verbs + =/⟷/◎ glyphs; all 12 constraint
-      kinds shipped. [src: product-auditor, roadmap]
-- [x] (P1, M) Revolve feature — second body-affecting feature, golden
-      `revolve-annulus-r10-20-h15`, title-block axis-pick + angle editor.
-      [src: roadmap, product-auditor]
-- [x] (P2, S) Measurement tool — point/edge distance — `/measure` +
-      `/overlay` endpoints, viewport pick-and-read UI, brass dimension line
-      + title-block readout; e2e reads the box golden √1400 ≈ 37.42 mm.
-      [src: product-auditor]
-- [x] (P2, M) Linear/circular pattern — `PatternFeature` v1 (world-space
-      direction/axis, boolean-union into the body chain) + `PatternEditor`
-      authoring UI; 5th body-affecting feature. [src: roadmap,
-      product-auditor]
-
-### Phase 2 — Ready batch 2: sketch session-tool cluster + sweep/loft backend (through commit 1e3d422)
-
-- [x] (P1, M) Fillet/Chamfer authoring UI — predicate edge selector (all /
-      axis-parallel), title-block radius/distance handle. [src: roadmap]
-- [x] (P1, M) Sketch trim/extend — backend + UI (#2/#2b) — exact analytic
-      line/arc/circle trim/extend, constraint reconciliation on split/delete.
-      [src: product-auditor, competitive]
-- [x] (P1, S) Sketch offset — backend + UI (#3/#3b) — signed-distance
-      parallel copy, single-entity v1. [src: product-auditor, competitive,
-      roadmap]
-- [x] (P1, M) Sketch mirror — backend + UI (#4/#4b) — reflection about a
-      line-entity or two-point axis, live reflection ghost. [src:
-      product-auditor, competitive, roadmap]
-- [x] (P1, S) Sketch fillet/chamfer (corner round) — backend + UI (#5/#5b) —
-      line-line corners only v1. [src: product-auditor, competitive, roadmap]
-- [x] (P1, M) Sketch splines (Fit-Point v1) — backend + draw-tool UI (#6/#6b)
-      — non-constrained v1, Catmull-Rom viewport preview of the server B-spline.
-      [src: product-auditor, competitive, roadmap]
-- [x] (P1, M) Sweep feature — backend + UI (#7/#7b) — profile along a second
-      sketch's open path wire, golden `sweep-circle-r8-h30`. [src: roadmap,
-      product-auditor, competitive]
-- [x] (P1, M) Loft feature (#8) — backend (ruled loft, ≥2 sections incl.
-      loft-to-apex) + UI (#8b, ordered section-stack picker); e2e proves a
-      real frustum via two offset-plane circles. [src: roadmap, product-auditor,
-      competitive]
-
-### Phase 2 — Ready batch 3: offset/datum planes + multi-loop holes (through commit a36e436)
-
-- [x] (P1, S) Design note: offset/datum plane representation —
-      `docs/design/datum-planes.md`, code-reviewer-endorsed. [src: product-auditor,
-      engineering-auditor, roadmap]
-- [x] (P1, M) Offset/datum planes — backend (`DatumFeature`, `resolve_sketch_plane`
-      funnel) + picker UI (#2b, inline "+ Offset plane" + standalone Datum tool);
-      unblocked #8b loft UI and sketch-on-a-height. [src: product-auditor,
-      engineering-auditor, roadmap, frontend-builder]
-- [x] (P1, M) Multi-loop closed profiles → holes — the product audit's #1
-      daily-driver gap; one sketch (outer boundary + N inner loops) now
-      extrudes/cuts a plate with N through-holes, shared across
-      extrude/revolve/sweep/loft, no topological naming needed. [src:
-      product-auditor #1]
-
-### Phase 2 — Ready batch 4: sketch-on-face + edge-pick + shell + draft; Part modeling flips ✅ (through commit d8d3b87)
-
-- [x] (P1, S) Sketch-on-a-model-face — backend + UI end-to-end; topological-
-      naming consumer #1, "Pick a face" seats a sketch on a picked planar
-      face; e2e boss-on-face. [src: product-auditor #2]
-- [x] (P1, M) Click-specific edge selection for fillet/chamfer — backend +
-      UI end-to-end; consumer #2, one-edge-rounds-not-its-neighbours; e2e
-      `fillet-edge-pick`. [src: roadmap, product-auditor #3, engineering-auditor]
-- [x] (P2, S) Shell feature — backend + UI end-to-end; hollows a body,
-      picked faces stay open; e2e `shell.spec`. [src: roadmap, competitive]
-- [x] (P2, M) Draft feature — backend + UI end-to-end; tapers picked faces
-      about a neutral plane; e2e `draft.spec`. [src: roadmap, competitive]
-- [x] (P2, S) Geometry QA: circular-pattern determinism golden (engineering
-      audit F4, first slice) — `pattern-circular-4x-quadrant-box`. [src:
-      engineering-auditor F4, geometry-qa]
-- [x] (P1, M) Web e2e: multi-loop profile holes through the real browser —
-      proves the audit's #1 gap end-to-end (topology 6→8 faces, volume
-      strictly under bbox). [src: product-auditor #1]
-- [x] (P1, M) STEP import v1 (geometry-kernel side) — `ImportFeature` reads
-      inline STEP text and sets the body; modeled on by every later feature.
-      Gateway upload + UI still open (BACKLOG Ready). [src: roadmap,
-      engineering-auditor, step-import.md]
-- Docs: `docs/showcase-parts.md` — four real 6–16-feature parts stress-test
-  Part modeling ✅; held, no P0; surfaced F1–F3 (filed above). [src: qa-tester]
+**Batch 1** (topological-naming design doc, construction geometry,
+tangent/perpendicular/parallel + equal/symmetric/concentric constraints,
+revolve, measurement tool, linear/circular pattern) through commit `5777656`.
+**Batch 2** (fillet/chamfer authoring UI, sketch trim/extend/offset/mirror/
+fillet-chamfer, splines v1, sweep, loft) through commit `1e3d422`. **Batch 3**
+(offset/datum planes, multi-loop closed profiles → holes) through commit
+`a36e436`. **Batch 4** (sketch-on-a-model-face, click-specific edge selection,
+shell, draft — **Part modeling flips ➖→✅**; circular-pattern determinism
+golden; STEP import v1 kernel-side; showcase stress test surfaces F1–F3;
+pattern-a-cut + multi-disjoint-loop cut close F1/F2) through commit `d8d3b87`.
+**Batch 5 — Phase 2 converges** (through `36dc3d9`): STEP import P1 security
++ gateway upload + UI file-picker (**Interop flips ❌→➖**); typed
+over-constraint diagnosis (#6); sketch dimension expressions + driving/driven;
+constrainable spline fit points v1.1 (backend+frontend) — **Sketching flips
+➖→✅** (`a1c42be`); gateway auth-gate on geometry-compute routes (audit F7 P1
+security, `36dc3d9`); assemblies architecture decision endorsed (`b378633`);
+both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
 
-Older entries (incl. 2026-07-12/13 sketch-on-face/edge-pick/shell/draft/
-STEP-import-v1 ship notes) live in `CHANGELOG.md`.
+Older entries live in `CHANGELOG.md`.
 
-- 2026-07-15 — Shipped auth gate for the three gateway geometry-compute routes
-  (`/geometry/tessellate`, `/tessellate/meta`, `/export`; engineering audit F7,
-  P1 security): `CurrentUser` like every sibling stateless proxy, closing an
-  anonymous OCCT-CPU DoS vector. 401 test per route; contract regenerated with
-  `HTTPBearer`. Rate limiting (F7's other half) stays Ready. [backend-builder]
-- 2026-07-13 — Shipped mesh-store single-worker guard (#5, engineering audit
-  F1): geometry refuses to start on `WEB_CONCURRENCY > 1` instead of 404-ing
-  meshes across workers; fail-loud v1 over a blind MinIO swap the sandbox
-  can't exercise. MinIO swap stays Ready, gated on a real-MinIO CI smoke.
-  [kernel-architect]
-- 2026-07-13 — Shipped multi-disjoint-loop CUT (#4, showcase F2): N disjoint
-  loops → N cut regions in one feature (`build_profile_faces`/`_group_regions`);
-  add-vs-cut guard preserved; new 6-hole-ring-cut golden. [kernel-architect]
-- 2026-07-13 — Groomed after STEP import v1 (`4964fab`, geometry-side only)
-  + showcase stress test (`d8d3b87`, held, no P0). Filed the Interop UI-leg
-  items (gateway upload + import UI — the actual flip path), showcase F1–F3
-  + a partial-shell forward note, and a P1 security fast-follow (untrusted-
-  STEP parse timeout). Archived 7 shipped items to Done batch 4.
-  [backlog-groomer]
+- 2026-07-15 — Phase 2→3 reconcile: Phase 2 converged (Sketching + Part
+  modeling ✅), 9 shipped items archived. **Assemblies sequenced into 6
+  Ready items** (`docs/design/assemblies.md`); interleaved F1/F6/F8/F7-rate-
+  limit debt as #7–#9; bumped multi-body boolean P3→P2. [backlog-groomer]

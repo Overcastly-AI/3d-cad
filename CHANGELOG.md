@@ -355,4 +355,42 @@ feature-tree.md`: features table vs JSONB tradeoff, versioned param
   the actual flip path; filed showcase F1–F3 + a partial-shell forward note;
   filed a P1 security fast-follow (code-reviewer: no wall-clock bound on the
   untrusted-STEP OCCT parse); archived 6 shipped items to Done batch 4.
+
+## [Phase 2: Ready batch 5 — Phase 2 converges: Sketching + Interop flip, F7 security] — 2026-07-13 to 2026-07-15
+
+- **feat(geometry): STEP import P1 security** (`483d5ae`, `3f2a76b`) — the
+  untrusted-STEP OCCT parse runs in a killable subprocess, SIGKILLed +
+  reaped past `step_import_timeout_seconds` (default 5 s) → clean
+  `import_parse_timeout`, never a hang/zombie.
+- **feat(gateway+web): STEP-upload endpoint + UI file-picker** (`4b453f1`,
+  `a015f4e`) — streamed size-capped raw-body upload → `import` feature;
+  "Import STEP" toolbar affordance picks/uploads/models-on it end-to-end.
+  **Flips Interop ❌→➖** (`9749882`).
+- **feat(geometry): pattern arrays a cut** (`4dbe93e`, showcase F1/#3) and
+  **multi-disjoint-loop CUT profiles** (`75a50b7`, showcase F2/#4) — bolt
+  circles and lightening-hole rings now author in one feature each.
+- **feat(py-kit/geometry/web): typed over-constraint diagnosis** (`b28dffc`
+  …`4e6e429`, #6) — `SketchConstraintDiagnosis` replaces regex-parsed
+  conflict messages with a classified redundant-vs-conflicting field.
+- **feat(geometry/web): sketch dimension expressions + driving/driven**
+  (`72ad936`, `398fb12`, `196c89c`) — a safe recursive-descent evaluator
+  (not `eval`) resolves arithmetic + dimension-name refs; driven dims read
+  back from solved geometry; `ExpressionField` + DRIVING/DRIVEN toggle in
+  the inline editor.
+- **feat(geometry/web): constrainable spline fit points** (`dda86eb`,
+  `5e7311e`, `6dde1c9`, v1.1) — fit points become addressable solver
+  points (coincident/fixed/symmetric + linked-line distance/H/V); diamond
+  fit-point handles in the viewport.
+- **docs(vision): Sketching flips ➖→✅** (`a1c42be`) — all three named
+  gaps (over-constraint diagnosis, expressions, constrainable splines)
+  closed this batch; **Phase 2 (parametric core) converges**.
+- **fix(gateway): auth-gate geometry-compute routes** (`36dc3d9`, audit F7
+  P1 security) — `tessellate`/`tessellate/meta`/`export` now require
+  `CurrentUser`, closing an anonymous OCCT-CPU DoS vector.
+- **docs(design): Assemblies architecture decision** (`b378633`) — document
+  model, mate solver (build-our-own `AssemblySolver`, no GPL 3D-GCS
+  exists), service boundaries, phased v1 plan, golden strategy.
+- **docs(audit): product + engineering audits re-baseline** (`d0ccaa3`,
+  `6553c04`) — product audit: "yes for a part, no for a project," calls
+  **Assemblies #1**; engineering audit Pass 2: F7 closed, F6/F8/F2 open.
   [backlog-groomer]
