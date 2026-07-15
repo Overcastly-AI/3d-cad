@@ -21,6 +21,7 @@ tagged per value). Coordinates are 2D in the sketch plane; mapping the plane
 into 3D is the sketch *feature's* job, not the solver's.
 """
 
+import re
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -127,13 +128,28 @@ class SketchSpline(SketchEntityBase):
     sketch carries ``kind: "spline"``, so every stored sketch still parses to the
     exact same entity it did before (totality holds; ``param_version`` unchanged).
 
-    **Solver interaction — v1 is NON-CONSTRAINED (honest limit).** planegcs has
-    no spline primitive, so v1 treats a spline as **fixed geometry**: its fit
-    points pass through :meth:`SketchSolver.solve` unchanged (the spline neither
-    drives nor is driven by constraints, and it contributes zero DOF). A spline
-    has no solver-addressable named point, so a constraint referencing one is a
-    malformed definition (``SketchDefinitionError``). Constraining splines / their
-    fit points — and tangency between a spline and its neighbours — is DEFERRED.
+    **Solver interaction — constrainable FIT POINTS (v1.1).** planegcs still has
+    no spline *primitive*, so the CURVE itself carries no tangent/curvature
+    constraints. What v1.1 adds is that each fit point is addressable as a solver
+    point: a constraint may name it ``{"entity": <spline id>, "point": "fitN"}``
+    (:data:`SplineFitPointName`), and the solver adds THAT fit point to the
+    constraint system so it takes the point-level constraints any other point can
+    (coincident, fixed, symmetric — and, via a coincident-linked line, distance /
+    horizontal / vertical). After the solve the spline is rebuilt through the
+    solved fit-point positions, so it reshapes to satisfy its constraints.
+
+    A fit point contributes DOF **only when constrained**: a fit point no
+    constraint references is left out of the constraint system entirely, so an
+    UNCONSTRAINED spline still solves as fixed geometry (zero added DOF, fit
+    points preserved bitwise) exactly as before. A reference to an out-of-range
+    fit index (``"fit9"`` on a 3-point spline) is a malformed definition
+    (``SketchDefinitionError``), like any unknown-point reference.
+
+    **Spline tangency stays DEFERRED (honest limit):** a common tangent between a
+    spline and its neighbouring edge (curvature-continuity at a fit point) needs a
+    native spline primitive in the solver and is not offered here — only fit-point
+    *position* constraints are. It remains behind the ``SketchSolver`` protocol
+    for a future solver (or a planegcs spline extension).
     """
 
     kind: Literal["spline"]
@@ -158,13 +174,59 @@ SketchEntity = Annotated[
 # ---------------------------------------------------------------------------
 
 #: Named point of an entity. ``position`` addresses a point entity; ``start``/
-#: ``end`` address line and arc endpoints; ``center`` addresses circle and
-#: arc centers.
-PointName = Literal["start", "end", "center", "position"]
+#: ``end`` address line and arc endpoints; ``center`` addresses circle and arc
+#: centers. These are the FIXED, named points every non-spline entity kind owns.
+NamedPointName = Literal["start", "end", "center", "position"]
+
+#: A spline's Nth **fit point**, addressed positionally: ``"fit0"`` is the first
+#: fit point, ``"fit1"`` the second, … Zero-based, no leading zeros (``"fit00"``
+#: / ``"fit01"`` are rejected). A spline has as many fit points as it has
+#: ``points`` (:class:`SketchSpline`), so — unlike the fixed named points above —
+#: the valid set is data-dependent and cannot be a closed ``Literal``. The index
+#: is therefore bounds-checked against the target spline's fit-point count at
+#: SOLVE time (an out-of-range ``"fit9"`` on a 3-point spline resolves to no
+#: solver point → ``SketchDefinitionError``, the same clean malformed-reference
+#: path as an unknown entity id), not by this per-field pattern, which cannot see
+#: the referenced entity.
+SplineFitPointName = Annotated[
+    str,
+    Field(
+        pattern=r"^fit(?:0|[1-9][0-9]*)$",
+        description="A spline fit point by zero-based index, e.g. 'fit0'.",
+    ),
+]
+
+#: One point of one entity: either a fixed named point (:data:`NamedPointName`)
+#: or a spline fit point (:data:`SplineFitPointName`). The fit-point form is
+#: ADDITIVE (docs/design/feature-tree.md §1.3 — NO ``param_version`` bump): no
+#: constraint persisted before splines became constrainable carries a ``"fit*"``
+#: reference, so every existing line/circle/arc/point ref parses to the exact
+#: same shape it did before (totality holds).
+PointName = NamedPointName | SplineFitPointName
+
+_FIT_POINT_RE = re.compile(r"^fit(0|[1-9][0-9]*)$")
+
+
+def spline_fit_index(point: str) -> int | None:
+    """Zero-based fit-point index a :data:`PointName` addresses, or ``None``.
+
+    ``None`` for a fixed named point (``"start"``/``"end"``/``"center"``/
+    ``"position"``); an ``int`` for a spline fit reference (``"fit0"`` → ``0``).
+    The bounds check against a spline's actual fit-point count is the solver's
+    job (this only decodes the index from the name).
+    """
+    match = _FIT_POINT_RE.match(point)
+    return int(match.group(1)) if match else None
 
 
 class EntityPointRef(BaseModel):
-    """Names one point of one entity, e.g. ``{"entity": "e1", "point": "end"}``."""
+    """Names one point of one entity, e.g. ``{"entity": "e1", "point": "end"}``.
+
+    ``point`` is a fixed named point (``start``/``end``/``center``/``position``)
+    for a line/arc/circle/point entity, or a spline fit point (``"fit0"``,
+    ``"fit1"``, …) for a :class:`SketchSpline` — a constraint addresses a
+    spline's Nth fit point exactly as it addresses a line's endpoint.
+    """
 
     entity: EntityId
     point: PointName

@@ -651,6 +651,18 @@ function pointOf(
       return entity.kind === "line" || entity.kind === "arc"
         ? entity.end
         : { x: 0, y: 0 };
+    default: {
+      // A spline fit point ("fit0", "fit1", …) resolves to its Nth fit
+      // coordinate (EntityPointRef contract, constrainable-splines backend
+      // leg). Keeps this annotation-anchor helper total now that `point`
+      // widened past the fixed named points; the fit-point pick/constrain UI
+      // is a separate follow-up.
+      const fit = /^fit(0|[1-9][0-9]*)$/.exec(ref.point);
+      if (fit && entity.kind === "spline") {
+        return entity.points[Number(fit[1])] ?? { x: 0, y: 0 };
+      }
+      return { x: 0, y: 0 };
+    }
   }
 }
 

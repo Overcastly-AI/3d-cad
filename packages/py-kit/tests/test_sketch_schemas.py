@@ -9,11 +9,15 @@ This is the backend classification building block; wiring it onto the
 sketcher UI reading the typed field) is the follow-up leg.
 """
 
+import pytest
 from py_kit.schemas.sketch import (
+    EntityPointRef,
     SketchConstraintDiagnosis,
     SolvedSketch,
     classify_overconstraint,
+    spline_fit_index,
 )
+from pydantic import ValidationError
 
 
 def _solved(
@@ -69,3 +73,38 @@ def test_solved_statuses_have_no_overconstraint_diagnosis() -> None:
             classify_overconstraint(_solved(status, conflicting=[], redundant=[]))
             is None
         )
+
+
+# --- fit-point references on EntityPointRef (constrainable splines v1.1) ----
+
+
+def test_entity_point_ref_accepts_fixed_named_points() -> None:
+    """The pre-spline point names are unchanged — additive extension, no
+    regression to existing line/arc/circle/point references."""
+    for name in ("start", "end", "center", "position"):
+        assert EntityPointRef(entity="e1", point=name).point == name
+
+
+def test_entity_point_ref_accepts_spline_fit_points() -> None:
+    """A constraint addresses a spline's Nth fit point as ``"fitN"`` (zero-based,
+    arbitrary index — the count is bounds-checked by the solver, not the field)."""
+    for name in ("fit0", "fit1", "fit12", "fit100"):
+        assert EntityPointRef(entity="e1", point=name).point == name
+
+
+def test_entity_point_ref_rejects_malformed_point_names() -> None:
+    """Neither a fixed name nor a well-formed ``"fitN"`` → a validation error
+    (leading-zero forms are rejected so a fit index is canonical)."""
+    for bad in ("fit", "fitx", "fit00", "fit01", "middle", ""):
+        with pytest.raises(ValidationError):
+            EntityPointRef(entity="e1", point=bad)
+
+
+def test_spline_fit_index_decodes_only_fit_names() -> None:
+    """``spline_fit_index`` returns the index for a fit name and None for a fixed
+    named point — the discriminator the solver uses to decide which references
+    target a spline fit point."""
+    assert spline_fit_index("fit0") == 0
+    assert spline_fit_index("fit7") == 7
+    for named in ("start", "end", "center", "position"):
+        assert spline_fit_index(named) is None

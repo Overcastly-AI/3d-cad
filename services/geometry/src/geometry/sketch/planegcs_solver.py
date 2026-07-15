@@ -19,6 +19,7 @@ import math
 from planegcs import ArcId, CircleId, LineId, PointId
 from planegcs import Sketch as GcsSystem
 from planegcs import SolveStatus as GcsSolveStatus
+from py_kit.schemas.sketch import spline_fit_index
 
 from geometry.sketch.expression import (
     evaluate_driving_dimensions,
@@ -162,6 +163,38 @@ def _map_status(
     return "converged"
 
 
+def _constraint_point_refs(constraint: SketchConstraint) -> tuple[EntityPointRef, ...]:
+    """The ``EntityPointRef``s a constraint carries (empty for entity-only ones).
+
+    Only these three constraint kinds address individual points; the rest relate
+    whole entities by id. Used to discover which spline fit points a sketch
+    actually constrains (so only *those* enter the solver — an unconstrained
+    fit point contributes no DOF, matching the pre-v1.1 pass-through).
+    """
+    match constraint:
+        case CoincidentConstraint() | SymmetricConstraint():
+            return (constraint.a, constraint.b)
+        case FixedConstraint():
+            return (constraint.point,)
+        case _:
+            return ()
+
+
+def _referenced_fit_points(constraints: list[SketchConstraint]) -> set[tuple[str, str]]:
+    """``(entity_id, "fitN")`` pairs some constraint references, in the sketch.
+
+    A fit reference to a NON-spline entity (or an out-of-range index) is still
+    collected here; it simply never matches a registered spline fit point and so
+    surfaces later as a clean malformed-reference error at constraint time.
+    """
+    referenced: set[tuple[str, str]] = set()
+    for constraint in constraints:
+        for ref in _constraint_point_refs(constraint):
+            if spline_fit_index(ref.point) is not None:
+                referenced.add((ref.entity, ref.point))
+    return referenced
+
+
 class _GcsBuild:
     """Translation of one ``SketchDefinition`` into a planegcs system.
 
@@ -182,6 +215,10 @@ class _GcsBuild:
         self._lines: dict[str, LineId] = {}
         self._circles: dict[str, CircleId] = {}
         self._arcs: dict[str, ArcId] = {}
+        #: ``(spline id, "fitN")`` pairs some constraint references. Only these
+        #: spline fit points are added to the constraint system; unreferenced fit
+        #: points stay out of it (zero DOF, preserved bitwise).
+        self._referenced_fit_points = _referenced_fit_points(sketch.constraints)
         #: planegcs constraint tag → index into ``sketch.constraints``.
         self.tag_to_index: dict[int, int] = {}
         for entity in sketch.entities:  # input order — deterministic
@@ -237,14 +274,21 @@ class _GcsBuild:
                     center, start, end, radius, start_angle, end_angle
                 )
             case SketchSpline():
-                # NON-CONSTRAINED v1 (SketchSpline docstring): planegcs has no
-                # spline primitive, so a spline is FIXED geometry — it is added
-                # to no gcs entity, registers no point, and contributes zero DOF.
-                # It is neither driven by nor drives constraints; a constraint
-                # that names a spline point resolves to no point and raises
-                # SketchDefinitionError (via _resolve_point). read_back() carries
-                # the untouched fit points straight through to the solved result.
-                pass
+                # Constrainable FIT POINTS (v1.1, SketchSpline docstring):
+                # planegcs still has no spline primitive, so the CURVE is not in
+                # the solver — but each fit point a constraint references is added
+                # as a gcs point named ``"fitN"``, so it takes point-level
+                # constraints like any other point. A fit point NO constraint
+                # references is left out entirely (zero added DOF), so an
+                # unconstrained spline solves as fixed geometry exactly as before.
+                # An out-of-range ``"fitN"`` was collected but is never registered
+                # here (no such index), so it resolves to no point -> a clean
+                # SketchDefinitionError at constraint time. read_back() rebuilds
+                # the spline through the solved fit-point positions.
+                for index, point in enumerate(entity.points):
+                    name = f"fit{index}"
+                    if (entity.id, name) in self._referenced_fit_points:
+                        self._add_point(entity.id, name, point)
 
     # -- constraints ---------------------------------------------------------
 
@@ -501,9 +545,34 @@ class _GcsBuild:
                         )
                     )
                 case SketchSpline():
-                    # NON-CONSTRAINED v1: the spline holds no gcs handle, so its
-                    # fit points are preserved bitwise — a deep copy of the input
-                    # entity, unchanged. Its presence never perturbs the solved
-                    # geometry or DOF of the other entities.
-                    solved.append(entity.model_copy(deep=True))
+                    # Rebuild the spline THROUGH the solved fit-point positions:
+                    # a referenced fit point reads its solved (x, y) back from the
+                    # gcs; an unreferenced one keeps its input coordinate. When NO
+                    # fit point was referenced the spline never entered the solver,
+                    # so it is preserved bitwise (deep copy) — identical to the
+                    # pre-v1.1 pass-through (backward compat). The interpolating
+                    # curve itself is re-fitted downstream by the kernel
+                    # (Edge.make_spline) from these updated fit points.
+                    if not any(
+                        (entity.id, f"fit{i}") in self._points
+                        for i in range(len(entity.points))
+                    ):
+                        solved.append(entity.model_copy(deep=True))
+                        continue
+                    fit_points: list[Point2D] = []
+                    for index, point in enumerate(entity.points):
+                        pid = self._points.get((entity.id, f"fit{index}"))
+                        if pid is None:
+                            fit_points.append(point.model_copy(deep=True))
+                        else:
+                            x, y = self.gcs.get_point(pid)
+                            fit_points.append(Point2D(x=x, y=y))
+                    solved.append(
+                        SketchSpline(
+                            id=entity.id,
+                            kind="spline",
+                            construction=entity.construction,
+                            points=fit_points,
+                        )
+                    )
         return solved

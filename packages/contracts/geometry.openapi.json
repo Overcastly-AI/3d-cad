@@ -673,7 +673,7 @@
         "type": "object"
       },
       "EntityPointRef": {
-        "description": "Names one point of one entity, e.g. ``{\"entity\": \"e1\", \"point\": \"end\"}``.",
+        "description": "Names one point of one entity, e.g. ``{\"entity\": \"e1\", \"point\": \"end\"}``.\n\n``point`` is a fixed named point (``start``/``end``/``center``/``position``)\nfor a line/arc/circle/point entity, or a spline fit point (``\"fit0\"``,\n``\"fit1\"``, \u2026) for a :class:`SketchSpline` \u2014 a constraint addresses a\nspline's Nth fit point exactly as it addresses a line's endpoint.",
         "properties": {
           "entity": {
             "description": "Sketch-local entity id, e.g. 'e1'",
@@ -682,14 +682,23 @@
             "type": "string"
           },
           "point": {
-            "enum": [
-              "start",
-              "end",
-              "center",
-              "position"
+            "anyOf": [
+              {
+                "enum": [
+                  "start",
+                  "end",
+                  "center",
+                  "position"
+                ],
+                "type": "string"
+              },
+              {
+                "description": "A spline fit point by zero-based index, e.g. 'fit0'.",
+                "pattern": "^fit(?:0|[1-9][0-9]*)$",
+                "type": "string"
+              }
             ],
-            "title": "Point",
-            "type": "string"
+            "title": "Point"
           }
         },
         "required": [
@@ -3111,7 +3120,7 @@
         "type": "object"
       },
       "SketchSpline": {
-        "description": "A smooth **fit-point** curve \u2014 a C2 B-spline interpolating ``points``.\n\nThe free-form/organic profile entity (the last hard Sketching capability\ngap): the curve passes **through** every fit point in order (an *interpolating*\nB-spline, OCCT ``GeomAPI_Interpolate`` via ``Edge.make_spline``), so a closed\nprofile wire containing a spline edge can extrude/revolve. ``points`` are the\nordered fit points (mm, sketch-plane); **at least two** are required (two fit\npoints degenerate to a straight interpolant \u2014 still valid). Consecutive fit\npoints must be distinct; a coincident pair is a degenerate spline the profile\nbuilder rejects (``profile_not_closed``, like the degenerate-arc precedent).\n\nAdditive optional-free field-set (docs/design/feature-tree.md \u00a71.3): this is\na NEW entity **kind**, not a changed field. Persisted sketches are unaffected\n\u2014 the discriminated ``SketchEntity`` union keys on ``kind``, and no existing\nsketch carries ``kind: \"spline\"``, so every stored sketch still parses to the\nexact same entity it did before (totality holds; ``param_version`` unchanged).\n\n**Solver interaction \u2014 v1 is NON-CONSTRAINED (honest limit).** planegcs has\nno spline primitive, so v1 treats a spline as **fixed geometry**: its fit\npoints pass through :meth:`SketchSolver.solve` unchanged (the spline neither\ndrives nor is driven by constraints, and it contributes zero DOF). A spline\nhas no solver-addressable named point, so a constraint referencing one is a\nmalformed definition (``SketchDefinitionError``). Constraining splines / their\nfit points \u2014 and tangency between a spline and its neighbours \u2014 is DEFERRED.",
+        "description": "A smooth **fit-point** curve \u2014 a C2 B-spline interpolating ``points``.\n\nThe free-form/organic profile entity (the last hard Sketching capability\ngap): the curve passes **through** every fit point in order (an *interpolating*\nB-spline, OCCT ``GeomAPI_Interpolate`` via ``Edge.make_spline``), so a closed\nprofile wire containing a spline edge can extrude/revolve. ``points`` are the\nordered fit points (mm, sketch-plane); **at least two** are required (two fit\npoints degenerate to a straight interpolant \u2014 still valid). Consecutive fit\npoints must be distinct; a coincident pair is a degenerate spline the profile\nbuilder rejects (``profile_not_closed``, like the degenerate-arc precedent).\n\nAdditive optional-free field-set (docs/design/feature-tree.md \u00a71.3): this is\na NEW entity **kind**, not a changed field. Persisted sketches are unaffected\n\u2014 the discriminated ``SketchEntity`` union keys on ``kind``, and no existing\nsketch carries ``kind: \"spline\"``, so every stored sketch still parses to the\nexact same entity it did before (totality holds; ``param_version`` unchanged).\n\n**Solver interaction \u2014 constrainable FIT POINTS (v1.1).** planegcs still has\nno spline *primitive*, so the CURVE itself carries no tangent/curvature\nconstraints. What v1.1 adds is that each fit point is addressable as a solver\npoint: a constraint may name it ``{\"entity\": <spline id>, \"point\": \"fitN\"}``\n(:data:`SplineFitPointName`), and the solver adds THAT fit point to the\nconstraint system so it takes the point-level constraints any other point can\n(coincident, fixed, symmetric \u2014 and, via a coincident-linked line, distance /\nhorizontal / vertical). After the solve the spline is rebuilt through the\nsolved fit-point positions, so it reshapes to satisfy its constraints.\n\nA fit point contributes DOF **only when constrained**: a fit point no\nconstraint references is left out of the constraint system entirely, so an\nUNCONSTRAINED spline still solves as fixed geometry (zero added DOF, fit\npoints preserved bitwise) exactly as before. A reference to an out-of-range\nfit index (``\"fit9\"`` on a 3-point spline) is a malformed definition\n(``SketchDefinitionError``), like any unknown-point reference.\n\n**Spline tangency stays DEFERRED (honest limit):** a common tangent between a\nspline and its neighbouring edge (curvature-continuity at a fit point) needs a\nnative spline primitive in the solver and is not offered here \u2014 only fit-point\n*position* constraints are. It remains behind the ``SketchSolver`` protocol\nfor a future solver (or a planegcs spline extension).",
         "properties": {
           "construction": {
             "default": false,

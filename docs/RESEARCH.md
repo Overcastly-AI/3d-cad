@@ -66,15 +66,25 @@ design; only fully-constrained sketches are guess-independent. No iteration
 count is exposed; the default DogLeg algorithm is used with no random
 restarts.
 
-**Spline entities are NON-CONSTRAINED (v1, 2026-07-12).** planegcs has no
-spline primitive, so the fit-point `SketchSpline` (docs/GEOMETRY-QA.md) is
-treated as **fixed geometry**: the solver skips it when building the constraint
-system (zero parameters/equations/DOF) and preserves its fit points bitwise in
-the solved result. A spline neither drives nor is driven by constraints, and it
-exposes no solver-addressable named point (a constraint referencing one is a
-malformed definition). Constraining splines / their fit points and spline
-tangency are deferred behind the `SketchSolver` protocol — a future solver (or a
-planegcs spline extension) can add them without changing the DTO or callers.
+**Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
+not.** planegcs still has no spline primitive, so the curve carries no
+tangent/curvature constraints. What v1.1 adds is that each fit point is
+addressable as a solver point via `EntityPointRef{entity, point:"fitN"}`
+(`SplineFitPointName`, zero-based): a constraint may name a spline's Nth fit
+point exactly as it names a line endpoint, and the solver adds THAT fit point to
+the constraint system so it takes the point-level constraints (coincident,
+fixed, symmetric — and, via a coincident-linked line, distance/horizontal/
+vertical). After the solve the spline is **rebuilt through the solved fit-point
+positions** (the interpolating curve is re-fitted downstream by the kernel), so
+it reshapes to satisfy its constraints. A fit point contributes DOF **only when
+constrained** — a fit point no constraint references is left out of the system
+entirely, so an unconstrained spline still solves as fixed geometry (zero added
+DOF, fit points preserved bitwise) exactly as in v1. An out-of-range `"fitN"`
+resolves to no point → a clean malformed-definition error. **Spline tangency
+stays DEFERRED** behind the `SketchSolver` protocol (it needs a native spline
+primitive) — only fit-point *position* constraints are offered; a future solver
+(or a planegcs spline extension) can add tangency/curvature without changing the
+DTO or callers.
 
 **Guardrail (standing):** SolveSpace's solver is GPLv3 — **do not** introduce
 it or any GPL dependency into this MIT codebase. LGPL dynamic deps are fine.

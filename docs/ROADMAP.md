@@ -207,6 +207,14 @@ item:
       Fail-loud v1 chosen over a blind MinIO swap the sandbox can't exercise
       (no docker daemon / no `moto`). The MinIO-backed content-addressed swap
       stays the forward Ready item, gated on a real-MinIO 2-worker CI smoke.
+- 🚧 Constrainable splines (v1.1) — **backend leg landed 2026-07-15**: a
+      spline's fit points are addressable as solver points
+      (`EntityPointRef.point:"fitN"`), take the point-level constraints (only
+      *referenced* fit points enter the solver, so an unconstrained spline keeps
+      zero added DOF and the spline golden stays byte-identical), and the spline
+      is rebuilt through the solved fit positions. Spline tangency deferred
+      (needs a native primitive). Frontend leg (pick + constrain UI, DOF
+      readout) is the open follow-up (BACKLOG Ready).
 - ⬜ Performance benchmark suite with budgets in CI
 - ⬜ Undo/redo across feature operations
 
