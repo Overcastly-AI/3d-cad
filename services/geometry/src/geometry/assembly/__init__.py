@@ -23,6 +23,12 @@ from geometry.assembly.protocol import (
     SolverInstance,
     SolverMate,
 )
+from geometry.assembly.resolve import (
+    ResolvableInstance,
+    ResolvableMate,
+    build_assembly_solve_input,
+    resolve_mate_geometry,
+)
 from geometry.assembly.solver import RigidBodyAssemblySolver
 
 __all__ = [
@@ -34,6 +40,8 @@ __all__ = [
     "AssemblySolveResult",
     "AssemblySolveStatus",
     "AssemblySolver",
+    "ResolvableInstance",
+    "ResolvableMate",
     "ResolvedAxis",
     "ResolvedFace",
     "ResolvedMateGeometry",
@@ -41,4 +49,6 @@ __all__ = [
     "SolvedInstancePlacement",
     "SolverInstance",
     "SolverMate",
+    "build_assembly_solve_input",
+    "resolve_mate_geometry",
 ]

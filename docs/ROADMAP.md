@@ -177,8 +177,16 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       numpy-only LM fallback (no GPL), the full under/over/conflicting/
       not-converged diagnosis (remaining-DOF via Jacobian rank), proven
       against synthetic residuals (bitwise-determinism + fresh-interpreter
-      restart probe). **Next: v1 #3** — mate-geometry-ref resolution wiring
-      real OCCT faces/axes into the solver's resolved-geometry seam.
+      restart probe). **v1 #3 landed**: mate-geometry-ref resolution
+      (`geometry.assembly.resolve`) — `MateFaceRef` → `ResolvedFace` via the
+      `on_face` `resolve_face_plane`, `MateAxisRef` → `ResolvedAxis` (circle
+      centre + axis from `BRepAdaptor_Curve`/`gp_Circ`) via the `resolve_edge`
+      picked-edge resolver, plus `build_assembly_solve_input` assembling the
+      full `AssemblySolveInput`; the first REAL bolted solve (two plates, two
+      holes each) lands the free plate at the analytic pose (`well_constrained`,
+      ~1e-8), with stale/ambiguous/wrong-instance/non-circular refs raising a
+      clean `AssemblyDefinitionError`. **Next: v1 #4** — gateway assembly
+      endpoints proxying the documents CRUD with per-route auth.
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).

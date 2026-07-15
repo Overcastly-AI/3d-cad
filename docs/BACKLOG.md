@@ -86,22 +86,23 @@ nit, no user impact, stays Later).
       fatal, seed-consistent); redundant/over-constrained; conflicting + named
       ids; bitwise determinism across runs AND a fresh-interpreter restart
       probe. Full lint/pyright green. [src: design/assemblies.md §2]
-- [ ] (P1, M) **← NEXT** Assemblies v1 #3 — mate-geometry-ref resolution (geometry) —
-      resolves a `MateFaceRef` against the `PlanarFaceSignature` resolver an
-      `on_face` datum already uses, and a `MateAxisRef` against the
-      `EdgeSignature` resolver (`curve == "circle"`, axis = normal through
-      the seam-point centre) — **reusing the exact stage-1 signature
-      machinery** (`topological-naming.md` §9), exactly-one-or-honest-error
-      (`subshape_unresolved`/`subshape_ambiguous`, never a silent skip).
-      Wires the resolved (point, normal)/(point, direction) pairs into #2's
-      `AssemblySolver` residuals, replacing synthetic test fixtures with
-      real OCCT-derived geometry. Acceptance: unit tests — a resolved
-      coincident+concentric pair reproduces #2's analytic-transform test
-      against a REAL evaluated part body (not synthetic); an ambiguous/
-      missing signature returns the typed error, never a 500. Depends on:
-      #2 (solver protocol), the existing `geometry.kernel.faces`/`.edges`
-      resolvers. [src: design/assemblies.md §2.1, §4]
-- [ ] (P1, M) Assemblies v1 #4 — gateway assembly endpoints — proxy the
+- [x] (P1, M) Assemblies v1 #3 — mate-geometry-ref resolution (geometry) —
+      **DONE 2026-07-15.** `geometry.assembly.resolve`: `resolve_mate_geometry`
+      resolves a `MateFaceRef` via the `on_face` `resolve_face_plane` (centroid
+      point + outward `z_dir` normal — the `flush` sign) and a `MateAxisRef`
+      (circle) via `resolve_edge` + `BRepAdaptor_Curve`/`gp_Circ` (centre +
+      axis), reusing the exact stage-1 signature machinery; every
+      stale/ambiguous/wrong-instance/non-circular ref → a clean
+      `AssemblyDefinitionError` (chaining the subshape error for #5).
+      `build_assembly_solve_input(instances, mates)` assembles the full
+      `AssemblySolveInput` (geometry per mate slot, `lock` → None, mates in
+      `(order_index, mate_id)` order). Headline test: the first REAL bolted
+      solve — two plates each with two holes, coincident + two concentric
+      resolved from real OCCT bodies → free plate at the analytic pose
+      (`well_constrained`, numeric, ~1e-8); + single-ref, determinism, and
+      clean-error tests (11 new, `test_assembly_resolve.py`). Full lint/pyright
+      + geometry suite green. [src: design/assemblies.md §2.1, §4]
+- [ ] (P1, M) **← NEXT** Assemblies v1 #4 — gateway assembly endpoints — proxy the
       documents CRUD (assembly/instance/mate create/get/list/delete) with
       `CurrentUser` auth on every route from day one (closing the F7-class
       gap proactively instead of retrofitting later). Acceptance: a
