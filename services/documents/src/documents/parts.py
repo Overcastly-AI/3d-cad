@@ -105,7 +105,7 @@ async def get_owned_assembly(
 
 
 async def reject_if_instanced(
-    session: AsyncSession, document_id: uuid.UUID, *, code: str
+    session: AsyncSession, document_id: uuid.UUID, owner_id: uuid.UUID, *, code: str
 ) -> None:
     """409-with-dependents when instances reference *document_id* (design §1.2).
 
@@ -115,12 +115,21 @@ async def reject_if_instanced(
     re-point or remove those instances first. Shared by the part delete
     (:func:`delete_part`) and the assembly delete (``documents.assemblies``) so
     the pre-check is defined once (DRY).
+
+    Owner-scoped (``Assembly.owner_id == owner_id``): references are same-owner
+    enforced at write time, so this only ever surfaces the caller's OWN
+    assemblies — but scoping the join is defense-in-depth so the 409's
+    ``details.dependents`` can never leak a foreign assembly's id/name should
+    cross-owner references (shared/public parts) ever be introduced.
     """
     dependents = (
         await session.execute(
             select(Assembly.id, Assembly.name)
             .join(Instance, Instance.assembly_id == Assembly.id)
-            .where(Instance.ref_document_id == document_id)
+            .where(
+                Instance.ref_document_id == document_id,
+                Assembly.owner_id == owner_id,
+            )
             .distinct()
             .order_by(Assembly.name)
         )
@@ -194,7 +203,7 @@ async def delete_part(
     so an assembly is never left with a dangling instance reference.
     """
     part = await get_owned_part(session, owner_id, part_id)
-    await reject_if_instanced(session, part_id, code="part_has_dependents")
+    await reject_if_instanced(session, part_id, owner_id, code="part_has_dependents")
     await session.delete(part)
     await session.commit()
     _logger.info("part_deleted", part_id=str(part_id), owner_id=str(owner_id))

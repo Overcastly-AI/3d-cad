@@ -189,6 +189,40 @@ async def _sub_assembly_children(
     return list(result.scalars())
 
 
+async def _serialize_owner_cycle_writes(
+    session: AsyncSession, owner_id: uuid.UUID
+) -> None:
+    """Serialize cycle-sensitive writes PER OWNER before the acyclicity walk.
+
+    The :func:`_reaches` guard is read-then-write: it walks sub-assembly edges
+    with plain unlocked SELECTs, then the caller commits a new edge. Row-locking
+    only the mutated assembly (``get_owned_assembly(for_update=True)``) does NOT
+    close the window: under READ COMMITTED two concurrent SAME-OWNER reciprocal
+    adds — "B into A" (row-locks A) and "A into B" (row-locks B) — each run the
+    walk without seeing the other's uncommitted edge, both pass, both commit →
+    a persisted cycle A→B→A, defeating the write-time acyclicity invariant the
+    whole Assemblies pillar relies on (eval assuming an acyclic graph).
+
+    A transaction-scoped Postgres advisory lock keyed on the owner makes at
+    most one cycle-creating write per owner run its check+write at a time (a
+    SINGLE lock per owner → deadlock-free, auto-released at commit/rollback);
+    the loser then walks the winner's now-committed edge and is cleanly
+    rejected ``assembly_cycle``. Acquired AFTER the disjoint per-row FOR UPDATE
+    locks, but since all cycle writers contend on the one owner lock at most one
+    is ever in the critical section — no lock-order cycle, so no deadlock.
+
+    SQLite (the unit-test dialect) already globally serializes writes (one
+    writer), so the TOCTOU cannot occur there and ``pg_advisory_xact_lock`` does
+    not exist — skip the lock on any non-Postgres dialect (the same
+    dialect-aware posture as :func:`get_owned_assembly`'s ``for_update``).
+    """
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    await session.execute(
+        select(func.pg_advisory_xact_lock(func.hashtext(str(owner_id))))
+    )
+
+
 async def _reaches(session: AsyncSession, start: uuid.UUID, target: uuid.UUID) -> bool:
     """Is *target* reachable from *start* over sub-assembly edges (inclusive)?
 
@@ -331,7 +365,9 @@ async def delete_assembly(
     listing the referencing assemblies.
     """
     assembly = await get_owned_assembly(session, owner_id, assembly_id)
-    await reject_if_instanced(session, assembly_id, code="assembly_has_dependents")
+    await reject_if_instanced(
+        session, assembly_id, owner_id, code="assembly_has_dependents"
+    )
     await session.delete(assembly)
     await session.commit()
     _logger.info(
@@ -358,6 +394,12 @@ async def create_instance(
     """
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     _ensure_fresh(assembly, request.expected_version)
+
+    # Only a sub-assembly edge can close a cycle; serialize those per owner
+    # (Postgres) before the read-then-write acyclicity walk so two concurrent
+    # reciprocal adds can't each miss the other's uncommitted edge (TOCTOU).
+    if request.ref_document_kind == "assembly":
+        await _serialize_owner_cycle_writes(session, owner_id)
 
     if not await _referenced_document_exists(
         session, owner_id, request.ref_document_id, request.ref_document_kind
@@ -551,8 +593,19 @@ async def create_mate(
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     _ensure_fresh(assembly, request.expected_version)
 
+    named_ids = mate_instance_ids(request.mate)
+    # A mate is a constraint EDGE between two DISTINCT instances; naming one
+    # instance on both sides (lock a==b, or a face/axis mate whose two refs
+    # share an instance) is degenerate — it constrains an instance to itself.
+    if named_ids[0] == named_ids[1]:
+        raise ValidationApiError(
+            "A mate cannot constrain an instance to itself.",
+            code="mate_self_reference",
+            details={"instance_id": str(named_ids[0])},
+        )
+
     member_ids = {row.id for row in await _ordered_instances(session, assembly_id)}
-    for named_id in mate_instance_ids(request.mate):
+    for named_id in named_ids:
         if named_id not in member_ids:
             raise ValidationApiError(
                 f"Mate references instance {named_id}, which is not part of this "

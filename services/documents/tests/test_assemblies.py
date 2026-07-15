@@ -9,13 +9,22 @@ optimistic concurrency (stale ``expected_version`` → 422), owner-scoped auth
 deleting a still-instanced part / sub-assembly.
 """
 
+import asyncio
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
+import sqlalchemy as sa
+from documents import db
+from documents.assemblies import create_instance
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from py_kit import ValidationApiError
+from py_kit.db import async_dsn, enable_sqlite_foreign_keys
+from py_kit.schemas.assemblies import InstanceCreate
 from py_kit.schemas.parts import PRINCIPAL_HEADER
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 OWNER = "6f3f6b64-0000-4000-8000-00000000000a"
 OTHER = "6f3f6b64-0000-4000-8000-00000000000b"
@@ -364,3 +373,147 @@ def test_delete_instance_cascades_dependent_mate(client: TestClient) -> None:
     graph = response.json()
     assert len(graph["instances"]) == 1
     assert graph["mates"] == []  # the lock mate went with its endpoint
+
+
+def test_mate_rejects_self_reference(client: TestClient) -> None:
+    #: A mate constraining an instance to itself (a==b) is degenerate → 422.
+    assembly_id = _create_assembly(client, "selfmate")
+    part = _create_part(client, "sm")
+    i1 = _add_instance(client, assembly_id, part, 0).json()["instance"]["id"]
+
+    response = client.post(
+        f"/api/v1/assemblies/{assembly_id}/mates",
+        json={
+            "expected_version": 1,
+            "mate": {"type": "lock", "a_instance_id": i1, "b_instance_id": i1},
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _error(response.json())["code"] == "mate_self_reference"
+
+
+# --- cascade delete ---------------------------------------------------------------
+
+
+def _row_count(
+    url: str, model: type[db.Instance] | type[db.Mate], assembly_id: str
+) -> int:
+    """Count *model* rows for *assembly_id* via a direct (app-independent) engine."""
+
+    async def run() -> int:
+        engine = create_async_engine(async_dsn(url))
+        enable_sqlite_foreign_keys(engine)
+        try:
+            async with engine.connect() as connection:
+                result = await connection.execute(
+                    sa.select(sa.func.count())
+                    .select_from(model)
+                    .where(model.assembly_id == uuid.UUID(assembly_id))
+                )
+                return int(result.scalar_one())
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(run())
+
+
+def test_delete_assembly_cascades_instances_and_mates(
+    client: TestClient, any_db_url: str
+) -> None:
+    """Deleting an assembly removes its instances + mates (DB ON DELETE CASCADE).
+
+    Asserted on BOTH dialects (any_db_url): the cascade is a Postgres FK on
+    ``instances``/``mates`` and — because py-kit turns SQLite FK enforcement ON
+    — the SQLite test dialect too, so an ORM/pragma regression that silently
+    orphaned rows would fail here rather than at eval.
+    """
+    assembly_id = _create_assembly(client, "doomed")
+    p1 = _create_part(client, "d1")
+    p2 = _create_part(client, "d2")
+    i1 = _add_instance(client, assembly_id, p1, 0).json()["instance"]["id"]
+    i2 = _add_instance(client, assembly_id, p2, 1, name="d2").json()["instance"]["id"]
+    rm = client.post(
+        f"/api/v1/assemblies/{assembly_id}/mates",
+        json={
+            "expected_version": 2,
+            "mate": {"type": "lock", "a_instance_id": i1, "b_instance_id": i2},
+        },
+        headers=_headers(),
+    )
+    assert rm.status_code == 201, rm.text
+
+    assert _row_count(any_db_url, db.Instance, assembly_id) == 2
+    assert _row_count(any_db_url, db.Mate, assembly_id) == 1
+
+    response = client.delete(f"/api/v1/assemblies/{assembly_id}", headers=_headers())
+    assert response.status_code == 204, response.text
+
+    assert _row_count(any_db_url, db.Instance, assembly_id) == 0
+    assert _row_count(any_db_url, db.Mate, assembly_id) == 0
+
+
+# --- acyclicity concurrency (Postgres advisory lock closes the TOCTOU) ------------
+
+
+async def _reciprocal_add(url: str) -> tuple[list[str], int]:
+    """Two concurrent SAME-OWNER reciprocal sub-assembly adds against real PG.
+
+    Drives :func:`create_instance` directly with two independent sessions/
+    transactions (the HTTP TestClient is serial and commits per request, so it
+    cannot express the interleaving) — "B into A" and "A into B" run under
+    ``asyncio.gather``. The per-owner advisory lock must serialize them so the
+    loser sees the winner's committed edge and is rejected. Returns each call's
+    outcome plus the surviving instance count.
+    """
+    owner = uuid.UUID(OWNER)
+    a_id = uuid.uuid4()
+    b_id = uuid.uuid4()
+    engine = create_async_engine(async_dsn(url))
+    try:
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        async with maker() as setup:
+            setup.add(db.Assembly(id=a_id, owner_id=owner, name="A"))
+            setup.add(db.Assembly(id=b_id, owner_id=owner, name="B"))
+            await setup.commit()
+
+        async def add(assembly_id: uuid.UUID, ref_id: uuid.UUID, name: str) -> str:
+            async with maker() as session:
+                request = InstanceCreate(
+                    expected_version=0,
+                    ref_document_id=ref_id,
+                    ref_document_kind="assembly",
+                    name=name,
+                )
+                try:
+                    await create_instance(assembly_id, request, owner, session)
+                    return "ok"
+                except ValidationApiError as exc:
+                    await session.rollback()
+                    return exc.code
+
+        results = await asyncio.gather(
+            add(a_id, b_id, "B in A"),
+            add(b_id, a_id, "A in B"),
+        )
+
+        async with maker() as check:
+            total = await check.scalar(
+                sa.select(sa.func.count()).select_from(db.Instance)
+            )
+        return list(results), int(total or 0)
+    finally:
+        await engine.dispose()
+
+
+def test_concurrent_reciprocal_add_cannot_persist_cycle(pg_url: str) -> None:
+    """Regression for the acyclicity TOCTOU (Postgres only).
+
+    Without the per-owner ``pg_advisory_xact_lock`` both reciprocal adds run
+    their unlocked :func:`_reaches` walk, miss each other's uncommitted edge,
+    and both commit → a persisted A→B→A cycle (two instances). With it, exactly
+    one succeeds and the other is rejected ``assembly_cycle``; one edge remains.
+    """
+    results, instance_count = asyncio.run(_reciprocal_add(pg_url))
+    assert sorted(results) == ["assembly_cycle", "ok"]
+    assert instance_count == 1  # only the winner's edge; no cycle persisted
