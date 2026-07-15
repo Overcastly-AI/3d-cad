@@ -15,9 +15,13 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication:
 
-- **Sketching row — ➖.** Residual gaps: (1) over-constraint diagnosis is
-  index-only; (2) no dimension expressions/driving-vs-driven. Spline
-  constrainability (v1.1) landed 2026-07-15 (backend + frontend).
+- **Sketching row — flipped ➖→✅ 2026-07-15 (vision-steward).** All three
+  residual gaps this note tracked — over-constraint diagnosis index-only,
+  no dimension expressions/driving-vs-driven, non-constrainable splines —
+  shipped backend+frontend+e2e this pass. Forward parity-plus items (not
+  scorecard-gating): spline tangency (deferred, needs a native planegcs
+  spline primitive), no direct fit-point-to-fit-point distance/H/V constraint
+  kind, dimension expressions are arithmetic-only (no trig/units/functions).
 - **Part modeling row — flipped ➖→✅ this pass (`3c23c73`).** Sketch-on-face,
   click-specific edge selection, shell, and draft all landed backend+UI,
   closing the last named blockers; multi-body boolean (independently-built
