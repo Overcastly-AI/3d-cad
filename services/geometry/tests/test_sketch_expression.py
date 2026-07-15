@@ -35,6 +35,7 @@ from geometry.sketch import (
     parse_expression,
 )
 from geometry.sketch.schemas import CoincidentConstraint, EntityPointRef
+from pydantic import ValidationError
 
 RECTANGLE_TOLERANCE_MM = 1e-9
 SOLVER: SketchSolver = PlanegcsSketchSolver()
@@ -93,6 +94,65 @@ def test_division_by_zero_is_a_clean_error() -> None:
 def test_references_are_reported_for_the_dependency_graph() -> None:
     node = parse_expression("width/2 + margin*3")
     assert node.references() == {"width", "margin"}
+
+
+# ---------------------------------------------------------------------------
+# Recursion/length hardening — a hostile deeply-nested / very-long expression
+# is a CLEAN error, never an uncaught RecursionError → 500. Two guards:
+#   1. request boundary — `DimensionConstraint.expression` max_length=256 (an
+#      over-length string 422s at validation BEFORE the parser runs).
+#   2. defense in depth — the parser + evaluator carry their own depth guard, so
+#      even with the length cap hypothetically lifted (calling the parser
+#      directly, as below) they raise SketchExpressionError, never RecursionError.
+# The three reviewer repro strings drive both.
+# ---------------------------------------------------------------------------
+
+#: The reviewer's three RecursionError repro strings: nested parens blow the
+#: parser, a long unary chain blows the parser, a flat sum parses iteratively
+#: but blows the left-deep-AST evaluator. All are well over the 256-char cap.
+_RECURSION_REPROS = [
+    "(" * 250 + "1" + ")" * 250,  # ~460 chars: nested parens, RecursionError in parse
+    "-" * 2000 + "1",  # unary chain, RecursionError in parse
+    "1" + "+1" * 2000,  # flat sum, RecursionError in _Node.evaluate
+]
+
+
+@pytest.mark.parametrize("text", _RECURSION_REPROS)
+def test_oversized_expression_is_rejected_at_the_schema_boundary(text: str) -> None:
+    """Each repro exceeds max_length=256, so it 422s at request validation
+    (a pydantic ValidationError) BEFORE the recursive-descent parser ever sees
+    it — the primary guard. `DimensionConstraint.model_validate` is exactly the
+    request-boundary path (SketchParamsV1 extends it)."""
+    with pytest.raises(ValidationError) as excinfo:
+        DistanceConstraint.model_validate(
+            {"kind": "distance", "entity": "e1", "value_mm": 1.0, "expression": text}
+        )
+    assert "at most 256" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("text", _RECURSION_REPROS)
+def test_depth_guard_yields_clean_error_never_recursionerror(text: str) -> None:
+    """Defense in depth: with the length cap bypassed (parsing the raw string
+    directly, as if the cap were ever raised), the parser/evaluator depth guard
+    turns every repro into a clean SketchExpressionError — never a RecursionError
+    (which would escape `except SketchDefinitionError` and 500)."""
+    with pytest.raises(SketchExpressionError):
+        parse_expression(text).evaluate(lambda _n: 0.0)
+
+
+def test_within_cap_expressions_are_unaffected() -> None:
+    """The cap and depth guard are generous: any real formula parses/evaluates.
+    A 256-char string reaches ~128 flat terms / ~128 paren levels, all under the
+    depth limit, so nothing an engineer would actually type is rejected."""
+    resolve = {"width": 20.0, "gap": 4.0}.__getitem__
+    assert parse_expression("(width+3)/2").evaluate(resolve) == 11.5
+    assert parse_expression("width/2").evaluate(resolve) == 10.0
+    assert parse_expression("(width+gap)/2").evaluate(resolve) == 12.0
+    # A 128-term flat sum (~255 chars, within the cap) still evaluates fine —
+    # the eval depth guard sits above the deepest within-cap AST.
+    assert parse_expression("1" + "+1" * 127).evaluate(lambda _n: 0.0) == 128.0
+    # A within-cap legit expression is accepted by the schema boundary too.
+    _dist("e1", 1.0, name="w", expression="(width+gap)/2")
 
 
 # ---------------------------------------------------------------------------

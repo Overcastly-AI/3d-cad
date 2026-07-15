@@ -53,6 +53,20 @@ from geometry.sketch.solver import SketchDefinitionError
 #: Resolves a referenced dimension name to its evaluated value (mm).
 Resolver = Callable[[str], float]
 
+#: Maximum nesting/recursion depth the parser and evaluator will descend before
+#: failing with a clean :class:`SketchExpressionError` instead of running into
+#: Python's ``RecursionError`` (an uncaught crash → 500). Depth here counts
+#: grammar nesting: one level per parenthesis, per unary operator, and per
+#: left-deep binary chain step. The request-boundary ``max_length=256`` cap on
+#: ``DimensionConstraint.expression`` already bounds any real input's depth well
+#: below this (a 256-char string reaches at most ~128 paren levels / ~128 flat
+#: terms); this guard is DEFENSE IN DEPTH — even if that cap is ever raised or a
+#: caller bypasses schema validation, the parser/evaluator still fail cleanly.
+#: 150 is comfortably above any genuine formula's nesting yet far under the
+#: default recursion limit (1000): ~150 paren levels cost only a few hundred
+#: stack frames, so the guard always trips before the interpreter does.
+_MAX_DEPTH = 150
+
 
 class SketchExpressionError(SketchDefinitionError):
     """A dimension expression is malformed, references an unknown/driven
@@ -113,6 +127,21 @@ def _tokenize(text: str) -> list[_Token]:
 # ---------------------------------------------------------------------------
 
 
+def _guard_eval_depth(depth: int) -> None:
+    """Fail cleanly past :data:`_MAX_DEPTH` so a deep (left-deep binary or
+    unary) AST can never blow ``_Node.evaluate`` into a ``RecursionError``.
+
+    A flat expression like ``1 + 1 + ... + 1`` parses ITERATIVELY (no parser
+    recursion) but builds a left-deep :class:`_Binary` chain whose evaluation
+    recurses once per term — so the request-boundary length cap and the
+    parser's depth guard alone do not bound it; this eval-side guard does.
+    """
+    if depth > _MAX_DEPTH:
+        raise SketchExpressionError(
+            f"dimension expression nests deeper than {_MAX_DEPTH}; simplify it"
+        )
+
+
 @dataclass(frozen=True)
 class _Num:
     value: float
@@ -120,7 +149,7 @@ class _Num:
     def references(self) -> set[str]:
         return set()
 
-    def evaluate(self, resolve: Resolver) -> float:
+    def evaluate(self, resolve: Resolver, _depth: int = 0) -> float:
         return self.value
 
 
@@ -131,7 +160,7 @@ class _Ref:
     def references(self) -> set[str]:
         return {self.name}
 
-    def evaluate(self, resolve: Resolver) -> float:
+    def evaluate(self, resolve: Resolver, _depth: int = 0) -> float:
         return resolve(self.name)
 
 
@@ -143,8 +172,9 @@ class _Unary:
     def references(self) -> set[str]:
         return self.operand.references()
 
-    def evaluate(self, resolve: Resolver) -> float:
-        value = self.operand.evaluate(resolve)
+    def evaluate(self, resolve: Resolver, _depth: int = 0) -> float:
+        _guard_eval_depth(_depth)
+        value = self.operand.evaluate(resolve, _depth + 1)
         return -value if self.op == "-" else value
 
 
@@ -157,9 +187,10 @@ class _Binary:
     def references(self) -> set[str]:
         return self.left.references() | self.right.references()
 
-    def evaluate(self, resolve: Resolver) -> float:
-        left = self.left.evaluate(resolve)
-        right = self.right.evaluate(resolve)
+    def evaluate(self, resolve: Resolver, _depth: int = 0) -> float:
+        _guard_eval_depth(_depth)
+        left = self.left.evaluate(resolve, _depth + 1)
+        right = self.right.evaluate(resolve, _depth + 1)
         if self.op == "+":
             return left + right
         if self.op == "-":
@@ -185,6 +216,7 @@ class _Parser:
         self._tokens = tokens
         self._text = text
         self._pos = 0
+        self._depth = 0
 
     def _peek(self) -> _Token | None:
         return self._tokens[self._pos] if self._pos < len(self._tokens) else None
@@ -218,11 +250,28 @@ class _Parser:
         return node
 
     def _parse_factor(self) -> _Node:
-        token = self._peek()
-        if token is not None and token.value in ("+", "-"):
-            op = self._advance().value
-            return _Unary(op=op, operand=self._parse_factor())
-        return self._parse_primary()
+        # Every increase in grammar-nesting depth passes through _parse_factor
+        # exactly once — a parenthesis (primary -> expr -> term -> factor) and a
+        # unary operator (factor -> factor) each add one level — so tracking
+        # depth here bounds BOTH the nested-paren and the unary-chain recursion
+        # vectors with a single counter. Sequential (non-nested) factors in a
+        # `a*b*c` term do not accumulate: the try/finally unwinds each. Past the
+        # limit we raise a clean SketchExpressionError rather than let the
+        # recursive descent run into a RecursionError (an uncaught 500).
+        self._depth += 1
+        try:
+            if self._depth > _MAX_DEPTH:
+                raise SketchExpressionError(
+                    f"expression {self._text!r} nests deeper than {_MAX_DEPTH}; "
+                    "simplify it"
+                )
+            token = self._peek()
+            if token is not None and token.value in ("+", "-"):
+                op = self._advance().value
+                return _Unary(op=op, operand=self._parse_factor())
+            return self._parse_primary()
+        finally:
+            self._depth -= 1
 
     def _parse_primary(self) -> _Node:
         token = self._peek()
