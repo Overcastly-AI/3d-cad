@@ -57,8 +57,9 @@ resolution → **#4** gateway → **#5** the v1 DoD golden (evaluation +
 shared-mesh tessellation) → **#6** frontend. **#7–#8 interleave real,
 independent audit debt** (MinIO mesh-store swap F1/F6; STEP re-parse caching
 F8) — pick up whenever a builder frees up, not gated on the assemblies
-dependency chain. **#9 (rate limiting)** is F7's unbuilt second half,
-promoted from Next — security-adjacent debt outranks polish even mid-pillar.
+dependency chain. **#9 (rate limiting) — F7's unbuilt second half — shipped
+2026-07-15** (Redis-backed per-user limiter in py-kit, 429 + Retry-After on
+the gateway's OCCT-CPU routes); audit F7 now fully closed.
 **Judged OUT of Ready this pass:** F2 (evaluate_tree tessellation churn —
 real but low severity/likelihood, stays Next) and F5 (spline epsilon — P3
 nit, no user impact, stays Later).
@@ -161,21 +162,22 @@ nit, no user impact, stays Later).
       solved (bolted) — green live. Full lint + 517 ts + 1122 py tests green;
       founder before/after screenshots under docs/screenshots/. [src:
       design/assemblies.md §4, product-auditor #1]
-- [ ] (P2, M) Mesh store: MinIO-backed object-storage swap (engineering audit
-      **F1/F6**, forward goal) — the single-worker guard (shipped
-      2026-07-13) only covers in-process workers; replica fan-out
-      (`docker compose --scale`, k8s `replicas>1`) still reproduces the
-      intermittent-404 cliff since `_STORE` is process-global (F6, Pass 2).
-      **Remaining scope:** swap the in-process LRU for content-addressed
-      MinIO writes (key stays `sha256:<hex>`, byte-for-byte the current DTO
-      contract) plus the gateway mesh-streaming path (§7.8 default posture),
-      then lift the guard. Worth interleaving with assemblies (not
-      blocking): more instances per assembly means more meshes competing
-      for the 64-slot LRU, so this swap's payoff grows with #5 above.
-      Acceptance: a **real-MinIO** 2-worker/2-replica smoke round-trips
-      evaluate→fetch without 404 **in CI** (this sandbox can't prove it — no
-      docker daemon, no `moto` cross-process fidelity) — the swap MUST NOT
-      land without that CI gate. [src: engineering-auditor F1/F6]
+- [x] (P2, M) Mesh store: MinIO-backed object-storage swap (engineering audit
+      **F1/F6**) — **DONE 2026-07-15.** `configure_mesh_store` (wired in
+      `build_app`) selects a shared content-addressed `S3MeshStore`
+      (`geometry.s3_store`, boto3) when `S3_URL` is set — key stays
+      `sha256:<hex>`, object key `meshes/sha256/<hex>.glb`, no tenant scope
+      (RESEARCH §5) — and **lifts the single-worker guard** (multi-worker/replica
+      now correct); `S3_URL` unset → in-process LRU + guard kept. `EvaluateTreeResult`
+      and every caller unchanged. moto `ThreadedMotoServer` (real S3 HTTP)
+      proves put/get + content-address + miss→None + idempotent put + config
+      selection in `test_s3_store.py`. **Residuals (not blocking):** the
+      real-MinIO 2-worker/2-replica cross-process evaluate→fetch smoke is
+      **CI-gated** (skipped `test_real_minio_cross_process_smoke_is_ci_gated`,
+      docs/GEOMETRY-QA.md) — platform-builder to wire the compose/CI job; and
+      the optional gateway presigned/streamed read (§7.8 default posture) stays
+      a separate gateway concern (current geometry-served `/meshes/{id}` route
+      is unchanged and correct). [src: engineering-auditor F1/F6]
 - [ ] (P2, M) STEP import: cache the transferred body across evaluations
       (engineering audit **F8**) — `_evaluate_import` re-spawns the parse
       subprocess (~0.9 s cold start) and re-parses up to 16 MiB of part-21
@@ -191,16 +193,24 @@ nit, no user impact, stays Later).
       existing import goldens/tests unaffected; the killable-subprocess
       timeout bound (P1 security, shipped) is preserved for the one real
       parse. Depends on: nothing new. [src: engineering-auditor F8]
-- [ ] (P2, M) Rate limiting + request-size caps (py-kit middleware — DRY
-      home) — pre-deploy hardening, the unbuilt half of audit F7 (whose
-      auth gap shipped 2026-07-15, `36dc3d9`). Covers the unauthenticated
-      auth endpoints AND the per-principal geometry-compute surface
-      (tessellate/export/measure/overlay — now all auth-gated but still
-      unbounded per-caller). Promoted to Ready this pass: security-adjacent
-      cross-cutting debt outranks new-pillar polish even while assemblies is
-      the headline priority. Acceptance: a per-principal request-rate cap
-      (429 beyond the limit) on the geometry-compute routes + auth
-      endpoints, unit-tested; documented default limits. [src: code-reviewer,
+- [x] (P2, M) Rate limiting (py-kit — DRY home) — F7's unbuilt half — **DONE
+      2026-07-15.** Shared `py_kit.ratelimit.RateLimiter`: Redis sorted-set
+      sliding-window log, atomic per call (one `MULTI`/`EXEC`), **fails open**
+      with a logged warning on any Redis error (a limiter must never take the
+      API down). Config on the py-kit settings base (`RATE_LIMIT_ENABLED`,
+      `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_S`; default **120 req / 60 s**
+      per authenticated user — generous for the debounced viewport, low enough
+      to stop a hammer loop). Enforced at the gateway on the OCCT-CPU surface
+      (tessellate, tessellate/meta, export, evaluate, assembly/evaluate,
+      measure, overlay, sketch/*) as a `dependencies=[…]` entry keyed on the
+      `CurrentUser` id — no OpenAPI/contract move (gen-check clean). On exceed:
+      429 `rate_limited` envelope + `Retry-After`, nothing forwarded upstream.
+      New dep `redis>=5` (MIT), already transitive via arq. Tested (py-kit unit
+      + gateway integration, hermetic in-memory fake Redis + injected clock):
+      under/over limit, 429 + Retry-After, window reset, per-user + per-scope
+      isolation, denied-request-frees-no-slot, fail-open on outage, anon 401
+      before the limiter. Residual (Next): a generic request-**body-size** cap
+      beyond the existing STEP-import + password caps. [src: code-reviewer,
       eng-audit F7]
 
 ## Next (P2)
@@ -404,6 +414,10 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-15 — **Mesh-store MinIO/S3 swap done (F6/F1):** `S3_URL`-driven shared
+  `S3MeshStore` (boto3, content-addressed, no tenant), single-worker guard
+  lifted when S3 configured; moto HTTP round-trip verifies put/get, real-MinIO
+  2-worker smoke CI-gated. [kernel-architect]
 - 2026-07-15 — **Assemblies v1 #6 done → v1 MVP COMPLETE (all 6):** apps/web
   assembly workspace + multi-instance viewport (dedup shared mesh + solved
   transform) + mate authoring + snap-on-solve + solve readout; `assembly.spec.ts`

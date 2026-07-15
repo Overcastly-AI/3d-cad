@@ -25,6 +25,14 @@ dev = [
     "loft-geometry",
     "httpx2>=0.1", # fastapi/starlette TestClient transport (httpx is deprecated there)
     "aiosqlite>=0.20",
+    # In-process S3 mock (Apache-2.0; server extra pulls flask/werkzeug, both
+    # BSD-3 — no GPL) — the `server` extra runs moto's ThreadedMotoServer, a
+    # real in-process S3 HTTP endpoint, so the geometry store's boto3 put/get
+    # travels a genuine HTTP round-trip against a MinIO-shaped (path-style)
+    # endpoint without a docker daemon. The real-MinIO cross-process 2-worker
+    # smoke stays CI-gated (feature-tree §7.8): moto proves the S3 code path,
+    # not the cross-process topology.
+    "moto[s3,server]>=5.0",
 ]
 
 [tool.uv.sources]

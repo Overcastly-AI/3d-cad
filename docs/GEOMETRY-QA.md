@@ -41,6 +41,43 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-15 — MinIO/S3 mesh-store swap: what moto verifies vs. what is CI-gated
+
+The §7.8 object-storage swap landed (engineering audit F6/F1): the
+content-addressed `mesh_glb_id` put/get now selects an **S3/MinIO backend**
+(`geometry.s3_store.S3MeshStore`, boto3) when `S3_URL` is set, and the
+in-process LRU otherwise. This retires the mesh-store cliff — with a shared
+store the single-worker guard is lifted, so multi-worker/replica geometry is
+correct — but the sandbox has **no docker daemon / no live MinIO**, so read
+this before trusting "the swap works."
+
+**Verified HERE (in-process, `test_s3_store.py`, `uv run pytest
+services/geometry/tests/test_s3_store.py`):** put/get round-trip returns
+byte-identical bytes; the key is `sha256:<hex>` of the GLB (content address, a
+pure function of the bytes); a well-formed-but-absent id and a malformed id both
+resolve to `None` → the honest `mesh_not_found` 404 (never a wrong mesh);
+idempotent put; the object key is `meshes/sha256/<hex>.glb` with **no
+tenant/owner segment** (RESEARCH §5 — derived mesh is content-addressed +
+auth-gated, not tenant-scoped); config selection installs `S3MeshStore` when
+`S3_URL` is set (guard lifted) and `MeshStore` otherwise (guard kept). The store
+talks to moto's `ThreadedMotoServer` — a **real S3 HTTP endpoint** (path-style,
+MinIO-shaped) — so the boto3 code path travels a genuine HTTP round-trip, not a
+stubbed call. Licenses of the added deps: boto3/botocore/s3transfer (Apache-2.0,
+runtime), moto + flask/werkzeug (Apache-2.0 / BSD-3, dev-only) — no GPL.
+
+**NOT verified here → CI-gated acceptance:** the whole *reason* for the swap is
+the **cross-process** path — evaluate on replica A, fetch the same `mesh_glb_id`
+on replica B, get identical bytes. moto runs in ONE process, so it cannot prove
+this. The real-MinIO 2-worker/2-replica evaluate→fetch smoke MUST run in CI
+against a live MinIO container. It is tracked by the skipped
+`test_s3_store.py::test_real_minio_cross_process_smoke_is_ci_gated` (its body
+documents the acceptance shape) and by design §7.8. Until that CI gate is wired
+by platform, "multi-replica geometry works" is proven by construction (shared
+store + content addressing) and by the in-process HTTP round-trip, but not yet
+by a live cross-process run. **Gap for platform-builder:** add the compose/CI
+job that boots ≥2 geometry replicas behind one MinIO bucket and runs the
+evaluate→cross-replica-fetch smoke.
+
 ## 2026-07-15 — INDEPENDENT VERIFICATION: `assembly-two-plates-bolted` (commit 05f6aa1)
 
 Independent re-derivation of the FIRST assembly golden — the correctness gate

@@ -21,8 +21,8 @@ mechanical work"). The architecture decision landed the same day
 3D constraint-solver library exists), and a phased v1 — instances +
 placement + 3 mates (lock/coincident/concentric) + shared-mesh tessellation,
 **"bolt two parts together and see it."** Sequenced into 6 Ready items
-(`docs/BACKLOG.md`) plus 3 interleaved audit-debt items (MinIO mesh-store
-swap, STEP re-parse caching, rate limiting).
+(`docs/BACKLOG.md`) plus interleaved audit-debt items (MinIO mesh-store swap
+✅ done; gateway rate limiting ✅ done; STEP re-parse caching still open).
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
@@ -139,8 +139,20 @@ item:
       flyouts), fillet/chamfer authoring UI.
 - ✅ Mesh-store single-worker guard (engineering audit F1) — fail-loud v1
       ahead of the MinIO swap (BACKLOG Ready).
+- ✅ Mesh-store MinIO/S3 object-storage swap (engineering audit **F6/F1**,
+      resolves the mesh-store cliff — not just guarded). `S3_URL` set →
+      shared content-addressed `S3MeshStore` (boto3, key stays `sha256:<hex>`,
+      no tenant scope) with the single-worker guard **lifted**;
+      `S3_URL` unset → in-process LRU + guard. moto (`ThreadedMotoServer`,
+      real S3 HTTP) exercises the put/get + content-address round-trip; the
+      real-MinIO 2-worker cross-process smoke is CI-gated (docs/GEOMETRY-QA.md).
 - ✅ Gateway auth-gate on geometry-compute routes (`36dc3d9`, audit F7 P1
-      security) — rate limiting (F7's other half) is a BACKLOG Ready item.
+      security). F7's other half — **Redis-backed per-user rate limiting** —
+      now shipped: a shared `py_kit.ratelimit.RateLimiter` (sliding-window
+      log over a sorted set, fail-open on Redis outage) enforced at the
+      gateway on the OCCT-CPU routes (tessellate/meta, export, evaluate,
+      assembly + measure/overlay/sketch), 429 + `Retry-After`, 120 req/60 s
+      per authenticated user (env-tunable). Audit F7 fully closed.
 - ✅ Product + engineering audits, Pass 1 (2026-07-12) + Pass 2 (2026-07-15):
       no P0s either pass; Pass 2 verdict **"yes for a part, no for a
       project"** — names **Assemblies as #1**, the pivot to Phase 3.

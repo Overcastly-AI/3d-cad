@@ -15,6 +15,12 @@ dependencies = [
     # assembly solve so the FP reduction order (hence placements) is bitwise
     # reproducible across machines (RESEARCH §9). License-clean, no GPL.
     "threadpoolctl>=3.6",
+    # AWS SDK — Apache-2.0 (boto3 + botocore), no native code, no GPL. Drives the
+    # S3/MinIO-backed content-addressed mesh store (docs/design/feature-tree.md
+    # §7.8): put/get keyed by the sha256 content address, shared across
+    # workers/replicas. Only pulled in when S3_URL is set; the in-process LRU
+    # fallback needs none of it.
+    "boto3>=1.35",
 ]
 
 [tool.uv.sources]

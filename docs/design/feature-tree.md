@@ -682,6 +682,34 @@ by its owning item or a groom pass:
    acceptance now explicitly requires a *real*-MinIO CI smoke (2-worker /
    2-replica evaluate→fetch round-trip), since an in-process `moto` mock would
    not prove the cross-process path this guard protects.
+   **Object-storage swap SHIPPED (2026-07-15, engineering audit F6/F1).** The
+   `mesh_glb_id` put/get now has two backends selected by config
+   (`geometry.mesh_store.configure_mesh_store`, wired in `build_app`):
+   - **`S3_URL` set → shared `S3MeshStore`** (`geometry.s3_store`, boto3 /
+     Apache-2.0). Put writes `put_object`, get reads `get_object`, both keyed by
+     the SAME content address — object key `meshes/sha256/<hex>.glb`, **no
+     tenant/owner segment** (the derived mesh is a pure function of the tree,
+     content-addressed + auth-gated but not tenant-scoped, RESEARCH §5). A
+     genuine absence (`NoSuchKey`/404) or a malformed id → `None` → the honest
+     `mesh_not_found` 404, never a wrong mesh. `EvaluateTreeResult`, the key
+     format, and every caller are unchanged, exactly as this decision promised.
+     Because the store is now shared across processes, **the single-worker guard
+     is lifted for this backend** — multi-worker (`WEB_CONCURRENCY>1`) and
+     multi-replica (`compose --scale` / k8s `replicas`) geometry are correct.
+   - **`S3_URL` unset → in-process LRU** (dev without MinIO / tests), which keeps
+     the fail-loud single-worker guard above.
+   `put` is idempotent by construction (content address → same key → same
+   bytes; never an overwrite with different content). **GC/retention stays out
+   of scope** (open question #9 below).
+   **What is verified where.** The S3 code path (put/get round-trip, content
+   addressing, miss/malformed→None, idempotent put, config selection + guard
+   lift) is exercised in-process against moto's `ThreadedMotoServer` — a real S3
+   HTTP endpoint, path-style/MinIO-shaped — in `test_s3_store.py`. The
+   **cross-process** property (evaluate on replica A → fetch on replica B) is
+   *not* provable in this sandbox (no docker daemon / no live MinIO) and remains
+   a **CI-gated acceptance**: the real-MinIO 2-worker/2-replica evaluate→fetch
+   smoke, tracked by the skipped `test_real_minio_cross_process_smoke_is_ci_gated`
+   and documented in docs/GEOMETRY-QA.md.
 9. **GLB lifecycle / GC.** Content-addressed artifacts (§4.4) are never
    overwritten, so every tree mutation can strand an orphan in object
    storage. v1 accepts unbounded growth in dev; a retention/GC policy

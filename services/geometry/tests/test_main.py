@@ -33,6 +33,29 @@ def test_build_app_refuses_multiworker() -> None:
         build_app(GeometrySettings(web_concurrency=2))
 
 
+def test_build_app_lifts_guard_when_s3_configured() -> None:
+    # With S3_URL set the shared S3/MinIO store is installed, so multi-worker is
+    # safe and the single-worker guard is lifted (§7.8 swap; audit F6). No MinIO
+    # is contacted — boto3.client() opens no connection and /healthz never
+    # touches the store. Restore the LRU global afterward so no S3 backend leaks.
+    from geometry.mesh_store import MeshStore, configure_mesh_store
+
+    try:
+        service = build_app(
+            GeometrySettings(
+                web_concurrency=4,
+                s3_url="http://s3.local:9000",
+                s3_bucket="loft",
+                s3_access_key_id="x",
+                s3_secret_access_key="y",
+            )
+        )
+        assert TestClient(service).get("/healthz").status_code == 200
+    finally:
+        backend = configure_mesh_store(None, "loft")
+        assert isinstance(backend, MeshStore)
+
+
 def test_healthz() -> None:
     response = TestClient(app).get("/healthz")
     assert response.status_code == 200

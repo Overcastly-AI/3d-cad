@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
 
 from geometry.api import router
-from geometry.mesh_store import assert_single_worker_mesh_store
+from geometry.mesh_store import assert_single_worker_mesh_store, configure_mesh_store
 
 TITLE = "Loft Geometry"
 VERSION = "0.1.0"
@@ -23,11 +23,28 @@ class GeometrySettings(BaseServiceSettings):
     port: int = 8002
 
     #: Worker fan-out (env ``WEB_CONCURRENCY``, the knob uvicorn reads to default
-    #: its worker count). MUST stay 1 while the mesh store is the in-process LRU:
-    #: ``build_app`` refuses to start on >1 so a multi-worker deploy fails loud
-    #: instead of 404-ing meshes across worker processes (engineering audit F1,
-    #: docs/design/feature-tree.md §7.8). Lifts when the MinIO swap lands.
+    #: its worker count). MUST stay 1 while the mesh store is the in-process LRU
+    #: (``S3_URL`` unset): ``build_app`` refuses to start on >1 so a multi-worker
+    #: deploy fails loud instead of 404-ing meshes across worker processes
+    #: (engineering audit F1, docs/design/feature-tree.md §7.8). When ``S3_URL``
+    #: is set the shared S3/MinIO store is active and this guard is lifted —
+    #: multi-worker/replica is then correct (engineering audit F6).
     web_concurrency: int = 1
+
+    #: Object-storage bucket for the content-addressed mesh store (env
+    #: ``S3_BUCKET``; ``S3_URL`` is inherited from ``BaseServiceSettings``).
+    #: Compose provisions both (docker-compose.yml). Only consumed when
+    #: ``s3_url`` is set — otherwise the in-process LRU is used and this is
+    #: ignored (docs/design/feature-tree.md §7.8).
+    s3_bucket: str = "loft"
+
+    #: S3/MinIO credentials for the mesh store. Optional: when unset, boto3's
+    #: default credential chain applies (``AWS_ACCESS_KEY_ID`` /
+    #: ``AWS_SECRET_ACCESS_KEY`` env, instance profile, etc.). Env:
+    #: ``S3_ACCESS_KEY_ID`` / ``S3_SECRET_ACCESS_KEY`` / ``S3_REGION``.
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_region: str = "us-east-1"
 
     #: Hard wall-clock bound (seconds) on the untrusted OCCT STEP parse, which
     #: runs in a killable subprocess (docs/design/step-import.md §6, BACKLOG P1).
@@ -43,13 +60,24 @@ class GeometrySettings(BaseServiceSettings):
 def build_app(settings: GeometrySettings | None = None) -> FastAPI:
     """Build the geometry app with its Redis (queue) readiness check.
 
-    Raises :class:`~geometry.mesh_store.MeshStoreMultiWorkerError` when
-    ``WEB_CONCURRENCY > 1``: the in-process mesh store can't serve across
-    workers until the object-storage swap lands (design §7.8). Fail loud at
-    import/startup beats a silent cross-worker 404.
+    Installs the mesh-store backend from config (:func:`configure_mesh_store`):
+    the shared S3/MinIO store when ``S3_URL`` is set, else the in-process LRU.
+    Only for the **unshared** LRU does it enforce the single-worker guard —
+    raising :class:`~geometry.mesh_store.MeshStoreMultiWorkerError` when
+    ``WEB_CONCURRENCY > 1`` (fail loud beats a silent cross-worker 404). With
+    S3 configured the store is shared, so the guard is lifted and
+    multi-worker/replica geometry is correct (design §7.8; audit F1/F6).
     """
     settings = settings or GeometrySettings()
-    assert_single_worker_mesh_store(settings.web_concurrency)
+    mesh_store = configure_mesh_store(
+        settings.s3_url,
+        settings.s3_bucket,
+        s3_access_key_id=settings.s3_access_key_id,
+        s3_secret_access_key=settings.s3_secret_access_key,
+        s3_region=settings.s3_region,
+    )
+    if not mesh_store.is_shared:
+        assert_single_worker_mesh_store(settings.web_concurrency)
 
     async def redis() -> str:
         """Redis/queue readiness.
