@@ -89,8 +89,17 @@ _TESSELLATE_RESPONSES = tessellate_responses(
 )
 
 
+# Auth-protected: tessellation/export are CPU-bound OCCT work on a signed-in
+# user's geometry — an unauthenticated route is an anonymous DoS vector
+# (engineering audit F7). The ``user: CurrentUser`` dependency mirrors the
+# sibling stateless proxies (measure/overlay/mesh-fetch); the geometry hop
+# itself stays identity-free, so the principal never travels upstream
+# (RESEARCH §3). Kept out of the docstring so the generated OpenAPI
+# description — and thus the committed contracts — does not drift.
 @router.post("/tessellate", response_class=Response, responses=_TESSELLATE_RESPONSES)
-async def tessellate(request: TessellateRequest, http_request: Request) -> Response:
+async def tessellate(
+    request: TessellateRequest, user: CurrentUser, http_request: Request
+) -> Response:
     """Build + tessellate on the geometry service; pass the GLB through."""
     upstream = await _forward(http_request, "/api/v1/tessellate", request)
     if upstream.status_code != 200:
@@ -105,9 +114,10 @@ async def tessellate(request: TessellateRequest, http_request: Request) -> Respo
     )
 
 
+# Auth-protected, identity-free upstream (same posture as ``/tessellate``).
 @router.post("/tessellate/meta")
 async def tessellate_meta(
-    request: TessellateRequest, http_request: Request
+    request: TessellateRequest, user: CurrentUser, http_request: Request
 ) -> TessellationMetadata:
     """JSON twin of ``/tessellate``: mass properties + mesh stats, no mesh."""
     upstream = await _forward(http_request, "/api/v1/tessellate/meta", request)
@@ -178,8 +188,11 @@ _EXPORT_RESPONSES = export_responses(
 )
 
 
+# Auth-protected (same rationale + posture as ``/tessellate`` above — audit F7).
 @router.post("/export", response_class=Response, responses=_EXPORT_RESPONSES)
-async def export(request: ExportRequest, http_request: Request) -> Response:
+async def export(
+    request: ExportRequest, user: CurrentUser, http_request: Request
+) -> Response:
     """Build + export on the geometry service; pass the file bytes through."""
     upstream = await _forward(http_request, "/api/v1/export", request)
     if upstream.status_code != 200:

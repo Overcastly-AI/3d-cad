@@ -38,7 +38,13 @@ driven dims render in reference parentheses `(20)` in quiet ink, the `10`
 readout comes from `SolvedSketch.dimensions[]`, and a bad expression surfaces
 the `sketch_invalid` message in the solve-diagnostic stamp. Worked e2e green
 (width=20, height=`width/2`→10; driven readout tracks edited geometry without
-over-constraining) + founder screenshots.
+over-constraining) + founder screenshots. **P1 security fast-follow (audit F7)
+shipped 2026-07-15:** the three gateway geometry-compute routes
+(`/geometry/tessellate`, `/tessellate/meta`, `/export`) now require
+`CurrentUser` like every sibling stateless proxy — closing an anonymous
+OCCT-CPU DoS vector (401 without a token, unchanged for the signed-in web
+client); contract regenerated with the `HTTPBearer` block, 401 test per route.
+Rate limiting (the finding's other half) stays filed for its own py-kit item.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.

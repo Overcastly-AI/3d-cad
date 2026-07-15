@@ -275,9 +275,10 @@ unchanged in substance.
 - [ ] (P2, M) arq/redis queue runtime — move geometry evaluation from
       sync-inline to the real queue path; geometry gates gain queue-path
       coverage (GEOMETRY-QA gap #2). [src: roadmap, geometry-qa]
-- [ ] (P2, M) Rate limiting + request-size caps on unauthenticated auth
-      endpoints (py-kit middleware — DRY home) — pre-deploy hardening.
-      [src: code-reviewer]
+- [ ] (P2, M) Rate limiting + request-size caps (py-kit middleware — DRY home)
+      — pre-deploy hardening. Covers the unauthenticated auth endpoints AND the
+      per-principal geometry-compute surface (the unbuilt half of audit F7,
+      whose auth gap shipped 2026-07-15). [src: code-reviewer, eng-audit F7]
 
 ## Later (P3)
 
@@ -559,6 +560,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 Older entries (incl. 2026-07-12/13 sketch-on-face/edge-pick/shell/draft/
 STEP-import-v1 ship notes) live in `CHANGELOG.md`.
 
+- 2026-07-15 — Shipped auth gate for the three gateway geometry-compute routes
+  (`/geometry/tessellate`, `/tessellate/meta`, `/export`; engineering audit F7,
+  P1 security): `CurrentUser` like every sibling stateless proxy, closing an
+  anonymous OCCT-CPU DoS vector. 401 test per route; contract regenerated with
+  `HTTPBearer`. Rate limiting (F7's other half) stays Ready. [backend-builder]
 - 2026-07-13 — Shipped mesh-store single-worker guard (#5, engineering audit
   F1): geometry refuses to start on `WEB_CONCURRENCY > 1` instead of 404-ing
   meshes across workers; fail-loud v1 over a blind MinIO swap the sandbox

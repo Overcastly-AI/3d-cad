@@ -4328,6 +4328,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Export",
         "tags": [
           "geometry"
@@ -4807,6 +4812,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Tessellate",
         "tags": [
           "geometry"
@@ -4849,6 +4859,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Tessellate Meta",
         "tags": [
           "geometry"

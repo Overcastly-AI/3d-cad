@@ -1,13 +1,26 @@
-"""gateway.geometry — proxy passthrough, error mapping, settings override."""
+"""gateway.geometry — proxy passthrough, error mapping, settings override.
 
+The tessellate/tessellate-meta/export routes are auth-gated (CPU-bound OCCT
+work on a signed-in user's geometry — anonymous access is a DoS vector,
+engineering audit F7), so this suite runs over real auth on SQLite (same
+harness as tests/test_measure_proxy.py): register a user, pass the bearer on
+the authenticated calls, and assert a bare call is a 401 with nothing
+forwarded upstream. The principal never travels upstream (geometry is
+identity-free, RESEARCH §3).
+"""
+
+import asyncio
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx2 as httpx
 import pytest
 from fastapi.testclient import TestClient
+from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
 from py_kit import REQUEST_ID_HEADER
+from py_kit.db import async_dsn
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
@@ -21,6 +34,10 @@ from py_kit.schemas.geometry import (
     TopologyCounts,
     Vec3,
 )
+from py_kit.schemas.parts import PRINCIPAL_HEADER
+from sqlalchemy.ext.asyncio import create_async_engine
+
+TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"
 
 BOX_REQUEST: dict[str, Any] = {
     "shape": "box",
@@ -57,10 +74,40 @@ METADATA = TessellationMetadata(
 Handler = Callable[[httpx.Request], httpx.Response]
 
 
-def make_client(handler: Handler) -> TestClient:
-    """Gateway TestClient whose upstream geometry client hits *handler*."""
-    app = build_app(geometry_transport=httpx.MockTransport(handler))
+async def _create_schema(url: str) -> None:
+    engine = create_async_engine(async_dsn(url))
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+
+
+@pytest.fixture
+def db_url(tmp_path: Path) -> str:
+    url = f"sqlite:///{tmp_path}/gateway.db"
+    asyncio.run(_create_schema(url))
+    return url
+
+
+def make_client(db_url: str, handler: Handler) -> TestClient:
+    """Gateway TestClient over real auth whose upstream geometry client hits
+    *handler*."""
+    settings = GatewaySettings(
+        geometry_url="http://geometry.internal:8002",
+        postgres_url=db_url,
+        loft_env="dev",
+        jwt_secret=TEST_JWT_SECRET,
+    )
+    app = build_app(settings, geometry_transport=httpx.MockTransport(handler))
     return TestClient(app, raise_server_exceptions=False)
+
+
+def _register(client: TestClient) -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": "alice@example.com", "password": "hunter2-passphrase"},
+    )
+    assert response.status_code == 201, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 def _envelope(body: dict[str, Any]) -> dict[str, Any]:
@@ -70,7 +117,7 @@ def _envelope(body: dict[str, Any]) -> dict[str, Any]:
     return error
 
 
-def test_tessellate_proxies_glb_and_properties_header() -> None:
+def test_tessellate_proxies_glb_and_properties_header(db_url: str) -> None:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -84,8 +131,11 @@ def test_tessellate_proxies_glb_and_properties_header() -> None:
             },
         )
 
-    with make_client(handler) as client:
-        response = client.post("/api/v1/geometry/tessellate", json=BOX_REQUEST)
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/tessellate", json=BOX_REQUEST, headers=bearer
+        )
 
     assert response.status_code == 200
     assert response.content == GLB  # byte-exact passthrough
@@ -100,19 +150,25 @@ def test_tessellate_proxies_glb_and_properties_header() -> None:
     assert TessellateRequest.model_validate_json(
         upstream.content
     ) == TessellateRequest.model_validate(BOX_REQUEST)
-    # Request id propagates upstream so gateway/geometry logs correlate.
+    # Request id propagates upstream so gateway/geometry logs correlate; the
+    # principal never travels upstream (geometry is identity-free).
     assert upstream.headers[REQUEST_ID_HEADER] == response.headers[REQUEST_ID_HEADER]
+    assert PRINCIPAL_HEADER not in upstream.headers
+    assert "authorization" not in upstream.headers
 
 
-def test_tessellate_meta_proxies_typed_json() -> None:
+def test_tessellate_meta_proxies_typed_json(db_url: str) -> None:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         return httpx.Response(200, content=METADATA.model_dump_json())
 
-    with make_client(handler) as client:
-        response = client.post("/api/v1/geometry/tessellate/meta", json=BOX_REQUEST)
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/tessellate/meta", json=BOX_REQUEST, headers=bearer
+        )
 
     assert response.status_code == 200
     assert TessellationMetadata.model_validate(response.json()) == METADATA
@@ -121,7 +177,7 @@ def test_tessellate_meta_proxies_typed_json() -> None:
 
 
 @pytest.mark.parametrize("fmt", ["step", "stl"])
-def test_export_proxies_file_and_content_disposition(fmt: str) -> None:
+def test_export_proxies_file_and_content_disposition(db_url: str, fmt: str) -> None:
     seen: list[httpx.Request] = []
     payload = EXPORT_BYTES[fmt]
     disposition = f'attachment; filename="box.{fmt}"'
@@ -137,8 +193,11 @@ def test_export_proxies_file_and_content_disposition(fmt: str) -> None:
             },
         )
 
-    with make_client(handler) as client:
-        response = client.post("/api/v1/geometry/export", json=export_request(fmt))
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/export", json=export_request(fmt), headers=bearer
+        )
 
     assert response.status_code == 200
     assert response.content == payload  # byte-exact passthrough
@@ -152,6 +211,8 @@ def test_export_proxies_file_and_content_disposition(fmt: str) -> None:
     ) == ExportRequest.model_validate(export_request(fmt))
     # Request id propagates upstream so gateway/geometry logs correlate.
     assert upstream.headers[REQUEST_ID_HEADER] == response.headers[REQUEST_ID_HEADER]
+    assert PRINCIPAL_HEADER not in upstream.headers
+    assert "authorization" not in upstream.headers
 
 
 @pytest.mark.parametrize(
@@ -162,12 +223,42 @@ def test_export_proxies_file_and_content_disposition(fmt: str) -> None:
         ("/api/v1/geometry/export", export_request("step")),
     ],
 )
-def test_upstream_down_maps_to_502_envelope(path: str, payload: dict[str, Any]) -> None:
+def test_unauthenticated_401_and_nothing_forwarded(
+    db_url: str, path: str, payload: dict[str, Any]
+) -> None:
+    """Each CPU-bound geometry route is auth-gated (audit F7): a bare call is a
+    401 and nothing reaches the geometry service."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=GLB)
+
+    with make_client(db_url, handler) as client:
+        response = client.post(path, json=payload)
+
+    assert response.status_code == 401
+    assert _envelope(response.json())["code"] == "unauthorized"
+    assert seen == []
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/api/v1/geometry/tessellate", BOX_REQUEST),
+        ("/api/v1/geometry/tessellate/meta", BOX_REQUEST),
+        ("/api/v1/geometry/export", export_request("step")),
+    ],
+)
+def test_upstream_down_maps_to_502_envelope(
+    db_url: str, path: str, payload: dict[str, Any]
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
-    with make_client(handler) as client:
-        response = client.post(path, json=payload)
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(path, json=payload, headers=bearer)
 
     assert response.status_code == 502
     error = _envelope(response.json())
@@ -178,7 +269,7 @@ def test_upstream_down_maps_to_502_envelope(path: str, payload: dict[str, Any]) 
     assert "8002" not in response.text
 
 
-def test_upstream_envelope_error_is_resurfaced() -> None:
+def test_upstream_envelope_error_is_resurfaced(db_url: str) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             500,
@@ -192,8 +283,11 @@ def test_upstream_envelope_error_is_resurfaced() -> None:
             },
         )
 
-    with make_client(handler) as client:
-        response = client.post("/api/v1/geometry/tessellate", json=BOX_REQUEST)
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/tessellate", json=BOX_REQUEST, headers=bearer
+        )
 
     assert response.status_code == 500
     error = _envelope(response.json())
@@ -203,12 +297,15 @@ def test_upstream_envelope_error_is_resurfaced() -> None:
     assert error["request_id"] == response.headers[REQUEST_ID_HEADER]
 
 
-def test_upstream_non_envelope_error_is_opaque() -> None:
+def test_upstream_non_envelope_error_is_opaque(db_url: str) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, text="<html>bad gateway</html>")
 
-    with make_client(handler) as client:
-        response = client.post("/api/v1/geometry/tessellate/meta", json=BOX_REQUEST)
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
+        response = client.post(
+            "/api/v1/geometry/tessellate/meta", json=BOX_REQUEST, headers=bearer
+        )
 
     assert response.status_code == 503
     error = _envelope(response.json())
@@ -216,7 +313,7 @@ def test_upstream_non_envelope_error_is_opaque() -> None:
     assert "<html>" not in response.text
 
 
-def test_invalid_request_rejected_at_the_gateway() -> None:
+def test_invalid_request_rejected_at_the_gateway(db_url: str) -> None:
     """Shared DTOs validate at the gateway — bad input never goes upstream."""
     seen: list[httpx.Request] = []
 
@@ -224,9 +321,11 @@ def test_invalid_request_rejected_at_the_gateway() -> None:
         seen.append(request)
         return httpx.Response(200)
 
-    with make_client(handler) as client:
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
         response = client.post(
             "/api/v1/geometry/tessellate",
+            headers=bearer,
             json={"shape": "box", "params": {"x": 0.0, "y": 1.0, "z": 1.0}},
         )
 
@@ -235,7 +334,7 @@ def test_invalid_request_rejected_at_the_gateway() -> None:
     assert seen == []
 
 
-def test_invalid_export_format_rejected_at_the_gateway() -> None:
+def test_invalid_export_format_rejected_at_the_gateway(db_url: str) -> None:
     """Unknown export format fails DTO validation — never goes upstream."""
     seen: list[httpx.Request] = []
 
@@ -243,9 +342,12 @@ def test_invalid_export_format_rejected_at_the_gateway() -> None:
         seen.append(request)
         return httpx.Response(200)
 
-    with make_client(handler) as client:
+    with make_client(db_url, handler) as client:
+        bearer = _register(client)
         response = client.post(
-            "/api/v1/geometry/export", json={**BOX_REQUEST, "format": "obj"}
+            "/api/v1/geometry/export",
+            headers=bearer,
+            json={**BOX_REQUEST, "format": "obj"},
         )
 
     assert response.status_code == 422

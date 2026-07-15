@@ -282,7 +282,15 @@ also fails on a detectable replica peer (or at minimum document that replicas
 are unsafe with the same force as the worker guard). This is the cleanest path
 and retires both F1 and F6.
 
-#### F7 — Three unauthenticated geometry-compute endpoints on the gateway (no auth, no rate limit) · Severity Med (security/availability) · Likelihood: med if internet-exposed · P1
+#### F7 — Three unauthenticated geometry-compute endpoints on the gateway (no auth, no rate limit) · Severity Med (security/availability) · Likelihood: med if internet-exposed · P1 — ✅ FIXED (auth gap)
+
+**Resolved (auth):** `tessellate`, `tessellate/meta`, and `export` now carry
+the `CurrentUser` dependency (401 without a token, unchanged for the signed-in
+web client), matching the sibling stateless proxies; regenerated
+`gateway.openapi.json` carries the `HTTPBearer` security block, and a 401 test
+per route guards it. The **rate-limiting** half of this finding is unbuilt and
+tracked separately in BACKLOG (its own cross-cutting py-kit item).
+
 
 `/api/v1/geometry/tessellate` (`gateway/geometry.py:92-93`),
 `/tessellate/meta` (`:108-111`), and `/export` (`:181-182`) take a geometry
