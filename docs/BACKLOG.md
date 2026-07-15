@@ -167,10 +167,11 @@ unchanged in substance.
       conflicting-glyph flagging is proven end-to-end (`constraints.spec.ts`,
       full e2e 125/125 green). Item complete — supersedes the older "Structured
       conflict indices" Later item.
-- [ ] (P2, M) Sketch dimension expressions / driving vs. driven — a
+- [x] (P2, M) Sketch dimension expressions / driving vs. driven — a
       dimension value field accepts a literal, a reference to another
       dimension, or a math expression; each dimension gets a `driving` flag
       (driving = feeds the solver, driven = read-only/informational).
+      **COMPLETE 2026-07-15 (backend + frontend).**
       **Backend leg landed 2026-07-15 (DONE):** dimension-constraint schema
       grew additive optional `name`/`expression`/`driving` (py-kit
       `DimensionConstraint` base on distance+radius; `driving` nullable,
@@ -185,9 +186,20 @@ unchanged in substance.
       height="width/2" → 10; driven dim leaves a DOF instead of
       over-constraining; readout tracks edited geometry; literal goldens
       byte-identical). Contracts + ts-client regenerated (gen-check clean).
-      **Frontend leg still OPEN:** expression-entry field + driving/driven
-      toggle + driven readout display in the sketcher, `frontend-design` skill
-      invoked; worked e2e + screenshots. [src: competitive]
+      **Frontend leg landed 2026-07-15 (DONE):** the inline dimension editor
+      (`ConstraintGlyphs.tsx`) gained an `ExpressionField` primitive
+      (`packages/design`) — a literal stays `value_mm`, a non-numeric entry is
+      sent as `expression`, with a brass "= 10 mm" resolved echo — plus an
+      optional reference-name `TextField` (identifier-hinted, server owns
+      uniqueness) and a DRIVING/DRIVEN `SegmentedControl`. Driven dims send
+      `driving:false`, render in reference parentheses `(20)` in quiet gauge
+      ink, and their readout is measured from `SolvedSketch.dimensions[]` (lined
+      up by `constraint_index`); a driving expression shows its evaluated value.
+      `sketch_invalid` surfaces in the `SolveDiagnostic` stamp + a DRO "INVALID
+      EXPRESSION" cell. Worked e2e `dimension-expressions.spec.ts` (width=20,
+      height=`width/2`→10; driven reference tracks edited geometry without
+      over-constraining; bad expression → diagnostic) + founder screenshots at
+      1440 & 1280. [src: competitive]
 - [ ] (P2, M) Sketch: constrainable splines (v1.1) — splines shipped
       non-constrained (fixed geometry, zero DOF; `planegcs` has no native
       spline primitive per the #6 commit message). Design a fit-point

@@ -511,10 +511,29 @@ export function PartPage() {
         conflicting: result.data.conflicting_constraints ?? [],
         redundant: result.data.redundant_constraints ?? [],
       };
-      store.adoptSolved(result.data.entities, info);
+      // The per-dimension readouts line each glyph up with its authored
+      // constraint (a driving dim's evaluated value / a driven dim's measured).
+      store.adoptSolved(
+        result.data.entities,
+        info,
+        result.data.dimensions ?? [],
+      );
       return;
     }
     if (result.status === "error" && result.error != null) {
+      // A bad expression / cycle / unknown-or-driven ref / div-by-zero comes
+      // back as `sketch_invalid` — surface the server's message in the
+      // diagnostic stamp (never swallow it), keeping the last-good geometry.
+      if (result.error.code === "sketch_invalid") {
+        store.adoptSolved(null, {
+          status: "invalid",
+          dof: null,
+          conflicting: [],
+          redundant: [],
+          message: result.error.message,
+        });
+        return;
+      }
       if (result.error.code === "sketch_conflicting") {
         // BACKLOG #6: read the offending ids from the TYPED diagnosis, not by
         // regex-parsing the human message (brittle, now removed).

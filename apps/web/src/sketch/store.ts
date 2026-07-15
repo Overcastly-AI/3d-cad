@@ -17,8 +17,10 @@ import {
   reconcileConstraints,
   toggleConstruction,
   type ConstraintAction,
+  type DimensionCommit,
   type DimensionEditorTarget,
   type SketchConstraint,
+  type SolvedDimension,
   type SolveInfo,
 } from "./constraints";
 import { toggleCornerPick, type CornerOp } from "./corner";
@@ -74,6 +76,13 @@ export interface SketchState {
   revision: number;
   /** Latest solve feedback for the bound feature (DRO + diagnostics). */
   solve: SolveInfo | null;
+  /**
+   * Per-dimension solve readouts from the last evaluate, keyed off
+   * `constraint_index` (a driving dim's evaluated value / a driven dim's
+   * measured value). Empty until the first solve; drives the glyph labels so an
+   * expression `width/2` shows as its resolved `10`.
+   */
+  solvedDimensions: SolvedDimension[];
   /** Transient strip hint (invalid constraint action, duplicates, …). */
   hint: string | null;
   /**
@@ -229,17 +238,26 @@ export interface SketchState {
   failCorner: (message: string) => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
   editDimension: (constraintIndex: number) => void;
-  /** Commit the open dimension editor with a validated value (mm). */
-  commitDimension: (valueMm: number) => void;
+  /**
+   * Commit the open dimension editor: a positive `value_mm`, an optional
+   * `expression` (driving only) that supersedes it, an optional reference
+   * `name`, and the driving/driven flag.
+   */
+  commitDimension: (commit: DimensionCommit) => void;
   cancelDimension: () => void;
   selectConstraint: (index: number | null) => void;
   removeConstraint: (index: number) => void;
   /** Bind the session to its persisted feature (first save). */
   bind: (featureId: string) => void;
-  /** Feed solved geometry + diagnosis back in (never bumps `revision`). */
+  /**
+   * Feed solved geometry + diagnosis back in (never bumps `revision`).
+   * `dimensions`, when provided, replaces the per-dimension readouts; omit it
+   * (error paths) to keep the last-good readouts.
+   */
   adoptSolved: (
     entities: readonly SketchEntity[] | null,
     solve: SolveInfo | null,
+    dimensions?: readonly SolvedDimension[],
   ) => void;
   /** Escape cascade: editor → placement → tool → selection → exit. */
   escape: () => void;
@@ -265,6 +283,7 @@ const INITIAL = {
   featureId: null,
   revision: 0,
   solve: null,
+  solvedDimensions: [],
   hint: null,
   edit: null,
   editBusy: false,
@@ -680,6 +699,9 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
         kind: constraint.kind,
         entity: constraint.entity,
         initialMm: constraint.value_mm,
+        initialExpression: constraint.expression ?? null,
+        initialName: constraint.name ?? null,
+        initialDriving: constraint.driving !== false,
         constraintIndex,
       },
       selectedConstraint: null,
@@ -687,13 +709,20 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
     });
   },
 
-  commitDimension: (valueMm) => {
+  commitDimension: (commit) => {
     const { dimensionEdit, constraints, revision } = get();
-    if (dimensionEdit === null || !(valueMm > 0)) return;
+    if (dimensionEdit === null || !(commit.valueMm > 0)) return;
+    // Fully specify every additive field (null = default/unset) so an edit that
+    // clears a name/expression, or flips driving↔driven, replaces cleanly —
+    // `driving: null` means driving (the wire default), `false` means driven; an
+    // expression only rides a DRIVING dim (a driven dim is measured, not fed).
     const constraint: SketchConstraint = {
       kind: dimensionEdit.kind,
       entity: dimensionEdit.entity,
-      value_mm: valueMm,
+      value_mm: commit.valueMm,
+      expression: commit.driving ? commit.expression : null,
+      name: commit.name,
+      driving: commit.driving ? null : false,
     };
     const next =
       dimensionEdit.constraintIndex === null
@@ -733,14 +762,17 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
 
   bind: (featureId) => set({ featureId }),
 
-  adoptSolved: (entities, solve) => {
+  adoptSolved: (entities, solve, dimensions) => {
+    const dims =
+      dimensions === undefined ? {} : { solvedDimensions: [...dimensions] };
     if (entities === null) {
-      set({ solve });
+      set({ solve, ...dims });
       return;
     }
     const solvedById = new Map(entities.map((e) => [e.id, e]));
     set((state) => ({
       solve,
+      ...dims,
       entities: state.entities.map((e) => solvedById.get(e.id) ?? e),
     }));
   },

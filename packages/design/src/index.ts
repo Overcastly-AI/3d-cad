@@ -31,6 +31,10 @@ export * from "./primitives/icons";
 export { SketchGlyph, type SketchGlyphProps } from "./primitives/SketchGlyph";
 export { PickNode, type PickNodeProps } from "./primitives/PickNode";
 export { NumberField, type NumberFieldProps } from "./primitives/NumberField";
+export {
+  ExpressionField,
+  type ExpressionFieldProps,
+} from "./primitives/ExpressionField";
 export { TextField, type TextFieldProps } from "./primitives/TextField";
 export {
   SelectField,

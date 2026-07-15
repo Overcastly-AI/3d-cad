@@ -159,9 +159,21 @@ describe("constraints", () => {
       constraintIndex: null,
     });
     const revision = store().revision;
-    store().commitDimension(60);
+    store().commitDimension({
+      valueMm: 60,
+      expression: null,
+      name: null,
+      driving: true,
+    });
     expect(store().constraints).toEqual([
-      { kind: "distance", entity: "e1", value_mm: 60 },
+      {
+        kind: "distance",
+        entity: "e1",
+        value_mm: 60,
+        expression: null,
+        name: null,
+        driving: null,
+      },
     ]);
     expect(store().dimensionEdit).toBeNull();
     expect(store().revision).toBe(revision + 1);
@@ -172,15 +184,79 @@ describe("constraints", () => {
     const store = useSketchStore.getState;
     store().selectAt({ x: 20, y: 0.5 }, 2);
     store().applyConstraint("distance");
-    store().commitDimension(40);
+    store().commitDimension({
+      valueMm: 40,
+      expression: null,
+      name: null,
+      driving: true,
+    });
     store().editDimension(0);
     expect(store().dimensionEdit).toMatchObject({
       initialMm: 40,
+      initialDriving: true,
       constraintIndex: 0,
     });
-    store().commitDimension(60);
+    store().commitDimension({
+      valueMm: 60,
+      expression: null,
+      name: null,
+      driving: true,
+    });
     expect(store().constraints).toEqual([
-      { kind: "distance", entity: "e1", value_mm: 60 },
+      {
+        kind: "distance",
+        entity: "e1",
+        value_mm: 60,
+        expression: null,
+        name: null,
+        driving: null,
+      },
+    ]);
+  });
+
+  it("commits an expression + name; sends expression, keeps value_mm placeholder", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().applyConstraint("distance");
+    store().commitDimension({
+      valueMm: 20,
+      expression: "width/2",
+      name: "half",
+      driving: true,
+    });
+    expect(store().constraints).toEqual([
+      {
+        kind: "distance",
+        entity: "e1",
+        value_mm: 20,
+        expression: "width/2",
+        name: "half",
+        driving: null,
+      },
+    ]);
+  });
+
+  it("a driven commit sends driving:false and drops the expression", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().applyConstraint("distance");
+    store().commitDimension({
+      valueMm: 40,
+      expression: "width/2",
+      name: null,
+      driving: false,
+    });
+    expect(store().constraints).toEqual([
+      {
+        kind: "distance",
+        entity: "e1",
+        value_mm: 40,
+        expression: null,
+        name: null,
+        driving: false,
+      },
     ]);
   });
 
@@ -190,7 +266,12 @@ describe("constraints", () => {
     store().selectAt({ x: 20, y: 0.5 }, 2);
     store().applyConstraint("distance");
     const revision = store().revision;
-    store().commitDimension(0);
+    store().commitDimension({
+      valueMm: 0,
+      expression: null,
+      name: null,
+      driving: true,
+    });
     expect(store().constraints).toEqual([]);
     expect(store().revision).toBe(revision);
     expect(store().dimensionEdit).not.toBeNull();
@@ -287,6 +368,37 @@ describe("adoptSolved — the loop terminator", () => {
     });
     expect(store().entities).toBe(entities);
     expect(store().solve?.conflicting).toEqual([0, 1]);
+  });
+
+  it("adopts per-dimension readouts; omitting them keeps the last-good", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    const dims = [
+      { constraint_index: 0, name: "width", driving: true, value_mm: 20 },
+      {
+        constraint_index: 1,
+        name: null,
+        driving: true,
+        value_mm: 10,
+        expression: "width/2",
+      },
+    ];
+    store().adoptSolved(
+      [],
+      { status: "underconstrained", dof: 1, conflicting: [], redundant: [] },
+      dims,
+    );
+    expect(store().solvedDimensions).toEqual(dims);
+    // An `invalid` error path omits dimensions → the last-good readouts survive.
+    store().adoptSolved(null, {
+      status: "invalid",
+      dof: null,
+      conflicting: [],
+      redundant: [],
+      message: "unknown dimension 'wdth'",
+    });
+    expect(store().solvedDimensions).toEqual(dims);
+    expect(store().solve?.status).toBe("invalid");
   });
 });
 

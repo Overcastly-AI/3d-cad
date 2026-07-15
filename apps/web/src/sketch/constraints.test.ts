@@ -15,6 +15,7 @@ import {
   solveDiagnostic,
   toggleConstruction,
   type SketchConstraint,
+  type SolvedDimension,
 } from "./constraints";
 import type { SketchPick } from "./pick";
 import type { SketchEntity } from "./tools";
@@ -206,6 +207,9 @@ describe("applyConstraintAction", () => {
         kind: "distance",
         entity: "e1",
         initialMm: 40,
+        initialExpression: null,
+        initialName: null,
+        initialDriving: true,
         constraintIndex: null,
       },
     });
@@ -214,7 +218,14 @@ describe("applyConstraintAction", () => {
   it("distance re-opens an existing dimension for editing", () => {
     const existing: SketchConstraint[] = [
       { kind: "horizontal", entity: "e1" },
-      { kind: "distance", entity: "e1", value_mm: 60 },
+      {
+        kind: "distance",
+        entity: "e1",
+        value_mm: 60,
+        expression: "width/2",
+        name: "half",
+        driving: false,
+      },
     ];
     expect(
       applyConstraintAction("distance", [pickLine("e1")], entities, existing),
@@ -224,6 +235,9 @@ describe("applyConstraintAction", () => {
         kind: "distance",
         entity: "e1",
         initialMm: 60,
+        initialExpression: "width/2",
+        initialName: "half",
+        initialDriving: false,
         constraintIndex: 1,
       },
     });
@@ -238,6 +252,9 @@ describe("applyConstraintAction", () => {
         kind: "radius",
         entity: "e3",
         initialMm: 10,
+        initialExpression: null,
+        initialName: null,
+        initialDriving: true,
         constraintIndex: null,
       },
     });
@@ -547,6 +564,49 @@ describe("constraintGlyphs — engineering notation", () => {
     expect(glyphs.map((g) => g.index)).toEqual([0, 1, 2, 3, 4]);
   });
 
+  it("solved readouts drive the label: expression resolves, driven parenthesises", () => {
+    const withDims: SketchConstraint[] = [
+      { kind: "distance", entity: "e1", value_mm: 20, name: "width" },
+      {
+        kind: "distance",
+        entity: "e2",
+        value_mm: 20,
+        expression: "width/2",
+      },
+      { kind: "radius", entity: "e3", value_mm: 12.5, driving: false },
+    ];
+    const solved = new Map<number, SolvedDimension>([
+      [0, { constraint_index: 0, name: "width", driving: true, value_mm: 20 }],
+      [
+        1,
+        {
+          constraint_index: 1,
+          name: null,
+          driving: true,
+          value_mm: 10,
+          expression: "width/2",
+        },
+      ],
+      [2, { constraint_index: 2, name: null, driving: false, value_mm: 12.5 }],
+    ]);
+    const glyphs = constraintGlyphs(withDims, entities, 3.5, solved);
+    // Driving literal → "20"; driving expression → its resolved "10"; driven
+    // radius → reference parentheses "(R12.5)".
+    expect(glyphs.map((g) => g.label)).toEqual(["20", "10", "(R12.5)"]);
+    expect(glyphs.map((g) => g.driven)).toEqual([false, false, true]);
+    expect(glyphs[1]?.expression).toBe("width/2");
+  });
+
+  it("without a solved map, a driven flag alone parenthesises the label", () => {
+    const glyphs = constraintGlyphs(
+      [{ kind: "distance", entity: "e1", value_mm: 40, driving: false }],
+      entities,
+      3.5,
+    );
+    expect(glyphs[0]?.label).toBe("(40)");
+    expect(glyphs[0]?.driven).toBe(true);
+  });
+
   it("H and the dimension sit on opposite sides of the line", () => {
     const glyphs = constraintGlyphs(constraints, entities, 3.5);
     const h = glyphs[0]?.anchor;
@@ -647,6 +707,9 @@ describe("constraintGlyphs — engineering notation", () => {
           kind: "distance",
           entity: "e1",
           initialMm: 40,
+          initialExpression: null,
+          initialName: null,
+          initialDriving: true,
           constraintIndex: null,
         },
         entities,
@@ -688,6 +751,18 @@ describe("solve feedback", () => {
         false,
       ),
     ).toEqual({ value: "CONFLICT", tone: "flag" });
+    expect(
+      formatSolveCell(
+        {
+          status: "invalid",
+          dof: null,
+          conflicting: [],
+          redundant: [],
+          message: "unknown dimension 'w'",
+        },
+        false,
+      ),
+    ).toEqual({ value: "INVALID EXPRESSION", tone: "flag" });
   });
 
   it("diagnoses sick solves and stays quiet on healthy ones", () => {
@@ -715,6 +790,19 @@ describe("solve feedback", () => {
         redundant: [4],
       }),
     ).toMatchObject({ title: "Over-constrained" });
+    // `invalid` surfaces the server's descriptive message verbatim.
+    expect(
+      solveDiagnostic({
+        status: "invalid",
+        dof: null,
+        conflicting: [],
+        redundant: [],
+        message: "cycle: width → height → width",
+      }),
+    ).toEqual({
+      title: "Dimension expression",
+      body: "cycle: width → height → width",
+    });
   });
 
   it("describes the selection for the strip readout", () => {

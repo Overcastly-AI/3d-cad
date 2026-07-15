@@ -15,6 +15,12 @@ export type SketchConstraint =
   components["schemas"]["SketchParamsV1"]["constraints"][number];
 export type EntityPointRef = components["schemas"]["EntityPointRef"];
 export type SolveStatus = components["schemas"]["SolvedSketchData"]["status"];
+/**
+ * One solved dimension readout, lined to its authored constraint by
+ * `constraint_index`: for a DRIVING dim `value_mm` is the evaluated
+ * expression/literal; for a DRIVEN dim it is measured from the solved geometry.
+ */
+export type SolvedDimension = components["schemas"]["SolvedDimension"];
 
 /** Constraint verbs — the keyboard-first strip actions. */
 export type ConstraintAction =
@@ -196,8 +202,27 @@ export interface DimensionEditorTarget {
   entity: string;
   /** Prefill: the existing driving value, or the measured current one. */
   initialMm: number;
+  /** Existing expression source (`width/2`), or null for a bare literal / new. */
+  initialExpression: string | null;
+  /** Existing reference name, or null (unnamed / new). */
+  initialName: string | null;
+  /** false = driven (measured, informational); true = driving (default). */
+  initialDriving: boolean;
   /** Existing constraint being edited, or null when creating a new one. */
   constraintIndex: number | null;
+}
+
+/**
+ * The full spec the inline editor commits: a positive `value_mm` (the literal,
+ * or a positive placeholder while an expression drives), an optional
+ * `expression` (driving only — it supersedes `value_mm`), an optional reference
+ * `name`, and the driving/driven flag (`false` = driven).
+ */
+export interface DimensionCommit {
+  valueMm: number;
+  expression: string | null;
+  name: string | null;
+  driving: boolean;
 }
 
 export type ConstraintActionResult =
@@ -350,15 +375,18 @@ export function applyConstraintAction(
         (c) => c.kind === "distance" && c.entity === entity,
       );
       const existingConstraint = constraints[existing];
+      const prior =
+        existingConstraint?.kind === "distance" ? existingConstraint : null;
       return {
         outcome: "editor",
         target: {
           kind: "distance",
           entity,
           initialMm:
-            existingConstraint?.kind === "distance"
-              ? existingConstraint.value_mm
-              : measuredLength(byId.get(entity) as SketchEntity),
+            prior?.value_mm ?? measuredLength(byId.get(entity) as SketchEntity),
+          initialExpression: prior?.expression ?? null,
+          initialName: prior?.name ?? null,
+          initialDriving: prior?.driving !== false,
           constraintIndex: existing === -1 ? null : existing,
         },
       };
@@ -377,15 +405,18 @@ export function applyConstraintAction(
         (c) => c.kind === "radius" && c.entity === entity,
       );
       const existingConstraint = constraints[existing];
+      const prior =
+        existingConstraint?.kind === "radius" ? existingConstraint : null;
       return {
         outcome: "editor",
         target: {
           kind: "radius",
           entity,
           initialMm:
-            existingConstraint?.kind === "radius"
-              ? existingConstraint.value_mm
-              : measuredRadius(byId.get(entity) as SketchEntity),
+            prior?.value_mm ?? measuredRadius(byId.get(entity) as SketchEntity),
+          initialExpression: prior?.expression ?? null,
+          initialName: prior?.name ?? null,
+          initialDriving: prior?.driving !== false,
           constraintIndex: existing === -1 ? null : existing,
         },
       };
@@ -542,18 +573,44 @@ export interface ConstraintGlyph {
   /** Index into the sketch's constraint list (the solver's index space). */
   index: number;
   kind: SketchConstraint["kind"];
-  /** Bare mono text: "H", "V", "C", "FIX", "40", "R12.5". */
+  /** Bare mono text: "H", "V", "C", "FIX", "40", "R12.5", "(40)" (driven). */
   label: string;
   /** Anchor in sketch-plane mm. */
   anchor: Point2D;
   /** Dimensions open the inline editor on click; others select. */
   editable: boolean;
+  /**
+   * A DRIVEN (reference) dimension — measured from geometry, not fed to the
+   * solver. Rendered in the drawing's reference notation (parentheses, quiet
+   * ink), never brass. False for driving dims and every geometric constraint.
+   */
+  driven: boolean;
+  /** The dimension's expression source, echoed for tooltips/a11y (or null). */
+  expression: string | null;
 }
 
 /** Dimension text: trailing zeros trimmed, mm implied (drawing convention). */
 export function formatDimensionMm(value: number): string {
   const text = value.toFixed(2).replace(/\.?0+$/, "");
   return text === "" || text === "-" ? "0" : text;
+}
+
+/**
+ * A dimension glyph's label. Driving dims read bare ("40", "R12.5"); DRIVEN
+ * (reference) dims wear the drafting convention — parentheses, "(40)" /
+ * "(R12.5)" — so a measured, informational value is never mistaken for a
+ * driving one.
+ */
+export function formatDimensionLabel(
+  kind: "distance" | "radius",
+  value: number,
+  driven: boolean,
+): string {
+  const core =
+    kind === "radius"
+      ? `R${formatDimensionMm(value)}`
+      : formatDimensionMm(value);
+  return driven ? `(${core})` : core;
 }
 
 function lineAnnotationAnchor(entity: SketchEntity, offsetMm: number): Point2D {
@@ -665,14 +722,22 @@ const RELATIONAL_LABEL: Record<
 /**
  * Constraints → annotation glyphs at their current (solved) geometry.
  * Letters and numbers only — Fragment Mono native, no icon font, no badge.
+ *
+ * `solved` (keyed by `constraint_index`) carries the per-dimension solve
+ * readouts: a driving dim shows its EVALUATED value (an expression `width/2`
+ * reads as `10`), a driven dim its MEASURED value in reference parentheses.
+ * Pre-solve (no map) the glyph falls back to the authored `value_mm`/flag.
  */
 export function constraintGlyphs(
   constraints: readonly SketchConstraint[],
   entities: readonly SketchEntity[],
   offsetMm: number,
+  solved?: ReadonlyMap<number, SolvedDimension>,
 ): ConstraintGlyph[] {
   const byId = new Map(entities.map((e) => [e.id, e]));
   const glyphs: ConstraintGlyph[] = [];
+  /** Every geometric (non-dimension) mark is driving-agnostic ink. */
+  const geometric = { driven: false, expression: null } as const;
   constraints.forEach((constraint, index) => {
     switch (constraint.kind) {
       case "horizontal":
@@ -685,31 +750,32 @@ export function constraintGlyphs(
           label: constraint.kind === "horizontal" ? "H" : "V",
           anchor: lineAnnotationAnchor(entity, offsetMm),
           editable: false,
+          ...geometric,
         });
         return;
       }
-      case "distance": {
-        const entity = byId.get(constraint.entity);
-        if (entity === undefined) return;
-        glyphs.push({
-          index,
-          kind: "distance",
-          label: formatDimensionMm(constraint.value_mm),
-          // Opposite side from H/V marks — annotations never stack.
-          anchor: lineAnnotationAnchor(entity, -offsetMm),
-          editable: true,
-        });
-        return;
-      }
+      case "distance":
       case "radius": {
         const entity = byId.get(constraint.entity);
         if (entity === undefined) return;
+        const readout = solved?.get(index);
+        const driven =
+          readout !== undefined
+            ? !readout.driving
+            : constraint.driving === false;
+        const value = readout?.value_mm ?? constraint.value_mm;
         glyphs.push({
           index,
-          kind: "radius",
-          label: `R${formatDimensionMm(constraint.value_mm)}`,
-          anchor: radiusAnchor(entity, offsetMm),
+          kind: constraint.kind,
+          label: formatDimensionLabel(constraint.kind, value, driven),
+          // Opposite side from H/V marks — annotations never stack.
+          anchor:
+            constraint.kind === "distance"
+              ? lineAnnotationAnchor(entity, -offsetMm)
+              : radiusAnchor(entity, offsetMm),
           editable: true,
+          driven,
+          expression: readout?.expression ?? constraint.expression ?? null,
         });
         return;
       }
@@ -721,6 +787,7 @@ export function constraintGlyphs(
           label: "FIX",
           anchor: { x: at.x + offsetMm, y: at.y - offsetMm },
           editable: false,
+          ...geometric,
         });
         return;
       }
@@ -732,6 +799,7 @@ export function constraintGlyphs(
           label: "C",
           anchor: { x: at.x + offsetMm, y: at.y + offsetMm },
           editable: false,
+          ...geometric,
         });
         return;
       }
@@ -749,6 +817,7 @@ export function constraintGlyphs(
           label: RELATIONAL_LABEL[constraint.kind],
           anchor: entityGlyphAnchor(entity, offsetMm),
           editable: false,
+          ...geometric,
         });
         return;
       }
@@ -770,6 +839,7 @@ export function constraintGlyphs(
             y: (pa.y + pb.y) / 2 + offsetMm,
           },
           editable: false,
+          ...geometric,
         });
         return;
       }
@@ -795,12 +865,20 @@ export function dimensionEditorAnchor(
 // Solve feedback
 // ---------------------------------------------------------------------------
 
-/** The DRO/diagnostic view of one evaluate round-trip for the bound sketch. */
+/**
+ * The DRO/diagnostic view of one evaluate round-trip for the bound sketch.
+ * `"invalid"` is the sketcher's local status for a `sketch_invalid` feature
+ * error (bad expression / cycle / unknown or driven reference / div-by-zero) —
+ * the sketch didn't solve at all, so it has no solver status; `message` carries
+ * the server's descriptive text for the diagnostic stamp.
+ */
 export interface SolveInfo {
-  status: SolveStatus;
+  status: SolveStatus | "invalid";
   dof: number | null;
   conflicting: number[];
   redundant: number[];
+  /** The `sketch_invalid` message when `status === "invalid"`; else absent. */
+  message?: string;
 }
 
 // Conflicting sketches now carry their offending constraint ids in the TYPED
@@ -829,6 +907,8 @@ export function formatSolveCell(
       return { value: "CONFLICT", tone: "flag" };
     case "diverged":
       return { value: "DIVERGED", tone: "flag" };
+    case "invalid":
+      return { value: "INVALID EXPRESSION", tone: "flag" };
   }
 }
 
@@ -850,6 +930,13 @@ export function solveDiagnostic(
       return {
         title: "Over-constrained",
         body: "A redundant constraint is flagged in the sketch. Remove it — the geometry is already determined without it.",
+      };
+    case "invalid":
+      return {
+        title: "Dimension expression",
+        body:
+          info.message ??
+          "A dimension expression could not be evaluated. Check the names it references, and for cycles or division by zero.",
       };
     case "diverged":
       return {

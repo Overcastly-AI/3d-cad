@@ -10,7 +10,14 @@
  * focusable, screen-reader named, e2e drivable — with zero chrome, so it
  * reads as annotation, not UI.
  */
-import { NumberField, Panel, SketchGlyph } from "@loft/design";
+import {
+  ExpressionField,
+  NumberField,
+  Panel,
+  SegmentedControl,
+  SketchGlyph,
+  TextField,
+} from "@loft/design";
 import { sketch } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import {
@@ -26,7 +33,12 @@ import {
   dimensionEditorAnchor,
   formatDimensionMm,
   type ConstraintGlyph,
+  type SolvedDimension,
 } from "../sketch/constraints";
+import {
+  classifyDimensionValue,
+  dimensionNameError,
+} from "../sketch/dimensionExpr";
 import { cornerPoint } from "../sketch/corner";
 import { entityAnchor } from "../sketch/geometry";
 import { planeToWorld, type PlaneBasis } from "../sketch/plane";
@@ -46,9 +58,13 @@ function glyphAria(glyph: ConstraintGlyph): string {
     case "fixed":
       return "Fixed point constraint";
     case "distance":
-      return `Distance ${glyph.label} mm — edit`;
-    case "radius":
-      return `Radius ${glyph.label.slice(1)} mm — edit`;
+    case "radius": {
+      const bare = glyph.label.replace(/[()R]/g, "");
+      const noun = glyph.kind === "radius" ? "Radius" : "Distance";
+      const ref = glyph.driven ? " reference" : "";
+      const from = glyph.expression ? ` from ${glyph.expression}` : "";
+      return `${noun}${ref} ${bare} mm${from} — edit`;
+    }
     case "parallel":
       return "Parallel constraint";
     case "perpendicular":
@@ -64,14 +80,25 @@ function glyphAria(glyph: ConstraintGlyph): string {
   }
 }
 
-/** The inline mm field a dimension glyph opens into. */
+/**
+ * The inline dimension spec a glyph opens into. Three cells in the title-block
+ * idiom: the VALUE cell takes a literal (`20`) or an expression over other
+ * dimension names (`width/2`), echoing the last resolved value in brass; a
+ * NAME cell makes the dimension referenceable (identifier-hinted, server owns
+ * uniqueness); and a DRIVING/DRIVEN toggle — driven marks it a measured
+ * reference (`false` on the wire), excluded from the solver so it can't
+ * over-constrain. Enter applies; Escape dismisses.
+ */
 function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const target = useSketchStore((state) => state.dimensionEdit);
   const entities = useSketchStore((state) => state.entities);
+  const solvedDimensions = useSketchStore((state) => state.solvedDimensions);
   const commitDimension = useSketchStore((state) => state.commitDimension);
   const cancelDimension = useSketchStore((state) => state.cancelDimension);
   const removeConstraint = useSketchStore((state) => state.removeConstraint);
-  const [text, setText] = useState<string | null>(null);
+  const [value, setValue] = useState<string | null>(null);
+  const [name, setName] = useState<string | null>(null);
+  const [driving, setDriving] = useState<boolean | null>(null);
 
   const anchor = useMemo(
     () =>
@@ -80,16 +107,85 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
         : dimensionEditorAnchor(target, entities, sketch.glyphOffsetMm),
     [target, entities],
   );
+
+  // The last solved readout for this dimension — the resolved value an
+  // expression currently evaluates to / the measured value of a driven one.
+  const solved: SolvedDimension | undefined =
+    target?.constraintIndex == null
+      ? undefined
+      : solvedDimensions.find(
+          (d) => d.constraint_index === target.constraintIndex,
+        );
+
+  // Reset the local draft whenever the editor retargets a different constraint.
+  const editKey =
+    target === null
+      ? null
+      : `${target.constraintIndex ?? "new"}:${target.entity}`;
+  useEffect(() => {
+    setValue(null);
+    setName(null);
+    setDriving(null);
+  }, [editKey]);
+
   if (target === null || anchor === null) return null;
 
-  const value = text ?? formatDimensionMm(target.initialMm);
-  const parsed = Number.parseFloat(value);
-  const valid = Number.isFinite(parsed) && parsed > 0;
+  const noun = target.kind === "distance" ? "Distance" : "Radius";
+  const isDriving = driving ?? target.initialDriving;
+  const valueText =
+    value ?? target.initialExpression ?? formatDimensionMm(target.initialMm);
+  const nameText = name ?? target.initialName ?? "";
 
+  const parsedValue = classifyDimensionValue(valueText);
+  const nameError = dimensionNameError(nameText);
+  // A driving literal must be > 0; a driving expression is the server's to
+  // validate (accepted here). A driven dim is measured — its cell is read-only,
+  // always valid, and commits the last measured/placeholder value.
+  const valueError = !isDriving
+    ? null
+    : parsedValue.kind === "empty"
+      ? "Enter a value or an expression."
+      : parsedValue.kind === "literal" && !(parsedValue.valueMm > 0)
+        ? "Enter a value above 0."
+        : null;
+  const valid = valueError === null && nameError === null;
+
+  // The positive `value_mm` sent to the wire: the literal itself, or — while an
+  // expression drives / a driven cell measures — a positive placeholder (the
+  // last resolved value, else the measured prefill).
+  const placeholderMm =
+    solved?.value_mm && solved.value_mm > 0
+      ? solved.value_mm
+      : target.initialMm > 0
+        ? target.initialMm
+        : 1;
+
+  const resolved =
+    isDriving && parsedValue.kind === "expression" && solved !== undefined
+      ? `= ${formatDimensionMm(solved.value_mm)} mm`
+      : null;
+
+  const trimmedName = nameText.trim();
   const close = (commit: boolean) => {
-    if (commit && valid) commitDimension(parsed);
-    else cancelDimension();
-    setText(null);
+    if (commit && valid) {
+      commitDimension({
+        valueMm:
+          isDriving && parsedValue.kind === "literal"
+            ? parsedValue.valueMm
+            : placeholderMm,
+        expression:
+          isDriving && parsedValue.kind === "expression"
+            ? parsedValue.expression
+            : null,
+        name: trimmedName === "" ? null : trimmedName,
+        driving: isDriving,
+      });
+    } else {
+      cancelDimension();
+    }
+    setValue(null);
+    setName(null);
+    setDriving(null);
   };
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -108,22 +204,66 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
       center
       zIndexRange={GLYPH_Z_RANGE}
     >
-      <Panel className="w-40 p-2" data-testid="dimension-editor">
-        <form onSubmit={onSubmit}>
-          <NumberField
-            label={target.kind === "distance" ? "Distance" : "Radius"}
-            unit="mm"
-            value={value}
-            error={valid ? null : "Enter a value above 0."}
-            onChange={(event) => setText(event.target.value)}
+      <Panel className="w-52 space-y-2 p-2" data-testid="dimension-editor">
+        <form onSubmit={onSubmit} className="space-y-2">
+          {isDriving ? (
+            <ExpressionField
+              label={noun}
+              unit="mm"
+              value={valueText}
+              error={valueError}
+              resolved={resolved}
+              onChange={(event) => setValue(event.target.value)}
+              onKeyDown={onKeyDown}
+              autoFocus
+              onFocus={(event) => event.target.select()}
+              data-testid="dimension-input"
+              aria-label={`${noun} — value or expression`}
+            />
+          ) : (
+            // Driven: measured from geometry, read-only. Show the live measured
+            // value; committing keeps it as the placeholder `value_mm`.
+            <NumberField
+              label={`${noun} · reference`}
+              unit="mm"
+              value={formatDimensionMm(solved?.value_mm ?? target.initialMm)}
+              readOnly
+              data-testid="dimension-input"
+              aria-label={`${noun} reference value (measured)`}
+            />
+          )}
+          <TextField
+            label="Name"
+            value={nameText}
+            error={nameError}
+            placeholder="optional, e.g. width"
+            onChange={(event) => setName(event.target.value)}
             onKeyDown={onKeyDown}
-            autoFocus
-            onFocus={(event) => event.target.select()}
-            data-testid="dimension-input"
-            aria-label={`${target.kind === "distance" ? "Distance" : "Radius"} (mm)`}
+            data-testid="dimension-name"
+            aria-label={`${noun} name (optional, for expressions)`}
+          />
+          <SegmentedControl
+            label="Role"
+            value={isDriving ? "driving" : "driven"}
+            onChange={(next) => setDriving(next === "driving")}
+            options={[
+              {
+                value: "driving",
+                label: "Driving",
+                "data-testid": "dimension-driving",
+                "aria-label": "Driving — the value controls the geometry",
+              },
+              {
+                value: "driven",
+                label: "Driven",
+                "data-testid": "dimension-driven",
+                "aria-label":
+                  "Driven — the value is measured from the geometry",
+              },
+            ]}
           />
           {/* Enter applies; the submit button exists for pointer users. */}
-          <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 pt-0.5">
             <button
               type="submit"
               className="font-display text-2xs uppercase tracking-[0.14em] text-brass hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
@@ -141,7 +281,7 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
                   if (target.constraintIndex !== null) {
                     removeConstraint(target.constraintIndex);
                   }
-                  setText(null);
+                  close(false);
                 }}
               >
                 Remove
@@ -379,14 +519,22 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
   const selectConstraint = useSketchStore((state) => state.selectConstraint);
   const editDimension = useSketchStore((state) => state.editDimension);
   const solve = useSketchStore((state) => state.solve);
+  const solvedDimensions = useSketchStore((state) => state.solvedDimensions);
   const editing = useSketchStore(
     (state) => state.dimensionEdit?.constraintIndex ?? null,
   );
 
-  const glyphs = useMemo(
-    () => constraintGlyphs(constraints, entities, sketch.glyphOffsetMm),
-    [constraints, entities],
-  );
+  const glyphs = useMemo(() => {
+    const byIndex = new Map(
+      solvedDimensions.map((d) => [d.constraint_index, d]),
+    );
+    return constraintGlyphs(
+      constraints,
+      entities,
+      sketch.glyphOffsetMm,
+      byIndex,
+    );
+  }, [constraints, entities, solvedDimensions]);
   const flagged = useMemo(
     () => new Set([...(solve?.conflicting ?? []), ...(solve?.redundant ?? [])]),
     [solve],
@@ -396,9 +544,12 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
     <group>
       {glyphs.map((glyph) => {
         if (glyph.index === editing) return null; // the editor replaces it
+        // Driving dims are brass (the parametric handles); DRIVEN (reference)
+        // dims are quiet gauge — measured, informational — matching their
+        // parenthesised label. Flagged constraints always win.
         const tone = flagged.has(glyph.index)
           ? "flag"
-          : glyph.editable
+          : glyph.editable && !glyph.driven
             ? "accent"
             : "quiet";
         return (
@@ -413,6 +564,8 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
               selected={selectedConstraint === glyph.index}
               data-testid={`glyph-${glyph.index}`}
               data-kind={glyph.kind}
+              data-driven={glyph.driven || undefined}
+              data-expression={glyph.expression ?? undefined}
               data-flagged={flagged.has(glyph.index) || undefined}
               aria-label={glyphAria(glyph)}
               onClick={() =>
