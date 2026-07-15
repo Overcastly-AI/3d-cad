@@ -25,8 +25,15 @@ existing topo-naming machinery. **The Interop scorecard row flips ❌→➖**
 (both UI-leg items done). The P1 security fast-follow — a hard wall-clock bound
 on the untrusted-STEP OCCT parse — **shipped 2026-07-13**: the parse runs in a
 killable subprocess (default 5 s, `import_parse_timeout`), so a degenerate
-part-21 can no longer pin a worker. See `docs/BACKLOG.md` Ready queue for the
-live priority order.
+part-21 can no longer pin a worker. **Sketch dimension expressions +
+driving/driven: backend leg shipped 2026-07-15** — additive
+`name`/`expression`/`driving` on the dimension-constraint schema, a safe
+recursive-descent expression evaluator (`geometry.sketch.expression`, cycle /
+unknown-ref / div-zero → clean `sketch_invalid`), driving dims feeding the
+solver their evaluated value and driven dims read back onto
+`SolvedSketch.dimensions[]`; the frontend leg (expression-entry field +
+driving/driven toggle, `frontend-design`) is still open. See `docs/BACKLOG.md`
+Ready queue for the live priority order.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.

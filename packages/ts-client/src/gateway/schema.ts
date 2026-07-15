@@ -940,22 +940,38 @@ export interface components {
         };
         /**
          * DistanceConstraint
-         * @description Driving dimension: the length of a line (mm).
+         * @description Dimension: the length of a line (mm). Driving by default; see
+         *     :class:`DimensionConstraint` for the expression/name/driving fields.
          */
         DistanceConstraint: {
+            /**
+             * Driving
+             * @description Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.
+             */
+            driving?: boolean | null;
             /**
              * Entity
              * @description Sketch-local entity id, e.g. 'e1'
              */
             entity: string;
             /**
+             * Expression
+             * @description Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `"width/2"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash.
+             */
+            expression?: string | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "distance";
             /**
+             * Name
+             * @description Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.
+             */
+            name?: string | null;
+            /**
              * Value Mm
-             * @description Line length (mm)
+             * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
              */
             value_mm: number;
         };
@@ -2293,22 +2309,38 @@ export interface components {
         };
         /**
          * RadiusConstraint
-         * @description Driving dimension: the radius of a circle or arc (mm).
+         * @description Dimension: the radius of a circle or arc (mm). Driving by default; see
+         *     :class:`DimensionConstraint` for the expression/name/driving fields.
          */
         RadiusConstraint: {
+            /**
+             * Driving
+             * @description Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.
+             */
+            driving?: boolean | null;
             /**
              * Entity
              * @description Sketch-local entity id, e.g. 'e1'
              */
             entity: string;
             /**
+             * Expression
+             * @description Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `"width/2"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash.
+             */
+            expression?: string | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "radius";
             /**
+             * Name
+             * @description Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.
+             */
+            name?: string | null;
+            /**
              * Value Mm
-             * @description Radius (mm)
+             * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
              */
             value_mm: number;
         };
@@ -3027,6 +3059,50 @@ export interface components {
             points: components["schemas"]["Point2D"][];
         };
         /**
+         * SolvedDimension
+         * @description The computed value of one dimension constraint in a solved sketch.
+         *
+         *     Reported per dimension so the sketcher can show the number next to each
+         *     dimension WITHOUT re-parsing expressions itself:
+         *
+         *     * **driving** — ``value_mm`` is the evaluated literal/expression value that
+         *       was fed to the solver (e.g. ``height="width/2"`` with ``width=20`` reports
+         *       ``value_mm=10``).
+         *     * **driven** — ``value_mm`` is the value MEASURED back from the solved
+         *       geometry (a line's length / a circle-or-arc's radius): the read-only
+         *       readout that updates as the geometry it dimensions moves.
+         *
+         *     ``constraint_index`` points into the sketch's input constraint list, so the
+         *     UI can line each readout up with the constraint the user authored.
+         */
+        SolvedDimension: {
+            /**
+             * Constraint Index
+             * @description Index into the sketch's input constraint list.
+             */
+            constraint_index: number;
+            /**
+             * Driving
+             * @description True = driving (value fed to the solver); False = driven (value measured back from the solved geometry).
+             */
+            driving: boolean;
+            /**
+             * Expression
+             * @description The dimension's source expression, echoed for the UI (None for a bare literal dimension).
+             */
+            expression?: string | null;
+            /**
+             * Name
+             * @description The dimension's reference name, if it has one.
+             */
+            name?: string | null;
+            /**
+             * Value Mm
+             * @description Computed value (mm): the evaluated expression/literal for a driving dimension, or the measured geometry value for a driven one.
+             */
+            value_mm: number;
+        };
+        /**
          * SolvedSketchData
          * @description Per-feature solved-sketch payload (§7.10): the solver's solved entity
          *     positions, status, and DOF diagnosis for an ``ok`` sketch feature — what
@@ -3040,6 +3116,11 @@ export interface components {
             conflicting_constraints?: number[];
             /** @description Typed over-constraint classification for a SOLVED-but-over-constrained sketch (``overconstrained`` status): the redundant, removable constraints named so the sketcher can flag them without parsing text (BACKLOG #6). None for a cleanly-constrained sketch. The unsolvable ("conflicting") case rides FeatureError.sketch_diagnosis. */
             diagnosis?: components["schemas"]["SketchConstraintDiagnosis"] | null;
+            /**
+             * Dimensions
+             * @description Per-dimension computed values (driving = evaluated expression/literal; driven = measured from the solved geometry). One entry per dimension constraint, in input order. Empty for a sketch with no dimensions; additive (pre-expression callers ignore it).
+             */
+            dimensions?: components["schemas"]["SolvedDimension"][];
             /**
              * Dof
              * @description Remaining degrees of freedom (0 = fully constrained); None when the diagnosis cannot determine it (e.g. conflicting systems).

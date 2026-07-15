@@ -169,15 +169,25 @@ unchanged in substance.
       conflict indices" Later item.
 - [ ] (P2, M) Sketch dimension expressions / driving vs. driven — a
       dimension value field accepts a literal, a reference to another
-      dimension, or a math expression; each dimension gets a `driving: bool`
-      flag (driving = feeds the solver, driven = read-only/informational).
-      Confirmed absent by grep of `apps/web/src`. Depends on: nothing new.
-      Acceptance: expression parser (+,-,*,/, parens, dimension-name refs);
-      `driving` flag on the typed dimension-constraint schema; worked e2e —
-      set width=20, height="width/2", confirm height solves to 10; toggle a
-      dimension to driven, edit geometry directly, confirm the readout
-      updates without feeding the solver; screenshots; `frontend-design`
-      skill invoked for the expression-entry field. [src: competitive]
+      dimension, or a math expression; each dimension gets a `driving` flag
+      (driving = feeds the solver, driven = read-only/informational).
+      **Backend leg landed 2026-07-15 (DONE):** dimension-constraint schema
+      grew additive optional `name`/`expression`/`driving` (py-kit
+      `DimensionConstraint` base on distance+radius; `driving` nullable,
+      None=driving, backward-compat, no `param_version` bump); a safe
+      recursive-descent evaluator (`geometry.sketch.expression`, NOT `eval`)
+      resolves `+ - * / ( )`, unary minus, decimals, and dimension-name refs
+      over a dependency graph with cycle / unknown-ref / driven-ref / div-zero
+      → clean `sketch_invalid` (never a 500/hang); driving dims feed the solver
+      their evaluated value, driven dims are excluded and their value is read
+      back from the solved geometry onto the new `SolvedSketch.dimensions[]`
+      readouts. Proven in `test_sketch_expression.py` (width=20,
+      height="width/2" → 10; driven dim leaves a DOF instead of
+      over-constraining; readout tracks edited geometry; literal goldens
+      byte-identical). Contracts + ts-client regenerated (gen-check clean).
+      **Frontend leg still OPEN:** expression-entry field + driving/driven
+      toggle + driven readout display in the sketcher, `frontend-design` skill
+      invoked; worked e2e + screenshots. [src: competitive]
 - [ ] (P2, M) Sketch: constrainable splines (v1.1) — splines shipped
       non-constrained (fixed geometry, zero DOF; `planegcs` has no native
       spline primitive per the #6 commit message). Design a fit-point

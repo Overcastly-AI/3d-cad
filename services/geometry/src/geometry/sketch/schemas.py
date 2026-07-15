@@ -11,6 +11,7 @@ solver/evaluator/test imports stable (same pattern as :mod:`geometry.schemas`).
 from py_kit.schemas.sketch import (
     CoincidentConstraint,
     ConcentricConstraint,
+    DimensionConstraint,
     DistanceConstraint,
     EntityId,
     EntityPointRef,
@@ -44,6 +45,7 @@ from py_kit.schemas.sketch import (
     SketchPoint,
     SketchSolveStatus,
     SketchSpline,
+    SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
     TangentConstraint,
@@ -53,6 +55,7 @@ from py_kit.schemas.sketch import (
 __all__ = [
     "CoincidentConstraint",
     "ConcentricConstraint",
+    "DimensionConstraint",
     "DistanceConstraint",
     "EntityId",
     "EntityPointRef",
@@ -86,6 +89,7 @@ __all__ = [
     "SketchPoint",
     "SketchSolveStatus",
     "SketchSpline",
+    "SolvedDimension",
     "SolvedSketch",
     "SymmetricConstraint",
     "TangentConstraint",

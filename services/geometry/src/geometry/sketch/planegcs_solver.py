@@ -20,9 +20,14 @@ from planegcs import ArcId, CircleId, LineId, PointId
 from planegcs import Sketch as GcsSystem
 from planegcs import SolveStatus as GcsSolveStatus
 
+from geometry.sketch.expression import (
+    evaluate_driving_dimensions,
+    measure_dimension,
+)
 from geometry.sketch.schemas import (
     CoincidentConstraint,
     ConcentricConstraint,
+    DimensionConstraint,
     DistanceConstraint,
     EntityPointRef,
     EqualConstraint,
@@ -34,12 +39,14 @@ from geometry.sketch.schemas import (
     RadiusConstraint,
     SketchArc,
     SketchCircle,
+    SketchConstraint,
     SketchDefinition,
     SketchEntity,
     SketchLine,
     SketchPoint,
     SketchSolveStatus,
     SketchSpline,
+    SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
     TangentConstraint,
@@ -57,7 +64,13 @@ class PlanegcsSketchSolver:
     """
 
     def solve(self, sketch: SketchDefinition) -> SolvedSketch:
-        system = _GcsBuild(sketch)
+        # Resolve dimension expressions FIRST (input prep): driving dimensions
+        # get a concrete value (literal or evaluated expression); a bad
+        # expression / unknown-or-driven ref / cycle / div-zero raises
+        # SketchExpressionError (a SketchDefinitionError → sketch_invalid).
+        # Driven dimensions are absent from this map and never fed to the solver.
+        driving_values = evaluate_driving_dimensions(sketch.constraints)
+        system = _GcsBuild(sketch, driving_values)
         raw_status = system.gcs.solve()  # default DogLeg — deterministic
         diagnosis = system.gcs.diagnose()
         solved = raw_status in (GcsSolveStatus.Success, GcsSolveStatus.Converged)
@@ -89,13 +102,49 @@ class PlanegcsSketchSolver:
             if solved
             else [entity.model_copy(deep=True) for entity in sketch.entities]
         )
+        dimensions = _dimension_readouts(sketch.constraints, entities, driving_values)
         return SolvedSketch(
             status=status,
             entities=entities,
             dof=diagnosis.dof if diagnosis.dof >= 0 else None,
             conflicting_constraints=conflicting,
             redundant_constraints=redundant,
+            dimensions=dimensions,
         )
+
+
+def _dimension_readouts(
+    constraints: list[SketchConstraint],
+    entities: list[SketchEntity],
+    driving_values: dict[int, float],
+) -> list[SolvedDimension]:
+    """Per-dimension computed values for the solved payload.
+
+    A driving dimension reports the value fed to the solver (evaluated
+    expression / literal); a driven dimension reports the value MEASURED back
+    from the solved geometry (the read-only readout that tracks the geometry it
+    dimensions). One entry per dimension constraint, in input order.
+    """
+    entities_by_id = {entity.id: entity for entity in entities}
+    readouts: list[SolvedDimension] = []
+    for index, constraint in enumerate(constraints):
+        if not isinstance(constraint, DimensionConstraint):
+            continue
+        value = (
+            driving_values[index]
+            if constraint.is_driving
+            else measure_dimension(constraint, entities_by_id)
+        )
+        readouts.append(
+            SolvedDimension(
+                constraint_index=index,
+                name=constraint.name,
+                driving=constraint.is_driving,
+                value_mm=value,
+                expression=constraint.expression,
+            )
+        )
+    return readouts
 
 
 def _map_status(
@@ -120,8 +169,14 @@ class _GcsBuild:
     diagnosis tags back to constraint indices, and read solved geometry out.
     """
 
-    def __init__(self, sketch: SketchDefinition) -> None:
+    def __init__(
+        self, sketch: SketchDefinition, driving_values: dict[int, float]
+    ) -> None:
         self.sketch = sketch
+        #: constraint index -> evaluated value, for DRIVING dimensions only. A
+        #: dimension constraint whose index is absent is DRIVEN — excluded from
+        #: the constraint system (its value is measured back post-solve).
+        self.driving_values = driving_values
         self.gcs = GcsSystem()
         self._points: dict[tuple[str, str], PointId] = {}
         self._lines: dict[str, LineId] = {}
@@ -225,22 +280,23 @@ class _GcsBuild:
             case VerticalConstraint():
                 tag = gcs.vertical(self._resolve_line(constraint.entity, "vertical"))
             case DistanceConstraint():
+                if index not in self.driving_values:
+                    return  # DRIVEN — not fed to the solver (measured post-solve)
                 line_id = constraint.entity
                 self._resolve_line(line_id, "distance")  # kind check
                 tag = gcs.set_p2p_distance(
                     self._points[(line_id, "start")],
                     self._points[(line_id, "end")],
-                    constraint.value_mm,
+                    self.driving_values[index],
                 )
             case RadiusConstraint():
+                if index not in self.driving_values:
+                    return  # DRIVEN — not fed to the solver (measured post-solve)
+                value = self.driving_values[index]
                 if constraint.entity in self._circles:
-                    tag = gcs.set_circle_radius(
-                        self._circles[constraint.entity], constraint.value_mm
-                    )
+                    tag = gcs.set_circle_radius(self._circles[constraint.entity], value)
                 elif constraint.entity in self._arcs:
-                    tag = gcs.set_arc_radius(
-                        self._arcs[constraint.entity], constraint.value_mm
-                    )
+                    tag = gcs.set_arc_radius(self._arcs[constraint.entity], value)
                 else:
                     raise SketchDefinitionError(
                         "Constraint 'radius' requires a circle or arc entity; "

@@ -13,10 +13,17 @@ from geometry.sketch.edit import (
     offset_sketch,
     trim_sketch,
 )
+from geometry.sketch.expression import (
+    SketchExpressionError,
+    evaluate_driving_dimensions,
+    measure_dimension,
+    parse_expression,
+)
 from geometry.sketch.planegcs_solver import PlanegcsSketchSolver
 from geometry.sketch.schemas import (
     CoincidentConstraint,
     ConcentricConstraint,
+    DimensionConstraint,
     DistanceConstraint,
     EntityPointRef,
     EqualConstraint,
@@ -47,6 +54,7 @@ from geometry.sketch.schemas import (
     SketchPoint,
     SketchSolveStatus,
     SketchSpline,
+    SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
     TangentConstraint,
@@ -57,6 +65,7 @@ from geometry.sketch.solver import SketchDefinitionError, SketchSolver
 __all__ = [
     "CoincidentConstraint",
     "ConcentricConstraint",
+    "DimensionConstraint",
     "DistanceConstraint",
     "EntityPointRef",
     "EqualConstraint",
@@ -81,6 +90,7 @@ __all__ = [
     "SketchEditRequest",
     "SketchEditResult",
     "SketchEntity",
+    "SketchExpressionError",
     "SketchFilletRequest",
     "SketchLine",
     "SketchMirrorRequest",
@@ -91,14 +101,18 @@ __all__ = [
     "SketchSolveStatus",
     "SketchSolver",
     "SketchSpline",
+    "SolvedDimension",
     "SolvedSketch",
     "SymmetricConstraint",
     "TangentConstraint",
     "VerticalConstraint",
     "chamfer_sketch",
+    "evaluate_driving_dimensions",
     "extend_sketch",
     "fillet_sketch",
+    "measure_dimension",
     "mirror_sketch",
     "offset_sketch",
+    "parse_expression",
     "trim_sketch",
 ]

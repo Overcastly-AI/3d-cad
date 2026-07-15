@@ -192,20 +192,102 @@ class VerticalConstraint(BaseModel):
     entity: EntityId
 
 
-class DistanceConstraint(BaseModel):
-    """Driving dimension: the length of a line (mm)."""
+#: A dimension's optional reference NAME — a stable handle another dimension's
+#: expression can reference (name ``"width"`` → ``height`` carries
+#: ``expression="width/2"``). Identifier-like (a letter or underscore, then
+#: letters/digits/underscores); uniqueness within a sketch is enforced on
+#: :class:`SketchDefinition` (a per-field pattern cannot see its siblings).
+DimensionName = Annotated[
+    str,
+    Field(
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+        description="Dimension reference name: identifier-like, unique per sketch.",
+    ),
+]
+
+
+class DimensionConstraint(BaseModel):
+    """Shared fields of a **dimension** (distance, radius, …): value, optional
+    expression, optional reference name, and the driving/driven flag.
+
+    A dimension's value is EITHER a literal ``value_mm`` OR a math
+    ``expression`` over other dimensions' names; when ``expression`` is present
+    it SUPERSEDES ``value_mm`` (which then holds the last resolved value, kept
+    for display before the next solve). ``name`` gives the dimension a stable
+    handle other expressions can reference. ``driving`` distinguishes a DRIVING
+    dimension (its value is fed to the solver) from a DRIVEN one (excluded from
+    the constraint system; its value is measured back from the solved geometry
+    for read-only display — the solver never sees it, so it cannot
+    over-constrain).
+
+    Additive optional fields (docs/design/feature-tree.md §1.3 — NO
+    ``param_version`` bump): a dimension persisted before these fields lacks the
+    keys and reads as ``expression=None``, ``name=None``, ``driving=True`` — a
+    plain literal driving dimension, exactly its former meaning. Totality holds:
+    every stored sketch still parses and, since a literal driving dimension
+    feeds the solver its ``value_mm`` unchanged, solves byte-identically.
+    """
+
+    value_mm: float = Field(
+        gt=0,
+        description="Resolved dimension value (mm). The literal value when "
+        "`expression` is None; otherwise the last solved/resolved value (the "
+        "expression supersedes it on the next solve, but a positive placeholder "
+        "is still required so a pre-solve read has a value).",
+    )
+    expression: str | None = Field(
+        default=None,
+        description="Optional math expression over other dimension NAMES "
+        '(`+ - * / ( )`, unary minus, decimals), e.g. `"width/2"`. When '
+        "present it SUPERSEDES `value_mm` and the geometry service re-evaluates "
+        "it each solve. A bare literal dimension leaves this None. Only "
+        "*driving* dimensions may be referenced; a bad expression / unknown or "
+        "driven reference / cycle / division-by-zero is a clean `sketch_invalid` "
+        "error, never a crash.",
+    )
+    name: DimensionName | None = Field(
+        default=None,
+        description="Optional stable name so another dimension's `expression` "
+        "can reference this one. Unique within a sketch (enforced on "
+        "SketchDefinition). None = unnamed: still solves, just not referenceable.",
+    )
+    driving: bool | None = Field(
+        default=None,
+        description="Driving/driven flag. None (absent, the default) or True = "
+        "DRIVING: the value is fed to the solver. False = DRIVEN: excluded from "
+        "the constraint system; the value is measured back from the solved "
+        "geometry for display (read-only, never fed as a constraint, so a driven "
+        "dimension cannot over-constrain). Nullable+None-default (rather than a "
+        "bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted "
+        "before it reads as None = driving, and the generated TS client leaves "
+        "it optional. Read it through `is_driving`, never the raw tri-state.",
+    )
+
+    @property
+    def is_driving(self) -> bool:
+        """True unless the dimension is explicitly marked driven.
+
+        Collapses the additive tri-state (`None`/`True`/`False`) to the boolean
+        the solver wiring wants: absent/None (backward-compat default) and True
+        both mean DRIVING; only an explicit `False` means DRIVEN.
+        """
+        return self.driving is not False
+
+
+class DistanceConstraint(DimensionConstraint):
+    """Dimension: the length of a line (mm). Driving by default; see
+    :class:`DimensionConstraint` for the expression/name/driving fields."""
 
     kind: Literal["distance"]
     entity: EntityId
-    value_mm: float = Field(gt=0, description="Line length (mm)")
 
 
-class RadiusConstraint(BaseModel):
-    """Driving dimension: the radius of a circle or arc (mm)."""
+class RadiusConstraint(DimensionConstraint):
+    """Dimension: the radius of a circle or arc (mm). Driving by default; see
+    :class:`DimensionConstraint` for the expression/name/driving fields."""
 
     kind: Literal["radius"]
     entity: EntityId
-    value_mm: float = Field(gt=0, description="Radius (mm)")
 
 
 class FixedConstraint(BaseModel):
@@ -348,6 +430,22 @@ class SketchDefinition(BaseModel):
             seen.add(entity.id)
         return self
 
+    @model_validator(mode="after")
+    def _unique_dimension_names(self) -> "SketchDefinition":
+        # A dimension NAME must be unique within a sketch so an expression's
+        # reference resolves unambiguously (``height="width/2"``). Enforced here
+        # rather than per-field because a field validator cannot see sibling
+        # constraints. Unnamed dimensions (name=None) are unconstrained.
+        seen: set[str] = set()
+        for constraint in self.constraints:
+            name = getattr(constraint, "name", None)
+            if name is None:
+                continue
+            if name in seen:
+                raise ValueError(f"Duplicate sketch dimension name: {name!r}")
+            seen.add(name)
+        return self
+
 
 #: Outcome of a solve, in precedence order (a conflicting sketch is reported
 #: ``conflicting`` even if it is also over- or underconstrained):
@@ -366,6 +464,44 @@ SketchSolveStatus = Literal[
     "conflicting",
     "diverged",
 ]
+
+
+class SolvedDimension(BaseModel):
+    """The computed value of one dimension constraint in a solved sketch.
+
+    Reported per dimension so the sketcher can show the number next to each
+    dimension WITHOUT re-parsing expressions itself:
+
+    * **driving** — ``value_mm`` is the evaluated literal/expression value that
+      was fed to the solver (e.g. ``height="width/2"`` with ``width=20`` reports
+      ``value_mm=10``).
+    * **driven** — ``value_mm`` is the value MEASURED back from the solved
+      geometry (a line's length / a circle-or-arc's radius): the read-only
+      readout that updates as the geometry it dimensions moves.
+
+    ``constraint_index`` points into the sketch's input constraint list, so the
+    UI can line each readout up with the constraint the user authored.
+    """
+
+    constraint_index: int = Field(
+        ge=0, description="Index into the sketch's input constraint list."
+    )
+    name: str | None = Field(
+        default=None, description="The dimension's reference name, if it has one."
+    )
+    driving: bool = Field(
+        description="True = driving (value fed to the solver); False = driven "
+        "(value measured back from the solved geometry)."
+    )
+    value_mm: float = Field(
+        description="Computed value (mm): the evaluated expression/literal for a "
+        "driving dimension, or the measured geometry value for a driven one."
+    )
+    expression: str | None = Field(
+        default=None,
+        description="The dimension's source expression, echoed for the UI "
+        "(None for a bare literal dimension).",
+    )
 
 
 class SolvedSketch(BaseModel):
@@ -400,6 +536,13 @@ class SolvedSketch(BaseModel):
     redundant_constraints: list[int] = Field(
         default_factory=list[int],
         description="Indices into the input constraint list that are redundant.",
+    )
+    dimensions: list[SolvedDimension] = Field(
+        default_factory=list["SolvedDimension"],
+        description="Per-dimension computed values (driving = evaluated "
+        "expression/literal; driven = measured from the solved geometry). One "
+        "entry per dimension constraint, in input order. Empty for a sketch with "
+        "no dimensions; additive (pre-expression callers ignore it).",
     )
 
 
@@ -460,7 +603,9 @@ class SketchConstraintDiagnosis(BaseModel):
 
 
 def classify_overconstraint(solved: SolvedSketch) -> SketchConstraintDiagnosis | None:
-    """Classify an over-constrained solve into a typed :class:`SketchConstraintDiagnosis`.
+    """Classify an over-constrained solve into a typed diagnosis.
+
+    Produces a :class:`SketchConstraintDiagnosis` (or ``None``).
 
     Pure function of the solver's already-computed output (BACKLOG #6 EXPOSES
     the existing ``conflicting``/``redundant`` sets — it derives no new math).

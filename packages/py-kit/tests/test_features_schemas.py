@@ -79,8 +79,22 @@ SKETCH_PARAMS: dict[str, Any] = {
         },
         {"kind": "horizontal", "entity": "e1"},
         {"kind": "vertical", "entity": "e2"},
-        {"kind": "distance", "entity": "e1", "value_mm": 40.0},
-        {"kind": "distance", "entity": "e2", "value_mm": 25.0},
+        {
+            "kind": "distance",
+            "entity": "e1",
+            "value_mm": 40.0,
+            "expression": None,
+            "name": None,
+            "driving": True,
+        },
+        {
+            "kind": "distance",
+            "entity": "e2",
+            "value_mm": 25.0,
+            "expression": None,
+            "name": None,
+            "driving": True,
+        },
     ],
 }
 
@@ -528,6 +542,8 @@ def _solved_sketch_data() -> dict[str, Any]:
         "dof": 0,
         "conflicting_constraints": [],
         "redundant_constraints": [],
+        "dimensions": [],
+        "diagnosis": None,
     }
 
 
