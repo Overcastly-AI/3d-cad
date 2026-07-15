@@ -34,7 +34,12 @@ from py_kit.schemas.geometry import (
     ShapeProperties,
     Vec3,
 )
-from py_kit.schemas.sketch import EntityId, SketchDefinition, SolvedSketch
+from py_kit.schemas.sketch import (
+    EntityId,
+    SketchConstraintDiagnosis,
+    SketchDefinition,
+    SolvedSketch,
+)
 
 #: Upper bound for a user-facing feature name ("Sketch1", "Extrude1").
 FEATURE_NAME_MAX_LENGTH = 200
@@ -1754,6 +1759,13 @@ class FeatureError(BaseModel):
     upstream_feature_id: uuid.UUID | None = Field(
         default=None,
         description="Set when the root cause is an earlier feature's output",
+    )
+    sketch_diagnosis: SketchConstraintDiagnosis | None = Field(
+        default=None,
+        description="Typed over-constraint classification for the "
+        '"sketch_conflicting" code: which constraints conflict vs. are redundant, '
+        "so the sketcher reads the diagnosis by field instead of parsing "
+        "``message`` (BACKLOG #6). None for non-sketch-conflict errors.",
     )
 
 

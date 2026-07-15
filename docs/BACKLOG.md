@@ -153,15 +153,15 @@ unchanged in substance.
       in the message; frontend reads the typed field instead of parsing
       text; worked e2e; supersedes the older "Structured conflict indices"
       Later item. [src: product-auditor, competitive]
-      **Backend part 1 landed 2026-07-13** (`SketchConstraintDiagnosis` DTO +
-      `classify_overconstraint` pure classifier in py-kit `schemas/sketch.py`,
-      unit-tested `test_sketch_schemas.py` — maps solver `conflicting`/
-      `overconstrained` status + its already-computed id sets into the typed
-      shape). REMAINING: wire it onto the `sketch_conflicting` `FeatureError`
-      (`evaluate.py:345`) + the solved-sketch payload (redundant-but-solvable
-      path) with contract regen, then the frontend leg (read the typed field)
-      + e2e. (Split because the weekly usage limit interrupted the wiring; the
-      classifier is unwired-but-tested, no contract drift.)
+      **Backend landed 2026-07-13 (2 commits):** part 1 = `SketchConstraintDiagnosis`
+      DTO + `classify_overconstraint` classifier (py-kit `schemas/sketch.py`,
+      unit-tested). Part 2 = wired onto the `sketch_conflicting` `FeatureError`
+      (`FeatureError.sketch_diagnosis`, populated at `evaluate.py:345`, contracts
+      regenerated), asserted typed in `test_evaluate_tree.py` (conflicting →
+      `classification="conflicting"`, `removable=False`, ids named). REMAINING:
+      surface the REDUNDANT-but-solvable case on the solved-sketch payload
+      (`SolvedSketchData`, the `overconstrained`-status ok path), then the
+      frontend leg (read the typed field, drop string-parsing) + e2e.
 - [ ] (P2, M) Sketch dimension expressions / driving vs. driven — a
       dimension value field accepts a literal, a reference to another
       dimension, or a math expression; each dimension gets a `driving: bool`

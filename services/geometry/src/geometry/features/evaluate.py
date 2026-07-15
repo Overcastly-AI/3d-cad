@@ -87,6 +87,7 @@ from py_kit.schemas.features import (
     SweepFeature,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
+from py_kit.schemas.sketch import classify_overconstraint
 
 from geometry.kernel import (
     DATUM_PLANES,
@@ -349,6 +350,7 @@ def _evaluate_sketch(
                 "Sketch constraints are mutually unsatisfiable (conflicting "
                 f"constraint indices: {solved.conflicting_constraints})."
             ),
+            sketch_diagnosis=classify_overconstraint(solved),
         )
     if solved.status == "diverged":
         return FeatureError(

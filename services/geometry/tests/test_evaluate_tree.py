@@ -253,6 +253,14 @@ def test_conflicting_sketch_is_feature_error_not_exception() -> None:
     assert error is not None
     assert error.code == "sketch_conflicting"
     assert error.message  # human-readable, names the conflicting indices
+    # BACKLOG #6: the error carries a TYPED classification, not just a string —
+    # a conflicting sketch is unsolvable (removable=False) with the offending
+    # constraint ids named, so the sketcher reads it by field.
+    diag = error.sketch_diagnosis
+    assert diag is not None
+    assert diag.classification == "conflicting"
+    assert diag.removable is False
+    assert diag.conflicting_constraints  # the offending ids, named typed
     assert result.last_good_feature_id is None
 
 
