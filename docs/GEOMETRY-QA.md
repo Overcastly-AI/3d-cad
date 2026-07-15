@@ -41,6 +41,81 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-15 — INDEPENDENT VERIFICATION: `assembly-two-plates-bolted` (commit 05f6aa1)
+
+Independent re-derivation of the FIRST assembly golden — the correctness gate
+for the whole assemblies pillar. Every analytic value below was re-derived FROM
+SCRATCH (not read out of `expected.json`), then checked against the live HEAD
+pipeline. **Verdict: PASS — the golden is trustworthy. Analytic pose and roll-up
+are both correct; the 1e-6 tolerance is an honest solver-convergence bound, not
+a cover for a wrong pose.**
+
+**Model (from `model.json`).** Two instances of ONE part: a 40×25×10 mm plate,
+two r5 through-holes at (12, 12.5) and (28, 12.5), sketch-on-XY extruded +10 mm.
+Instance A grounded at identity; instance B seeded displaced (3, 2, 16) + ~5.7°
+about Z. Mates: 1 coincident/flush (A top face +Z @ z=10 ↔ B bottom face −Z @
+local z=0) + 2 concentric (both hole axes).
+
+**1 — Solved pose of free instance B, re-derived independently.** Coincident +
+flush ⇒ B's bottom face (local z=0, normal −Z) sits on A's top face (world z=10,
+normal +Z) with anti-parallel normals ⇒ B translates +10 in z; no flip needed
+(B local −Z already opposes A's +Z under identity rotation, and the seed is
+above A so LM converges to the near solution, not a 180° flip). Two concentric
+mates on holes at DISTINCT x (12 and 28) pin both x/y translation → 0 and the
+spin-about-z → identity (a single bolt would leave the spin DOF free). **Analytic
+B = position (0, 0, 10), orientation identity, 0 remaining DOF → well_constrained.
+This matches `expected.json` exactly, and it is genuinely correct — not assumed.**
+Live pipeline at HEAD:
+- B position `(-4.42e-9, -2.46e-9, 10.000000011811828)` — worst 1.18e-8 mm from (0,0,10)
+- B orientation quat `(-1.24e-10, 2.17e-10, -1.01e-12, 1.0)`; rotation-matrix max
+  dev from identity 4.34e-10. A held fixed at exact identity (grounded).
+
+**2 — Combined roll-up, re-derived independently.** Per-part props re-derived
+from the box-minus-2-cylinders analytic (independent of the author): volume
+`10000 − 500π = 8429.203673205104`; SA `3300 + 100π = 3614.159265358979`;
+centroid (20, 12.5, 5); AABB [0,0,0]–[40,25,10]; topology 8 faces/18 edges/1
+shell (6 box + 2 cyl faces; 12 box + 4 circle + 2 seam edges). Roll-up (pure Σ,
+no boolean — plates only touch at a face, zero overlap):
+- volume 2×8429.203673205104 = **16858.407346410208** — live dev **0.0**
+- surface_area 2×3614.159265358979 = **7228.318530717958** — live dev **0.0**
+- centroid (20, 12.5, (5+15)/2 = 10) — live dev **1.12e-9 mm**
+- AABB [0,0,0]–[40,25,20] (union of A and B's +10z-translated box) — live dev **1.18e-8 mm**
+- topology **16 faces / 36 edges / 2 shells** (summed, NOT boolean-fused — two
+  distinct shells; render-time instanced assembly) — live **exact match**.
+All match my hand-derivation and `expected.json`.
+
+**3 — Live reproduction at HEAD (in-process, not `just e2e`).**
+`pytest test_assembly_goldens.py` → **7 passed in 9.76s**. Measured **worst
+deviation across every asserted quantity = 1.18e-8 mm** (B's z / AABB max.z),
+vs the documented **1e-6** ceiling → **~85× headroom**. The rationale's claimed
+1.2e-8 worst case is honest. **Is 1e-6 a real convergence bound or loose cover?**
+Honest bound. The solve is iterative Levenberg-Marquardt (all axis/normal
+correspondences are vertical/parallel, so the closed-form fast path cannot pin
+the spin and correctly defers to LM, which lands on a small residual, not exact
+zero). Any *geometrically wrong* pose (interpenetration at z=0, a hole
+misalignment, a 180° flip) would differ by O(mm) — 6+ orders of magnitude above
+1e-6 — so the tolerance cannot hide a wrong pose while sitting only ~85× above
+the true residual. Not loosened; not a way to go green.
+
+**4 — Determinism.** Both suite determinism tests pass (in-process rebuild +
+fresh-interpreter restart). Independent extra check: two INDEPENDENT fresh
+interpreters produced byte-identical result JSON
+(`sha256:0c7c7e1d…1464ca` both). Cross-process stability holds because the LM
+solve runs under `threadpool_limits(limits=1, user_api="blas")`
+(`services/geometry/src/geometry/assembly/solver.py:540`), fixing the BLAS
+reduction order — confirmed to actually hold across restart, so no determinism
+flake to sink the pillar.
+
+**5 — Shared-mesh dedup.** Both instances carry the SAME content address
+`sha256:a4a8748920499365…5563a` → **exactly 1 distinct `part_mesh_glb_id`**.
+The per-instance-transform-over-shared-mesh contract holds: the plate is
+evaluated + tessellated ONCE and instanced twice.
+
+**Findings:** none. No defect filed. The golden's hand-derivation is
+independently confirmed correct at every gate (pose, roll-up, topology,
+determinism, dedup); the tolerance is justified. Golden is a trustworthy
+correctness gate for the assemblies pillar.
+
 ## 2026-07-15 — Assemblies v1 #5: assembly evaluation + shared-mesh + first assembly golden
 
 **What shipped (the v1 DoD — "bolt two parts together and see it").** The
