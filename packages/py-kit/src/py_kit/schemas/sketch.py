@@ -403,6 +403,118 @@ class SolvedSketch(BaseModel):
     )
 
 
+#: Over-constraint severity (BACKLOG #6). The solver already computes both the
+#: conflicting and redundant constraint sets (:class:`SolvedSketch`); this names
+#: which KIND of over-constraint a sketch has:
+#:
+#: - ``redundant``   — the named constraints are superfluous but CONSISTENT: the
+#:                     sketch still solves once they are removed (removable).
+#: - ``conflicting`` — the named constraints are mutually CONTRADICTORY: no
+#:                     solution exists until one is removed or relaxed.
+SketchOverconstraintClass = Literal["redundant", "conflicting"]
+
+
+class SketchConstraintDiagnosis(BaseModel):
+    """Typed classification of an over-constrained sketch (BACKLOG #6).
+
+    Exposes the solver's already-computed redundant/conflicting constraint sets
+    (:class:`SolvedSketch`) as a STRUCTURED diagnosis a caller reads by field —
+    never a message string the frontend has to parse. It distinguishes the two
+    over-constraint kinds a working engineer must tell apart (VISION.md
+    Sketching row): a REDUNDANT constraint is removable and the sketch still
+    solves, whereas a CONFLICTING constraint makes the sketch unsolvable until
+    one is relaxed. Built by :func:`classify_overconstraint`; carried on the
+    :class:`py_kit.schemas.features.FeatureError` (the ``sketch_conflicting``
+    error path) and on the solved-sketch feature payload (the redundant-but-
+    solvable path), so BOTH cases surface the same typed shape.
+    """
+
+    classification: SketchOverconstraintClass = Field(
+        description="Over-constraint kind: 'redundant' (removable, still solves) "
+        "or 'conflicting' (contradictory, unsolvable until relaxed)."
+    )
+    removable: bool = Field(
+        description="True when the sketch still solves after removing the named "
+        "constraints (the redundant case); False when a genuine conflict remains "
+        "(the sketch is unsolvable). Mirrors `classification` for callers that "
+        "prefer a boolean over the enum."
+    )
+    conflicting_constraints: list[int] = Field(
+        default_factory=list[int],
+        description="Indices (into the sketch's input constraint list) of the "
+        "CONTRADICTORY constraints — empty for a purely redundant over-constraint.",
+    )
+    redundant_constraints: list[int] = Field(
+        default_factory=list[int],
+        description="Indices (into the sketch's input constraint list) of the "
+        "REDUNDANT (consistent-but-superfluous, removable) constraints.",
+    )
+    message: str = Field(
+        description="Human-readable diagnosis (kernel/solver detail sanitized)."
+    )
+    suggested_fix: str | None = Field(
+        default=None,
+        description="Actionable hint naming a constraint to remove/relax, e.g. "
+        "'Remove constraint 3'. None when no single-constraint fix is offered.",
+    )
+
+
+def classify_overconstraint(solved: SolvedSketch) -> SketchConstraintDiagnosis | None:
+    """Classify an over-constrained solve into a typed :class:`SketchConstraintDiagnosis`.
+
+    Pure function of the solver's already-computed output (BACKLOG #6 EXPOSES
+    the existing ``conflicting``/``redundant`` sets — it derives no new math).
+    Returns ``None`` for a solve with no over-constraint (converged /
+    underconstrained / diverged). Otherwise the solver ``status`` decides the
+    kind (its documented precedence — ``conflicting`` dominates ``redundant``):
+
+    * ``conflicting`` — some constraints are mutually unsatisfiable, so the
+      sketch is UNSOLVABLE (``removable=False``). Both the conflicting ids and
+      any redundant ids planegcs also reported are named; the fix relaxes a
+      conflicting one.
+    * ``overconstrained`` — the extra constraints are CONSISTENT, so the sketch
+      still solves after dropping them (``removable=True``); the fix removes a
+      redundant one.
+    """
+    if solved.status == "conflicting":
+        conflicting = list(solved.conflicting_constraints)
+        redundant = list(solved.redundant_constraints)
+        named = conflicting or redundant
+        fix = f"Remove or relax constraint {named[0]}" if named else None
+        detail = (
+            f"constraint(s) {conflicting} conflict"
+            if conflicting
+            else "constraints conflict"
+        )
+        return SketchConstraintDiagnosis(
+            classification="conflicting",
+            removable=False,
+            conflicting_constraints=conflicting,
+            redundant_constraints=redundant,
+            message=(
+                f"Sketch constraints are mutually unsatisfiable: {detail}. No "
+                "solution exists until one is removed or relaxed."
+            ),
+            suggested_fix=fix,
+        )
+    if solved.status == "overconstrained":
+        redundant = list(solved.redundant_constraints)
+        fix = f"Remove constraint {redundant[0]}" if redundant else None
+        return SketchConstraintDiagnosis(
+            classification="redundant",
+            removable=True,
+            conflicting_constraints=[],
+            redundant_constraints=redundant,
+            message=(
+                f"Sketch is over-constrained but consistent: constraint(s) "
+                f"{redundant} are redundant and can be removed; the sketch still "
+                "solves."
+            ),
+            suggested_fix=fix,
+        )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Sketch editing — trim / extend (BACKLOG #2, backend)
 # ---------------------------------------------------------------------------

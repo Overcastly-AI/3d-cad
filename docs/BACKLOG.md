@@ -141,7 +141,7 @@ unchanged in substance.
       sandbox can't prove it (no docker daemon, no `moto`; a `moto` in-process
       mock wouldn't exercise the cross-process path), so the swap MUST NOT land
       without that CI gate. Depends on: nothing new. [src: engineering-auditor F1]
-- [ ] (P2, S) Sketch: over-constraint classification — upgrade
+- [~] (P2, S) Sketch: over-constraint classification — upgrade
       `sketch_conflicting` from raw constraint indices to a classified
       redundant-vs-conflicting diagnosis with a suggested fix, surfaced in
       the typed `FeatureError` (not string-parsed). `planegcs_solver.py`
@@ -153,6 +153,15 @@ unchanged in substance.
       in the message; frontend reads the typed field instead of parsing
       text; worked e2e; supersedes the older "Structured conflict indices"
       Later item. [src: product-auditor, competitive]
+      **Backend part 1 landed 2026-07-13** (`SketchConstraintDiagnosis` DTO +
+      `classify_overconstraint` pure classifier in py-kit `schemas/sketch.py`,
+      unit-tested `test_sketch_schemas.py` — maps solver `conflicting`/
+      `overconstrained` status + its already-computed id sets into the typed
+      shape). REMAINING: wire it onto the `sketch_conflicting` `FeatureError`
+      (`evaluate.py:345`) + the solved-sketch payload (redundant-but-solvable
+      path) with contract regen, then the frontend leg (read the typed field)
+      + e2e. (Split because the weekly usage limit interrupted the wiring; the
+      classifier is unwired-but-tested, no contract drift.)
 - [ ] (P2, M) Sketch dimension expressions / driving vs. driven — a
       dimension value field accepts a literal, a reference to another
       dimension, or a math expression; each dimension gets a `driving: bool`
