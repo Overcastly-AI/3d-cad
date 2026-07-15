@@ -15,6 +15,7 @@ the unit suite; RESEARCH §9 "solver determinism" gate).
 """
 
 import math
+from typing import assert_never
 
 from planegcs import ArcId, CircleId, LineId, PointId
 from planegcs import Sketch as GcsSystem
@@ -170,14 +171,32 @@ def _constraint_point_refs(constraint: SketchConstraint) -> tuple[EntityPointRef
     whole entities by id. Used to discover which spline fit points a sketch
     actually constrains (so only *those* enter the solver — an unconstrained
     fit point contributes no DOF, matching the pre-v1.1 pass-through).
+
+    The entity-only kinds are enumerated EXPLICITLY (not a ``case _`` wildcard)
+    with an ``assert_never`` tail: if a future constraint kind grows an
+    ``EntityPointRef``, pyright fails here until it is classified, rather than a
+    wildcard silently dropping its point refs (whose fit points would then never
+    register and the valid constraint would surface a misleading error).
     """
     match constraint:
         case CoincidentConstraint() | SymmetricConstraint():
             return (constraint.a, constraint.b)
         case FixedConstraint():
             return (constraint.point,)
-        case _:
+        case (
+            HorizontalConstraint()
+            | VerticalConstraint()
+            | DistanceConstraint()
+            | RadiusConstraint()
+            | ParallelConstraint()
+            | PerpendicularConstraint()
+            | TangentConstraint()
+            | EqualConstraint()
+            | ConcentricConstraint()
+        ):
             return ()
+        case _:
+            assert_never(constraint)
 
 
 def _referenced_fit_points(constraints: list[SketchConstraint]) -> set[tuple[str, str]]:
