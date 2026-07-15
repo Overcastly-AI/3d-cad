@@ -28,8 +28,13 @@ Pipeline (design §4):
 
 Error posture (design §4, mirroring feature-tree §4.3): a dangling / bodyless
 part, an unresolvable mate (``subshape_unresolved`` / ``subshape_ambiguous`` from
-#3's chained error), an ungrounded assembly, or a conflicting solve is a **200
-with a typed per-entry error / status**, never a 500 or a hang. Under-constrained
+#3's chained error), a self-mate (``mate_self_reference`` — both slots naming the
+same instance, dropped per-mate), an ungrounded assembly, or a conflicting solve
+is a **200 with a typed per-entry error / status**, never a 500 or a hang. Even a
+malformed request the per-mate guards miss (a duplicate instance id, or any
+residual :class:`AssemblyDefinitionError` from the pre-solve build or the solver)
+maps to a clean assembly-level status — :func:`evaluate_assembly` is **total**,
+it never raises for an evaluation outcome. Under-constrained
 (including a fully ungrounded assembly, free by its 6 rigid-body DOF) is
 NON-fatal: a valid seed-consistent placement with the remaining DOF reported.
 """
@@ -49,6 +54,7 @@ from py_kit.schemas.assemblies import (
     InstancePlacementResult,
     MateEvaluationError,
     Placement,
+    mate_instance_ids,
 )
 from py_kit.schemas.features import (
     EvaluateTreeRequest,
@@ -144,6 +150,28 @@ def _mate_resolution_error(exc: AssemblyDefinitionError) -> FeatureError:
     return FeatureError(code=code, message=str(exc))
 
 
+def _mate_self_reference_error(
+    mate_id: uuid.UUID, instance_id: uuid.UUID
+) -> MateEvaluationError:
+    """A per-mate error for a mate that constrains an instance to itself (§4).
+
+    Both slots (or a lock mate's two instance ids) name the SAME instance — the
+    solver's :func:`compile_mate` would reject this as malformed input; caught
+    here first so it is DROPPED like any other bad mate (a typed per-mate error)
+    and the rest of the assembly still solves, never a 500.
+    """
+    return MateEvaluationError(
+        mate_id=mate_id,
+        error=FeatureError(
+            code="mate_self_reference",
+            message=(
+                f"mate {mate_id} constrains instance {instance_id} to itself; a "
+                "mate must relate two distinct instances"
+            ),
+        ),
+    )
+
+
 def _evaluate_unique_parts(request: EvaluateAssemblyRequest) -> dict[str, _PartResult]:
     """Evaluate each UNIQUE part exactly once, keyed by ``part_key`` (§4 step 1).
 
@@ -191,6 +219,13 @@ def _resolve_mates(
     solver_mates: list[SolverMate] = []
     mate_errors: list[MateEvaluationError] = []
     for evaluated in request.mates:
+        ids = mate_instance_ids(evaluated.mate)
+        if len(set(ids)) < len(ids):
+            # A self-mate resolves against the one body (so it would pass the
+            # per-mate resolve guard) but the solver rejects it — drop it here as
+            # a typed per-mate error instead of letting it raise (§4).
+            mate_errors.append(_mate_self_reference_error(evaluated.mate_id, ids[0]))
+            continue
         resolvable = ResolvableMate(
             mate_id=evaluated.mate_id,
             order_index=evaluated.order_index,
@@ -304,11 +339,25 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
     solved: dict[uuid.UUID, Placement] = {}
 
     if evaluable:
-        problem, mate_errors = _resolve_mates(evaluable, request)
-        result = _SOLVER.solve(problem)
-        status = result.status
-        diagnosis = result.diagnosis
-        solved = {p.instance_id: p.placement for p in result.placements}
+        try:
+            # Belt-and-braces: the per-mate resolve loop and the self-mate guard
+            # already convert bad mates into typed per-mate errors, but the
+            # pre-solve instance build (a duplicate instance id) and the solver
+            # itself may still raise AssemblyDefinitionError. Map ANY residual to
+            # a clean assembly-level status — evaluate_assembly never raises for
+            # an evaluation outcome (§4, the never-500 contract).
+            problem, mate_errors = _resolve_mates(evaluable, request)
+            result = _SOLVER.solve(problem)
+        except AssemblyDefinitionError as exc:
+            status = "not_converged"
+            diagnosis = AssemblySolveDiagnosis(
+                remaining_dof=0,
+                message=f"Assembly could not be evaluated: {exc}",
+            )
+        else:
+            status = result.status
+            diagnosis = result.diagnosis
+            solved = {p.instance_id: p.placement for p in result.placements}
     else:
         diagnosis = AssemblySolveDiagnosis(
             remaining_dof=0,

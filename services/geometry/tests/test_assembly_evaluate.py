@@ -337,3 +337,59 @@ def test_ungrounded_assembly_is_nonfatal_under_constrained() -> None:
     assert result.diagnosis.remaining_dof >= 6
     assert all(inst.error is None for inst in result.instances)
     assert result.properties is not None  # still rolls up + renders
+
+
+def test_self_mate_is_a_per_mate_error_not_a_500() -> None:
+    """A mate whose two slots name the SAME instance resolves against the one
+    body (so it passes the per-mate resolve guard) but the solver rejects it as
+    self-referential. It must be DROPPED as a typed ``mate_self_reference``
+    per-mate error inside a 200 — never a propagated AssemblyDefinitionError /
+    500 — and the rest of the assembly still evaluates (design §4)."""
+    body = _plate_body()
+    top, bottom = _face_sig(body, 1.0), _face_sig(body, -1.0)
+    h1 = _hole_sig(body, *HOLE_1, TOP_Z)
+    h2 = _hole_sig(body, *HOLE_2, TOP_Z)
+    # A valid coincident (1↔2) alongside a self-mate on instance 2 (2↔2): the
+    # good mate must still be honoured, the self-mate dropped as a typed error.
+    result = evaluate_assembly(
+        _bolted_request(
+            [
+                _coincident(1001, 0, top, bottom, 1, 2),
+                _concentric(1002, 1, h1, h1, 2, 2),  # self-mate: both slots = inst 2
+                _concentric(1003, 2, h2, h2, 1, 2),  # valid A↔B mate
+            ]
+        )
+    )
+    offending = [me for me in result.mate_errors if me.mate_id == iid(1002)]
+    assert len(offending) == 1
+    assert offending[0].error.code == "mate_self_reference"
+    # The self-mate is the ONLY per-mate error; the two valid mates are kept.
+    assert [me.mate_id for me in result.mate_errors] == [iid(1002)]
+    # The rest of the assembly still evaluated — every instance renders.
+    assert all(inst.error is None for inst in result.instances)
+    assert all(inst.part_mesh_glb_id is not None for inst in result.instances)
+
+
+def test_duplicate_instance_id_is_a_clean_assembly_error_not_a_500() -> None:
+    """Two instances sharing one ``instance_id`` is a malformed request the
+    per-mate guards cannot catch — the pre-solve instance build raises
+    AssemblyDefinitionError. It must map to a clean assembly-level status inside
+    a 200 (never a propagated exception / 500), not a per-mate error (design
+    §4)."""
+    features = _plate_features()
+    request = EvaluateAssemblyRequest(
+        assembly_id=iid(9002),
+        version=1,
+        instances=[
+            _instance(1, _PART_KEY, features, grounded=True),
+            _instance(1, _PART_KEY, features, grounded=False),  # duplicate id
+        ],
+        mates=[],
+    )
+    # Driving evaluate_assembly directly: no exception may propagate.
+    result = evaluate_assembly(request)
+    assert result.status == "not_converged"
+    assert result.diagnosis is not None
+    assert "instance" in result.diagnosis.message.lower()
+    # A malformed request, not a per-mate issue: nothing lands in mate_errors.
+    assert result.mate_errors == []
