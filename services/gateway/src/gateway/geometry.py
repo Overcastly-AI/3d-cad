@@ -13,6 +13,7 @@ from typing import Annotated, Any, NoReturn
 
 import httpx2 as httpx
 from fastapi import APIRouter, Path, Request, Response
+from py_kit.schemas.assemblies import EvaluateAssemblyRequest, EvaluateAssemblyResult
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
@@ -205,6 +206,29 @@ async def export(
         media_type=EXPORT_MEDIA_TYPES[request.format],
         headers=headers,
     )
+
+
+@router.post("/assembly/evaluate")
+async def assembly_evaluate(
+    request: EvaluateAssemblyRequest, user: CurrentUser, http_request: Request
+) -> EvaluateAssemblyResult:
+    """Proxy an assembly evaluation to the geometry service (assemblies §4).
+
+    Auth-protected (an assembly graph belongs to a signed-in user); the
+    geometry hop stays identity-free, so the principal never travels upstream
+    (same posture as measure/overlay, RESEARCH §3). The shared
+    :class:`EvaluateAssemblyRequest` DTO validates at the gateway before
+    anything goes upstream. Geometry evaluates each unique part once (shared
+    content-addressed mesh), solves the mate graph, and returns per-instance
+    ``{shared mesh id, solved placement}`` plus an analytic combined roll-up. A
+    bad part / mate / solve is a 200 with a typed per-entry error or a
+    non-``well_constrained`` status (design §4); the envelope stays reserved
+    for transport/validation failures of this call itself.
+    """
+    upstream = await _forward(http_request, "/api/v1/assembly/evaluate", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return EvaluateAssemblyResult.model_validate_json(upstream.content)
 
 
 @router.post("/measure")

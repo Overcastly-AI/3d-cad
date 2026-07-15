@@ -4,9 +4,9 @@
 talks only to the gateway, CLAUDE.md service boundaries), auth
 (:mod:`gateway.auth` — email/password + JWT; the gateway owns identity per
 RESEARCH §3, backed by its own Postgres schema under ``alembic/``), and the
-parts + feature-tree aggregation (:mod:`gateway.parts`,
-:mod:`gateway.features` — auth-protected forwarding to the documents service
-with the verified principal attached).
+parts + feature-tree + assembly-graph aggregation (:mod:`gateway.parts`,
+:mod:`gateway.features`, :mod:`gateway.assemblies` — auth-protected forwarding
+to the documents service with the verified principal attached).
 
 Startup is fail-fast on secrets: ``build_app`` resolves the JWT secret
 posture BEFORE assembling the app, so a non-dev deployment without
@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
 from py_kit.db import DatabaseState, postgres_readiness
 
+from gateway.assemblies import router as assemblies_router
 from gateway.auth import auth_router, resolve_auth_config
 from gateway.features import router as features_router
 from gateway.geometry import create_geometry_client
@@ -140,6 +141,7 @@ def build_app(
     app.include_router(auth_router)
     app.include_router(parts_router)
     app.include_router(features_router)
+    app.include_router(assemblies_router)
     app.include_router(step_import_router)
     return app
 

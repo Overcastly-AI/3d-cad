@@ -102,15 +102,20 @@ nit, no user impact, stays Later).
       (`well_constrained`, numeric, ~1e-8); + single-ref, determinism, and
       clean-error tests (11 new, `test_assembly_resolve.py`). Full lint/pyright
       + geometry suite green. [src: design/assemblies.md §2.1, §4]
-- [ ] (P1, M) **← NEXT** Assemblies v1 #4 — gateway assembly endpoints — proxy the
-      documents CRUD (assembly/instance/mate create/get/list/delete) with
-      `CurrentUser` auth on every route from day one (closing the F7-class
-      gap proactively instead of retrofitting later). Acceptance: a
-      401-without-token test per route; an integration test drives
-      create-assembly → add-two-instances → add-a-lock-mate → get through
-      the gateway against isolated documents+gateway ports (CLAUDE.md
-      recipe); contracts regenerated. Depends on: #1 (documents API to
-      proxy). [src: design/assemblies.md §3]
+- [x] (P1, M) Assemblies v1 #4 — gateway assembly endpoints — **DONE
+      2026-07-15.** `gateway.assemblies` proxies the documents CRUD (assembly
+      create/list/get/update/delete; instance add/update/delete; mate
+      add/delete — reorder via instance `order_index`), `gateway.geometry`
+      adds `POST /api/v1/geometry/assembly/evaluate` → geometry's
+      `/api/v1/assembly/evaluate`. EVERY route `CurrentUser`-gated from day one
+      (F7): principal `X-Loft-User` to documents, identity-free hop to geometry.
+      Upstream 422 stale / 409 dependents / 404 non-owner envelopes re-surfaced
+      verbatim under the gateway request id. Tests: CRUD round-trip
+      (create → 2 instances → lock mate → read graph), evaluate proxy returns
+      `EvaluateAssemblyResult`, a parametrized 401-per-route (nothing
+      forwarded), error re-surfacing. Contracts regenerated (7 gateway paths);
+      full lint/pyright + 1122 py + 494 ts tests + gen-check green.
+      [src: design/assemblies.md §3]
 - [x] (P1, M) Assemblies v1 #5 — assembly evaluation + shared-mesh
       tessellation — **DONE 2026-07-15. "bolt two parts together and see it,"
       the v1 DoD.** `geometry.assembly.evaluate_assembly` +
@@ -132,7 +137,7 @@ nit, no user impact, stays Later).
       + under/conflicting/ungrounded/bodyless-part/unresolvable-mate error tests
       (`test_assembly_evaluate.py`). Full lint/pyright + geometry suite +
       gen-check green. [src: design/assemblies.md §4, §6]
-- [ ] (P1, M) Assemblies v1 #6 — frontend assembly tree + instance
+- [ ] (P1, M) **← NEXT** Assemblies v1 #6 — frontend assembly tree + instance
       placement + mate authoring — apps/web: an assembly workspace (sibling
       of `/parts/{id}`), an instance list (add-instance-from-a-part picker,
       grounded toggle, placement gizmo), and mate authoring (pick a face on
@@ -388,6 +393,9 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-15 — Assemblies v1 #4 done: gateway assembly CRUD + evaluate
+  proxies, every route `CurrentUser`-gated (F7); contracts regenerated.
+  #6 (frontend) now NEXT. [backend-builder]
 - 2026-07-15 — Phase 2→3 reconcile: Phase 2 converged (Sketching + Part
   modeling ✅), 9 shipped items archived. **Assemblies sequenced into 6
   Ready items** (`docs/design/assemblies.md`); interleaved F1/F6/F8/F7-rate-

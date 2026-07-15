@@ -196,8 +196,15 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `assembly-two-plates-bolted` (solved transforms == analytic within 1e-6,
       combined props == roll-up, byte-deterministic across interpreter restart,
       shared-mesh dedup) + per-instance/per-mate error + diagnosis tests.
-      **Next: v1 #4** — gateway assembly endpoints proxying the documents CRUD
-      (+ the new geometry `assembly/evaluate`) with per-route auth.
+      **v1 #4 landed**: gateway assembly endpoints — `gateway.assemblies`
+      proxies the documents CRUD (assembly/instance/mate create/get/list/
+      update/delete/reorder) and `gateway.geometry` adds the
+      `POST /api/v1/geometry/assembly/evaluate` proxy, EVERY route auth-gated
+      with `CurrentUser` from day one (heeding audit F7). The principal reaches
+      documents (`X-Loft-User`), never geometry (identity-free hop); upstream
+      422/409/404 envelopes re-surfaced verbatim. Contracts regenerated
+      (7 new gateway paths). **Next: v1 #6** — frontend assembly tree +
+      instance placement + mate authoring (apps/web).
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).
