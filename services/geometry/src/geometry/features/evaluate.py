@@ -1222,7 +1222,15 @@ def _feature_data(feature_id: uuid.UUID, state: EvaluationState) -> FeatureData 
     solved = state.solved_sketches.get(feature_id)
     if solved is None:
         return None
-    return SolvedSketchData.model_validate(solved.model_dump())
+    # An over-constrained-but-solvable sketch carries the typed redundant
+    # diagnosis on its payload (BACKLOG #6); a cleanly-solved sketch → None.
+    diagnosis = classify_overconstraint(solved)
+    return SolvedSketchData.model_validate(
+        {
+            **solved.model_dump(),
+            "diagnosis": diagnosis.model_dump() if diagnosis else None,
+        }
+    )
 
 
 @dataclass

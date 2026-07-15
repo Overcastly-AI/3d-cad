@@ -112,6 +112,21 @@ def conflicting_params() -> dict[str, Any]:
     }
 
 
+def overconstrained_params() -> dict[str, Any]:
+    """A duplicated (consistent) 40 mm dimension: constraint 3 is redundant but
+    the sketch still solves → ``overconstrained`` status (BACKLOG #6)."""
+    return {
+        "plane": dict(XY_PLANE),
+        "entities": [_line("e1", (0.0, 0.0), (38.0, 1.0))],
+        "constraints": [
+            {"kind": "fixed", "point": {"entity": "e1", "point": "start"}},
+            {"kind": "horizontal", "entity": "e1"},
+            {"kind": "distance", "entity": "e1", "value_mm": 40.0},
+            {"kind": "distance", "entity": "e1", "value_mm": 40.0},
+        ],
+    }
+
+
 def _sketch_input(feature_id: uuid.UUID, params: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(feature_id),
@@ -262,6 +277,24 @@ def test_conflicting_sketch_is_feature_error_not_exception() -> None:
     assert diag.removable is False
     assert diag.conflicting_constraints  # the offending ids, named typed
     assert result.last_good_feature_id is None
+
+
+def test_overconstrained_sketch_is_ok_with_redundant_diagnosis() -> None:
+    """BACKLOG #6: a redundant-but-consistent sketch SOLVES (status ok), and its
+    solved payload carries the typed REDUNDANT diagnosis (removable, ids named) —
+    the counterpart to the conflicting FeatureError path, so the sketcher can
+    flag the removable constraint without parsing text."""
+    result = _post(_request([_sketch_input(SKETCH_ID, overconstrained_params())]))
+
+    assert result.features[0].status == "ok"
+    data = result.features[0].data
+    assert data is not None
+    diag = data.diagnosis
+    assert diag is not None
+    assert diag.classification == "redundant"
+    assert diag.removable is True
+    assert diag.redundant_constraints == [3]  # the duplicated dimension
+    assert diag.conflicting_constraints == []
 
 
 def test_unknown_entity_reference_is_error_not_crash() -> None:

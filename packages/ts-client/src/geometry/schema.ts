@@ -2675,6 +2675,8 @@ export interface components {
              * @description Indices into the input constraint list that conflict.
              */
             conflicting_constraints?: number[];
+            /** @description Typed over-constraint classification for a SOLVED-but-over-constrained sketch (``overconstrained`` status): the redundant, removable constraints named so the sketcher can flag them without parsing text (BACKLOG #6). None for a cleanly-constrained sketch. The unsolvable ("conflicting") case rides FeatureError.sketch_diagnosis. */
+            diagnosis?: components["schemas"]["SketchConstraintDiagnosis"] | null;
             /**
              * Dof
              * @description Remaining degrees of freedom (0 = fully constrained); None when the diagnosis cannot determine it (e.g. conflicting systems).

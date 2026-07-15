@@ -153,15 +153,16 @@ unchanged in substance.
       in the message; frontend reads the typed field instead of parsing
       text; worked e2e; supersedes the older "Structured conflict indices"
       Later item. [src: product-auditor, competitive]
-      **Backend landed 2026-07-13 (2 commits):** part 1 = `SketchConstraintDiagnosis`
-      DTO + `classify_overconstraint` classifier (py-kit `schemas/sketch.py`,
-      unit-tested). Part 2 = wired onto the `sketch_conflicting` `FeatureError`
-      (`FeatureError.sketch_diagnosis`, populated at `evaluate.py:345`, contracts
-      regenerated), asserted typed in `test_evaluate_tree.py` (conflicting →
-      `classification="conflicting"`, `removable=False`, ids named). REMAINING:
-      surface the REDUNDANT-but-solvable case on the solved-sketch payload
-      (`SolvedSketchData`, the `overconstrained`-status ok path), then the
-      frontend leg (read the typed field, drop string-parsing) + e2e.
+      **Backend COMPLETE 2026-07-13 (3 commits):** (1) `SketchConstraintDiagnosis`
+      DTO + `classify_overconstraint` classifier (py-kit, unit-tested); (2) wired
+      onto `FeatureError.sketch_diagnosis` for the unsolvable `sketch_conflicting`
+      path; (3) wired onto `SolvedSketchData.diagnosis` for the redundant-but-
+      solvable `overconstrained` ok path. Both classifications surface as a TYPED
+      field (contracts + ts-client regenerated), asserted in `test_evaluate_tree.py`
+      (conflicting → `classification="conflicting"`, `removable=False`; redundant →
+      `classification="redundant"`, `removable=True`, ids named). REMAINING: the
+      FRONTEND leg only — sketcher reads `sketch_diagnosis`/`data.diagnosis` (drop
+      any string-parsing), flags the offending constraints, + e2e.
 - [ ] (P2, M) Sketch dimension expressions / driving vs. driven — a
       dimension value field accepts a literal, a reference to another
       dimension, or a math expression; each dimension gets a `driving: bool`

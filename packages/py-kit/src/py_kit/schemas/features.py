@@ -1775,6 +1775,14 @@ class SolvedSketchData(SolvedSketch):
     the sketcher UI renders. ``kind`` is the :data:`FeatureData` union tag."""
 
     kind: Literal["solved_sketch"] = "solved_sketch"
+    diagnosis: SketchConstraintDiagnosis | None = Field(
+        default=None,
+        description="Typed over-constraint classification for a SOLVED-but-over-"
+        "constrained sketch (``overconstrained`` status): the redundant, "
+        "removable constraints named so the sketcher can flag them without "
+        "parsing text (BACKLOG #6). None for a cleanly-constrained sketch. The "
+        'unsolvable ("conflicting") case rides FeatureError.sketch_diagnosis.',
+    )
 
 
 #: The typed per-feature ``FeatureResult.data`` payload (design §7.10).
