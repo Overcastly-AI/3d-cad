@@ -7,8 +7,12 @@ target pose so the analytic solution is known by construction.
 
 Determinism (RESEARCH §9) is asserted BITWISE: the same input solved twice — and
 in a fresh interpreter (a worker-restart probe, mirroring ``test_goldens.py``) —
-packs to byte-identical placement floats. Tolerances are the documented
-per-model :data:`ASSEMBLY_TOL`, never ad-hoc per-assert epsilons.
+packs to byte-identical placement floats. The solver pins BLAS to a single thread
+around the solve (``threadpool_limits``) so the FP reduction order is fixed; these
+determinism probes therefore run under that pin (it is applied inside ``solve``),
+which is what makes the guarantee hold across machines, not just same-process.
+Tolerances are the documented per-model :data:`ASSEMBLY_TOL`, never ad-hoc
+per-assert epsilons.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ import struct
 import subprocess
 import sys
 import uuid
+from collections.abc import Callable
 
 import numpy as np
 import pytest
@@ -475,6 +480,128 @@ def test_contradictory_mates_are_conflicting_with_offenders() -> None:
     assert iid(6001) in result.diagnosis.conflicting_mates
     assert iid(6002) in result.diagnosis.conflicting_mates
     assert result.diagnosis.suggested_fix is not None
+
+
+# --- scale-invariant diagnosis (large-coordinate lever arms) --------------------
+
+# A large in-plane world offset (~100 m in mm): it places the mate features far
+# from each instance's own origin, so the free instance's rotation Jacobian
+# columns pick up a large lever arm. Without conditioning the rank/stationarity
+# SVDs, that lever arm inflates sigma_max and a genuinely-constraining direction
+# row slips under the relative rank tolerance — mis-reporting remaining_dof /
+# redundancy (unfixed, the single-coincident below reports 4 DOF, not 3). The
+# solved POSE is unaffected; only the DIAGNOSIS is at risk, so these assert the
+# classification is identical to the small-geometry case (design §2.4).
+_LARGE = np.array([1.0e5, 1.0e5, 0.0], dtype=np.float64)  # perpendicular to _Z
+
+
+def build_under_constrained(base: np.ndarray) -> AssemblySolveInput:
+    """Single coincident (plane-plane flush) → 3 DOF, features near ``base``."""
+    a_seed = Pose.identity()
+    b_seed = pose((5.0, 7.0, 0.0), (0.0, 0.0, 0.0))  # already flush on the plane
+    coincident = SolverMate(
+        mate_id=iid(8101),
+        order_index=0,
+        mate=CoincidentMate(a=face_ref(iid(1)), b=face_ref(iid(2)), flush=True),
+        geometry=(local_face(a_seed, base, _Z), local_face(b_seed, base, -_Z)),
+    )
+    return AssemblySolveInput(
+        instances=[
+            instance(1, grounded=True, seed=a_seed),
+            instance(2, grounded=False, seed=b_seed),
+        ],
+        mates=[coincident],
+    )
+
+
+def build_over_constrained(base: np.ndarray) -> AssemblySolveInput:
+    """Lock (fully fixes B) + a consistent coincident → redundant, near ``base``."""
+    a_seed = Pose.identity()
+    b_seed = pose((0.0, 0.0, 15.0), (0.0, 0.0, 0.0))
+    plane = base + np.array([0.0, 0.0, 5.0])
+    lock = SolverMate(
+        mate_id=iid(8201),
+        order_index=0,  # keeps rank first → the coincident is the redundant one
+        mate=LockMate(a_instance_id=iid(1), b_instance_id=iid(2)),
+    )
+    coincident = SolverMate(
+        mate_id=iid(8202),
+        order_index=1,
+        mate=CoincidentMate(a=face_ref(iid(1)), b=face_ref(iid(2)), flush=True),
+        geometry=(local_face(a_seed, plane, _Z), local_face(b_seed, plane, -_Z)),
+    )
+    return AssemblySolveInput(
+        instances=[
+            instance(1, grounded=True, seed=a_seed),
+            instance(2, grounded=False, seed=b_seed),
+        ],
+        mates=[lock, coincident],
+    )
+
+
+def build_conflicting(base: np.ndarray) -> AssemblySolveInput:
+    """B's one face pinned flush to two planes 10 mm apart → conflict, near ``base``."""
+    a_seed = Pose.identity()
+    b_seed = pose((0.0, 0.0, 3.0), (0.0, 0.0, 0.0))
+    b_face = local_face(b_seed, base, -_Z)  # the SAME physical face, twice
+    mate_low = SolverMate(
+        mate_id=iid(8301),
+        order_index=0,
+        mate=CoincidentMate(a=face_ref(iid(1)), b=face_ref(iid(2)), flush=True),
+        geometry=(local_face(a_seed, base, _Z), b_face),
+    )
+    mate_high = SolverMate(
+        mate_id=iid(8302),
+        order_index=1,
+        mate=CoincidentMate(a=face_ref(iid(1)), b=face_ref(iid(2)), flush=True),
+        geometry=(local_face(a_seed, base + np.array([0.0, 0.0, 10.0]), _Z), b_face),
+    )
+    return AssemblySolveInput(
+        instances=[
+            instance(1, grounded=True, seed=a_seed),
+            instance(2, grounded=False, seed=b_seed),
+        ],
+        mates=[mate_low, mate_high],
+    )
+
+
+def _diagnosis_key(result: AssemblySolveResult) -> tuple[object, ...]:
+    """The classification-relevant fields (order-insensitive on offender sets)."""
+    d = result.diagnosis
+    return (
+        result.status,
+        None if d is None else d.classification,
+        None if d is None else d.removable,
+        None if d is None else d.remaining_dof,
+        None if d is None else frozenset(d.redundant_mates),
+        None if d is None else frozenset(d.conflicting_mates),
+    )
+
+
+@pytest.mark.parametrize(
+    "build", [build_under_constrained, build_over_constrained, build_conflicting]
+)
+def test_diagnosis_is_scale_invariant(
+    build: Callable[[np.ndarray], AssemblySolveInput],
+) -> None:
+    """Same mate topology at the origin and translated ~100 m out → BITWISE-equal
+    DIAGNOSIS classification (design §2.4). The lever arm inflates the rank /
+    stationarity SVDs; the equilibrated-Jacobian rank and column-normalised
+    stationarity keep the diagnosis scale-invariant (the solved pose is unchanged
+    — only the conditioning of the diagnosis is)."""
+    small = SOLVER.solve(build(_ORIGIN))
+    large = SOLVER.solve(build(_LARGE))
+    assert _diagnosis_key(small) == _diagnosis_key(large)
+
+
+def test_under_constrained_dof_survives_large_lever_arm() -> None:
+    """Regression pin for 🟡2: a plane-plane coincident 100 m from the origin still
+    reports exactly 3 remaining DOF (unfixed it over-reported 4/5 as the tilt-lock
+    direction rows slipped under the lever-inflated rank tolerance)."""
+    result = SOLVER.solve(build_under_constrained(_LARGE))
+    assert result.status == "under_constrained"
+    assert result.diagnosis is not None
+    assert result.diagnosis.remaining_dof == 3
 
 
 # --- quaternion handling --------------------------------------------------------

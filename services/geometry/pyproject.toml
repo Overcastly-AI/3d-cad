@@ -11,6 +11,10 @@ dependencies = [
     "build123d>=0.11.1",
     "planegcs>=0.8.0",
     "numpy>=2.0",
+    # BSD-3-Clause, tiny, no native code — pins BLAS to one thread around the
+    # assembly solve so the FP reduction order (hence placements) is bitwise
+    # reproducible across machines (RESEARCH §9). License-clean, no GPL.
+    "threadpoolctl>=3.6",
 ]
 
 [tool.uv.sources]

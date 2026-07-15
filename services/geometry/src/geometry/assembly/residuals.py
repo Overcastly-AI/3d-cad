@@ -208,6 +208,10 @@ def compile_mate(
         dir_a = normalize(as_vector(fa.normal))
         point_b = as_vector(fb.point)
         dir_b = normalize(as_vector(fb.normal))
+        # NOTE (unverified -- distance/angle are fast-follow, design 2.3/5): the
+        # SIGN convention of a distance offset (gap measured along +n_A vs -n_A,
+        # and its interaction with `flush`) is not yet exercised by a golden and
+        # must be pinned when the distance mate actually ships.
         target = mate.distance_mm if isinstance(mate, DistanceMate) else 0.0
         flush = mate.flush if isinstance(mate, CoincidentMate) else True
     elif isinstance(mate, ConcentricMate):

@@ -351,10 +351,19 @@ confines the solver's genuine difficulty to the cases that need it.
   frame; an axis → `(point p, unit direction d)`. Transformed by the current
   instance pose to world for residual evaluation.
 - **Residuals (world frame):**
-  - `coincident(A,B, flush)`: `[ n_A · (p_B − p_A),  n_A × n_B  (or n_A + n_B for
-    flush) ]` — signed gap along the normal = 0, normals (anti)parallel.
+  - `coincident(A,B, flush)`: `[ n_A · (p_B − p_A),  n_A + n_B (flush) / n_A − n_B
+    (non-flush) ]` — signed gap along the normal = 0, normals anti-parallel
+    (flush, the mating faces touch) or parallel (non-flush). The alignment block
+    uses the vector **difference/sum** `n_A ∓ n_B`, not the cross product `n_A ×
+    n_B`: the difference is the stronger constraint (it pins the sign, forcing the
+    two normals (anti)parallel *and* co-directed), whereas the cross product
+    leaves a 180° flip free. The implementation
+    (`services/geometry/.../residuals.py`) uses `n_A ∓ n_B`; this line is the
+    spec of record.
   - `distance/angle`: the coincident residual with the gap target = `distance_mm`
-    / the angle target between normals = `angle_deg`.
+    / the angle target between normals = `angle_deg`. (The `flush` sense of the
+    forthcoming `distance` mate — whether the offset is measured along `+n_A` or
+    `−n_A` — is unverified until that mate ships; see the note in `residuals.py`.)
   - `concentric(A,B)`: `[ d_A × d_B (parallel),  (p_B − p_A) − ((p_B − p_A)·d_A)
     d_A (line-coincident) ]`.
   - `lock(A,B)`: relative pose residual (6) driving `x_B` to a fixed transform of

@@ -19,6 +19,13 @@ The concrete :class:`~geometry.assembly.protocol.AssemblySolver`. Two paths:
 input-list order; mates are processed in ``(order_index, id)`` order; the
 Jacobian is a fixed central-difference; LM uses a fixed schedule with no random
 restart; every op is float64. Same input in ⇒ bitwise-identical placements out.
+The linear-algebra kernels (``svd``/``solve``/``lstsq``) dispatch to BLAS, whose
+floating-point reduction order otherwise varies with the thread count / backend
+/ CPU — so :meth:`RigidBodyAssemblySolver.solve` pins BLAS to a single thread for
+the whole solve (:func:`threadpoolctl.threadpool_limits`), fixing the reduction
+order. The bitwise guarantee therefore holds *across machines* under that pin,
+not merely same-process. The pin is scoped to the solve, leaving the rest of the
+geometry service's numpy untouched.
 
 **Diagnosis (§2.4)** is computed once, at the final placement, by
 :func:`_diagnose` — shared by both paths. ``remaining_dof`` comes from the
@@ -34,6 +41,9 @@ import uuid
 
 import numpy as np
 from numpy.typing import NDArray
+
+# threadpoolctl ships no py.typed (single-module BSD dep) → stub-less import.
+from threadpoolctl import threadpool_limits  # pyright: ignore[reportMissingTypeStubs]
 
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
@@ -62,9 +72,14 @@ Matrix = NDArray[np.float64]
 #: residual orders of magnitude larger, so this cleanly separates the two.
 SATISFIED_TOL = 1e-7
 
-#: Gradient (‖Jᵀr‖∞) below which LM is at a stationary point. A conflict is a
-#: stationary point with residual > SATISFIED_TOL (converged, best-fit);
-#: exceeding this after the iteration cap is ``not_converged``.
+#: Column-normalised gradient (‖(J·D_c)ᵀr‖∞, each component divided by its
+#: Jacobian column norm — see :func:`_scaled_grad_inf`) below which the solve is
+#: at a stationary point. A conflict is a stationary point with residual >
+#: SATISFIED_TOL (converged, best-fit); exceeding this after the iteration cap is
+#: ``not_converged``. The column normalisation makes the test scale-invariant so
+#: a large lever arm cannot inflate the rotational components and mis-diagnose a
+#: converged best-fit as ``not_converged`` (the LM *step* is unaffected — this
+#: conditions only the final stationarity classification).
 STATIONARY_GRAD_TOL = 1e-7
 
 #: Central-difference step for the numeric Jacobian (RESEARCH §9 determinism —
@@ -74,7 +89,12 @@ FD_STEP = 1e-5
 #: Singular values below ``RANK_REL_TOL · sigma_max`` are treated as zero when
 #: counting Jacobian rank (→ remaining DOF / redundancy). Chosen well above the
 #: finite-difference noise floor and well below any real constraint's singular
-#: value for the documented golden geometry.
+#: value for the documented golden geometry. The rank SVD runs on the
+#: *equilibrated* Jacobian (:func:`_equilibrate`), so this relative tolerance is
+#: scale-invariant: a large lever arm no longer inflates ``sigma_max`` and hides
+#: a genuinely-constraining weak singular value. Also used as the relative floor
+#: below which a column/row is held small during equilibration (so the pass never
+#: amplifies a near-zero, i.e. unconstrained / FD-noise, direction to unit norm).
 RANK_REL_TOL = 1e-6
 
 #: Two directions with cross-product norm below this are treated as parallel
@@ -90,14 +110,67 @@ _LM_MAX_ITERS = 200
 _LM_MAX_INNER = 40
 
 
+def _equilibrate(matrix: Matrix) -> Matrix:
+    """Two-sided (column-then-row) 2-norm equilibration for a scale-invariant rank.
+
+    The residual mixes linear (mm) rows with dimensionless / angular rows, and a
+    free instance's rotation columns pick up a lever-arm factor from the linear
+    rows — so on a large coordinate a genuinely-constraining direction row's
+    singular value can slip under ``RANK_REL_TOL·sigma_max`` and mis-report the
+    remaining DOF / redundancy (diagnosis §2.4). Scaling each column, then each
+    row, toward unit 2-norm removes that unit/lever-arm dependence.
+
+    Diagonal scaling by strictly-positive factors is *rank-preserving*, so this
+    changes only the conditioning the relative SVD tolerance sees, never the true
+    rank. Columns/rows below ``RANK_REL_TOL`` of the largest are divided by that
+    floor instead of their own norm, so a near-zero (unconstrained or
+    finite-difference-noise) direction is held small rather than amplified to
+    unit norm. Determinism: a fixed sequence of float64 numpy ops.
+    """
+    m = np.array(matrix, dtype=np.float64, copy=True)
+    if m.size == 0:
+        return m
+    col_norms = np.linalg.norm(m, axis=0)
+    col_max = float(col_norms.max())
+    if col_max > 0.0:
+        m = m / np.maximum(col_norms, RANK_REL_TOL * col_max)
+    row_norms = np.linalg.norm(m, axis=1)
+    row_max = float(row_norms.max())
+    if row_max > 0.0:
+        m = m / np.maximum(row_norms, RANK_REL_TOL * row_max)[:, None]
+    return m
+
+
 def _numeric_rank(matrix: Matrix) -> int:
-    """Rank of ``matrix`` via SVD with the documented relative tolerance."""
+    """Rank of ``matrix`` via SVD of its :func:`_equilibrate` form with the
+    documented relative tolerance (scale-invariant — see :data:`RANK_REL_TOL`)."""
     if matrix.size == 0:
         return 0
-    s = np.linalg.svd(matrix, compute_uv=False)
+    s = np.linalg.svd(_equilibrate(matrix), compute_uv=False)
     if s.size == 0 or s[0] == 0.0:
         return 0
     return int(np.count_nonzero(s > RANK_REL_TOL * s[0]))
+
+
+def _scaled_grad_inf(jac: Matrix, r: Vector) -> float:
+    """Scale-invariant stationarity measure — ``max_j |col_j·r| / ‖col_j‖``.
+
+    Each raw gradient component ``(Jᵀr)_j`` is normalised by its Jacobian column
+    norm, i.e. the residual's projection onto that unit constraint-gradient
+    direction. Bounded by ``‖r‖`` and exactly zero at a stationary point, so
+    unlike raw ``‖Jᵀr‖∞`` a large lever arm cannot inflate the rotational
+    components (diagnosis §2.4). Below-floor columns reuse the equilibration floor
+    so a zero/near-zero column can't divide-by-zero (its gradient is already ~0).
+    """
+    if jac.size == 0:
+        return 0.0
+    grad = jac.T @ r
+    col_norms = np.linalg.norm(jac, axis=0)
+    col_max = float(col_norms.max())
+    if col_max == 0.0:
+        return 0.0
+    scaled = grad / np.maximum(col_norms, RANK_REL_TOL * col_max)
+    return float(np.max(np.abs(scaled)))
 
 
 def _residual_vector(mates: list[CompiledMate], poses: list[Pose]) -> Vector:
@@ -176,6 +249,10 @@ def _lm_solve(
             break
         jac = _jacobian(mates, poses, free_indices)
         grad = jac.T @ r
+        # In-loop stop uses the RAW gradient — this decides where the descent
+        # halts, i.e. it is pose-affecting, and is deliberately left unchanged so
+        # the solved placement (and its determinism goldens) is untouched. The
+        # scale-invariant test conditions only the *final* convergence flag below.
         if float(np.max(np.abs(grad))) < STATIONARY_GRAD_TOL:
             break
         jtj = jac.T @ jac
@@ -200,8 +277,12 @@ def _lm_solve(
 
     if math.sqrt(cost) < SATISFIED_TOL:
         return poses, True
-    grad = _jacobian(mates, poses, free_indices).T @ r
-    converged = float(np.max(np.abs(grad))) < STATIONARY_GRAD_TOL
+    # Final convergence flag (diagnosis only, not pose-affecting): the poses are
+    # already fixed above — this classifies conflict (stationary, best-fit) vs
+    # not_converged using the scale-invariant stationarity measure.
+    converged = (
+        _scaled_grad_inf(_jacobian(mates, poses, free_indices), r) < STATIONARY_GRAD_TOL
+    )
     return poses, converged
 
 
@@ -451,6 +532,15 @@ class RigidBodyAssemblySolver:
     """Deterministic rigid-body mate solver (design §2.2). See the module docs."""
 
     def solve(self, problem: AssemblySolveInput) -> AssemblySolveResult:
+        # Pin BLAS to one thread for the whole solve so the FP reduction order of
+        # every svd/solve/lstsq is fixed — the cross-machine determinism guarantee
+        # (module docstring; RESEARCH §9). Scoped to the solve; the rest of the
+        # service's numpy is unaffected. Covers BOTH the closed-form path
+        # (lstsq/svd in the fast path + rank SVD) and the numeric LM.
+        with threadpool_limits(limits=1, user_api="blas"):
+            return self._solve(problem)
+
+    def _solve(self, problem: AssemblySolveInput) -> AssemblySolveResult:
         instances = problem.instances
         if not instances:
             raise AssemblyDefinitionError("assembly has no instances")

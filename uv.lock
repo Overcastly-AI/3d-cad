@@ -866,6 +866,7 @@ dependencies = [
     { name = "loft-py-kit" },
     { name = "numpy" },
     { name = "planegcs" },
+    { name = "threadpoolctl" },
     { name = "uvicorn" },
 ]
 
@@ -876,6 +877,7 @@ requires-dist = [
     { name = "loft-py-kit", editable = "packages/py-kit" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "planegcs", specifier = ">=0.8.0" },
+    { name = "threadpoolctl", specifier = ">=3.6" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]
 
