@@ -23,13 +23,18 @@ duplication:
 - **Interop — ➖.** STEP import shipped end-to-end (upload → sketch-on-it →
   re-export), verified live by the product-auditor. IGES, multi-solid,
   healing report deferred (Later).
-- **Assemblies, Drawings — ❌, now the headline gaps.** Both auditors and the
-  founder converge on **Assemblies as #1** (product audit 2026-07-15: "the
-  missing project container" — most real mechanical work is two-or-more
-  parts, not one lonely bracket). Drawings is the audit's honest #2/near-#1
-  counter-argument (smaller build, completes the make-loop for the
-  already-solid single-part case via STEP-to-shop) — not sequenced this
-  pass; pick up once assemblies v1 has landing room or if Ready runs dry.
+- **Assemblies — ➖ (2026-07-15, flipped from ❌).** v1 MVP shipped
+  end-to-end this batch (documents → solver → resolution → evaluation →
+  gateway → viewport, all 6 Ready slices below), golden independently
+  geometry-QA'd, e2e green live. Honest residuals, not gating the ➖: only
+  lock/coincident/concentric wired (distance/angle schema'd, unimplemented),
+  no collision detection, no exploded views, no BOM, no assembly-level STEP
+  IO, instances track a part's live tip not a pinned version, sub-assemblies
+  rigid-only. See VISION.md row for full evidence chain.
+- **Drawings — ❌, now the headline gap** (product audit's honest #2 —
+  smaller build than Assemblies, completes the make-loop for the
+  already-solid single-part case via STEP-to-shop). Pick up now that
+  Assemblies v1 has landed, or sooner if Ready runs dry.
 - **Unfiled-but-named product-audit follow-ups** (history-tree drag-reorder/
   suppress, feature-mirror + 2-direction pattern, a friendlier
   `boolean_failed` message) — next groom pass, once assemblies v1 has room.
