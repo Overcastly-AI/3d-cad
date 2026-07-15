@@ -864,6 +864,7 @@ dependencies = [
     { name = "build123d" },
     { name = "fastapi" },
     { name = "loft-py-kit" },
+    { name = "numpy" },
     { name = "planegcs" },
     { name = "uvicorn" },
 ]
@@ -873,6 +874,7 @@ requires-dist = [
     { name = "build123d", specifier = ">=0.11.1" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
+    { name = "numpy", specifier = ">=2.0" },
     { name = "planegcs", specifier = ">=0.8.0" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]

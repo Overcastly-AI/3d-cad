@@ -169,8 +169,16 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       the discriminated 5-mate union, MateFace/AxisRef reusing the feature
       signatures), `assemblies`/`instances`/`mates` tables (migration `0003`),
       and the owner-scoped CRUD API with OCC (`doc_version`), write-time
-      acyclicity, and cross-document 409-with-dependents. **Next: v1 #2** —
-      the `AssemblySolver` numeric core (the flagged §2.4 risk).
+      acyclicity, and cross-document 409-with-dependents. **v1 #2 landed**:
+      the `AssemblySolver` core (the flagged §2.4 risk) in
+      `services/geometry/src/geometry/assembly` — protocol mirroring
+      `SketchSolver`, quaternion 6-DOF free instances, a closed-form tree
+      fast path (bolt-two-parts, no iteration) + a deterministic
+      numpy-only LM fallback (no GPL), the full under/over/conflicting/
+      not-converged diagnosis (remaining-DOF via Jacobian rank), proven
+      against synthetic residuals (bitwise-determinism + fresh-interpreter
+      restart probe). **Next: v1 #3** — mate-geometry-ref resolution wiring
+      real OCCT faces/axes into the solver's resolved-geometry seam.
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).

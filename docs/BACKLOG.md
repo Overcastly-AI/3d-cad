@@ -69,29 +69,24 @@ nit, no user impact, stays Later).
       deleting an instanced part/sub-assembly. Full lint/pyright + 1044 py
       tests (SQLite + real PG) + gen-check green. [src: design/assemblies.md,
       product-auditor #1]
-- [ ] (P1, M) **← NEXT** Assemblies v1 #2 — `AssemblySolver` core (geometry, numeric)
-      — **THE FLAGGED RISK** (design doc §2.4). New `AssemblySolver` protocol
-      mirroring `SketchSolver` (RESEARCH §2): quaternion 6-DOF free
-      instances, deterministic damped Gauss-Newton/LM seeded from authored
-      placement (grounded instances fixed, no random restarts), the §2.2
-      closed-form fast path for a mate-tree rooted at a grounded instance,
+- [x] (P1, M) Assemblies v1 #2 — `AssemblySolver` core (geometry) — **DONE
+      2026-07-15.** The flagged §2.4 risk, landed numeric-only.
+      `services/geometry/src/geometry/assembly`: `AssemblySolver` protocol
+      mirroring `SketchSolver`; quaternion 6-DOF free instances; a closed-form
+      tree fast path (`method="closed_form"`, no iteration for a
+      single-parent mate-tree rooted at a grounded instance) + a deterministic
+      **numpy-only** damped Levenberg-Marquardt fallback (no GPL, no scipy);
       full diagnosis vocabulary (`well_constrained`/`under_constrained`/
-      `over_constrained`-redundant/`conflicting`/`not_converged`,
-      remaining-DOF via Jacobian rank, offending mate ids named,
-      `removable` flag) mirroring `SketchConstraintDiagnosis`. Tested
-      standalone against **synthetic** residuals (no OCCT, no mate-geometry
-      resolution yet — that's #3) so the numeric core is provable in
-      isolation. Acceptance: unit tests — two-instance `lock` solve;
-      `coincident`+`concentric` solve matches a hand-derived analytic
-      transform; an under-constrained case reports the correct
-      `remaining_dof`; a conflicting pair reports `conflicting` + the right
-      mate ids; a determinism test (bitwise-identical transforms across
-      repeated runs AND a fresh interpreter, mirroring `test_goldens.py`'s
-      restart-probe). No GPL/AGPL dependency (RESEARCH §8 — numpy/scipy
-      only, license-checked in the same commit). Depends on: nothing new
-      (numeric-only, parallel to #1). [src: design/assemblies.md §2,
-      engineering risk]
-- [ ] (P1, M) Assemblies v1 #3 — mate-geometry-ref resolution (geometry) —
+      `over_constrained`-redundant/`conflicting`/`not_converged`, remaining-DOF
+      via Jacobian rank, offending/redundant mate ids, `removable`). The
+      resolved-geometry seam (`SolverMate.geometry` → `ResolvedFace`/
+      `ResolvedAxis` in an instance's local frame) is where #3 plugs in with no
+      solver change. 15 synthetic-residual tests (no OCCT): closed-form bolt +
+      lock; numeric coupled solve; under-constrained (`remaining_dof=3`, non-
+      fatal, seed-consistent); redundant/over-constrained; conflicting + named
+      ids; bitwise determinism across runs AND a fresh-interpreter restart
+      probe. Full lint/pyright green. [src: design/assemblies.md §2]
+- [ ] (P1, M) **← NEXT** Assemblies v1 #3 — mate-geometry-ref resolution (geometry) —
       resolves a `MateFaceRef` against the `PlanarFaceSignature` resolver an
       `on_face` datum already uses, and a `MateAxisRef` against the
       `EdgeSignature` resolver (`curve == "circle"`, axis = normal through
