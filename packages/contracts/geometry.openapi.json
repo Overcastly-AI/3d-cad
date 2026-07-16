@@ -853,6 +853,51 @@
         "title": "DraftParamsV1",
         "type": "object"
       },
+      "DrawingViewResult": {
+        "description": "One requested view's projection outcome inside a 200 (design \u00a71.3/\u00a71.5).\n\nOn success, ``edges`` carries the view's canonically-ordered visible+hidden 2D\nedges and ``error`` is null. On an exact-HLR failure (a fragile body \u2014 tangent\nedges, self-intersections, \u00a71.5), ``edges`` is empty and ``error`` is a typed\n``view_projection_failed`` (the boundary form of\n``geometry.drawings.ViewProjectionError``) \u2014 never a 500, never a silently\nempty success. A per-view failure NEVER fails the whole request; the other\nrequested views still project (mirroring the per-feature/per-mate posture).",
+        "properties": {
+          "edges": {
+            "description": "Canonically-ordered visible+hidden 2D edges (empty on error)",
+            "items": {
+              "$ref": "#/components/schemas/ProjectedViewEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed per-view HLR failure (`view_projection_failed`), or null on success (design \u00a71.5)"
+          },
+          "scale": {
+            "$ref": "#/components/schemas/ViewScale",
+            "description": "The scale applied (echoes the request)"
+          },
+          "view": {
+            "description": "The projection direction of this view",
+            "enum": [
+              "front",
+              "top",
+              "right",
+              "iso"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "scale"
+        ],
+        "title": "DrawingViewResult",
+        "type": "object"
+      },
       "EdgeSelectorV1": {
         "description": "Stage-1 edge selector payload: the geometric signature alone (\u00a73, \u00a74).\n\nThe edge sibling of :class:`SelectorV1`. ``selector_version`` is the\ndiscriminator of the (currently single-member) edge selector union,\ndecoupled from feature ``param_version`` (\u00a74); stage 2 adds a signature +\nprovenance member additively, with no change to persisted v1 rows.",
         "properties": {
@@ -1164,6 +1209,99 @@
           "status"
         ],
         "title": "EvaluateAssemblyResult",
+        "type": "object"
+      },
+      "EvaluateDrawingViewsRequest": {
+        "description": "Project a part into its requested standard drawing views (design \u00a71.2/\u00a74).\n\ndocuments sends INTENT \u2014 the referenced part's ordered, rollback-applied\nfeature prefix (reusing the feature-tree \u00a74 contract VERBATIM, so geometry\nstays the sole evaluator and no kernel body crosses) plus the standard views to\nproject and the drawing scale. geometry evaluates the part body ONCE\n(``evaluate_tree``) then runs exact HLR per requested view. Deterministic\n(RESEARCH \u00a79): the same request yields byte-identical projected edges,\nin-process AND across an interpreter restart.",
+        "properties": {
+          "features": {
+            "description": "The part's ordered feature prefix (feature-tree \u00a74 contract)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedFeatureInput"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "part_id": {
+            "description": "The referenced part's identity (echoed)",
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "scale": {
+            "$ref": "#/components/schemas/ViewScale",
+            "default": {
+              "denominator": 1,
+              "numerator": 1
+            },
+            "description": "Drawing scale (rational; 1:1 default) applied to every view"
+          },
+          "tree_version": {
+            "description": "Echoed back; cache/correlation key",
+            "title": "Tree Version",
+            "type": "integer"
+          },
+          "views": {
+            "description": "The standard views to project (subset of front/top/right/iso); processed and returned in request order",
+            "items": {
+              "enum": [
+                "front",
+                "top",
+                "right",
+                "iso"
+              ],
+              "type": "string"
+            },
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "features",
+          "views"
+        ],
+        "title": "EvaluateDrawingViewsRequest",
+        "type": "object"
+      },
+      "EvaluateDrawingViewsResult": {
+        "description": "Per-view projected geometry for a part, with an honest whole-part failure\nchannel (design \u00a71.5/\u00a74).\n\n``views`` carries one :class:`DrawingViewResult` per requested view, in request\norder \u2014 each either its canonically-ordered 2D edges or a typed per-view\nprojection error. ``part_error`` is set ONLY when the part tree produced no\nbody (a strict-prefix feature failure or a body-less tree): there is nothing to\nproject, so ``views`` is empty and the failing feature's error rides here (the\nsingle-part analogue of the assembly per-instance ``no_body``). A feature/HLR\nfailure is a 200 with a typed error, never a 500 \u2014 the py-kit error envelope\nstays reserved for transport/validation failures of this call itself.",
+        "properties": {
+          "part_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the part evaluated to no body (nothing to project); `views` is then empty (design \u00a74)"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          },
+          "views": {
+            "description": "One result per requested view, in request order (empty when `part_error` is set)",
+            "items": {
+              "$ref": "#/components/schemas/DrawingViewResult"
+            },
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version"
+        ],
+        "title": "EvaluateDrawingViewsResult",
         "type": "object"
       },
       "EvaluateTreeRequest": {
@@ -2727,6 +2865,100 @@
           "position"
         ],
         "title": "PointTarget",
+        "type": "object"
+      },
+      "ProjectedPoint": {
+        "description": "A 2D point of a projected view edge, in view-plane mm at the view's scale.\n\nView-local millimetres (model-mm x the view scale, design \u00a79 q4) \u2014 NOT yet\nplaced at a sheet position (sheet layout is a later slice). A projected edge's\nendpoints, midpoint, centre, and polyline sample points are all this type.",
+        "properties": {
+          "x_mm": {
+            "description": "X in the view plane (mm, model-mm x scale)",
+            "title": "X Mm",
+            "type": "number"
+          },
+          "y_mm": {
+            "description": "Y in the view plane (mm, model-mm x scale)",
+            "title": "Y Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x_mm",
+          "y_mm"
+        ],
+        "title": "ProjectedPoint",
+        "type": "object"
+      },
+      "ProjectedViewEdge": {
+        "description": "One classified 2D edge of a projected view (design \u00a71.3) \u2014 a neutral\nprimitive, never a kernel handle (the boundary twin of\n``geometry.drawings.project.ProjectedEdge``).\n\n``visible`` distinguishes solid-drawn (``True``) from hidden/dashed (``False``,\noccluded). ``start``/``end`` are the canonical (orientation-independent)\nendpoints and ``midpoint`` a point ON the edge. ``center``/``radius`` are\npopulated for ``circle``/``arc`` (a real projected circle a \u00d8/radius dimension\nreads off, \u00a71.1); ``points`` holds the sampled vertices of a ``polyline``\n(empty for the analytic kinds). Edges arrive in the canonical total order\n(\u00a71.4) \u2014 a consumer serialising them verbatim gets byte-deterministic output.",
+        "properties": {
+          "center": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectedPoint"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Circle/arc centre (null for line/polyline)"
+          },
+          "end": {
+            "$ref": "#/components/schemas/ProjectedPoint",
+            "description": "Canonical second endpoint"
+          },
+          "midpoint": {
+            "$ref": "#/components/schemas/ProjectedPoint",
+            "description": "A point ON the edge (orientation-independent)"
+          },
+          "points": {
+            "description": "Sampled polyline vertices (empty for line/circle/arc)",
+            "items": {
+              "$ref": "#/components/schemas/ProjectedPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "primitive": {
+            "description": "Neutral 2D primitive kind",
+            "enum": [
+              "line",
+              "circle",
+              "arc",
+              "polyline"
+            ],
+            "title": "Primitive",
+            "type": "string"
+          },
+          "radius": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Circle/arc radius, mm x scale (null otherwise)",
+            "title": "Radius"
+          },
+          "start": {
+            "$ref": "#/components/schemas/ProjectedPoint",
+            "description": "Canonical first endpoint"
+          },
+          "visible": {
+            "description": "True = solid (visible); False = dashed (hidden/occluded)",
+            "title": "Visible",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "primitive",
+          "visible",
+          "start",
+          "end",
+          "midpoint"
+        ],
+        "title": "ProjectedViewEdge",
         "type": "object"
       },
       "Quat": {
@@ -4379,6 +4611,29 @@
         ],
         "title": "VerticalConstraint",
         "type": "object"
+      },
+      "ViewScale": {
+        "description": "A view's drawing scale as an exact rational ``numerator:denominator``.\n\nStored as two integers (design \u00a72.2 ``scale_num``/``scale_den``) so the scale\nis EXACT \u2014 1:2 is ``1/2``, never a lossy float. A model-mm length maps to\n``length * numerator / denominator`` sheet-mm. Both are >= 1.",
+        "properties": {
+          "denominator": {
+            "description": "Scale denominator (N for 1:N)",
+            "minimum": 1.0,
+            "title": "Denominator",
+            "type": "integer"
+          },
+          "numerator": {
+            "description": "Scale numerator (1 for 1:N)",
+            "minimum": 1.0,
+            "title": "Numerator",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "numerator",
+          "denominator"
+        ],
+        "title": "ViewScale",
+        "type": "object"
       }
     }
   },
@@ -4425,6 +4680,48 @@
           }
         },
         "summary": "Evaluate Assembly Route",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/drawing/evaluate": {
+      "post": {
+        "description": "Project a part into its requested standard drawing views (design \u00a71.2/\u00a74).\n\nStateless (CLAUDE.md): documents sends INTENT \u2014 the referenced part's ordered\nfeature prefix + the requested standard views (front/top/right/iso) + scale \u2014\nand geometry is the sole evaluator. The part body is evaluated ONCE (reusing\n``evaluate_tree``), then exact HLR (``HLRBRep_Algo``) runs per requested view,\nyielding per-view canonically-ordered neutral 2D edges (visible = solid, hidden\n= dashed; a hole projects to a real circle a \u00d8 dimension reads off, \u00a71.1). No\nkernel/OCCT type crosses the boundary \u2014 the response is pure pydantic.\n\nA body-less part is a **200 with a whole-request ``part_error``** (empty\n``views``); a per-view HLR failure is a **200 with that view's typed\n``view_projection_failed`` error** (the other views still project) \u2014 mirroring\n``/evaluate`` and ``/assembly/evaluate``'s never-500 posture (\u00a71.5/\u00a74.3). The\npy-kit error envelope stays reserved for transport/validation failures of this\ncall itself. Identity-free: the gateway owns auth (same posture as\n``/assembly/evaluate``). Sheet auto-layout, dimension measurement, and SVG\nexport are later slices (design \u00a77).",
+        "operationId": "evaluate_drawing_route_api_v1_drawing_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateDrawingViewsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateDrawingViewsResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate Drawing Route",
         "tags": [
           "geometry"
         ]

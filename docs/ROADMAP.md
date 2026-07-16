@@ -313,9 +313,18 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       restart; 4 analytic goldens (box rectangle, through-hole→true-Ø10-circle,
       back-pocket hidden set, cylinder rectangle) + 12-param restart probe
       (`test_drawings_project.py`, 20 passed), honest typed `ViewProjectionError`
-      on HLR failure (§1.5). Remaining: dimension measurement + projected-edge→
-      model-edge map (§3.3), gateway routes, SVG export, frontend sheet editor
-      (design doc §3/§4/§6).
+      on HLR failure (§1.5). **Drawings v1 #3 — drawing-view evaluate endpoint
+      (py_kit + geometry) SHIPPED**: `geometry.drawings.evaluate_drawing_views` +
+      `POST /api/v1/drawing/evaluate` (stateless, identity-free) evaluate the part
+      body ONCE (reusing `evaluate_tree`) then `project_view` per requested view,
+      returning per-view canonically-ordered neutral 2D edges through new pure-
+      pydantic crossing DTOs (no OCCT type crosses); a body-less part → whole-
+      request `part_error`, a per-view HLR throw → that view's typed
+      `view_projection_failed` (the rest still project) — never a 500; plate golden
+      front=40x10 rect, top=2×Ø10 circles r5.000 (`test_drawings_evaluate.py`, 9
+      passed). Remaining: gateway proxy, SVG export, dimension measurement +
+      projected-edge→model-edge map (§3.3), frontend sheet editor (design doc
+      §3/§4/§6).
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 5 — Agent-native & extensibility ⬜

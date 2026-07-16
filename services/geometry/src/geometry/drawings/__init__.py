@@ -14,6 +14,7 @@ neutral :class:`ProjectedEdge` dataclasses, and the API-facing DTO + evaluate
 endpoint are a later slice.
 """
 
+from geometry.drawings.evaluate import evaluate_drawing_views
 from geometry.drawings.project import (
     Point2D,
     ProjectedEdge,
@@ -31,5 +32,6 @@ __all__ = [
     "ViewProjection",
     "ViewProjectionError",
     "canonical_edges_repr",
+    "evaluate_drawing_views",
     "project_view",
 ]

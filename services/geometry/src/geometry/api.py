@@ -18,6 +18,10 @@ from py_kit.schemas.assemblies import (
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
 )
+from py_kit.schemas.drawings import (
+    EvaluateDrawingViewsRequest,
+    EvaluateDrawingViewsResult,
+)
 from py_kit.schemas.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
@@ -49,6 +53,7 @@ from py_kit.schemas.sketch import (
 )
 
 from geometry.assembly import evaluate_assembly
+from geometry.drawings import evaluate_drawing_views
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
@@ -136,6 +141,32 @@ def evaluate_assembly_route(
     failures of this call itself.
     """
     return evaluate_assembly(request)
+
+
+@router.post("/drawing/evaluate")
+def evaluate_drawing_route(
+    request: EvaluateDrawingViewsRequest,
+) -> EvaluateDrawingViewsResult:
+    """Project a part into its requested standard drawing views (design §1.2/§4).
+
+    Stateless (CLAUDE.md): documents sends INTENT — the referenced part's ordered
+    feature prefix + the requested standard views (front/top/right/iso) + scale —
+    and geometry is the sole evaluator. The part body is evaluated ONCE (reusing
+    ``evaluate_tree``), then exact HLR (``HLRBRep_Algo``) runs per requested view,
+    yielding per-view canonically-ordered neutral 2D edges (visible = solid, hidden
+    = dashed; a hole projects to a real circle a Ø dimension reads off, §1.1). No
+    kernel/OCCT type crosses the boundary — the response is pure pydantic.
+
+    A body-less part is a **200 with a whole-request ``part_error``** (empty
+    ``views``); a per-view HLR failure is a **200 with that view's typed
+    ``view_projection_failed`` error** (the other views still project) — mirroring
+    ``/evaluate`` and ``/assembly/evaluate``'s never-500 posture (§1.5/§4.3). The
+    py-kit error envelope stays reserved for transport/validation failures of this
+    call itself. Identity-free: the gateway owns auth (same posture as
+    ``/assembly/evaluate``). Sheet auto-layout, dimension measurement, and SVG
+    export are later slices (design §7).
+    """
+    return evaluate_drawing_views(request)
 
 
 _MESH_RESPONSES: dict[int | str, dict[str, Any]] = {

@@ -104,20 +104,21 @@ nit, no user impact, stays Later).
       + resting datum sheets, and parts-home thumbnails (item 13 remainder —
       needs a last-evaluated-mesh snapshot pipeline). [src: UI-REVIEW Batch 3]
       [src: UI-REVIEW 2026-07-16 remediation items 10–13]
-- [ ] (P1, M) Drawings v1 #3 — dimension measurement + projected-edge→model-edge
+- [ ] (P1, S) Drawings v1 #4 — gateway evaluate proxy (gateway). Owner-scoped
+      auth + aggregation wrapper over the shipped geometry
+      `/api/v1/drawing/evaluate` so apps/web reaches drawing projection through the
+      gateway (same posture as the assembly-evaluate proxy). [src:
+      design/drawings.md §4/§5]
+- [ ] (P1, M) Drawings v1 #5 — server-composed SVG export, content-addressed +
+      byte-deterministic (geometry, §4). PDF/DXF are the fast-follow behind the
+      same seam. [src: design/drawings.md §4/§8]
+- [ ] (P1, M) Drawings v1 #6 — dimension measurement + projected-edge→model-edge
       map (geometry). Extend `geometry.drawings` so each dimensionable projected
       edge carries its originating model `EdgeSignature` (HLR `Modified`/
       `Generated` provenance, design §3.3 / open Q1) and resolve+measure the 4
       dimension types (linear/diameter/radius/angular) from the model, surfacing
       the `foreshortened` flag (§3.2). Analytic goldens: Ø10→10.000, r5→5.000,
       40 mm edge→40.000, vee angle. [src: design/drawings.md §3/§8]
-- [ ] (P1, M) Drawings v1 #4 — evaluate endpoint + `ViewGeometry`/generation DTO
-      (py_kit + geometry + gateway). Wrap `project_view` behind the neutral
-      crossing DTO (§5) and the `/api/v1/drawings/…/evaluate` route; per-view
-      `view_projection_failed` mapping. [src: design/drawings.md §4/§5]
-- [ ] (P1, M) Drawings v1 #5 — server-composed SVG export, content-addressed +
-      byte-deterministic (geometry, §4). PDF/DXF are the fast-follow behind the
-      same seam. [src: design/drawings.md §4/§8]
 - [x] (P1, M) Drawings v1 #1 — document model + CRUD API (documents) — **DONE
       2026-07-16.** `py_kit.schemas.drawings` (SheetPoint/ViewScale/TitleBlock,
       the 4-dimension discriminated union linear/diameter/radius/angular naming
@@ -148,6 +149,22 @@ nit, no user impact, stays Later).
       restart probe (`test_drawings_project.py`, 20 passed); lint/pyright-strict
       clean. Later slices: dimension measurement + projected-edge→model-edge map
       (§3.3), gateway route, SVG compose. [src: design/drawings.md §1/§8]
+- [x] (P1, M) Drawings v1 #3 — drawing-view evaluate endpoint (py_kit + geometry)
+      — **DONE 2026-07-16.** `geometry.drawings.evaluate_drawing_views` +
+      `POST /api/v1/drawing/evaluate` (stateless, identity-free — gateway owns
+      auth): evaluates the part body ONCE (reuses `evaluate_tree` VERBATIM, no new
+      part-eval path) then runs `project_view` per requested view
+      (front/top/right/iso) at a rational `ViewScale`. New py-kit crossing DTOs
+      (`EvaluateDrawingViews{Request,Result}`, `DrawingViewResult`,
+      `ProjectedViewEdge`/`ProjectedPoint`, added to `py_kit.schemas.drawings`)
+      map the internal `ProjectedEdge` dataclasses → pure pydantic — no OCCT/kernel
+      type crosses. Honest posture (never a 500): a body-less part → whole-request
+      `part_error` (empty views); a per-view HLR throw → that view's typed
+      `view_projection_failed`, the other views still project. Plate golden: front
+      = 40x10 rectangle, top = two Ø10 circles (r5.000). 9 tests
+      (`test_drawings_evaluate.py`) + gen-check + pyright-strict green. Deferred:
+      gateway proxy (#4), SVG (#5), dimension measurement/provenance (#6). [src:
+      design/drawings.md §1.2/§4/§5]
 - [x] (P1, M) Assemblies v1 #1 — document model + CRUD API (documents) — **DONE
       2026-07-15.** `py_kit.schemas.assemblies` (Placement/Quat, MateFace/AxisRef
       reusing PlanarFaceSignature/EdgeSignature verbatim, the discriminated
@@ -531,6 +548,13 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 ## Changelog
 
 Older entries live in `CHANGELOG.md`.
+
+- 2026-07-16 — **Drawings v1 #3 (drawing-view evaluate endpoint) done:**
+  `geometry.drawings.evaluate_drawing_views` + `POST /api/v1/drawing/evaluate`
+  (stateless) reuse `evaluate_tree` once then `project_view` per view; new py-kit
+  crossing DTOs (no OCCT type crosses); per-view `view_projection_failed` +
+  whole-request `part_error`, never a 500; plate golden front=40x10 rect,
+  top=2×Ø10 (r5). 9 tests + gen-check green. [kernel-architect]
 
 - 2026-07-16 — **Drawings v1 #2 (HLR projection, geometry) done:** exact-HLR
   `geometry.drawings.project_view` → canonically-ordered visible/hidden 2D edges,

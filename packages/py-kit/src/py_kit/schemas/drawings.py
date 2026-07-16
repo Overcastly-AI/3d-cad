@@ -33,7 +33,11 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from py_kit.schemas.assemblies import RefDocumentKind
-from py_kit.schemas.features import EdgeSignature
+from py_kit.schemas.features import (
+    EdgeSignature,
+    EvaluatedFeatureInput,
+    FeatureError,
+)
 
 #: Upper bound for a user-facing drawing name ("Bracket — Detail").
 DRAWING_NAME_MAX_LENGTH = 200
@@ -68,9 +72,7 @@ SheetName = Annotated[
 #: unset by the caller). Free text in v1 (design §9 open-q 6).
 TitleBlockField = Annotated[
     str,
-    StringConstraints(
-        strip_whitespace=True, max_length=TITLE_BLOCK_FIELD_MAX_LENGTH
-    ),
+    StringConstraints(strip_whitespace=True, max_length=TITLE_BLOCK_FIELD_MAX_LENGTH),
 ]
 
 #: Non-empty (post-strip), bounded note text.
@@ -591,3 +593,150 @@ class AnnotationMutationResponse(BaseModel):
 
     annotation: AnnotationResponse
     doc_version: int
+
+
+# --- §1.2/§4 view-evaluation contract (documents → geometry → gateway → web) -----
+#
+# Mirrors EvaluateTreeRequest / EvaluateAssemblyRequest (feature-tree §4 /
+# assemblies §4): one transport-agnostic request/response pair, pure pydantic — no
+# kernel/OCCT type crosses the boundary (CLAUDE.md). documents sends INTENT (the
+# referenced part's ordered feature prefix + the requested standard views),
+# geometry is the sole evaluator — it evaluates the part body ONCE (reusing
+# ``evaluate_tree``) then runs exact HLR (``geometry.drawings.project_view``) per
+# requested view — and the response is per-view canonically-ordered neutral 2D
+# edges OR a typed per-view projection error. This is Drawings v1 slice #3 ("part
+# → projected view geometry as a typed API response"); sheet auto-layout,
+# dimension provenance/measurement (§3.3), and SVG export (§4) are later slices.
+
+#: The neutral 2D primitive kinds an HLR-projected edge classifies into (design
+#: §1.3) — the boundary twin of ``geometry.drawings.project.EdgePrimitive``. Real
+#: lines and circles stay EXACT (a diameter dimension reads a true radius, §1.1);
+#: only a genuinely free-form curve degrades to a sampled ``polyline``.
+ProjectedEdgePrimitive = Literal["line", "circle", "arc", "polyline"]
+
+
+class ProjectedPoint(BaseModel):
+    """A 2D point of a projected view edge, in view-plane mm at the view's scale.
+
+    View-local millimetres (model-mm x the view scale, design §9 q4) — NOT yet
+    placed at a sheet position (sheet layout is a later slice). A projected edge's
+    endpoints, midpoint, centre, and polyline sample points are all this type.
+    """
+
+    x_mm: float = Field(description="X in the view plane (mm, model-mm x scale)")
+    y_mm: float = Field(description="Y in the view plane (mm, model-mm x scale)")
+
+
+class ProjectedViewEdge(BaseModel):
+    """One classified 2D edge of a projected view (design §1.3) — a neutral
+    primitive, never a kernel handle (the boundary twin of
+    ``geometry.drawings.project.ProjectedEdge``).
+
+    ``visible`` distinguishes solid-drawn (``True``) from hidden/dashed (``False``,
+    occluded). ``start``/``end`` are the canonical (orientation-independent)
+    endpoints and ``midpoint`` a point ON the edge. ``center``/``radius`` are
+    populated for ``circle``/``arc`` (a real projected circle a Ø/radius dimension
+    reads off, §1.1); ``points`` holds the sampled vertices of a ``polyline``
+    (empty for the analytic kinds). Edges arrive in the canonical total order
+    (§1.4) — a consumer serialising them verbatim gets byte-deterministic output.
+    """
+
+    primitive: ProjectedEdgePrimitive = Field(description="Neutral 2D primitive kind")
+    visible: bool = Field(
+        description="True = solid (visible); False = dashed (hidden/occluded)"
+    )
+    start: ProjectedPoint = Field(description="Canonical first endpoint")
+    end: ProjectedPoint = Field(description="Canonical second endpoint")
+    midpoint: ProjectedPoint = Field(
+        description="A point ON the edge (orientation-independent)"
+    )
+    center: ProjectedPoint | None = Field(
+        default=None, description="Circle/arc centre (null for line/polyline)"
+    )
+    radius: float | None = Field(
+        default=None, description="Circle/arc radius, mm x scale (null otherwise)"
+    )
+    points: list[ProjectedPoint] = Field(
+        default_factory=list["ProjectedPoint"],
+        description="Sampled polyline vertices (empty for line/circle/arc)",
+    )
+
+
+class DrawingViewResult(BaseModel):
+    """One requested view's projection outcome inside a 200 (design §1.3/§1.5).
+
+    On success, ``edges`` carries the view's canonically-ordered visible+hidden 2D
+    edges and ``error`` is null. On an exact-HLR failure (a fragile body — tangent
+    edges, self-intersections, §1.5), ``edges`` is empty and ``error`` is a typed
+    ``view_projection_failed`` (the boundary form of
+    ``geometry.drawings.ViewProjectionError``) — never a 500, never a silently
+    empty success. A per-view failure NEVER fails the whole request; the other
+    requested views still project (mirroring the per-feature/per-mate posture).
+    """
+
+    view: ViewProjection = Field(description="The projection direction of this view")
+    scale: ViewScale = Field(description="The scale applied (echoes the request)")
+    edges: list[ProjectedViewEdge] = Field(
+        default_factory=list["ProjectedViewEdge"],
+        description="Canonically-ordered visible+hidden 2D edges (empty on error)",
+    )
+    error: FeatureError | None = Field(
+        default=None,
+        description="Typed per-view HLR failure (`view_projection_failed`), or null "
+        "on success (design §1.5)",
+    )
+
+
+class EvaluateDrawingViewsRequest(BaseModel):
+    """Project a part into its requested standard drawing views (design §1.2/§4).
+
+    documents sends INTENT — the referenced part's ordered, rollback-applied
+    feature prefix (reusing the feature-tree §4 contract VERBATIM, so geometry
+    stays the sole evaluator and no kernel body crosses) plus the standard views to
+    project and the drawing scale. geometry evaluates the part body ONCE
+    (``evaluate_tree``) then runs exact HLR per requested view. Deterministic
+    (RESEARCH §9): the same request yields byte-identical projected edges,
+    in-process AND across an interpreter restart.
+    """
+
+    part_id: uuid.UUID = Field(description="The referenced part's identity (echoed)")
+    tree_version: int = Field(description="Echoed back; cache/correlation key")
+    features: list[EvaluatedFeatureInput] = Field(
+        description="The part's ordered feature prefix (feature-tree §4 contract)"
+    )
+    views: list[ViewProjection] = Field(
+        description="The standard views to project (subset of front/top/right/iso); "
+        "processed and returned in request order"
+    )
+    scale: ViewScale = Field(
+        default=DEFAULT_VIEW_SCALE,
+        description="Drawing scale (rational; 1:1 default) applied to every view",
+    )
+
+
+class EvaluateDrawingViewsResult(BaseModel):
+    """Per-view projected geometry for a part, with an honest whole-part failure
+    channel (design §1.5/§4).
+
+    ``views`` carries one :class:`DrawingViewResult` per requested view, in request
+    order — each either its canonically-ordered 2D edges or a typed per-view
+    projection error. ``part_error`` is set ONLY when the part tree produced no
+    body (a strict-prefix feature failure or a body-less tree): there is nothing to
+    project, so ``views`` is empty and the failing feature's error rides here (the
+    single-part analogue of the assembly per-instance ``no_body``). A feature/HLR
+    failure is a 200 with a typed error, never a 500 — the py-kit error envelope
+    stays reserved for transport/validation failures of this call itself.
+    """
+
+    part_id: uuid.UUID
+    tree_version: int
+    views: list[DrawingViewResult] = Field(
+        default_factory=list["DrawingViewResult"],
+        description="One result per requested view, in request order (empty when "
+        "`part_error` is set)",
+    )
+    part_error: FeatureError | None = Field(
+        default=None,
+        description="Set when the part evaluated to no body (nothing to project); "
+        "`views` is then empty (design §4)",
+    )
