@@ -124,14 +124,20 @@ nit, no user impact, stays Later).
       dimension types (linear/diameter/radius/angular) from the model, surfacing
       the `foreshortened` flag (§3.2). Analytic goldens: Ø10→10.000, r5→5.000,
       40 mm edge→40.000, vee angle. [src: design/drawings.md §3/§8]
-- [ ] (P1, L) Drawings v1 #7 — frontend drawing canvas (apps/web). A `/drawings`
-      register + `/drawings/{id}` editor (sibling of parts/assemblies) built on the
-      makeover command band: create a drawing referencing a part, **auto-layout the
-      standard 4** (front/top/right/iso, third-angle default) onto a sheet at a
-      chosen scale via `POST /geometry/drawing/evaluate`, and render each view's
-      projected edges as an SVG sheet — visible solid, hidden dashed — from the
-      design tokens. Dimensions (#6) + SVG export (#5) layer on after. The
-      founder-visible payoff: a drawing on screen. [src: design/drawings.md §7]
+- [x] (P1, L) Drawings v1 #7 — frontend drawing canvas (apps/web) — **DONE
+      2026-07-16.** `/drawings` register + `/drawings/{id}` sheet editor (third
+      sibling of parts/assemblies, on the makeover command band + breadcrumb).
+      Signature "paper on the bench" sheet surface (new `drawing` tokens: cool
+      vellum, graphite ink, mm visible/hidden stroke weights). One action
+      auto-lays-out the standard 4 (front/top/right third-angle + iso): creates
+      the sheet + views (CRUD), projects via `POST /geometry/drawing/evaluate`,
+      renders each view as scale-correct SVG (visible solid, hidden dashed, hole→
+      circle) with an honest per-view failure placeholder + a functional
+      Standard-views panel. e2e `drawings.spec.ts` (real stack, isolated 8010/11/12)
+      + `layout.test.ts` (8) green; full `just lint` green; founder shots
+      1440/1280. Deferred to BACKLOG: dimensions (#6), SVG export (#5),
+      section/detail/assembly views, scale/title-block UX polish.
+      [src: design/drawings.md §7]
 - [ ] (P3, S) Drawings — body-only eval path (drawing-eval wastes tessellation).
       `evaluate_drawing_views` reuses `evaluate_tree`, which unconditionally
       tessellates + stores a GLB the projection-only path never fetches (memory/
@@ -569,6 +575,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-16 — **Drawings v1 #7 (frontend drawing canvas) done:** `/drawings`
+  register + `/drawings/{id}` sheet editor; one action auto-lays-out the standard
+  four (front/top/right third-angle + iso) and renders them as scale-correct SVG
+  (visible solid, hidden dashed) on the "paper on the bench" sheet — new `drawing`
+  design tokens. e2e `drawings.spec.ts` + `layout.test.ts` green; full lint green.
 - 2026-07-16 — **Drawings v1 #4 (gateway proxy) done:** `gateway.drawings`
   proxies the documents drawing CRUD + `POST /api/v1/geometry/drawing/evaluate`;
   every route auth-gated (F7), identity-free geometry hop, envelopes verbatim;

@@ -6,6 +6,7 @@ import type { Config } from "tailwindcss";
 
 import {
   color,
+  drawing,
   duration,
   font,
   fontSize,
@@ -42,6 +43,13 @@ export const loftPreset = {
       "brass-hover": color.brassHover,
       aluminum: color.aluminum,
       flag: color.flag,
+      // Drawing surface (the paper-on-the-bench signature): the sheet chrome
+      // that lives in the DOM (title-block text, view labels) draws from the
+      // same source as the SVG edge renderer.
+      paper: drawing.paper,
+      "paper-edge": drawing.paperEdge,
+      ink: drawing.ink,
+      "ink-label": drawing.label,
     },
     fontFamily: {
       display: font.display,

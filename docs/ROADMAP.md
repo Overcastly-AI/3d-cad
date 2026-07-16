@@ -330,9 +330,20 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       plus `POST /api/v1/geometry/drawing/evaluate` mirroring the assembly-evaluate
       proxy (auth-gated, identity-free geometry hop); contracts + ts-client
       regenerated, `test_drawings_proxy.py` + `test_drawing_evaluate_proxy.py`
-      (34 passed). Remaining: SVG export, dimension measurement +
-      projected-edge→model-edge map (§3.3), frontend sheet editor (design doc
-      §3/§4/§6).
+      (34 passed). **Drawings v1 #7 — frontend drawing canvas (apps/web)
+      SHIPPED**: a `/drawings` register + `/drawings/{id}` sheet editor (third
+      sibling of parts/assemblies, built on the makeover command band +
+      breadcrumb), the signature "paper on the bench" sheet surface (new
+      `drawing` design tokens: cool vellum, graphite ink, mm-denominated
+      visible/hidden stroke weights). One action auto-lays-out the standard four
+      (front/top/right third-angle + iso): it creates the sheet + views (CRUD),
+      projects the part via `POST /geometry/drawing/evaluate`, and renders each
+      view as scale-correct SVG — visible solid, hidden dashed, a real circle for
+      a hole — with an honest per-view "view failed" placeholder. e2e
+      `drawings.spec.ts` (real stack) lays out the 4 and asserts edges + the
+      top-view circle; `layout.test.ts` (8) covers the pure geometry; full
+      `just lint` green. Remaining: SVG export (#5), dimension measurement +
+      projected-edge→model-edge map (#6, §3.3), section/detail/assembly views.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 5 — Agent-native & extensibility ⬜

@@ -1,13 +1,13 @@
 /**
- * The register switch — a quiet segmented control tying the two document
- * registers together (Parts ⇄ Assemblies). Square-cornered, hairline-ruled,
+ * The register switch — a quiet segmented control tying the document registers
+ * together (Parts ⇄ Assemblies ⇄ Drawings). Square-cornered, hairline-ruled,
  * brass on the active leaf: the same title-block grammar as everything else,
- * so the two workspaces read as siblings of one product.
+ * so the workspaces read as siblings of one product.
  */
 import { Link } from "@tanstack/react-router";
 
 export interface WorkspaceNavProps {
-  active: "parts" | "assemblies";
+  active: "parts" | "assemblies" | "drawings";
 }
 
 export function WorkspaceNav({ active }: WorkspaceNavProps) {
@@ -35,6 +35,13 @@ export function WorkspaceNav({ active }: WorkspaceNavProps) {
         data-testid="nav-assemblies"
       >
         Assemblies
+      </Link>
+      <Link
+        to="/drawings"
+        className={cell(active === "drawings")}
+        data-testid="nav-drawings"
+      >
+        Drawings
       </Link>
     </nav>
   );

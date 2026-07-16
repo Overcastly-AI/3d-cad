@@ -10,7 +10,7 @@ import { Link } from "@tanstack/react-router";
 
 export interface BreadcrumbProps {
   /** Which register this document lives in — sets the parent link + label. */
-  register: "parts" | "assemblies";
+  register: "parts" | "assemblies" | "drawings";
   /** The document's name (the current, non-link leaf when no mode is active). */
   documentName: string;
   /** Test hook on the document segment — kept as `part-name`/`assembly-name`. */
@@ -25,6 +25,7 @@ export interface BreadcrumbProps {
 const REGISTER = {
   parts: { to: "/" as const, label: "Parts" },
   assemblies: { to: "/assemblies" as const, label: "Assemblies" },
+  drawings: { to: "/drawings" as const, label: "Drawings" },
 };
 
 function Separator() {

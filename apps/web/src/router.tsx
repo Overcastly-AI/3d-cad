@@ -8,6 +8,8 @@ import {
 import { AssembliesPage } from "./routes/AssembliesPage";
 import { AssemblyPage } from "./routes/AssemblyPage";
 import { AuthedLayout } from "./routes/AuthedLayout";
+import { DrawingPage } from "./routes/DrawingPage";
+import { DrawingsPage } from "./routes/DrawingsPage";
 import { ModelerPage } from "./routes/ModelerPage";
 import { PartPage } from "./routes/PartPage";
 import { PartsPage } from "./routes/PartsPage";
@@ -68,6 +70,20 @@ export const assemblyRoute = createRoute({
   component: AssemblyPage,
 });
 
+/** The drawings register — sibling of the parts + assemblies homes. */
+const drawingsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/drawings",
+  component: DrawingsPage,
+});
+
+/** Drawing workspace: an engineering sheet + the standard views. */
+export const drawingRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/drawings/$drawingId",
+  component: DrawingPage,
+});
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   authedRoute.addChildren([
@@ -76,6 +92,8 @@ const routeTree = rootRoute.addChildren([
     partRoute,
     assembliesRoute,
     assemblyRoute,
+    drawingsRoute,
+    drawingRoute,
   ]),
 ]);
 

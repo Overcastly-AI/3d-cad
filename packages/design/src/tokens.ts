@@ -223,6 +223,38 @@ export const assembly = {
   hover: color.brassHover,
 } as const;
 
+/**
+ * Drawing-sheet palette — the 2D print surface (SVG, not WebGL). THE signature
+ * inversion of the product: every other surface is blued-steel dark, but a
+ * drawing IS paper, so the sheet is a leaf of cool drafting vellum laid on the
+ * bench, drawn in graphite ink. Spent boldly here and nowhere else. Values are
+ * NEW surface colors (a new renderer, like `sketch`/`measure`/`assembly`), and
+ * stroke weights are millimetre design decisions, not per-element magic numbers,
+ * so the print is scale-correct. Consumed by the SVG sheet renderer directly (no
+ * hex duplicated in app code — one palette, N renderers).
+ */
+export const drawing = {
+  /** The sheet — cool drafting white (deliberately not warm cream). */
+  paper: "#ECEFF2",
+  /** Sheet drop-edge / seat shadow against the bench. */
+  paperEdge: "#C9CFD7",
+  /** Border rules, title-block rules + stamped text — graphite ink. */
+  ink: "#1B222B",
+  /** Visible projected edge — solid graphite (the print's primary lines). */
+  edgeVisible: "#1B222B",
+  /** Hidden (occluded) projected edge — lighter graphite, drawn dashed (≥3:1 on paper). */
+  edgeHidden: "#6E7A88",
+  /** View labels + secondary title-block captions — mid graphite. */
+  label: "#48525E",
+  /** Stroke weights on the sheet, in millimetres (drawn at the sheet's mm scale). */
+  borderWeightMm: 0.7,
+  visibleWeightMm: 0.5,
+  hiddenWeightMm: 0.35,
+  /** Hidden-edge dash pattern (sheet mm) — the conventional short dash. */
+  hiddenDashMm: 2,
+  hiddenGapMm: 1.4,
+} as const;
+
 export const font = {
   /** Display: wordmark + tracked eyebrow labels. Used with restraint. */
   display: '"Fragment Mono", ui-monospace, monospace',
