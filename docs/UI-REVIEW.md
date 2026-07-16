@@ -547,3 +547,114 @@ stack (isolated ports 8010–8012). Evidence (afters):
 `docs/screenshots/makeover-batch3-{in-command,selected,empty}-{desktop,laptop}.png`
 vs `docs/screenshots/ui-audit/{11-fillet-editor,17-extrude-editor,03-part-empty}-desktop.png`
 befores.
+
+---
+
+## 2026-07-16 — Drawings v1 spot-audit: sheet editor + register (commit 6671ec4)
+
+Design-system / a11y / responsive / state-completeness review of the new
+`/drawings` register + `/drawings/{id}` sheet editor (the paper-on-the-bench
+signature). Geometry/layout MATH correctness is the parallel code-reviewer's;
+this pass owns look-and-feel adherence. Evidence:
+`docs/screenshots/drawings-editor-{1440,1280}.png`. Source read end-to-end
+(`DrawingsPage`, `DrawingPage`, `DrawingSheet`, `DrawingCommandBand`,
+`WorkspaceNav`, `Breadcrumb`, `drawing` tokens, `ToolButton`, `FloatingPanel`).
+
+### Executive verdict
+
+**Up to the makeover's standard — ship it; the open items are polish, not a
+gate.** No P0/P1. The paper-on-bench inversion is executed exactly as the
+mandate asks: spent boldly in one place, framed + drop-shadowed so it reads
+deliberate (not an unstyled white box), and driven entirely from a proper
+`drawing` token group that both renderers (Tailwind DOM + the SVG sheet) read
+— zero hex literals in app code (grep clean). The register is a near-exact
+structural sibling of `PartsPage` (same testid grammar, table, states, create
+flow, `WorkspaceNav`), so the three homes read as one product. State coverage
+is unusually complete. Contrast passes. The findings below are a short polish
+list.
+
+### Findings (prioritized)
+
+- **P2 — sheet editor — the "Views" floating panel occludes the paper's
+  top-right corner + its drawn border frame.** The opaque `anvil` panel sits
+  over the sheet's top-right; at 1280 it clips the drawn border corner (visible
+  in `drawings-editor-1280.png`), nicking the "framed sheet" read that makes
+  the inversion feel deliberate. It clears the *views* (iso is centre-right, not
+  in the corner), so no data is hidden — cosmetic, but it undercuts the one
+  signature surface. Secondary: `FloatingPanel` reserves `max-h-[calc(100%-
+  9.5rem)]` bottom clearance *for the r3f gizmo cube band* — but this 2D sheet
+  has no gizmo, so the clearance is dead reservation. System fix: give the sheet
+  container right-inset room equal to the panel width (or float the panel just
+  outside the paper's right edge), and let the drawing route pass a tighter
+  `maxHeightClassName` since there's no cube to clear.
+  Ref: `drawings-editor-1280.png` (top-right), `FloatingPanel.tsx:35-38`.
+
+- **P2 — sheet editor — command band invites setup actions while the drawing
+  is still loading.** `DrawingPage` renders `DrawingCommandBand` (Part select /
+  Scale select / "Lay out standard views") unconditionally, including while the
+  `drawing` query is in flight and the bench shows the "Loading drawing…"
+  centre note. `hasLayout` is `false` during load, so the pickers are live and
+  "Lay out" can fire against `docVersion = 0` before the sheet's real version is
+  known. Incoherent (band says "act", canvas says "loading") and a latent
+  optimistic-concurrency race. System fix: gate the band's controls (or a `busy`
+  flag) on `drawingQuery.isSuccess`, same as the setup hint is gated on `tree`.
+  Ref: `DrawingPage.tsx:232-245, 137-138`.
+
+- **P3 — sheet — title-block captions render sub-legible at laptop width.**
+  The `TITLE / SCALE / SIZE` captions are 2.3 mm SVG text; on the 1280 sheet
+  (~3.0 px/mm) that's ≈6.8 px — under the practical floor for the mono face
+  (the 3.4 mm values ≈10 px are fine). Contrast is not the issue (`drawing.label`
+  #48525E on paper = 6.9:1, passes AA). Print-fidelity partly excuses fine
+  print, but it's borderline. System fix: nudge the caption mm size up a step,
+  or set a min effective px via a viewport-relative floor on the title block.
+  Ref: `DrawingSheet.tsx:180-190`, `drawings-editor-1280.png` (title block).
+
+- **P3 — command band — same `RectIcon` for two different verbs, and it
+  doesn't read as "re-project".** "Lay out standard views" and "Re-project"
+  both use `<RectIcon />`. A rectangle passes as a view-frame for *lay out*, but
+  says nothing for *re-project/refresh* — the label carries all the meaning.
+  System fix: add a refresh/reproject glyph to the design icon set for the
+  post-layout action. Ref: `DrawingCommandBand.tsx:100-124`.
+
+- **P3 — views panel — collapsed tab says "Views", expanded header says
+  "Standard views".** `FloatingPanel title="Views"` (the collapse tab + aria
+  name) vs `ViewsPanel` header "Standard views". Minor label drift on the same
+  object. System fix: pass one string (use "Standard views" for both, or shorten
+  the header to "Views"). Ref: `DrawingPage.tsx:324`, `DrawingPage.tsx:404`.
+
+### Verified GOOD (no action)
+
+- **Token adherence / one-palette-two-renderers.** New `drawing` group added to
+  `tokens.ts` + surfaced in `tailwind-preset.ts` (paper/ink/label as closed
+  DOM colors); the SVG sheet reads `drawing.*` + `font.data` + `viewport.
+  atmosphere.abyss` for its seat-shadow — no hex in `apps/web` drawing files
+  (grep clean). Stroke weights are mm design tokens, not per-element magic.
+- **Inversion contrast.** ink #1B222B on paper #ECEFF2 = high; hidden-edge
+  #6E7A88 = 3.8:1 (>3:1 graphical); label text 6.9:1 — all pass AA/1.4.11.
+- **State completeness (unusually thorough).** Register: loading / error /
+  empty / populated. Editor: drawing loading, load error, empty sheet (with a
+  `hasParts` branch → "Create a part first"), projecting spinner, per-view
+  "VIEW FAILED" stamp + `ViewsPanel` "failed", part-level projection-failure
+  banner, layout-action error with a Dismiss. Long titles truncate at 22 chars.
+- **a11y floor.** Sheet SVG is `role="img"` with a summarizing `aria-label`, and
+  the per-view labels + live edge counts have a reachable DOM alternative in
+  `ViewsPanel` (not locked inside the SVG). All interactive elements carry
+  `focus-visible` brass outlines; `L` (lay out / re-project) and `N` (new
+  drawing) keyboard verbs guard typing targets. Disabled "Lay out" explains
+  itself to mouse AND keyboard via `ToolButton`'s `aria-disabled` (still
+  hoverable/focusable) + `caption` reason — no pointer-events tooltip trap
+  (mandate 7). Tooltip fade is `motion-safe:` gated; no ungated motion on the
+  surface.
+- **Chrome honesty (mandate 3a).** Every band/panel element is live: Part +
+  Scale are readouts of real state post-layout, edge-count readouts are eval
+  data, the legend is a functional key, Re-project is wired. Breadcrumb mode
+  (`Set up` pre-layout → null after) is an honest mode indicator.
+
+### Component checklist (delta)
+
+- `DrawingsPage` register 🟡 (sibling-clean; watch DRY vs PartsPage — near-dup)
+- `DrawingPage` editor 🔴 (P2 load-gating + panel occlusion)
+- `DrawingSheet` SVG ✅ (P3 caption size only)
+- `DrawingCommandBand` ✅ (P3 icon only)
+- `drawing` token group ✅
+- `WorkspaceNav` / `Breadcrumb` drawings parity ✅
