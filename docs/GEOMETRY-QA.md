@@ -21,6 +21,11 @@ uv run pytest services/geometry/tests/test_assembly_goldens.py -v
 # visible/hidden classification, canonical-order byte-determinism across restart):
 uv run pytest services/geometry/tests/test_drawings_project.py -v
 
+# drawings dimension-measurement + provenance goldens (model-true values for the
+# 4 dimension types, foreshortened flag, projected-edge→model-edge provenance,
+# typed resolution errors):
+uv run pytest services/geometry/tests/test_drawings_measure.py -v
+
 # STEP round-trip fidelity gate (kernel-level):
 uv run pytest services/geometry/tests/test_step_roundtrip.py -v
 
@@ -44,6 +49,74 @@ for a feature tree — `geometry.harness` owns the dispatch) + `expected.json`
 discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
+
+## 2026-07-16 — Drawings v1 #6: dimension measurement + projected-edge→model-edge provenance (`test_drawings_measure.py`)
+
+kernel-architect build note for the measurement + provenance slice
+(`geometry.drawings.measure` + the `project_view` provenance pass, design
+`drawings.md` §3.3 / §3.2 / open Q1). Two capabilities, both analytically gated.
+
+**Measurement is model-true, not projected.** A dimension names a MODEL edge with
+the shipped `EdgeSignature`; `measure_dimension` resolves it (`resolve_edge`,
+exactly-one-or-honest-error) and reads the value off the EXACT 3D B-rep — never the
+foreshortened 2D. Goldens (documented tol `LENGTH_TOL_MM = 1e-6`, `ANGLE_TOL_DEG =
+1e-6` — ulp-scale on analytic bodies, a loosening is a reviewed decision not a
+green-hack):
+
+| golden | body | dim | expected | got |
+|---|---|---|---|---|
+| linear edge | 40×25×10 box | `linear`/`edge_length` | 40.000 mm | 40.0 |
+| point-to-point | box 40 mm edge ends | `linear`/`point_to_point` | 40.000 mm | 40.0 |
+| diameter | Ø10 through hole | `diameter` | 10.000 mm | 10.0 |
+| radius | r5 vertical fillet | `radius` | 5.000 mm | 5.0 |
+| angular | 45° triangular-prism vee | `angular` | 45.000° | 45.0 |
+
+**Foreshortening flag (§3.2), value stays honest.** The wedge hypotenuse (true
+length 20√2 = 28.284 mm) measures the SAME 28.284 in the FRONT view (`foreshortened
+= False`, it lies in the front plane) AND the TOP view (`foreshortened = True`,
+tilted 45° — it *draws* as a projected 20 mm). The number is model-true in both; the
+flag is the only difference. A Ø10 hole likewise reads 10.000 with `foreshortened =
+False` top (axis ∥ N) and `True` front (edge-on). Foreshorten tol `1e-7` (sin-scale):
+a LINEAR feature is true-size when its direction ⟂ N, a CIRCULAR feature when its
+axis ∥ N.
+
+**Typed errors, never a 500.** `measure_dimension_dto` folds the reused subshape
+taxonomy onto `MeasuredDimension.error`: an off-part ref → `subshape_unresolved`, a
+congruent twin → `subshape_ambiguous` (from `resolve_edge`, gated in `test_edges.py`),
+a wrong-kind ref (a `diameter` on a straight edge, an `angular` on a circle) →
+`dimension_wrong_type`.
+
+**HONEST HLR-provenance finding (open Q1 — the risk, probed first).** OCP's
+`HLRBRep_Data.EdgeMap()` gives a clean **1:1 correspondence** between the internal
+HLR edges and the model edges (verified: a Ø10-hole plate has 15 model edges and a
+15-entry `EdgeMap`), but `HLRBRep_HLRToShape` exposes only the **aggregate** output
+compounds (`VCompound`/`HCompound`/`OutLine*`) with **no per-output-edge back-tag**
+to that index — replicating `InternalCompound`'s per-edge drawing to recover the tag
+is a fragile reimplementation of OCCT internals through an unstubbed wheel. So
+provenance is **geometric re-matching in the projection plane**, which is exact and
+deterministic: the HLR output 2D coordinates equal `(model·x_dir, model·y_dir)`
+(verified), so each SHARP output edge's canonical `geometry_key` matches exactly one
+model edge's projected key — reusing the shipped `enumerate_edges` signatures (the
+SAME fingerprint a mate/fillet uses, no parallel taxonomy).
+
+**Provenance limits, stated (§1.5):** (a) **silhouette/outline** (`OutLine*`) edges
+are not model edges → `source_edge = None`, `dimensionable = False` (a right-view
+cylinder's two contour verticals — golden `test_silhouette_edges_are_undimensionable`);
+(b) **coincident faces** (a box's top+bottom edges project to one 2D edge) are
+disambiguated by **depth along N** — the nearer-the-eye edge is the true source for a
+visible edge; a genuine equal-depth 3D coincidence stays un-dimensionable (honest
+ambiguity, never a wrong signature); (c) a **foreshortened circle** projects to an
+ellipse (an HLR outline/polyline, never a sharp circle) → no circle provenance; (d) a
+silhouette that *coincides* with a real edge (a cylinder's seam on the front contour)
+is legitimately dimensionable — §1.5's rule is "no WRONG signature", not "no signature
+on any contour". Provenance is attached AFTER classification via a `compare=False`
+dataclass field, so it **never perturbs** the §1.4 canonical order or the byte-stable
+serialisation — the existing `test_drawings_project.py` determinism/restart probes stay
+green unchanged (35 passed).
+
+Result: `test_drawings_measure.py` 18 passed; `test_drawings_project.py` +
+`test_drawings_evaluate.py` green; full geometry suite green; `just lint` +
+`just gen`/`gen-check` clean.
 
 ## 2026-07-16 — Independent geometry-QA of Drawings v1 HLR projection (`5c4b080`, `test_drawings_project.py`)
 

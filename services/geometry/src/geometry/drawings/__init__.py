@@ -15,6 +15,12 @@ endpoint are a later slice.
 """
 
 from geometry.drawings.evaluate import evaluate_drawing_views
+from geometry.drawings.measure import (
+    DimensionTypeError,
+    DimensionValue,
+    measure_dimension,
+    measure_dimension_dto,
+)
 from geometry.drawings.project import (
     Point2D,
     ProjectedEdge,
@@ -23,9 +29,12 @@ from geometry.drawings.project import (
     ViewProjectionError,
     canonical_edges_repr,
     project_view,
+    view_normal,
 )
 
 __all__ = [
+    "DimensionTypeError",
+    "DimensionValue",
     "Point2D",
     "ProjectedEdge",
     "ViewDirection",
@@ -33,5 +42,8 @@ __all__ = [
     "ViewProjectionError",
     "canonical_edges_repr",
     "evaluate_drawing_views",
+    "measure_dimension",
+    "measure_dimension_dto",
     "project_view",
+    "view_normal",
 ]

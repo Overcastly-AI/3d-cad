@@ -2902,6 +2902,12 @@
             ],
             "description": "Circle/arc centre (null for line/polyline)"
           },
+          "dimensionable": {
+            "default": false,
+            "description": "True iff `source_edge` is a single unambiguous model edge, so a dimension may attach to this projected edge (design \u00a73.3). False for silhouette/outline edges and ambiguous coincident projections \u2014 HONEST un-dimensionability rather than a wrong signature (\u00a71.5).",
+            "title": "Dimensionable",
+            "type": "boolean"
+          },
           "end": {
             "$ref": "#/components/schemas/ProjectedPoint",
             "description": "Canonical second endpoint"
@@ -2940,6 +2946,17 @@
             ],
             "description": "Circle/arc radius, mm x scale (null otherwise)",
             "title": "Radius"
+          },
+          "source_edge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeSignature"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The MODEL edge this projected edge provenance-maps to (design \u00a73.3) \u2014 the shipped EdgeSignature a dimension names (the SAME fingerprint a `concentric` mate and a picked-edge fillet use). Null when the edge has no single clean model source: a silhouette/outline edge (\u00a71.5), a genuinely free-form projection, or an ambiguous coincident projection. A pick on a dimensionable edge yields this ref directly (design \u00a73.3 / \u00a75 form 1)."
           },
           "start": {
             "$ref": "#/components/schemas/ProjectedPoint",

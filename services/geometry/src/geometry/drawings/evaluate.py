@@ -85,6 +85,12 @@ def _to_edge(edge: ProjectedEdge) -> ProjectedViewEdge:
         center=_to_point(edge.center) if edge.center is not None else None,
         radius=edge.radius,
         points=[_to_point(p) for p in edge.points],
+        # Provenance (design §3.3): the shipped EdgeSignature crosses the boundary
+        # verbatim (it is already a py-kit type), so a pick on a dimensionable edge
+        # yields a ref that resolves + measures directly. `source_edge` is None for
+        # silhouette/free-form/ambiguous edges (un-dimensionable, §1.5).
+        source_edge=edge.source_edge,
+        dimensionable=edge.dimensionable,
     )
 
 

@@ -588,13 +588,23 @@ gateable as rigorously as parts/assemblies (RESEARCH §9; `geometry-qa` →
 ## 9. Open questions (owned by the implementing items; none block endorsement)
 
 1. **Projected-edge→model-edge provenance depth.** §3.3 needs HLR-classified
-   visible/hidden edges tied back to their originating model edge. OCCT's HLR
-   preserves the source edge for real edges; confirm the reachability (the same
-   maker-history reachability the topo-naming stage-2 spike investigates) and pin
-   which classifier compounds are dimensionable. **Still open** — deferred to the
-   dimension-measurement slice (v1 #3); the projection module (v1 #2) ships the
-   classified 2D edges without the provenance map (silhouette/outline edges carry
-   none regardless, §1.5).
+   visible/hidden edges tied back to their originating model edge. **RESOLVED (v1
+   #6, `geometry.drawings.project_view` provenance pass).** HONEST finding: OCP's
+   `HLRBRep_Data.EdgeMap()` gives a clean 1:1 model↔internal-edge correspondence,
+   but `HLRBRep_HLRToShape` exposes only the AGGREGATE output compounds
+   (`VCompound`/`HCompound`/`OutLine*`) with no per-output-edge back-tag — so
+   native per-edge provenance is NOT cleanly reachable through the wheel without
+   reimplementing OCCT's `InternalCompound`. Provenance is therefore **geometric
+   re-matching in the projection plane**: the HLR output 2D coordinates equal
+   `(model·x_dir, model·y_dir)` exactly (verified), so each SHARP output edge's
+   canonical geometry key matches exactly one model edge's projected key, reusing
+   the shipped `enumerate_edges` `EdgeSignature`s (no parallel taxonomy). Only the
+   `V`/`HCompound` (sharp) classes are dimensionable; `OutLine*` (silhouette) carry
+   none (§1.5). Coincident faces are disambiguated by depth along N (nearer-the-eye
+   wins for a visible edge); an equal-depth 3D coincidence stays un-dimensionable
+   (honest ambiguity). The tag is a `compare=False` field, so it never perturbs the
+   §1.4 canonical order (the determinism probes stay byte-identical). Details +
+   limits in docs/GEOMETRY-QA.md (2026-07-16).
 2. **Coincident/overlapping projected edges** — **RESOLVED (v1 #2,
    `geometry.drawings.project_view`).** Exact coincident edges are de-duplicated
    within a visibility class by a rounded-geometry key, then any hidden edge whose

@@ -2741,6 +2741,12 @@ export interface components {
         ProjectedViewEdge: {
             /** @description Circle/arc centre (null for line/polyline) */
             center?: components["schemas"]["ProjectedPoint"] | null;
+            /**
+             * Dimensionable
+             * @description True iff `source_edge` is a single unambiguous model edge, so a dimension may attach to this projected edge (design §3.3). False for silhouette/outline edges and ambiguous coincident projections — HONEST un-dimensionability rather than a wrong signature (§1.5).
+             * @default false
+             */
+            dimensionable: boolean;
             /** @description Canonical second endpoint */
             end: components["schemas"]["ProjectedPoint"];
             /** @description A point ON the edge (orientation-independent) */
@@ -2761,6 +2767,8 @@ export interface components {
              * @description Circle/arc radius, mm x scale (null otherwise)
              */
             radius?: number | null;
+            /** @description The MODEL edge this projected edge provenance-maps to (design §3.3) — the shipped EdgeSignature a dimension names (the SAME fingerprint a `concentric` mate and a picked-edge fillet use). Null when the edge has no single clean model source: a silhouette/outline edge (§1.5), a genuinely free-form projection, or an ambiguous coincident projection. A pick on a dimensionable edge yields this ref directly (design §3.3 / §5 form 1). */
+            source_edge?: components["schemas"]["EdgeSignature"] | null;
             /** @description Canonical first endpoint */
             start: components["schemas"]["ProjectedPoint"];
             /**

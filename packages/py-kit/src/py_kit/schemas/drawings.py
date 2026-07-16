@@ -302,6 +302,56 @@ DimensionParams = (
 )
 
 
+# --- dimension measurement (design §3 / §8 DoD) ---------------------------------
+#
+# The geometry service resolves a dimension's EdgeSignature ref(s) against the
+# view's evaluated MODEL body and measures the TRUE value FROM THE MODEL (design
+# §3.1) — never the foreshortened 2D projection. `linear`/`diameter`/`radius` are
+# millimetres; `angular` is degrees (hence the explicit `unit`). `foreshortened`
+# (design §3.2) is set when the measured feature is not parallel to the view plane:
+# the value is STILL model-true, and the flag lets the UI warn "dimension this in a
+# true-size view". A ref that no longer resolves is a typed `subshape_unresolved`,
+# a congruent twin `subshape_ambiguous`, and a wrong-type ref (a diameter on a
+# non-circular edge, an angular on a non-straight edge) `dimension_wrong_type` — the
+# reused subshape resolution taxonomy, never a 500 (design §3.3 / §5).
+
+#: Unit of a measured dimension value — millimetres (linear/diameter/radius) or
+#: degrees (angular). Encoded explicitly so a consumer never guesses from `type`.
+DimensionUnit = Literal["mm", "deg"]
+
+
+class MeasuredDimension(BaseModel):
+    """A dimension's value measured from the MODEL, or a typed resolution error.
+
+    On success ``value`` + ``unit`` carry the model-true measurement and ``error``
+    is null; ``foreshortened`` flags a feature not parallel to the view plane
+    (design §3.2 — the value is still model-true). On failure ``value``/``unit``
+    are null and ``error`` is a typed ``subshape_unresolved`` / ``subshape_ambiguous``
+    / ``dimension_wrong_type`` (never a 500 — design §3.3). Mirrors the per-view
+    :class:`DrawingViewResult` success/error envelope for a single dimension.
+    """
+
+    value: float | None = Field(
+        default=None,
+        description="Model-true measured value (mm for linear/diameter/radius, "
+        "degrees for angular); null when `error` is set",
+    )
+    unit: DimensionUnit | None = Field(
+        default=None, description="'mm' or 'deg'; null when `error` is set"
+    )
+    foreshortened: bool = Field(
+        default=False,
+        description="True when the measured feature is not parallel to the view "
+        "plane (design §3.2). The value is STILL model-true; the flag warns the UI "
+        "to dimension it in a true-size view.",
+    )
+    error: FeatureError | None = Field(
+        default=None,
+        description="Typed resolution failure (`subshape_unresolved` / "
+        "`subshape_ambiguous` / `dimension_wrong_type`), or null on success",
+    )
+
+
 # --- annotations (design §2.2 — v1 minimal) -------------------------------------
 
 
@@ -659,6 +709,22 @@ class ProjectedViewEdge(BaseModel):
     points: list[ProjectedPoint] = Field(
         default_factory=list["ProjectedPoint"],
         description="Sampled polyline vertices (empty for line/circle/arc)",
+    )
+    source_edge: EdgeSignature | None = Field(
+        default=None,
+        description="The MODEL edge this projected edge provenance-maps to (design "
+        "§3.3) — the shipped EdgeSignature a dimension names (the SAME fingerprint a "
+        "`concentric` mate and a picked-edge fillet use). Null when the edge has no "
+        "single clean model source: a silhouette/outline edge (§1.5), a genuinely "
+        "free-form projection, or an ambiguous coincident projection. A pick on a "
+        "dimensionable edge yields this ref directly (design §3.3 / §5 form 1).",
+    )
+    dimensionable: bool = Field(
+        default=False,
+        description="True iff `source_edge` is a single unambiguous model edge, so a "
+        "dimension may attach to this projected edge (design §3.3). False for "
+        "silhouette/outline edges and ambiguous coincident projections — HONEST "
+        "un-dimensionability rather than a wrong signature (§1.5).",
     )
 
 

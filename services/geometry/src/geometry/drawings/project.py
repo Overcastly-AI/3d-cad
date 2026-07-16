@@ -48,7 +48,7 @@ canonical sort here, and coordinates are emitted through a fixed decimal formatt
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from build123d import Solid
@@ -60,6 +60,9 @@ from OCP.HLRBRep import HLRBRep_Algo, HLRBRep_HLRToShape
 from OCP.TopAbs import TopAbs_EDGE
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
+from py_kit.schemas.features import EdgeSignature
+
+from geometry.kernel.edges import EdgeRecord, enumerate_edges
 
 #: The standard orthographic + isometric directions v1 supports (design §1.2).
 #: Section / detail / auxiliary / custom views are deferred (§1.5/§7).
@@ -93,6 +96,22 @@ _SERIALIZE_DECIMALS = 7
 #: kernel builds full-turn circles to ulp; the bound only separates a true circle
 #: from a near-complete arc, never two authored arcs.
 _CLOSED_SPAN_TOL = 1e-6
+
+#: Depth (along the outward view normal N) tie-break tolerance (mm) for the
+#: provenance disambiguation of two model edges that project to the SAME 2D edge
+#: (a box's coincident top/bottom face edges, §3.3). The nearer-the-eye edge (max
+#: depth for a visible projected edge) is the true source; two model edges within
+#: this depth are a GENUINE 3D coincidence (a boolean seam) → honest ambiguity, no
+#: signature. Sized to the kernel edge endpoint tolerance (``_EDGE_POINT_TOL_MM``).
+_DEPTH_TIE_TOL = 1e-6
+
+#: How parallel a circular model edge's axis must be to the view normal for the
+#: edge to project to a TRUE circle/arc (``|axis . N| >= 1 - tol``) — the condition
+#: under which a diameter/radius dimension edge is provenance-mappable (design
+#: §3.3). A foreshortened circle projects to an ellipse (an HLR outline/polyline,
+#: never a sharp circle), so it carries no circle provenance — honest (§1.5). A
+#: dimensionless (sin-scale) angular bound, the ``edges.py`` direction-tol twin.
+_AXIS_PARALLEL_TOL = 1e-7
 
 #: Canonical primitive sort rank (§1.4) — the first component of the total order.
 _PRIMITIVE_RANK: dict[EdgePrimitive, int] = {
@@ -149,6 +168,15 @@ class ProjectedEdge:
     center: Point2D | None = None
     radius: float | None = None
     points: tuple[Point2D, ...] = ()
+    #: Provenance (design §3.3), attached AFTER classification. ``compare=False``
+    #: keeps it OUT of the dataclass eq/hash AND out of the canonical keys, so the
+    #: provenance NEVER perturbs the §1.4 canonical order or the byte-stable
+    #: serialisation (:func:`canonical_edges_repr`). ``source_edge`` is the shipped
+    #: :class:`EdgeSignature` of the single model edge this projected edge came from
+    #: (``None`` for a silhouette/free-form/ambiguous edge — §1.5); ``dimensionable``
+    #: is ``True`` iff that source is unambiguous.
+    source_edge: EdgeSignature | None = field(default=None, compare=False)
+    dimensionable: bool = field(default=False, compare=False)
 
     def _points_key(self) -> tuple[tuple[float, float], ...]:
         """The rounded interior sample points — the identity of a ``polyline``
@@ -372,6 +400,172 @@ def _canonicalize(edges: list[ProjectedEdge]) -> tuple[ProjectedEdge, ...]:
     return tuple(kept)
 
 
+def view_normal(view: ViewDirection) -> tuple[float, float, float]:
+    """The outward view normal N (model→eye) of a standard view (design §1.2).
+
+    The SAME frame the projection uses (``_VIEW_FRAMES``), exposed so the
+    measurement layer (:mod:`geometry.drawings.measure`) can flag foreshortening
+    (design §3.2) against the identical convention — no parallel axis table.
+    """
+    return _VIEW_FRAMES[view][0]
+
+
+@dataclass
+class _ModelEdgeProjection:
+    """One model edge's projected identity for provenance (design §3.3).
+
+    ``signature`` is the shipped 3D :class:`EdgeSignature` a dimension names;
+    ``depth`` is the edge midpoint's coordinate along the outward view normal N —
+    the tie-break that picks the nearer-the-eye edge when two model edges project
+    to the same 2D edge (a box's coincident top/bottom edges). Not frozen (it
+    holds an unhashable pydantic signature and is only ever list-stored)."""
+
+    signature: EdgeSignature
+    depth: float
+
+
+def _project_model_edge(
+    record: EdgeRecord,
+    normal: tuple[float, float, float],
+    x_dir: tuple[float, float, float],
+    y_dir: tuple[float, float, float],
+    scale: float,
+) -> tuple[tuple[object, ...], _ModelEdgeProjection] | None:
+    """Project one MODEL edge into the view plane, returning its ``geometry_key``
+    and provenance record — or ``None`` when it has no clean single-edge projection.
+
+    Mirrors :func:`_classify` EXACTLY (same canonical endpoints, same full-circle
+    cardinal-point derivation, same rounding via ``geometry_key``) so a model
+    edge's key is byte-for-byte the key of the HLR-projected edge it produced —
+    the tie that lets a projected edge resolve back to its model ``EdgeSignature``.
+    Returns ``None`` for a genuinely free-form edge (spline/ellipse) and for a
+    foreshortened circle (axis not parallel to N → projects to an ellipse, an HLR
+    outline/polyline, never a sharp circle): those are un-dimensionable (§1.5).
+    """
+    curve = BRepAdaptor_Curve(record.edge.wrapped)
+    u0 = curve.FirstParameter()
+    u1 = curve.LastParameter()
+
+    def at(u: float) -> Point2D:
+        p = curve.Value(u)
+        px, py, pz = p.X(), p.Y(), p.Z()
+        x = px * x_dir[0] + py * x_dir[1] + pz * x_dir[2]
+        y = px * y_dir[0] + py * y_dir[1] + pz * y_dir[2]
+        return Point2D(x * scale, y * scale)
+
+    def depth_of(u: float) -> float:
+        p = curve.Value(u)
+        return p.X() * normal[0] + p.Y() * normal[1] + p.Z() * normal[2]
+
+    kind = curve.GetType()
+    mid_u = 0.5 * (u0 + u1)
+    depth = depth_of(mid_u)
+
+    if kind == GeomAbs_Line:
+        start, end = _canonical_segment(at(u0), at(u1))
+        edge = ProjectedEdge(
+            primitive="line", visible=False, start=start, end=end, midpoint=at(mid_u)
+        )
+    elif kind == GeomAbs_Circle:
+        circ = curve.Circle()
+        axis = circ.Axis().Direction()
+        # |axis . N|: a true circle/arc only when the circle plane faces the view
+        # (axis parallel to N). Otherwise it foreshortens to an ellipse (§1.5).
+        axis_dot = abs(
+            axis.X() * normal[0] + axis.Y() * normal[1] + axis.Z() * normal[2]
+        )
+        if axis_dot < 1.0 - _AXIS_PARALLEL_TOL:
+            return None
+        loc = circ.Location()
+        center = Point2D(
+            (loc.X() * x_dir[0] + loc.Y() * x_dir[1] + loc.Z() * x_dir[2]) * scale,
+            (loc.X() * y_dir[0] + loc.Y() * y_dir[1] + loc.Z() * y_dir[2]) * scale,
+        )
+        radius = float(circ.Radius()) * scale
+        if abs((u1 - u0) - 2.0 * math.pi) <= _CLOSED_SPAN_TOL:
+            cardinal = Point2D(center.x + radius, center.y)
+            edge = ProjectedEdge(
+                primitive="circle",
+                visible=False,
+                start=cardinal,
+                end=cardinal,
+                midpoint=Point2D(center.x - radius, center.y),
+                center=center,
+                radius=radius,
+            )
+        else:
+            start, end = _canonical_segment(at(u0), at(u1))
+            edge = ProjectedEdge(
+                primitive="arc",
+                visible=False,
+                start=start,
+                end=end,
+                midpoint=at(mid_u),
+                center=center,
+                radius=radius,
+            )
+    else:
+        return None
+
+    return edge.geometry_key(), _ModelEdgeProjection(
+        signature=record.signature, depth=depth
+    )
+
+
+def _model_edge_index(
+    shape: Solid,
+    normal: tuple[float, float, float],
+    x_dir: tuple[float, float, float],
+    y_dir: tuple[float, float, float],
+    scale: float,
+) -> dict[tuple[object, ...], list[_ModelEdgeProjection]]:
+    """Index every model edge by its projected ``geometry_key`` (design §3.3).
+
+    Reuses the shipped :func:`geometry.kernel.edges.enumerate_edges` — the SAME
+    ``body.edges()`` enumeration + :func:`edge_signature_dto` a picked-edge fillet
+    and the ``/overlay`` pick surface use — so a projected edge's provenance IS the
+    signature the rest of the app resolves (no parallel taxonomy). A key collides
+    ONLY when two model edges project to the same 2D edge (coincident faces); the
+    list preserves both for the depth tie-break.
+    """
+    index: dict[tuple[object, ...], list[_ModelEdgeProjection]] = {}
+    for record in enumerate_edges(shape):
+        projected = _project_model_edge(record, normal, x_dir, y_dir, scale)
+        if projected is None:
+            continue
+        key, entry = projected
+        index.setdefault(key, []).append(entry)
+    return index
+
+
+def _attach_provenance(
+    edge: ProjectedEdge,
+    index: dict[tuple[object, ...], list[_ModelEdgeProjection]],
+) -> ProjectedEdge:
+    """Tag one SHARP projected edge with the model ``EdgeSignature`` it came from.
+
+    Look the edge's ``geometry_key`` up in the model-edge index (design §3.3):
+
+    * exactly one model edge → attach its signature, ``dimensionable = True``;
+    * several (a coincident projection) → the nearer-the-eye edge is the true
+      source (max depth for a visible edge, min for hidden). A UNIQUE extreme
+      wins; a genuine 3D coincidence (equal depth, e.g. a boolean seam) stays
+      un-dimensionable — honest ambiguity, never a wrong signature (§1.5);
+    * none (a silhouette/outline or free-form edge) → left un-dimensionable.
+    """
+    candidates = index.get(edge.geometry_key())
+    if not candidates:
+        return edge
+    if len(candidates) == 1:
+        return replace(edge, source_edge=candidates[0].signature, dimensionable=True)
+    depths = [c.depth for c in candidates]
+    target = max(depths) if edge.visible else min(depths)
+    front = [c for c in candidates if abs(c.depth - target) <= _DEPTH_TIE_TOL]
+    if len(front) == 1:
+        return replace(edge, source_edge=front[0].signature, dimensionable=True)
+    return edge
+
+
 def project_view(
     shape: Solid,
     view: ViewDirection,
@@ -401,6 +595,7 @@ def project_view(
         raise ValueError(f"View scale must be strictly positive, got {scale!r}")
     topo: TopoDS_Shape = shape.wrapped
     normal, x_dir = _VIEW_FRAMES[view]
+    y_dir = _cross(normal, x_dir)
 
     try:
         algo = HLRBRep_Algo()
@@ -410,26 +605,36 @@ def project_view(
         algo.Update()
         algo.Hide()
         to_shape = HLRBRep_HLRToShape(algo)
-        # VISIBLE = sharp + silhouette; HIDDEN = the same classes occluded (§1.3).
+        # SHARP = real model edges (``V``/``HCompound``) — provenance-mappable to a
+        # model ``EdgeSignature`` (§3.3). OUTLINE = silhouette/apparent-contour
+        # edges (``OutLine*``) — NOT model edges, so never dimensionable (§1.5).
         # Rg1Line* (tangent/smooth) is suppressed in v1 (§1.3).
-        visible_compounds = (to_shape.VCompound(), to_shape.OutLineVCompound())
-        hidden_compounds = (to_shape.HCompound(), to_shape.OutLineHCompound())
         # Classification (BRepAdaptor_Curve / GetType / Value on each projected
         # edge) can ALSO throw on a degenerate edge — keep it inside the guard so
         # §1.5 holds end to end (never a raw OCCT exception past this call).
-        edges: list[ProjectedEdge] = []
-        for compound in visible_compounds:
-            for curve in _iter_edges(compound):
-                edges.append(_classify(curve, visible=True, scale=scale))
-        for compound in hidden_compounds:
-            for curve in _iter_edges(compound):
-                edges.append(_classify(curve, visible=False, scale=scale))
+        sharp: list[ProjectedEdge] = []
+        outline: list[ProjectedEdge] = []
+        for curve in _iter_edges(to_shape.VCompound()):
+            sharp.append(_classify(curve, visible=True, scale=scale))
+        for curve in _iter_edges(to_shape.HCompound()):
+            sharp.append(_classify(curve, visible=False, scale=scale))
+        for curve in _iter_edges(to_shape.OutLineVCompound()):
+            outline.append(_classify(curve, visible=True, scale=scale))
+        for curve in _iter_edges(to_shape.OutLineHCompound()):
+            outline.append(_classify(curve, visible=False, scale=scale))
+        # The model-edge provenance index also touches OCCT (BRepAdaptor on each
+        # model edge), so it stays inside the guard (§1.5).
+        model_index = _model_edge_index(shape, normal, x_dir, y_dir, scale)
     except Exception as exc:  # any OCCT throw is an honest per-view error (§1.5)
         raise ViewProjectionError(view, f"{type(exc).__name__}: {exc}") from exc
 
-    # _canonicalize is pure Python (sort/de-dup on dataclasses) — no OCCT, so it
-    # stays outside the guard.
-    return ViewProjection(view=view, scale=scale, edges=_canonicalize(edges))
+    # Provenance + _canonicalize are pure Python (dict lookups / sort / de-dup on
+    # dataclasses) — no OCCT, so they stay outside the guard. Provenance does NOT
+    # touch the canonical keys (§1.4), so the order + serialised bytes are
+    # unchanged; sharp is listed before outline so a sharp edge wins any de-dup tie
+    # over a coincident silhouette (visible provenance is never lost).
+    tagged = [_attach_provenance(e, model_index) for e in sharp]
+    return ViewProjection(view=view, scale=scale, edges=_canonicalize(tagged + outline))
 
 
 def _fmt(value: float) -> str:

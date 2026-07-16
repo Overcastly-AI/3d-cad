@@ -342,8 +342,22 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       a hole — with an honest per-view "view failed" placeholder. e2e
       `drawings.spec.ts` (real stack) lays out the 4 and asserts edges + the
       top-view circle; `layout.test.ts` (8) covers the pure geometry; full
-      `just lint` green. Remaining: SVG export (#5), dimension measurement +
-      projected-edge→model-edge map (#6, §3.3), section/detail/assembly views.
+      `just lint` green. **Drawings v1 #6 — dimension measurement +
+      projected-edge→model-edge provenance (geometry) SHIPPED**:
+      `project_view` tags each sharp projected edge with its originating model
+      `EdgeSignature` (`ProjectedViewEdge.source_edge`/`dimensionable`) by geometric
+      re-matching in the projection plane (reusing the shipped `enumerate_edges`
+      signatures + a depth tie-break for coincident faces); silhouette/free-form/
+      ambiguous edges carry none (honest un-dimensionability, §1.5). HLR-provenance
+      finding: OCP gives the 1:1 model↔`EdgeMap` correspondence but no per-output-
+      edge tag through `HLRToShape`, so re-matching (deterministic, exact convention)
+      is the mechanism. `measure_dimension` reads the 4 dimension types' model-true
+      values off the exact 3D B-rep with the `foreshortened` flag (§3.2) and typed
+      `subshape_unresolved`/`subshape_ambiguous`/`dimension_wrong_type` errors (never
+      a 500). Analytic goldens Ø10→10.000, r5→5.000, 40 mm→40.000, 45° vee, +
+      model-true-when-foreshortened (`test_drawings_measure.py`, 18 passed);
+      determinism probes unaffected; `just lint`/`gen`/`gen-check` clean. Remaining:
+      SVG export (#5), dimension-authoring UI (#6b), section/detail/assembly views.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 5 — Agent-native & extensibility ⬜

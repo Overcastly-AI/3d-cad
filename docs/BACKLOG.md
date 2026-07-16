@@ -117,13 +117,35 @@ nit, no user impact, stays Later).
 - [ ] (P1, M) Drawings v1 #5 — server-composed SVG export, content-addressed +
       byte-deterministic (geometry, §4). PDF/DXF are the fast-follow behind the
       same seam. [src: design/drawings.md §4/§8]
-- [ ] (P1, M) Drawings v1 #6 — dimension measurement + projected-edge→model-edge
-      map (geometry). Extend `geometry.drawings` so each dimensionable projected
-      edge carries its originating model `EdgeSignature` (HLR `Modified`/
-      `Generated` provenance, design §3.3 / open Q1) and resolve+measure the 4
-      dimension types (linear/diameter/radius/angular) from the model, surfacing
-      the `foreshortened` flag (§3.2). Analytic goldens: Ø10→10.000, r5→5.000,
-      40 mm edge→40.000, vee angle. [src: design/drawings.md §3/§8]
+- [x] (P1, M) Drawings v1 #6 — dimension measurement + projected-edge→model-edge
+      provenance (geometry) — **DONE 2026-07-16.** `geometry.drawings.project_view`
+      now tags each SHARP projected edge with the originating model `EdgeSignature`
+      (`ProjectedViewEdge.source_edge` + `dimensionable`), resolved by geometric
+      re-matching in the projection plane against the shipped `enumerate_edges`
+      signatures, with a depth tie-break for coincident faces (nearer-the-eye
+      wins); silhouette/outline/free-form/ambiguous edges carry NONE (honest
+      un-dimensionability, §1.5). HLR-provenance finding (open Q1): OCP exposes the
+      1:1 model↔`EdgeMap` correspondence but NOT a per-output-edge tag through
+      `HLRToShape`'s aggregate compounds, so provenance is geometric re-matching
+      (deterministic, exact projection convention) — documented in GEOMETRY-QA.
+      `geometry.drawings.measure_dimension` resolves the 4 dimension types
+      (linear edge/point-to-point, diameter, radius, angular) and measures the
+      model-true value off the exact 3D B-rep with the `foreshortened` flag (§3.2);
+      typed errors (`subshape_unresolved`/`subshape_ambiguous`/`dimension_wrong_type`,
+      reused taxonomy, never a 500) via `measure_dimension_dto` +
+      `MeasuredDimension`. Analytic goldens Ø10→10.000, r5→5.000, 40 mm→40.000,
+      45° vee, + model-true-when-foreshortened (`test_drawings_measure.py`, 18
+      passed); project determinism/restart probes unaffected; full `just lint` +
+      `just gen`/`gen-check` clean. **Follow-on #6b — dimension-authoring UI
+      (apps/web)**: pick a dimensionable projected edge → create/place a dimension
+      and render the measured value + foreshortened warning (frontend territory).
+      [src: design/drawings.md §3/§8]
+- [ ] (P1, M) Drawings v1 #6b — dimension-authoring UI (apps/web). Pick a
+      `dimensionable` projected edge (the `source_edge` ref rides the
+      `/drawing/evaluate` response now), place a linear/diameter/radius/angular
+      dimension via the existing dimension CRUD, and render the model-true measured
+      value + a `foreshortened` warning. Backend measurement + provenance shipped
+      in #6. [src: design/drawings.md §3/§6]
 - [x] (P1, L) Drawings v1 #7 — frontend drawing canvas (apps/web) — **DONE
       2026-07-16.** `/drawings` register + `/drawings/{id}` sheet editor (third
       sibling of parts/assemblies, on the makeover command band + breadcrumb).
