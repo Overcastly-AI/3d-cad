@@ -29,6 +29,14 @@ against raw paths (DRY rule, CLAUDE.md).
 - CAD UX bar: keyboard-first (dimension entry, tool shortcuts), precise
   picking (face/edge/vertex), unit-aware inputs. Test hooks (`data-testid`,
   roles, accessible names) on everything QA will drive.
+- **Tool-grade viewport bar (CLAUDE.md design mandate 3a — founder
+  recalibration 2026-07-16):** benchmark every viewport change side-by-side
+  against Fusion 360 / Plasticity before calling it done. Grid reads to the
+  horizon (no mid-frame fade to void); background has depth; bodies get
+  studio shading (matcap/env), never flat debug-gray; persistent view
+  navigation (ViewCube/gizmo, home/iso/ortho) is table stakes. Any chrome
+  element that only decorates is a DEFECT — wire it to real state/action or
+  delete it.
 - Quality floor: responsive layout, visible keyboard focus,
   `prefers-reduced-motion`, WCAG-AA contrast, self-hosted fonts.
 

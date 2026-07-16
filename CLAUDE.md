@@ -59,6 +59,17 @@ and intentional** — never templated. Standing rules:
 3. **The viewport is the hero.** Chrome recedes; the model gets the pixels.
    Panels, trees, and toolbars are quiet precision instruments — dense,
    legible, keyboard-first — not marketing surfaces.
+3a. **Tool-grade viewport, benchmarked against Fusion 360 / Plasticity**
+   (founder recalibration 2026-07-16 — "premium dashboard" is NOT the bar;
+   *feels like a modeling tool* is). Concretely: (a) the 3D scene fills the
+   frame with depth — grid reads to the horizon (no mid-frame fade into flat
+   void), background has atmosphere (gradient/fog/vignette), bodies get
+   studio-quality shading (matcap/env — Plasticity's look), never debug-gray;
+   (b) persistent view navigation: a ViewCube/gizmo + home/iso/ortho snaps
+   is table stakes, not a feature; (c) **every chrome element is functional**
+   — a tile/readout that only decorates is a defect; wire it or delete it;
+   (d) judge screenshots side-by-side against a Fusion/Plasticity reference
+   before calling UI work done.
 4. **Show, don't tell.** UI changes ship with before/after screenshots
    (desktop + small-laptop widths) surfaced to the founder at milestones.
 5. **Never break the product for looks.** Preserve test hooks (`data-testid`,
