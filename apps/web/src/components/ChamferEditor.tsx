@@ -90,7 +90,7 @@ export function ChamferEditor({
 
   return (
     <div
-      className="absolute left-editor top-3 w-72 max-w-full"
+      className="absolute left-editor top-3 w-editor max-w-full"
       onKeyDown={onKeyDown}
     >
       <Panel aria-label="Chamfer" data-testid="chamfer-editor">

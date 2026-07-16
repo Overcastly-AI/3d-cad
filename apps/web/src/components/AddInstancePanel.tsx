@@ -33,7 +33,7 @@ export function AddInstancePanel({
 
   return (
     <div
-      className="absolute left-editor top-3 w-72 max-w-[calc(100%-theme(inset.editor)-0.75rem)]"
+      className="absolute left-editor top-3 w-editor max-w-[calc(100%-theme(inset.editor)-0.75rem)]"
       data-testid="add-instance-panel"
     >
       <Panel>

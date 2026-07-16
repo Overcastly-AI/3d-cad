@@ -408,7 +408,7 @@ function OffsetPlanePanel({
 
   return (
     <div
-      className="w-72 max-w-full"
+      className="w-editor max-w-full"
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
@@ -501,7 +501,7 @@ function FacePickPrompt({
   onCancel: () => void;
 }) {
   return (
-    <div className="w-72 max-w-full">
+    <div className="w-editor max-w-full">
       <div
         role="status"
         data-testid="face-pick-prompt"
