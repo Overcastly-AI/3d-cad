@@ -49,41 +49,11 @@ from py_kit.schemas.sketch import (
     SketchSpline,
 )
 
-#: The three origin datum planes (design §2.1), by their wire name. Local
-#: sketch (x, y) coordinates map through ``x_dir``/``y_dir``; the extrusion
-#: normal is ``z_dir``. Single source for plane orientation — the sketch and
-#: extrude features must agree on it.
-DATUM_PLANES: dict[str, Plane] = {
-    "XY": Plane.XY,
-    "XZ": Plane.XZ,
-    "YZ": Plane.YZ,
-}
-
 #: Wire-assembly tolerance (mm) for chaining profile edges. Solved coincident
 #: endpoints are bitwise identical (solver gate, RESEARCH §2), so this is a
 #: numerical formality, aligned with the kernel linear tolerance (1e-7 m,
 #: CLAUDE.md — model units are mm).
 PROFILE_WIRE_TOLERANCE = 1e-4
-
-
-def build_datum_plane(
-    base: Literal["XY", "XZ", "YZ"], offset_mm: float, flip: bool
-) -> Plane:
-    """Resolve an offset ``datum`` feature's params to a concrete plane.
-
-    The v1 datum plane (docs/design/datum-planes.md §3a): an origin datum slid
-    along its OWN normal by ``offset_mm`` (``Plane.offset`` shifts ``origin`` by
-    ``z_dir * amount``, preserving ``x_dir``/``z_dir``), with an optional normal
-    ``flip`` that negates ``z_dir`` while keeping ``x_dir`` (so sketch +u is
-    unchanged and +v flips) — a valid orthonormal frame. ``offset_mm = 0`` and
-    ``flip = False`` reproduce the origin datum exactly, so an existing
-    origin-datum sketch resolves to the byte-identical plane. Pure function of
-    ``(base, offset_mm, flip)`` — deterministic, naming-free (RESEARCH §9).
-    """
-    plane = DATUM_PLANES[base].offset(offset_mm)
-    if flip:
-        return Plane(origin=plane.origin, x_dir=plane.x_dir, z_dir=-plane.z_dir)
-    return plane
 
 
 class ProfileNotClosedError(ValueError):

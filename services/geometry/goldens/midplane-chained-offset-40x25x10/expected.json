@@ -1,0 +1,31 @@
+{
+  "description": "MIDPLANE + OFFSET-CHAINING GOLDEN (docs/design/datum-planes.md §7/§7a — the datum-plane completeness backend slice, founder ask 2026-07-16): the sketch-extrude-40x25x10 golden's 40 x 25 mm rectangle, sketched on a MIDPLANE between the origin XY datum and a CHAINED offset datum. The tree exercises BOTH new datum kinds in one analytic model: datum A = XY offset +10 ('offset'), datum B = A offset +20 ('offset_from' — chaining, resolving to the z=30 composite), datum C = midplane between origin XY (a DatumPlaneRef side) and B (a FeatureRef side) — the §7a parallel case, landing at z=15 with side a's +Z normal — then the rectangle extruded 10 mm additively from it. The body is the XY-extrude translated +15 in Z, proving the chain composes hop-by-hop AND the midplane bisects exactly where the plane equations say. Existing origin/offset datum paths are unchanged (strict superset).",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "datum A ('offset') = Plane.XY.offset(10): origin (0,0,10), normal +Z (build123d Plane.offset shifts origin by z_dir*amount, preserving x_dir/z_dir)",
+    "datum B ('offset_from', base=A, +20) = A.offset(20): origin (0,0,30), normal +Z — the chain composes hop-by-hop to the analytic composite z = 10 + 20 = 30",
+    "datum C ('midplane', a=origin XY, b=B): both sides have normal +Z (parallel, |n_a x n_b| = 0 exactly), so normal = side a's (+Z) and origin = midpoint of the two resolved origins = ((0,0,0)+(0,0,30))/2 = (0,0,15); x_dir = deterministic_x_dir(+Z) = +X — the plane z = 15 with the XY frame",
+    "profile: the rectangle spans u in [0,40], v in [0,25] in sketch coords; on the midplane u->world X, v->world Y, origin adds +15 Z, so the profile sits at x in [0,40], y in [0,25], z = 15",
+    "the 5 constraints (identical to the base sketch-extrude golden) have zero residual at the drawn positions, so the solved profile is exactly the drawn rectangle (solver contributes zero error by construction; verified against the base golden)",
+    "volume = 40 * 25 * 10 = 10000 mm^3 — translation does not change volume",
+    "surface_area = 2*(40*25) + 2*(40*10) + 2*(25*10) = 2000 + 800 + 500 = 3300 mm^2 (identical to the base golden)",
+    "centroid = (40/2, 25/2, 15 + 10/2) = (20, 12.5, 20) mm — the base golden's (20,12.5,5) translated +15 in Z; extrude direction 'normal' on the midplane is its +Z normal, so z spans [15, 25]",
+    "bounding_box = [0,0,15]..[40,25,25]: the base golden's [0,0,0]..[40,25,10] translated +15 in Z, confirming the midplane lands the body midway between z=0 and z=30",
+    "topology: a rectangular prism is 6 planar faces, 12 straight edges, 1 closed shell — identical to the base golden; datum resolution is a rigid frame choice, so topology is untouched",
+    "mesh: each planar rectangular face tessellates to exactly 2 triangles (6 * 2 = 12); faceted per-face normals mean no vertex sharing across faces, so 6 faces * 4 corners = 24 vertices (identical to the base golden)",
+    "GLB byte size is deliberately NOT pinned here: asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). The chained-offset + midplane resolution is exact double math (0.5*(0+30) = 15 exactly; the parallel branch takes no normalization the origin frame hasn't already done), so the body is a rigid translation of the exact origin-datum extrude and inherits the base sketch-extrude golden's error posture EXACTLY. Measured deviations vs the analytic values (2026-07-16, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 1.82e-12 mm^3 (~2e-16 relative, one-ulp scale at 1e4), surface_area exactly 0.0, centroid <= 3.6e-15 mm, AABB exactly 0.0 on all six bounds. Documented ceiling 1e-9 = ~500x the observed worst case, matching the offset-plane golden's bound and posture (100x TIGHTER than the standing planar 1e-7 bound). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 10000.0,
+    "surface_area": 3300.0,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 20.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 15.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 25.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}

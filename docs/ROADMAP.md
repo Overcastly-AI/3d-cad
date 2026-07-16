@@ -233,6 +233,30 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       diagnosis + combined roll-up). e2e `assembly.spec.ts` (desktop + 1280×800)
       proves it live; `frontend-design` skill run; founder before/after shots.
       **"Bolt two parts together and see it" is real in the browser.**
+- 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
+      3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
+      place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible
+      tree/inspector panels (P0-4); horizon-persistent camera-scaled grid,
+      brighter grid tokens, atmosphere + baked ground contact pool (P0-1);
+      procedural token-matcap studio shading, no scene lights (P0-3);
+      reference-cube + view rail + numeric view snaps + fit + zoom-to-cursor
+      (P0-2); assembly fit keyed on LOADED geometry (P1 race). Full
+      `just e2e` green incl. new `viewport-makeover.spec.ts`; before/afters
+      `docs/screenshots/viewport-makeover-*`; side-by-side vs
+      Fusion/Plasticity recorded in UI-REVIEW. **Batches 2–3 remain** (wire-
+      or-delete decorative chrome + nav/IA quick wins; in-command depth,
+      selection feedback, live previews).
+- 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
+      2026-07-16:** **midplane** (between two planes / picked faces / datums)
+      + **offset CHAINING** (offset from another datum) as two additive
+      `DatumParams` kinds (`midplane`, `offset_from` — no `param_version`
+      bump; existing offset payloads wire- AND generated-type-identical),
+      resolved through the shared datum funnels with documented
+      bisector/normal-sign conventions (`docs/design/datum-planes.md` §7a);
+      golden `midplane-chained-offset-40x25x10` + kernel/evaluator/schema
+      suites; self/forward-ref safety proven. Remaining: angled / 3-point /
+      tangent / normal-to-curve kinds + the authoring UI (queued behind the
+      viewport-makeover batches).
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).

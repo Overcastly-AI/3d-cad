@@ -13,6 +13,8 @@ from py_kit.schemas.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
     DatumFeature,
+    DatumMidplaneParams,
+    DatumOffsetFromParams,
     DatumOffsetParams,
     DatumPlaneRef,
     DraftFeature,
@@ -230,6 +232,139 @@ def test_legacy_kindless_datum_params_validate_as_offset() -> None:
     # The registry read path (documents lazy-load) reaches the same model.
     via_registry = FEATURE_REGISTRY.load("datum", 1, legacy_params)
     assert via_registry.model_dump() == loaded.model_dump()
+
+
+def _face_ref_payload(feature_id: uuid.UUID) -> dict[str, Any]:
+    """A stage-1 planar-face SubshapeRef blob (the on_face/midplane side shape)."""
+    return {
+        "kind": "subshape",
+        "feature_id": str(feature_id),
+        "subshape_type": "face",
+        "selector": {
+            "selector_version": 1,
+            "signature": {
+                "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                "centroid": {"x": 0.0, "y": 0.0, "z": 10.0},
+                "area_mm2": 1600.0,
+            },
+        },
+    }
+
+
+def test_offset_from_datum_references_its_base_datum() -> None:
+    """Offset chaining (datum-planes §7): an ``offset_from`` datum surfaces its
+    base FeatureRef as a `datum`-only slot — the rule that makes a self /
+    forward / non-datum base a write-time 422 — and the generic walk finds the
+    SAME ref, so the feature_references self-check stays balanced."""
+    datum = DatumFeature.model_validate(
+        {
+            "type": "datum",
+            "version": 1,
+            "params": {
+                "kind": "offset_from",
+                "base": {"kind": "feature", "feature_id": str(SKETCH_ID)},
+                "offset_mm": 20.0,
+                "flip": False,
+            },
+        }
+    )
+    assert isinstance(datum.params, DatumOffsetFromParams)
+    (reference,) = feature_references(datum)
+    assert reference.slot == "base"
+    assert reference.ref.feature_id == SKETCH_ID
+    assert reference.allowed_types == frozenset({"datum"})
+    assert [ref.feature_id for ref in iter_feature_refs(datum)] == [SKETCH_ID]
+
+
+def test_offset_params_still_reject_a_feature_ref_base() -> None:
+    """Wire-compat guard: chaining is a SEPARATE kind, NOT a widened ``offset``
+    base (the ts-client justification on DatumOffsetFromParams) — an ``offset``
+    payload smuggling a FeatureRef base stays a validation error, so the
+    existing offset shape (and its generated client type) is unchanged."""
+    with pytest.raises(ValidationError):
+        DatumFeature.model_validate(
+            {
+                "type": "datum",
+                "version": 1,
+                "params": {
+                    "kind": "offset",
+                    "base": {"kind": "feature", "feature_id": str(SKETCH_ID)},
+                    "offset_mm": 20.0,
+                },
+            }
+        )
+
+
+def test_midplane_slots_follow_each_side_kind() -> None:
+    """Midplane sides (datum-planes §7a): an origin-plane side carries NO ref,
+    a FeatureRef side is a `datum`-only slot, and a picked-face side is a
+    body-affecting SubshapeRef slot (the on_face rule) — each side judged by
+    its own kind, and the walk/self-check stays balanced."""
+    mixed = DatumFeature.model_validate(
+        {
+            "type": "datum",
+            "version": 1,
+            "params": {
+                "kind": "midplane",
+                "a": {"kind": "datum_plane", "plane": "XY"},
+                "b": {"kind": "feature", "feature_id": str(SKETCH_ID)},
+            },
+        }
+    )
+    assert isinstance(mixed.params, DatumMidplaneParams)
+    (reference,) = feature_references(mixed)
+    assert reference.slot == "b"
+    assert reference.allowed_types == frozenset({"datum"})
+
+    other = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000ab")
+    faces = DatumFeature.model_validate(
+        {
+            "type": "datum",
+            "version": 1,
+            "params": {
+                "kind": "midplane",
+                "a": _face_ref_payload(SKETCH_ID),
+                "b": _face_ref_payload(other),
+            },
+        }
+    )
+    references = feature_references(faces)
+    assert [r.slot for r in references] == ["a", "b"]
+    assert [r.ref.feature_id for r in references] == [SKETCH_ID, other]
+    assert all(r.allowed_types == BODY_AFFECTING_FEATURE_TYPES for r in references)
+
+
+def test_midplane_side_rejects_an_edge_subshape_ref() -> None:
+    """Only PLANAR-FACE subshape refs are valid midplane sides: an EDGE ref
+    (subshape_type 'edge') is a request-validation error, never a silent
+    misread (the MidplaneSide union admits the face SubshapeRef only)."""
+    edge_ref: dict[str, Any] = {
+        "kind": "subshape",
+        "feature_id": str(SKETCH_ID),
+        "subshape_type": "edge",
+        "selector": {
+            "selector_version": 1,
+            "signature": {
+                "curve": "line",
+                "end_a": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "end_b": {"x": 1.0, "y": 0.0, "z": 0.0},
+                "midpoint": {"x": 0.5, "y": 0.0, "z": 0.0},
+                "length_mm": 1.0,
+            },
+        },
+    }
+    with pytest.raises(ValidationError):
+        DatumFeature.model_validate(
+            {
+                "type": "datum",
+                "version": 1,
+                "params": {
+                    "kind": "midplane",
+                    "a": {"kind": "datum_plane", "plane": "XY"},
+                    "b": edge_ref,
+                },
+            }
+        )
 
 
 def test_picked_edge_fillet_materializes_edge_dependencies() -> None:

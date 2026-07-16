@@ -433,7 +433,7 @@ class DatumOnFaceParams(BaseModel):
     The derived sketch basis is DETERMINISTIC (RESEARCH §9): origin at the face
     area centroid (plus ``offset_mm`` along the normal), ``z_dir`` the outward
     face normal, and an ``x_dir`` pinned from the normal
-    (``geometry.kernel.faces._deterministic_x_dir``) so the 2D→3D mapping is
+    (``geometry.kernel.faces.deterministic_x_dir``) so the 2D→3D mapping is
     stable across rebuilds, independent of OCCT's face parametrisation.
 
     HONEST v1 limits: the face reference is a stage-1 signature — best-effort,
@@ -458,13 +458,112 @@ class DatumOnFaceParams(BaseModel):
     )
 
 
-#: Datum params: an offset-from-origin plane OR an on-a-face plane, discriminated
-#: on ``kind``. LEGACY persisted params carry no ``kind`` (they predate on_face)
-#: — :class:`DatumFeature`'s before-validator injects ``kind: "offset"`` so old
-#: rows validate unchanged (additive, NO ``param_version`` bump — datum-planes
-#: §4/§7).
+class DatumOffsetFromParams(BaseModel):
+    """An EARLIER datum feature's plane slid along its normal (``kind: "offset_from"``).
+
+    Offset CHAINING (docs/design/datum-planes.md §7): ``base`` is a
+    :class:`FeatureRef` to an earlier ``datum`` feature, and the plane is that
+    datum's RESOLVED plane slid ``offset_mm`` along its normal, with the same
+    optional ``flip`` an origin offset has. Chains compose left-to-right: origin
+    → datum A → datum B resolves to the analytic composite (each hop is a pure
+    ``Plane.offset``). The strict-backward rule (feature-tree §2.2) means the
+    parent always evaluated first — a self/forward reference NEVER resolves (a
+    write-time 422; the eval-time backstop is ``reference_unresolved``), so
+    resolution is a single dict lookup, never a recursion.
+
+    DESIGN DECISION — a SEPARATE ``kind``, not a widened ``base`` union on
+    :class:`DatumOffsetParams` (datum-planes §7 sketched the union): widening
+    ``base`` to ``Literal[...] | FeatureRef`` changes the GENERATED ts-client
+    type of every existing offset datum, breaking each consumer that reads
+    ``params.base`` as a plane name (the viewport derives the offset basis
+    client-side from it). A new discriminated kind is the established additive
+    idiom (``on_face`` proved it): existing ``offset`` payloads stay
+    byte-identical on the wire AND type-identical in the generated client, and
+    NO ``param_version`` bump is needed.
+    """
+
+    kind: Literal["offset_from"]
+    base: FeatureRef = Field(
+        description="EARLIER `datum` feature whose resolved plane this plane "
+        "offsets from (its orientation and origin)."
+    )
+    offset_mm: float = Field(
+        allow_inf_nan=False,
+        description="Signed distance along the base datum's normal (mm). 0 "
+        "coincides with the base datum; +/- selects side. Any finite value is "
+        "valid.",
+    )
+    flip: bool = Field(
+        default=False,
+        description="Reverse the plane normal (negate z_dir, keeping x_dir so "
+        "sketch +u is unchanged and +v flips) — the same rule as `offset`.",
+    )
+
+
+#: One side of a midplane: an origin datum plane name, an EARLIER ``datum``
+#: feature, or a picked PLANAR model face (the stage-1 signature the ``on_face``
+#: datum resolves — topological-naming.md §4, reused not reinvented).
+#: Discriminated on ``kind`` (``datum_plane`` | ``feature`` | ``subshape``);
+#: only FACE subshape refs validate (an edge ref has ``subshape_type: "edge"``
+#: and is a request-validation 422).
+MidplaneSide = Annotated[
+    DatumPlaneRef | FeatureRef | SubshapeRef, Field(discriminator="kind")
+]
+
+
+class DatumMidplaneParams(BaseModel):
+    """A plane midway between two references (``kind: "midplane"``).
+
+    The midplane slice of docs/design/datum-planes.md §7: each side resolves to
+    a plane through the same funnels the sketch plane and the ``on_face`` datum
+    use, and the datum bisects them. Conventions (documented in datum-planes §7a
+    and implemented by ``geometry.kernel.datum.midplane_between`` — DETERMINISTIC,
+    RESEARCH §9):
+
+    * PARALLEL sides (incl. anti-parallel normals, e.g. a box's top + bottom
+      faces): the plane midway between them; normal = side ``a``'s normal;
+      origin = the midpoint of the two resolved origins. Identical/coplanar
+      sides degenerate cleanly to the plane itself.
+    * NON-PARALLEL sides: the angular-bisector plane through their intersection
+      line; normal = ``normalize(n_a + n_b)`` (well-defined for any non-parallel
+      pair, perpendicular included — the documented normal-sign rule; flipping a
+      side's normal selects the other bisector); origin = the point of the
+      intersection line nearest the world origin (the minimum-norm solution —
+      a pure closed form of the two planes).
+    * Basis: ``z_dir`` = the convention normal above, ``x_dir`` pinned from it
+      by ``geometry.kernel.faces.deterministic_x_dir`` (the on_face rule), so
+      the 2D→3D mapping is stable across rebuilds.
+
+    A midplane over two RESOLVED sides is total — parallel, angular, and
+    identical inputs all yield a valid plane — so its only failures are
+    reference resolution: ``reference_unresolved`` (a side names a missing/
+    later/non-datum feature) or ``subshape_unresolved``/``subshape_ambiguous``
+    (a picked-face side, exactly the ``on_face`` taxonomy).
+    """
+
+    kind: Literal["midplane"]
+    a: MidplaneSide = Field(
+        description="First reference: an origin datum name, an earlier `datum` "
+        "feature, or a picked planar face. Its normal signs the parallel-case "
+        "midplane."
+    )
+    b: MidplaneSide = Field(description="Second reference (same forms as `a`).")
+    flip: bool = Field(
+        default=False,
+        description="Reverse the plane normal (negate z_dir, keeping x_dir so "
+        "sketch +u is unchanged and +v flips) — the same rule as `offset`.",
+    )
+
+
+#: Datum params: an offset-from-origin plane, an on-a-face plane, an
+#: offset-from-another-datum plane (chaining), or a midplane between two
+#: references — discriminated on ``kind``. LEGACY persisted params carry no
+#: ``kind`` (they predate on_face) — :class:`DatumFeature`'s before-validator
+#: injects ``kind: "offset"`` so old rows validate unchanged (additive, NO
+#: ``param_version`` bump — datum-planes §4/§7).
 DatumParams = Annotated[
-    DatumOffsetParams | DatumOnFaceParams, Field(discriminator="kind")
+    DatumOffsetParams | DatumOnFaceParams | DatumOffsetFromParams | DatumMidplaneParams,
+    Field(discriminator="kind"),
 ]
 
 
@@ -1050,11 +1149,12 @@ class DatumFeature(BaseModel):
 
     A non-body-affecting feature that produces a plane a later sketch sits on
     (docs/design/datum-planes.md §2b). ``params`` is the discriminated
-    :data:`DatumParams` union — an ``offset`` plane (§3) or an ``on_face`` plane
-    (§7). Adding the ``on_face`` variant is ADDITIVE with NO ``param_version``
-    bump: legacy offset params (persisted before ``on_face`` existed) carry no
-    ``kind`` discriminator, so :meth:`_legacy_offset_kind` injects ``"offset"``
-    before validation and every existing datum row/golden validates unchanged
+    :data:`DatumParams` union — an ``offset`` plane (§3), an ``on_face`` plane
+    (§7), an ``offset_from`` chained plane, or a ``midplane`` (§7a). Every
+    variant after ``offset`` is ADDITIVE with NO ``param_version`` bump: legacy
+    offset params (persisted before ``on_face`` existed) carry no ``kind``
+    discriminator, so :meth:`_legacy_offset_kind` injects ``"offset"`` before
+    validation and every existing datum row/golden validates unchanged
     (datum-planes §4/§7).
     """
 
@@ -1465,13 +1565,42 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             # (topo-naming §4): its SubshapeRef.feature_id materializes into
             # feature_dependencies exactly like a FeatureRef, so deleting that
             # body feature is a write-time 409-with-dependents and a reorder
-            # re-checks strict-backward for the named ref too.
-            if isinstance(feature.params, DatumOnFaceParams):
-                references.append(
-                    FeatureReference(
-                        "face", feature.params.face, BODY_AFFECTING_FEATURE_TYPES
+            # re-checks strict-backward for the named ref too. An OFFSET_FROM
+            # datum references its parent `datum` feature (chaining — the slot
+            # rule that makes a self/forward/non-datum base a write-time 422).
+            # A MIDPLANE side is an origin plane (no ref), an earlier `datum`
+            # feature (FeatureRef → {datum}), or a picked planar face
+            # (SubshapeRef → body-affecting types, the on_face rule).
+            match feature.params:
+                case DatumOnFaceParams():
+                    references.append(
+                        FeatureReference(
+                            "face", feature.params.face, BODY_AFFECTING_FEATURE_TYPES
+                        )
                     )
-                )
+                case DatumOffsetFromParams():
+                    references.append(
+                        FeatureReference(
+                            "base", feature.params.base, frozenset({"datum"})
+                        )
+                    )
+                case DatumMidplaneParams():
+                    for slot, side in (
+                        ("a", feature.params.a),
+                        ("b", feature.params.b),
+                    ):
+                        if isinstance(side, FeatureRef):
+                            references.append(
+                                FeatureReference(slot, side, frozenset({"datum"}))
+                            )
+                        elif isinstance(side, SubshapeRef):
+                            references.append(
+                                FeatureReference(
+                                    slot, side, BODY_AFFECTING_FEATURE_TYPES
+                                )
+                            )
+                case DatumOffsetParams():
+                    pass
         case SketchFeature():
             if isinstance(feature.params.plane, FeatureRef):
                 # A sketch-plane FeatureRef is accepted iff it points at a

@@ -421,12 +421,14 @@
         "type": "object"
       },
       "DatumFeature": {
-        "description": "``{\"type\": \"datum\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA non-body-affecting feature that produces a plane a later sketch sits on\n(docs/design/datum-planes.md \u00a72b). ``params`` is the discriminated\n:data:`DatumParams` union \u2014 an ``offset`` plane (\u00a73) or an ``on_face`` plane\n(\u00a77). Adding the ``on_face`` variant is ADDITIVE with NO ``param_version``\nbump: legacy offset params (persisted before ``on_face`` existed) carry no\n``kind`` discriminator, so :meth:`_legacy_offset_kind` injects ``\"offset\"``\nbefore validation and every existing datum row/golden validates unchanged\n(datum-planes \u00a74/\u00a77).",
+        "description": "``{\"type\": \"datum\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA non-body-affecting feature that produces a plane a later sketch sits on\n(docs/design/datum-planes.md \u00a72b). ``params`` is the discriminated\n:data:`DatumParams` union \u2014 an ``offset`` plane (\u00a73), an ``on_face`` plane\n(\u00a77), an ``offset_from`` chained plane, or a ``midplane`` (\u00a77a). Every\nvariant after ``offset`` is ADDITIVE with NO ``param_version`` bump: legacy\noffset params (persisted before ``on_face`` existed) carry no ``kind``\ndiscriminator, so :meth:`_legacy_offset_kind` injects ``\"offset\"`` before\nvalidation and every existing datum row/golden validates unchanged\n(datum-planes \u00a74/\u00a77).",
         "properties": {
           "params": {
             "discriminator": {
               "mapping": {
+                "midplane": "#/components/schemas/DatumMidplaneParams",
                 "offset": "#/components/schemas/DatumOffsetParams",
+                "offset_from": "#/components/schemas/DatumOffsetFromParams",
                 "on_face": "#/components/schemas/DatumOnFaceParams"
               },
               "propertyName": "kind"
@@ -437,6 +439,12 @@
               },
               {
                 "$ref": "#/components/schemas/DatumOnFaceParams"
+              },
+              {
+                "$ref": "#/components/schemas/DatumOffsetFromParams"
+              },
+              {
+                "$ref": "#/components/schemas/DatumMidplaneParams"
               }
             ],
             "title": "Params"
@@ -458,6 +466,107 @@
           "params"
         ],
         "title": "DatumFeature",
+        "type": "object"
+      },
+      "DatumMidplaneParams": {
+        "description": "A plane midway between two references (``kind: \"midplane\"``).\n\nThe midplane slice of docs/design/datum-planes.md \u00a77: each side resolves to\na plane through the same funnels the sketch plane and the ``on_face`` datum\nuse, and the datum bisects them. Conventions (documented in datum-planes \u00a77a\nand implemented by ``geometry.kernel.datum.midplane_between`` \u2014 DETERMINISTIC,\nRESEARCH \u00a79):\n\n* PARALLEL sides (incl. anti-parallel normals, e.g. a box's top + bottom\n  faces): the plane midway between them; normal = side ``a``'s normal;\n  origin = the midpoint of the two resolved origins. Identical/coplanar\n  sides degenerate cleanly to the plane itself.\n* NON-PARALLEL sides: the angular-bisector plane through their intersection\n  line; normal = ``normalize(n_a + n_b)`` (well-defined for any non-parallel\n  pair, perpendicular included \u2014 the documented normal-sign rule; flipping a\n  side's normal selects the other bisector); origin = the point of the\n  intersection line nearest the world origin (the minimum-norm solution \u2014\n  a pure closed form of the two planes).\n* Basis: ``z_dir`` = the convention normal above, ``x_dir`` pinned from it\n  by ``geometry.kernel.faces.deterministic_x_dir`` (the on_face rule), so\n  the 2D\u21923D mapping is stable across rebuilds.\n\nA midplane over two RESOLVED sides is total \u2014 parallel, angular, and\nidentical inputs all yield a valid plane \u2014 so its only failures are\nreference resolution: ``reference_unresolved`` (a side names a missing/\nlater/non-datum feature) or ``subshape_unresolved``/``subshape_ambiguous``\n(a picked-face side, exactly the ``on_face`` taxonomy).",
+        "properties": {
+          "a": {
+            "description": "First reference: an origin datum name, an earlier `datum` feature, or a picked planar face. Its normal signs the parallel-case midplane.",
+            "discriminator": {
+              "mapping": {
+                "datum_plane": "#/components/schemas/DatumPlaneRef",
+                "feature": "#/components/schemas/FeatureRef",
+                "subshape": "#/components/schemas/SubshapeRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumPlaneRef"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureRef"
+              },
+              {
+                "$ref": "#/components/schemas/SubshapeRef"
+              }
+            ],
+            "title": "A"
+          },
+          "b": {
+            "description": "Second reference (same forms as `a`).",
+            "discriminator": {
+              "mapping": {
+                "datum_plane": "#/components/schemas/DatumPlaneRef",
+                "feature": "#/components/schemas/FeatureRef",
+                "subshape": "#/components/schemas/SubshapeRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumPlaneRef"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureRef"
+              },
+              {
+                "$ref": "#/components/schemas/SubshapeRef"
+              }
+            ],
+            "title": "B"
+          },
+          "flip": {
+            "default": false,
+            "description": "Reverse the plane normal (negate z_dir, keeping x_dir so sketch +u is unchanged and +v flips) \u2014 the same rule as `offset`.",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "midplane",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "DatumMidplaneParams",
+        "type": "object"
+      },
+      "DatumOffsetFromParams": {
+        "description": "An EARLIER datum feature's plane slid along its normal (``kind: \"offset_from\"``).\n\nOffset CHAINING (docs/design/datum-planes.md \u00a77): ``base`` is a\n:class:`FeatureRef` to an earlier ``datum`` feature, and the plane is that\ndatum's RESOLVED plane slid ``offset_mm`` along its normal, with the same\noptional ``flip`` an origin offset has. Chains compose left-to-right: origin\n\u2192 datum A \u2192 datum B resolves to the analytic composite (each hop is a pure\n``Plane.offset``). The strict-backward rule (feature-tree \u00a72.2) means the\nparent always evaluated first \u2014 a self/forward reference NEVER resolves (a\nwrite-time 422; the eval-time backstop is ``reference_unresolved``), so\nresolution is a single dict lookup, never a recursion.\n\nDESIGN DECISION \u2014 a SEPARATE ``kind``, not a widened ``base`` union on\n:class:`DatumOffsetParams` (datum-planes \u00a77 sketched the union): widening\n``base`` to ``Literal[...] | FeatureRef`` changes the GENERATED ts-client\ntype of every existing offset datum, breaking each consumer that reads\n``params.base`` as a plane name (the viewport derives the offset basis\nclient-side from it). A new discriminated kind is the established additive\nidiom (``on_face`` proved it): existing ``offset`` payloads stay\nbyte-identical on the wire AND type-identical in the generated client, and\nNO ``param_version`` bump is needed.",
+        "properties": {
+          "base": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "EARLIER `datum` feature whose resolved plane this plane offsets from (its orientation and origin)."
+          },
+          "flip": {
+            "default": false,
+            "description": "Reverse the plane normal (negate z_dir, keeping x_dir so sketch +u is unchanged and +v flips) \u2014 the same rule as `offset`.",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "offset_from",
+            "title": "Kind",
+            "type": "string"
+          },
+          "offset_mm": {
+            "description": "Signed distance along the base datum's normal (mm). 0 coincides with the base datum; +/- selects side. Any finite value is valid.",
+            "title": "Offset Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "base",
+          "offset_mm"
+        ],
+        "title": "DatumOffsetFromParams",
         "type": "object"
       },
       "DatumOffsetParams": {
@@ -499,7 +608,7 @@
         "type": "object"
       },
       "DatumOnFaceParams": {
-        "description": "A datum plane adopted from a picked PLANAR face (``kind: \"on_face\"``).\n\nThe v2 on-a-face slice (docs/design/datum-planes.md \u00a77): the datum's plane\nresolves to the plane of a planar face of an EARLIER body-affecting feature's\nresult, named by a stage-1 :class:`SubshapeRef` signature\n(docs/design/topological-naming.md), with an optional ``offset_mm`` along the\nface normal. This is the sketch-on-a-face foundation \u2014 a sketch sits on this\ndatum by the SAME ``FeatureRef`` it uses for an offset datum, so on-face\nreuses the datum node rather than a new mechanism (datum-planes \u00a72b/\u00a77).\n\nThe derived sketch basis is DETERMINISTIC (RESEARCH \u00a79): origin at the face\narea centroid (plus ``offset_mm`` along the normal), ``z_dir`` the outward\nface normal, and an ``x_dir`` pinned from the normal\n(``geometry.kernel.faces._deterministic_x_dir``) so the 2D\u21923D mapping is\nstable across rebuilds, independent of OCCT's face parametrisation.\n\nHONEST v1 limits: the face reference is a stage-1 signature \u2014 best-effort,\nNOT structurally non-retargeting (see :class:`SubshapeRef`). A rebuild that\nremoves the face is an honest ``subshape_unresolved`` on this datum; a\ncongruent twin is ``subshape_ambiguous``; a drastic change can (rarely)\nretarget to a congruent face. Only PLANAR faces carry a signature, so a\nnon-planar face cannot be referenced (the pick UI omits them from the\nsketchable set \u2014 a non-planar pick is rejected before a datum is authored).",
+        "description": "A datum plane adopted from a picked PLANAR face (``kind: \"on_face\"``).\n\nThe v2 on-a-face slice (docs/design/datum-planes.md \u00a77): the datum's plane\nresolves to the plane of a planar face of an EARLIER body-affecting feature's\nresult, named by a stage-1 :class:`SubshapeRef` signature\n(docs/design/topological-naming.md), with an optional ``offset_mm`` along the\nface normal. This is the sketch-on-a-face foundation \u2014 a sketch sits on this\ndatum by the SAME ``FeatureRef`` it uses for an offset datum, so on-face\nreuses the datum node rather than a new mechanism (datum-planes \u00a72b/\u00a77).\n\nThe derived sketch basis is DETERMINISTIC (RESEARCH \u00a79): origin at the face\narea centroid (plus ``offset_mm`` along the normal), ``z_dir`` the outward\nface normal, and an ``x_dir`` pinned from the normal\n(``geometry.kernel.faces.deterministic_x_dir``) so the 2D\u21923D mapping is\nstable across rebuilds, independent of OCCT's face parametrisation.\n\nHONEST v1 limits: the face reference is a stage-1 signature \u2014 best-effort,\nNOT structurally non-retargeting (see :class:`SubshapeRef`). A rebuild that\nremoves the face is an honest ``subshape_unresolved`` on this datum; a\ncongruent twin is ``subshape_ambiguous``; a drastic change can (rarely)\nretarget to a congruent face. Only PLANAR faces carry a signature, so a\nnon-planar face cannot be referenced (the pick UI omits them from the\nsketchable set \u2014 a non-planar pick is rejected before a datum is authored).",
         "properties": {
           "face": {
             "$ref": "#/components/schemas/SubshapeRef",

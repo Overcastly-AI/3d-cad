@@ -12,7 +12,7 @@ Datum-from-face (docs/design/datum-planes.md §7): an ``on_face`` datum adopts a
 picked planar face's plane. The derived sketch basis is DETERMINISTIC (RESEARCH
 §9): origin at the face area centroid (plus an optional offset along the
 normal), ``z_dir`` the outward face normal, and an ``x_dir`` pinned purely from
-the normal (:func:`_deterministic_x_dir`) so the 2D→3D mapping is stable across
+the normal (:func:`deterministic_x_dir`) so the 2D→3D mapping is stable across
 rebuilds, independent of OCCT's internal face parametrisation.
 
 HONEST STAGE-1 LIMIT (§7.3): signature matching is BEST-EFFORT, not the
@@ -79,15 +79,19 @@ class PlanarFaceRecord:
     face: Face
 
 
-def _deterministic_x_dir(normal: Vector) -> Vector:
-    """A stable in-plane x-axis derived purely from the face *normal* (RESEARCH §9).
+def deterministic_x_dir(normal: Vector) -> Vector:
+    """A stable in-plane x-axis derived purely from the plane *normal* (RESEARCH §9).
 
     Pins the sketch's 2D→3D basis independent of OCCT's face parametrisation:
     pick the world axis LEAST aligned with the normal (ties broken by axis order
     X < Y < Z — deterministic), project out its normal component, and normalise.
     For an axis-aligned face (e.g. a box top, normal +Z) this yields world +X;
     the choice is a pure function of the normal, so it never varies between
-    rebuilds.
+    rebuilds. SIGN-SYMMETRIC by construction (the |dot| pick and the projection
+    are both even in ``normal``): ``deterministic_x_dir(-n) == deterministic_x_dir(n)``,
+    which is what lets a flipped datum keep +u while +v flips. Shared by the
+    ``on_face`` datum basis here and the midplane basis
+    (:func:`geometry.kernel.datum.midplane_between`) — one basis rule.
     """
     axes = (Vector(1.0, 0.0, 0.0), Vector(0.0, 1.0, 0.0), Vector(0.0, 0.0, 1.0))
     index, axis = min(
@@ -101,7 +105,7 @@ def _deterministic_x_dir(normal: Vector) -> Vector:
 def _face_plane(normal: Vector, centroid: Vector, offset_mm: float) -> Plane:
     """Build the deterministic sketch plane of a planar face (+ optional offset)."""
     origin = centroid + normal * offset_mm
-    return Plane(origin=origin, x_dir=_deterministic_x_dir(normal), z_dir=normal)
+    return Plane(origin=origin, x_dir=deterministic_x_dir(normal), z_dir=normal)
 
 
 def planar_face_signature(face: Face) -> tuple[Vector, Vector, float] | None:

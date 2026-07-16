@@ -60,6 +60,8 @@ from py_kit.schemas.features import (
     ChamferFeature,
     CircularPatternParamsV1,
     DatumFeature,
+    DatumMidplaneParams,
+    DatumOffsetFromParams,
     DatumOffsetParams,
     DatumOnFaceParams,
     DatumPlaneRef,
@@ -84,6 +86,7 @@ from py_kit.schemas.features import (
     ShellFeature,
     SketchFeature,
     SolvedSketchData,
+    SubshapeRef,
     SweepFeature,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
@@ -137,6 +140,8 @@ from geometry.kernel import (
     linear_pattern_cut,
     loft_sections,
     measure_shape,
+    midplane_between,
+    offset_plane,
     resolve_axis_line,
     resolve_face_plane,
     resolve_faces,
@@ -236,12 +241,31 @@ def resolve_sketch_plane(
     """
     if isinstance(ref, DatumPlaneRef):
         return DATUM_PLANES[ref.plane]
+    return _resolve_datum_feature_plane(ref, state, role="Sketch plane")
+
+
+def _resolve_datum_feature_plane(
+    ref: FeatureRef, state: EvaluationState, *, role: str
+) -> Plane | FeatureError:
+    """Resolve a FeatureRef to an EARLIER ``datum`` feature's resolved plane.
+
+    The one datum-feature lookup every plane-consuming slot funnels through
+    (sketch plane, chained-offset base, midplane side — CLAUDE.md DRY rule):
+    ``state.datum_planes`` holds ONLY the datums already evaluated ``ok`` in
+    this prefix, so a self reference, a forward reference, a rolled-back /
+    deleted datum, or a non-datum target all MISS the same way — one honest
+    ``reference_unresolved`` pinned to the referenced id, and structurally NO
+    recursion (a dict lookup of an already-resolved plane; datum-planes §6/§7).
+    Documents rejects these at write time (strict-backward + the slot's
+    ``allowed_types``); geometry re-checks because it must not trust callers.
+    *role* names the failing slot in the message.
+    """
     plane = state.datum_planes.get(ref.feature_id)
     if plane is None:
         return FeatureError(
             code="reference_unresolved",
             message=(
-                "Sketch plane must reference an earlier datum feature of this "
+                f"{role} must reference an earlier datum feature of this "
                 "tree; the referenced feature is not a resolved datum plane."
             ),
             upstream_feature_id=ref.feature_id,
@@ -249,26 +273,88 @@ def resolve_sketch_plane(
     return plane
 
 
+def _resolve_face_datum_plane(
+    face: SubshapeRef, offset_mm: float, state: EvaluationState
+) -> Plane | FeatureError:
+    """Resolve a stage-1 face reference to the face's (offset) sketch plane.
+
+    The shared face half of the datum resolvers (``on_face`` datum + midplane
+    face sides — one taxonomy, datum-planes §7): no prior body, or a signature
+    that no longer matches, is ``subshape_unresolved``; a congruent twin is
+    ``subshape_ambiguous`` (refuse to guess — determinism, topo-naming §7.2).
+    Errors pin the named body feature as the upstream cause.
+    """
+    if state.body is None:
+        return FeatureError(
+            code="subshape_unresolved",
+            message=(
+                "This datum references a face of the current body, but no "
+                "body-affecting feature precedes it; add a feature that creates "
+                "a body before referencing a face."
+            ),
+            upstream_feature_id=face.feature_id,
+        )
+    try:
+        return resolve_face_plane(state.body, face.selector.signature, offset_mm)
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(
+            code="subshape_unresolved",
+            message=str(exc),
+            upstream_feature_id=face.feature_id,
+        )
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(
+            code="subshape_ambiguous",
+            message=str(exc),
+            upstream_feature_id=face.feature_id,
+        )
+
+
+def _resolve_midplane_side(
+    ref: DatumPlaneRef | FeatureRef | SubshapeRef, state: EvaluationState, *, slot: str
+) -> Plane | FeatureError:
+    """Resolve one midplane side to a concrete plane (datum-planes §7a).
+
+    Reuses the existing funnels — an origin datum name maps through
+    :data:`DATUM_PLANES`, a ``datum`` FeatureRef through
+    :func:`_resolve_datum_feature_plane`, a picked planar face through
+    :func:`_resolve_face_datum_plane` (offset 0: the side IS the face's plane)
+    — so a midplane introduces no new reference semantics, only a new consumer.
+    """
+    if isinstance(ref, DatumPlaneRef):
+        return DATUM_PLANES[ref.plane]
+    if isinstance(ref, FeatureRef):
+        return _resolve_datum_feature_plane(ref, state, role=f"Midplane side '{slot}'")
+    assert isinstance(ref, SubshapeRef)  # closed union
+    return _resolve_face_datum_plane(ref, 0.0, state)
+
+
 def _evaluate_datum(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Resolve one datum plane — offset-from-origin OR on-a-face (not body-affecting).
+    """Resolve one datum plane — offset, on-a-face, chained offset, or midplane.
 
-    An OFFSET datum (docs/design/datum-planes.md §3) is an origin datum slid
-    ``offset_mm`` along its normal with an optional ``flip``; it is TOTAL — any
-    finite offset is a valid plane, so it never errors (a non-finite offset is a
-    parse-time 422). An ON_FACE datum (§7) adopts the plane of a PLANAR face of
-    the CURRENT body, named by a stage-1 :class:`SubshapeRef` signature
-    (docs/design/topological-naming.md), plus an optional offset along the face
-    normal — so unlike the offset variant it CAN fail per-feature:
+    Not body-affecting: whatever the kind, the resolved plane is recorded under
+    the feature id for a later consumer (a sketch's plane FeatureRef, another
+    datum's base, a midplane side) to resolve against. Per kind
+    (docs/design/datum-planes.md §3/§7/§7a):
 
-    * no prior body to pick a face from, or the referenced face no longer exists
-      after the rebuild → ``subshape_unresolved`` (§5);
-    * a congruent/symmetric twin also matches → ``subshape_ambiguous`` (refuse to
-      guess — determinism, §7.2).
-
-    Either way the resolved plane is recorded under the feature id for a later
-    sketch's plane FeatureRef to resolve against, exactly like an offset datum.
+    * ``offset`` — an origin datum slid ``offset_mm`` along its normal with an
+      optional ``flip``; TOTAL, never errors (a non-finite offset is a
+      parse-time 422).
+    * ``offset_from`` — an EARLIER datum feature's resolved plane slid along
+      ITS normal (chaining). The only failure is the base reference: a self /
+      forward / missing / non-datum base is ``reference_unresolved`` (a dict
+      miss — never a recursion). Given a resolved base it is as total as
+      ``offset``.
+    * ``on_face`` — adopts the plane of a PLANAR face of the CURRENT body,
+      named by a stage-1 :class:`SubshapeRef` signature, plus an optional
+      offset; fails ``subshape_unresolved`` / ``subshape_ambiguous``
+      (:func:`_resolve_face_datum_plane`).
+    * ``midplane`` — bisects two resolved side planes
+      (:func:`midplane_between`, the documented parallel/angular/identical
+      conventions). TOTAL over resolved sides; each side fails with its own
+      funnel's taxonomy (:func:`_resolve_midplane_side`).
     """
     feature = item.feature
     assert isinstance(feature, DatumFeature), "registry dispatches on type='datum'"
@@ -279,33 +365,31 @@ def _evaluate_datum(
         )
         return None
 
+    if isinstance(params, DatumOffsetFromParams):
+        parent = _resolve_datum_feature_plane(
+            params.base, state, role="Offset-plane base"
+        )
+        if isinstance(parent, FeatureError):
+            return parent
+        state.datum_planes[item.id] = offset_plane(
+            parent, params.offset_mm, params.flip
+        )
+        return None
+
+    if isinstance(params, DatumMidplaneParams):
+        side_a = _resolve_midplane_side(params.a, state, slot="a")
+        if isinstance(side_a, FeatureError):
+            return side_a
+        side_b = _resolve_midplane_side(params.b, state, slot="b")
+        if isinstance(side_b, FeatureError):
+            return side_b
+        state.datum_planes[item.id] = midplane_between(side_a, side_b, params.flip)
+        return None
+
     assert isinstance(params, DatumOnFaceParams)  # closed union
-    if state.body is None:
-        return FeatureError(
-            code="subshape_unresolved",
-            message=(
-                "This datum sits on a face of the current body, but no "
-                "body-affecting feature precedes it; add a feature that creates "
-                "a body before placing an on-face datum."
-            ),
-            upstream_feature_id=params.face.feature_id,
-        )
-    try:
-        plane = resolve_face_plane(
-            state.body, params.face.selector.signature, params.offset_mm
-        )
-    except SubshapeUnresolvedError as exc:
-        return FeatureError(
-            code="subshape_unresolved",
-            message=str(exc),
-            upstream_feature_id=params.face.feature_id,
-        )
-    except SubshapeAmbiguousError as exc:
-        return FeatureError(
-            code="subshape_ambiguous",
-            message=str(exc),
-            upstream_feature_id=params.face.feature_id,
-        )
+    plane = _resolve_face_datum_plane(params.face, params.offset_mm, state)
+    if isinstance(plane, FeatureError):
+        return plane
     state.datum_planes[item.id] = plane
     return None
 

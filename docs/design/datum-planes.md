@@ -5,7 +5,12 @@ documents, goldens — see GEOMETRY-QA; plane-picker UI #2b is the follow-up).
 The **v2 on-a-face variant (§7) is ALSO backend-implemented** 2026-07-12 (the
 `on_face` datum params variant carrying a face `SubshapeRef`, resolved to the
 face's plane — stage-1 topological naming; see `docs/design/topological-naming.md`
-§9 and GEOMETRY-QA; the in-viewport face picker is its follow-up UI). Purely
+§9 and GEOMETRY-QA; the in-viewport face picker is its follow-up UI). The
+**midplane + offset-chaining kinds (§7a) are backend-implemented 2026-07-16**
+(the datum-plane completeness founder ask — `midplane` + `offset_from` params
+kinds, kernel `geometry.kernel.datum`, golden
+`midplane-chained-offset-40x25x10`; the authoring UI follows the viewport
+makeover). All purely
 additive — no `param_version` change, no migration (the datum params union
 reads legacy kind-less rows as `offset` via a before-validator).
 Scope: how an **offset (parallel) datum plane** enters the architecture so a
@@ -371,16 +376,126 @@ additive params variant of the *same* `datum` feature type):**
 - **Angled / 3-point plane.** A plane through three picked points/vertices, or
   at an angle to a base plane about a picked edge. Needs vertex/edge picking
   (topological naming) for its anchors. Deferred.
-- **Plane offset from another datum (chaining).** `base` becomes a union of the
-  origin-datum enum **or** a `FeatureRef` to another datum feature, so planes
-  stack. A small additive increment (the resolver would look up the parent
-  datum's resolved `Plane` instead of `DATUM_PLANES[name]`; strict-backward
-  already guarantees the parent evaluates first), but **not needed for the
-  loft/height unlock**, so held to v2 to keep the v1 line clean.
+- **Plane offset from another datum (chaining). — BACKEND IMPLEMENTED
+  2026-07-16 (§7a).** This section sketched "`base` becomes a union of the
+  origin-datum enum **or** a `FeatureRef`"; the shipped shape is a SEPARATE
+  additive kind (`offset_from`) instead — §7a records why (the generated
+  ts-client type of every existing offset datum stays untouched). The resolver
+  looks up the parent datum's resolved `Plane` instead of
+  `DATUM_PLANES[name]`, exactly as anticipated; strict-backward guarantees the
+  parent evaluated first.
+- **Midplane. — BACKEND IMPLEMENTED 2026-07-16 (§7a).** A plane midway
+  between two references (the founder's named gap).
 
 The line, stated as a rule: **anything that requires picking a face/edge/vertex,
 or referencing another feature's output, is v2.** v1 is offset from a stable
 origin frame by a scalar — and nothing more.
+
+---
+
+## 7a. Midplane + offset chaining (implemented 2026-07-16)
+
+The two highest-daily-driver-value v2 kinds (BACKLOG "Datum-plane
+completeness", founder ask 2026-07-16), shipped as additive `DatumParams`
+members — the established discriminator idiom, NO `param_version` bump,
+legacy rows untouched. Kernel math lives in `geometry.kernel.datum`
+(`offset_plane`, `midplane_between`, and `build_datum_plane` — relocated from
+`geometry.kernel.extrude`, re-exported unchanged); reference resolution funnels
+through `geometry.features.evaluate` (`_resolve_datum_feature_plane`,
+`_resolve_face_datum_plane`, `_resolve_midplane_side` — the sketch-plane and
+on_face funnels generalized, not duplicated).
+
+### 7a.1 `offset_from` — offset chaining
+
+```python
+class DatumOffsetFromParams(BaseModel):
+    kind: Literal["offset_from"]
+    base: FeatureRef          # an EARLIER `datum` feature
+    offset_mm: float          # signed, along the BASE's resolved normal
+    flip: bool = False        # same rule as `offset`
+```
+
+- **Why a separate kind, not the §7-sketched `base` union** (the recorded
+  design decision): widening `DatumOffsetParams.base` to
+  `Literal["XY","XZ","YZ"] | FeatureRef` is wire-compatible but NOT
+  generated-type-compatible — every ts-client consumer that reads an offset
+  datum's `params.base` as a plane name (the viewport derives the offset basis
+  client-side from it, §8) would break on regeneration. A separate
+  discriminated kind keeps the existing `offset` schema byte-identical on the
+  wire AND in the generated client, and `on_face` already proved the additive-
+  kind path. The UI later presents ONE "offset plane" tool and picks the kind
+  by what the base is.
+- **Semantics:** the parent datum's RESOLVED plane slid `offset_mm` along its
+  own normal (`offset_plane` — the same rule `offset` uses over an origin
+  datum). Chains compose hop by hop: origin → A(+10) → B(base=A, +20) is the
+  analytic z=30 composite; a chain from a FLIPPED parent offsets along the
+  flipped normal (the composite is what the chain literally reads).
+- **Reference safety:** the `base` slot's `allowed_types = {"datum"}`
+  (`feature_references`), so documents rejects a non-datum base at write time
+  and strict-backward forbids self/forward refs. The eval-time backstop is
+  structural: `state.datum_planes` holds only datums already resolved `ok`
+  earlier in the prefix, so a self/forward/missing/non-datum base is a dict
+  MISS → one honest `reference_unresolved` pinned to the referenced id —
+  never a recursion, never a hang (asserted by tests).
+
+### 7a.2 `midplane` — a plane midway between two references
+
+```python
+MidplaneSide = Annotated[DatumPlaneRef | FeatureRef | SubshapeRef,
+                         Field(discriminator="kind")]
+
+class DatumMidplaneParams(BaseModel):
+    kind: Literal["midplane"]
+    a: MidplaneSide           # origin plane | earlier datum | picked planar face
+    b: MidplaneSide
+    flip: bool = False
+```
+
+Each side resolves through the EXISTING funnels (no new reference semantics):
+an origin `DatumPlaneRef` by name, a `FeatureRef` to an earlier datum's
+resolved plane (`allowed_types = {"datum"}`), a face `SubshapeRef` via the
+on_face stage-1 signature resolver (`allowed_types` = body-affecting types;
+only FACE subshape refs validate — an edge ref is a 422).
+
+**The documented conventions** (`midplane_between` — deterministic, RESEARCH
+§9; every case yields a plane, so a midplane over two RESOLVED sides is TOTAL
+and the datum's only failures are upstream reference resolution):
+
+- **Parallel sides** (`|n_a x n_b| <= MIDPLANE_PARALLEL_TOLERANCE = 1e-9`, a
+  documented bound sitting in the middle of the ~10-order gap between
+  ulp-scale noise on genuinely-parallel resolved normals and the smallest
+  authorable real angle; anti-parallel included — a box's outward top +Z and
+  bottom −Z): the midway plane. **Normal = side `a`'s normal** (side order
+  signs the result); origin = the midpoint of the two resolved origins (for
+  parallel planes any point at the mean signed distance is on the midplane —
+  the midpoint is the pure deterministic choice). **Identical/coplanar sides
+  degenerate cleanly to the plane itself.**
+- **Non-parallel sides:** the angular-bisector plane through the intersection
+  line. **Normal = `normalize(n_a + n_b)`** — well-defined for every
+  non-parallel pair (the sum vanishes only anti-parallel, which is the
+  parallel branch), so the perpendicular-sides "which bisector?" ambiguity is
+  settled by the rule, deterministically; flipping one side's normal selects
+  the other bisector. Origin = the point of the intersection line nearest the
+  world origin (the minimum-norm closed form `s·n_a + t·n_b`).
+- **Basis:** `z_dir` = the convention normal; `x_dir` pinned from it by
+  `geometry.kernel.faces.deterministic_x_dir` — the SAME rule as the on_face
+  basis (one basis rule). `deterministic_x_dir` is sign-symmetric, so `flip`
+  keeps +u and flips +v exactly like `offset`.
+
+### 7a.3 Gates
+
+Golden `midplane-chained-offset-40x25x10` exercises BOTH kinds in one analytic
+model (origin → chained offset to z=30 → midplane at z=15 → sketch → extrude;
+volume/area/centroid/AABB analytic, tolerance 1e-9 measured-first — see
+GEOMETRY-QA 2026-07-16); STEP round-trip auto-covers it. Kernel suite
+`test_datum.py` pins every convention above analytically (parallel,
+anti-parallel, identical, perpendicular sign rule, oblique min-norm origin,
+flip, determinism); `test_evaluate_tree.py` proves the wiring (chained
+composite, flipped-parent chain, self/forward/non-datum refs → clean
+`reference_unresolved`, picked-face midplane bisecting a real box, no-body →
+`subshape_unresolved`, byte-determinism); `test_features_schemas.py` locks the
+slot rules and the offset wire-shape guard (an `offset` payload with a
+FeatureRef base stays a validation error).
 
 ---
 

@@ -41,6 +41,48 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-16 — Datum completeness backend slice: golden `midplane-chained-offset-40x25x10` (midplane + offset chaining)
+
+New modeling capability ⇒ new golden (DoD): the two additive datum kinds
+(`offset_from` chaining + `midplane` — docs/design/datum-planes.md §7a) land
+with ONE analytic golden exercising both in a single tree: origin XY → datum A
+(`offset` +10) → datum B (`offset_from` base=A, +20 → the z=30 composite) →
+datum C (`midplane` between origin XY and B — the parallel case, z=15, normal
+= side a's +Z) → the 40×25 rectangle sketch → extrude 10. Expected values are
+the base sketch-extrude golden's, translated +15 in Z — every number a
+hand-derived plane equation, none recorded from harness output.
+
+- **Measured first, then set** (2026-07-16, build123d 0.11.1 / OCCT 7.9,
+  planegcs 0.8.0): volume dev 1.82e-12 mm³ (~2e-16 relative), surface_area
+  exactly 0.0, centroid ≤ 3.6e-15 mm, AABB exactly 0.0 on all six bounds.
+  Tolerance **1e-9** ≈ 500× the observed worst case — the same bound and
+  posture as `sketch-extrude-offset-plane-40x25x10` (datum resolution is exact
+  double math; the body is a rigid translation of the exact origin-datum
+  extrude). Topology 6/12/1 and mesh 24/12 exact.
+- **Midplane conventions pinned analytically** (`tests/test_datum.py`, kernel
+  level, documented 1e-7 ceiling): parallel → midpoint origin + side-a normal;
+  anti-parallel outward face normals (box top/bottom) → never a degenerate
+  zero normal; identical sides → the plane itself; perpendicular → the
+  documented `normalize(n_a + n_b)` bisector (XY/XZ → (0,−1,1)/√2, no guess);
+  oblique offset pair (XY+10 / YZ+5) → min-norm origin (5,0,10) ON the
+  intersection line; flip keeps x_dir. Parallel classification bound
+  `MIDPLANE_PARALLEL_TOLERANCE = 1e-9` documented in `geometry.kernel.datum`
+  (ulp-noise vs smallest-authorable-angle gap ~10 orders).
+- **Reference safety** (`test_evaluate_tree.py`): chained composite z∈[30,40]
+  exact; chain from a FLIPPED parent extrudes down (z∈[15,25] — the chain
+  reads the parent's RESOLVED normal); self-reference and forward-reference →
+  one honest `reference_unresolved` pinned to the referenced id (a dict miss,
+  structurally never a recursion); picked-face midplane bisects a real box
+  (volume 18000 mm³ analytic incl. overlap accounting); no-prior-body face
+  side → `subshape_unresolved`; byte-identical repeat evaluation.
+- **Wire-compat guard** (`test_features_schemas.py`): chaining is a SEPARATE
+  `offset_from` kind — an `offset` payload smuggling a FeatureRef base stays a
+  422, so existing offset rows/goldens are byte-identical and the generated
+  ts-client `DatumOffsetParams` type is unchanged (the frozen `apps/web` tree
+  compiles untouched, verified by full tsc).
+- STEP round-trip auto-covers the new golden (inventory-parametrized). Full
+  golden suite + round-trips green at HEAD.
+
 ## 2026-07-15 — MinIO/S3 mesh-store swap: what moto verifies vs. what is CI-gated
 
 The §7.8 object-storage swap landed (engineering audit F6/F1): the

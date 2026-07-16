@@ -1197,16 +1197,17 @@ export interface components {
          *
          *     A non-body-affecting feature that produces a plane a later sketch sits on
          *     (docs/design/datum-planes.md §2b). ``params`` is the discriminated
-         *     :data:`DatumParams` union — an ``offset`` plane (§3) or an ``on_face`` plane
-         *     (§7). Adding the ``on_face`` variant is ADDITIVE with NO ``param_version``
-         *     bump: legacy offset params (persisted before ``on_face`` existed) carry no
-         *     ``kind`` discriminator, so :meth:`_legacy_offset_kind` injects ``"offset"``
-         *     before validation and every existing datum row/golden validates unchanged
+         *     :data:`DatumParams` union — an ``offset`` plane (§3), an ``on_face`` plane
+         *     (§7), an ``offset_from`` chained plane, or a ``midplane`` (§7a). Every
+         *     variant after ``offset`` is ADDITIVE with NO ``param_version`` bump: legacy
+         *     offset params (persisted before ``on_face`` existed) carry no ``kind``
+         *     discriminator, so :meth:`_legacy_offset_kind` injects ``"offset"`` before
+         *     validation and every existing datum row/golden validates unchanged
          *     (datum-planes §4/§7).
          */
         DatumFeature: {
             /** Params */
-            params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"];
+            params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"] | components["schemas"]["DatumOffsetFromParams"] | components["schemas"]["DatumMidplaneParams"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1217,6 +1218,103 @@ export interface components {
              * @constant
              */
             version: 1;
+        };
+        /**
+         * DatumMidplaneParams
+         * @description A plane midway between two references (``kind: "midplane"``).
+         *
+         *     The midplane slice of docs/design/datum-planes.md §7: each side resolves to
+         *     a plane through the same funnels the sketch plane and the ``on_face`` datum
+         *     use, and the datum bisects them. Conventions (documented in datum-planes §7a
+         *     and implemented by ``geometry.kernel.datum.midplane_between`` — DETERMINISTIC,
+         *     RESEARCH §9):
+         *
+         *     * PARALLEL sides (incl. anti-parallel normals, e.g. a box's top + bottom
+         *       faces): the plane midway between them; normal = side ``a``'s normal;
+         *       origin = the midpoint of the two resolved origins. Identical/coplanar
+         *       sides degenerate cleanly to the plane itself.
+         *     * NON-PARALLEL sides: the angular-bisector plane through their intersection
+         *       line; normal = ``normalize(n_a + n_b)`` (well-defined for any non-parallel
+         *       pair, perpendicular included — the documented normal-sign rule; flipping a
+         *       side's normal selects the other bisector); origin = the point of the
+         *       intersection line nearest the world origin (the minimum-norm solution —
+         *       a pure closed form of the two planes).
+         *     * Basis: ``z_dir`` = the convention normal above, ``x_dir`` pinned from it
+         *       by ``geometry.kernel.faces.deterministic_x_dir`` (the on_face rule), so
+         *       the 2D→3D mapping is stable across rebuilds.
+         *
+         *     A midplane over two RESOLVED sides is total — parallel, angular, and
+         *     identical inputs all yield a valid plane — so its only failures are
+         *     reference resolution: ``reference_unresolved`` (a side names a missing/
+         *     later/non-datum feature) or ``subshape_unresolved``/``subshape_ambiguous``
+         *     (a picked-face side, exactly the ``on_face`` taxonomy).
+         */
+        DatumMidplaneParams: {
+            /**
+             * A
+             * @description First reference: an origin datum name, an earlier `datum` feature, or a picked planar face. Its normal signs the parallel-case midplane.
+             */
+            a: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"] | components["schemas"]["SubshapeRef"];
+            /**
+             * B
+             * @description Second reference (same forms as `a`).
+             */
+            b: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"] | components["schemas"]["SubshapeRef"];
+            /**
+             * Flip
+             * @description Reverse the plane normal (negate z_dir, keeping x_dir so sketch +u is unchanged and +v flips) — the same rule as `offset`.
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "midplane";
+        };
+        /**
+         * DatumOffsetFromParams
+         * @description An EARLIER datum feature's plane slid along its normal (``kind: "offset_from"``).
+         *
+         *     Offset CHAINING (docs/design/datum-planes.md §7): ``base`` is a
+         *     :class:`FeatureRef` to an earlier ``datum`` feature, and the plane is that
+         *     datum's RESOLVED plane slid ``offset_mm`` along its normal, with the same
+         *     optional ``flip`` an origin offset has. Chains compose left-to-right: origin
+         *     → datum A → datum B resolves to the analytic composite (each hop is a pure
+         *     ``Plane.offset``). The strict-backward rule (feature-tree §2.2) means the
+         *     parent always evaluated first — a self/forward reference NEVER resolves (a
+         *     write-time 422; the eval-time backstop is ``reference_unresolved``), so
+         *     resolution is a single dict lookup, never a recursion.
+         *
+         *     DESIGN DECISION — a SEPARATE ``kind``, not a widened ``base`` union on
+         *     :class:`DatumOffsetParams` (datum-planes §7 sketched the union): widening
+         *     ``base`` to ``Literal[...] | FeatureRef`` changes the GENERATED ts-client
+         *     type of every existing offset datum, breaking each consumer that reads
+         *     ``params.base`` as a plane name (the viewport derives the offset basis
+         *     client-side from it). A new discriminated kind is the established additive
+         *     idiom (``on_face`` proved it): existing ``offset`` payloads stay
+         *     byte-identical on the wire AND type-identical in the generated client, and
+         *     NO ``param_version`` bump is needed.
+         */
+        DatumOffsetFromParams: {
+            /** @description EARLIER `datum` feature whose resolved plane this plane offsets from (its orientation and origin). */
+            base: components["schemas"]["FeatureRef"];
+            /**
+             * Flip
+             * @description Reverse the plane normal (negate z_dir, keeping x_dir so sketch +u is unchanged and +v flips) — the same rule as `offset`.
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "offset_from";
+            /**
+             * Offset Mm
+             * @description Signed distance along the base datum's normal (mm). 0 coincides with the base datum; +/- selects side. Any finite value is valid.
+             */
+            offset_mm: number;
         };
         /**
          * DatumOffsetParams
@@ -1276,7 +1374,7 @@ export interface components {
          *     The derived sketch basis is DETERMINISTIC (RESEARCH §9): origin at the face
          *     area centroid (plus ``offset_mm`` along the normal), ``z_dir`` the outward
          *     face normal, and an ``x_dir`` pinned from the normal
-         *     (``geometry.kernel.faces._deterministic_x_dir``) so the 2D→3D mapping is
+         *     (``geometry.kernel.faces.deterministic_x_dir``) so the 2D→3D mapping is
          *     stable across rebuilds, independent of OCCT's face parametrisation.
          *
          *     HONEST v1 limits: the face reference is a stage-1 signature — best-effort,
@@ -4135,8 +4233,8 @@ export interface components {
              */
             feature_id: string;
             /**
-             * Kind
-             * @constant
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
             kind: "subshape";
             selector: components["schemas"]["SelectorV1"];

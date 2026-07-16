@@ -64,6 +64,28 @@ the gateway's OCCT-CPU routes); audit F7 now fully closed.
 real but low severity/likelihood, stays Next) and F5 (spline epsilon — P3
 nit, no user impact, stays Later).
 
+- [x] (P0, L) Viewport makeover Batch 1 — "the scene is a place" (apps/web +
+      packages/design) — **DONE 2026-07-16** (founder recalibration, mandate
+      3a; spec = UI-REVIEW 2026-07-16 audit). Full-bleed canvas + floating
+      collapsible panels; horizon-persistent adaptive grid + brighter grid
+      tokens + atmosphere + ground contact pool; procedural token-matcap
+      studio shading (no scene lights); reference cube + view rail + numeric
+      snaps + fit + zoom-to-cursor; assembly fit keyed on loaded geometry.
+      Evidence: `docs/screenshots/viewport-makeover-*`; e2e
+      `viewport-makeover.spec.ts`; UI-REVIEW addendum w/ Fusion/Plasticity
+      side-by-side. [src: UI-REVIEW full audit, Batch 1]
+- [ ] (P1, M) Viewport makeover Batch 2 — "every element earns its place" —
+      wire-or-delete pass on the decorative chrome inventory (KERNEL/UNITS/
+      TREE/SOLVER cells, header tagline, First-light chip), ToolButton
+      aria-disabled reason reachability, command-band group eyebrows,
+      wordmark→home + breadcrumb chip, sketch exit save/discard semantics.
+      [src: UI-REVIEW 2026-07-16 remediation items 6–9]
+- [ ] (P1, L) Viewport makeover Batch 3 — "in-command depth" — in-command
+      band state (active command + OK/Cancel, guard editor swaps), body
+      selection/hover feedback + tree↔geometry linking, live ghost previews
+      (datum plane first), empty-viewport state (origin triad, resting datum
+      sheets, first-run hint) + parts-home thumbnails.
+      [src: UI-REVIEW 2026-07-16 remediation items 10–13]
 - [x] (P1, M) Assemblies v1 #1 — document model + CRUD API (documents) — **DONE
       2026-07-15.** `py_kit.schemas.assemblies` (Placement/Quat, MateFace/AxisRef
       reusing PlanarFaceSignature/EdgeSignature verbatim, the discriminated
@@ -216,16 +238,21 @@ nit, no user impact, stays Later).
 ## Next (P2)
 
 - [ ] (P2, M) Datum-plane completeness (founder ask 2026-07-16: "do we have
-      planes, offset planes, midpoint planes etc") — today: origin XY/XZ/YZ,
-      offset-from-origin (`DatumOffsetParams`), on-picked-face + offset
-      (`DatumOnFaceParams`). Missing vs Fusion/SolidWorks: **midplane**
-      (between two faces/planes — the founder's named gap), **angled plane**
-      (about an edge/sketch line), three-point, tangent-to-cylinder,
-      normal-to-curve, and **offset chaining** (offset base is origin-only,
-      `Literal["XY","XZ","YZ"]` — can't offset from another datum). Design:
-      additive `DatumParams` kinds (the established discriminator idiom, no
-      `param_version` bump); midplane + offset-chaining first (highest
-      daily-driver value), each with goldens + pick UI + e2e. [src: founder]
+      planes, offset planes, midpoint planes etc") — **backend slice ✅
+      2026-07-16**: **midplane** (`kind: "midplane"` — each side an origin
+      plane, an earlier datum, or a picked planar face; documented
+      parallel/bisector/normal-sign conventions, datum-planes §7a) and
+      **offset chaining** (`kind: "offset_from"` — base is a FeatureRef to an
+      earlier datum; a SEPARATE additive kind rather than widening
+      `DatumOffsetParams.base`, keeping the generated client type of existing
+      offset datums untouched) shipped with golden
+      `midplane-chained-offset-40x25x10`, kernel/evaluator/schema suites,
+      self/forward-ref safety, contracts regenerated. **Remaining:** angled
+      plane (about an edge/sketch line), three-point, tangent-to-cylinder,
+      normal-to-curve — each a future additive kind — plus the
+      midplane/chaining **authoring UI** (queued behind the viewport-makeover
+      batches; the plane picker + DatumEditor gain the new kinds then).
+      [src: founder]
 - [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
       trap, product audit #4) — marking the on-axis edge `construction: true`
       (the natural SolidWorks/Fusion idiom) excludes it from the profile wire
@@ -424,6 +451,10 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 ## Changelog
 
 Older entries live in `CHANGELOG.md`.
+
+- 2026-07-16 — **Datum-planes backend slice done:** midplane + offset-chaining
+  as additive kinds (`midplane`, `offset_from`), documented conventions, golden
+  `midplane-chained-offset-40x25x10`, contracts regen. [kernel-architect]
 
 - 2026-07-15 — **Mesh-store MinIO/S3 swap done (F6/F1):** `S3_URL`-driven shared
   `S3MeshStore` (boto3, content-addressed, no tenant), single-worker guard

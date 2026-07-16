@@ -11,6 +11,12 @@ service boundary.
 from build123d import Solid
 
 from geometry.kernel.chamfer import ChamferError, chamfer_body
+from geometry.kernel.datum import (
+    DATUM_PLANES,
+    build_datum_plane,
+    midplane_between,
+    offset_plane,
+)
 from geometry.kernel.draft import DraftError, draft_body
 from geometry.kernel.edges import (
     EdgeRecord,
@@ -22,11 +28,9 @@ from geometry.kernel.edges import (
 )
 from geometry.kernel.export import export_step_bytes, export_stl_bytes
 from geometry.kernel.extrude import (
-    DATUM_PLANES,
     BooleanError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
-    build_datum_plane,
     build_profile_face,
     build_profile_faces,
     combine_body,
@@ -162,6 +166,8 @@ __all__ = [
     "loft_sections",
     "measure_shape",
     "measure_targets",
+    "midplane_between",
+    "offset_plane",
     "planar_faces",
     "resolve_axis_line",
     "resolve_edge",
