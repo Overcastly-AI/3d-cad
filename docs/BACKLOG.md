@@ -215,6 +215,17 @@ nit, no user impact, stays Later).
 
 ## Next (P2)
 
+- [ ] (P2, M) Datum-plane completeness (founder ask 2026-07-16: "do we have
+      planes, offset planes, midpoint planes etc") — today: origin XY/XZ/YZ,
+      offset-from-origin (`DatumOffsetParams`), on-picked-face + offset
+      (`DatumOnFaceParams`). Missing vs Fusion/SolidWorks: **midplane**
+      (between two faces/planes — the founder's named gap), **angled plane**
+      (about an edge/sketch line), three-point, tangent-to-cylinder,
+      normal-to-curve, and **offset chaining** (offset base is origin-only,
+      `Literal["XY","XZ","YZ"]` — can't offset from another datum). Design:
+      additive `DatumParams` kinds (the established discriminator idiom, no
+      `param_version` bump); midplane + offset-chaining first (highest
+      daily-driver value), each with goldens + pick UI + e2e. [src: founder]
 - [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
       trap, product audit #4) — marking the on-axis edge `construction: true`
       (the natural SolidWorks/Fusion idiom) excludes it from the profile wire
