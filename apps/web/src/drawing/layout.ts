@@ -70,6 +70,8 @@ export function sheetDimensions(
 export const SHEET_MARGIN_MM = 10;
 /** Title-block box (mm), seated in the bottom-right corner inside the border. */
 export const TITLE_BLOCK_MM = { width: 96, height: 34 } as const;
+/** Clear space (mm) between adjacent views' bounding boxes. */
+export const VIEW_GUTTER_MM = 14;
 
 export interface Anchor {
   /** View-centre X in sheet mm (origin bottom-left, y-UP). */
@@ -150,6 +152,81 @@ export function viewBounds(
     min: { x: minX, y: minY },
     max: { x: maxX, y: maxY },
     center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 },
+  };
+}
+
+/**
+ * Bounds-aware third-angle placement: spaces the four views by their OWN
+ * projected extents (+ a gutter) instead of fixed sheet fractions, so views
+ * never overlap for a part taller/wider than the demo plate, then centres the
+ * whole arrangement in the sheet. Preserves the third-angle relations — top
+ * shares front's X (sits above), right shares front's Y (sits to the right),
+ * iso fills the free upper-right — so projection alignment still reads. Falls
+ * back to the fixed `standardLayout` when no view has any geometry yet.
+ *
+ * Half-extents come from each view's `viewBounds`; a missing/empty view
+ * contributes zero extent. Scale still fits large parts via the scale picker
+ * (this only prevents overlap, not sheet overrun).
+ */
+export function boundsAwareLayout(
+  boundsByProjection: Partial<Record<ViewProjection, Bounds2D | null>>,
+  dims: SheetDims,
+): Record<ViewProjection, Anchor> {
+  const half = (v: ViewProjection): { w: number; h: number } => {
+    const b = boundsByProjection[v] ?? null;
+    if (!b) return { w: 0, h: 0 };
+    return { w: (b.max.x - b.min.x) / 2, h: (b.max.y - b.min.y) / 2 };
+  };
+  const f = half("front");
+  const t = half("top");
+  const r = half("right");
+  const g = VIEW_GUTTER_MM;
+
+  // No view has any geometry yet (all failed/empty): the fixed fractions spread
+  // the placeholders more legibly than clustering them at the centre.
+  const anyGeometry = STANDARD_VIEWS.some((v) => {
+    const h = half(v);
+    return h.w > 0 || h.h > 0;
+  });
+  if (!anyGeometry) return standardLayout(dims);
+
+  // Relative anchors (front at origin, y-UP): top ABOVE front, right to the
+  // RIGHT of front (both spaced by the two half-extents + gutter), iso in the
+  // free upper-right quadrant (aligned with right's X and top's Y).
+  const rel: Record<ViewProjection, Anchor> = {
+    front: { x: 0, y: 0 },
+    top: { x: 0, y: f.h + g + t.h },
+    right: { x: f.w + g + r.w, y: 0 },
+    iso: { x: f.w + g + r.w, y: f.h + g + t.h },
+  };
+
+  // Envelope of the placed views (anchor ± half-extent); centre it in the sheet.
+  const halfOf: Record<ViewProjection, { w: number; h: number }> = {
+    front: f,
+    top: t,
+    right: r,
+    iso: half("iso"),
+  };
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const v of STANDARD_VIEWS) {
+    const a = rel[v];
+    const hh = halfOf[v];
+    minX = Math.min(minX, a.x - hh.w);
+    maxX = Math.max(maxX, a.x + hh.w);
+    minY = Math.min(minY, a.y - hh.h);
+    maxY = Math.max(maxY, a.y + hh.h);
+  }
+  // `anyGeometry` guaranteed at least one real extent, so the envelope is finite.
+  const dx = dims.width / 2 - (minX + maxX) / 2;
+  const dy = dims.height / 2 - (minY + maxY) / 2;
+  return {
+    front: { x: rel.front.x + dx, y: rel.front.y + dy },
+    top: { x: rel.top.x + dx, y: rel.top.y + dy },
+    right: { x: rel.right.x + dx, y: rel.right.y + dy },
+    iso: { x: rel.iso.x + dx, y: rel.iso.y + dy },
   };
 }
 

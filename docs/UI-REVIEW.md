@@ -588,6 +588,12 @@ list.
   outside the paper's right edge), and let the drawing route pass a tighter
   `maxHeightClassName` since there's no cube to clear.
   Ref: `drawings-editor-1280.png` (top-right), `FloatingPanel.tsx:35-38`.
+  **✅ RESOLVED (orchestrator, with the code-review bounds-layout fix):** the
+  sheet container now reserves a `lg:pr-[22rem]` right gutter so the paper never
+  slides under the panel, and the Views panel passes
+  `maxHeightClassName="max-h-[calc(100%-4.5rem)]"` (no gizmo cube on a 2D sheet).
+  Refreshed `drawings-editor-1280.png` shows the full framed sheet clear of the
+  panel.
 
 - **P2 — sheet editor — command band invites setup actions while the drawing
   is still loading.** `DrawingPage` renders `DrawingCommandBand` (Part select /
@@ -599,6 +605,9 @@ list.
   optimistic-concurrency race. System fix: gate the band's controls (or a `busy`
   flag) on `drawingQuery.isSuccess`, same as the setup hint is gated on `tree`.
   Ref: `DrawingPage.tsx:232-245, 137-138`.
+  **✅ RESOLVED (orchestrator):** `DrawingCommandBand` now renders only when
+  `drawingQuery.isSuccess`, so no setup action can fire against an unknown
+  `doc_version`.
 
 - **P3 — sheet — title-block captions render sub-legible at laptop width.**
   The `TITLE / SCALE / SIZE` captions are 2.3 mm SVG text; on the 1280 sheet

@@ -230,18 +230,22 @@ export function DrawingPage() {
         />
       </TopBar>
       <TopToolbar>
-        <DrawingCommandBand
-          parts={parts}
-          selectedPartId={selectedPartId}
-          onSelectPart={setSelectedPartId}
-          scaleValue={effectiveScaleValue}
-          onSelectScale={setScaleValue}
-          hasLayout={hasLayout}
-          draftedPartName={draftedPartName}
-          onLayout={handleLayout}
-          onReproject={handleReproject}
-          busy={busy || projecting}
-        />
+        {/* Only once the drawing has loaded — otherwise the band invites "Lay
+            out" against a not-yet-known doc_version (a stale-OCC race). */}
+        {drawingQuery.isSuccess ? (
+          <DrawingCommandBand
+            parts={parts}
+            selectedPartId={selectedPartId}
+            onSelectPart={setSelectedPartId}
+            scaleValue={effectiveScaleValue}
+            onSelectScale={setScaleValue}
+            hasLayout={hasLayout}
+            draftedPartName={draftedPartName}
+            onLayout={handleLayout}
+            onReproject={handleReproject}
+            busy={busy || projecting}
+          />
+        ) : null}
       </TopToolbar>
 
       <main className="relative min-h-0 grow overflow-hidden bg-carbide">
@@ -270,7 +274,9 @@ export function DrawingPage() {
             body="Fetching the sheet."
           />
         ) : hasLayout && sheet ? (
-          <div className="absolute inset-0 flex items-center justify-center p-6 sm:p-10">
+          // Reserve the right gutter for the Views panel so the paper never
+          // slides under it (the panel would clip the sheet's framed corner).
+          <div className="absolute inset-0 flex items-center justify-center p-6 sm:p-10 lg:pr-[22rem]">
             <DrawingSheet
               sheet={sheet}
               views={views}
@@ -321,7 +327,14 @@ export function DrawingPage() {
         ) : null}
 
         {hasLayout ? (
-          <FloatingPanel side="right" title="Views" id="drawing-views">
+          // A 2D sheet has no r3f gizmo cube, so reclaim the default right-panel
+          // bottom clearance that reserves space for it (frontend-QA P2).
+          <FloatingPanel
+            side="right"
+            title="Views"
+            id="drawing-views"
+            maxHeightClassName="max-h-[calc(100%-4.5rem)]"
+          >
             <ViewsPanel
               projecting={projecting}
               resultByProjection={resultByProjection}

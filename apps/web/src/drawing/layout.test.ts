@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ProjectedViewEdge } from "../api/drawings";
 import {
+  VIEW_GUTTER_MM,
+  boundsAwareLayout,
   formatScale,
   sheetDimensions,
   standardLayout,
@@ -49,6 +51,75 @@ describe("standardLayout (third-angle)", () => {
     // Iso fills the free upper-right quadrant.
     expect(anchors.iso.x).toBeGreaterThan(anchors.front.x);
     expect(anchors.iso.y).toBeGreaterThan(anchors.front.y);
+  });
+});
+
+describe("boundsAwareLayout (third-angle, spaced by extent)", () => {
+  // A square view of half-extent `h` centred at origin (projected mm).
+  const squareBounds = (h: number) => ({
+    min: { x: -h, y: -h },
+    max: { x: h, y: h },
+    center: { x: 0, y: 0 },
+  });
+
+  it("preserves third-angle relations", () => {
+    const dims = sheetDimensions("A4", "landscape");
+    const a = boundsAwareLayout(
+      {
+        front: squareBounds(20),
+        top: squareBounds(20),
+        right: squareBounds(20),
+        iso: squareBounds(20),
+      },
+      dims,
+    );
+    expect(a.top.y).toBeGreaterThan(a.front.y); // top above front
+    expect(a.top.x).toBeCloseTo(a.front.x); // shared X
+    expect(a.right.x).toBeGreaterThan(a.front.x); // right of front
+    expect(a.right.y).toBeCloseTo(a.front.y); // shared Y
+  });
+
+  it("spaces adjacent views so their boxes never overlap, even for a large part", () => {
+    // A part far larger than the fixed-fraction gaps (~71/107 mm) used to allow.
+    const dims = sheetDimensions("A4", "landscape");
+    const hw = 90; // half-width 90 → 180 mm wide, dwarfs the sheet fractions
+    const hh = 70;
+    const b = {
+      min: { x: -hw, y: -hh },
+      max: { x: hw, y: hh },
+      center: { x: 0, y: 0 },
+    };
+    const a = boundsAwareLayout({ front: b, top: b, right: b, iso: b }, dims);
+    // front↔top are stacked in Y: the gap between their boxes == the gutter.
+    expect(a.top.y - a.front.y).toBeCloseTo(hh + VIEW_GUTTER_MM + hh);
+    // front↔right are side by side in X: gap == the gutter.
+    expect(a.right.x - a.front.x).toBeCloseTo(hw + VIEW_GUTTER_MM + hw);
+  });
+
+  it("centres the arrangement on the sheet", () => {
+    const dims = sheetDimensions("A4", "landscape");
+    const a = boundsAwareLayout(
+      {
+        front: squareBounds(20),
+        top: squareBounds(20),
+        right: squareBounds(20),
+        iso: squareBounds(20),
+      },
+      dims,
+    );
+    // The envelope of four equal 40mm squares is symmetric; its centre is the
+    // midpoint of front/iso, which must land at the sheet centre.
+    expect((a.front.x + a.iso.x) / 2).toBeCloseTo(dims.width / 2);
+    expect((a.front.y + a.iso.y) / 2).toBeCloseTo(dims.height / 2);
+  });
+
+  it("falls back to the fixed layout when no view has geometry", () => {
+    const dims = sheetDimensions("A4", "landscape");
+    const a = boundsAwareLayout(
+      { front: null, top: null, right: null, iso: null },
+      dims,
+    );
+    expect(a).toEqual(standardLayout(dims));
   });
 });
 

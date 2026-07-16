@@ -21,9 +21,9 @@ import {
   STANDARD_VIEWS,
   TITLE_BLOCK_MM,
   VIEW_LABEL,
+  boundsAwareLayout,
   formatScale,
   sheetDimensions,
-  standardLayout,
   viewBounds,
   viewToSvgEdges,
   type Anchor,
@@ -240,7 +240,17 @@ export function DrawingSheet({
   title,
 }: DrawingSheetProps) {
   const dims = sheetDimensions(sheet.size, sheet.orientation);
-  const layout = standardLayout(dims);
+  // Space the views by their own projected extents so they never overlap for a
+  // part larger than the demo plate (fixed sheet fractions did — code review).
+  const boundsByProjection: Partial<
+    Record<ViewProjection, ReturnType<typeof viewBounds>>
+  > = {};
+  for (const projection of STANDARD_VIEWS) {
+    const result = resultByProjection.get(projection);
+    boundsByProjection[projection] =
+      result && !result.error ? viewBounds(result.edges ?? []) : null;
+  }
+  const layout = boundsAwareLayout(boundsByProjection, dims);
   const scaleLabel = formatScale(
     views[0]?.scale ?? { numerator: 1, denominator: 1 },
   );
