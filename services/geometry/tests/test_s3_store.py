@@ -7,13 +7,15 @@ put/get round-trip, content-address correctness, miss→None, idempotent put, th
 content-addressed (tenant-free) key scheme, and the config-driven backend
 selection + single-worker-guard lift.
 
-**What is NOT proven here (CI-gated).** moto runs in this one process, so it
-cannot prove the *cross-process* property the swap exists for: an evaluate on
+**The cross-process property (CI-verified).** moto runs in this one process, so
+it cannot prove the *cross-process* property the swap exists for: an evaluate on
 one worker/replica and a fetch on another see one shared store. That real-MinIO
-2-worker/2-replica evaluate→fetch smoke needs a live MinIO + docker daemon
-(unavailable in this sandbox) and is gated in CI — see
-``test_real_minio_cross_process_smoke_is_ci_gated`` below, docs/design/
-feature-tree.md §7.8, and docs/GEOMETRY-QA.md.
+evaluate→fetch smoke needs a live MinIO + docker daemon (unavailable in this
+sandbox), so it is gated on ``LOFT_MINIO_SMOKE`` and runs in the dedicated
+``geometry-minio-smoke`` CI job (``.github/workflows/ci.yml``), which boots MinIO
+and provisions the mesh bucket. Under the default (no-MinIO) ``uv run pytest`` it
+skips cleanly. See ``test_real_minio_cross_process_smoke_is_ci_gated`` below,
+docs/design/feature-tree.md §7.8, and docs/GEOMETRY-QA.md.
 """
 
 # boto3's client is dynamically generated and ships no stubs; suppress the
@@ -22,6 +24,9 @@ feature-tree.md §7.8, and docs/GEOMETRY-QA.md.
 # (the content-addressed, tenant-free S3 key scheme).
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportMissingTypeStubs=false, reportPrivateUsage=false
 
+import os
+import subprocess
+import sys
 from collections.abc import Iterator
 
 import boto3
@@ -198,23 +203,92 @@ def test_module_functions_route_through_configured_s3_backend(s3: str) -> None:
     assert fetch_mesh_glb(key) == glb  # fetch-reader path, same shared store
 
 
-# --- CI-gated acceptance (documented, not runnable here) --------------------
+# --- CI-gated acceptance: real-MinIO cross-process smoke --------------------
 
+#: Truthy only in the ``geometry-minio-smoke`` CI job, which boots a real MinIO
+#: and points S3_URL/S3_BUCKET/creds at it. Unset everywhere else (the default
+#: ``uv run pytest``), so this smoke skips cleanly without a live object store.
+_MINIO_SMOKE = os.environ.get("LOFT_MINIO_SMOKE")
 
-@pytest.mark.skip(
-    reason=(
-        "Real-MinIO cross-process 2-worker/2-replica evaluate->fetch smoke is "
-        "CI-gated: it needs a live MinIO + docker daemon, unavailable in this "
-        "sandbox. moto proves the S3 put/get + content-address code path "
-        "in-process; the cross-process topology (the whole point of the swap) is "
-        "verified in CI. See docs/design/feature-tree.md §7.8 and "
-        "docs/GEOMETRY-QA.md."
-    )
+#: The **reader** half (process B), run as a genuinely separate OS process. It
+#: builds its OWN store instance (fresh boto3 client, no shared in-memory state
+#: with the writer) via the real fetch-reader seam and streams the fetched GLB
+#: bytes to stdout — or exits non-zero on a miss. Kept as a source string so the
+#: child interpreter runs it with ``python -c`` in the same venv (geometry is
+#: importable via ``sys.executable``).
+_READER_SCRIPT = """
+import os
+import sys
+
+from geometry.mesh_store import configure_mesh_store, fetch_mesh_glb
+
+configure_mesh_store(
+    os.environ["S3_URL"],
+    os.environ["S3_BUCKET"],
+    s3_access_key_id=os.environ.get("S3_ACCESS_KEY_ID"),
+    s3_secret_access_key=os.environ.get("S3_SECRET_ACCESS_KEY"),
+    s3_region=os.environ.get("S3_REGION", "us-east-1"),
 )
-def test_real_minio_cross_process_smoke_is_ci_gated() -> None:  # pragma: no cover
-    # Acceptance shape (run in CI against a real MinIO):
-    #   1. Boot 2 geometry replicas behind one MinIO bucket (S3_URL set).
-    #   2. POST /evaluate to replica A -> obtain mesh_glb_id.
-    #   3. GET /meshes/{mesh_glb_id} from replica B -> 200 + identical bytes.
-    # moto cannot reproduce (2)->(3) crossing a process boundary in-process.
-    raise AssertionError("CI-only; see skip reason.")
+glb = fetch_mesh_glb(sys.argv[1])
+if glb is None:
+    sys.stderr.write("cross-process MISS: %s\\n" % sys.argv[1])
+    raise SystemExit(3)
+sys.stdout.buffer.write(glb)
+"""
+
+
+@pytest.mark.skipif(
+    not _MINIO_SMOKE,
+    reason=(
+        "Real-MinIO cross-process evaluate->fetch smoke: set LOFT_MINIO_SMOKE=1 "
+        "with a live MinIO (S3_URL/S3_BUCKET/creds). Runs in the geometry-minio-"
+        "smoke CI job (.github/workflows/ci.yml); skipped in the default no-MinIO "
+        "suite. moto proves the S3 code path in-process; this job proves the "
+        "cross-process topology the swap exists for. See "
+        "docs/design/feature-tree.md §7.8 and docs/GEOMETRY-QA.md."
+    ),
+)
+def test_real_minio_cross_process_smoke_is_ci_gated() -> None:
+    """Evaluate-writer stores on one process; a SEPARATE process fetches and gets
+    byte-identical bytes from the same MinIO — the multi-worker/replica property
+    the in-process LRU could never provide (design §7.8, engineering audit F6).
+
+    Process A (this pytest process): its own S3-backed store, via the real
+    evaluate-writer seam (``store_mesh_glb``). Process B (a fresh ``subprocess``
+    interpreter with its OWN boto3 client + store instance, no shared memory
+    with A): fetches the returned id via the real fetch-reader seam. A 404/miss
+    across that boundary would fail here — proving the store is genuinely shared.
+    """
+    endpoint = os.environ["S3_URL"]
+    bucket = os.environ["S3_BUCKET"]
+
+    # Process A: install the shared S3 backend and store via the writer path.
+    # Unique bytes (random nonce) so the fetched object is provably written by
+    # THIS run — not a content-addressed leftover from a prior CI run.
+    configure_mesh_store(
+        endpoint,
+        bucket,
+        s3_access_key_id=os.environ.get("S3_ACCESS_KEY_ID"),
+        s3_secret_access_key=os.environ.get("S3_SECRET_ACCESS_KEY"),
+        s3_region=os.environ.get("S3_REGION", "us-east-1"),
+    )
+    glb = b"loft-minio-cross-process-smoke-" + os.urandom(32)
+    mesh_id = store_mesh_glb(glb)
+    assert mesh_id == mesh_glb_key(glb)
+
+    # Process B: a real second OS process — fresh interpreter, fresh boto3
+    # client/store, no shared in-memory state with A. This is what the
+    # in-process LRU could never satisfy.
+    reader = subprocess.run(
+        [sys.executable, "-c", _READER_SCRIPT, mesh_id],
+        capture_output=True,
+        env=os.environ.copy(),
+        timeout=60,
+    )
+
+    assert reader.returncode == 0, (
+        f"cross-process reader failed (rc={reader.returncode}): "
+        f"{reader.stderr.decode(errors='replace')}"
+    )
+    # Byte-identical fetch across the process boundary — no 404, no wrong mesh.
+    assert reader.stdout == glb

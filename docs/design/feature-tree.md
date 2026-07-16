@@ -705,11 +705,18 @@ by its owning item or a groom pass:
    addressing, miss/malformed→None, idempotent put, config selection + guard
    lift) is exercised in-process against moto's `ThreadedMotoServer` — a real S3
    HTTP endpoint, path-style/MinIO-shaped — in `test_s3_store.py`. The
-   **cross-process** property (evaluate on replica A → fetch on replica B) is
-   *not* provable in this sandbox (no docker daemon / no live MinIO) and remains
-   a **CI-gated acceptance**: the real-MinIO 2-worker/2-replica evaluate→fetch
-   smoke, tracked by the skipped `test_real_minio_cross_process_smoke_is_ci_gated`
-   and documented in docs/GEOMETRY-QA.md.
+   **cross-process** property (evaluate on one process → fetch on another,
+   byte-identical) is **CI-verified** by the `geometry-minio-smoke` job
+   (`.github/workflows/ci.yml`): it boots a live MinIO with the mesh bucket
+   provisioned and runs `test_real_minio_cross_process_smoke_is_ci_gated` with
+   `LOFT_MINIO_SMOKE=1`. That test stores a mesh via the S3-backed writer seam,
+   then fetches the returned id from a **genuinely separate OS process**
+   (`subprocess`, its own boto3 client + store instance, no shared memory) and
+   asserts byte-identical bytes — the multi-worker/replica property the
+   in-process LRU could never provide. The default (no-MinIO) `uv run pytest`
+   leaves `LOFT_MINIO_SMOKE` unset, so the smoke skips there and the
+   cross-process gate runs exactly once, in that job. Details in
+   docs/GEOMETRY-QA.md.
 9. **GLB lifecycle / GC.** Content-addressed artifacts (§4.4) are never
    overwritten, so every tree mutation can strand an orphan in object
    storage. v1 accepts unbounded growth in dev; a retention/GC policy

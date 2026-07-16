@@ -65,18 +65,26 @@ MinIO-shaped) — so the boto3 code path travels a genuine HTTP round-trip, not 
 stubbed call. Licenses of the added deps: boto3/botocore/s3transfer (Apache-2.0,
 runtime), moto + flask/werkzeug (Apache-2.0 / BSD-3, dev-only) — no GPL.
 
-**NOT verified here → CI-gated acceptance:** the whole *reason* for the swap is
-the **cross-process** path — evaluate on replica A, fetch the same `mesh_glb_id`
-on replica B, get identical bytes. moto runs in ONE process, so it cannot prove
-this. The real-MinIO 2-worker/2-replica evaluate→fetch smoke MUST run in CI
-against a live MinIO container. It is tracked by the skipped
-`test_s3_store.py::test_real_minio_cross_process_smoke_is_ci_gated` (its body
-documents the acceptance shape) and by design §7.8. Until that CI gate is wired
-by platform, "multi-replica geometry works" is proven by construction (shared
-store + content addressing) and by the in-process HTTP round-trip, but not yet
-by a live cross-process run. **Gap for platform-builder:** add the compose/CI
-job that boots ≥2 geometry replicas behind one MinIO bucket and runs the
-evaluate→cross-replica-fetch smoke.
+**CI-verified (not provable in-sandbox):** the whole *reason* for the swap is
+the **cross-process** path — store a `mesh_glb_id` on one process, fetch it from
+another, get identical bytes. moto runs in ONE process, so it cannot prove this.
+That gate is now wired: the **`geometry-minio-smoke`** CI job
+(`.github/workflows/ci.yml`) boots a live MinIO with the mesh bucket provisioned
+(reusing the compose `minio` + `minio-init` services), points
+`S3_URL`/`S3_BUCKET`/creds at it, and runs
+`test_s3_store.py::test_real_minio_cross_process_smoke_is_ci_gated` with
+`LOFT_MINIO_SMOKE=1`. The smoke stores a mesh via the S3-backed writer seam,
+then fetches the returned id from a **genuinely separate OS process**
+(`subprocess` — its own interpreter, boto3 client, and store instance, no shared
+in-memory state with the writer) and asserts byte-identical bytes; a
+cross-process 404 fails it. The default (no-MinIO) `uv run pytest` leaves
+`LOFT_MINIO_SMOKE` unset, so the smoke **skips cleanly** there and the
+cross-process property is gated exactly once, in that job. Fidelity note: the
+reader is a true second OS process (not merely a second in-process client), so
+this exercises the real multi-worker/replica topology, not a shared-memory
+shortcut. "Multi-replica geometry works" is thus proven three ways: by
+construction (shared store + content addressing), by the in-process HTTP
+round-trip (moto), and now by the live cross-process CI run.
 
 ## 2026-07-15 — INDEPENDENT VERIFICATION: `assembly-two-plates-bolted` (commit 05f6aa1)
 
@@ -1998,12 +2006,14 @@ counts, pinned exactly.
   `test_main.py` (boots clean at the default 1, raises at 2) + `test_mesh_store.py`
   (guard allows 1/0/-1, refuses 2/4/16, message names `WEB_CONCURRENCY=` and
   §7.8); `WEB_CONCURRENCY=3 python -c 'import geometry.main'` exits non-zero.
-  **NOT verifiable here / CI gap:** the true cross-worker (or cross-replica)
-  evaluate→fetch round-trip needs the MinIO-backed swap under real object
-  storage — this sandbox has no docker daemon and no `moto`, and a `moto`
-  in-process mock would not prove the cross-process path anyway. The swap
-  remains the forward goal; its acceptance requires a real-MinIO 2-worker /
-  2-replica smoke in CI.
+  **Cross-process path — CI-verified:** the true cross-worker/replica
+  store→fetch round-trip needs a real MinIO (no docker daemon in-sandbox), so it
+  runs in the **`geometry-minio-smoke`** CI job
+  (`.github/workflows/ci.yml`): boots MinIO, then
+  `test_real_minio_cross_process_smoke_is_ci_gated` (gated on `LOFT_MINIO_SMOKE`)
+  stores a mesh and fetches it from a genuinely separate OS process, asserting
+  byte-identical bytes. The default no-MinIO suite skips it. See the
+  2026-07-15 MinIO/S3 section above for the full moto-vs-CI split.
 
 Performance: warm evaluate-tree (solve + extrude + GProp + tessellate)
 averages ~8.3 ms — table row added below.

@@ -104,3 +104,41 @@ jobs:
         run: docker compose config -q
       - name: Validate dev-overlay compose config
         run: docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
+
+  geometry-minio-smoke:
+    # Real-MinIO cross-process smoke for the §7.8 mesh-store swap (audit F6):
+    # the property the swap exists for — evaluate on one process/replica, fetch
+    # on another against a shared object store — cannot be proven in-process by
+    # moto. This job boots a live MinIO with the mesh bucket provisioned, points
+    # S3_URL/S3_BUCKET/creds at it, and runs the geometry S3 suite with the
+    # cross-process smoke ENABLED via LOFT_MINIO_SMOKE=1. The default `python`
+    # job runs the same file with the marker UNSET, so that smoke skips there and
+    # the store's cross-process correctness is gated exactly once, here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # Reuse the compose-defined MinIO + one-shot bucket bootstrap (DRY: same
+      # service/bucket the dev stack uses). `--wait` blocks until MinIO is
+      # healthy and minio-init has created the bucket (exit 0).
+      - name: Boot MinIO + provision the mesh bucket
+        run: docker compose up -d --wait minio minio-init
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      - name: Cross-process mesh-store smoke (real MinIO)
+        env:
+          LOFT_MINIO_SMOKE: "1"
+          # Host-mapped MinIO (compose publishes 9000); creds are the compose
+          # MinIO root user/password defaults, bucket is the S3_BUCKET default.
+          S3_URL: http://localhost:9000
+          S3_BUCKET: loft
+          S3_ACCESS_KEY_ID: loft-minio
+          S3_SECRET_ACCESS_KEY: loft-minio-dev-only
+        run: uv run pytest services/geometry/tests/test_s3_store.py -v
+      - name: Tear down MinIO
+        if: always()
+        run: docker compose down -v
