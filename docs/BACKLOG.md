@@ -124,6 +124,21 @@ nit, no user impact, stays Later).
       dimension types (linear/diameter/radius/angular) from the model, surfacing
       the `foreshortened` flag (§3.2). Analytic goldens: Ø10→10.000, r5→5.000,
       40 mm edge→40.000, vee angle. [src: design/drawings.md §3/§8]
+- [ ] (P1, L) Drawings v1 #7 — frontend drawing canvas (apps/web). A `/drawings`
+      register + `/drawings/{id}` editor (sibling of parts/assemblies) built on the
+      makeover command band: create a drawing referencing a part, **auto-layout the
+      standard 4** (front/top/right/iso, third-angle default) onto a sheet at a
+      chosen scale via `POST /geometry/drawing/evaluate`, and render each view's
+      projected edges as an SVG sheet — visible solid, hidden dashed — from the
+      design tokens. Dimensions (#6) + SVG export (#5) layer on after. The
+      founder-visible payoff: a drawing on screen. [src: design/drawings.md §7]
+- [ ] (P3, S) Drawings — body-only eval path (drawing-eval wastes tessellation).
+      `evaluate_drawing_views` reuses `evaluate_tree`, which unconditionally
+      tessellates + stores a GLB the projection-only path never fetches (memory/
+      cache churn) and couples the drawing endpoint's failure surface to the mesh
+      pipeline. DRY-sanctioned for now (one eval pipeline); add a body-only eval
+      entry point that skips tessellation when only `state.body` is needed, when
+      drawing-eval volume makes it matter. [src: code-review of d65caff]
 - [x] (P1, M) Drawings v1 #1 — document model + CRUD API (documents) — **DONE
       2026-07-16.** `py_kit.schemas.drawings` (SheetPoint/ViewScale/TitleBlock,
       the 4-dimension discriminated union linear/diameter/radius/angular naming
