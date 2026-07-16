@@ -599,3 +599,11 @@ def test_linear_edge_at_30_degrees_is_foreshortened() -> None:
 def _typecheck_dimension_value() -> DimensionValue:
     """Keep the public DimensionValue re-export exercised (import-surface guard)."""
     return DimensionValue(value=1.0, unit="mm", foreshortened=False)
+
+
+# NB: the `_unit` zero-vector guard added in this pass (measure.py) defends the
+# never-500 invariant against a degenerate zero-length edge. It carries no unit
+# test on purpose: real bodies can't surface such an edge (closed circles/cones
+# jitter their endpoints off exact coincidence; a zero-length LINE fails the
+# EdgeSignature `length_mm > 0` schema gate), so there is no non-private,
+# non-synthetic path to exercise it — the guard is pure defense-in-depth.

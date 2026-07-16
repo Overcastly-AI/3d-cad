@@ -115,6 +115,11 @@ def _norm(a: tuple[float, float, float]) -> float:
 
 def _unit(a: tuple[float, float, float]) -> tuple[float, float, float]:
     length = _norm(a)
+    if length == 0.0:
+        # A degenerate (zero-length) edge has no direction. Return the zero
+        # vector rather than divide by zero — callers read it as
+        # not-foreshortened / 0°, never an uncaught ZeroDivisionError → 500.
+        return (0.0, 0.0, 0.0)
     return (a[0] / length, a[1] / length, a[2] / length)
 
 
@@ -181,12 +186,13 @@ def _measure_linear(
     source = params.measurement
     if isinstance(source, EdgeLengthMeasurement):
         edge = resolve_edge(body, source.edge)
-        direction = _line_direction(edge_signature_dto(edge))
         # Length is the EXACT B-rep arc length (an arc's length, a line's length) —
         # always model-true. Foreshortening only applies to a STRAIGHT edge (a
-        # single direction); a curved edge's length is direction-free, never flagged.
+        # single direction); a curved edge's length is direction-free, never
+        # flagged — so the direction is only needed inside the LINE guard (and a
+        # degenerate edge never reaches `_line_direction`'s unit-vector divide).
         foreshortened = edge.geom_type == GeomType.LINE and _linear_foreshortened(
-            direction, normal
+            _line_direction(edge_signature_dto(edge)), normal
         )
         return DimensionValue(
             value=float(edge.length), unit="mm", foreshortened=foreshortened

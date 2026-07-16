@@ -23,6 +23,7 @@ const line = (
   start: pt(a[0], a[1]),
   end: pt(b[0], b[1]),
   midpoint: pt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2),
+  dimensionable: false,
 });
 
 describe("sheetDimensions", () => {
@@ -143,6 +144,7 @@ describe("viewBounds", () => {
       midpoint: pt(15, 20),
       center: pt(20, 20),
       radius: 5,
+      dimensionable: false,
     };
     const b = viewBounds([circle]);
     expect(b?.min).toEqual({ x: 15, y: 15 });
@@ -184,6 +186,7 @@ describe("viewToSvgEdges", () => {
       midpoint: pt(15, 20),
       center: pt(20, 20),
       radius: 5,
+      dimensionable: false,
     };
     const svg = viewToSvgEdges([circle], anchor, sheetHeight);
     expect(svg[0]?.kind).toBe("circle");
@@ -203,6 +206,7 @@ describe("viewToSvgEdges", () => {
       midpoint: pt(Math.SQRT1_2 * 10, Math.SQRT1_2 * 10),
       center: pt(0, 0),
       radius: 10,
+      dimensionable: false,
     };
     const svg = viewToSvgEdges([arc], anchor, sheetHeight);
     expect(svg[0]?.kind).toBe("polyline");
