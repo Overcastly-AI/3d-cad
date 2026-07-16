@@ -591,14 +591,26 @@ gateable as rigorously as parts/assemblies (RESEARCH §9; `geometry-qa` →
    visible/hidden edges tied back to their originating model edge. OCCT's HLR
    preserves the source edge for real edges; confirm the reachability (the same
    maker-history reachability the topo-naming stage-2 spike investigates) and pin
-   which classifier compounds are dimensionable. Owned by the projection item.
-2. **Coincident/overlapping projected edges** (a box's front and back vertical
-   edges project to the same 2D line). v1 culls exact duplicates
-   deterministically; the tie-break rule when a visible and a hidden edge coincide
-   (visible wins) is stated but wants a golden. Owned by the projection item.
-3. **Iso view in-plane axis pinning** (§1.2) — the exact `x_dir`/`y_dir` rule for
-   the isometric frame, chosen for reproducibility + a conventional look. Owned by
-   the projection item.
+   which classifier compounds are dimensionable. **Still open** — deferred to the
+   dimension-measurement slice (v1 #3); the projection module (v1 #2) ships the
+   classified 2D edges without the provenance map (silhouette/outline edges carry
+   none regardless, §1.5).
+2. **Coincident/overlapping projected edges** — **RESOLVED (v1 #2,
+   `geometry.drawings.project_view`).** Exact coincident edges are de-duplicated
+   within a visibility class by a rounded-geometry key, then any hidden edge whose
+   geometry coincides with a visible one is dropped — **visible wins**. Golden
+   `back-pocket` asserts a surviving hidden set; `box front` asserts the back
+   rectangle is culled to 0 hidden. (Residual, stated: a hidden edge that is a
+   proper SUB-segment of a visible edge — not an exact coincidence — is not merged
+   in v1; the analytic goldens are constructed to avoid that case, and merging
+   partial overlaps is a later refinement.)
+3. **Iso view in-plane axis pinning** — **RESOLVED (v1 #2).** Outward view normal
+   `N = normalize(-1,-1,+1)` (the §1.2 table's iso family); in-plane `x_dir =
+   normalize(worldUp × N)` with `worldUp = +Z` (well-defined — N is not parallel
+   to +Z); `y_dir = N × x_dir`. Fully pinned, no OCCT default, byte-reproducible
+   (the iso restart-probe golden proves it). The same `N`-outward + `x_dir` rule
+   makes the projector's own y-axis (`N × x_dir`) equal the table's `+y` for every
+   orthographic view too — proven by the goldens.
 4. **Sheet coordinate system + units** — sheet space is mm at 1:1; a view's scale
    maps model-mm→sheet-mm. Pin the origin convention (title-block corner) and the
    dimension text height/arrow sizing defaults. Owned by the composition item.

@@ -17,6 +17,10 @@ uv run pytest services/geometry/tests/test_goldens.py -v
 # dedup / solve-determinism across interpreter restart):
 uv run pytest services/geometry/tests/test_assembly_goldens.py -v
 
+# drawings HLR-projection goldens (exact 2D projection: analytic edge geometry,
+# visible/hidden classification, canonical-order byte-determinism across restart):
+uv run pytest services/geometry/tests/test_drawings_project.py -v
+
 # STEP round-trip fidelity gate (kernel-level):
 uv run pytest services/geometry/tests/test_step_roundtrip.py -v
 
@@ -40,6 +44,62 @@ for a feature tree — `geometry.harness` owns the dispatch) + `expected.json`
 discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
+
+## 2026-07-16 — Drawings v1 slice 1: HLR 2D-projection module + analytic goldens (`test_drawings_project.py`)
+
+New modeling capability ⇒ new goldens (DoD): the exact-HLR projection module
+(`geometry.drawings.project_view`, design `drawings.md` §1 — THE CRUX) lands with
+four analytically-checkable goldens plus the determinism probe. Exact HLR
+(`HLRBRep_Algo`, no new dependency) was chosen over poly-HLR precisely so the
+projected geometry is a *real* line/circle a dimension reads off (§1.1), which is
+what makes these goldens analytic rather than facet-count-dependent.
+
+- **Projected geometry is exact** (documented `COORD_TOL_MM`/`RADIUS_TOL_MM` =
+  1e-7 mm, the kernel linear bound; build123d 0.11.1 / OCCT 7.9):
+  - `box front view` — 40×25×10 box, look −Y → **exactly** four visible lines at
+    the analytic corners of the 40×10 rectangle (X∈[−20,20], Z∈[−5,5]); the four
+    back edges project coincident and are culled (0 hidden). Residuals machine-
+    exact on the axis-aligned body.
+  - `through-hole → true circle` — 40×25×10 plate + Ø10 (+Z) hole, TOP view → the
+    hole is **one real circle** of radius **5.000** centred at the origin (a
+    `GeomAbs_Circle`, not a chord fan — the §1.1 guarantee), plus the 40×25
+    outline; far rim + back outline coincident-culled.
+  - `back-pocket hidden set` — 40×20×30 block, 16×12×12 pocket into the +Y face,
+    FRONT view → outer 40×30 rectangle VISIBLE (solid) and the pocket's 16×12
+    rectangle at x=±8, y=±6 classified HIDDEN (dashed), all straight/analytic
+    (chosen over a hidden hole to avoid edge-on-circle BSpline fragments; the
+    design §8 `lstep` role).
+  - `cylinder side view` — R10 H30 → visible extent **exactly** [−10,10]×[0,30]
+    with the two silhouette lines at x=±10 spanning the full height (the caps
+    project edge-on to degenerate BSplines → `polyline`, which is why the golden
+    asserts the analytic bbox + silhouettes, not a literal 4-line count).
+- **Determinism approach (the load-bearing constraint, §1.4).** HLR edge
+  *enumeration order* is a function of construction history, NOT geometry — the
+  same hazard `topological-naming.md` §1.1 documents for `TopExp_Explorer`. OCCT
+  HLR itself is deterministic (no RNG), so the fix is a **canonical total order**
+  imposed before serialisation: sort by each edge's pure-geometry signature
+  `(primitive_rank, rounded start, rounded end, rounded mid, radius, visible)`,
+  after (a) de-duplicating exact coincident edges within a visibility class and
+  (b) dropping any hidden edge coincident with a visible one — **visible wins**
+  (§8 open Q2 tie-break). Coordinates serialise through a fixed decimal formatter
+  (`canonical_edges_repr`, 7 decimals, `−0.0`→`0.0`), the drawings analogue of the
+  pinned STEP `FILE_NAME` byte range. **Result:** byte-identical canonical edge
+  list across repeated in-process calls AND a fresh interpreter restart (12
+  restart-probe params: 3 bodies × 4 views), asserted directly on the serialised
+  string — the §8.2 gate, proven exactly like the assembly restart probe.
+- **Honest failure (§1.5):** a fragile body (tangent edges / self-intersections)
+  makes `HLRBRep_Algo` throw; the projection wraps any OCCT throw into a typed
+  `ViewProjectionError` (the internal form of the per-view `view_projection_failed`
+  the endpoint slice will surface) — never an unhandled exception, and v1
+  improvises no fallback engine (poly-HLR is the explicitly deferred escape hatch,
+  §1.1). Not oversold: the honest-failure path is stated, not claimed robust.
+- **Scope of this slice:** projection only. The projected-edge→model-edge
+  provenance map (§3.3, for dimension attachment), the drawing DTO/endpoint, and
+  SVG composition are later slices — this one proves the pillar is viable by
+  nailing analytic correctness + determinism on the projection itself.
+
+`uv run pytest test_drawings_project.py` → 20 passed; `ruff` + `pyright --strict`
+clean.
 
 ## 2026-07-16 — Datum completeness backend slice: golden `midplane-chained-offset-40x25x10` (midplane + offset chaining)
 
