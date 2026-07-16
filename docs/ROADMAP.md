@@ -22,7 +22,8 @@ mechanical work"). The architecture decision landed the same day
 placement + 3 mates (lock/coincident/concentric) + shared-mesh tessellation,
 **"bolt two parts together and see it."** Sequenced into 6 Ready items
 (`docs/BACKLOG.md`) plus interleaved audit-debt items (MinIO mesh-store swap
-✅ done; gateway rate limiting ✅ done; STEP re-parse caching still open).
+✅ done; gateway rate limiting ✅ done; STEP re-parse caching ✅ done — the
+last infra-debt item, per-worker content-keyed parse cache).
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.

@@ -43,6 +43,7 @@ are opaque to pyright; the directives scope that relaxation to this file only
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
+import io
 import os
 import subprocess
 import sys
@@ -54,6 +55,7 @@ from OCP.BRepTools import BRepTools
 from OCP.TopAbs import TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
+from OCP.TopTools import TopTools_FormatVersion
 
 #: Default hard wall-clock bound (seconds) for the untrusted OCCT parse. A few
 #: seconds comfortably clears a real mechanical part's transfer while capping an
@@ -103,6 +105,47 @@ def _read_brep(path: str) -> TopoDS_Shape:
     shape = TopoDS_Shape()
     BRepTools.Read_s(shape, path, BRep_Builder())
     return shape
+
+
+def solid_to_brep_bytes(solid: Solid) -> bytes:
+    """Serialize *solid* to deterministic, geometry-only BREP bytes.
+
+    OCCT's native lossless serialization — the SAME format the parse worker uses
+    to cross the process boundary — written to an in-memory stream so the STEP
+    re-parse cache (engineering audit F8, :mod:`geometry.step_cache`) can store a
+    parsed body and re-read it in-process, skipping the killable subprocess parse
+    on an unchanged import. Triangulation and normals are written OFF so the
+    cached bytes are a pure function of the geometry (never a mesh at some
+    deflection); the format version is pinned so the round-trip is deterministic
+    across interpreter restarts (RESEARCH §9). Because a fresh solid is
+    round-tripped BEFORE any downstream op meshes it, and BREP write→read is
+    idempotent on an already-BREP-read shape (the parse worker already returns
+    one), the cached body tessellates byte-identically to the direct parse.
+    """
+    stream = io.BytesIO()
+    BRepTools.Write_s(
+        solid.wrapped,
+        stream,
+        False,  # theWithTriangles — geometry only, never a cached mesh
+        False,  # theWithNormals
+        TopTools_FormatVersion.TopTools_FormatVersion_VERSION_1,
+    )
+    return stream.getvalue()
+
+
+def solid_from_brep_bytes(data: bytes) -> Solid:
+    """Deserialize BREP *data* into a FRESH :class:`Solid` (parent side).
+
+    Every call builds a brand-new :class:`~OCP.TopoDS.TopoDS_Shape` from the
+    bytes, so a cache hit never shares a mutable OCCT shape across evaluations:
+    downstream tessellation (which stores its triangulation INTO the shape's
+    TShape) and the FastAPI threadpool can never race or interfere on a shared
+    body — the exact hazard that makes caching a live shape unsafe. Re-reading
+    bytes is in-process and cheap versus re-spawning the OCCT parse worker.
+    """
+    shape = TopoDS_Shape()
+    BRepTools.Read_s(shape, io.BytesIO(data), BRep_Builder())
+    return Solid(shape)
 
 
 def _run_parse_worker(step_text: str, timeout_s: float) -> TopoDS_Shape:

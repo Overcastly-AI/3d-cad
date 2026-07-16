@@ -189,7 +189,17 @@ def test_import_parse_timeout_is_per_feature_code(
     Proves the full config wiring: ``STEP_IMPORT_TIMEOUT_SECONDS`` env →
     ``GeometrySettings`` → the evaluate handler → the kernel subprocess bound →
     a per-feature error inside a 200 under the strict-prefix rule.
+
+    The step cache is reset first to force a genuine MISS: an earlier test in
+    this process may have cached the identical box STEP, and a cache HIT
+    (deliberately, audit F8) skips the subprocess parse — a hit is only reached
+    for content that already parsed cleanly within the bound, so it is exempt
+    from the timeout by design. The bound being tested here guards the one real
+    parse.
     """
+    from geometry.step_cache import reset_step_cache
+
+    reset_step_cache()
     monkeypatch.setenv("STEP_IMPORT_TIMEOUT_SECONDS", "0.05")
     payload = _request(
         [{"id": str(IMPORT_ID), "feature": _import_feature(_box_step_text())}]

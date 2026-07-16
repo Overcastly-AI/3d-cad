@@ -178,21 +178,21 @@ nit, no user impact, stays Later).
       the optional gateway presigned/streamed read (§7.8 default posture) stays
       a separate gateway concern (current geometry-served `/meshes/{id}` route
       is unchanged and correct). [src: engineering-auditor F1/F6]
-- [ ] (P2, M) STEP import: cache the transferred body across evaluations
-      (engineering audit **F8**) — `_evaluate_import` re-spawns the parse
-      subprocess (~0.9 s cold start) and re-parses up to 16 MiB of part-21
-      on EVERY feature-tree evaluation, because the imported STEP is stored
-      inline and `evaluate_tree` re-runs the whole prefix on every edit — a
-      per-edit latency floor on the interop workflow that never improves
-      regardless of tree depth. Fix: cache the transferred body keyed on
-      the import params' content hash (the STEP text is immutable once
-      stored) — either at the evaluation-state level or a small
-      process-level LRU keyed on the hash. Acceptance: a test asserts the
-      parse subprocess is invoked ONCE per distinct upload across N
-      sequential feature-tree evaluations sharing that import, not N times;
-      existing import goldens/tests unaffected; the killable-subprocess
-      timeout bound (P1 security, shipped) is preserved for the one real
-      parse. Depends on: nothing new. [src: engineering-auditor F8]
+- [x] (P2, M) STEP import: cache the transferred body across evaluations
+      (engineering audit **F8**) — **DONE 2026-07-15.** New
+      `geometry.step_cache`: a per-worker bounded LRU (cap 32) keyed on
+      `sha256(step_text)` (tenant-free, like the mesh store) storing the
+      parsed body as geometry-only BREP bytes; `_evaluate_import` calls
+      `import_step_solid_cached` — a HIT re-reads a FRESH shape and SKIPS the
+      subprocess, a MISS runs the UNCHANGED bounded/killable/subprocess parse
+      and caches only a cleanly-parsed body (a raise is never cached, so the
+      timeout re-enforces next attempt). Determinism preserved: BREP re-read is
+      byte-identical downstream (`test_hit_is_byte_identical_to_miss`, same
+      `mesh_glb_id`), the `import-step-box-10x20x30` golden stays byte-exact.
+      One-parse-not-two proven by a counter on the cache module's
+      `import_step_solid` (`test_second_evaluation_of_same_import_does_not_reparse`).
+      Per-worker is fine post-F6 (each worker warms independently; a hit is
+      never a correctness dependency). [src: engineering-auditor F8]
 - [x] (P2, M) Rate limiting (py-kit — DRY home) — F7's unbuilt half — **DONE
       2026-07-15.** Shared `py_kit.ratelimit.RateLimiter`: Redis sorted-set
       sliding-window log, atomic per call (one `MULTI`/`EXEC`), **fails open**

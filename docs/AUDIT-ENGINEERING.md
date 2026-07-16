@@ -313,7 +313,15 @@ per-route change that only closes the anonymous path. **Recommend:** add
 depends on it first), and add basic per-principal rate limiting in py-kit for
 the geometry-compute surface.
 
-#### F8 — STEP import re-parses the full inline part (subprocess spawn) on every tree evaluation · Severity Med (perf) · Likelihood: high on the interop workflow · P2
+#### F8 — STEP import re-parses the full inline part (subprocess spawn) on every tree evaluation · Severity Med (perf) · Likelihood: high on the interop workflow · P2 — ✅ FIXED
+
+Resolved 2026-07-15 (`geometry.step_cache`): a per-worker bounded LRU keyed on
+`sha256(step_text)` stores the parsed body as geometry-only BREP bytes;
+`_evaluate_import` calls `import_step_solid_cached` — a hit re-reads a fresh
+shape and skips the killable subprocess, a miss runs the unchanged bounded
+parse and caches only a cleanly-parsed body (never a raise, so the timeout
+re-enforces). One-parse-not-two is asserted by a counter on `import_step_solid`;
+determinism goldens stay byte-identical (BREP re-read is byte-exact downstream).
 
 `_evaluate_import` calls `import_step_solid` unconditionally on every dispatch
 (`features/evaluate.py:1141`), with no memo/cache. Because the imported STEP is

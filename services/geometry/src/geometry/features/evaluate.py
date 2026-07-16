@@ -133,7 +133,6 @@ from geometry.kernel import (
     draft_body,
     extrude_face,
     fillet_body,
-    import_step_solid,
     linear_pattern,
     linear_pattern_cut,
     loft_sections,
@@ -154,6 +153,7 @@ from geometry.sketch import (
     SketchSolver,
     SolvedSketch,
 )
+from geometry.step_cache import import_step_solid_cached
 
 #: The solver backend, typed as the protocol (RESEARCH §2 guardrail: callers
 #: never import a solver package). ``PlanegcsSketchSolver`` is stateless —
@@ -1112,15 +1112,21 @@ def _evaluate_import(
     (a positioned insert against an existing body is future work, §7).
 
     The inline STEP text is read deterministically (units pinned to mm, RESEARCH
-    §9) through :func:`import_step_solid`, whose untrusted OCCT parse runs in a
-    killable subprocess bounded by the configured ``step_import_timeout_seconds``
-    (design §6, BACKLOG P1). Kernel failures surface as per-feature errors pinned
-    to this feature — ``import_parse_timeout`` (the parse exceeded the wall-clock
-    bound and was killed), ``import_parse_failed`` (unparseable bytes) or
-    ``import_not_single_solid`` (zero / multiple solids; the message carries the
-    shape stats, the v1 healing report). ``state.body`` is only set on success.
-    Size/emptiness of ``data`` is a request-validation 422 upstream (§6), so it
-    never reaches here.
+    §9) through :func:`~geometry.step_cache.import_step_solid_cached`, a
+    content-keyed cache over :func:`import_step_solid` (engineering audit F8): an
+    unchanged import re-uses its parsed body and SKIPS the subprocess parse, so
+    editing a part that starts from an imported body pays one parse per distinct
+    upload, not one per tree evaluation. A cache MISS runs the UNCHANGED bounded
+    parse — the untrusted OCCT read still runs in a killable subprocess bounded
+    by the configured ``step_import_timeout_seconds`` (design §6, BACKLOG P1) —
+    and only a cleanly-parsed body is cached, so a hit never bypasses that bound
+    or the upstream 16 MiB size cap. Kernel failures surface as per-feature
+    errors pinned to this feature — ``import_parse_timeout`` (the parse exceeded
+    the wall-clock bound and was killed), ``import_parse_failed`` (unparseable
+    bytes) or ``import_not_single_solid`` (zero / multiple solids; the message
+    carries the shape stats, the v1 healing report). ``state.body`` is only set
+    on success. Size/emptiness of ``data`` is a request-validation 422 upstream
+    (§6), so it never reaches here.
     """
     feature = item.feature
     assert isinstance(feature, ImportFeature), "registry dispatches on type='import'"
@@ -1138,7 +1144,9 @@ def _evaluate_import(
         )
 
     try:
-        state.body = import_step_solid(params.data, timeout_s=_step_import_timeout_s())
+        state.body = import_step_solid_cached(
+            params.data, timeout_s=_step_import_timeout_s()
+        )
     except ImportParseTimeoutError as exc:
         return FeatureError(code="import_parse_timeout", message=str(exc))
     except ImportParseError as exc:

@@ -47,6 +47,8 @@ from geometry.kernel.imports import (
     ImportParseError,
     ImportParseTimeoutError,
     import_step_solid,
+    solid_from_brep_bytes,
+    solid_to_brep_bytes,
 )
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
@@ -169,6 +171,8 @@ __all__ = [
     "select_edges",
     "selection_overlay",
     "shell_body",
+    "solid_from_brep_bytes",
+    "solid_to_brep_bytes",
     "sweep_profile",
     "tessellate_glb",
 ]
