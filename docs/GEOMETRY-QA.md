@@ -45,6 +45,103 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-16 — Independent geometry-QA of Drawings v1 HLR projection (`5c4b080`, `test_drawings_project.py`)
+
+Independent re-verification of the exact-HLR projection module (`geometry.drawings.
+project_view`, design `drawings.md` §1 — THE CRUX for the Drawings pillar). Ran the
+author suite (`20 passed`), re-derived every golden's expected value by hand, and
+added **16 new tests** (36 passed total, ~78s) closing the coverage gaps below.
+No tolerance was touched.
+
+**Author goldens are analytically CORRECT (re-derived independently).** Each
+expected value is right engineering, not just a passing assertion:
+- box front → 40×10 rectangle at X∈[−20,20], Z∈[−5,5] ✓ (frame N=(0,−1,0),
+  y=N×x=+Z ✓).
+- Ø10 hole top → true circle radius **5.000** at origin ✓ (a `GeomAbs_Circle`,
+  `curve.Circle().Radius()` — exact, NOT facet-derived; a diameter dim reads it).
+- back-pocket front → outer 40×30 VISIBLE + pocket 16×12 HIDDEN at x=±8,z=±6 ✓
+  (pocket floor y=−2 + mouth y=+10 both project there, dedup→4 hidden; back outer
+  rect culled visible-wins → 4 visible ✓).
+- cylinder side → silhouettes at x=±10, extent [−10,10]×[0,30] ✓ (caps edge-on →
+  degenerate BSpline `polyline`, correctly NOT a circle).
+
+**New coverage added (gaps the author suite left):**
+- **ISO view was NEVER correctness-checked** (only determinism). Derived the iso
+  frame by hand: x_dir=(1,−1,0)/√2, y_dir=(1,1,2)/√6, so (x,y,z)→(u=(x−y)/√2,
+  v=(x+y+2z)/√6). A 20mm cube ⇒ regular hexagon (circum-radius 40/√6=16.32993) +
+  3+3 Mercedes spokes; OCCT output matched my derivation **exactly** (9 vis + 3
+  hid lines at the analytic coords). Iso frame is CORRECT, now pinned by
+  `test_iso_cube_view_is_analytic_hexagon`.
+- **No golden produced an `arc`** — the primitive a `radius` dim attaches to.
+  Added filleted-block top (4× r=**5.000** quarter-arcs, centres (±15,±5)) and a
+  D-section semicircle (r=**10.000**, centre origin); assert radius exact to 1e-7,
+  centre exact, and start/end/mid all ON the circle (dimension-readiness invariant).
+- **Tangent/smooth-edge suppression (§1.3) was unverified.** Filleted-block front:
+  confirmed the fillet's `Rg1Line` tangent edges (verticals at x=±15) are dropped;
+  test fails if they ever leak. Suppression works as designed.
+- **Hole viewed edge-on** now asserted to produce NO spurious circle/arc (hidden
+  bore lines at x=±5 instead) — the dual of the top-view true-circle golden.
+- **`ViewProjectionError` honest-failure path** was only tested via the scale
+  `ValueError`, never a real OCCT throw. Drove a genuine `HLRBRep_Algo.Add` throw
+  through the try/except (project.py:405) → confirmed it wraps to a typed
+  `ViewProjectionError` carrying `.view` and chaining `__cause__`. A valid `Solid`
+  never fails this way, and the HLR-INTERNAL fragility §1.5 warns of (tangent/
+  self-intersection cliffs, FreeCAD-TechDraw experience) could NOT be reproduced
+  cheaply from the shipping box/cylinder/fillet set — stated, not overclaimed.
+
+**Determinism — the load-bearing gate — is REAL and now strengthened.**
+- The restart probe genuinely spawns a fresh interpreter and diffs
+  `canonical_edges_repr` byte-for-byte (verified). Extended it from 3→5 bodies so
+  the `arc` and `polyline` classification paths (previously ungated for
+  determinism) are covered across restart.
+- Added the STRONGER claim the restart probe cannot make: **construction-history
+  independence.** A 40×25×10 solid built as one primitive vs. as a fusion of two
+  20-wide halves projects to **byte-identical** canonical edges in all 4 views —
+  proving the canonical order is a function of geometry, not of OCCT's
+  (reproducible-but-history-dependent) enumeration.
+- Added `test_sort_key_is_a_total_order_on_the_golden_bodies` as a tie tripwire.
+  Analysis: for `line`/`circle`/`arc` the sort key is provably total — a line is
+  fixed by its (canonical) start+end; a circle's centre is derived from start+mid;
+  an arc's three key points (start,end,mid on-curve) fix a unique circle. No ties
+  possible for the analytic primitives.
+
+**🟡 FINDING (latent, not reachable from today's UI) — polyline key ignores its
+points.** `ProjectedEdge.geometry_key` (project.py:153–163) and `sort_key`
+(project.py:165–176) both omit `self.points`. For `primitive=="polyline"` two
+DISTINCT free-form edges sharing rounded start/end/mid collide:
+```
+e1 = polyline start(0,0) end(10,0) mid(5,1) points=[(0,0),(5,1),(10,0)]
+e2 = polyline start(0,0) end(10,0) mid(5,1) points=[(0,0),(5,-9),(10,0)]
+→ e1.sort_key()==e2.sort_key() is True; e1.geometry_key()==e2.geometry_key() is True
+```
+Consequences if reached: (a) `_canonicalize`'s `unique.setdefault` DROPS one
+distinct polyline (silent data loss); (b) a sort-key tie lets order ride on HLR
+enumeration, which breaks construction-history independence for polyline-heavy
+views. **Severity 🟡, not 🔴:** I could not construct a colliding pair from the
+shipping primitive set (box/cylinder/boolean/fillet) — every polyline observed
+had distinct endpoints/midpoint, and all analytic primitives are collision-proof;
+cross-restart determinism of an identical build also still holds (OCCT enumeration
+is reproducible + stable sort). It is a real hole in the canonical scheme's
+totality guarantee for the free-form path. **Not fixed here (kernel territory).**
+Recommended fix for kernel-architect: fold a hash of the rounded `points` tuple
+into both keys for the polyline primitive (mirrors how line uses start+end).
+Routed to the groomer/board. The new total-order tripwire test will fire the day a
+real part lands such a pair.
+
+**VERDICT: the HLR foundation is SOUND to build dimensions + export on.** Exact
+HLR delivers true analytic geometry (circle r=5.000 / arc r=5.000/10.000 exact to
+1e-7, centre + on-circle endpoints present → diameter/radius dims can attach), the
+iso frame is analytically correct, tangent suppression works, failures are wrapped
+honestly, and determinism holds byte-for-byte across restart AND across
+construction history. The one open item — the polyline key's non-total signature —
+is a bounded latent robustness gap on the free-form fallback path, not reachable
+from the current UI and not a blocker for the dimensioning/export slices (which
+operate on the analytic line/circle/arc primitives). Track it before any feature
+that emits many free-form edges (splines, complex silhouettes) ships.
+
+`uv run pytest test_drawings_project.py` → **36 passed** (~78s); `ruff` clean,
+`pyright` clean on the test file.
+
 ## 2026-07-16 — Drawings v1 slice 1: HLR 2D-projection module + analytic goldens (`test_drawings_project.py`)
 
 New modeling capability ⇒ new goldens (DoD): the exact-HLR projection module
