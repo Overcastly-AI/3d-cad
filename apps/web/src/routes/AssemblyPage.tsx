@@ -1,4 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -103,6 +107,12 @@ export function AssemblyPage() {
         ),
       ),
     staleTime: Infinity,
+    // Keep the prior evaluation visible while a doc_version bump refetches, so
+    // solved geometry never blinks to null mid-refetch. Without this, every
+    // mate/grounded/instance mutation empties evaluation → sceneFitKey collapses
+    // to "" and back → CameraRig re-fits and teleports the camera away from the
+    // view the user orbited to in order to author the mate.
+    placeholderData: keepPreviousData,
   });
   const evaluation = evalQuery.data;
 

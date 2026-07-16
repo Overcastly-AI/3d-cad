@@ -288,6 +288,98 @@ test.describe("assembly fit (Batch 1, P1)", () => {
       expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThan(size?.width ?? 0);
     }
   });
+
+  test("authoring a mate never teleports the camera (fitKey stays stable)", async ({
+    page,
+  }) => {
+    // Regression (code-review of 9767e17): the loaded-geometry fitKey collapsed
+    // to "" whenever a doc_version bump refetched the evaluation, then repopulated
+    // — re-firing the auto-fit and snapping the camera away from the view the user
+    // orbited to in order to author the mate. The fix keeps the prior evaluation
+    // visible across the refetch (keepPreviousData) so the fitKey never collapses.
+    const account = await seedSession(page);
+    const part = await createPlateWithHoleViaApi(
+      page,
+      account.token,
+      "Stable plate",
+    );
+    const created = await page.request.post("/api/v1/assemblies", {
+      data: { name: "Stable" },
+      headers: auth(account.token),
+    });
+    const assemblyId = ((await created.json()) as { id: string }).id;
+    const ids: string[] = [];
+    for (const [index, x] of [0, 80].entries()) {
+      const res = await page.request.post(
+        `/api/v1/assemblies/${assemblyId}/instances`,
+        {
+          data: {
+            name: `Stable plate <${index + 1}>`,
+            ref_document_id: part.id,
+            ref_document_kind: "part",
+            grounded: index === 0,
+            placement: {
+              position: { x, y: 0, z: 0 },
+              orientation: { w: 1, x: 0, y: 0, z: 0 },
+            },
+            expected_version: index,
+          },
+          headers: auth(account.token),
+        },
+      );
+      expect(res.ok()).toBe(true);
+      ids.push(
+        ((await res.json()) as { instance: { id: string } }).instance.id,
+      );
+    }
+
+    // Hold the eval refetch open on demand so the (buggy) transient
+    // `evaluation === undefined` window actually commits a render — locally the
+    // sqlite+in-proc eval resolves sub-frame, hiding the collapse the review
+    // caught. Under real network latency the window is always this wide.
+    let delayEval = false;
+    await page.route("**/api/v1/geometry/assembly/evaluate", async (route) => {
+      if (delayEval) await new Promise((r) => setTimeout(r, 700));
+      await route.continue();
+    });
+
+    await page.goto(`/assemblies/${assemblyId}`);
+    await expect(page.getByTestId("instance-row")).toHaveCount(2, {
+      timeout: 20_000,
+    });
+    await expect
+      .poll(() => settledView(page), { timeout: 30_000 })
+      .toBe("fit-auto");
+
+    // Orbit away from the auto-fit: RIGHT view via the numeric snap. This is the
+    // "user picked a viewing angle to author the mate" state we must preserve.
+    await page.keyboard.press("3");
+    await expect
+      .poll(() => settledView(page), { timeout: 10_000 })
+      .toBe("right");
+    const before = await cameraPos(page);
+
+    // Ground the second instance — a real doc_version bump that refetches the
+    // evaluation exactly like authoring/deleting a mate does. The held-open eval
+    // guarantees a rendered frame with the evaluation absent.
+    delayEval = true;
+    await page.getByTestId(`instance-ground-${ids[1]}`).click();
+    // The mutation lands (button flips to Grounded) → the eval refetched.
+    await expect(page.getByTestId(`instance-ground-${ids[1]}`)).toHaveText(
+      "Grounded",
+      { timeout: 20_000 },
+    );
+    // Let the delayed eval resolve and any (buggy) re-fit settle before asserting.
+    await page.waitForTimeout(1200);
+
+    // The camera never re-fit: the view stamp is still RIGHT (not "fit-auto")
+    // and the position is unchanged. Pre-fix this reads "fit-auto" at the iso pose.
+    expect(await settledView(page)).toBe("right");
+    const after = await cameraPos(page);
+    expect(Math.abs(after[0] - before[0])).toBeLessThan(1e-3);
+    expect(Math.abs(after[1] - before[1])).toBeLessThan(1e-3);
+    expect(Math.abs(after[2] - before[2])).toBeLessThan(1e-3);
+  });
 });
 
 test.describe("founder evidence — Batch 1 after-shots", () => {

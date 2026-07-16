@@ -21,16 +21,28 @@ export interface FloatingPanelProps {
   /**
    * Bottom clearance (Tailwind max-height class) so bottom-anchored HUD
    * (DRO, import status, view rail) stays reachable under a tall panel.
+   * Defaults are side-aware (see below); pass to override.
    */
   maxHeightClassName?: string;
 }
+
+// The reference cube (drei GizmoHelper) always lives bottom-RIGHT, occupying
+// roughly the 64–144px band above the frame's bottom edge. A tall right panel
+// at the default 4.5rem clearance would draw its opaque body over that band and
+// hide a table-stakes nav element (mandate 3a). Right panels therefore clear the
+// cube band; left panels keep the tight default (nothing but the DRO sits
+// bottom-left, and that lives below any panel).
+const DEFAULT_CLEARANCE = {
+  left: "max-h-[calc(100%-4.5rem)]",
+  right: "max-h-[calc(100%-9.5rem)]",
+} as const;
 
 export function FloatingPanel({
   side,
   title,
   id,
   children,
-  maxHeightClassName = "max-h-[calc(100%-4.5rem)]",
+  maxHeightClassName = DEFAULT_CLEARANCE[side],
 }: FloatingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 

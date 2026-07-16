@@ -290,6 +290,19 @@ see the addendum entry below for evidence):**
 5. ✅ Side-by-side check against the Fusion/Plasticity framing recorded in the
    addendum below (mandate 3a-d).
 
+_Post-review fixes (code-reviewer on `9767e17`, landed on top):_
+- 🔴 **Camera teleport on mate authoring.** The loaded-geometry `fitKey`
+  collapsed to `""` whenever a `doc_version` bump refetched the assembly
+  evaluation (the `evalQuery` had no `placeholderData`), then repopulated —
+  re-firing the auto-fit and snapping the camera off the angle the user
+  orbited to in order to author the mate. Fixed with `keepPreviousData`
+  (mirrors `ModelerPage`); regression spec holds the eval refetch open so the
+  transient collapse commits (pre-fix reads `fit-auto`, post-fix stays `right`).
+- 🟡 **Reference cube occluded by the right inspector.** A tall right panel
+  drew over the bottom-right view cube (a table-stakes nav element) at
+  1280×800. `FloatingPanel` right-side default clearance now clears the cube
+  band; left panels keep the tight default.
+
 **Batch 2 — "every element earns its place" (Tracks B + C quick wins) —
 ✅ SHIPPED 2026-07-16 (frontend-builder; see the addendum entry below):**
 6. ✅ Wire-or-delete pass per the inventory table (KERNEL ×2/UNITS ×3/TREE/
