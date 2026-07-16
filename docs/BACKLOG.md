@@ -146,6 +146,14 @@ nit, no user impact, stays Later).
       dimension via the existing dimension CRUD, and render the model-true measured
       value + a `foreshortened` warning. Backend measurement + provenance shipped
       in #6. [src: design/drawings.md §3/§6]
+- [ ] (P3, S) Drawings — hidden-edge provenance can tag the FAR coincident edge.
+      `_attach_provenance` disambiguates a VISIBLE coincident 2D edge by nearest-eye
+      depth (correct, proven), but a HIDDEN coincident edge with NO visible edge
+      there (an internal cavity) is tagged definitively with the far (min-depth)
+      edge's signature — so a user could dimension that dashed line to the far
+      edge's value. The visible path already refuses such guesses; the hidden path
+      should too (leave un-dimensionable on a genuine hidden coincidence). Not
+      reachable from any shipping part. [src: geometry-QA of 5e16f9d]
 - [x] (P1, L) Drawings v1 #7 — frontend drawing canvas (apps/web) — **DONE
       2026-07-16.** `/drawings` register + `/drawings/{id}` sheet editor (third
       sibling of parts/assemblies, on the makeover command band + breadcrumb).
