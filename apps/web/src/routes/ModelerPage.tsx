@@ -1,3 +1,4 @@
+import { Chip } from "@loft/design";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { tessellateBox } from "../api/tessellate";
@@ -21,7 +22,11 @@ export function ModelerPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar />
+      <TopBar>
+        {/* This demo IS "first light" — the chip names the page, not chrome
+            filler (the decorative default chip was removed from TopBar). */}
+        <Chip data-testid="status-chip">First light</Chip>
+      </TopBar>
       <main className="relative min-h-0 grow">
         <Viewport glb={query.data?.glb} />
         <FloatingPanel side="right" title="Inspector" id="inspector">

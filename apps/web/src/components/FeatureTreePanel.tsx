@@ -52,6 +52,10 @@ export function FeatureTreePanel({
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
   );
   const features = tree?.features ?? [];
+  // The feature count folds into the eyebrow (it was a redundant footer cell —
+  // the rows are numbered right above it; UI-REVIEW 2026-07-16, Track B).
+  const treeEyebrow =
+    features.length > 0 ? `Feature tree · ${features.length}` : "Feature tree";
   const rollbackId = tree?.rollback_feature_id ?? null;
   const barSlot = barSlotIndex(features, rollbackId);
   const evalSummary = evaluating
@@ -111,7 +115,7 @@ export function FeatureTreePanel({
       data-testid="feature-tree"
     >
       <Panel>
-        <PanelSection eyebrow="Feature tree">
+        <PanelSection eyebrow={treeEyebrow} data-testid="feature-tree-section">
           {tree === undefined ? (
             <p className="px-3 py-1 font-body text-xs text-gauge">
               {treeError ? "The feature tree could not be loaded." : "Loading…"}
@@ -195,39 +199,20 @@ export function FeatureTreePanel({
           )}
         </PanelSection>
 
-        {/* Title-block footer: the tree's vitals. */}
-        <div className="grid grid-cols-3 divide-x divide-hairline border-t border-hairline">
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Features
-            </span>
-            <span
-              className="block font-data text-xs text-mist"
-              data-testid="feature-count"
-            >
-              {tree?.features.length ?? "—"}
-            </span>
-          </div>
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Tree
-            </span>
-            <span className="block font-data text-xs text-mist">
-              {tree ? `v${tree.tree_version}` : "—"}
-            </span>
-          </div>
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Solve
-            </span>
-            <span
-              className="block font-data text-xs text-mist"
-              data-testid="eval-status"
-              aria-live="polite"
-            >
-              {evalSummary}
-            </span>
-          </div>
+        {/* Title-block footer: the one vital that MOVES — the solve state.
+            FEATURES folded into the eyebrow; TREE (the internal optimistic-
+            concurrency version) was decorative and is gone (Track B). */}
+        <div className="border-t border-hairline px-3 py-2">
+          <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+            Solve
+          </span>
+          <span
+            className="block font-data text-xs text-mist"
+            data-testid="eval-status"
+            aria-live="polite"
+          >
+            {evalSummary}
+          </span>
         </div>
       </Panel>
 

@@ -272,11 +272,14 @@ export const duration = {
 export const layout = {
   toolbarHeight: 44,
   /**
-   * The full-width command band under the brand bar — thin by mandate (the
-   * viewport is the hero). Fixed so swapping its contents by mode (sketch
-   * tools ⇄ feature-create tools) never reflows the r3f canvas beneath it.
+   * The full-width command band under the brand bar — quiet by mandate (the
+   * viewport is the hero), but two-tier: a stamped group eyebrow (Create /
+   * Modify / Inspect) over its tool row, so the taxonomy the band already
+   * encodes in `role=group`s reads on screen (UI-REVIEW 2026-07-16, Track C
+   * P2). Fixed so swapping its contents by mode (sketch tools ⇄ feature-create
+   * tools) never reflows the r3f canvas beneath it.
    */
-  commandBandHeight: 32,
+  commandBandHeight: 46,
   inspectorWidth: 320,
   /**
    * Left inset for HUD cards (feature editors, mate HUD) so they clear the

@@ -90,6 +90,14 @@ export interface CreateStripProps {
   measuring?: boolean;
   /** Toggle the Measure tool (M). */
   onToggleMeasure?: () => void;
+  /**
+   * The command currently open in an editor (e.g. "Fillet"), or null. While a
+   * command is open the whole band LOCKS: every tool disables with a "Finish X
+   * first" reason so switching tools can never silently discard the open
+   * command's picks (UI-REVIEW 2026-07-16, Track C P1 — the fillet→extrude
+   * pick-loss). Cancel/OK on the editor is the way out.
+   */
+  activeCommand?: string | null;
 }
 
 export function CreateStrip({
@@ -116,6 +124,7 @@ export function CreateStrip({
   canMeasure = false,
   measuring = false,
   onToggleMeasure,
+  activeCommand = null,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const importReady =
@@ -127,10 +136,19 @@ export function CreateStrip({
   const shellReady = canModify && treeReady && onShell !== undefined;
   const draftReady = canModify && treeReady && onDraft !== undefined;
 
+  // An open command scopes the whole band: every tool locks with one honest
+  // reason, so no click can discard the open command's picks (Track C P1).
+  const locked = activeCommand != null && activeCommand !== "";
+  const lockReason = locked ? `Finish ${activeCommand} first` : undefined;
+  /** The tooltip's second line: the lock reason wins, else the gate reason. */
+  const captionFor = (ready: boolean, reason: string): string | undefined =>
+    locked ? lockReason : ready ? undefined : reason;
+
   return (
     <div
       aria-label="Create"
       data-testid="create-strip"
+      data-command={activeCommand ?? undefined}
       className="flex items-stretch divide-x divide-hairline"
     >
       {/* The native file picker — kept in the DOM (hidden, non-tabbable) and
@@ -154,7 +172,7 @@ export function CreateStrip({
         }}
       />
 
-      <ToolGroup aria-label="Create">
+      <ToolGroup eyebrow="Create">
         <ToolButton
           icon={<ImportStepIcon />}
           showLabel
@@ -165,12 +183,11 @@ export function CreateStrip({
               ? "Import STEP — bring an external solid in as the base body"
               : "Import STEP — only the first body can be imported; this part already has one"
           }
-          caption={
-            !canImportStep && onImportStep !== undefined
-              ? "A body already exists"
-              : undefined
-          }
-          disabled={!importReady}
+          caption={captionFor(
+            importReady,
+            canImportStep ? "Import unavailable" : "A body already exists",
+          )}
+          disabled={locked || !importReady}
           onClick={() => importInputRef.current?.click()}
         />
         <ToolButton
@@ -179,7 +196,8 @@ export function CreateStrip({
           label="Sketch"
           data-testid="new-sketch"
           aria-label="New sketch — pick a plane, then L / R / C / A"
-          disabled={!treeReady}
+          caption={captionFor(treeReady, "Loading the tree…")}
+          disabled={locked || !treeReady}
           onClick={onNewSketch}
         />
         <ToolButton
@@ -188,7 +206,11 @@ export function CreateStrip({
           label="Datum"
           data-testid="tool-datum"
           aria-label="Datum plane — a construction plane a sketch can sit on"
-          disabled={!treeReady || onNewDatum === undefined}
+          caption={captionFor(
+            treeReady && onNewDatum !== undefined,
+            "Loading the tree…",
+          )}
+          disabled={locked || !treeReady || onNewDatum === undefined}
           onClick={onNewDatum}
         />
         <ToolButton
@@ -201,7 +223,8 @@ export function CreateStrip({
               ? "Extrude — add or cut a sketch profile"
               : "Extrude — solve a sketch first"
           }
-          disabled={!canExtrude || !treeReady}
+          caption={captionFor(canExtrude && treeReady, "Solve a sketch first")}
+          disabled={locked || !canExtrude || !treeReady}
           onClick={onNewExtrude}
         />
         <ToolButton
@@ -214,7 +237,8 @@ export function CreateStrip({
               ? "Revolve — sweep a sketch profile about an axis"
               : "Revolve — solve a sketch first"
           }
-          disabled={!canRevolve || !treeReady}
+          caption={captionFor(canRevolve && treeReady, "Solve a sketch first")}
+          disabled={locked || !canRevolve || !treeReady}
           onClick={onNewRevolve}
         />
         <ToolButton
@@ -228,7 +252,11 @@ export function CreateStrip({
               ? "Sweep — carry a profile sketch along an open path sketch (S)"
               : "Sweep — draw a profile sketch and a path sketch first"
           }
-          disabled={!canSweep || !treeReady}
+          caption={captionFor(
+            canSweep && treeReady,
+            "Draw a profile and a path sketch",
+          )}
+          disabled={locked || !canSweep || !treeReady}
           onClick={onNewSweep}
         />
         <ToolButton
@@ -242,12 +270,16 @@ export function CreateStrip({
               ? "Loft — blend a solid through two or more ordered section sketches (L)"
               : "Loft — draw at least two section sketches first"
           }
-          disabled={!canLoft || !treeReady}
+          caption={captionFor(
+            canLoft && treeReady,
+            "Draw at least two section sketches",
+          )}
+          disabled={locked || !canLoft || !treeReady}
           onClick={onNewLoft}
         />
       </ToolGroup>
 
-      <ToolGroup aria-label="Modify">
+      <ToolGroup eyebrow="Modify">
         <ToolButton
           icon={<FilletIcon />}
           showLabel
@@ -256,9 +288,10 @@ export function CreateStrip({
           aria-label={
             filletReady
               ? "Fillet — round the selected edges"
-              : "Fillet — select a body edge first"
+              : "Fillet — create a body first"
           }
-          disabled={!filletReady}
+          caption={captionFor(filletReady, "Create a body first")}
+          disabled={locked || !filletReady}
           onClick={onFillet}
         />
         <ToolButton
@@ -269,9 +302,10 @@ export function CreateStrip({
           aria-label={
             chamferReady
               ? "Chamfer — bevel the selected edges"
-              : "Chamfer — select a body edge first"
+              : "Chamfer — create a body first"
           }
-          disabled={!chamferReady}
+          caption={captionFor(chamferReady, "Create a body first")}
+          disabled={locked || !chamferReady}
           onClick={onChamfer}
         />
         <ToolButton
@@ -285,7 +319,8 @@ export function CreateStrip({
               ? "Pattern — repeat the body in a linear or circular array (P)"
               : "Pattern — create a body first"
           }
-          disabled={!patternReady}
+          caption={captionFor(patternReady, "Create a body first")}
+          disabled={locked || !patternReady}
           onClick={onPattern}
         />
         <ToolButton
@@ -299,7 +334,8 @@ export function CreateStrip({
               ? "Shell — hollow the body to a uniform wall, opening picked faces (H)"
               : "Shell — create a body first"
           }
-          disabled={!shellReady}
+          caption={captionFor(shellReady, "Create a body first")}
+          disabled={locked || !shellReady}
           onClick={onShell}
         />
         <ToolButton
@@ -313,12 +349,13 @@ export function CreateStrip({
               ? "Draft — taper picked faces for mold release about a neutral plane (D)"
               : "Draft — create a body first"
           }
-          disabled={!draftReady}
+          caption={captionFor(draftReady, "Create a body first")}
+          disabled={locked || !draftReady}
           onClick={onDraft}
         />
       </ToolGroup>
 
-      <ToolGroup aria-label="Inspect">
+      <ToolGroup eyebrow="Inspect">
         <ToolButton
           icon={<MeasureIcon />}
           showLabel
@@ -331,7 +368,11 @@ export function CreateStrip({
               ? "Measure — pick two points or edges to read the distance (M)"
               : "Measure — create a body first"
           }
-          disabled={!canMeasure || onToggleMeasure === undefined}
+          caption={captionFor(
+            canMeasure && onToggleMeasure !== undefined,
+            "Create a body first",
+          )}
+          disabled={locked || !canMeasure || onToggleMeasure === undefined}
           onClick={onToggleMeasure}
         />
       </ToolGroup>

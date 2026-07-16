@@ -10,7 +10,12 @@
  * accelerator through a `Kbd` chip in the tooltip — icons for the eye, letters
  * for the hands.
  */
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import type {
+  ButtonHTMLAttributes,
+  HTMLAttributes,
+  MouseEvent,
+  ReactNode,
+} from "react";
 
 import { cx } from "../cx";
 
@@ -59,6 +64,13 @@ export interface ToolButtonProps extends Omit<
  * surface has room (`showLabel`). The tooltip appears on hover AND keyboard
  * focus (a11y), sits BELOW the button so the top-anchored strip never clips
  * it, and is aria-hidden so the accessible name isn't announced twice.
+ *
+ * A gated tool uses `aria-disabled`, NOT the native `disabled` attribute, so a
+ * disabled tool still HOVERS and FOCUSES — and therefore still shows its
+ * tooltip + reason `caption` ("Solve a sketch first") to both mouse and
+ * keyboard (UI-REVIEW 2026-07-16, Track C P1). It's inert on activation:
+ * clicks and Enter/Space are swallowed. Playwright's `toBeDisabled()` /
+ * `toBeEnabled()` honor `aria-disabled`, so existing gate assertions still hold.
  */
 export function ToolButton({
   icon,
@@ -70,22 +82,34 @@ export function ToolButton({
   tooltipSide = "bottom",
   className,
   type,
+  disabled,
+  onClick,
   ...rest
 }: ToolButtonProps) {
   const accessibleName =
     rest["aria-label"] ?? (shortcut ? `${label} — ${shortcut}` : label);
+  const isDisabled = disabled === true;
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (isDisabled) {
+      event.preventDefault();
+      return;
+    }
+    onClick?.(event);
+  };
 
   return (
     <button
       type={type ?? "button"}
       aria-pressed={active}
+      aria-disabled={isDisabled || undefined}
       aria-label={accessibleName}
+      onClick={handleClick}
       className={cx(
         "group/tt relative inline-flex select-none items-center gap-2 rounded-sm",
         showLabel ? "px-3 py-1.5" : "px-2 py-1.5",
-        "transition-colors duration-fast hover:bg-carbide",
+        "transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
-        "disabled:opacity-40 disabled:pointer-events-none",
+        isDisabled ? "cursor-not-allowed opacity-40" : "hover:bg-carbide",
         active ? "text-brass" : "text-mist",
         className,
       )}

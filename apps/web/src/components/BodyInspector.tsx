@@ -85,35 +85,24 @@ export function BodyInspector({
           </PanelRow>
         </PanelSection>
 
-        {/* Title-block footer strip: label over value, like a real drawing. */}
+        {/* Title-block footer: the one cell that MOVES — the solid's render
+            status. UNITS (no unit system exists yet) and KERNEL (a hard-coded
+            brand string, not telemetry) were decorative and are gone
+            (UI-REVIEW 2026-07-16, Track B). */}
         <div
-          className="grid grid-cols-3 divide-x divide-hairline border-t border-hairline"
+          className="border-t border-hairline px-3 py-2"
           data-testid="body-titleblock-footer"
         >
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Units
-            </span>
-            <span className="block font-data text-xs text-mist">mm</span>
-          </div>
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Kernel
-            </span>
-            <span className="block font-data text-xs text-mist">OCCT</span>
-          </div>
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Status
-            </span>
-            <span
-              className="block font-data text-xs text-mist"
-              data-testid="body-status"
-              aria-live="polite"
-            >
-              {STATUS_LABEL[status]}
-            </span>
-          </div>
+          <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+            Status
+          </span>
+          <span
+            className="block font-data text-xs text-mist"
+            data-testid="body-status"
+            aria-live="polite"
+          >
+            {STATUS_LABEL[status]}
+          </span>
         </div>
 
         {/* Issue the modeled body as a file — the export strip of the title

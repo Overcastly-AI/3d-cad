@@ -44,6 +44,11 @@ export function AssemblyTreePanel({
 }: AssemblyTreePanelProps) {
   const instances = graph?.instances ?? [];
   const mates = graph?.mates ?? [];
+  // Counts fold into the section eyebrows (the INSTANCES footer cell in the
+  // inspector was redundant with this list; UI-REVIEW 2026-07-16, Track B).
+  const componentsEyebrow =
+    instances.length > 0 ? `Components · ${instances.length}` : "Components";
+  const matesEyebrow = mates.length > 0 ? `Mates · ${mates.length}` : "Mates";
   // Balloon number = 1-based position in the (order_index-sorted) instance list.
   const balloonById = new Map(instances.map((i, index) => [i.id, index + 1]));
   const failedMateIds = new Set(
@@ -60,7 +65,7 @@ export function AssemblyTreePanel({
       data-testid="assembly-tree"
     >
       <Panel>
-        <PanelSection eyebrow="Components">
+        <PanelSection eyebrow={componentsEyebrow}>
           {graphError ? (
             <p
               role="alert"
@@ -144,7 +149,7 @@ export function AssemblyTreePanel({
           )}
         </PanelSection>
 
-        <PanelSection eyebrow="Mates">
+        <PanelSection eyebrow={matesEyebrow}>
           {mates.length === 0 ? (
             <p
               data-testid="mates-empty"

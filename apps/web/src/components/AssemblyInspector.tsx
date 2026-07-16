@@ -103,32 +103,11 @@ export function AssemblyInspector({
             {bbox ? formatExtents(bbox.min, bbox.max) : em}
           </PanelRow>
         </PanelSection>
-
-        <div
-          className="grid grid-cols-3 divide-x divide-hairline border-t border-hairline"
-          data-testid="assembly-titleblock-footer"
-        >
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Units
-            </span>
-            <span className="block font-data text-xs text-mist">mm</span>
-          </div>
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Solver
-            </span>
-            <span className="block font-data text-xs text-mist">Loft</span>
-          </div>
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Instances
-            </span>
-            <span className="block font-data text-xs text-mist tabular-nums">
-              {evaluation ? evaluation.instances.length : em}
-            </span>
-          </div>
-        </div>
+        {/* The decorative footer is gone (UI-REVIEW 2026-07-16, Track B):
+            UNITS (no unit system) and SOLVER "Loft" (the product's own name
+            dressed as a solver readout) carried nothing; INSTANCES folds into
+            the tree's COMPONENTS eyebrow. Solve state / DOF above are the live
+            instruments. */}
       </Panel>
     </aside>
   );

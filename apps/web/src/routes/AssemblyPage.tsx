@@ -1,4 +1,3 @@
-import { Chip } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -23,6 +22,7 @@ import {
 import { AddInstancePanel } from "../components/AddInstancePanel";
 import { AssemblyCommandBand } from "../components/AssemblyCommandBand";
 import { AssemblyInspector } from "../components/AssemblyInspector";
+import { Breadcrumb } from "../components/Breadcrumb";
 import { AssemblyTreePanel } from "../components/AssemblyTreePanel";
 import { MateHud } from "../components/MateHud";
 import { TopBar } from "../components/TopBar";
@@ -428,9 +428,22 @@ export function AssemblyPage() {
   return (
     <div className="flex h-full flex-col">
       <TopBar>
-        <Chip data-testid="assembly-name">
-          {graph?.assembly.name ?? "Assembly"}
-        </Chip>
+        <Breadcrumb
+          register="assemblies"
+          documentName={graph?.assembly.name ?? "Assembly"}
+          documentTestId="assembly-name"
+          mode={
+            tool === "coincident"
+              ? "Coincident"
+              : tool === "concentric"
+                ? "Concentric"
+                : tool === "lock"
+                  ? "Lock"
+                  : addOpen
+                    ? "Add part"
+                    : null
+          }
+        />
       </TopBar>
       <TopToolbar>
         <AssemblyCommandBand

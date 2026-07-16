@@ -290,13 +290,20 @@ see the addendum entry below for evidence):**
 5. ✅ Side-by-side check against the Fusion/Plasticity framing recorded in the
    addendum below (mandate 3a-d).
 
-**Batch 2 — "every element earns its place" (Tracks B + C quick wins):**
-6. Wire-or-delete pass per the inventory table (KERNEL/UNITS/TREE/SOLVER/
-   tagline/First-light chip); fold redundant counts into eyebrows.
-7. `ToolButton` aria-disabled pattern — reasons reachable by mouse + keyboard.
-8. Render group eyebrows in the command band; wordmark→home + breadcrumb chip.
-9. Sketch exit semantics: save/discard prompt, idempotent finish, fresh
-   naming.
+**Batch 2 — "every element earns its place" (Tracks B + C quick wins) —
+✅ SHIPPED 2026-07-16 (frontend-builder; see the addendum entry below):**
+6. ✅ Wire-or-delete pass per the inventory table (KERNEL ×2/UNITS ×3/TREE/
+   SOLVER/tagline/First-light chip all DELETED); FEATURES + INSTANCES + MATES
+   counts folded into their section eyebrows.
+7. ✅ `ToolButton` aria-disabled pattern — a gated tool now hovers + focuses and
+   shows its reason to mouse AND keyboard; honest reason caption on every gate.
+8. ✅ Group eyebrows render in the command band (Create/Modify/Inspect + the
+   sketch band's Draw/Modify/Constrain/Finish); wordmark→home + register ›
+   document › mode breadcrumb.
+9. ✅ Sketch exit: idempotent finish (double-Escape can't mint a duplicate
+   "Sketch1"), fresh-tree default naming.
+   Command scoping (item 10's guard, pulled forward): an open editor LOCKS the
+   band with a "Finish X first" reason — no more silent fillet→extrude pick loss.
 
 **Batch 3 — "in-command depth" (Track C structural + Track A follow-through):**
 10. In-command band state (active command + OK/Cancel, rest recedes; guard
@@ -313,8 +320,8 @@ see the addendum entry below for evidence):**
 | Viewport (grid/atmosphere/shading/nav) | 🔴 P0 ×4 — Batch 1 |
 | Shell layout (panel columns vs full-bleed) | 🔴 P0 — Batch 1 |
 | Assembly viewport (fit, mate HUD) | 🔴 P1 — Batch 1 |
-| Command band (CreateStrip/SketchStrip/ToolButton) | 🔴 P1/P2 — Batches 2–3 |
-| Inspector/title-block footers (both) | 🔴 P2 decorative cells — Batch 2 |
+| Command band (CreateStrip/SketchStrip/ToolButton) | ✅ Batch 2 (group eyebrows, aria-disabled reasons, in-command lock) / 🔴 in-command OK-Cancel band state — Batch 3 |
+| Inspector/title-block footers (both) | ✅ Batch 2 — decorative cells deleted, counts folded into eyebrows |
 | Feature editors (all 7 forms) | ✅ forms sound / 🔴 no preview, no band scoping — Batch 3 |
 | Feature tree panel | ✅ rows, status, rollback, errors / 🔴 footer cells |
 | Sketch mode (strip, DRO, grid) | ✅ mode swap, DRO / 🔴 grid fade, exit semantics |
@@ -322,7 +329,7 @@ see the addendum entry below for evidence):**
 | Import STEP | ✅ honest states (busy/error/dismiss) |
 | Parts/Assemblies home | ✅ functional / P3 thumbnails, delete-confirm |
 | Sign-in | ✅ |
-| A11y floor | ✅ except disabled-tooltip reachability (P1, Batch 2) |
+| A11y floor | ✅ (disabled-tooltip reachability fixed in Batch 2) |
 
 Evidence: `docs/screenshots/ui-audit/*.png` (44 shots, desktop + laptop).
 Re-audit with before/afters after each batch lands.
@@ -388,3 +395,54 @@ assembly}-{desktop,laptop}.png` (afters) vs `docs/screenshots/ui-audit/
 -desktop.png` (befores). Full `just e2e` green including the new
 `viewport-makeover.spec.ts` (view snaps drive the real camera; panels
 collapse; assembly opens framed with both balloons on-screen).
+
+---
+
+## 2026-07-16 — Makeover Batch 2 SHIPPED: "every element earns its place" (frontend-builder)
+
+All of Batch 2 (Tracks B + C) landed in one pass; Batch 3 remains. Answering
+the founder's navigation ask ("are they organised · do they make sense · when
+I click an icon does it only show relevant tools when enabled"):
+
+- **Chrome — wire-or-delete verdict (Track B, all decorative cells resolved).**
+  DELETED: KERNEL OCCT ×2 (a README fact styled as telemetry), UNITS mm ×3 (no
+  unit system exists), TREE v2 (internal concurrency counter), SOLVER "Loft"
+  (the product's own name dressed as a solver readout), the header marketing
+  tagline, and the "First light" default chip. FOLDED into live section
+  eyebrows: FEATURES → "Feature tree · N", INSTANCES/MATES → "Components · N" /
+  "Mates · N". KEPT (all carry live values): mass-props/bbox/topology rows,
+  STATUS, EXPORT strip, SOLVE, per-feature OK/ERR/SKIP + error rows. Every
+  title-block footer now shows only cells that MOVE. ModelerPage owns its own
+  "First light" chip (it IS that page), so the demo keeps its name without a
+  decorative default leaking onto every screen.
+- **Disabled tools speak (Track C P1).** `ToolButton` switched from native
+  `disabled` (which set `pointer-events-none` + unfocusable — the reason
+  tooltips were unreachable) to `aria-disabled`: a gated tool now HOVERS and
+  FOCUSES and shows its reason ("Solve a sketch first" / "Create a body first")
+  to mouse AND keyboard, while staying inert on click/Enter. Playwright's
+  `toBeDisabled()` honors `aria-disabled`, so the gate assertions still hold.
+- **Toolbar organised (Track C P2, founder "are they organised").** The band's
+  Create/Modify/Inspect `role=group`s now RENDER their stamped eyebrows (the
+  taxonomy was invisible before); the sketch band gained Draw/Modify/Constrain/
+  Finish eyebrows and a two-tier status cell. The command band grew one tier
+  (`commandBandHeight` 32→46). Every workspace got a `register › document ›
+  mode` breadcrumb (part › Sketch / › Fillet …) and the LOFT wordmark is now
+  the way home — a real route out of a workspace (browser-back was the only exit).
+- **Command scoping — no silent state loss (Track C P1).** An open editor now
+  LOCKS the whole band with a "Finish X first" reason and names the command in
+  the breadcrumb, so clicking Extrude while a Fillet edge-pick is live can no
+  longer silently discard the picks (Cancel/OK on the editor is the way out).
+- **Sketch exit semantics (Track C P2).** `finishSketch`/`persistBuffer` are
+  now idempotent for the unbound sketch (a create-in-flight guard + deferred
+  exit), and the default name numbers off the FRESHEST tree — double-Escape
+  during the async save can no longer mint duplicate "Sketch1" features.
+
+**Gates.** `frontend-design` run; `just lint` + `just test` (py 1199 + web 517)
++ full Playwright (144 specs) green, incl. the new `nav-chrome.spec.ts`
+(disabled-tool reachable by mouse AND keyboard with its reason; Fillet locks
+Extrude and the picked edge survives a stray click; double-Escape mints exactly
+one feature). Evidence (afters): `docs/screenshots/makeover-batch2-{band,
+scoped,sketch}-{desktop,laptop}.png` + `-disabled-reason-desktop.png` vs the
+`docs/screenshots/ui-audit/07-body-default-desktop.png` / `06-sketch-drawn-*`
+befores. Founder gallery refreshed (`UPDATE_SCREENSHOTS=1`) so the committed
+shots match the new band + breadcrumb + cleaned footers.

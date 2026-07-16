@@ -74,14 +74,19 @@ nit, no user impact, stays Later).
       Evidence: `docs/screenshots/viewport-makeover-*`; e2e
       `viewport-makeover.spec.ts`; UI-REVIEW addendum w/ Fusion/Plasticity
       side-by-side. [src: UI-REVIEW full audit, Batch 1]
-- [ ] (P1, M) Viewport makeover Batch 2 — "every element earns its place" —
-      wire-or-delete pass on the decorative chrome inventory (KERNEL/UNITS/
-      TREE/SOLVER cells, header tagline, First-light chip), ToolButton
-      aria-disabled reason reachability, command-band group eyebrows,
-      wordmark→home + breadcrumb chip, sketch exit save/discard semantics.
-      [src: UI-REVIEW 2026-07-16 remediation items 6–9]
+- [x] (P1, M) Viewport makeover Batch 2 — "every element earns its place" —
+      **DONE 2026-07-16.** Deleted the decorative chrome (KERNEL ×2/UNITS ×3/
+      TREE/SOLVER cells, header tagline, First-light default chip); folded
+      FEATURES/INSTANCES/MATES counts into section eyebrows; ToolButton
+      aria-disabled so gated tools show their reason to mouse + keyboard;
+      Create/Modify/Inspect + sketch-band group eyebrows (band 32→46);
+      wordmark→home + register › document › mode breadcrumb; open-editor band
+      lock (no silent pick loss); idempotent sketch exit + fresh-tree naming.
+      Evidence `docs/screenshots/makeover-batch2-*`; e2e `nav-chrome.spec.ts`;
+      UI-REVIEW Batch-2 addendum. [src: UI-REVIEW 2026-07-16 items 6–9]
 - [ ] (P1, L) Viewport makeover Batch 3 — "in-command depth" — in-command
-      band state (active command + OK/Cancel, guard editor swaps), body
+      band state (active command + OK/Cancel folded INTO the band; the
+      editor-swap guard already shipped in Batch 2 as the band lock), body
       selection/hover feedback + tree↔geometry linking, live ghost previews
       (datum plane first), empty-viewport state (origin triad, resting datum
       sheets, first-run hint) + parts-home thumbnails.

@@ -98,35 +98,19 @@ export function InspectorPanel({
           </PanelRow>
         </PanelSection>
 
-        {/* Title-block footer strip: label over value, like a real drawing. */}
-        <div
-          className="grid grid-cols-3 divide-x divide-hairline"
-          data-testid="titleblock-footer"
-        >
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Units
-            </span>
-            <span className="block font-data text-xs text-mist">mm</span>
-          </div>
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Kernel
-            </span>
-            <span className="block font-data text-xs text-mist">OCCT</span>
-          </div>
-          <div className="px-3 py-2">
-            <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-              Status
-            </span>
-            <span
-              className="block font-data text-xs text-mist"
-              data-testid="tessellation-status"
-              aria-live="polite"
-            >
-              {error ? "Error" : isFetching ? "Meshing…" : "Up to date"}
-            </span>
-          </div>
+        {/* Title-block footer: the one cell that MOVES — the mesh status.
+            UNITS + KERNEL were decorative (UI-REVIEW 2026-07-16, Track B). */}
+        <div className="px-3 py-2" data-testid="titleblock-footer">
+          <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+            Status
+          </span>
+          <span
+            className="block font-data text-xs text-mist"
+            data-testid="tessellation-status"
+            aria-live="polite"
+          >
+            {error ? "Error" : isFetching ? "Meshing…" : "Up to date"}
+          </span>
         </div>
 
         {/* EXPORT row: issuing the part file is title-block business. */}

@@ -544,14 +544,26 @@ function FacePickPrompt({
 }
 
 /**
- * The strip's one-line status cell — the title-block reading folded flat:
- * the active plane, and (while drawing) the live selection, on a single
- * gauge-face line so the toolbar stays icon-thin. No stacked eyebrow.
+ * The strip's status cell — a two-tier title-block reading matching the band's
+ * grouped eyebrows: a stamped mode eyebrow (Plane / Sketch) over the active
+ * plane and, while drawing, the live selection. Names the mode in the band
+ * itself, reinforcing the breadcrumb (UI-REVIEW 2026-07-16, Track C).
  */
-function StatusCell({ children }: { children: ReactNode }) {
+function StatusCell({
+  eyebrow,
+  children,
+}: {
+  eyebrow: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap px-3 font-data text-xs">
-      {children}
+    <div className="flex shrink-0 flex-col justify-center px-1.5 py-1">
+      <span className="px-1 pb-0.5 font-display text-2xs uppercase tracking-[0.16em] text-gauge">
+        {eyebrow}
+      </span>
+      <div className="flex items-center gap-2 whitespace-nowrap px-1 font-data text-xs">
+        {children}
+      </div>
     </div>
   );
 }
@@ -749,11 +761,8 @@ export function SketchStrip({
         data-testid="sketch-strip"
         className="flex items-stretch divide-x divide-hairline"
       >
-        <StatusCell>
-          <span
-            className={mode === "plane" ? "text-mist" : "text-mist"}
-            data-testid="sketch-step"
-          >
+        <StatusCell eyebrow={mode === "plane" ? "Plane" : "Sketch"}>
+          <span className="text-mist" data-testid="sketch-step">
             {mode === "plane" ? "Pick a plane" : `On ${describePlane(plane)}`}
           </span>
           {mode === "draw" ? (
@@ -771,7 +780,7 @@ export function SketchStrip({
 
         {mode === "plane" ? (
           <>
-            <ToolGroup aria-label="Datum plane">
+            <ToolGroup eyebrow="Origin">
               {DATUM_PLANES.map((name) => (
                 <ToolButton
                   key={name}
@@ -798,7 +807,10 @@ export function SketchStrip({
                 plane picked once can seat many sketches — DRY at the model
                 level). */}
             {datumPlanes.length > 0 ? (
-              <ToolGroup aria-label="Datum planes in the tree">
+              <ToolGroup
+                eyebrow="In tree"
+                aria-label="Datum planes in the tree"
+              >
                 {datumPlanes.map((datum) => (
                   <ToolButton
                     key={datum.id}
@@ -820,7 +832,7 @@ export function SketchStrip({
             {/* The inline "sketch at a height" path — additive, opt-in; the
                 three origin datums above stay the one-click common case. */}
             {onAuthorOffsetPlane ? (
-              <ToolGroup aria-label="Offset plane">
+              <ToolGroup eyebrow="Offset" aria-label="Offset plane">
                 <ToolButton
                   icon={<DatumIcon />}
                   label="Offset plane"
@@ -839,7 +851,7 @@ export function SketchStrip({
             {/* Sketch on a picked model face (an on_face datum). Only offered
                 once a body exists — the faces are highlighted in the viewport. */}
             {onTogglePickFace && canPickFace ? (
-              <ToolGroup aria-label="Model face">
+              <ToolGroup eyebrow="Face" aria-label="Model face">
                 <ToolButton
                   icon={<DatumIcon />}
                   label="Pick a face"
@@ -859,7 +871,7 @@ export function SketchStrip({
 
         {mode === "draw" ? (
           <>
-            <ToolGroup aria-label="Sketch tools">
+            <ToolGroup eyebrow="Draw" aria-label="Sketch tools">
               {TOOLS.map(({ tool: t, keyHint, name, icon }) => (
                 <ToolButton
                   key={t}
@@ -874,7 +886,7 @@ export function SketchStrip({
               ))}
             </ToolGroup>
 
-            <ToolGroup aria-label="Modify">
+            <ToolGroup eyebrow="Modify">
               {MODIFY_TOOLS.map(({ tool: t, keyHint, name, icon }) => (
                 <ToolButton
                   key={t}
@@ -889,7 +901,7 @@ export function SketchStrip({
               ))}
             </ToolGroup>
 
-            <ToolGroup aria-label="Constrain">
+            <ToolGroup eyebrow="Constrain">
               {CONSTRAINT_GROUPS.map((group) => (
                 <Flyout
                   key={group.key}
@@ -919,7 +931,7 @@ export function SketchStrip({
               />
             </ToolGroup>
 
-            <ToolGroup aria-label="Sketch">
+            <ToolGroup eyebrow="Finish" aria-label="Finish sketch">
               <ToolButton
                 icon={<CheckIcon />}
                 label={

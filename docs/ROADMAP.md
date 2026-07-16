@@ -243,9 +243,17 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       (P0-2); assembly fit keyed on LOADED geometry (P1 race). Full
       `just e2e` green incl. new `viewport-makeover.spec.ts`; before/afters
       `docs/screenshots/viewport-makeover-*`; side-by-side vs
-      Fusion/Plasticity recorded in UI-REVIEW. **Batches 2–3 remain** (wire-
-      or-delete decorative chrome + nav/IA quick wins; in-command depth,
-      selection feedback, live previews).
+      Fusion/Plasticity recorded in UI-REVIEW. **Batch 2 "every element earns
+      its place" ✅ 2026-07-16:** decorative chrome deleted (KERNEL/UNITS/TREE/
+      SOLVER/tagline/First-light chip), counts folded into eyebrows; ToolButton
+      aria-disabled so gated tools show their reason to mouse + keyboard;
+      Create/Modify/Inspect + sketch-band group eyebrows; wordmark→home +
+      register › document › mode breadcrumb; open-editor band lock (no silent
+      pick loss); idempotent sketch exit + fresh naming. Gates green incl. new
+      `nav-chrome.spec.ts`; evidence `docs/screenshots/makeover-batch2-*`.
+      **Batch 3 remains** (in-command OK/Cancel band state, body selection/hover
+      feedback + tree↔geometry linking, live editor previews, empty-viewport
+      state + parts-home thumbnails).
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive

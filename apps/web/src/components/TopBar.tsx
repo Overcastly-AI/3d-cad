@@ -1,11 +1,17 @@
-import { Button, Chip, Toolbar } from "@loft/design";
+import { Button, Toolbar } from "@loft/design";
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 import { useSessionStore } from "../auth/session";
 import { LoftMark } from "./LoftMark";
 
 export interface TopBarProps {
-  /** Context slot next to the wordmark (defaults to the status chip). */
+  /**
+   * Context slot next to the wordmark — a breadcrumb or status chip. Empty by
+   * default: the band carries no decorative filler (UI-REVIEW 2026-07-16,
+   * Track B — the "First light" default chip + the marketing tagline were
+   * both decorative and are gone).
+   */
   children?: ReactNode;
 }
 
@@ -14,17 +20,24 @@ export function TopBar({ children }: TopBarProps) {
   const signOut = useSessionStore((state) => state.signOut);
   return (
     <Toolbar data-testid="topbar">
-      <h1 className="flex items-center gap-2">
-        <LoftMark />
-        <span className="font-display text-md tracking-[0.32em] text-mist">
-          LOFT
-        </span>
+      {/* The wordmark stays the page heading AND is now the way home — every
+          workspace has an exit to the registers (UI-REVIEW 2026-07-16, Track
+          C P2). Logo-as-heading: an h1 wrapping the home link. */}
+      <h1 className="flex">
+        <Link
+          to="/"
+          data-testid="home-link"
+          aria-label="Loft — back to parts"
+          className="flex items-center gap-2 rounded-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+        >
+          <LoftMark />
+          <span className="font-display text-md tracking-[0.32em] text-mist">
+            LOFT
+          </span>
+        </Link>
       </h1>
-      {children ?? <Chip data-testid="status-chip">First light</Chip>}
+      {children}
       <div className="grow" />
-      <span className="hidden font-body text-xs text-gauge lg:inline">
-        Parametric CAD · tessellated server-side by OCCT
-      </span>
       {user ? (
         <span
           className="hidden font-data text-xs text-gauge sm:inline"

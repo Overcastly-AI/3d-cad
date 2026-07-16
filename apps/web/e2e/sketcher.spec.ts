@@ -41,7 +41,7 @@ test.describe("sketcher", () => {
     await page.goto(`/parts/${part.id}`);
 
     await expect(page.getByTestId("part-name")).toHaveText("Bracket plate");
-    await expect(page.getByTestId("feature-count")).toHaveText("0");
+    await expect(page.getByTestId("feature-row")).toHaveCount(0);
 
     // Enter sketch mode; pick the XY plane via the keyboard-path cells.
     await page.getByTestId("new-sketch").click();

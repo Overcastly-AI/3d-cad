@@ -1,4 +1,4 @@
-import { Chip, Panel } from "@loft/design";
+import { Panel } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -65,6 +65,7 @@ import {
   updateFeature,
 } from "../api/parts";
 import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
+import { Breadcrumb } from "../components/Breadcrumb";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CreateStrip } from "../components/CreateStrip";
 import { FloatingPanel } from "../components/FloatingPanel";
@@ -171,6 +172,20 @@ import { Viewport } from "../viewport/Viewport";
 
 /** Constraint/dimension edits persist after this quiet gap (the live loop). */
 const SYNC_DEBOUNCE_MS = 400;
+
+/** Editor kind → the command name shown in the breadcrumb + band lock reason. */
+const COMMAND_LABEL: Record<string, string> = {
+  extrude: "Extrude",
+  revolve: "Revolve",
+  sweep: "Sweep",
+  loft: "Loft",
+  pattern: "Pattern",
+  fillet: "Fillet",
+  chamfer: "Chamfer",
+  shell: "Shell",
+  draft: "Draft",
+  datum: "Datum plane",
+};
 
 /**
  * The part workspace: feature tree left, viewport hero, sketch mode inside
@@ -367,6 +382,12 @@ export function PartPage() {
   const treeVersionRef = useRef<number | undefined>(undefined);
   const chain = useRef<Promise<void>>(Promise.resolve());
   const inFlight = useRef(0);
+  // A create for the still-unbound sketch is in flight. Guards the double-fire
+  // that used to mint duplicate "Sketch1" features (double-Escape during the
+  // async save — UI-REVIEW 2026-07-16, Track C P2). A finish requested while a
+  // create runs is remembered and lands once the feature binds.
+  const creatingRef = useRef(false);
+  const pendingExitRef = useRef(false);
 
   useEffect(() => {
     if (treeVersion !== undefined) treeVersionRef.current = treeVersion;
@@ -386,47 +407,64 @@ export function PartPage() {
         featureId: state.featureId,
         revision: state.revision,
       };
-      const sketchCount = (tree.data?.features ?? []).filter(
-        (f) => f.feature.type === "sketch",
-      ).length;
+      const isCreate = payload.featureId === null;
+      // Idempotent finish: a create for this unbound sketch is already running —
+      // don't enqueue a second (the duplicate-"Sketch1" bug). Defer the exit so
+      // the finish still lands the moment the in-flight create binds.
+      if (isCreate && creatingRef.current) {
+        if (exitAfter) pendingExitRef.current = true;
+        return;
+      }
+      if (isCreate) creatingRef.current = true;
       inFlight.current += 1;
       setSyncPending(true);
       chain.current = chain.current.then(async () => {
         const planeRef = planeRefFromSpec(payload.plane);
-        const attempt = (version: number) =>
-          payload.featureId === null
-            ? createFeature(
-                partId,
-                sketchFeatureCreate(
-                  `Sketch${sketchCount + 1}`,
-                  planeRef,
-                  payload.entities,
-                  payload.constraints,
-                  version,
-                ),
-              )
-            : updateFeature(
-                partId,
-                payload.featureId,
-                sketchFeatureUpdate(
-                  planeRef,
-                  payload.entities,
-                  payload.constraints,
-                  version,
-                ),
-              );
+        // Default sketch name numbers off the FRESHEST tree, never a stale query
+        // — so the first sketch is "Sketch1", the next "Sketch2", never a dupe.
+        const runCreate = async () => {
+          const fresh = await fetchFeatureTree(partId);
+          const count = fresh.features.filter(
+            (f) => f.feature.type === "sketch",
+          ).length;
+          return createFeature(
+            partId,
+            sketchFeatureCreate(
+              `Sketch${count + 1}`,
+              planeRef,
+              payload.entities,
+              payload.constraints,
+              fresh.tree_version,
+            ),
+          );
+        };
+        const runUpdate = (version: number) =>
+          updateFeature(
+            partId,
+            payload.featureId as string,
+            sketchFeatureUpdate(
+              planeRef,
+              payload.entities,
+              payload.constraints,
+              version,
+            ),
+          );
         try {
           let response;
-          try {
-            response = await attempt(
-              treeVersionRef.current ??
+          if (isCreate) {
+            response = await runCreate();
+          } else {
+            try {
+              response = await runUpdate(
+                treeVersionRef.current ??
+                  (await fetchFeatureTree(partId)).tree_version,
+              );
+            } catch {
+              // Stale tree version (or a hiccup): refetch, retry once.
+              response = await runUpdate(
                 (await fetchFeatureTree(partId)).tree_version,
-            );
-          } catch {
-            // Stale tree version (or a hiccup): refetch, retry once.
-            response = await attempt(
-              (await fetchFeatureTree(partId)).tree_version,
-            );
+              );
+            }
           }
           treeVersionRef.current = response.tree_version;
           lastSynced.current = Math.max(lastSynced.current, payload.revision);
@@ -434,8 +472,9 @@ export function PartPage() {
           setSyncError(null);
           const now = useSketchStore.getState();
           if (now.mode === "draw") {
-            if (exitAfter) now.exit();
-            else if (now.featureId === null) now.bind(response.feature.id);
+            if (isCreate && now.featureId === null)
+              now.bind(response.feature.id);
+            if (exitAfter || pendingExitRef.current) now.exit();
           }
           await queryClient.invalidateQueries({
             queryKey: ["features", partId],
@@ -448,12 +487,16 @@ export function PartPage() {
               : "The sketch could not be saved — reload and try again.",
           );
         } finally {
+          if (isCreate) {
+            creatingRef.current = false;
+            pendingExitRef.current = false;
+          }
           inFlight.current -= 1;
           if (inFlight.current === 0) setSyncPending(false);
         }
       });
     },
-    [partId, queryClient, tree.data],
+    [partId, queryClient],
   );
 
   /** Strip action: first save persists + closes; bound = finish (flush). */
@@ -1879,10 +1922,28 @@ export function PartPage() {
     bodyProperties === null &&
     (tree.data?.features.length ?? 0) > 0;
 
+  // The open command scopes the band + names the mode (breadcrumb + lock).
+  const activeCommand =
+    editor === null ? null : (COMMAND_LABEL[editor.kind] ?? null);
+  // The breadcrumb's mode leaf: sketch step / measure / open command / model.
+  const workspaceMode =
+    mode === "draw"
+      ? "Sketch"
+      : mode === "plane"
+        ? "Pick a plane"
+        : measureActive
+          ? "Measure"
+          : activeCommand;
+
   return (
     <div className="flex h-full flex-col">
       <TopBar>
-        <Chip data-testid="part-name">{part.data?.name ?? "Part"}</Chip>
+        <Breadcrumb
+          register="parts"
+          documentName={part.data?.name ?? "Part"}
+          documentTestId="part-name"
+          mode={workspaceMode}
+        />
       </TopBar>
       {/* The full-width command band, directly under the brand bar: the
           mode-aware CAD top-toolbar. Sketch tools while sketching, the
@@ -1914,6 +1975,7 @@ export function PartPage() {
             canMeasure={hasBody}
             measuring={measureActive}
             onToggleMeasure={toggleMeasure}
+            activeCommand={activeCommand}
           />
         ) : (
           <SketchStrip
