@@ -20,6 +20,13 @@ something real) and judge it against the operating question:
 3. Compare against the incumbents' equivalent flow (from domain knowledge):
    what would a SolidWorks/Onshape/FreeCAD user miss first? Feed the
    VISION.md scorecard rows — flag rows whose status looks stale.
+3a. **Tool feel IS a daily-driver dimension** (founder recalibration
+   2026-07-16): an engineer lives in the viewport all day, so rate the
+   experience — viewport presence/depth/shading, view navigation, whether
+   tooling is contextual and every element earns its place — against the
+   Fusion 360 / Plasticity feel, not just whether capabilities exist. A
+   product that *works* but *feels like a dashboard* is a daily-driver gap;
+   say so with the same weight as a missing feature.
 4. **Write early, append incrementally** to `docs/AUDIT-PRODUCT.md` (dated
    pass, evidence: screenshots, timings, exact failing steps) so a crash
    never loses the pass.
