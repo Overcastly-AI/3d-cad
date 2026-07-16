@@ -171,10 +171,10 @@ nit, no user impact, stays Later).
       now correct); `S3_URL` unset → in-process LRU + guard kept. `EvaluateTreeResult`
       and every caller unchanged. moto `ThreadedMotoServer` (real S3 HTTP)
       proves put/get + content-address + miss→None + idempotent put + config
-      selection in `test_s3_store.py`. **Residuals (not blocking):** the
-      real-MinIO 2-worker/2-replica cross-process evaluate→fetch smoke is
-      **CI-gated** (skipped `test_real_minio_cross_process_smoke_is_ci_gated`,
-      docs/GEOMETRY-QA.md) — platform-builder to wire the compose/CI job; and
+      selection in `test_s3_store.py`. **Residuals:** the real-MinIO
+      cross-process evaluate→fetch smoke is **wired and CI-verified** — the
+      `geometry-minio-smoke` job (`66c4011`) boots compose MinIO and runs the
+      true second-OS-process round-trip (`LOFT_MINIO_SMOKE=1`); and
       the optional gateway presigned/streamed read (§7.8 default posture) stays
       a separate gateway concern (current geometry-served `/meshes/{id}` route
       is unchanged and correct). [src: engineering-auditor F1/F6]
