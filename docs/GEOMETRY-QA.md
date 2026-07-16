@@ -128,6 +128,18 @@ into both keys for the polyline primitive (mirrors how line uses start+end).
 Routed to the groomer/board. The new total-order tripwire test will fire the day a
 real part lands such a pair.
 
+**✅ RESOLVED (`d28d557`→fix, orchestrator) — polyline key now folds in the
+sampled points.** Code review (`5c4b080`) independently flagged the same gap, plus
+a second 🟡: the edge-classification loop (`_iter_edges`/`_classify` —
+`BRepAdaptor_Curve`/`GetType`/`Value`) ran OUTSIDE `project_view`'s try/except, so
+a degenerate-edge OCCT throw could escape unwrapped, breaking the §1.5 honest-
+failure contract. Both fixed in the module: (1) a `ProjectedEdge._points_key()`
+folded into `geometry_key` + `sort_key` (empty for the analytic kinds, so a no-op
+there) — two distinct polylines no longer collide/de-dup/tie; (2) the
+classification loop moved inside the guard (only pure-Python `_canonicalize` stays
+outside). New unit test `test_polyline_key_disambiguates_by_points` asserts the two
+keys differ; the tripwire + determinism/restart probes stay green (37 passed).
+
 **VERDICT: the HLR foundation is SOUND to build dimensions + export on.** Exact
 HLR delivers true analytic geometry (circle r=5.000 / arc r=5.000/10.000 exact to
 1e-7, centre + on-circle endpoints present → diameter/radius dims can attach), the

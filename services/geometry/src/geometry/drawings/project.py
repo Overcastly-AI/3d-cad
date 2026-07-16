@@ -150,6 +150,15 @@ class ProjectedEdge:
     radius: float | None = None
     points: tuple[Point2D, ...] = ()
 
+    def _points_key(self) -> tuple[tuple[float, float], ...]:
+        """The rounded interior sample points — the identity of a ``polyline``
+        whose analytic ``start``/``end``/``midpoint`` do NOT disambiguate it (two
+        genuinely different free-form silhouettes can share those three points but
+        differ in curvature). Empty for the analytic kinds (``points`` is ``()``),
+        so folding it into the keys is a no-op there and closes the gap where two
+        distinct polylines collide → silent de-dup / non-deterministic tie."""
+        return tuple(_round_point(p) for p in self.points)
+
     def geometry_key(self) -> tuple[object, ...]:
         """The geometry-only signature (visibility excluded) — the coincidence key
         for de-dup / visible-wins culling (§8 open Q2)."""
@@ -160,18 +169,21 @@ class ProjectedEdge:
             _round_point(self.midpoint),
             _round_point(self.center) if self.center is not None else None,
             round(self.radius, _KEY_DECIMALS) if self.radius is not None else None,
+            self._points_key(),
         )
 
     def sort_key(self) -> tuple[object, ...]:
         """The canonical TOTAL order key (§1.4): primitive rank, then rounded
-        start/end/mid, then radius, then visibility. A pure function of geometry,
-        so the order is independent of HLR's construction-history enumeration."""
+        start/end/mid, then radius, then the polyline sample points, then
+        visibility. A pure function of geometry, so the order is independent of
+        HLR's construction-history enumeration."""
         return (
             _PRIMITIVE_RANK[self.primitive],
             _round_point(self.start),
             _round_point(self.end),
             _round_point(self.midpoint),
             round(self.radius, _KEY_DECIMALS) if self.radius is not None else -1.0,
+            self._points_key(),
             not self.visible,  # visible (False→0) sorts before hidden on a tie
         )
 
@@ -402,17 +414,21 @@ def project_view(
         # Rg1Line* (tangent/smooth) is suppressed in v1 (§1.3).
         visible_compounds = (to_shape.VCompound(), to_shape.OutLineVCompound())
         hidden_compounds = (to_shape.HCompound(), to_shape.OutLineHCompound())
+        # Classification (BRepAdaptor_Curve / GetType / Value on each projected
+        # edge) can ALSO throw on a degenerate edge — keep it inside the guard so
+        # §1.5 holds end to end (never a raw OCCT exception past this call).
+        edges: list[ProjectedEdge] = []
+        for compound in visible_compounds:
+            for curve in _iter_edges(compound):
+                edges.append(_classify(curve, visible=True, scale=scale))
+        for compound in hidden_compounds:
+            for curve in _iter_edges(compound):
+                edges.append(_classify(curve, visible=False, scale=scale))
     except Exception as exc:  # any OCCT throw is an honest per-view error (§1.5)
         raise ViewProjectionError(view, f"{type(exc).__name__}: {exc}") from exc
 
-    edges: list[ProjectedEdge] = []
-    for compound in visible_compounds:
-        for curve in _iter_edges(compound):
-            edges.append(_classify(curve, visible=True, scale=scale))
-    for compound in hidden_compounds:
-        for curve in _iter_edges(compound):
-            edges.append(_classify(curve, visible=False, scale=scale))
-
+    # _canonicalize is pure Python (sort/de-dup on dataclasses) — no OCCT, so it
+    # stays outside the guard.
     return ViewProjection(view=view, scale=scale, edges=_canonicalize(edges))
 
 

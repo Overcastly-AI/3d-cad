@@ -594,10 +594,9 @@ def test_canonical_order_is_construction_history_independent() -> None:
 def test_sort_key_is_a_total_order_on_the_golden_bodies() -> None:
     """The canonical sort key must be a TOTAL order — no two emitted edges may share
     a key, or their relative order rides on HLR enumeration (a determinism hole).
-    Assert every probe body/view has all-distinct sort keys. NB: this holds for the
-    analytic (line/circle/arc) primitives by construction, but the `polyline` key
-    ignores its sampled points (see the 🟡 finding in docs/GEOMETRY-QA.md); this
-    test is the tripwire that fires if a real part ever lands a polyline tie."""
+    Assert every probe body/view has all-distinct sort keys. Holds for the analytic
+    (line/circle/arc) primitives by construction AND for `polyline` (the key folds
+    in the sampled points — see `test_polyline_key_disambiguates_by_points`)."""
     for name in _PROBE_BODIES:
         for view in _ALL_VIEWS:
             projection = project_view(_build(name), view)
@@ -606,3 +605,33 @@ def test_sort_key_is_a_total_order_on_the_golden_bodies() -> None:
                 f"{name}/{view}: duplicate sort key → order not a total order "
                 "(edges would sort by HLR enumeration, not geometry)"
             )
+
+
+def test_polyline_key_disambiguates_by_points() -> None:
+    """Two `polyline` edges that share rounded start/end/midpoint but differ in
+    interior curvature must NOT collide on either key — else `_canonicalize` would
+    silently drop one (data loss) and their order would ride on HLR enumeration (a
+    determinism hole). Unreachable from today's analytic primitives, so this asserts
+    the fix directly on the DTO keys (the review finding that closed the gap)."""
+    from geometry.drawings import Point2D
+
+    start, end, mid = Point2D(0.0, 0.0), Point2D(10.0, 0.0), Point2D(5.0, 0.0)
+    # Same endpoints + midpoint, different interior bulge → genuinely distinct edges.
+    a = ProjectedEdge(
+        primitive="polyline",
+        visible=True,
+        start=start,
+        end=end,
+        midpoint=mid,
+        points=(start, Point2D(2.5, 1.0), mid, Point2D(7.5, 1.0), end),
+    )
+    b = ProjectedEdge(
+        primitive="polyline",
+        visible=True,
+        start=start,
+        end=end,
+        midpoint=mid,
+        points=(start, Point2D(2.5, -1.0), mid, Point2D(7.5, -1.0), end),
+    )
+    assert a.geometry_key() != b.geometry_key()
+    assert a.sort_key() != b.sort_key()
