@@ -50,6 +50,138 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-16 — Independent geometry-QA of Drawings v1 #6: measurement + provenance-attach (`5e16f9d`, `test_drawings_measure.py`)
+
+Independent re-verification of dimension measurement + projected-edge→model-edge
+provenance (`geometry.drawings.measure` + the `project_view` provenance pass,
+design `drawings.md` §3.1/§3.2/§3.3, open Q1). Ran the author suite (`15 passed`),
+re-derived every golden by hand, and added **8 tests** (23 measure + 37 project =
+**60 passed**, ~92 s) that close the coverage gaps below. No tolerance was touched.
+
+**VERDICT: dimension measurement is SOUND to build the authoring UI on.** The
+load-bearing property — provenance NEVER attaches a WRONG model signature to a
+*dimensionable visible* projected edge — holds, and I proved it on the hardest
+adversarial case the shipped suite never exercised (below). Measurement values are
+model-true (re-derived independently, not trusted from the goldens). Two findings,
+both non-blocking: a pre-existing 🔴 **lint-red-at-HEAD** (frontend, not geometry)
+and a latent 🟡 (hidden-edge coincidence attribution). Neither is a wrong reachable
+dimension value.
+
+**Provenance-attach is correct on the depth-tie-break — proven on different-LENGTH
+coincident edges.** Every shipped provenance golden has coincident edges of the
+SAME length (a box's front/back rectangle) or the same value (a hole's two rims,
+both r5), so none of them actually tests whether the depth tie-break picks the
+*geometrically correct* edge — only that it doesn't crash. I built the case that
+does: the **wedge TOP view**. Two DISTINCT model edges project onto the SAME 2D
+segment (0,0)-(20,0): the bottom X-edge (true length **20**, depth z=0) and the
+slanted hypotenuse (true length 20√2 = **28.284**, depth z=10, nearer the top-down
+eye). Coincident in 2D, DIFFERENT in 3D length — attaching the wrong one is a
+silently-lying dimension (20 vs 28.284). The visible outline edge IS the near
+hypotenuse (the X-edge is occluded behind it), and the depth rule
+(max-depth-for-visible) correctly attaches the hypotenuse:
+
+| top-view visible edge | 2D drawn length | attached `source_edge.length_mm` | measured | flag |
+|---|---|---|---|---|
+| (0,0)-(20,0) | 20.000 | **28.284** (hypotenuse) | 28.284 | foreshortened ✓ |
+
+A naive "measure the 20 mm the line is drawn" would lie; provenance reads the
+model-true 28.284. Pinned by `test_wedge_top_provenance_picks_the_near_edge_of_a_
+different_length_pair`.
+
+**Why the wrong-attach cannot reach a VISIBLE dimension (re-derived from first
+principles).** Depth = `P·N` with N model→eye, so max-depth = nearest-eye. For any
+2D key, if a *visible* projected edge exists there, no coincident edge is nearer:
+a nearer edge would have to be occluded by material even nearer, which would also
+occlude the "visible" edge behind it — contradiction. So the nearest (max-depth)
+candidate IS the visible edge HLR drew, and max-depth attribution recovers it.
+Equal-depth coincidence (a genuine 3D boolean seam) is refused (`front` list > 1 →
+un-dimensionable) — honest, never a guess. I swept the model-edge index for
+geometry_key collisions across box / mirror-two-hole plate / concentric through-hole
+rims / wedge / notched block: **every** collision is either same-length (safe),
+same-value circle rims (safe), or depth-separable with the near edge visible
+(correct) — none attaches a wrong signature to a survivable visible edge. Mirror-
+congruent features never even collide (signatures encode absolute world coords, per
+`edges.py` §7.3).
+
+**Measurement values re-derived by hand (not trusted from goldens):** Ø10→`2·radius`
+= 10.000 (a real Ø, not radius); r5→`edge.radius` = 5.000; 40 mm edge→`edge.length`
+(exact B-rep arc length) = 40.000; the 45° vee = the true 3D angle between edge
+directions (oriented away from the shared vertex), **not** a projected angle;
+foreshortened hypotenuse 20√2 = 28.284 reads identical in the true-size front view
+and the foreshortened top view (value off the 3D model, flag alone flips). All
+exact to `LENGTH_TOL_MM = 1e-6` / `ANGLE_TOL_DEG = 1e-6`.
+
+**Coverage gaps closed (8 new tests):**
+- **Depth-tie-break correctness on different-length coincident edges** — the wedge-
+  top test above (the headline; the shipped suite had no such case).
+- **Point-to-point across TWO DISTINCT edges' endpoints** — the author suite only
+  measured the two ends of ONE edge. Two coplanar front-face 40 mm edges →
+  √(40²+10²) = √1700 = 41.231 (true-size, not foreshortened). `test_point_to_point_
+  across_two_distinct_edges`.
+- **Angular on NON-intersecting edges** (the `shared=False` undirected acute branch,
+  never hit) — wedge X-edge vs. far-face Z-edge → 90.000°; hypotenuse vs. far X-edge
+  → 45.000° via abs(cos). `test_angular_non_intersecting_edges_uses_undirected_
+  acute_angle`.
+- **A diameter on a hole seen EDGE-ON** — provenance correctly DECLINES it (the
+  front-view projection offers NO dimensionable circle: axis ⟂ N → ellipse, not a
+  sharp circle), yet an already-authored signature still MEASURES 10.000 with
+  `foreshortened=True`. Un-pickable-in-this-view ≠ un-measurable, and never a wrong
+  value. `test_edge_on_hole_carries_no_circle_provenance`.
+- **A circle with an OBLIQUE axis** (cylinder rotated 30° about X) → `foreshortened=
+  True` in both top and front, value stays 10.000. `test_oblique_axis_circle_is_
+  foreshortened_value_stays_true`.
+- **A linear edge tilted a KNOWN 30°** out of the view plane → flag set in top,
+  clear in front, value 20.000 in both. `test_linear_edge_at_30_degrees_is_
+  foreshortened`.
+- **A rebuild that REMOVES the feature** (a hole's circle signature resolved against
+  the plate without the hole) → typed `subshape_unresolved` — stronger than the
+  off-part bogus-signature golden (the ref was valid; the edit removed its edge).
+  `test_rebuild_removing_the_feature_is_subshape_unresolved`.
+- **Ambiguous signature** (congruent twin — a boolean seam / non-manifold duplicate)
+  → typed `subshape_ambiguous` on the DTO channel, never a 500. The
+  `dimension_wrong_type` and `subshape_unresolved` branches were golden'd but the
+  **`subshape_ambiguous` branch of `measure_dimension_dto` was untested** until now.
+  `test_ambiguous_signature_is_typed_error_not_raise`.
+
+**Determinism (item 5) confirmed unperturbed.** `test_drawings_project.py`'s
+canonical-order + interpreter-restart probes stay byte-identical (37 passed): the
+provenance tag is a `compare=False` field, out of the geometry/sort keys, and
+`_attach_provenance` is a pure dict-lookup/max/min with no dict-ordering dependence
+(the index is keyed by geometry, candidates compared by numeric depth).
+
+**🟡 FINDING (latent, NOT reachable as a wrong visible dimension) — a hidden-edge
+coincidence is attributed DEFINITIVELY rather than flagged ambiguous.**
+`_attach_provenance` (project.py:541–566) picks `min(depths)` (farthest) for a
+HIDDEN edge. When two hidden edges of DIFFERENT 3D length coincide in 2D with NO
+visible edge there (an internal cavity / fully-occluded seam), the surviving deduped
+dashed edge is tagged `dimensionable=True` with the FAR edge's signature — but the
+nearer occluded edge is an equally-valid source, so a user dimensioning that dashed
+line could read the far edge's length. Not reachable from today's authoring flow
+(dimensions attach to visible solid edges; the analytic parts don't produce a
+survivable different-length hidden coincidence — visible-wins culls the common case),
+and it's a hidden (dashed) edge either way, so severity is low. The honest fix is to
+apply the SAME equal/near-tie refusal the visible path uses: when two hidden
+candidates differ in length but a definite depth extreme exists, the pick is a guess
+between two real edges — prefer un-dimensionable. **Routing to kernel-architect** as
+a P3 provenance-hardening item (do NOT touch — kernel territory). Evidence: no
+shipping part triggers it; constructed only by design intent.
+
+**🔴 FINDING (pre-existing at `5e16f9d`, frontend — NOT geometry territory) — `just
+lint` is RED at HEAD.** The #6 commit added the required `dimensionable` (and
+`source_edge`) field to the projected-edge DTO, regenerated the ts-client, but did
+NOT update the frontend fixtures in `apps/web/src/drawing/layout.test.ts` (lines 20,
+138, 179, 198) — `tsc --noEmit` fails with TS2741 "Property 'dimensionable' is
+missing". Confirmed by `git stash` (fails on clean HEAD, independent of my Python-only
+change). This violates the DoD ("builds + lint/typecheck green") and the "never push
+a red build" rule. Not mine to fix (frontend test fixtures). **Routing to
+frontend-builder / qa-tester**: add `dimensionable: false` (+ omit/`source_edge`) to
+the four `ProjectedEdge` fixtures. P2 (blocks the lint gate; no runtime impact).
+
+Result: `test_drawings_measure.py` **23 passed** (15 author + 8 added),
+`test_drawings_project.py` 37 passed → **60 passed** together (~92 s); ruff + pyright
+clean on the added file. `just lint` red on the pre-existing frontend defect above
+(filed, not mine).
+
 ## 2026-07-16 — Drawings v1 #6: dimension measurement + projected-edge→model-edge provenance (`test_drawings_measure.py`)
 
 kernel-architect build note for the measurement + provenance slice
