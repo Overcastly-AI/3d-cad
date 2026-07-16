@@ -1,0 +1,593 @@
+"""Drawing boundary DTOs — sheets, views, dimensions, annotations + CRUD contract.
+
+Implements docs/design/drawings.md §2 (the persisted shapes) — the single
+source of truth (CLAUDE.md DRY rule): the documents service validates writes
+and serves its drawing CRUD API with these models, the geometry service will
+parse the generation request with the SAME models (§4/§5, a later slice), and
+``just gen`` exports them to ``packages/contracts`` / ``packages/ts-client``.
+Pure pydantic only — kernel types never appear here (CLAUDE.md service
+boundaries).
+
+A drawing is a LAYOUT (design §2.1) — sheets, each holding views + dimensions +
+annotations that *reference* a part/assembly by id — NOT a part feature history
+or an assembly graph. It is a first-class document type, sibling of part and
+assembly, and reuses their PATTERNS (owner-scoped auth, uniform-404 visibility,
+the ``doc_version`` optimistic-concurrency counter, cross-document 409-with-
+dependents) but not their tables.
+
+A DIMENSION names model geometry with the EXACT shipped topological-naming
+machinery — :class:`~py_kit.schemas.features.EdgeSignature`, reused VERBATIM
+(the same signature a ``concentric`` mate resolves for its axis and the
+``/overlay`` pick surface emits — design §3.3), never a parallel taxonomy and
+never an index into a projected-edge list (design §3.3 rejects (A)). The MEASURED
+value is computed by the geometry service later; documents stores only the
+reference + the dimension type + the authored 2D placement. Units are fixed per
+field, encoded in field names (``offset_mm``, ``x_mm``) exactly as
+:mod:`py_kit.schemas.geometry` does.
+"""
+
+import uuid
+from datetime import datetime
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+from py_kit.schemas.assemblies import RefDocumentKind
+from py_kit.schemas.features import EdgeSignature
+
+#: Upper bound for a user-facing drawing name ("Bracket — Detail").
+DRAWING_NAME_MAX_LENGTH = 200
+
+#: Upper bound for a per-sheet name ("Sheet 1").
+SHEET_NAME_MAX_LENGTH = 200
+
+#: Upper bound for a title-block free-text field (design §9 open-q 6: v1 holds
+#: free text; a structured/field-mapped title block is a fast-follow).
+TITLE_BLOCK_FIELD_MAX_LENGTH = 500
+
+#: Upper bound for a note annotation's text body.
+NOTE_TEXT_MAX_LENGTH = 5000
+
+#: Non-empty (post-strip), bounded drawing name.
+DrawingName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=DRAWING_NAME_MAX_LENGTH
+    ),
+]
+
+#: Non-empty (post-strip), bounded sheet name.
+SheetName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=SHEET_NAME_MAX_LENGTH
+    ),
+]
+
+#: A bounded title-block field (whitespace-trimmed; empty allowed → treated as
+#: unset by the caller). Free text in v1 (design §9 open-q 6).
+TitleBlockField = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, max_length=TITLE_BLOCK_FIELD_MAX_LENGTH
+    ),
+]
+
+#: Non-empty (post-strip), bounded note text.
+NoteText = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=NOTE_TEXT_MAX_LENGTH
+    ),
+]
+
+#: Standard sheet sizes (ISO A-series + ANSI). What documents stores; the
+#: composed artifact's physical extents are resolved geometry-side (design §4.2).
+SheetSize = Literal[
+    "A4", "A3", "A2", "A1", "A0", "ANSI_A", "ANSI_B", "ANSI_C", "ANSI_D"
+]
+
+#: Sheet orientation.
+SheetOrientation = Literal["landscape", "portrait"]
+
+#: Projection convention — third-angle (ISO default) vs first-angle. A SHEET
+#: convention (design §1.2), NOT a projection difference: same projected edges,
+#: different placement.
+SheetProjectionConvention = Literal["third_angle", "first_angle"]
+
+#: The standard orthographic + isometric projection directions a view stores
+#: (design §2.2). The projection ENUM is ALL documents persists — mapping it to a
+#: 3D frame + running HLR is the geometry service's job (design §1.2), never here.
+ViewProjection = Literal["front", "top", "right", "iso"]
+
+#: The v1 dimension set (design §3.1).
+DimensionType = Literal["linear", "diameter", "radius", "angular"]
+
+#: One of an edge signature's two canonically-ordered endpoints (design §3.3):
+#: a point-to-point linear dimension names an edge + one of its ends, sidestepping
+#: the unshipped bare-vertex signature (topological-naming Open Q 10).
+DimensionEndpoint = Literal["end_a", "end_b"]
+
+
+# --- sheet-space geometry -------------------------------------------------------
+
+
+class SheetPoint(BaseModel):
+    """A 2D point in SHEET space (mm), origin at the title-block corner (§9 q4).
+
+    Sheet space is millimetres at 1:1; a view's scale maps model-mm → sheet-mm
+    (design §9 open-q 4). Used for view placement, dimension text, and note
+    positions. Full precision; a non-finite coordinate is a request-validation
+    422 (``allow_inf_nan=False``), never a silently-defaulted position.
+    """
+
+    x_mm: float = Field(
+        allow_inf_nan=False, description="X on the sheet, mm from the origin corner"
+    )
+    y_mm: float = Field(
+        allow_inf_nan=False, description="Y on the sheet, mm from the origin corner"
+    )
+
+
+class ViewScale(BaseModel):
+    """A view's drawing scale as an exact rational ``numerator:denominator``.
+
+    Stored as two integers (design §2.2 ``scale_num``/``scale_den``) so the scale
+    is EXACT — 1:2 is ``1/2``, never a lossy float. A model-mm length maps to
+    ``length * numerator / denominator`` sheet-mm. Both are >= 1.
+    """
+
+    numerator: int = Field(ge=1, description="Scale numerator (1 for 1:N)")
+    denominator: int = Field(ge=1, description="Scale denominator (N for 1:N)")
+
+
+#: The default view scale — full size (1:1).
+DEFAULT_VIEW_SCALE = ViewScale(numerator=1, denominator=1)
+
+
+class TitleBlock(BaseModel):
+    """Free-text title-block fields (design §9 open-q 6 — v1 holds free text).
+
+    Every field is optional; a structured/field-mapped title block auto-filled
+    from the referenced part is a fast-follow. The composed artifact stamps these
+    geometry-side (design §4.2).
+    """
+
+    title: TitleBlockField | None = Field(default=None, description="Drawing title")
+    author: TitleBlockField | None = Field(default=None, description="Author / drafter")
+    date: TitleBlockField | None = Field(default=None, description="Free-text date")
+    notes: TitleBlockField | None = Field(default=None, description="Free-text notes")
+
+
+# --- how a dimension names model geometry (design §3.3) -------------------------
+#
+# A dimension names a MODEL edge with the shipped EdgeSignature (reused VERBATIM
+# — the same fingerprint a `concentric` mate's axis and a picked-edge fillet use,
+# topological-naming.md §10). The VIEW (via `view_id`) already scopes which part
+# body the signature resolves against, so — unlike a mate's `MateAxisRef`, which
+# must carry an `instance_id` — a dimension ref needs only the signature. The
+# geometry service resolves it against the view's evaluated body and measures the
+# value (design §3.3/§5); documents stores the reference only.
+
+
+class DimensionEndpointRef(BaseModel):
+    """One canonical endpoint of a model edge (design §3.3 point-to-point linear).
+
+    ``endpoint`` selects ``end_a`` or ``end_b`` of the ``signature``'s
+    canonically-ordered pair — a vertex named through an EDGE, so v1 needs no
+    (unshipped) bare-vertex signature (topological-naming Open Q 10).
+    """
+
+    signature: EdgeSignature = Field(
+        description="The model edge whose endpoint this names (reused EdgeSignature)"
+    )
+    endpoint: DimensionEndpoint = Field(
+        description="Which canonical end of the edge (end_a / end_b)"
+    )
+
+
+class DimensionPlacement(BaseModel):
+    """Authored 2D placement of a dimension on the sheet (design §3.1).
+
+    Placement is AUTHORED data (which side of the geometry the dimension line +
+    witness lines sit, and the text position); the measured VALUE is always taken
+    from the model, never typed (a v1 drawing dimension is driven-by-geometry,
+    never driving — design §3.1). ``offset_mm`` is the signed distance of the
+    dimension line from the geometry in the view plane; ``text_pos`` optionally
+    overrides the text placement.
+    """
+
+    offset_mm: float = Field(
+        default=0.0,
+        allow_inf_nan=False,
+        description="Signed offset of the dimension line from the geometry (mm)",
+    )
+    text_pos: SheetPoint | None = Field(
+        default=None, description="Optional text-position override (sheet mm)"
+    )
+
+
+# --- the v1 dimension set (design §3.1) -----------------------------------------
+
+
+class EdgeLengthMeasurement(BaseModel):
+    """Measure the length of a single model edge (design §3.1 linear)."""
+
+    mode: Literal["edge_length"] = "edge_length"
+    edge: EdgeSignature = Field(description="The model edge whose length is measured")
+
+
+class PointToPointMeasurement(BaseModel):
+    """Measure the distance between two model-edge endpoints (design §3.1/§3.3)."""
+
+    mode: Literal["point_to_point"] = "point_to_point"
+    a: DimensionEndpointRef = Field(description="First endpoint")
+    b: DimensionEndpointRef = Field(description="Second endpoint")
+
+
+#: Discriminated linear-measurement source: a single edge's length, OR the
+#: distance between two edge-endpoints (design §3.1).
+LinearMeasurement = Annotated[
+    EdgeLengthMeasurement | PointToPointMeasurement, Field(discriminator="mode")
+]
+
+
+class LinearDimensionParams(BaseModel):
+    """A linear dimension — an edge length or a point-to-point distance (§3.1)."""
+
+    type: Literal["linear"] = "linear"
+    measurement: LinearMeasurement = Field(
+        description="What is measured (an edge's length or two endpoints)"
+    )
+    placement: DimensionPlacement = Field(
+        default_factory=DimensionPlacement, description="Authored 2D placement"
+    )
+
+
+class DiameterDimensionParams(BaseModel):
+    """A diameter dimension on a circular model edge (design §3.1).
+
+    ``edge`` must resolve to a CIRCULAR edge (``curve == "circle"``) — the
+    identical reuse a ``concentric`` mate makes for its axis (design §3.3), so one
+    signature names a hole for both mating and dimensioning. The measured value
+    (2·radius) is computed geometry-side.
+    """
+
+    type: Literal["diameter"] = "diameter"
+    edge: EdgeSignature = Field(description="Circular model edge (curve == 'circle')")
+    placement: DimensionPlacement = Field(
+        default_factory=DimensionPlacement, description="Authored 2D placement"
+    )
+
+
+class RadiusDimensionParams(BaseModel):
+    """A radius dimension on a circular / arc model edge (design §3.1)."""
+
+    type: Literal["radius"] = "radius"
+    edge: EdgeSignature = Field(description="Circular / arc model edge")
+    placement: DimensionPlacement = Field(
+        default_factory=DimensionPlacement, description="Authored 2D placement"
+    )
+
+
+class AngularDimensionParams(BaseModel):
+    """An angular dimension between two straight model edges (design §3.1)."""
+
+    type: Literal["angular"] = "angular"
+    edge_a: EdgeSignature = Field(description="First straight model edge")
+    edge_b: EdgeSignature = Field(description="Second straight model edge")
+    placement: DimensionPlacement = Field(
+        default_factory=DimensionPlacement, description="Authored 2D placement"
+    )
+
+
+#: Discriminated v1 dimension union (design §3.1). A richer dimension kind joins
+#: additively (the feature-tree.md §1.4 discipline) with no version churn.
+Dimension = Annotated[
+    LinearDimensionParams
+    | DiameterDimensionParams
+    | RadiusDimensionParams
+    | AngularDimensionParams,
+    Field(discriminator="type"),
+]
+
+#: Plain (non-annotated) union alias for annotating validated values.
+DimensionParams = (
+    LinearDimensionParams
+    | DiameterDimensionParams
+    | RadiusDimensionParams
+    | AngularDimensionParams
+)
+
+
+# --- annotations (design §2.2 — v1 minimal) -------------------------------------
+
+
+class NoteAnnotationParams(BaseModel):
+    """A free text note placed on the sheet (design §2.2 v1 minimal).
+
+    v1 ships the ``note`` kind only (text + sheet position); a ``leader`` (a note
+    with a pointer) joins additively later — hence :data:`Annotation` is a plain
+    alias today (pydantic forbids a single-member discriminated union), promoted
+    to a ``type``-discriminated union when the second kind lands.
+    """
+
+    type: Literal["note"] = "note"
+    text: NoteText = Field(description="The note body")
+    position: SheetPoint = Field(description="Anchor position on the sheet (mm)")
+
+
+#: v1 annotation union — one member (``note``), so a plain alias (the same idiom
+#: as :data:`~py_kit.schemas.features.Selector`).
+Annotation = NoteAnnotationParams
+
+#: Plain alias for annotating validated values (symmetry with DimensionParams).
+AnnotationParams = NoteAnnotationParams
+
+
+# --- CRUD / response DTOs (documents API + gateway aggregation) ------------------
+#
+# Mirror the assembly CRUD DTOs (AssemblyCreate/AssemblyResponse, …) including the
+# `expected_version` optimistic-concurrency guard (stale write → 422, keeping 409
+# unambiguous for the delete-with-dependents conflict — assemblies.md §1.2).
+
+
+class DrawingCreate(BaseModel):
+    """Create a drawing owned by the calling user (design §2.1)."""
+
+    name: DrawingName = Field(
+        description="Drawing name; unique per owner, whitespace-trimmed, "
+        f"1-{DRAWING_NAME_MAX_LENGTH} characters"
+    )
+
+
+class DrawingUpdate(BaseModel):
+    """Rename a drawing. Bumps ``doc_version`` (any mutation bumps — §2.1)."""
+
+    expected_version: int = Field(
+        ge=0,
+        description="Optimistic-concurrency guard: the doc_version the client last "
+        "saw; a stale value is rejected 422 (design §2.1)",
+    )
+    name: DrawingName = Field(description="New drawing name")
+
+
+class DrawingResponse(BaseModel):
+    """A drawing header as stored — identity, ownership, and its OCC token."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    owner_id: uuid.UUID = Field(description="Owning user id (gateway-verified)")
+    doc_version: int = Field(
+        description="Monotonic optimistic-concurrency counter (design §2.1)"
+    )
+    created_at: datetime
+    updated_at: datetime
+
+
+class DrawingListResponse(BaseModel):
+    """The caller's drawings, oldest first (wrapper leaves room for paging)."""
+
+    drawings: list[DrawingResponse]
+
+
+class SheetCreate(BaseModel):
+    """Add a sheet to a drawing (append at the tip; design §2.2)."""
+
+    expected_version: int = Field(
+        ge=0, description="Optimistic-concurrency guard (design §2.1)"
+    )
+    name: SheetName = Field(description='Sheet name ("Sheet 1")')
+    size: SheetSize = Field(default="A4", description="Sheet size (ISO / ANSI)")
+    orientation: SheetOrientation = Field(
+        default="landscape", description="Sheet orientation"
+    )
+    projection: SheetProjectionConvention = Field(
+        default="third_angle",
+        description="Projection convention (third-angle default, design §1.2)",
+    )
+    title_block: TitleBlock | None = Field(
+        default=None, description="Free-text title block (design §9 q6)"
+    )
+
+
+class SheetUpdate(BaseModel):
+    """Update a sheet's header (design §2.2). At least one field must be provided."""
+
+    expected_version: int = Field(
+        ge=0, description="Optimistic-concurrency guard (design §2.1)"
+    )
+    name: SheetName | None = None
+    size: SheetSize | None = None
+    orientation: SheetOrientation | None = None
+    projection: SheetProjectionConvention | None = None
+    title_block: TitleBlock | None = Field(
+        default=None,
+        description="Replacement title block (None leaves it unchanged; clear via "
+        "an empty TitleBlock)",
+    )
+
+
+class SheetResponse(BaseModel):
+    """A sheet as stored (design §2.2)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    drawing_id: uuid.UUID
+    name: str
+    size: SheetSize
+    orientation: SheetOrientation
+    projection: SheetProjectionConvention
+    title_block: TitleBlock | None
+    order_index: int = Field(description="Stable sheet order (dense 0..n-1)")
+    created_at: datetime
+    updated_at: datetime
+
+
+class ViewCreate(BaseModel):
+    """Add a view referencing a part / assembly at a projection (design §2.2).
+
+    ``ref_document_id`` is a cross-document reference, NOT an FK (design §2.2,
+    identical to an assembly instance): documents enforces existence at write time
+    and deleting the referenced document is a 409-with-dependents. v1 tracks the
+    referenced document's TIP (``ref_pinned_version`` present but NULL — design
+    §2.3, the schema is pin-ready). ``projection`` is the standard orthographic /
+    iso direction (all documents stores — mapping it to a 3D frame + HLR is
+    geometry's job). ``order_index`` is appended at the tip when omitted.
+    """
+
+    expected_version: int = Field(
+        ge=0, description="Optimistic-concurrency guard (design §2.1)"
+    )
+    ref_document_id: uuid.UUID = Field(
+        description="The part / assembly document this view projects"
+    )
+    ref_document_kind: RefDocumentKind = Field(
+        default="part",
+        description="'part' (v1) or 'assembly' (assembly views are the fast-follow, "
+        "design §7)",
+    )
+    projection: ViewProjection = Field(
+        description="Projection direction (front / top / right / iso)"
+    )
+    scale: ViewScale = Field(
+        default=DEFAULT_VIEW_SCALE, description="Drawing scale (rational; 1:1 default)"
+    )
+    position: SheetPoint = Field(description="View placement on the sheet (mm)")
+
+
+class ViewUpdate(BaseModel):
+    """Re-frame / re-scale / re-place a view (design §2.2).
+
+    Every field is optional; at least one must be provided. Re-pointing the
+    referenced document is NOT an update (it changes which body the view's
+    dimensions resolve against) — that is a delete + recreate.
+    """
+
+    expected_version: int = Field(
+        ge=0, description="Optimistic-concurrency guard (design §2.1)"
+    )
+    projection: ViewProjection | None = None
+    scale: ViewScale | None = None
+    position: SheetPoint | None = None
+
+
+class ViewResponse(BaseModel):
+    """A view as stored (design §2.2)."""
+
+    id: uuid.UUID
+    sheet_id: uuid.UUID
+    ref_document_id: uuid.UUID
+    ref_document_kind: RefDocumentKind
+    ref_pinned_version: int | None = Field(
+        description="Pinned referenced-document version, or null = track tip. NULL "
+        "in v1 (design §2.3 — the schema is pin-ready)."
+    )
+    projection: ViewProjection
+    scale: ViewScale
+    position: SheetPoint
+    order_index: int = Field(
+        description="Stable view order on the sheet (dense 0..n-1)"
+    )
+    created_at: datetime
+    updated_at: datetime
+
+
+class DimensionCreate(BaseModel):
+    """Add a dimension to a view (append at the tip; design §3).
+
+    ``dimension`` is the discriminated :data:`Dimension` union; its geometry
+    references (via :class:`~py_kit.schemas.features.EdgeSignature`) resolve
+    against the view's referenced body geometry-side. ``order_index`` is stable
+    per sheet, appended at the tip.
+    """
+
+    expected_version: int = Field(
+        ge=0, description="Optimistic-concurrency guard (design §2.1)"
+    )
+    dimension: Dimension = Field(description="The dimension (discriminated on `type`)")
+
+
+class DimensionResponse(BaseModel):
+    """A dimension as stored, with its params envelope reassembled (design §3)."""
+
+    id: uuid.UUID
+    sheet_id: uuid.UUID
+    view_id: uuid.UUID
+    order_index: int = Field(description="Stable per-sheet order (dense 0..n-1)")
+    dimension: Dimension
+
+
+class AnnotationCreate(BaseModel):
+    """Add an annotation to a sheet (append at the tip; design §2.2)."""
+
+    expected_version: int = Field(
+        ge=0, description="Optimistic-concurrency guard (design §2.1)"
+    )
+    annotation: Annotation = Field(description="The annotation (v1: a note)")
+
+
+class AnnotationResponse(BaseModel):
+    """An annotation as stored (design §2.2)."""
+
+    id: uuid.UUID
+    sheet_id: uuid.UUID
+    order_index: int = Field(description="Stable per-sheet order (dense 0..n-1)")
+    annotation: Annotation
+
+
+# --- aggregate read + mutation responses ----------------------------------------
+
+
+class SheetContent(BaseModel):
+    """One sheet plus its views, dimensions, and annotations (design §2.2)."""
+
+    sheet: SheetResponse
+    views: list[ViewResponse]
+    dimensions: list[DimensionResponse]
+    annotations: list[AnnotationResponse]
+
+
+class DrawingTreeResponse(BaseModel):
+    """A drawing plus its full sheet → view/dimension/annotation tree + OCC token.
+
+    The read model a client renders (design §2.2): the drawing header, its sheets
+    in ``order_index`` order (each with its views/dimensions/annotations in
+    ``order_index`` order), and the ``doc_version`` the client echoes as its next
+    ``expected_version``.
+    """
+
+    drawing: DrawingResponse
+    doc_version: int = Field(description="Echoed OCC token (== drawing.doc_version)")
+    sheets: list[SheetContent]
+
+
+class SheetMutationResponse(BaseModel):
+    """Result of a single-sheet mutation: the sheet + the new version."""
+
+    sheet: SheetResponse
+    doc_version: int
+
+
+class ViewMutationResponse(BaseModel):
+    """Result of a single-view mutation: the view + the new version."""
+
+    view: ViewResponse
+    doc_version: int
+
+
+class DimensionMutationResponse(BaseModel):
+    """Result of a single-dimension mutation: the dimension + the new version."""
+
+    dimension: DimensionResponse
+    doc_version: int
+
+
+class AnnotationMutationResponse(BaseModel):
+    """Result of a single-annotation mutation: the annotation + the new version."""
+
+    annotation: AnnotationResponse
+    doc_version: int

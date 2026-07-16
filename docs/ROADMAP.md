@@ -295,10 +295,27 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `docs/design/step-import.md`. Remaining: IGES, multi-solid/assembly
       (likely couples to Phase 3), sew/heal, blob-ref storage — BACKLOG
       Later.
-- ⬜ 2D drawings: views from model, dimensions, PDF/DXF export — the
+- 🚧 2D drawings: views from model, dimensions, PDF/DXF export — the
       product audit's honest #2/near-#1 counter-argument to Assemblies
-      (smaller build, completes the make-loop for the single-part case);
-      not sequenced this pass, founder chose Assemblies as #1.
+      (smaller build, completes the make-loop for the single-part case).
+      **Drawings v1 #1 — document model + CRUD (documents) SHIPPED**:
+      `py_kit.schemas.drawings` (sheets/views/dimensions/annotations,
+      dimensions naming model geometry by the reused `EdgeSignature`),
+      `drawings`/`sheets`/`views`/`dimensions`/`annotations` tables
+      (migration `0004`), owner-scoped CRUD with OCC (`doc_version`), and the
+      cross-document 409-with-dependents extended so deleting a part a drawing
+      VIEW references is blocked. **Drawings v1 #2 — HLR 2D-projection module
+      (geometry) SHIPPED**: `geometry.drawings.project_view` runs exact HLR
+      (`HLRBRep_Algo`, no new dep) → canonically-ordered visible (solid) +
+      hidden (dashed) 2D edges as neutral primitives (line/circle/arc/polyline),
+      the load-bearing determinism constraint (§1.4) met by a canonical total
+      order + fixed decimal formatter — byte-identical across an interpreter
+      restart; 4 analytic goldens (box rectangle, through-hole→true-Ø10-circle,
+      back-pocket hidden set, cylinder rectangle) + 12-param restart probe
+      (`test_drawings_project.py`, 20 passed), honest typed `ViewProjectionError`
+      on HLR failure (§1.5). Remaining: dimension measurement + projected-edge→
+      model-edge map (§3.3), gateway routes, SVG export, frontend sheet editor
+      (design doc §3/§4/§6).
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 5 — Agent-native & extensibility ⬜

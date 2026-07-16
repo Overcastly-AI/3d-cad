@@ -1,10 +1,11 @@
 """Documents app — boots on the py-kit factory (probes, logging, envelope).
 
 ``/api/v1`` surface: parts CRUD (:mod:`documents.parts`), the ordered feature
-tree (:mod:`documents.features`, per docs/design/feature-tree.md), and assembly
+tree (:mod:`documents.features`, per docs/design/feature-tree.md), assembly
 CRUD (:mod:`documents.assemblies`, per docs/design/assemblies.md — a graph of
-instances + mates), backed by Postgres via the shared :mod:`py_kit.db` plumbing
-with the schema
+instances + mates), and drawing CRUD (:mod:`documents.drawings`, per
+docs/design/drawings.md — a layout of sheets/views/dimensions/annotations),
+backed by Postgres via the shared :mod:`py_kit.db` plumbing with the schema
 owned by ``services/documents/alembic``. This service never imports kernel
 code (CLAUDE.md service boundaries) — geometry artifacts are referenced by
 object-storage id only.
@@ -19,6 +20,7 @@ from py_kit import BaseServiceSettings, create_app
 from py_kit.db import DatabaseState, postgres_readiness
 
 from documents.assemblies import router as assemblies_router
+from documents.drawings import router as drawings_router
 from documents.features import router as features_router
 from documents.parts import router as parts_router
 
@@ -70,6 +72,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(parts_router)
     app.include_router(features_router)
     app.include_router(assemblies_router)
+    app.include_router(drawings_router)
     return app
 
 

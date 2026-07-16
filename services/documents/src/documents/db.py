@@ -37,6 +37,10 @@ from py_kit.schemas.assemblies import (
     ASSEMBLY_NAME_MAX_LENGTH,
     INSTANCE_NAME_MAX_LENGTH,
 )
+from py_kit.schemas.drawings import (
+    DRAWING_NAME_MAX_LENGTH,
+    SHEET_NAME_MAX_LENGTH,
+)
 from py_kit.schemas.features import FEATURE_NAME_MAX_LENGTH
 from py_kit.schemas.parts import PART_NAME_MAX_LENGTH
 from sqlalchemy.dialects import postgresql
@@ -394,5 +398,291 @@ class Mate(Base):
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (
             f"Mate(id={self.id!r}, assembly_id={self.assembly_id!r}, "
+            f"type={self.type!r})"
+        )
+
+
+class Drawing(Base):
+    """A drawing — a layout of sheets/views/dimensions/annotations (drawings.md §2).
+
+    A FIRST-CLASS document type, sibling of :class:`Part` / :class:`Assembly`
+    under the document umbrella (design §2.1) — its own tables, reusing their
+    PATTERNS (owner-scoped auth, uniform-404 visibility, an optimistic-concurrency
+    counter, alembic-only DDL, cross-document 409-with-dependents) but NOT their
+    tables: a drawing is a LAYOUT that *references* parts/assemblies, not a part
+    history or an instance graph. ``owner_id`` is the gateway-verified user id (no
+    cross-service FK — RESEARCH §3, same posture as :class:`Part`);
+    ``(owner_id, name)`` is unique so the constraint enforces one name per owner
+    and its backing index serves the owner-scoped list scan. Nothing references a
+    drawing (it is a pure leaf consumer, design §2.2), so no acyclicity walk is
+    needed.
+    """
+
+    __tablename__ = "drawings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
+    name: Mapped[str] = mapped_column(
+        sa.String(DRAWING_NAME_MAX_LENGTH), nullable=False
+    )
+    #: Monotonic optimistic-concurrency counter — bumped in the same
+    #: transaction as ANY sheet/view/dimension/annotation mutation (§2.1).
+    doc_version: Mapped[int] = mapped_column(
+        sa.BigInteger(), nullable=False, default=0, server_default=sa.text("0")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("owner_id", "name", name="uq_drawings_owner_name"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"Drawing(id={self.id!r}, owner_id={self.owner_id!r}, name={self.name!r})"
+        )
+
+
+class Sheet(Base):
+    """One sheet of a drawing (design §2.2).
+
+    ``title_block`` is the free-text TitleBlock DTO as JSONB (nullable — a sheet
+    may carry none). ``order_index`` is a stable dense 0..n-1 order renumbered on
+    insert/delete; ``uq_sheets_drawing_order`` is a plain UNIQUE (app renumbers
+    collision-free — shift-down on delete is monotone, so it is correct under
+    IMMEDIATE checking, no deferrable clause needed). Its backing index also
+    serves the ordered sheet scan.
+    """
+
+    __tablename__ = "sheets"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    drawing_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("drawings.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(sa.String(SHEET_NAME_MAX_LENGTH), nullable=False)
+    size: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    orientation: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    projection: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    #: The free-text TitleBlock DTO (JSONB on Postgres); NULL when unset.
+    title_block: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON_VARIANT, nullable=True
+    )
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "drawing_id", "order_index", name="uq_sheets_drawing_order"
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"Sheet(id={self.id!r}, drawing_id={self.drawing_id!r}, "
+            f"name={self.name!r})"
+        )
+
+
+class View(Base):
+    """One projected view on a sheet, referencing a part / assembly (design §2.2).
+
+    References another DOCUMENT (a part or an assembly) by id — a CROSS-DOCUMENT
+    reference, NOT a DB FK (design §2.2, identical to an assembly instance):
+    integrity is app-enforced in documents at write time (existence,
+    409-with-dependents), because the reference must survive the referenced doc's
+    independent lifecycle. ``ref_pinned_version`` is present but NULL in v1
+    (design §2.3 — the schema is pin-ready; v1 tracks the referenced document's
+    tip). ``projection`` is the standard orthographic / iso direction (all
+    documents stores — HLR is geometry's job); ``scale_num``/``scale_den`` are the
+    exact rational scale and ``pos_x_mm``/``pos_y_mm`` the sheet placement. A view
+    owns its dimensions (``dimensions.view_id`` CASCADE).
+    """
+
+    __tablename__ = "views"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    sheet_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("sheets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: Cross-document reference (part / assembly) — app-enforced, no FK.
+    ref_document_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
+    ref_document_kind: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    #: Pin-ready (§2.3): NULL in v1 = track the referenced document's tip.
+    ref_pinned_version: Mapped[int | None] = mapped_column(
+        sa.BigInteger(), nullable=True
+    )
+    projection: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    scale_num: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    scale_den: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    pos_x_mm: Mapped[float] = mapped_column(sa.Float(), nullable=False)
+    pos_y_mm: Mapped[float] = mapped_column(sa.Float(), nullable=False)
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("sheet_id", "order_index", name="uq_views_sheet_order"),
+        # Reverse lookup of "which views reference document X" — the
+        # cross-document 409-with-dependents pre-check (design §2.2).
+        sa.Index("ix_views_ref_document", "ref_document_id"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"View(id={self.id!r}, sheet_id={self.sheet_id!r}, "
+            f"ref_document_id={self.ref_document_id!r})"
+        )
+
+
+class Dimension(Base):
+    """One dimension annotating a view (design §2.2/§3).
+
+    ``type`` is promoted to a real column (indexable/filterable) exactly as a
+    :class:`Feature`/:class:`Mate` type is; ``params`` holds the full
+    :data:`~py_kit.schemas.drawings.Dimension` payload (including its geometry
+    signature refs) as JSONB and is ALWAYS the output of a successful pydantic
+    validation — py-kit models are the gate, never a JSON CHECK. A dimension is
+    pinned to its ``view_id`` (CASCADE — deleting a view removes its dimensions)
+    and ordered per SHEET (``uq_dimensions_sheet_order`` — design §2.2). Plain
+    UNIQUE; app renumbers collision-free on delete.
+    """
+
+    __tablename__ = "dimensions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    sheet_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("sheets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    view_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("views.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    type: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    params: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "sheet_id", "order_index", name="uq_dimensions_sheet_order"
+        ),
+        # Reverse lookup for the view→dimensions cascade renumber on the app side.
+        sa.Index("ix_dimensions_view", "view_id"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"Dimension(id={self.id!r}, view_id={self.view_id!r}, type={self.type!r})"
+        )
+
+
+class Annotation(Base):
+    """One annotation (v1: a note) on a sheet (design §2.2).
+
+    ``type`` is promoted to a real column; ``params`` holds the full
+    :data:`~py_kit.schemas.drawings.Annotation` payload (text + position) as
+    JSONB, always the output of a successful pydantic validation. Ordered per
+    SHEET (``uq_annotations_sheet_order``); plain UNIQUE, app renumbers
+    collision-free on delete.
+    """
+
+    __tablename__ = "annotations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    sheet_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("sheets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    type: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    params: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "sheet_id", "order_index", name="uq_annotations_sheet_order"
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"Annotation(id={self.id!r}, sheet_id={self.sheet_id!r}, "
             f"type={self.type!r})"
         )

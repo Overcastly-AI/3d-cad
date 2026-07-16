@@ -141,6 +141,50 @@ def test_0003_offline_downgrade_drops_everything(
     assert "DROP TABLE assemblies" in sql
 
 
+def test_0004_offline_sql_matches_design_ddl(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0003:0004")
+
+    # §2.2 — drawings header: OCC counter + one-name-per-owner unique.
+    assert "doc_version BIGINT DEFAULT 0 NOT NULL" in sql
+    assert "CONSTRAINT uq_drawings_owner_name UNIQUE (owner_id, name)" in sql
+    # §2.2 — sheets: title_block JSONB + plain per-drawing order unique + CASCADE.
+    assert "title_block JSONB" in sql
+    assert (
+        "CONSTRAINT uq_sheets_drawing_order UNIQUE (drawing_id, order_index)" in sql
+    )
+    assert "REFERENCES drawings (id) ON DELETE CASCADE" in sql
+    # §2.2 — views: cross-document ref (NOT an FK), pin-ready column, scalar
+    # scale + position columns, reverse-lookup index for the 409 pre-check.
+    assert "FOREIGN KEY(ref_document_id)" not in sql
+    assert "ref_pinned_version BIGINT" in sql
+    assert "CONSTRAINT uq_views_sheet_order UNIQUE (sheet_id, order_index)" in sql
+    assert "REFERENCES sheets (id) ON DELETE CASCADE" in sql
+    assert "CREATE INDEX ix_views_ref_document ON views (ref_document_id)" in sql
+    # §2.2/§3 — dimensions: view_id CASCADE + JSONB params + per-sheet order.
+    assert "REFERENCES views (id) ON DELETE CASCADE" in sql
+    assert "CONSTRAINT uq_dimensions_sheet_order UNIQUE (sheet_id, order_index)" in sql
+    assert "params JSONB NOT NULL" in sql
+    # §2.2 — annotations: per-sheet order unique.
+    assert (
+        "CONSTRAINT uq_annotations_sheet_order UNIQUE (sheet_id, order_index)" in sql
+    )
+
+
+def test_0004_offline_downgrade_drops_everything(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0004:0003", downgrade=True)
+    assert "DROP TABLE annotations" in sql
+    assert "DROP INDEX ix_dimensions_view" in sql
+    assert "DROP TABLE dimensions" in sql
+    assert "DROP INDEX ix_views_ref_document" in sql
+    assert "DROP TABLE views" in sql
+    assert "DROP TABLE sheets" in sql
+    assert "DROP TABLE drawings" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:
@@ -166,6 +210,11 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "assemblies",
         "instances",
         "mates",
+        "drawings",
+        "sheets",
+        "views",
+        "dimensions",
+        "annotations",
         "alembic_version",
     }
 
@@ -177,6 +226,11 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
     assert "assemblies" not in remaining
     assert "instances" not in remaining
     assert "mates" not in remaining
+    assert "drawings" not in remaining
+    assert "sheets" not in remaining
+    assert "views" not in remaining
+    assert "dimensions" not in remaining
+    assert "annotations" not in remaining
 
     alembic_runner(pg_url, "head")
     assert asyncio.run(_table_names(pg_url)) >= {
@@ -186,4 +240,9 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "assemblies",
         "instances",
         "mates",
+        "drawings",
+        "sheets",
+        "views",
+        "dimensions",
+        "annotations",
     }

@@ -44,7 +44,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db
-from documents.parts import Principal, get_owned_assembly, reject_if_instanced
+from documents.parts import (
+    Principal,
+    get_owned_assembly,
+    referenced_document_exists,
+    reject_if_instanced,
+)
 
 _logger = get_logger("documents.assemblies")
 
@@ -152,28 +157,6 @@ async def _shift_down(
 
 
 # --- cross-document integrity (§1.2) ----------------------------------------------
-
-
-async def _referenced_document_exists(
-    session: AsyncSession,
-    owner_id: uuid.UUID,
-    ref_document_id: uuid.UUID,
-    ref_document_kind: str,
-) -> bool:
-    """Does the referenced part / sub-assembly exist AND belong to the caller?
-
-    Owner-scoped (§1.2): you may only instance your OWN parts/assemblies, so a
-    foreign or unknown id is treated identically (no existence oracle across
-    owners). The reference is app-enforced here, not a DB FK — it must survive
-    the referenced doc's independent lifecycle (design §1.2).
-    """
-    model: type[db.Part] | type[db.Assembly] = (
-        db.Part if ref_document_kind == "part" else db.Assembly
-    )
-    result = await session.execute(
-        select(model.id).where(model.id == ref_document_id, model.owner_id == owner_id)
-    )
-    return result.first() is not None
 
 
 async def _sub_assembly_children(
@@ -401,7 +384,7 @@ async def create_instance(
     if request.ref_document_kind == "assembly":
         await _serialize_owner_cycle_writes(session, owner_id)
 
-    if not await _referenced_document_exists(
+    if not await referenced_document_exists(
         session, owner_id, request.ref_document_id, request.ref_document_kind
     ):
         raise ValidationApiError(

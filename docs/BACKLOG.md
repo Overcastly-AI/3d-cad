@@ -31,10 +31,12 @@ duplication:
   no collision detection, no exploded views, no BOM, no assembly-level STEP
   IO, instances track a part's live tip not a pinned version, sub-assemblies
   rigid-only. See VISION.md row for full evidence chain.
-- **Drawings — ❌, now the headline gap** (product audit's honest #2 —
-  smaller build than Assemblies, completes the make-loop for the
-  already-solid single-part case via STEP-to-shop). Pick up now that
-  Assemblies v1 has landed, or sooner if Ready runs dry.
+- **Drawings — ❌→🚧, now in build** (product audit's honest #2 — smaller
+  build than Assemblies, completes the make-loop for the already-solid
+  single-part case via STEP-to-shop). **Slice #1 (document model + CRUD,
+  documents) + #2 (HLR 2D-projection module, geometry) SHIPPED** (see Done);
+  dimension measurement + projected-edge→model-edge map, gateway routes, SVG
+  export, and the frontend sheet editor follow (design doc §3/§4/§6).
 - **Unfiled-but-named product-audit follow-ups** (history-tree drag-reorder/
   suppress, feature-mirror + 2-direction pattern, a friendlier
   `boolean_failed` message) — next groom pass, once assemblies v1 has room.
@@ -102,6 +104,50 @@ nit, no user impact, stays Later).
       + resting datum sheets, and parts-home thumbnails (item 13 remainder —
       needs a last-evaluated-mesh snapshot pipeline). [src: UI-REVIEW Batch 3]
       [src: UI-REVIEW 2026-07-16 remediation items 10–13]
+- [ ] (P1, M) Drawings v1 #3 — dimension measurement + projected-edge→model-edge
+      map (geometry). Extend `geometry.drawings` so each dimensionable projected
+      edge carries its originating model `EdgeSignature` (HLR `Modified`/
+      `Generated` provenance, design §3.3 / open Q1) and resolve+measure the 4
+      dimension types (linear/diameter/radius/angular) from the model, surfacing
+      the `foreshortened` flag (§3.2). Analytic goldens: Ø10→10.000, r5→5.000,
+      40 mm edge→40.000, vee angle. [src: design/drawings.md §3/§8]
+- [ ] (P1, M) Drawings v1 #4 — evaluate endpoint + `ViewGeometry`/generation DTO
+      (py_kit + geometry + gateway). Wrap `project_view` behind the neutral
+      crossing DTO (§5) and the `/api/v1/drawings/…/evaluate` route; per-view
+      `view_projection_failed` mapping. [src: design/drawings.md §4/§5]
+- [ ] (P1, M) Drawings v1 #5 — server-composed SVG export, content-addressed +
+      byte-deterministic (geometry, §4). PDF/DXF are the fast-follow behind the
+      same seam. [src: design/drawings.md §4/§8]
+- [x] (P1, M) Drawings v1 #1 — document model + CRUD API (documents) — **DONE
+      2026-07-16.** `py_kit.schemas.drawings` (SheetPoint/ViewScale/TitleBlock,
+      the 4-dimension discriminated union linear/diameter/radius/angular naming
+      model geometry by the reused `EdgeSignature` — the same machinery
+      mates/on_face use, never a parallel taxonomy; note annotations),
+      `drawings`/`sheets`/`views`/`dimensions`/`annotations` tables (migration
+      `0004`, per-scope order uniques, `views.ref_document_id` app-enforced not
+      FK, `ref_pinned_version` pin-ready NULL per §2.3), owner-scoped CRUD with
+      OCC (`doc_version` 422-on-stale), write-time dimension checks
+      (diameter/radius need a circular edge, angular two straight edges → typed
+      422), view→dimensions cascade + dense renumber, and the cross-document
+      409-with-dependents extended (shared `reject_if_instanced`) so deleting a
+      part a drawing VIEW references is blocked. Full lint/pyright + documents
+      tests (SQLite + real PG) + gen-check green. [src: design/drawings.md
+      §2/§3, product-auditor #2]
+- [x] (P1, M) Drawings v1 #2 — HLR 2D-projection module (geometry) — **DONE
+      2026-07-16.** `geometry.drawings.project_view(shape, view, scale)`: exact
+      HLR (`HLRBRep_Algo`, no new dep) on the `Solid` `evaluate_tree` yields →
+      visible (`VCompound`+`OutLineVCompound`) solid + hidden (`HCompound`+
+      `OutLineHCompound`) dashed 2D edges, each a neutral primitive
+      (line/circle/arc/polyline) with real analytic geometry (a Ø10 hole → a true
+      circle, §1.1). Determinism (§1.4, the load-bearing constraint): a canonical
+      TOTAL order on each edge's pure-geometry signature + exact-coincident de-dup
+      + hidden-behind-visible cull (visible wins) + fixed decimal formatter
+      (`canonical_edges_repr`) → byte-identical across an interpreter restart. HLR
+      throw → typed `ViewProjectionError` (per-view honest failure, §1.5; no
+      improvised fallback — poly-HLR deferred). 4 analytic goldens + 12-param
+      restart probe (`test_drawings_project.py`, 20 passed); lint/pyright-strict
+      clean. Later slices: dimension measurement + projected-edge→model-edge map
+      (§3.3), gateway route, SVG compose. [src: design/drawings.md §1/§8]
 - [x] (P1, M) Assemblies v1 #1 — document model + CRUD API (documents) — **DONE
       2026-07-15.** `py_kit.schemas.assemblies` (Placement/Quat, MateFace/AxisRef
       reusing PlanarFaceSignature/EdgeSignature verbatim, the discriminated
@@ -485,6 +531,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 ## Changelog
 
 Older entries live in `CHANGELOG.md`.
+
+- 2026-07-16 — **Drawings v1 #2 (HLR projection, geometry) done:** exact-HLR
+  `geometry.drawings.project_view` → canonically-ordered visible/hidden 2D edges,
+  byte-deterministic across restart; 4 analytic goldens + restart probe (20
+  passed), typed `ViewProjectionError`. [kernel-architect]
 
 - 2026-07-16 — **Datum authoring UI (midplane + offset_from) done:** DatumEditor
   Type selector; client basis math ports the kernel (`resolveDatumBasis`); new
