@@ -6,14 +6,17 @@ import {
   describePlane,
   faceBasis,
   faceSpecFromDatum,
+  midplaneBasis,
   occtToSceneTuple,
   offsetBasis,
+  offsetFromBasis,
   originBasis,
   type PlanarFaceSignature,
   PLANE_BASES,
   planeCameraPose,
   planeRefFromSpec,
   planeToWorld,
+  resolveDatumBasis,
   resolveSpecBasis,
   snapPoint,
   snapValue,
@@ -257,6 +260,163 @@ describe("on-face plane spec ↔ wire ref", () => {
     expect(
       describePlane(faceSpecFromDatum("d", signature([0, 0, 1], [0, 0, 0]), 5)),
     ).toBe("Face +5");
+  });
+});
+
+describe("offsetFromBasis — offset chaining off an arbitrary base plane", () => {
+  it("slides an offset datum further along its own normal", () => {
+    // XY + 30, then + 10 more → z = 40 (the composite a chain resolves to).
+    const base = offsetBasis("XY", 30, false);
+    const chained = offsetFromBasis(base, 10, false);
+    expect([...chained.origin]).toEqual([0, 0, 40]);
+    expect([...chained.normal]).toEqual([0, 0, 1]);
+    expect([...chained.u]).toEqual([1, 0, 0]);
+  });
+
+  it("flip reverses the normal and v, keeps u", () => {
+    const flipped = offsetFromBasis(offsetBasis("XY", 30, false), 0, true);
+    expect([...flipped.origin]).toEqual([0, 0, 30]);
+    expect(flipped.normal[2]).toBe(-1);
+    expect(flipped.v[1]).toBe(-1);
+    expect([...flipped.u]).toEqual([1, 0, 0]);
+  });
+});
+
+describe("midplaneBasis — the plane midway between two references", () => {
+  it("parallel sides: midpoint origin, side a's normal (mid point plane)", () => {
+    // Between XY (z=0) and XY+40 (z=40) → the plane at z=20.
+    const mid = midplaneBasis(
+      originBasis("XY"),
+      offsetBasis("XY", 40, false),
+      false,
+    );
+    expect([...mid.origin]).toEqual([0, 0, 20]);
+    expect([...mid.normal]).toEqual([0, 0, 1]);
+    // x_dir is pinned from the normal (deterministic), y = z × x.
+    expect([...mid.u]).toEqual([...deterministicXDir([0, 0, 1])]);
+  });
+
+  it("anti-parallel sides degenerate to the midway plane", () => {
+    // XY (normal +Z) and a flipped XY+20 (normal −Z) → still parallel branch.
+    const mid = midplaneBasis(
+      originBasis("XY"),
+      offsetBasis("XY", 20, true),
+      false,
+    );
+    expect([...mid.origin]).toEqual([0, 0, 10]);
+  });
+
+  it("non-parallel sides: the angular bisector (normalize(n_a + n_b))", () => {
+    // XY (normal +Z) and YZ (normal +X) meet at 90° → bisector normal is the
+    // unit sum, and the origin is the min-norm point (both through the world
+    // origin → the line through 0, nearest point is 0).
+    const mid = midplaneBasis(originBasis("XY"), originBasis("YZ"), false);
+    const inv = 1 / Math.sqrt(2);
+    expect(mid.normal[0]).toBeCloseTo(inv, 12);
+    expect(mid.normal[1]).toBeCloseTo(0, 12);
+    expect(mid.normal[2]).toBeCloseTo(inv, 12);
+    expect([...mid.origin]).toEqual([0, 0, 0]);
+  });
+
+  it("flip selects the other bisector / reverses the normal", () => {
+    const mid = midplaneBasis(
+      originBasis("XY"),
+      offsetBasis("XY", 40, false),
+      true,
+    );
+    expect(mid.normal[2]).toBe(-1);
+  });
+});
+
+describe("resolveDatumBasis — walk any datum kind to its basis", () => {
+  const offset = {
+    kind: "offset",
+    base: "XY",
+    offset_mm: 40,
+    flip: false,
+  } as const;
+  const offsetFrom = {
+    kind: "offset_from",
+    base: { kind: "feature", feature_id: "d1" },
+    offset_mm: -10,
+    flip: false,
+  } as const;
+  const midplane = {
+    kind: "midplane",
+    a: { kind: "datum_plane", plane: "XY" },
+    b: { kind: "feature", feature_id: "d1" },
+    flip: false,
+  } as const;
+
+  it("resolves an offset datum", () => {
+    const byId = new Map([["d1", offset]]);
+    expect([...(resolveDatumBasis("d1", byId)?.origin ?? [])]).toEqual([
+      0, 0, 40,
+    ]);
+  });
+
+  it("resolves an offset_from chain (d1: XY+40, d2: d1−10 → z=30)", () => {
+    const byId = new Map<string, typeof offset | typeof offsetFrom>([
+      ["d1", offset],
+      ["d2", offsetFrom],
+    ]);
+    expect([...(resolveDatumBasis("d2", byId)?.origin ?? [])]).toEqual([
+      0, 0, 30,
+    ]);
+  });
+
+  it("resolves a midplane between an origin datum and an earlier datum", () => {
+    const byId = new Map<string, typeof offset | typeof midplane>([
+      ["d1", offset],
+      ["d2", midplane],
+    ]);
+    // Between XY (z=0) and d1 (z=40) → z=20.
+    expect([...(resolveDatumBasis("d2", byId)?.origin ?? [])]).toEqual([
+      0, 0, 20,
+    ]);
+  });
+
+  it("returns null for a missing reference or an on_face datum", () => {
+    expect(resolveDatumBasis("missing", new Map())).toBeNull();
+    const onFace = {
+      kind: "on_face",
+      face: {
+        kind: "subshape",
+        feature_id: "x",
+        subshape_type: "face",
+        selector: {
+          selector_version: 1,
+          signature: {
+            subshape_type: "face",
+            surface: "plane",
+            normal: { x: 0, y: 0, z: 1 },
+            centroid: { x: 0, y: 0, z: 0 },
+            area_mm2: 1,
+          },
+        },
+      },
+      offset_mm: 0,
+    } as const;
+    expect(resolveDatumBasis("d1", new Map([["d1", onFace]]))).toBeNull();
+  });
+});
+
+describe("datum plane spec ↔ wire ref", () => {
+  const basis = offsetBasis("XY", 20, false);
+  const spec = {
+    kind: "datum" as const,
+    datumFeatureId: "d5",
+    label: "Plane2",
+    basis,
+  };
+
+  it("resolves to the carried basis and a FeatureRef, and reads its label", () => {
+    expect(resolveSpecBasis(spec)).toBe(basis);
+    expect(planeRefFromSpec(spec)).toEqual({
+      kind: "feature",
+      feature_id: "d5",
+    });
+    expect(describePlane(spec)).toBe("Plane2");
   });
 });
 

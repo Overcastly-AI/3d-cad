@@ -292,6 +292,15 @@ export const layout = {
   commandBandHeight: 46,
   inspectorWidth: 320,
   /**
+   * Fixed width of a HUD feature-editor card (the datum/extrude/… panels that
+   * hang top-left over the viewport). A real, token-driven width so the card
+   * wraps its own copy instead of shrink-wrapping to its longest line — the
+   * Tailwind spacing scale stops at 12, so the old `w-72`/`w-80` were dead
+   * classes that let the card grow with its content. Quiet chrome: the viewport
+   * keeps the pixels (design mandate 3).
+   */
+  editorCardWidth: 320,
+  /**
    * Left inset for HUD cards (feature editors, mate HUD) so they clear the
    * floating tree panel: panel inset (12) + panel width + gutter (12).
    */

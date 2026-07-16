@@ -55,25 +55,24 @@ import {
 } from "@loft/design";
 import { type ReactNode, useState } from "react";
 
-import type { DatumParams } from "../api/parts";
+import type { DatumOffsetParams } from "../api/parts";
 import {
   describeSelection,
   selectionAllConstruction,
   type ConstraintAction,
 } from "../sketch/constraints";
 import {
-  buildDatumParams,
-  canSubmitDatum,
+  buildOffsetParams,
+  canSubmitOffset,
   DATUM_BASES,
-  defaultDatumForm,
-  type DatumForm,
+  defaultOffsetForm,
+  type OffsetForm,
   offsetError,
 } from "../features/datum";
 import {
   DATUM_PLANES,
   type DatumPlaneName,
   describePlane,
-  offsetSpecFromDatum,
   type SketchPlaneSpec,
 } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
@@ -318,7 +317,8 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
 export interface DatumPlaneOption {
   id: string;
   name: string;
-  params: DatumParams;
+  /** The resolved plane spec a new sketch seats on (a `FeatureRef` on the wire). */
+  spec: SketchPlaneSpec;
 }
 
 export interface SketchStripProps {
@@ -334,7 +334,7 @@ export interface SketchStripProps {
    * creates a `datum` feature, then starts this sketch on it. Async — the
    * strip shows a pending state while the feature write is in flight.
    */
-  onAuthorOffsetPlane?: (params: DatumParams) => void;
+  onAuthorOffsetPlane?: (params: DatumOffsetParams) => void;
   /** True while an inline offset-plane create is in flight. */
   authoringOffset?: boolean;
   /** Inline offset-plane authoring failure, or null. */
@@ -392,16 +392,16 @@ function OffsetPlanePanel({
   busy,
   error,
 }: {
-  onAuthor: (params: DatumParams) => void;
+  onAuthor: (params: DatumOffsetParams) => void;
   onClose: () => void;
   busy: boolean;
   error: string | null;
 }) {
-  const [form, setForm] = useState<DatumForm>(defaultDatumForm());
-  const canSubmit = canSubmitDatum(form) && !busy;
+  const [form, setForm] = useState<OffsetForm>(defaultOffsetForm());
+  const canSubmit = canSubmitOffset(form) && !busy;
 
   const author = () => {
-    const params = buildDatumParams(form);
+    const params = buildOffsetParams(form);
     if (params === null) return;
     onAuthor(params);
   };
@@ -819,11 +819,7 @@ export function SketchStrip({
                     showLabel
                     data-testid={`plane-datum-${datum.id}`}
                     aria-label={`Sketch on ${datum.name}`}
-                    onClick={() =>
-                      onChoosePlaneSpec?.(
-                        offsetSpecFromDatum(datum.id, datum.params),
-                      )
-                    }
+                    onClick={() => onChoosePlaneSpec?.(datum.spec)}
                   />
                 ))}
               </ToolGroup>

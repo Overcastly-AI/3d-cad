@@ -20,6 +20,7 @@ import {
   chamferFeatureCreate,
   chamferFeatureUpdate,
   createFeature,
+  type DatumOffsetParams,
   type DatumParams,
   datumFeatureCreate,
   datumFeatureUpdate,
@@ -155,12 +156,13 @@ import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import { resolveSketchKey, type SolveInfo } from "../sketch/constraints";
 import {
+  type AnyDatumParams,
   faceSpecFromDatum,
-  offsetBasis,
   offsetSpecFromDatum,
   originBasis,
   planeRefFromSpec,
   type PlaneBasis,
+  resolveDatumBasis,
 } from "../sketch/plane";
 import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -607,21 +609,32 @@ export function PartPage() {
     }
   }, [mode, featureId, evaluation.data]);
 
-  /** Datum feature params by id — the sketch→datum plane resolution table. */
-  const datumParamsById = useMemo(() => {
-    const map = new Map<string, DatumParams>();
+  /** All datum feature params by id — the datum-plane resolution table. */
+  const datumById = useMemo(() => {
+    const map = new Map<string, AnyDatumParams>();
     for (const feature of tree.data?.features ?? []) {
-      // Offset datums drive client-side plane preview math; on-face datums
-      // resolve against the body server-side (the later face-picker slice).
-      if (
-        feature.feature.type === "datum" &&
-        feature.feature.params.kind === "offset"
-      ) {
+      if (feature.feature.type === "datum") {
         map.set(feature.id, feature.feature.params);
       }
     }
     return map;
   }, [tree.data]);
+
+  /**
+   * Every datum feature's placed sketch basis, resolved client-side by the SAME
+   * math the kernel evaluates (offset / offset-from-a-datum / midplane over
+   * origin + datum sides — one plane-math source, two renderers). An `on_face`
+   * datum (or a face-picked midplane side) resolves server-side only, so it is
+   * absent here and simply not offered as a reusable preview plane.
+   */
+  const datumBasisById = useMemo(() => {
+    const map = new Map<string, PlaneBasis>();
+    for (const id of datumById.keys()) {
+      const basis = resolveDatumBasis(id, datumById);
+      if (basis !== null) map.set(id, basis);
+    }
+    return map;
+  }, [datumById]);
 
   /** Solved sketch layers: tree feature (plane) × evaluate result (geometry). */
   const solved = useMemo<SolvedSketchLayer[]>(() => {
@@ -644,10 +657,7 @@ export function PartPage() {
       if (plane.kind === "datum_plane") {
         basis = originBasis(plane.plane);
       } else {
-        const datum = datumParamsById.get(plane.feature_id);
-        if (datum !== undefined) {
-          basis = offsetBasis(datum.base, datum.offset_mm, datum.flip);
-        }
+        basis = datumBasisById.get(plane.feature_id) ?? null;
       }
       if (basis === null) continue; // unresolved plane (rolled back / deleted)
       const result = results.get(feature.id);
@@ -661,7 +671,7 @@ export function PartPage() {
       });
     }
     return layers;
-  }, [tree.data, evaluation.data, mode, featureId, datumParamsById]);
+  }, [tree.data, evaluation.data, mode, featureId, datumBasisById]);
 
   // Keyboard-first: Escape cascade always; tools, snap, constraint verbs and
   // Delete while drawing. One keyboard, two vocabularies — selection
@@ -903,15 +913,35 @@ export function PartPage() {
   // the plane picker (a standalone datum seats many sketches — DRY).
   const datumPlaneOptions = useMemo(
     () =>
-      features.flatMap((f) =>
-        // Offset datums are offerable as reusable sketch planes today; on-face
-        // datums (a picked face SubshapeRef) are selectable via the later
-        // face-picker slice — the offset plane math does not describe them.
-        f.feature.type === "datum" && f.feature.params.kind === "offset"
-          ? [{ id: f.id, name: f.name, params: f.feature.params }]
-          : [],
-      ),
-    [features],
+      features.flatMap((f) => {
+        if (f.feature.type !== "datum") return [];
+        const params = f.feature.params;
+        // Offset datums carry a rich readout ("XY +30") via their spec; every
+        // other client-resolvable datum (offset-from-a-datum / midplane) is
+        // offered by its resolved basis. On-face datums resolve server-side
+        // only, so they are absent from `datumBasisById` and not offered here.
+        if (params.kind === "offset") {
+          return [
+            { id: f.id, name: f.name, spec: offsetSpecFromDatum(f.id, params) },
+          ];
+        }
+        const basis = datumBasisById.get(f.id);
+        return basis === undefined
+          ? []
+          : [
+              {
+                id: f.id,
+                name: f.name,
+                spec: {
+                  kind: "datum" as const,
+                  datumFeatureId: f.id,
+                  label: f.name,
+                  basis,
+                },
+              },
+            ];
+      }),
+    [features, datumBasisById],
   );
   // Axis line-entity choices per profile sketch — the revolve editor scopes its
   // axis picker to the selected profile's own lines.
@@ -1006,6 +1036,22 @@ export function PartPage() {
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState(false);
+
+  // Earlier datum features offered to the datum editor as references (the
+  // offset-from base + the midplane sides). Create authors at the tip, so every
+  // existing datum is earlier; an edit sees only the datums strictly before it
+  // (the strict-backward rule — a datum can't reference itself or a later one).
+  const datumEditorRefs = useMemo(() => {
+    if (editor?.kind !== "datum") return [];
+    const editingId = editor.featureId;
+    const foundAt = editingId
+      ? features.findIndex((f) => f.id === editingId)
+      : -1;
+    const bound = foundAt < 0 ? features.length : foundAt;
+    return features
+      .filter((f, i) => f.feature.type === "datum" && i < bound)
+      .map((f) => ({ id: f.id, name: f.name }));
+  }, [editor, features]);
   // STEP import (a discrete toolbar action, no editor panel): busy + the server
   // envelope's own message on rejection, surfaced in the viewport HUD.
   const [importing, setImporting] = useState(false);
@@ -1437,8 +1483,10 @@ export function PartPage() {
       });
     } else if (
       feature.feature.type === "datum" &&
-      feature.feature.params.kind === "offset"
+      feature.feature.params.kind !== "on_face"
     ) {
+      // Offset / offset-from / midplane datums are editable here; an on_face
+      // datum is authored + retargeted through the sketch-on-face picker.
       setEditor({
         kind: "datum",
         mode: "edit",
@@ -1715,7 +1763,7 @@ export function PartPage() {
   // the sketcher on it. One extra field, not a separate multi-step ritual —
   // the datum write returns the feature id the sketch's plane FeatureRef needs.
   const authorOffsetPlane = useCallback(
-    (params: DatumParams) => {
+    (params: DatumOffsetParams) => {
       const nextIndex =
         features.filter((f) => f.feature.type === "datum").length + 1;
       setOffsetPlaneBusy(true);
@@ -2163,6 +2211,7 @@ export function PartPage() {
                   <DatumEditor
                     mode={editor.mode}
                     initial={editor.initial}
+                    datumRefs={datumEditorRefs}
                     onSubmit={submitDatum}
                     onCancel={closeEditor}
                     saving={editorSaving}

@@ -59,6 +59,7 @@ export const loftPreset = {
       },
       width: {
         inspector: px(layout.inspectorWidth),
+        editor: px(layout.editorCardWidth),
       },
       inset: {
         /** HUD-card left anchor clearing the floating tree panel. */

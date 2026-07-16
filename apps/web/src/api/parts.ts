@@ -28,7 +28,25 @@ export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
 export type SketchPlaneRef = SketchParamsV1["plane"];
 export type SketchParamsV1 = components["schemas"]["SketchParamsV1"];
 export type DatumFeature = components["schemas"]["DatumFeature"];
-export type DatumParams = components["schemas"]["DatumOffsetParams"];
+/**
+ * The full datum params union: an offset-from-origin plane, an on-a-face plane,
+ * an offset-from-another-datum plane (chaining), or a midplane between two
+ * references — discriminated on `kind` (matches the pydantic `DatumParams`
+ * union; CLAUDE.md DRY rule). The `datum` create/update builders and the editor
+ * author every member.
+ */
+export type DatumParams = DatumFeature["params"];
+/** Offset-from-origin datum params (`kind: "offset"`) — base + offset + flip. */
+export type DatumOffsetParams = components["schemas"]["DatumOffsetParams"];
+/** Offset-from-another-datum params (`kind: "offset_from"`) — chaining. */
+export type DatumOffsetFromParams =
+  components["schemas"]["DatumOffsetFromParams"];
+/** Midplane params (`kind: "midplane"`) — a plane midway between two sides. */
+export type DatumMidplaneParams = components["schemas"]["DatumMidplaneParams"];
+/** One side of a midplane: an origin datum, an earlier datum, or a picked face. */
+export type MidplaneSide = DatumMidplaneParams["a"];
+/** A reference to one of the three origin datum planes (XY/XZ/YZ). */
+export type DatumPlaneRef = components["schemas"]["DatumPlaneRef"];
 /** On-face datum params — a datum adopting a picked planar face's plane. */
 export type DatumOnFaceParams = components["schemas"]["DatumOnFaceParams"];
 /** Stage-1 reference to one planar face of a body-affecting feature's result. */

@@ -263,12 +263,30 @@ nit, no user impact, stays Later).
       `DatumOffsetParams.base`, keeping the generated client type of existing
       offset datums untouched) shipped with golden
       `midplane-chained-offset-40x25x10`, kernel/evaluator/schema suites,
-      self/forward-ref safety, contracts regenerated. **Remaining:** angled
+      self/forward-ref safety, contracts regenerated. **Authoring UI ✅
+      2026-07-16** (frontend-builder): `DatumEditor` gained a Type selector
+      (Offset / Offset from a datum / Midplane); it authors `offset_from`
+      (base = an earlier datum + offset + flip) and `midplane` (origin-datum +
+      earlier-datum sides + flip). The client resolves ANY datum kind to its
+      sketch basis by the kernel's own math (`sketch/plane.ts`
+      `resolveDatumBasis` / `midplaneBasis` / `offsetFromBasis`, unit-tested),
+      so the new datums are offered + preview in the plane picker; a real-stack
+      e2e authors a midplane + an offset_from and extrudes bodies at the
+      resolved heights (`e2e/datum-plane.spec.ts`). Fixed a latent
+      design-system bug: editor cards used dead `w-72`/`w-80` classes (spacing
+      scale stops at 12) and shrink-wrapped to content — added a token-driven
+      `w-editor` (320px) width, applied to `DatumEditor`. **Remaining:** angled
       plane (about an edge/sketch line), three-point, tangent-to-cylinder,
-      normal-to-curve — each a future additive kind — plus the
-      midplane/chaining **authoring UI** (queued behind the viewport-makeover
-      batches; the plane picker + DatumEditor gain the new kinds then).
-      [src: founder]
+      normal-to-curve — each a future additive kind. [src: founder]
+- [ ] (P2, S) Datum editor: midplane FACE-sides + `on_face` authoring —
+      deferred from the 2026-07-16 authoring-UI slice. The editor authors
+      `offset_from` + `midplane` over dropdown sides (origin datums + earlier
+      datums); the `MidplaneSide` SUBSHAPE (picked planar face) and the
+      standalone `on_face` datum kind still need the `FacePickOverlay` wired
+      into the standalone DatumEditor (arm a pick session, echo the face
+      signature into a `SubshapeRef`). Backend + `on_face` via the sketch-on-
+      face picker already exist; this is the editor-side pick integration only.
+      [src: frontend-builder]
 - [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
       trap, product audit #4) — marking the on-axis edge `construction: true`
       (the natural SolidWorks/Fusion idiom) excludes it from the profile wire
@@ -467,6 +485,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 ## Changelog
 
 Older entries live in `CHANGELOG.md`.
+
+- 2026-07-16 — **Datum authoring UI (midplane + offset_from) done:** DatumEditor
+  Type selector; client basis math ports the kernel (`resolveDatumBasis`); new
+  datums sketchable in the picker; real-stack e2e. Face-sides/`on_face` filed.
+  Fixed dead `w-72` editor width → token `w-editor`. [frontend-builder]
 
 - 2026-07-16 — **Datum-planes backend slice done:** midplane + offset-chaining
   as additive kinds (`midplane`, `offset_from`), documented conventions, golden

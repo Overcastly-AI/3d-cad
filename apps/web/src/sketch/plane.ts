@@ -33,6 +33,18 @@ export type SketchPlaneRef = components["schemas"]["SketchParamsV1"]["plane"];
  * `SubshapeRef` signature); its plane math lives in {@link faceBasis}.
  */
 export type DatumParams = components["schemas"]["DatumOffsetParams"];
+/**
+ * Any datum feature's params — the full discriminated union. Used by
+ * {@link resolveDatumBasis} to resolve a datum plane of ANY kind (offset,
+ * offset-from-another-datum, or midplane) to its placed basis client-side, the
+ * SAME math the kernel's `geometry.kernel.datum` resolves server-side (one
+ * plane-math source, two renderers — CLAUDE.md design mandate 2).
+ */
+export type AnyDatumParams =
+  | components["schemas"]["DatumOffsetParams"]
+  | components["schemas"]["DatumOnFaceParams"]
+  | components["schemas"]["DatumOffsetFromParams"]
+  | components["schemas"]["DatumMidplaneParams"];
 /** The stage-1 planar-face fingerprint an on-face datum resolves against. */
 export type PlanarFaceSignature = components["schemas"]["PlanarFaceSignature"];
 
@@ -103,6 +115,22 @@ export type SketchPlaneSpec =
       offsetMm: number;
       /** The persisted `on_face` `datum` feature this plane belongs to. */
       datumFeatureId: string;
+    }
+  | {
+      /**
+       * A sketch seated on an already-resolved datum feature of ANY kind
+       * (offset-from-another-datum or midplane) whose placed basis was resolved
+       * by {@link resolveDatumBasis}. The basis is carried so the sketcher +
+       * camera place the sheet without re-walking the datum table, and the wire
+       * ref is a `FeatureRef` to the datum — the SAME slot offset/on_face use.
+       */
+      kind: "datum";
+      /** The persisted `datum` feature this plane belongs to. */
+      datumFeatureId: string;
+      /** A short readout label (the datum feature's name). */
+      label: string;
+      /** The datum's resolved sketch basis (world build123d frame). */
+      basis: PlaneBasis;
     };
 
 /** The origin datum basis (through world zero). */
@@ -135,6 +163,148 @@ export function offsetBasis(
     normal: [-normal[0], -normal[1], -normal[2]],
     origin,
   };
+}
+
+/**
+ * Slide an already-resolved base plane `offsetMm` along its OWN normal, with an
+ * optional flip — the offset-CHAINING rule (`kind: "offset_from"`). The exact
+ * port of the kernel's `geometry.kernel.datum.offset_plane`: `Plane.offset`
+ * shifts the origin by `normal * offsetMm` preserving u/normal; `flip` reverses
+ * the normal (and v), keeping u. Generalizes {@link offsetBasis} from an origin
+ * datum to any resolved base, so an offset off a midplane or a chained offset
+ * resolves to the byte-identical composite the server evaluates.
+ */
+export function offsetFromBasis(
+  base: PlaneBasis,
+  offsetMm: number,
+  flip: boolean,
+): PlaneBasis {
+  const { u, v, normal, origin } = base;
+  const placed: Vec3Tuple = [
+    origin[0] + normal[0] * offsetMm + 0,
+    origin[1] + normal[1] * offsetMm + 0,
+    origin[2] + normal[2] * offsetMm + 0,
+  ];
+  if (!flip) return { u, v, normal, origin: placed };
+  return {
+    u,
+    v: [-v[0], -v[1], -v[2]],
+    normal: [-normal[0], -normal[1], -normal[2]],
+    origin: placed,
+  };
+}
+
+/** Documented parallelism bound — the port of `MIDPLANE_PARALLEL_TOLERANCE`. */
+const MIDPLANE_PARALLEL_TOLERANCE = 1e-9;
+
+/**
+ * The plane midway between two resolved planes — the exact port of the kernel's
+ * `geometry.kernel.datum.midplane_between` (datum-planes §7a), so the client
+ * preview and the server body agree. PARALLEL sides (incl. anti-parallel): the
+ * midway plane, normal = side `a`'s normal, origin = the midpoint of the two
+ * origins. NON-PARALLEL sides: the angular-bisector plane through their
+ * intersection line, normal = normalize(n_a + n_b), origin = the min-norm point
+ * of the two plane equations. `x_dir` is pinned from the normal by
+ * {@link deterministicXDir} (the on_face rule; sign-symmetric so `flip` keeps
+ * +u and flips +v). TOTAL over any two valid planes.
+ */
+export function midplaneBasis(
+  a: PlaneBasis,
+  b: PlaneBasis,
+  flip: boolean,
+): PlaneBasis {
+  const nA = normalize(a.normal);
+  const nB = normalize(b.normal);
+  const crossLen = Math.hypot(...cross(nA, nB));
+  let origin: Vec3Tuple;
+  let normal: Vec3Tuple;
+  if (crossLen <= MIDPLANE_PARALLEL_TOLERANCE) {
+    // PARALLEL (incl. anti-parallel and identical/coplanar sides).
+    origin = [
+      (a.origin[0] + b.origin[0]) * 0.5 + 0,
+      (a.origin[1] + b.origin[1]) * 0.5 + 0,
+      (a.origin[2] + b.origin[2]) * 0.5 + 0,
+    ];
+    normal = nA;
+  } else {
+    // NON-PARALLEL: bisector through the intersection line (min-norm point).
+    const dA = dot(nA, a.origin);
+    const dB = dot(nB, b.origin);
+    const cosAB = dot(nA, nB);
+    const denom = 1 - cosAB * cosAB;
+    const s = (dA - cosAB * dB) / denom;
+    const t = (dB - cosAB * dA) / denom;
+    origin = [
+      nA[0] * s + nB[0] * t + 0,
+      nA[1] * s + nB[1] * t + 0,
+      nA[2] * s + nB[2] * t + 0,
+    ];
+    normal = normalize([nA[0] + nB[0], nA[1] + nB[1], nA[2] + nB[2]]);
+  }
+  if (flip) normal = [-normal[0], -normal[1], -normal[2]];
+  const u = deterministicXDir(normal);
+  const v = cross(normal, u); // build123d y_dir = z_dir × x_dir
+  return { u, v, normal, origin };
+}
+
+/**
+ * Resolve a datum feature of ANY kind to its placed sketch basis (world
+ * build123d frame), by walking the datum table exactly as the kernel does:
+ * `offset` from an origin datum, `offset_from` off another resolved datum, or a
+ * `midplane` between two resolved sides (an origin datum or an earlier datum).
+ * Returns null for a reference the client cannot resolve here — an `on_face`
+ * datum (its basis is a scene-frame {@link faceBasis} the sketch-on-face flow
+ * owns) or a face-picked midplane side — and for a missing/cyclic reference (the
+ * `seen` guard; the strict-backward rule means real trees never cycle).
+ */
+export function resolveDatumBasis(
+  datumFeatureId: string,
+  byId: ReadonlyMap<string, AnyDatumParams>,
+  seen: ReadonlySet<string> = new Set(),
+): PlaneBasis | null {
+  if (seen.has(datumFeatureId)) return null;
+  const params = byId.get(datumFeatureId);
+  if (params === undefined) return null;
+  const next = new Set(seen).add(datumFeatureId);
+  switch (params.kind) {
+    case "offset":
+      return offsetBasis(params.base, params.offset_mm, params.flip);
+    case "offset_from": {
+      const parent = resolveDatumBasis(params.base.feature_id, byId, next);
+      return parent === null
+        ? null
+        : offsetFromBasis(parent, params.offset_mm, params.flip);
+    }
+    case "midplane": {
+      const a = resolveMidplaneSide(params.a, byId, next);
+      const b = resolveMidplaneSide(params.b, byId, next);
+      return a === null || b === null ? null : midplaneBasis(a, b, params.flip);
+    }
+    case "on_face":
+      // The on_face basis is a scene-frame faceBasis owned by the
+      // sketch-on-face flow; not resolvable in this world-frame walk.
+      return null;
+  }
+}
+
+/** One side of a midplane (an origin datum, an earlier datum, or a face). */
+type MidplaneSide = components["schemas"]["DatumMidplaneParams"]["a"];
+
+/** Resolve one midplane side (an origin datum or an earlier datum) to a basis. */
+function resolveMidplaneSide(
+  side: MidplaneSide,
+  byId: ReadonlyMap<string, AnyDatumParams>,
+  seen: ReadonlySet<string>,
+): PlaneBasis | null {
+  switch (side.kind) {
+    case "datum_plane":
+      return originBasis(side.plane);
+    case "feature":
+      return resolveDatumBasis(side.feature_id, byId, seen);
+    case "subshape":
+      // A face-picked side — deferred (needs the scene-frame faceBasis).
+      return null;
+  }
 }
 
 // --- On-face plane math (stage-1 topological naming) -----------------------
@@ -256,6 +426,8 @@ export function resolveSpecBasis(spec: SketchPlaneSpec): PlaneBasis {
       return offsetBasis(spec.base, spec.offsetMm, spec.flip);
     case "on_face":
       return faceBasis(spec.signature, spec.offsetMm);
+    case "datum":
+      return spec.basis;
   }
 }
 
@@ -273,6 +445,7 @@ export function planeRefFromSpec(spec: SketchPlaneSpec): SketchPlaneRef {
 export function describePlane(spec: SketchPlaneSpec | null): string {
   if (spec === null) return "—";
   if (spec.kind === "origin") return spec.base;
+  if (spec.kind === "datum") return spec.label;
   if (spec.kind === "on_face") {
     if (spec.offsetMm === 0) return "Face";
     const sign = spec.offsetMm >= 0 ? "+" : "−";

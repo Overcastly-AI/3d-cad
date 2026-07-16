@@ -270,9 +270,16 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       resolved through the shared datum funnels with documented
       bisector/normal-sign conventions (`docs/design/datum-planes.md` §7a);
       golden `midplane-chained-offset-40x25x10` + kernel/evaluator/schema
-      suites; self/forward-ref safety proven. Remaining: angled / 3-point /
-      tangent / normal-to-curve kinds + the authoring UI (queued behind the
-      viewport-makeover batches).
+      suites; self/forward-ref safety proven. **Authoring UI ✅ 2026-07-16:**
+      the `DatumEditor` gained a Type selector and authors `offset_from` +
+      `midplane` (origin-datum + earlier-datum sides) with a flip; the client
+      resolves any datum kind to its sketch basis by the same math the kernel
+      evaluates (`resolveDatumBasis`), so these datums are sketchable + preview
+      in the plane picker; e2e authors a midplane + an offset_from through the
+      real stack and extrudes bodies at the resolved heights. Remaining:
+      midplane FACE-sides + `on_face` authoring in the editor (filed — needs
+      the FacePickOverlay wired into the standalone editor), and the angled /
+      3-point / tangent / normal-to-curve kinds.
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).

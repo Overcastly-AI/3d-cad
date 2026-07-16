@@ -38,6 +38,26 @@ async function bodyDepth(page: Page): Promise<number> {
   return parts[parts.length - 1] ?? NaN;
 }
 
+/** Author an offset datum `offsetMm` above XY via the standalone Datum tool. */
+async function authorOffsetDatum(
+  page: Page,
+  offsetMm: number,
+  expectName: string,
+): Promise<void> {
+  await page.getByTestId("tool-datum").click();
+  await expect(page.getByTestId("datum-editor")).toBeVisible();
+  // Offset is the default kind; just set the distance and commit.
+  await page.getByTestId("datum-offset").fill(String(offsetMm));
+  const write = page.waitForResponse(
+    (r) => r.url().includes("/features") && r.request().method() === "POST",
+  );
+  await page.getByTestId("datum-submit").click();
+  expect((await write).status()).toBe(201);
+  await expect(
+    page.getByTestId("feature-row").filter({ hasText: expectName }),
+  ).toBeVisible();
+}
+
 /** Draw a rectangle (two clicks) and persist it; wait for the solve. */
 async function sketchRectangleAndSave(page: Page): Promise<void> {
   await page.keyboard.press("r");
@@ -166,6 +186,101 @@ test.describe("offset datum plane", () => {
   });
 });
 
+test.describe("datum kinds — midplane + offset chaining", () => {
+  test("midplane between XY and an offset datum → sketch → body z ≈ 20..30", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Web bracket");
+    await page.goto(`/parts/${part.id}`);
+
+    // Plane1: an offset datum 40 mm above XY (the second midplane reference).
+    await authorOffsetDatum(page, 40, "Plane1");
+
+    // Plane2: the midplane between the XY origin datum and Plane1 — the founder's
+    // "mid point plane". Parallel references → the plane midway between them
+    // (z = 20). Authored entirely from dropdown sides (no picking).
+    await page.getByTestId("tool-datum").click();
+    await expect(page.getByTestId("datum-editor")).toBeVisible();
+    await page.getByTestId("datum-kind").selectOption("midplane");
+    await page.getByTestId("datum-side-a").selectOption({ label: "XY datum" });
+    await page.getByTestId("datum-side-b").selectOption({ label: "Plane1" });
+    await expect(page.getByTestId("datum-submit")).toBeEnabled();
+    const midWrite = page.waitForResponse(
+      (r) => r.url().includes("/features") && r.request().method() === "POST",
+    );
+    await page.getByTestId("datum-submit").click();
+    expect((await midWrite).status()).toBe(201);
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Plane2" }),
+    ).toBeVisible();
+
+    // A sketch CAN sit on the midplane: it's offered in the plane picker's
+    // in-tree reuse, and the DRO names it.
+    await page.getByTestId("new-sketch").click();
+    await page
+      .getByTestId("sketch-strip")
+      .getByRole("button", { name: "Sketch on Plane2" })
+      .click();
+    await expect(page.getByTestId("sketch-step")).toHaveText("On Plane2", {
+      timeout: 15_000,
+    });
+
+    await sketchRectangleAndSave(page);
+    await extrudeTenMm(page);
+
+    // THE PROOF: the midplane resolves to z = 20 server-side, so the extruded
+    // body spans z ≈ 20..30 — the client authoring and the kernel agreeing.
+    expect(await bodyDepth(page)).toBeCloseTo(10, 3);
+    expect(await cellZ(page, "prop-bbox-min")).toBeCloseTo(20, 2);
+    expect(await cellZ(page, "prop-bbox-max")).toBeCloseTo(30, 2);
+  });
+
+  test("offset_from another datum (chaining) → sketch → body z ≈ 30..40", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Chained datum");
+    await page.goto(`/parts/${part.id}`);
+
+    // Plane1: XY + 40. Plane2: offset FROM Plane1 by −10 → z = 30 (the chain).
+    await authorOffsetDatum(page, 40, "Plane1");
+
+    await page.getByTestId("tool-datum").click();
+    await expect(page.getByTestId("datum-editor")).toBeVisible();
+    await page.getByTestId("datum-kind").selectOption("offset_from");
+    await page
+      .getByTestId("datum-base-plane")
+      .selectOption({ label: "Plane1" });
+    await page.getByTestId("datum-offset").fill("-10");
+    await expect(page.getByTestId("datum-submit")).toBeEnabled();
+    const chainWrite = page.waitForResponse(
+      (r) => r.url().includes("/features") && r.request().method() === "POST",
+    );
+    await page.getByTestId("datum-submit").click();
+    expect((await chainWrite).status()).toBe(201);
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Plane2" }),
+    ).toBeVisible();
+
+    await page.getByTestId("new-sketch").click();
+    await page
+      .getByTestId("sketch-strip")
+      .getByRole("button", { name: "Sketch on Plane2" })
+      .click();
+    await expect(page.getByTestId("sketch-step")).toHaveText("On Plane2", {
+      timeout: 15_000,
+    });
+
+    await sketchRectangleAndSave(page);
+    await extrudeTenMm(page);
+
+    // The chain resolves to z = 30, so the body spans z ≈ 30..40.
+    expect(await cellZ(page, "prop-bbox-min")).toBeCloseTo(30, 2);
+    expect(await cellZ(page, "prop-bbox-max")).toBeCloseTo(40, 2);
+  });
+});
+
 test.describe("offset datum plane — founder screenshots", () => {
   test("picker with the offset affordance + a raised body (desktop)", async ({
     page,
@@ -222,6 +337,38 @@ test.describe("offset datum plane — founder screenshots", () => {
     await extrudeTenMm(page);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/datum-plane-body-laptop.png`,
+    });
+  });
+});
+
+test.describe("datum kinds — founder screenshots", () => {
+  /** Open the datum editor on a midplane over XY + Plane1 (dropdown sides). */
+  async function openMidplaneEditor(page: Page): Promise<void> {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Web bracket");
+    await page.goto(`/parts/${part.id}`);
+    await authorOffsetDatum(page, 40, "Plane1");
+    await page.getByTestId("tool-datum").click();
+    await expect(page.getByTestId("datum-editor")).toBeVisible();
+    await page.getByTestId("datum-kind").selectOption("midplane");
+    await page.getByTestId("datum-side-a").selectOption({ label: "XY datum" });
+    await page.getByTestId("datum-side-b").selectOption({ label: "Plane1" });
+    await expect(page.getByTestId("datum-submit")).toBeEnabled();
+  }
+
+  test("midplane editor (desktop 1440×900)", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openMidplaneEditor(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/datum-midplane-desktop.png`,
+    });
+  });
+
+  test("midplane editor (small laptop 1280×800)", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openMidplaneEditor(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/datum-midplane-laptop.png`,
     });
   });
 });

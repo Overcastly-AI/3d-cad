@@ -1,12 +1,13 @@
 /**
  * The datum-plane editor — the pattern/revolve editor's twin in the same
  * title-block seat top-left of the viewport. A datum plane is a construction
- * plane parallel to an origin datum, offset a signed distance along its normal
- * (docs/design/datum-planes.md §3); it produces no body, only a plane that
- * later sketches sit on. Its structural choice is the base datum (a
- * SegmentedControl of the three origin datums); OFFSET is the parametric handle
- * and wears brass focus. Keyboard-first: offset autofocuses, Enter commits,
- * Escape cancels — the sketcher's dimension grammar.
+ * plane that produces no body, only a plane later sketches sit on
+ * (docs/design/datum-planes.md §3/§7). Its structural choice is the KIND
+ * (a ruled Type select): an OFFSET from an origin datum, an offset FROM another
+ * datum (chaining), or a MIDPLANE midway between two references. Each kind wears
+ * one parametric handle in brass focus — the offset distance for the offset
+ * kinds, the first reference for a midplane. Keyboard-first: the handle
+ * autofocuses, Enter commits, Escape cancels — the sketcher's dimension grammar.
  */
 import {
   NumberField,
@@ -14,6 +15,7 @@ import {
   PanelActionCell,
   SegmentedControl,
   type SegmentOption,
+  SelectField,
 } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
@@ -24,6 +26,11 @@ import {
   canSubmitDatum,
   DATUM_BASES,
   type DatumForm,
+  type DatumKind,
+  type DatumRef,
+  datumRefOptions,
+  defaultFormForKind,
+  midplaneSideOptions,
   offsetError,
 } from "../features/datum";
 import type { DatumPlaneName } from "../sketch/plane";
@@ -32,6 +39,8 @@ export interface DatumEditorProps {
   mode: "create" | "edit";
   /** The seed form (new-datum defaults, or an existing datum's params). */
   initial: DatumForm;
+  /** Earlier datum features — the references offset-from + midplane draw on. */
+  datumRefs: readonly DatumRef[];
   /** Commit the built params (documents/geometry handle the rest). */
   onSubmit: (params: DatumParams) => void;
   onCancel: () => void;
@@ -40,6 +49,12 @@ export interface DatumEditorProps {
   /** Server-side failure envelope message, or null. */
   error: string | null;
 }
+
+const KIND_OPTIONS: ReadonlyArray<{ value: DatumKind; label: string }> = [
+  { value: "offset", label: "Offset from origin plane" },
+  { value: "offset_from", label: "Offset from a datum" },
+  { value: "midplane", label: "Midplane between two references" },
+];
 
 const BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
   DATUM_BASES.map((b) => ({
@@ -64,9 +79,28 @@ const FLIP_OPTIONS: ReadonlyArray<SegmentOption<"keep" | "flip">> = [
   },
 ];
 
+/** The Normal / Flipped toggle every kind shares. */
+function FlipControl({
+  flip,
+  onChange,
+}: {
+  flip: boolean;
+  onChange: (flip: boolean) => void;
+}) {
+  return (
+    <SegmentedControl
+      label="Normal"
+      value={flip ? "flip" : "keep"}
+      options={FLIP_OPTIONS}
+      onChange={(v) => onChange(v === "flip")}
+    />
+  );
+}
+
 export function DatumEditor({
   mode,
   initial,
+  datumRefs,
   onSubmit,
   onCancel,
   saving,
@@ -82,9 +116,12 @@ export function DatumEditor({
     onSubmit(params);
   }, [form, onSubmit]);
 
+  // Enter commits, Escape cancels — except when a button (the footer / a
+  // segment) has focus: Enter must fire that control's own action.
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === "Enter") {
+        if (event.target instanceof HTMLButtonElement) return;
         event.preventDefault();
         if (!saving) submit();
       } else if (event.key === "Escape") {
@@ -98,9 +135,11 @@ export function DatumEditor({
   const canSubmit = canSubmitDatum(form) && !saving;
   useCommandBridge(submit, canSubmit);
 
+  const noDatums = datumRefs.length === 0;
+
   return (
     <div
-      className="absolute left-editor top-3 w-72 max-w-full"
+      className="absolute left-editor top-3 w-editor max-w-full"
       onKeyDown={onKeyDown}
     >
       <Panel aria-label="Datum plane" data-testid="datum-editor">
@@ -109,35 +148,123 @@ export function DatumEditor({
             {mode === "create" ? "New datum plane" : "Edit datum plane"}
           </h2>
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
-            <SegmentedControl
-              label="Parallel to"
-              value={form.base}
-              options={BASE_OPTIONS}
-              onChange={(base) => setForm((f) => ({ ...f, base }))}
-            />
-            <NumberField
-              label="Offset"
-              unit="mm"
-              data-testid="datum-offset"
-              autoFocus
-              value={form.offsetInput}
-              error={offsetError(form.offsetInput)}
+            <SelectField
+              label="Type"
+              data-testid="datum-kind"
+              value={form.kind}
+              options={KIND_OPTIONS}
               onChange={(e) =>
-                setForm((f) => ({ ...f, offsetInput: e.target.value }))
+                setForm((f) =>
+                  defaultFormForKind(e.target.value as DatumKind, f.flip),
+                )
               }
-              onFocus={(e) => e.currentTarget.select()}
-              aria-label="Offset distance (mm, signed)"
+              aria-label="Datum plane type"
             />
-            <p className="-mt-1 font-body text-xs text-gauge">
-              Distance along the {form.base} normal. 0 sits on the datum;
-              negative offsets the other side.
-            </p>
-            <SegmentedControl
-              label="Normal"
-              value={form.flip ? "flip" : "keep"}
-              options={FLIP_OPTIONS}
-              onChange={(v) => setForm((f) => ({ ...f, flip: v === "flip" }))}
-            />
+
+            {form.kind === "offset" ? (
+              <>
+                <SegmentedControl
+                  label="Parallel to"
+                  value={form.base}
+                  options={BASE_OPTIONS}
+                  onChange={(base) => setForm((f) => ({ ...f, base }))}
+                />
+                <NumberField
+                  label="Offset"
+                  unit="mm"
+                  data-testid="datum-offset"
+                  autoFocus
+                  value={form.offsetInput}
+                  error={offsetError(form.offsetInput)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, offsetInput: e.target.value }))
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="Offset distance (mm, signed)"
+                />
+                <p className="-mt-1 font-body text-xs text-gauge">
+                  Distance along the {form.base} normal. 0 sits on the datum;
+                  negative offsets the other side.
+                </p>
+                <FlipControl
+                  flip={form.flip}
+                  onChange={(flip) => setForm((f) => ({ ...f, flip }))}
+                />
+              </>
+            ) : null}
+
+            {form.kind === "offset_from" ? (
+              <>
+                <SelectField
+                  label="Base plane"
+                  data-testid="datum-base-plane"
+                  autoFocus
+                  value={form.baseFeatureId}
+                  options={datumRefOptions(datumRefs)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, baseFeatureId: e.target.value }))
+                  }
+                  aria-label="Datum plane to offset from"
+                />
+                <NumberField
+                  label="Offset"
+                  unit="mm"
+                  data-testid="datum-offset"
+                  value={form.offsetInput}
+                  error={offsetError(form.offsetInput)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, offsetInput: e.target.value }))
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="Offset distance (mm, signed)"
+                />
+                <p className="-mt-1 font-body text-xs text-gauge">
+                  {noDatums
+                    ? "Create a datum plane first — this offsets from one."
+                    : "Distance along the base datum's normal. 0 sits on it."}
+                </p>
+                <FlipControl
+                  flip={form.flip}
+                  onChange={(flip) => setForm((f) => ({ ...f, flip }))}
+                />
+              </>
+            ) : null}
+
+            {form.kind === "midplane" ? (
+              <>
+                <SelectField
+                  label="First reference"
+                  data-testid="datum-side-a"
+                  autoFocus
+                  value={form.a}
+                  options={midplaneSideOptions(datumRefs)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, a: e.target.value }))
+                  }
+                  aria-label="First midplane reference"
+                />
+                <SelectField
+                  label="Second reference"
+                  data-testid="datum-side-b"
+                  value={form.b}
+                  options={midplaneSideOptions(datumRefs)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, b: e.target.value }))
+                  }
+                  aria-label="Second midplane reference"
+                />
+                <p className="-mt-1 font-body text-xs text-gauge">
+                  The plane midway between the two references. Parallel
+                  references give a plane halfway between them; angled ones give
+                  their bisector. Pick a face for a reference from the sketch
+                  plane picker.
+                </p>
+                <FlipControl
+                  flip={form.flip}
+                  onChange={(flip) => setForm((f) => ({ ...f, flip }))}
+                />
+              </>
+            ) : null}
           </div>
         </div>
 
