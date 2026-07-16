@@ -154,7 +154,15 @@ class S3MeshStore:
 
 
 def _is_not_found(exc: ClientError) -> bool:
-    """True when a boto3 ``ClientError`` means the object simply isn't there."""
+    """True when a boto3 ``ClientError`` means the OBJECT simply isn't there.
+
+    Match ONLY ``NoSuchKey`` — a genuinely absent mesh, the honest 404. A
+    missing/misnamed BUCKET (``NoSuchBucket``) or any auth/transport error is a
+    misconfiguration or outage, NOT a mesh miss, and must propagate rather than
+    masquerade as a 404 that hides the fault (code review, audit F6). The write
+    path never catches ``NoSuchBucket``, so a fully-absent bucket already fails
+    loud at the writer before any id is handed out.
+    """
     error = cast("dict[str, object]", getattr(exc, "response", {})).get("Error", {})
     code = cast("dict[str, object]", error).get("Code")
-    return code in ("NoSuchKey", "NoSuchBucket", "404")
+    return code == "NoSuchKey"

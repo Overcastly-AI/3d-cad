@@ -26,6 +26,7 @@ from collections.abc import Iterator
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from geometry.mesh_store import (
     MeshStore,
     configure_mesh_store,
@@ -114,6 +115,20 @@ def test_get_miss_returns_none_not_a_wrong_mesh(s3: str) -> None:
     store = _store(s3)
     # Well-formed but never-stored id → honest miss.
     assert store.get("sha256:" + "0" * 64) is None
+
+
+def test_get_on_missing_bucket_propagates_not_masquerades_as_miss(s3: str) -> None:
+    """A missing/misnamed bucket is a config fault or outage, NOT a mesh miss —
+    it must PROPAGATE (surface the fault) rather than return None and masquerade
+    as an honest 404 (audit F6 code review). Only ``NoSuchKey`` is a miss."""
+    misconfigured = S3MeshStore(
+        endpoint_url=s3,
+        bucket="loft-bucket-never-created",  # never provisioned on the moto server
+        access_key_id=_ACCESS_KEY,
+        secret_access_key=_SECRET_KEY,
+    )
+    with pytest.raises(ClientError):
+        misconfigured.get("sha256:" + "0" * 64)
 
 
 @pytest.mark.parametrize("bad_id", ["", "not-a-hash", "sha256:xyz", "md5:" + "a" * 32])
