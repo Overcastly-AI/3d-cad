@@ -140,12 +140,28 @@ nit, no user impact, stays Later).
       (apps/web)**: pick a dimensionable projected edge → create/place a dimension
       and render the measured value + foreshortened warning (frontend territory).
       [src: design/drawings.md §3/§8]
-- [ ] (P1, M) Drawings v1 #6b — dimension-authoring UI (apps/web). Pick a
-      `dimensionable` projected edge (the `source_edge` ref rides the
-      `/drawing/evaluate` response now), place a linear/diameter/radius/angular
-      dimension via the existing dimension CRUD, and render the model-true measured
-      value + a `foreshortened` warning. Backend measurement + provenance shipped
-      in #6. [src: design/drawings.md §3/§6]
+- [x] (P1, S) Drawings v1 #6a — wire dimension measurement into the API
+      (geometry) — **DONE 2026-07-16.** `POST /api/v1/drawing/evaluate` (request
+      `EvaluateDrawingViewsRequest` gains `dimensions: list[DrawingDimensionInput]`,
+      each an optional echoed `id` + its `view` + the discriminated `Dimension`;
+      response gains `dimensions: list[MeasuredDimensionResult]`) now measures each
+      dimension off the once-evaluated body and returns its model-true
+      `MeasuredDimension` (value + unit + `foreshortened`, or a typed
+      `subshape_unresolved`/`subshape_ambiguous`/`dimension_wrong_type` error)
+      alongside the projected edges — the shipped `measure_dimension_dto` folded in,
+      no new kernel path. Additive + backward-compatible (no dimensions → empty
+      `dimensions`, edges byte-unchanged; frontend canvas #7 untouched); a
+      per-dimension failure is that dimension's typed error, never a 500. Gateway
+      proxy is a typed passthrough (no change). `test_drawings_evaluate.py` +4
+      specs; full `just lint` + `just gen`/`gen-check` clean. Unblocks #6b.
+      [src: design/drawings.md §3/§5]
+- [ ] (P1, M) Drawings v1 #6b — dimension-authoring UI (apps/web) — **UNBLOCKED
+      by #6a.** Pick a `dimensionable` projected edge (the `source_edge` ref rides
+      the `/drawing/evaluate` response), place a linear/diameter/radius/angular
+      dimension via the existing dimension CRUD, send it in the evaluate request's
+      `dimensions`, and render the returned model-true measured value + a
+      `foreshortened` warning. Backend measurement + provenance + API wiring shipped
+      (#6/#6a). [src: design/drawings.md §3/§6]
 - [ ] (P3, S) Drawings — hidden-edge provenance can tag the FAR coincident edge.
       `_attach_provenance` disambiguates a VISIBLE coincident 2D edge by nearest-eye
       depth (correct, proven), but a HIDDEN coincident edge with NO visible edge

@@ -24,15 +24,18 @@ in shape and error posture (a single part rather than an instance graph).
 
 from __future__ import annotations
 
+from build123d import Solid
 from py_kit.schemas.drawings import (
     DrawingViewResult,
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
+    MeasuredDimensionResult,
     ProjectedPoint,
     ProjectedViewEdge,
 )
 from py_kit.schemas.features import EvaluateTreeRequest, FeatureError
 
+from geometry.drawings.measure import measure_dimension_dto
 from geometry.drawings.project import (
     Point2D,
     ProjectedEdge,
@@ -94,17 +97,44 @@ def _to_edge(edge: ProjectedEdge) -> ProjectedViewEdge:
     )
 
 
+def _measure_dimensions(
+    body: Solid, request: EvaluateDrawingViewsRequest
+) -> list[MeasuredDimensionResult]:
+    """Measure every requested dimension off the SAME exact body (design §3/§5).
+
+    Each dimension is measured in request order against ``body`` in its tagged
+    ``view`` (which supplies ONLY the §3.2 foreshortening frame — the value is
+    model-true regardless, design §3.1). A per-dimension resolution failure is
+    folded onto that dimension's typed error channel by ``measure_dimension_dto``
+    (``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``) —
+    never a raise, never failing the other dimensions or the projected views. The
+    ``id`` correlation token is echoed straight back for client mapping.
+    """
+    return [
+        MeasuredDimensionResult(
+            id=item.id,
+            view=item.view,
+            measured=measure_dimension_dto(body, item.dimension, item.view),
+        )
+        for item in request.dimensions
+    ]
+
+
 def evaluate_drawing_views(
     request: EvaluateDrawingViewsRequest,
 ) -> EvaluateDrawingViewsResult:
-    """Project a part into its requested standard drawing views (design §1.2).
+    """Project a part into its requested standard drawing views + measure its
+    dimensions (design §1.2/§3).
 
     Evaluates the part body ONCE (``evaluate_tree``) then runs exact HLR per
-    requested view. Total — never raises for an evaluation outcome: a body-less
-    part is a whole-request ``part_error`` (empty ``views``), and a per-view HLR
-    failure is that view's typed ``view_projection_failed`` (the rest still
-    project). Deterministic (RESEARCH §9): byte-identical projected edges for the
-    same request, in-process and across an interpreter restart.
+    requested view AND measures each requested dimension off that SAME exact body
+    (model-true, design §3.1). Total — never raises for an evaluation outcome: a
+    body-less part is a whole-request ``part_error`` (empty ``views`` +
+    ``dimensions``), a per-view HLR failure is that view's typed
+    ``view_projection_failed`` (the rest still project), and a per-dimension
+    resolution failure is that dimension's typed error (the rest still measure).
+    Deterministic (RESEARCH §9): byte-identical projected edges + measured values
+    for the same request, in-process and across an interpreter restart.
     """
     # An exact rational scale (ViewScale numerator/denominator, both >= 1) → the
     # strictly-positive float project_view multiplies every coordinate by.
@@ -151,5 +181,6 @@ def evaluate_drawing_views(
         part_id=request.part_id,
         tree_version=request.tree_version,
         views=views,
+        dimensions=_measure_dimensions(body, request),
         part_error=None,
     )

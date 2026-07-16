@@ -1332,6 +1332,68 @@
         "title": "DrawingCreate",
         "type": "object"
       },
+      "DrawingDimensionInput": {
+        "description": "A dimension to MEASURE against a view in a drawing-evaluate request (\u00a73/\u00a75).\n\nThe evaluate-request analogue of a persisted :class:`DimensionResponse`: it\npairs the authored dimension params with the ``view`` whose projection frame\nsupplies the \u00a73.2 foreshortening reference \u2014 the geometry-request twin of the\n``view_id`` a stored dimension carries (here the standard :data:`ViewProjection`\ndirection the evaluate request already projects). ``id`` is an OPTIONAL\ncorrelation token echoed back on the matching :class:`MeasuredDimensionResult`\nso the client maps a measured value onto the dimension it authored (documents'\ndimension id); a transient/library measurement may omit it. The measured VALUE\nis taken from the MODEL, never the projection (design \u00a73.1) \u2014 ``view`` only sets\nthe foreshortening flag, it never changes the value.",
+        "properties": {
+          "dimension": {
+            "description": "The dimension to measure (discriminated on `type`)",
+            "discriminator": {
+              "mapping": {
+                "angular": "#/components/schemas/AngularDimensionParams",
+                "diameter": "#/components/schemas/DiameterDimensionParams",
+                "linear": "#/components/schemas/LinearDimensionParams",
+                "radius": "#/components/schemas/RadiusDimensionParams"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LinearDimensionParams"
+              },
+              {
+                "$ref": "#/components/schemas/DiameterDimensionParams"
+              },
+              {
+                "$ref": "#/components/schemas/RadiusDimensionParams"
+              },
+              {
+                "$ref": "#/components/schemas/AngularDimensionParams"
+              }
+            ],
+            "title": "Dimension"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional correlation id echoed on the result (the stored dimension id); null for a transient/library measurement",
+            "title": "Id"
+          },
+          "view": {
+            "description": "Which requested view's frame measures it \u2014 supplies the \u00a73.2 foreshortening reference only; the value is model-true regardless (\u00a73.1)",
+            "enum": [
+              "front",
+              "top",
+              "right",
+              "iso"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "dimension"
+        ],
+        "title": "DrawingDimensionInput",
+        "type": "object"
+      },
       "DrawingListResponse": {
         "description": "The caller's drawings, oldest first (wrapper leaves room for paging).",
         "properties": {
@@ -1824,8 +1886,16 @@
         "type": "object"
       },
       "EvaluateDrawingViewsRequest": {
-        "description": "Project a part into its requested standard drawing views (design \u00a71.2/\u00a74).\n\ndocuments sends INTENT \u2014 the referenced part's ordered, rollback-applied\nfeature prefix (reusing the feature-tree \u00a74 contract VERBATIM, so geometry\nstays the sole evaluator and no kernel body crosses) plus the standard views to\nproject and the drawing scale. geometry evaluates the part body ONCE\n(``evaluate_tree``) then runs exact HLR per requested view. Deterministic\n(RESEARCH \u00a79): the same request yields byte-identical projected edges,\nin-process AND across an interpreter restart.",
+        "description": "Project a part into its requested standard drawing views (design \u00a71.2/\u00a74).\n\ndocuments sends INTENT \u2014 the referenced part's ordered, rollback-applied\nfeature prefix (reusing the feature-tree \u00a74 contract VERBATIM, so geometry\nstays the sole evaluator and no kernel body crosses) plus the standard views to\nproject, the drawing scale, and (optionally) the drawing's dimensions to\nmeasure. geometry evaluates the part body ONCE (``evaluate_tree``) then runs\nexact HLR per requested view AND measures each dimension off the SAME exact body\n(design \u00a73.1 \u2014 model-true, never the projection). Deterministic (RESEARCH \u00a79):\nthe same request yields byte-identical projected edges + measured values,\nin-process AND across an interpreter restart.",
         "properties": {
+          "dimensions": {
+            "description": "Dimensions to measure against the evaluated body, each tagged with its view (design \u00a73/\u00a75). Empty (the default) \u2192 no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).",
+            "items": {
+              "$ref": "#/components/schemas/DrawingDimensionInput"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
           "features": {
             "description": "The part's ordered feature prefix (feature-tree \u00a74 contract)",
             "items": {
@@ -1880,6 +1950,14 @@
       "EvaluateDrawingViewsResult": {
         "description": "Per-view projected geometry for a part, with an honest whole-part failure\nchannel (design \u00a71.5/\u00a74).\n\n``views`` carries one :class:`DrawingViewResult` per requested view, in request\norder \u2014 each either its canonically-ordered 2D edges or a typed per-view\nprojection error. ``part_error`` is set ONLY when the part tree produced no\nbody (a strict-prefix feature failure or a body-less tree): there is nothing to\nproject, so ``views`` is empty and the failing feature's error rides here (the\nsingle-part analogue of the assembly per-instance ``no_body``). A feature/HLR\nfailure is a 200 with a typed error, never a 500 \u2014 the py-kit error envelope\nstays reserved for transport/validation failures of this call itself.",
         "properties": {
+          "dimensions": {
+            "description": "One measured result per requested dimension, in request order (design \u00a73/\u00a75). Empty when no dimensions were requested or when `part_error` is set (no body to measure against).",
+            "items": {
+              "$ref": "#/components/schemas/MeasuredDimensionResult"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
           "part_error": {
             "anyOf": [
               {
@@ -1889,7 +1967,7 @@
                 "type": "null"
               }
             ],
-            "description": "Set when the part evaluated to no body (nothing to project); `views` is then empty (design \u00a74)"
+            "description": "Set when the part evaluated to no body (nothing to project or measure); `views` and `dimensions` are then empty (design \u00a74)"
           },
           "part_id": {
             "format": "uuid",
@@ -3770,6 +3848,97 @@
           "point_on_b"
         ],
         "title": "MeasureResult",
+        "type": "object"
+      },
+      "MeasuredDimension": {
+        "description": "A dimension's value measured from the MODEL, or a typed resolution error.\n\nOn success ``value`` + ``unit`` carry the model-true measurement and ``error``\nis null; ``foreshortened`` flags a feature not parallel to the view plane\n(design \u00a73.2 \u2014 the value is still model-true). On failure ``value``/``unit``\nare null and ``error`` is a typed ``subshape_unresolved`` / ``subshape_ambiguous``\n/ ``dimension_wrong_type`` (never a 500 \u2014 design \u00a73.3). Mirrors the per-view\n:class:`DrawingViewResult` success/error envelope for a single dimension.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed resolution failure (`subshape_unresolved` / `subshape_ambiguous` / `dimension_wrong_type`), or null on success"
+          },
+          "foreshortened": {
+            "default": false,
+            "description": "True when the measured feature is not parallel to the view plane (design \u00a73.2). The value is STILL model-true; the flag warns the UI to dimension it in a true-size view.",
+            "title": "Foreshortened",
+            "type": "boolean"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mm",
+                  "deg"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'mm' or 'deg'; null when `error` is set",
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model-true measured value (mm for linear/diameter/radius, degrees for angular); null when `error` is set",
+            "title": "Value"
+          }
+        },
+        "title": "MeasuredDimension",
+        "type": "object"
+      },
+      "MeasuredDimensionResult": {
+        "description": "One requested dimension's measured outcome inside a 200 (design \u00a73/\u00a75).\n\nPairs the echoed correlation ``id`` + the ``view`` it was measured in with the\nmodel-true :class:`MeasuredDimension` (value + unit + ``foreshortened``, OR a\ntyped ``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``\nerror on its ``error`` channel). A per-dimension measurement failure is THAT\ndimension's typed error \u2014 never a 500, never a failure of the whole request or\nof any OTHER dimension/view \u2014 the same never-500 posture as the per-view\n:class:`DrawingViewResult` and the per-feature/per-mate strict-prefix rule.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Echoed correlation id (matches the request input), or null",
+            "title": "Id"
+          },
+          "measured": {
+            "$ref": "#/components/schemas/MeasuredDimension",
+            "description": "Model-true value + unit + foreshortened flag, or a typed error"
+          },
+          "view": {
+            "description": "The view direction this dimension was measured in",
+            "enum": [
+              "front",
+              "top",
+              "right",
+              "iso"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "measured"
+        ],
+        "title": "MeasuredDimensionResult",
         "type": "object"
       },
       "MeshStats": {

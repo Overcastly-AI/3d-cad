@@ -47,6 +47,35 @@
         "title": "AngleMate",
         "type": "object"
       },
+      "AngularDimensionParams": {
+        "description": "An angular dimension between two straight model edges (design \u00a73.1).",
+        "properties": {
+          "edge_a": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "First straight model edge"
+          },
+          "edge_b": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Second straight model edge"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/DimensionPlacement",
+            "description": "Authored 2D placement"
+          },
+          "type": {
+            "const": "angular",
+            "default": "angular",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "edge_a",
+          "edge_b"
+        ],
+        "title": "AngularDimensionParams",
+        "type": "object"
+      },
       "AssemblySolveDiagnosis": {
         "description": "Structured diagnosis, mirroring ``SketchConstraintDiagnosis`` (design \u00a72.4).\n\nRead by field, never a parsed message. ``remaining_dof`` is first-class for\nthe under-constrained case; ``conflicting_mates`` / ``redundant_mates`` name\noffending mates by id for the over/conflict cases.",
         "properties": {
@@ -664,6 +693,78 @@
         "title": "DatumPlaneRef",
         "type": "object"
       },
+      "DiameterDimensionParams": {
+        "description": "A diameter dimension on a circular model edge (design \u00a73.1).\n\n``edge`` must resolve to a CIRCULAR edge (``curve == \"circle\"``) \u2014 the\nidentical reuse a ``concentric`` mate makes for its axis (design \u00a73.3), so one\nsignature names a hole for both mating and dimensioning. The measured value\n(2\u00b7radius) is computed geometry-side.",
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Circular model edge (curve == 'circle')"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/DimensionPlacement",
+            "description": "Authored 2D placement"
+          },
+          "type": {
+            "const": "diameter",
+            "default": "diameter",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "edge"
+        ],
+        "title": "DiameterDimensionParams",
+        "type": "object"
+      },
+      "DimensionEndpointRef": {
+        "description": "One canonical endpoint of a model edge (design \u00a73.3 point-to-point linear).\n\n``endpoint`` selects ``end_a`` or ``end_b`` of the ``signature``'s\ncanonically-ordered pair \u2014 a vertex named through an EDGE, so v1 needs no\n(unshipped) bare-vertex signature (topological-naming Open Q 10).",
+        "properties": {
+          "endpoint": {
+            "description": "Which canonical end of the edge (end_a / end_b)",
+            "enum": [
+              "end_a",
+              "end_b"
+            ],
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The model edge whose endpoint this names (reused EdgeSignature)"
+          }
+        },
+        "required": [
+          "signature",
+          "endpoint"
+        ],
+        "title": "DimensionEndpointRef",
+        "type": "object"
+      },
+      "DimensionPlacement": {
+        "description": "Authored 2D placement of a dimension on the sheet (design \u00a73.1).\n\nPlacement is AUTHORED data (which side of the geometry the dimension line +\nwitness lines sit, and the text position); the measured VALUE is always taken\nfrom the model, never typed (a v1 drawing dimension is driven-by-geometry,\nnever driving \u2014 design \u00a73.1). ``offset_mm`` is the signed distance of the\ndimension line from the geometry in the view plane; ``text_pos`` optionally\noverrides the text placement.",
+        "properties": {
+          "offset_mm": {
+            "default": 0.0,
+            "description": "Signed offset of the dimension line from the geometry (mm)",
+            "title": "Offset Mm",
+            "type": "number"
+          },
+          "text_pos": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetPoint"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional text-position override (sheet mm)"
+          }
+        },
+        "title": "DimensionPlacement",
+        "type": "object"
+      },
       "DistanceConstraint": {
         "description": "Dimension: the length of a line (mm). Driving by default; see\n:class:`DimensionConstraint` for the expression/name/driving fields.",
         "properties": {
@@ -853,6 +954,68 @@
         "title": "DraftParamsV1",
         "type": "object"
       },
+      "DrawingDimensionInput": {
+        "description": "A dimension to MEASURE against a view in a drawing-evaluate request (\u00a73/\u00a75).\n\nThe evaluate-request analogue of a persisted :class:`DimensionResponse`: it\npairs the authored dimension params with the ``view`` whose projection frame\nsupplies the \u00a73.2 foreshortening reference \u2014 the geometry-request twin of the\n``view_id`` a stored dimension carries (here the standard :data:`ViewProjection`\ndirection the evaluate request already projects). ``id`` is an OPTIONAL\ncorrelation token echoed back on the matching :class:`MeasuredDimensionResult`\nso the client maps a measured value onto the dimension it authored (documents'\ndimension id); a transient/library measurement may omit it. The measured VALUE\nis taken from the MODEL, never the projection (design \u00a73.1) \u2014 ``view`` only sets\nthe foreshortening flag, it never changes the value.",
+        "properties": {
+          "dimension": {
+            "description": "The dimension to measure (discriminated on `type`)",
+            "discriminator": {
+              "mapping": {
+                "angular": "#/components/schemas/AngularDimensionParams",
+                "diameter": "#/components/schemas/DiameterDimensionParams",
+                "linear": "#/components/schemas/LinearDimensionParams",
+                "radius": "#/components/schemas/RadiusDimensionParams"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LinearDimensionParams"
+              },
+              {
+                "$ref": "#/components/schemas/DiameterDimensionParams"
+              },
+              {
+                "$ref": "#/components/schemas/RadiusDimensionParams"
+              },
+              {
+                "$ref": "#/components/schemas/AngularDimensionParams"
+              }
+            ],
+            "title": "Dimension"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional correlation id echoed on the result (the stored dimension id); null for a transient/library measurement",
+            "title": "Id"
+          },
+          "view": {
+            "description": "Which requested view's frame measures it \u2014 supplies the \u00a73.2 foreshortening reference only; the value is model-true regardless (\u00a73.1)",
+            "enum": [
+              "front",
+              "top",
+              "right",
+              "iso"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "dimension"
+        ],
+        "title": "DrawingDimensionInput",
+        "type": "object"
+      },
       "DrawingViewResult": {
         "description": "One requested view's projection outcome inside a 200 (design \u00a71.3/\u00a71.5).\n\nOn success, ``edges`` carries the view's canonically-ordered visible+hidden 2D\nedges and ``error`` is null. On an exact-HLR failure (a fragile body \u2014 tangent\nedges, self-intersections, \u00a71.5), ``edges`` is empty and ``error`` is a typed\n``view_projection_failed`` (the boundary form of\n``geometry.drawings.ViewProjectionError``) \u2014 never a 500, never a silently\nempty success. A per-view failure NEVER fails the whole request; the other\nrequested views still project (mirroring the per-feature/per-mate posture).",
         "properties": {
@@ -896,6 +1059,26 @@
           "scale"
         ],
         "title": "DrawingViewResult",
+        "type": "object"
+      },
+      "EdgeLengthMeasurement": {
+        "description": "Measure the length of a single model edge (design \u00a73.1 linear).",
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "The model edge whose length is measured"
+          },
+          "mode": {
+            "const": "edge_length",
+            "default": "edge_length",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "edge"
+        ],
+        "title": "EdgeLengthMeasurement",
         "type": "object"
       },
       "EdgeSelectorV1": {
@@ -1212,8 +1395,16 @@
         "type": "object"
       },
       "EvaluateDrawingViewsRequest": {
-        "description": "Project a part into its requested standard drawing views (design \u00a71.2/\u00a74).\n\ndocuments sends INTENT \u2014 the referenced part's ordered, rollback-applied\nfeature prefix (reusing the feature-tree \u00a74 contract VERBATIM, so geometry\nstays the sole evaluator and no kernel body crosses) plus the standard views to\nproject and the drawing scale. geometry evaluates the part body ONCE\n(``evaluate_tree``) then runs exact HLR per requested view. Deterministic\n(RESEARCH \u00a79): the same request yields byte-identical projected edges,\nin-process AND across an interpreter restart.",
+        "description": "Project a part into its requested standard drawing views (design \u00a71.2/\u00a74).\n\ndocuments sends INTENT \u2014 the referenced part's ordered, rollback-applied\nfeature prefix (reusing the feature-tree \u00a74 contract VERBATIM, so geometry\nstays the sole evaluator and no kernel body crosses) plus the standard views to\nproject, the drawing scale, and (optionally) the drawing's dimensions to\nmeasure. geometry evaluates the part body ONCE (``evaluate_tree``) then runs\nexact HLR per requested view AND measures each dimension off the SAME exact body\n(design \u00a73.1 \u2014 model-true, never the projection). Deterministic (RESEARCH \u00a79):\nthe same request yields byte-identical projected edges + measured values,\nin-process AND across an interpreter restart.",
         "properties": {
+          "dimensions": {
+            "description": "Dimensions to measure against the evaluated body, each tagged with its view (design \u00a73/\u00a75). Empty (the default) \u2192 no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).",
+            "items": {
+              "$ref": "#/components/schemas/DrawingDimensionInput"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
           "features": {
             "description": "The part's ordered feature prefix (feature-tree \u00a74 contract)",
             "items": {
@@ -1268,6 +1459,14 @@
       "EvaluateDrawingViewsResult": {
         "description": "Per-view projected geometry for a part, with an honest whole-part failure\nchannel (design \u00a71.5/\u00a74).\n\n``views`` carries one :class:`DrawingViewResult` per requested view, in request\norder \u2014 each either its canonically-ordered 2D edges or a typed per-view\nprojection error. ``part_error`` is set ONLY when the part tree produced no\nbody (a strict-prefix feature failure or a body-less tree): there is nothing to\nproject, so ``views`` is empty and the failing feature's error rides here (the\nsingle-part analogue of the assembly per-instance ``no_body``). A feature/HLR\nfailure is a 200 with a typed error, never a 500 \u2014 the py-kit error envelope\nstays reserved for transport/validation failures of this call itself.",
         "properties": {
+          "dimensions": {
+            "description": "One measured result per requested dimension, in request order (design \u00a73/\u00a75). Empty when no dimensions were requested or when `part_error` is set (no body to measure against).",
+            "items": {
+              "$ref": "#/components/schemas/MeasuredDimensionResult"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
           "part_error": {
             "anyOf": [
               {
@@ -1277,7 +1476,7 @@
                 "type": "null"
               }
             ],
-            "description": "Set when the part evaluated to no body (nothing to project); `views` is then empty (design \u00a74)"
+            "description": "Set when the part evaluated to no body (nothing to project or measure); `views` and `dimensions` are then empty (design \u00a74)"
           },
           "part_id": {
             "format": "uuid",
@@ -2130,6 +2329,45 @@
         "title": "InstancePlacementResult",
         "type": "object"
       },
+      "LinearDimensionParams": {
+        "description": "A linear dimension \u2014 an edge length or a point-to-point distance (\u00a73.1).",
+        "properties": {
+          "measurement": {
+            "description": "What is measured (an edge's length or two endpoints)",
+            "discriminator": {
+              "mapping": {
+                "edge_length": "#/components/schemas/EdgeLengthMeasurement",
+                "point_to_point": "#/components/schemas/PointToPointMeasurement"
+              },
+              "propertyName": "mode"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EdgeLengthMeasurement"
+              },
+              {
+                "$ref": "#/components/schemas/PointToPointMeasurement"
+              }
+            ],
+            "title": "Measurement"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/DimensionPlacement",
+            "description": "Authored 2D placement"
+          },
+          "type": {
+            "const": "linear",
+            "default": "linear",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measurement"
+        ],
+        "title": "LinearDimensionParams",
+        "type": "object"
+      },
       "LinearPatternParamsV1": {
         "description": "A linear (row/grid-line) pattern along a world-space direction.\n\n``count`` INCLUDES the seed (instance 0 = the existing body), so a row of\nN total bodies is ``count = N``; ``count = 1`` is a no-op (seed only).\nCopies are placed at ``spacing_mm * k`` along the unit ``direction`` for\n``k = 1..count-1``. See the module design note above for what \"the body\"\nmeans and the connected-solid requirement.",
         "properties": {
@@ -2429,6 +2667,97 @@
           "point_on_b"
         ],
         "title": "MeasureResult",
+        "type": "object"
+      },
+      "MeasuredDimension": {
+        "description": "A dimension's value measured from the MODEL, or a typed resolution error.\n\nOn success ``value`` + ``unit`` carry the model-true measurement and ``error``\nis null; ``foreshortened`` flags a feature not parallel to the view plane\n(design \u00a73.2 \u2014 the value is still model-true). On failure ``value``/``unit``\nare null and ``error`` is a typed ``subshape_unresolved`` / ``subshape_ambiguous``\n/ ``dimension_wrong_type`` (never a 500 \u2014 design \u00a73.3). Mirrors the per-view\n:class:`DrawingViewResult` success/error envelope for a single dimension.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed resolution failure (`subshape_unresolved` / `subshape_ambiguous` / `dimension_wrong_type`), or null on success"
+          },
+          "foreshortened": {
+            "default": false,
+            "description": "True when the measured feature is not parallel to the view plane (design \u00a73.2). The value is STILL model-true; the flag warns the UI to dimension it in a true-size view.",
+            "title": "Foreshortened",
+            "type": "boolean"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mm",
+                  "deg"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'mm' or 'deg'; null when `error` is set",
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model-true measured value (mm for linear/diameter/radius, degrees for angular); null when `error` is set",
+            "title": "Value"
+          }
+        },
+        "title": "MeasuredDimension",
+        "type": "object"
+      },
+      "MeasuredDimensionResult": {
+        "description": "One requested dimension's measured outcome inside a 200 (design \u00a73/\u00a75).\n\nPairs the echoed correlation ``id`` + the ``view`` it was measured in with the\nmodel-true :class:`MeasuredDimension` (value + unit + ``foreshortened``, OR a\ntyped ``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``\nerror on its ``error`` channel). A per-dimension measurement failure is THAT\ndimension's typed error \u2014 never a 500, never a failure of the whole request or\nof any OTHER dimension/view \u2014 the same never-500 posture as the per-view\n:class:`DrawingViewResult` and the per-feature/per-mate strict-prefix rule.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Echoed correlation id (matches the request input), or null",
+            "title": "Id"
+          },
+          "measured": {
+            "$ref": "#/components/schemas/MeasuredDimension",
+            "description": "Model-true value + unit + foreshortened flag, or a typed error"
+          },
+          "view": {
+            "description": "The view direction this dimension was measured in",
+            "enum": [
+              "front",
+              "top",
+              "right",
+              "iso"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "measured"
+        ],
+        "title": "MeasuredDimensionResult",
         "type": "object"
       },
       "MeshStats": {
@@ -2867,6 +3196,31 @@
         "title": "PointTarget",
         "type": "object"
       },
+      "PointToPointMeasurement": {
+        "description": "Measure the distance between two model-edge endpoints (design \u00a73.1/\u00a73.3).",
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/DimensionEndpointRef",
+            "description": "First endpoint"
+          },
+          "b": {
+            "$ref": "#/components/schemas/DimensionEndpointRef",
+            "description": "Second endpoint"
+          },
+          "mode": {
+            "const": "point_to_point",
+            "default": "point_to_point",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "title": "PointToPointMeasurement",
+        "type": "object"
+      },
       "ProjectedPoint": {
         "description": "A 2D point of a projected view edge, in view-plane mm at the view's scale.\n\nView-local millimetres (model-mm x the view scale, design \u00a79 q4) \u2014 NOT yet\nplaced at a sheet position (sheet layout is a later slice). A projected edge's\nendpoints, midpoint, centre, and polyline sample points are all this type.",
         "properties": {
@@ -3079,6 +3433,30 @@
         "title": "RadiusConstraint",
         "type": "object"
       },
+      "RadiusDimensionParams": {
+        "description": "A radius dimension on a circular / arc model edge (design \u00a73.1).",
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Circular / arc model edge"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/DimensionPlacement",
+            "description": "Authored 2D placement"
+          },
+          "type": {
+            "const": "radius",
+            "default": "radius",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "edge"
+        ],
+        "title": "RadiusDimensionParams",
+        "type": "object"
+      },
       "RevolveAxis": {
         "description": "The axis of revolution: a straight LINE entity of the profile's sketch.\n\nv1 references a line entity by its sketch-local id (design \u00a72.4 entity ids)\nwithin the SAME sketch the profile comes from. A **construction** line is\nthe natural choice \u2014 a centerline is reference-only (excluded from the\nclosed-wire profile) and is exactly what an axis of revolution is \u2014 but any\nline entity resolves; the axis is defined by the line's two solved\nendpoints, mapped to world space through the profile's datum plane.\n\nThe ``kind`` discriminator seeds a future additive ``datum_axis`` variant\n(the \u00a72.1 ``GeomRef`` pattern) without forcing a ``param_version`` bump: a\npersisted axis is always ``{\"kind\": \"sketch_line\", \"entity\": ...}`` today,\nand a later datum-axis reference joins as ``kind: \"datum_axis\"``.",
         "properties": {
@@ -3223,6 +3601,27 @@
           "topology"
         ],
         "title": "ShapeProperties",
+        "type": "object"
+      },
+      "SheetPoint": {
+        "description": "A 2D point in SHEET space (mm), origin at the title-block corner (\u00a79 q4).\n\nSheet space is millimetres at 1:1; a view's scale maps model-mm \u2192 sheet-mm\n(design \u00a79 open-q 4). Used for view placement, dimension text, and note\npositions. Full precision; a non-finite coordinate is a request-validation\n422 (``allow_inf_nan=False``), never a silently-defaulted position.",
+        "properties": {
+          "x_mm": {
+            "description": "X on the sheet, mm from the origin corner",
+            "title": "X Mm",
+            "type": "number"
+          },
+          "y_mm": {
+            "description": "Y on the sheet, mm from the origin corner",
+            "title": "Y Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x_mm",
+          "y_mm"
+        ],
+        "title": "SheetPoint",
         "type": "object"
       },
       "ShellFeature": {

@@ -526,6 +526,23 @@ export interface components {
             type: "angle";
         };
         /**
+         * AngularDimensionParams
+         * @description An angular dimension between two straight model edges (design §3.1).
+         */
+        AngularDimensionParams: {
+            /** @description First straight model edge */
+            edge_a: components["schemas"]["EdgeSignature"];
+            /** @description Second straight model edge */
+            edge_b: components["schemas"]["EdgeSignature"];
+            /** @description Authored 2D placement */
+            placement?: components["schemas"]["DimensionPlacement"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "angular";
+        };
+        /**
          * AssemblySolveDiagnosis
          * @description Structured diagnosis, mirroring ``SketchConstraintDiagnosis`` (design §2.4).
          *
@@ -1024,6 +1041,65 @@ export interface components {
             plane: "XY" | "XZ" | "YZ";
         };
         /**
+         * DiameterDimensionParams
+         * @description A diameter dimension on a circular model edge (design §3.1).
+         *
+         *     ``edge`` must resolve to a CIRCULAR edge (``curve == "circle"``) — the
+         *     identical reuse a ``concentric`` mate makes for its axis (design §3.3), so one
+         *     signature names a hole for both mating and dimensioning. The measured value
+         *     (2·radius) is computed geometry-side.
+         */
+        DiameterDimensionParams: {
+            /** @description Circular model edge (curve == 'circle') */
+            edge: components["schemas"]["EdgeSignature"];
+            /** @description Authored 2D placement */
+            placement?: components["schemas"]["DimensionPlacement"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "diameter";
+        };
+        /**
+         * DimensionEndpointRef
+         * @description One canonical endpoint of a model edge (design §3.3 point-to-point linear).
+         *
+         *     ``endpoint`` selects ``end_a`` or ``end_b`` of the ``signature``'s
+         *     canonically-ordered pair — a vertex named through an EDGE, so v1 needs no
+         *     (unshipped) bare-vertex signature (topological-naming Open Q 10).
+         */
+        DimensionEndpointRef: {
+            /**
+             * Endpoint
+             * @description Which canonical end of the edge (end_a / end_b)
+             * @enum {string}
+             */
+            endpoint: "end_a" | "end_b";
+            /** @description The model edge whose endpoint this names (reused EdgeSignature) */
+            signature: components["schemas"]["EdgeSignature"];
+        };
+        /**
+         * DimensionPlacement
+         * @description Authored 2D placement of a dimension on the sheet (design §3.1).
+         *
+         *     Placement is AUTHORED data (which side of the geometry the dimension line +
+         *     witness lines sit, and the text position); the measured VALUE is always taken
+         *     from the model, never typed (a v1 drawing dimension is driven-by-geometry,
+         *     never driving — design §3.1). ``offset_mm`` is the signed distance of the
+         *     dimension line from the geometry in the view plane; ``text_pos`` optionally
+         *     overrides the text placement.
+         */
+        DimensionPlacement: {
+            /**
+             * Offset Mm
+             * @description Signed offset of the dimension line from the geometry (mm)
+             * @default 0
+             */
+            offset_mm: number;
+            /** @description Optional text-position override (sheet mm) */
+            text_pos?: components["schemas"]["SheetPoint"] | null;
+        };
+        /**
          * DistanceConstraint
          * @description Dimension: the length of a line (mm). Driving by default; see
          *     :class:`DimensionConstraint` for the expression/name/driving fields.
@@ -1194,6 +1270,39 @@ export interface components {
             neutral_plane: components["schemas"]["DraftNeutralPlaneV1"];
         };
         /**
+         * DrawingDimensionInput
+         * @description A dimension to MEASURE against a view in a drawing-evaluate request (§3/§5).
+         *
+         *     The evaluate-request analogue of a persisted :class:`DimensionResponse`: it
+         *     pairs the authored dimension params with the ``view`` whose projection frame
+         *     supplies the §3.2 foreshortening reference — the geometry-request twin of the
+         *     ``view_id`` a stored dimension carries (here the standard :data:`ViewProjection`
+         *     direction the evaluate request already projects). ``id`` is an OPTIONAL
+         *     correlation token echoed back on the matching :class:`MeasuredDimensionResult`
+         *     so the client maps a measured value onto the dimension it authored (documents'
+         *     dimension id); a transient/library measurement may omit it. The measured VALUE
+         *     is taken from the MODEL, never the projection (design §3.1) — ``view`` only sets
+         *     the foreshortening flag, it never changes the value.
+         */
+        DrawingDimensionInput: {
+            /**
+             * Dimension
+             * @description The dimension to measure (discriminated on `type`)
+             */
+            dimension: components["schemas"]["LinearDimensionParams"] | components["schemas"]["DiameterDimensionParams"] | components["schemas"]["RadiusDimensionParams"] | components["schemas"]["AngularDimensionParams"];
+            /**
+             * Id
+             * @description Optional correlation id echoed on the result (the stored dimension id); null for a transient/library measurement
+             */
+            id?: string | null;
+            /**
+             * View
+             * @description Which requested view's frame measures it — supplies the §3.2 foreshortening reference only; the value is model-true regardless (§3.1)
+             * @enum {string}
+             */
+            view: "front" | "top" | "right" | "iso";
+        };
+        /**
          * DrawingViewResult
          * @description One requested view's projection outcome inside a 200 (design §1.3/§1.5).
          *
@@ -1221,6 +1330,19 @@ export interface components {
              * @enum {string}
              */
             view: "front" | "top" | "right" | "iso";
+        };
+        /**
+         * EdgeLengthMeasurement
+         * @description Measure the length of a single model edge (design §3.1 linear).
+         */
+        EdgeLengthMeasurement: {
+            /** @description The model edge whose length is measured */
+            edge: components["schemas"]["EdgeSignature"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "edge_length";
         };
         /**
          * EdgeSelectorV1
@@ -1475,12 +1597,19 @@ export interface components {
          *     documents sends INTENT — the referenced part's ordered, rollback-applied
          *     feature prefix (reusing the feature-tree §4 contract VERBATIM, so geometry
          *     stays the sole evaluator and no kernel body crosses) plus the standard views to
-         *     project and the drawing scale. geometry evaluates the part body ONCE
-         *     (``evaluate_tree``) then runs exact HLR per requested view. Deterministic
-         *     (RESEARCH §9): the same request yields byte-identical projected edges,
+         *     project, the drawing scale, and (optionally) the drawing's dimensions to
+         *     measure. geometry evaluates the part body ONCE (``evaluate_tree``) then runs
+         *     exact HLR per requested view AND measures each dimension off the SAME exact body
+         *     (design §3.1 — model-true, never the projection). Deterministic (RESEARCH §9):
+         *     the same request yields byte-identical projected edges + measured values,
          *     in-process AND across an interpreter restart.
          */
         EvaluateDrawingViewsRequest: {
+            /**
+             * Dimensions
+             * @description Dimensions to measure against the evaluated body, each tagged with its view (design §3/§5). Empty (the default) → no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).
+             */
+            dimensions?: components["schemas"]["DrawingDimensionInput"][];
             /**
              * Features
              * @description The part's ordered feature prefix (feature-tree §4 contract)
@@ -1526,7 +1655,12 @@ export interface components {
          *     stays reserved for transport/validation failures of this call itself.
          */
         EvaluateDrawingViewsResult: {
-            /** @description Set when the part evaluated to no body (nothing to project); `views` is then empty (design §4) */
+            /**
+             * Dimensions
+             * @description One measured result per requested dimension, in request order (design §3/§5). Empty when no dimensions were requested or when `part_error` is set (no body to measure against).
+             */
+            dimensions?: components["schemas"]["MeasuredDimensionResult"][];
+            /** @description Set when the part evaluated to no body (nothing to project or measure); `views` and `dimensions` are then empty (design §4) */
             part_error?: components["schemas"]["FeatureError"] | null;
             /**
              * Part Id
@@ -2091,6 +2225,24 @@ export interface components {
             properties?: components["schemas"]["ShapeProperties"] | null;
         };
         /**
+         * LinearDimensionParams
+         * @description A linear dimension — an edge length or a point-to-point distance (§3.1).
+         */
+        LinearDimensionParams: {
+            /**
+             * Measurement
+             * @description What is measured (an edge's length or two endpoints)
+             */
+            measurement: components["schemas"]["EdgeLengthMeasurement"] | components["schemas"]["PointToPointMeasurement"];
+            /** @description Authored 2D placement */
+            placement?: components["schemas"]["DimensionPlacement"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "linear";
+        };
+        /**
          * LinearPatternParamsV1
          * @description A linear (row/grid-line) pattern along a world-space direction.
          *
@@ -2350,6 +2502,64 @@ export interface components {
             point_on_a: components["schemas"]["Vec3"];
             /** @description Nearest point on target B (mm) */
             point_on_b: components["schemas"]["Vec3"];
+        };
+        /**
+         * MeasuredDimension
+         * @description A dimension's value measured from the MODEL, or a typed resolution error.
+         *
+         *     On success ``value`` + ``unit`` carry the model-true measurement and ``error``
+         *     is null; ``foreshortened`` flags a feature not parallel to the view plane
+         *     (design §3.2 — the value is still model-true). On failure ``value``/``unit``
+         *     are null and ``error`` is a typed ``subshape_unresolved`` / ``subshape_ambiguous``
+         *     / ``dimension_wrong_type`` (never a 500 — design §3.3). Mirrors the per-view
+         *     :class:`DrawingViewResult` success/error envelope for a single dimension.
+         */
+        MeasuredDimension: {
+            /** @description Typed resolution failure (`subshape_unresolved` / `subshape_ambiguous` / `dimension_wrong_type`), or null on success */
+            error?: components["schemas"]["FeatureError"] | null;
+            /**
+             * Foreshortened
+             * @description True when the measured feature is not parallel to the view plane (design §3.2). The value is STILL model-true; the flag warns the UI to dimension it in a true-size view.
+             * @default false
+             */
+            foreshortened: boolean;
+            /**
+             * Unit
+             * @description 'mm' or 'deg'; null when `error` is set
+             */
+            unit?: ("mm" | "deg") | null;
+            /**
+             * Value
+             * @description Model-true measured value (mm for linear/diameter/radius, degrees for angular); null when `error` is set
+             */
+            value?: number | null;
+        };
+        /**
+         * MeasuredDimensionResult
+         * @description One requested dimension's measured outcome inside a 200 (design §3/§5).
+         *
+         *     Pairs the echoed correlation ``id`` + the ``view`` it was measured in with the
+         *     model-true :class:`MeasuredDimension` (value + unit + ``foreshortened``, OR a
+         *     typed ``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``
+         *     error on its ``error`` channel). A per-dimension measurement failure is THAT
+         *     dimension's typed error — never a 500, never a failure of the whole request or
+         *     of any OTHER dimension/view — the same never-500 posture as the per-view
+         *     :class:`DrawingViewResult` and the per-feature/per-mate strict-prefix rule.
+         */
+        MeasuredDimensionResult: {
+            /**
+             * Id
+             * @description Echoed correlation id (matches the request input), or null
+             */
+            id?: string | null;
+            /** @description Model-true value + unit + foreshortened flag, or a typed error */
+            measured: components["schemas"]["MeasuredDimension"];
+            /**
+             * View
+             * @description The view direction this dimension was measured in
+             * @enum {string}
+             */
+            view: "front" | "top" | "right" | "iso";
         };
         /**
          * MeshStats
@@ -2705,6 +2915,21 @@ export interface components {
             position: components["schemas"]["Vec3"];
         };
         /**
+         * PointToPointMeasurement
+         * @description Measure the distance between two model-edge endpoints (design §3.1/§3.3).
+         */
+        PointToPointMeasurement: {
+            /** @description First endpoint */
+            a: components["schemas"]["DimensionEndpointRef"];
+            /** @description Second endpoint */
+            b: components["schemas"]["DimensionEndpointRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "point_to_point";
+        };
+        /**
          * ProjectedPoint
          * @description A 2D point of a projected view edge, in view-plane mm at the view's scale.
          *
@@ -2848,6 +3073,21 @@ export interface components {
             value_mm: number;
         };
         /**
+         * RadiusDimensionParams
+         * @description A radius dimension on a circular / arc model edge (design §3.1).
+         */
+        RadiusDimensionParams: {
+            /** @description Circular / arc model edge */
+            edge: components["schemas"]["EdgeSignature"];
+            /** @description Authored 2D placement */
+            placement?: components["schemas"]["DimensionPlacement"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "radius";
+        };
+        /**
          * RevolveAxis
          * @description The axis of revolution: a straight LINE entity of the profile's sketch.
          *
@@ -2972,6 +3212,27 @@ export interface components {
              * @description Volume (mm^3)
              */
             volume: number;
+        };
+        /**
+         * SheetPoint
+         * @description A 2D point in SHEET space (mm), origin at the title-block corner (§9 q4).
+         *
+         *     Sheet space is millimetres at 1:1; a view's scale maps model-mm → sheet-mm
+         *     (design §9 open-q 4). Used for view placement, dimension text, and note
+         *     positions. Full precision; a non-finite coordinate is a request-validation
+         *     422 (``allow_inf_nan=False``), never a silently-defaulted position.
+         */
+        SheetPoint: {
+            /**
+             * X Mm
+             * @description X on the sheet, mm from the origin corner
+             */
+            x_mm: number;
+            /**
+             * Y Mm
+             * @description Y on the sheet, mm from the origin corner
+             */
+            y_mm: number;
         };
         /**
          * ShellFeature

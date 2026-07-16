@@ -23,22 +23,31 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from build123d import Edge, GeomType, Solid
 from fastapi.testclient import TestClient
 from geometry.drawings import evaluate as drawings_evaluate
 from geometry.drawings import evaluate_drawing_views
 from geometry.drawings.project import ViewProjectionError, project_view
+from geometry.features import evaluate_tree
+from geometry.kernel.edges import edge_signature_dto
 from geometry.main import app
 from py_kit.schemas.drawings import (
+    DiameterDimensionParams,
+    DrawingDimensionInput,
+    EdgeLengthMeasurement,
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
+    LinearDimensionParams,
     ViewProjection,
     ViewScale,
 )
 from py_kit.schemas.features import (
+    EdgeSignature,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     SketchFeature,
 )
+from py_kit.schemas.geometry import Vec3
 
 #: Documented per-model tolerance (mm) — the projected coordinates come straight
 #: off the exact B-rep through OCCT HLR with no tessellation, so residuals are
@@ -238,3 +247,195 @@ def test_endpoint_is_deterministic() -> None:
     second = client.post("/api/v1/drawing/evaluate", json=payload)
     assert first.status_code == second.status_code == 200
     assert first.content == second.content
+
+
+# --- #6a: dimension measurement wired into the evaluate endpoint (design §3/§5) --
+# The evaluate request now carries the drawing's dimensions and the response returns
+# each dimension's model-true `MeasuredDimension` alongside the projected edges. The
+# body is evaluated ONCE and every dimension is measured off it (§3.1 — model-true,
+# never the projection). Signatures are the shipped `edge_signature_dto` (the same
+# fingerprint a mate / picked-edge fillet uses), never hand-authored.
+
+#: Measured-value tolerance (mm) — the value reads the EXACT B-rep (arc length /
+#: GProp radius) so residuals are ulp-scale on this analytic part; the same 1e-6 mm
+#: bound the measurement goldens use (tests/test_drawings_measure.py).
+MEASURED_TOL_MM = 1e-6
+
+
+def _plate_body() -> Solid:
+    """The evaluated plate-with-2-holes body (the SAME body the endpoint measures)."""
+    evaluation = evaluate_tree(
+        EvaluateTreeRequest(
+            part_id=UUID(int=1), tree_version=1, features=_plate_features()
+        )
+    )
+    assert evaluation.body is not None, "the plate golden must evaluate to a body"
+    return evaluation.body
+
+
+def _first_sig(body: Solid, predicate: Any) -> EdgeSignature:
+    """The shipped signature of the first body edge matching *predicate*."""
+    match = next((e for e in body.edges() if predicate(e)), None)
+    assert match is not None, "predicate matched no edge"
+    return edge_signature_dto(match)
+
+
+def _is_circle_r5(edge: Edge) -> bool:
+    return edge.geom_type == GeomType.CIRCLE and abs(edge.radius - 5.0) < 1e-9
+
+
+def _is_line_40(edge: Edge) -> bool:
+    return edge.geom_type == GeomType.LINE and abs(edge.length - 40.0) < 1e-9
+
+
+def _bogus_signature() -> EdgeSignature:
+    """A line signature that matches no edge of the plate (way off-part)."""
+    return EdgeSignature(
+        curve="line",
+        end_a=Vec3(x=1000.0, y=1000.0, z=1000.0),
+        end_b=Vec3(x=1000.0, y=1000.0, z=1010.0),
+        midpoint=Vec3(x=1000.0, y=1000.0, z=1005.0),
+        length_mm=10.0,
+    )
+
+
+def test_evaluate_returns_measured_dimensions_beside_edges() -> None:
+    """An evaluate request carrying a Ø10 diameter dimension (top view) + a 40 mm
+    linear edge-length dimension (front view) returns BOTH model-true measurements
+    (10.000 / 40.000) alongside the projected per-view edges (design §3/§5)."""
+    body = _plate_body()
+    diameter_sig = _first_sig(body, _is_circle_r5)
+    length_sig = _first_sig(body, _is_line_40)
+    request = EvaluateDrawingViewsRequest(
+        part_id=UUID(int=1),
+        tree_version=1,
+        features=_plate_features(),
+        views=["front", "top"],
+        dimensions=[
+            DrawingDimensionInput(
+                id=UUID(int=10),
+                view="top",
+                dimension=DiameterDimensionParams(edge=diameter_sig),
+            ),
+            DrawingDimensionInput(
+                id=UUID(int=40),
+                view="front",
+                dimension=LinearDimensionParams(
+                    measurement=EdgeLengthMeasurement(edge=length_sig)
+                ),
+            ),
+        ],
+    )
+    result = evaluate_drawing_views(request)
+
+    # The projected edges are still there, unchanged (the top view still has holes).
+    assert result.part_error is None
+    top_circles = [e for e in _view(result, "top").edges if e.primitive == "circle"]
+    assert len(top_circles) == 2
+
+    # ...and each dimension's model-true measurement rides alongside, id echoed.
+    assert len(result.dimensions) == 2
+    by_id = {d.id: d for d in result.dimensions}
+    diameter = by_id[UUID(int=10)]
+    assert diameter.view == "top"
+    assert diameter.measured.error is None
+    assert diameter.measured.unit == "mm"
+    assert diameter.measured.value == pytest.approx(10.0, abs=MEASURED_TOL_MM)
+    assert diameter.measured.foreshortened is False  # hole axis ∥ top normal
+
+    length = by_id[UUID(int=40)]
+    assert length.view == "front"
+    assert length.measured.error is None
+    assert length.measured.value == pytest.approx(40.0, abs=MEASURED_TOL_MM)
+    assert length.measured.foreshortened is False  # X-edge is true-size in front
+
+
+def test_bad_dimension_is_typed_error_others_and_edges_survive() -> None:
+    """A dimension with a bogus signature is THAT dimension's typed
+    `subshape_unresolved` — the projected edges and the OTHER dimension still
+    return (never a 500, never a whole-request failure; the per-view posture)."""
+    body = _plate_body()
+    good_sig = _first_sig(body, _is_circle_r5)
+    request = EvaluateDrawingViewsRequest(
+        part_id=UUID(int=1),
+        tree_version=1,
+        features=_plate_features(),
+        views=["top"],
+        dimensions=[
+            DrawingDimensionInput(
+                id=UUID(int=1),
+                view="top",
+                dimension=LinearDimensionParams(
+                    measurement=EdgeLengthMeasurement(edge=_bogus_signature())
+                ),
+            ),
+            DrawingDimensionInput(
+                id=UUID(int=2),
+                view="top",
+                dimension=DiameterDimensionParams(edge=good_sig),
+            ),
+        ],
+    )
+    result = evaluate_drawing_views(request)
+
+    # The projected view still projects.
+    assert result.part_error is None
+    assert _view(result, "top").error is None
+    assert [e for e in _view(result, "top").edges if e.primitive == "circle"]
+
+    by_id = {d.id: d for d in result.dimensions}
+    bad = by_id[UUID(int=1)]
+    assert bad.measured.value is None
+    assert bad.measured.error is not None
+    assert bad.measured.error.code == "subshape_unresolved"
+    # The good dimension is unaffected — still measured model-true.
+    good = by_id[UUID(int=2)]
+    assert good.measured.error is None
+    assert good.measured.value == pytest.approx(10.0, abs=MEASURED_TOL_MM)
+
+
+def test_evaluate_without_dimensions_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An evaluate request with NO dimensions behaves exactly as slice #3: an empty
+    `dimensions` list and per-view edges untouched — the measurement path is never
+    entered (the frontend canvas #7 keeps working unchanged)."""
+    from geometry.drawings import evaluate as evaluate_module
+
+    def _boom(*_args: Any, **_kwargs: Any) -> object:
+        raise AssertionError("measurement must not run when no dimensions are sent")
+
+    monkeypatch.setattr(evaluate_module, "measure_dimension_dto", _boom)
+    result = evaluate_drawing_views(_plate_request("front", "top"))
+    assert result.dimensions == []
+    assert [v.view for v in result.views] == ["front", "top"]
+    assert all(v.error is None and v.edges for v in result.views)
+
+
+def test_endpoint_carries_measured_dimensions() -> None:
+    """`POST /api/v1/drawing/evaluate` returns 200 with the measured dimensions in
+    the JSON body (the wire path the frontend #6b consumes)."""
+    body = _plate_body()
+    diameter_sig = _first_sig(body, _is_circle_r5)
+    request = EvaluateDrawingViewsRequest(
+        part_id=UUID(int=1),
+        tree_version=1,
+        features=_plate_features(),
+        views=["top"],
+        dimensions=[
+            DrawingDimensionInput(
+                id=UUID(int=10),
+                view="top",
+                dimension=DiameterDimensionParams(edge=diameter_sig),
+            )
+        ],
+    )
+    response = client.post(
+        "/api/v1/drawing/evaluate", json=request.model_dump(mode="json")
+    )
+    assert response.status_code == 200, response.text
+    result = EvaluateDrawingViewsResult.model_validate(response.json())
+    assert len(result.dimensions) == 1
+    measured = result.dimensions[0]
+    assert str(measured.id) == str(UUID(int=10))
+    assert measured.measured.value == pytest.approx(10.0, abs=MEASURED_TOL_MM)

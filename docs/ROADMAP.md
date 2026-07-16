@@ -356,8 +356,22 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `subshape_unresolved`/`subshape_ambiguous`/`dimension_wrong_type` errors (never
       a 500). Analytic goldens Ø10→10.000, r5→5.000, 40 mm→40.000, 45° vee, +
       model-true-when-foreshortened (`test_drawings_measure.py`, 18 passed);
-      determinism probes unaffected; `just lint`/`gen`/`gen-check` clean. Remaining:
-      SVG export (#5), dimension-authoring UI (#6b), section/detail/assembly views.
+      determinism probes unaffected; `just lint`/`gen`/`gen-check` clean.
+      **Drawings v1 #6a — measurement wired into the API (geometry) SHIPPED**:
+      `POST /api/v1/drawing/evaluate` now carries the drawing's `dimensions`
+      (each tagged with its `view`, optional echoed `id`) IN the request and
+      returns each dimension's model-true `MeasuredDimensionResult` (value + unit
+      + `foreshortened`, or a typed `subshape_unresolved`/`subshape_ambiguous`/
+      `dimension_wrong_type` error) ALONGSIDE the projected edges — the body is
+      evaluated once and every dimension measured off it (§3.1). Additive +
+      backward-compatible (no dimensions → empty `dimensions`, edges unchanged);
+      a per-dimension failure is that dimension's typed error, never a 500, never
+      failing the request. Gateway proxy carries the new shape as a typed
+      passthrough (no logic change). `just lint`/`gen`/`gen-check` clean;
+      `test_drawings_evaluate.py` 4 new specs (measured 10.000/40.000 beside
+      edges, bad-signature typed error + survivors, no-dimensions regression,
+      endpoint JSON). Remaining: SVG export (#5), dimension-authoring UI (#6b, now
+      UNBLOCKED — the wire returns measured values), section/detail/assembly views.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 5 — Agent-native & extensibility ⬜

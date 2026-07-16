@@ -753,15 +753,70 @@ class DrawingViewResult(BaseModel):
     )
 
 
+class DrawingDimensionInput(BaseModel):
+    """A dimension to MEASURE against a view in a drawing-evaluate request (§3/§5).
+
+    The evaluate-request analogue of a persisted :class:`DimensionResponse`: it
+    pairs the authored dimension params with the ``view`` whose projection frame
+    supplies the §3.2 foreshortening reference — the geometry-request twin of the
+    ``view_id`` a stored dimension carries (here the standard :data:`ViewProjection`
+    direction the evaluate request already projects). ``id`` is an OPTIONAL
+    correlation token echoed back on the matching :class:`MeasuredDimensionResult`
+    so the client maps a measured value onto the dimension it authored (documents'
+    dimension id); a transient/library measurement may omit it. The measured VALUE
+    is taken from the MODEL, never the projection (design §3.1) — ``view`` only sets
+    the foreshortening flag, it never changes the value.
+    """
+
+    id: uuid.UUID | None = Field(
+        default=None,
+        description="Optional correlation id echoed on the result (the stored "
+        "dimension id); null for a transient/library measurement",
+    )
+    view: ViewProjection = Field(
+        description="Which requested view's frame measures it — supplies the §3.2 "
+        "foreshortening reference only; the value is model-true regardless (§3.1)"
+    )
+    dimension: Dimension = Field(
+        description="The dimension to measure (discriminated on `type`)"
+    )
+
+
+class MeasuredDimensionResult(BaseModel):
+    """One requested dimension's measured outcome inside a 200 (design §3/§5).
+
+    Pairs the echoed correlation ``id`` + the ``view`` it was measured in with the
+    model-true :class:`MeasuredDimension` (value + unit + ``foreshortened``, OR a
+    typed ``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``
+    error on its ``error`` channel). A per-dimension measurement failure is THAT
+    dimension's typed error — never a 500, never a failure of the whole request or
+    of any OTHER dimension/view — the same never-500 posture as the per-view
+    :class:`DrawingViewResult` and the per-feature/per-mate strict-prefix rule.
+    """
+
+    id: uuid.UUID | None = Field(
+        default=None,
+        description="Echoed correlation id (matches the request input), or null",
+    )
+    view: ViewProjection = Field(
+        description="The view direction this dimension was measured in"
+    )
+    measured: MeasuredDimension = Field(
+        description="Model-true value + unit + foreshortened flag, or a typed error"
+    )
+
+
 class EvaluateDrawingViewsRequest(BaseModel):
     """Project a part into its requested standard drawing views (design §1.2/§4).
 
     documents sends INTENT — the referenced part's ordered, rollback-applied
     feature prefix (reusing the feature-tree §4 contract VERBATIM, so geometry
     stays the sole evaluator and no kernel body crosses) plus the standard views to
-    project and the drawing scale. geometry evaluates the part body ONCE
-    (``evaluate_tree``) then runs exact HLR per requested view. Deterministic
-    (RESEARCH §9): the same request yields byte-identical projected edges,
+    project, the drawing scale, and (optionally) the drawing's dimensions to
+    measure. geometry evaluates the part body ONCE (``evaluate_tree``) then runs
+    exact HLR per requested view AND measures each dimension off the SAME exact body
+    (design §3.1 — model-true, never the projection). Deterministic (RESEARCH §9):
+    the same request yields byte-identical projected edges + measured values,
     in-process AND across an interpreter restart.
     """
 
@@ -777,6 +832,13 @@ class EvaluateDrawingViewsRequest(BaseModel):
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE,
         description="Drawing scale (rational; 1:1 default) applied to every view",
+    )
+    dimensions: list[DrawingDimensionInput] = Field(
+        default_factory=list["DrawingDimensionInput"],
+        description="Dimensions to measure against the evaluated body, each tagged "
+        "with its view (design §3/§5). Empty (the default) → no measurement and the "
+        "response is projected edges only, byte-for-byte the slice-#3 behaviour "
+        "(fully backward-compatible).",
     )
 
 
@@ -801,8 +863,14 @@ class EvaluateDrawingViewsResult(BaseModel):
         description="One result per requested view, in request order (empty when "
         "`part_error` is set)",
     )
+    dimensions: list[MeasuredDimensionResult] = Field(
+        default_factory=list["MeasuredDimensionResult"],
+        description="One measured result per requested dimension, in request order "
+        "(design §3/§5). Empty when no dimensions were requested or when "
+        "`part_error` is set (no body to measure against).",
+    )
     part_error: FeatureError | None = Field(
         default=None,
-        description="Set when the part evaluated to no body (nothing to project); "
-        "`views` is then empty (design §4)",
+        description="Set when the part evaluated to no body (nothing to project or "
+        "measure); `views` and `dimensions` are then empty (design §4)",
     )
