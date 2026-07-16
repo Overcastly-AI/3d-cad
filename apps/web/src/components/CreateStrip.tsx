@@ -32,6 +32,8 @@ import {
 } from "@loft/design";
 import { useRef } from "react";
 
+import { useCommandActionStore } from "../features/commandActions";
+
 export interface CreateStripProps {
   /** The feature tree has loaded (buttons stay disabled until it has). */
   treeReady: boolean;
@@ -138,6 +140,9 @@ export function CreateStrip({
   const importInputRef = useRef<HTMLInputElement>(null);
   const importReady =
     treeReady && canImportStep && !importingStep && onImportStep !== undefined;
+  // The open editor publishes its submit gate here; the OK cell shows its true
+  // (disabled) state on an invalid form instead of looking actionable but no-op.
+  const okReady = useCommandActionStore((s) => s.okReady);
 
   const filletReady = canModify && treeReady && onFillet !== undefined;
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
@@ -215,8 +220,9 @@ export function CreateStrip({
             />
             <CommandActionCell
               label="OK"
-              caption="Enter"
+              caption={okReady ? "Enter" : "Finish the form"}
               accent
+              disabled={!okReady}
               data-testid="in-command-ok"
               onClick={onCommandOk}
             />
@@ -455,12 +461,14 @@ function CommandActionCell({
   label,
   caption,
   accent = false,
+  disabled = false,
   onClick,
   ...rest
 }: {
   label: string;
   caption: string;
   accent?: boolean;
+  disabled?: boolean;
   onClick?: (() => void) | undefined;
   "data-testid"?: string;
 }) {
@@ -468,10 +476,13 @@ function CommandActionCell({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`flex flex-col items-center justify-center gap-0.5 px-4 transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
-        accent
-          ? "text-brass hover:bg-brass/10"
-          : "text-gauge hover:bg-hairline/40 hover:text-mist"
+        disabled
+          ? "cursor-not-allowed opacity-40"
+          : accent
+            ? "text-brass hover:bg-brass/10"
+            : "text-gauge hover:bg-hairline/40 hover:text-mist"
       }`}
       {...rest}
     >

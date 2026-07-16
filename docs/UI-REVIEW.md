@@ -346,6 +346,21 @@ re-filed to BACKLOG (see the addendum below):**
 13. ✅ Empty-viewport first-run hint. 🔶 Origin triad + resting datum sheets +
     parts-home thumbnails DEFERRED (thumbnails need a snapshot pipeline).
 
+_Post-review fixes (code-reviewer on `bde2b7b` — verdict approve-with-nits, no
+🔴; the new command-action bus verified stale-closure-free + double-submit-safe;
+both 🟡 landed on top):_
+- 🟡 **Band OK cell now reads its true state.** It was always visually
+  actionable even on an invalid form (silently inert — inconsistent with the
+  editor's honest disabled Create cell, and against mandate 3a). The bridge now
+  publishes the editor's `canSubmit` gate into the action store; the OK cell
+  renders honestly `disabled` with a "Finish the form" caption until the form is
+  valid. New spec: Draft (opens invalid) → OK disabled; Datum (valid) → enabled.
+- 🟡 **Body selection highlight now yields to the pick tool.** `bodySelected`
+  wasn't gated on `measureActive`, so arming Measure with a feature selected
+  recolored the whole body brass and diluted the actual pick highlight. Gated
+  on `!measureActive` — the pick tool wins the viewport (matching the hover
+  half, which was already gated).
+
 ### Component checklist
 
 | Surface | Status |

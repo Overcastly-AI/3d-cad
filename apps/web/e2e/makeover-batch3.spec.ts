@@ -166,6 +166,31 @@ test.describe("item 10 — in-command band", () => {
     await expect(page.getByTestId("in-command")).toHaveCount(0);
     await expect(page.getByTestId("new-fillet")).toBeVisible();
   });
+
+  test("the band OK reads its true state — disabled while the form is invalid", async ({
+    page,
+  }) => {
+    // Mandate 3a: chrome reads its real state. The band OK must be honestly
+    // disabled on an invalid form, not look actionable and silently no-op.
+    const part = await seedBoxPart(page);
+    await page.goto(`/parts/${part.id}`);
+    await waitForBody(page);
+
+    // Draft opens with zero picked faces — an invalid form (no_draft_faces).
+    await page.getByTestId("new-draft").click();
+    await expect(page.getByTestId("draft-editor")).toBeVisible();
+    const ok = page.getByTestId("in-command-ok");
+    await expect(ok).toBeDisabled();
+    await expect(ok).toContainText("Finish the form");
+
+    // A command that is valid by default (Datum) shows OK enabled + its Enter hint.
+    await page.getByTestId("in-command-cancel").click();
+    await expect(page.getByTestId("draft-editor")).toHaveCount(0);
+    await page.getByTestId("tool-datum").click();
+    await expect(page.getByTestId("datum-editor")).toBeVisible();
+    await expect(ok).toBeEnabled();
+    await expect(ok).toContainText("Enter");
+  });
 });
 
 test.describe("item 11 — body selection/hover feedback", () => {

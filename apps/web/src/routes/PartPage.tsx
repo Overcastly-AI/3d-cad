@@ -2042,7 +2042,9 @@ export function PartPage() {
           groundGrid={mode !== "draw"}
           viewNav={mode === "off"}
           bodyInteractive={mode === "off" && editor === null && !measureActive}
-          bodySelected={mode === "off" && selectedFeatureId !== null}
+          bodySelected={
+            mode === "off" && selectedFeatureId !== null && !measureActive
+          }
           hud={
             <>
               <SketchDro solving={syncPending || evaluation.isFetching} />
