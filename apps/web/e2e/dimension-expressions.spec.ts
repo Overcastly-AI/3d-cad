@@ -344,7 +344,8 @@ test.describe("sketch dimension expressions (laptop 1280×800)", () => {
     const viewport = page.getByTestId("viewport");
     const box = await viewport.boundingBox();
     expect(box?.width ?? 0).toBeGreaterThan(640);
-    await page.mouse.move(1180, 720);
+    // Park clear of the bottom-right reference cube (viewport makeover).
+    await page.mouse.move(1080, 770);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/dimension-expression-solved-laptop.png`,
     });

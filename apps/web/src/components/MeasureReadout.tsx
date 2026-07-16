@@ -101,7 +101,7 @@ export function MeasureReadout() {
       <Panel
         aria-label="Measurement"
         data-testid="measure-readout"
-        className="absolute bottom-3 left-1/2 -translate-x-1/2"
+        className="absolute bottom-16 left-1/2 -translate-x-1/2"
       >
         {header}
         <p
@@ -121,7 +121,7 @@ export function MeasureReadout() {
       <Panel
         aria-label="Measurement"
         data-testid="measure-readout"
-        className="absolute bottom-3 left-1/2 -translate-x-1/2"
+        className="absolute bottom-16 left-1/2 -translate-x-1/2"
       >
         {header}
         <p
@@ -170,7 +170,7 @@ export function MeasureReadout() {
     <Panel
       aria-label="Measurement"
       data-testid="measure-readout"
-      className="absolute bottom-3 left-1/2 -translate-x-1/2"
+      className="absolute bottom-16 left-1/2 -translate-x-1/2"
     >
       {header}
       <div className="px-3 py-2" data-testid="measure-prompt">

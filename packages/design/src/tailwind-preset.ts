@@ -60,6 +60,14 @@ export const loftPreset = {
       width: {
         inspector: px(layout.inspectorWidth),
       },
+      inset: {
+        /** HUD-card left anchor clearing the floating tree panel. */
+        editor: px(layout.editorInset),
+      },
+      boxShadow: {
+        /** Floating instrument panels lifting off the scene (token ground). */
+        float: `0 2px 6px ${color.carbide}99, 0 12px 32px ${color.carbide}CC`,
+      },
     },
   },
 } satisfies Partial<Config>;

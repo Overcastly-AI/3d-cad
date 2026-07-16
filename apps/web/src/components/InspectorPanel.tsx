@@ -35,7 +35,7 @@ export function InspectorPanel({
   const em = "—";
   return (
     <aside
-      className="flex w-full shrink-0 flex-col gap-3 overflow-y-auto p-3 md:w-inspector"
+      className="flex w-full flex-col gap-3"
       aria-label="Model inspector"
       data-testid="inspector"
     >

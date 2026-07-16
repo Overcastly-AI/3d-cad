@@ -17,12 +17,13 @@ import { useEffect, useMemo, useRef } from "react";
 import {
   type Group,
   LineBasicMaterial,
-  MeshStandardMaterial,
+  MeshMatcapMaterial,
   Quaternion,
   Vector3,
 } from "three";
 
 import type { SceneTransform } from "../assembly/placement";
+import { studioMatcap } from "./studioMatcap";
 import type { InstanceGeometry } from "./useInstanceGeometries";
 
 export interface InstanceMeshProps {
@@ -53,13 +54,9 @@ export function InstanceMesh({
   const animating = useRef(false);
   const mounted = useRef(false);
 
+  // The shared studio matcap — same "machined aluminum" as a lone part.
   const surfaceMaterial = useMemo(
-    () =>
-      new MeshStandardMaterial({
-        color: assemblyTokens.instanceSurface,
-        metalness: 0.35,
-        roughness: 0.55,
-      }),
+    () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
     [],
   );
   const edgeMaterial = useMemo(() => new LineBasicMaterial(), []);
@@ -71,16 +68,16 @@ export function InstanceMesh({
     [surfaceMaterial, edgeMaterial],
   );
 
-  // Selection cue: brass edges + a quiet emissive glow (aluminum surface stays,
+  // Selection cue: brass edges + a warm surface tint (matcaps have no
+  // emissive channel; the tint multiplies the studio sphere toward brass,
   // so the machined read is preserved — boldness stays on the balloon/snap).
   useEffect(() => {
     edgeMaterial.color.set(
       selected ? assemblyTokens.selected : assemblyTokens.instanceEdge,
     );
-    surfaceMaterial.emissive.set(
-      selected ? assemblyTokens.selected : "#000000",
+    surfaceMaterial.color.set(
+      selected ? assemblyTokens.selectedTint : assemblyTokens.restTint,
     );
-    surfaceMaterial.emissiveIntensity = selected ? 0.14 : 0;
     invalidate();
   }, [selected, edgeMaterial, surfaceMaterial, invalidate]);
 

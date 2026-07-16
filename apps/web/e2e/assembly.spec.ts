@@ -278,7 +278,8 @@ test.describe("Assemblies v1 — small laptop (1280×800)", () => {
     );
     const box = await page.getByTestId("viewport").boundingBox();
     expect(box?.width ?? 0).toBeGreaterThan(480);
-    await page.mouse.move(1160, 740);
+    // Park clear of the bottom-right reference cube (viewport makeover).
+    await page.mouse.move(1080, 770);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/assembly-bolted-laptop.png`,
     });

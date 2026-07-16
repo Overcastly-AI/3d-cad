@@ -1,12 +1,13 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { tessellateBox } from "../api/tessellate";
+import { FloatingPanel } from "../components/FloatingPanel";
 import { InspectorPanel } from "../components/InspectorPanel";
 import { TopBar } from "../components/TopBar";
 import { useViewportStore } from "../store/viewport";
 import { Viewport } from "../viewport/Viewport";
 
-/** The modeler: viewport-dominant, one quiet toolbar, one inspection block. */
+/** The modeler: a full-bleed scene with one floating inspection block. */
 export function ModelerPage() {
   const dimensions = useViewportStore((state) => state.dimensions);
   const setDimensions = useViewportStore((state) => state.setDimensions);
@@ -21,15 +22,17 @@ export function ModelerPage() {
   return (
     <div className="flex h-full flex-col">
       <TopBar />
-      <main className="flex min-h-0 grow flex-col md:flex-row">
+      <main className="relative min-h-0 grow">
         <Viewport glb={query.data?.glb} />
-        <InspectorPanel
-          dimensions={dimensions}
-          onApply={setDimensions}
-          meta={query.data?.meta}
-          isFetching={query.isFetching}
-          error={query.error}
-        />
+        <FloatingPanel side="right" title="Inspector" id="inspector">
+          <InspectorPanel
+            dimensions={dimensions}
+            onApply={setDimensions}
+            meta={query.data?.meta}
+            isFetching={query.isFetching}
+            error={query.error}
+          />
+        </FloatingPanel>
       </main>
     </div>
   );

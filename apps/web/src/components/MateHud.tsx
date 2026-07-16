@@ -38,7 +38,7 @@ export function MateHud({ submitError, submitting }: MateHudProps) {
       role="status"
       data-testid="mate-hud"
       data-mate-tool={tool}
-      className="absolute left-3 top-3 max-w-sm border border-brass bg-anvil px-3 py-2"
+      className="absolute left-editor top-3 max-w-sm border border-brass bg-anvil px-3 py-2"
     >
       <span className="block font-display text-2xs uppercase tracking-[0.18em] text-brass">
         {tool === "coincident"

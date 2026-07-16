@@ -2,15 +2,15 @@
  * The assembly viewport scene: every instance's SHARED mesh drawn at its
  * SOLVED transform, a floating drafting balloon per instance (the signature
  * device that ties the DOM tree to the WebGL viewport), and — while a mate tool
- * is armed — the per-instance mate-pick overlays. The camera fits the combined
- * assembly bounds when the instance SET changes (not on every re-solve), so the
- * snap-together motion plays without the camera jumping.
+ * is armed — the per-instance mate-pick overlays. Camera fitting lives in the
+ * shared Viewport rig: the page passes `assemblyBounds` + a LOADED-instance
+ * fit key, so the fit fires when a mesh actually lands (no fetch race) and
+ * never on a re-solve of the same set (the snap-together motion plays
+ * without the camera jumping).
  */
 import { Html } from "@react-three/drei";
-import { useThree } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
-import { Box3, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from "three";
-import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { useMemo } from "react";
+import { Box3, Matrix4, Quaternion, Vector3 } from "three";
 
 import type { OverlayResult } from "../api/measure";
 import type { SceneTransform } from "../assembly/placement";
@@ -46,8 +46,13 @@ const QUAT = new Quaternion();
 const SCALE = new Vector3(1, 1, 1);
 const MAT = new Matrix4();
 
-/** Union Box3 of every placed instance's transformed geometry, or null. */
-function assemblyBounds(instances: readonly SceneInstance[]): Box3 | null {
+/**
+ * Union Box3 of every placed instance's LOADED geometry, or null. Consumed by
+ * the page to drive the shared Viewport camera rig (fit + contact shadow).
+ */
+export function assemblyBounds(
+  instances: readonly SceneInstance[],
+): Box3 | null {
   const box = new Box3();
   let any = false;
   for (const inst of instances) {
@@ -71,46 +76,6 @@ function assemblyBounds(instances: readonly SceneInstance[]): Box3 | null {
     }
   }
   return any ? box : null;
-}
-
-/** Fit the camera to the combined bounds when the instance SET changes. */
-function FitAssembly({
-  fitKey,
-  bounds,
-}: {
-  fitKey: string;
-  bounds: Box3 | null;
-}) {
-  const camera = useThree((s) => s.camera);
-  const controls = useThree((s) => s.controls) as OrbitControlsImpl | null;
-  const invalidate = useThree((s) => s.invalidate);
-
-  useEffect(() => {
-    if (bounds === null || bounds.isEmpty()) return;
-    const center = bounds.getCenter(new Vector3());
-    const diagonal = bounds.getSize(new Vector3()).length();
-    const offset = new Vector3(1, 0.68, 1.35)
-      .normalize()
-      .multiplyScalar(Math.max(diagonal, 1) * 1.75);
-    camera.position.copy(center).add(offset);
-    if (camera instanceof PerspectiveCamera) {
-      camera.near = Math.max(diagonal / 100, 0.01);
-      camera.far = diagonal * 50;
-      camera.updateProjectionMatrix();
-    }
-    if (controls) {
-      controls.target.copy(center);
-      controls.update();
-    } else {
-      camera.lookAt(center);
-    }
-    invalidate();
-    // Refit on the instance SET (fitKey) only — never on a re-solve of the same
-    // set — so the snap-together motion plays without the camera jumping.
-    // `bounds`/`camera`/`controls` are read at fit time, not fit triggers.
-  }, [fitKey]);
-
-  return null;
 }
 
 /** A drafting balloon — circled BOM item number, anchor mark when grounded. */
@@ -181,13 +146,6 @@ export function AssemblyScene({
   const pickAxis = useMateAuthoringStore((s) => s.pickAxis);
   const pickInstance = useMateAuthoringStore((s) => s.pickInstance);
 
-  const fitKey = instances.map((i) => i.id).join("|");
-  const bounds = useMemo(
-    () => assemblyBounds(instances),
-    // Refit source is the SET; recompute cheaply when placements change too.
-    [instances],
-  );
-
   const overlayTool =
     tool === "coincident" || tool === "concentric" ? tool : null;
 
@@ -252,8 +210,6 @@ export function AssemblyScene({
           }
         />
       ))}
-
-      <FitAssembly fitKey={fitKey} bounds={bounds} />
     </group>
   );
 }

@@ -35,22 +35,17 @@ import { buildMate } from "../assembly/mates";
 import { type MateTool, useMateAuthoringStore } from "../assembly/mateStore";
 import { placementToScene } from "../assembly/placement";
 import { buildEvaluateTree } from "../measure/geometry";
+import { FloatingPanel } from "../components/FloatingPanel";
+import { isTypingTarget } from "../lib/isTypingTarget";
 import { useReducedMotion } from "../lib/useReducedMotion";
 import { assemblyRoute } from "../router";
-import { AssemblyScene, type SceneInstance } from "../viewport/AssemblyScene";
+import {
+  assemblyBounds,
+  AssemblyScene,
+  type SceneInstance,
+} from "../viewport/AssemblyScene";
 import { useInstanceGeometries } from "../viewport/useInstanceGeometries";
 import { Viewport } from "../viewport/Viewport";
-
-/** True for keystrokes that belong to a focused text control, not to us. */
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT" ||
-    target.isContentEditable
-  );
-}
 
 const IDENTITY_QUAT = { w: 1, x: 0, y: 0, z: 0 };
 
@@ -411,6 +406,25 @@ export function AssemblyPage() {
     setSelectedInstanceId((current) => (current === id ? null : id));
   }, []);
 
+  // Camera fit inputs for the shared Viewport rig. The fit key is the set of
+  // instances whose mesh has LOADED — the fit fires when geometry actually
+  // lands (fixing the add-instance race where the fit read stale/partial
+  // bounds) and never on a re-solve of the same set (the mate snap-together
+  // motion plays without the camera jumping).
+  const sceneBounds = useMemo(
+    () => assemblyBounds(sceneInstances),
+    [sceneInstances],
+  );
+  const sceneFitKey = useMemo(
+    () =>
+      sceneInstances
+        .filter((instance) => instance.geometry !== null)
+        .map((instance) => instance.id)
+        .sort()
+        .join("|"),
+    [sceneInstances],
+  );
+
   return (
     <div className="flex h-full flex-col">
       <TopBar>
@@ -427,19 +441,11 @@ export function AssemblyPage() {
           onToggleTool={toggleTool}
         />
       </TopToolbar>
-      <main className="flex min-h-0 grow flex-col md:flex-row">
-        <AssemblyTreePanel
-          graph={graph}
-          graphError={graphQuery.error}
-          evaluation={evaluation}
-          selectedInstanceId={selectedInstanceId}
-          onSelectInstance={selectInstance}
-          onToggleGrounded={handleToggleGrounded}
-          onDeleteInstance={handleDeleteInstance}
-          onDeleteMate={handleDeleteMate}
-          busy={busy}
-        />
+      {/* Full-bleed scene; tree + inspector float over it (Batch 1, P0-4). */}
+      <main className="relative min-h-0 grow">
         <Viewport
+          worldBounds={sceneBounds}
+          fitKey={sceneFitKey}
           hud={
             <>
               <MateHud submitError={submitError} submitting={submitting} />
@@ -498,10 +504,25 @@ export function AssemblyPage() {
             overlaysByInstance={overlaysByInstance}
           />
         </Viewport>
-        <AssemblyInspector
-          evaluation={evaluation}
-          evaluating={evalQuery.isFetching}
-        />
+        <FloatingPanel side="left" title="Components" id="tree">
+          <AssemblyTreePanel
+            graph={graph}
+            graphError={graphQuery.error}
+            evaluation={evaluation}
+            selectedInstanceId={selectedInstanceId}
+            onSelectInstance={selectInstance}
+            onToggleGrounded={handleToggleGrounded}
+            onDeleteInstance={handleDeleteInstance}
+            onDeleteMate={handleDeleteMate}
+            busy={busy}
+          />
+        </FloatingPanel>
+        <FloatingPanel side="right" title="Solve" id="inspector">
+          <AssemblyInspector
+            evaluation={evaluation}
+            evaluating={evalQuery.isFetching}
+          />
+        </FloatingPanel>
       </main>
     </div>
   );

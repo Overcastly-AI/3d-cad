@@ -39,20 +39,66 @@ export const color = {
 /**
  * WebGL scene palette — consumed by the r3f viewport. Values reference the
  * DOM palette above so the two renderers can never drift.
+ *
+ * Makeover Batch 1 ("the scene is a place", UI-REVIEW 2026-07-16): the scene
+ * is the workbench under shop lights. Grid inks brightened one step (the old
+ * minor read ≈1.3:1 on carbide — invisible); the studio look is a procedural
+ * matcap ("machined aluminum under shop lights") declared here as four stops
+ * and rasterised in the viewport; the background gains a skylight glow and a
+ * vignette; a soft contact shadow grounds the stock on the bench.
  */
 export const viewport = {
   background: color.carbide,
-  gridMajor: color.hairline,
-  gridMinor: "#1B2330",
-  /** Default model surface material. */
+  /** Section (major) grid ink — ≈2.9:1 on carbide, a legible scribe line. */
+  gridMajor: "#3E4D61",
+  /** Cell (minor) grid ink — ≈1.8:1 on carbide, quiet but present. */
+  gridMinor: "#232E3C",
+  /** Default model surface material (the matcap body stop multiplies white). */
   modelSurface: color.aluminum,
-  /** B-rep edge overlay lines on the model. */
-  modelEdge: "#454F5B",
+  /** B-rep edge overlay lines on the model — graphite scribe on aluminum. */
+  modelEdge: "#333B46",
   selection: color.brass,
   hover: color.brassHover,
-  /** Key / fill / rim studio light tints (kept near-neutral, cool fill). */
-  lightKey: "#FFFFFF",
-  lightFill: "#B9C7D9",
+  /**
+   * Atmosphere — the DOM half of the scene (the canvas is transparent and the
+   * wrapper paints depth behind it; the vignette overlays it). One palette,
+   * two renderers: the WebGL grid fades into these exact inks.
+   */
+  atmosphere: {
+    /** Skylight glow above the horizon (radial-gradient inner stop). */
+    horizon: "#182028",
+    /** The deep edge of the shop — vignette / gradient outer stop. */
+    abyss: "#080B0F",
+    /** Vignette strength (outer-stop alpha, 0–1). */
+    vignetteOpacity: 0.6,
+  },
+  /** Soft contact shadow under the body — the stock sits ON the bench. */
+  groundShadow: "#02050A",
+  groundShadowOpacity: 0.85,
+  /**
+   * "Machined aluminum under shop lights" — the studio matcap's four stops
+   * (rasterised procedurally in the viewport; no external HDR/asset requests,
+   * deterministic across runs). Key falls high-left, a cool rim low-right.
+   */
+  matcap: {
+    /** Warm key highlight (shop lamp). */
+    key: "#F6EFE4",
+    /** Body tone — machined aluminum, held a step under the DOM aluminum so
+     *  tone mapping leaves headroom for the key (no washed-white faces). */
+    body: "#9AA3AD",
+    /** Core shade — blued steel shadow side. */
+    shade: "#48525D",
+    /** Cool fill rim (skylight bounce). */
+    rim: "#93A9C1",
+  },
+  /** The view reference cube (orientation gizmo) — a machinist's block. */
+  gizmo: {
+    face: color.anvil,
+    stroke: color.etch,
+    text: color.mist,
+    hover: color.brass,
+    opacity: 0.92,
+  },
 } as const;
 
 /**
@@ -156,6 +202,13 @@ export const assembly = {
   grounded: color.brass,
   /** The addressed/selected instance — brass, matching viewport.selection. */
   selected: color.brass,
+  /**
+   * Surface tint of the addressed instance — multiplies the studio matcap
+   * toward brass (matcaps carry no emissive channel), warm but still metal.
+   */
+  selectedTint: "#E8CDA4",
+  /** Resting surface tint — the matcap multiply identity (no tint). */
+  restTint: "#FFFFFF",
   /** Hovered instance / mate pick — brass-hover. */
   hover: color.brassHover,
 } as const;
@@ -225,4 +278,9 @@ export const layout = {
    */
   commandBandHeight: 32,
   inspectorWidth: 320,
+  /**
+   * Left inset for HUD cards (feature editors, mate HUD) so they clear the
+   * floating tree panel: panel inset (12) + panel width + gutter (12).
+   */
+  editorInset: 12 + 320 + 12,
 } as const;

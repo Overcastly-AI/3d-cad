@@ -44,6 +44,12 @@ export interface ToolButtonProps extends Omit<
   showLabel?: boolean;
   /** Quiet supplement (count / reason) — engraved in the tooltip, not stacked. */
   caption?: ReactNode;
+  /**
+   * Where the tooltip hangs. Top-anchored strips drop it BELOW (default);
+   * bottom-anchored surfaces (the viewport's view rail) raise it ABOVE so the
+   * window edge never clips it.
+   */
+  tooltipSide?: "bottom" | "top";
   /** Override the computed accessible name (label + shortcut otherwise). */
   "aria-label"?: string;
 }
@@ -61,6 +67,7 @@ export function ToolButton({
   active,
   showLabel,
   caption,
+  tooltipSide = "bottom",
   className,
   type,
   ...rest
@@ -105,7 +112,8 @@ export function ToolButton({
       <span
         aria-hidden
         className={cx(
-          "pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 -translate-x-1/2",
+          "pointer-events-none absolute left-1/2 z-30 -translate-x-1/2",
+          tooltipSide === "bottom" ? "top-full mt-1.5" : "bottom-full mb-1.5",
           "flex flex-col gap-0.5 whitespace-nowrap border border-hairline bg-anvil px-2 py-1",
           "font-body text-2xs text-mist opacity-0",
           "group-hover/tt:opacity-100 group-focus-visible/tt:opacity-100",

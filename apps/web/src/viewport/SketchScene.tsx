@@ -5,7 +5,7 @@
  * renderers (verified by the e2e pixel probe).
  */
 import { sketch, viewport } from "@loft/design/tokens";
-import { Grid, useCursor } from "@react-three/drei";
+import { useCursor } from "@react-three/drei";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -39,6 +39,7 @@ import {
 import { axisLinePoints, reflectEntity } from "../sketch/mirror";
 import { useSketchStore } from "../sketch/store";
 import { previewEntities, type SketchEntity } from "../sketch/tools";
+import { AdaptiveGrid } from "./AdaptiveGrid";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 
 /** Datum sheet half-extent feels like stock on the table (mm). */
@@ -428,16 +429,13 @@ function Crosshair({ basis }: { basis: PlaneBasis }) {
 function SketchGrid({ basis }: { basis: PlaneBasis }) {
   const quaternion = useMemo(() => gridQuaternion(basis), [basis]);
   return (
-    <Grid
-      position={[basis.origin[0], basis.origin[1], basis.origin[2]]}
+    <AdaptiveGrid
+      position={basis.origin}
       quaternion={quaternion}
       cellSize={1}
       sectionSize={10}
       cellColor={viewport.gridMinor}
       sectionColor={viewport.gridMajor}
-      fadeDistance={340}
-      fadeStrength={1.2}
-      infiniteGrid
     />
   );
 }

@@ -566,3 +566,73 @@ export const CloseIcon = (p: IconProps) => (
     <path d="M18 6 L6 18" />
   </Icon>
 );
+
+// --- View navigation ---------------------------------------------------------
+//
+// The viewport's view rail (Batch 1 makeover). Same scribed vocabulary: an
+// isometric reference block for the named views, with the addressed face
+// hatched — engineering-drawing view notation, not office camera glyphs.
+
+/** The iso reference block (shared frame of the view glyphs). */
+function IsoBlock() {
+  return (
+    <>
+      <path d="M4 8 L12 4 L20 8 L12 12 Z" />
+      <path d="M4 8 V16 L12 20 V12" />
+      <path d="M20 8 V16 L12 20" />
+    </>
+  );
+}
+
+/** Home view — the block with the bench line under it (back to the bench). */
+export const ViewHomeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 6.5 L12 3 L19 6.5 L12 10 Z" />
+    <path d="M5 6.5 V13.5 L12 17 V10" />
+    <path d="M19 6.5 V13.5 L12 17" />
+    <path d="M3 21 H21" />
+  </Icon>
+);
+
+/** Fit to model — the block held by four corner registration ticks. */
+export const ViewFitIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9 9 H15 V15 H9 Z" />
+    <path d="M3 7 V3 H7" />
+    <path d="M17 3 H21 V7" />
+    <path d="M21 17 V21 H17" />
+    <path d="M7 21 H3 V17" />
+  </Icon>
+);
+
+/** Front view — the front face addressed (filled node in its centre). */
+export const ViewFrontIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <IsoBlock />
+    <Node cx={8} cy={13.5} />
+  </Icon>
+);
+
+/** Top view — the top face addressed. */
+export const ViewTopIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <IsoBlock />
+    <Node cx={12} cy={8} />
+  </Icon>
+);
+
+/** Right view — the right face addressed. */
+export const ViewRightIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <IsoBlock />
+    <Node cx={16} cy={13.5} />
+  </Icon>
+);
+
+/** Isometric view — the block with its three visible faces all open. */
+export const ViewIsoIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <IsoBlock />
+    <path d="M12 12 V20" strokeDasharray="2 2" />
+  </Icon>
+);

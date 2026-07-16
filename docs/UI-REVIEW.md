@@ -273,19 +273,22 @@ disabled-reason tooltips (Track C, P1).
 
 ### Remediation plan (ordered — a makeover spec, not nits)
 
-**Batch 1 — "the scene is a place" (Track A core, all in
-`Viewport.tsx`/`ModelMesh.tsx`/`SketchScene.tsx`/`tokens.ts`):**
-1. Full-bleed canvas; tree + inspector become floating, collapsible overlays
+**Batch 1 — "the scene is a place" — ✅ SHIPPED 2026-07-16 (frontend-builder;
+see the addendum entry below for evidence):**
+1. ✅ Full-bleed canvas; tree + inspector become floating, collapsible overlays
    (shell restructure in `PartPage.tsx`/`AssemblyPage.tsx`).
-2. Horizon-persistent grid (camera-scaled fade) + one-step-brighter grid
-   tokens + background atmosphere (gradient/fog/vignette) + ground contact
-   shadow.
-3. Studio shading preset: matcap/env for bodies, stronger edge ink — the
-   Plasticity reference; kill the two hand-placed directionals.
-4. View navigation: ViewCube/gizmo (drei `GizmoHelper`), home/iso/ortho/fit
-   commands + keys, zoom-to-cursor. Fix the assembly fit race while in there.
-5. Side-by-side screenshot check against a Fusion/Plasticity reference
-   before calling it done (mandate 3a-d).
+2. ✅ Horizon-persistent grid (camera-scaled fade) + one-step-brighter grid
+   tokens + background atmosphere (gradient/vignette) + ground contact
+   shadow (deterministic baked pool — drei ContactShadows' per-frame depth
+   pass rendered nothing in this stack and costs 3 passes/frame).
+3. ✅ Studio shading preset: procedural token matcap ("machined aluminum under
+   shop lights" — no external HDR, CSP-safe), stronger edge ink; the two
+   hand-placed directionals are gone (the scene has no lights at all).
+4. ✅ View navigation: token-skinned GizmoViewcube reference cube, bottom-center
+   view rail (Home/Fit/Front/Top/Right/Iso), numeric snaps 1/2/3/4 + 0 + Home,
+   zoom-to-cursor. Assembly fit race fixed (fit keys on LOADED geometry).
+5. ✅ Side-by-side check against the Fusion/Plasticity framing recorded in the
+   addendum below (mandate 3a-d).
 
 **Batch 2 — "every element earns its place" (Tracks B + C quick wins):**
 6. Wire-or-delete pass per the inventory table (KERNEL/UNITS/TREE/SOLVER/
@@ -323,3 +326,65 @@ disabled-reason tooltips (Track C, P1).
 
 Evidence: `docs/screenshots/ui-audit/*.png` (44 shots, desktop + laptop).
 Re-audit with before/afters after each batch lands.
+
+---
+
+## 2026-07-16 — Makeover Batch 1 SHIPPED: "the scene is a place" (frontend-builder)
+
+All five Batch-1 items from the audit above landed in one pass; Batches 2–3
+remain open. What changed, per P0:
+
+- **P0-4 shell:** the canvas is FULL-BLEED in all three workspaces (part,
+  assembly, first-light). `FeatureTreePanel` / `BodyInspector` /
+  `AssemblyTreePanel` / `AssemblyInspector` / `InspectorPanel` now float over
+  the scene in a collapsible `FloatingPanel` (new component; collapse tabs
+  carry `panel-collapse-*`/`panel-expand-*` testids). The sketch dead band is
+  gone — the sheet runs edge-to-edge. Feature editors/HUD cards moved to a
+  `left-editor` anchor (tokenized inset) clear of the floating tree.
+- **P0-1 grid + atmosphere:** `AdaptiveGrid` (new, wraps drei Grid) scales
+  `fadeDistance` with orbit radius every frame — the grid reads to the horizon
+  at any zoom, world grid and sketch grid both. Grid tokens brightened
+  (`gridMinor #232E3C`, `gridMajor #3E4D61`). The canvas is transparent over a
+  token radial "skylight" gradient + a vignette overlay; a baked contact pool
+  (`groundShadow` tokens) seats the body on the bench.
+- **P0-3 shading:** bodies render with a PROCEDURAL studio matcap rasterised
+  from four `viewport.matcap` token stops (Plasticity's technique; zero scene
+  lights, deterministic, no HDR fetch — prod CSP forbids external assets).
+  Same matcap for part bodies and assembly instances; assembly selection is a
+  brass surface tint + brass edges. Edge ink darkened to `#333B46`.
+- **P0-2 navigation:** drei `GizmoViewcube` re-skinned as a machinist's
+  reference block (anvil faces, etch strokes, engraved mist labels, brass
+  hover) with clicks routed through a view-command store so snaps respect
+  `prefers-reduced-motion` (drei's own tween does not); a bottom-center view
+  rail (`view-bar`: Home/Fit/Front/Top/Right/Iso, all wired, tooltips carry
+  the shortcuts); numeric accelerators `1/2/3/4` + `0` fit + `Home`;
+  `zoomToCursor` on the orbit controls. The camera rig stamps
+  `data-view`/`data-camera-pos` on the viewport for QA.
+- **P1 assembly fit:** the fit key is now the LOADED-geometry instance set
+  (was: the instance-id set) — the camera frames the assembly when meshes
+  actually land, never from stale/partial bounds; re-solves of the same set
+  still never move the camera (the snap-together motion is preserved).
+
+**Fusion/Plasticity side-by-side (mandate 3a-d), honest self-assessment.**
+Reference framings: Fusion 360's default part workspace (light ground plane
++ horizon grid + ViewCube top-right + bottom-center nav bar + shaded-with-
+edges bodies + named views) and Plasticity's dark workspace (matcap bodies,
+mid-gray grid to horizon, minimal chrome). After Batch 1, Loft matches the
+structural checklist: grid-to-horizon ✅, scene depth ✅, studio body shading
+that models curvature at every angle ✅ (matcap, the Plasticity approach),
+persistent view cube + named views + fit ✅, full-bleed scene with floating
+panels ✅, zoom-to-cursor ✅. Remaining honest gaps to the incumbents:
+no orbit-about-cursor / pivot-on-double-click (P2, Batch 3 scope), no
+ortho-projection toggle, no selection/hover feedback on body topology outside
+pick modes (P1, Batch 3 #11), no live editor previews (Batch 3 #12), no
+empty-scene origin triad (Batch 3 #13), and the reference cube lacks
+edge-labeled ortho rotation arrows Fusion has. Verdict: the viewport now
+reads as a tool-grade scene, not a WebGL default; the depth gap left is
+interaction (selection feedback, previews), not presence.
+
+Evidence (committed): `docs/screenshots/viewport-makeover-{empty,body,sketch,
+assembly}-{desktop,laptop}.png` (afters) vs `docs/screenshots/ui-audit/
+{03-part-empty,07-body-default,06-sketch-drawn,23-assembly-two-instances}
+-desktop.png` (befores). Full `just e2e` green including the new
+`viewport-makeover.spec.ts` (view snaps drive the real camera; panels
+collapse; assembly opens framed with both balloons on-screen).

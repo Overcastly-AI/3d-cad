@@ -297,7 +297,8 @@ test.describe("Phase 1 exit gate — small laptop (1280×800)", () => {
     // The viewport stays the hero even flanked by tree + inspector.
     const box = await page.getByTestId("viewport").boundingBox();
     expect(box?.width ?? 0).toBeGreaterThan(560);
-    await page.mouse.move(1160, 740);
+    // Park clear of the bottom-right reference cube (viewport makeover).
+    await page.mouse.move(1080, 770);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/full-flow-laptop.png` });
   });
 });

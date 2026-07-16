@@ -67,6 +67,7 @@ import {
 import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CreateStrip } from "../components/CreateStrip";
+import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
 import { DraftEditor } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
@@ -160,6 +161,7 @@ import {
   type PlaneBasis,
 } from "../sketch/plane";
 import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
+import { isTypingTarget } from "../lib/isTypingTarget";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
 import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
@@ -169,17 +171,6 @@ import { Viewport } from "../viewport/Viewport";
 
 /** Constraint/dimension edits persist after this quiet gap (the live loop). */
 const SYNC_DEBOUNCE_MS = 400;
-
-/** True for keystrokes that belong to a focused text control, not to us. */
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT" ||
-    target.isContentEditable
-  );
-}
 
 /**
  * The part workspace: feature tree left, viewport hero, sketch mode inside
@@ -1944,21 +1935,15 @@ export function PartPage() {
           />
         )}
       </TopToolbar>
-      <main className="flex min-h-0 grow flex-col md:flex-row">
-        <FeatureTreePanel
-          tree={tree.data}
-          treeError={tree.error}
-          evaluation={evaluation.data}
-          evaluating={evaluation.isFetching}
-          selectedFeatureId={selectedFeatureId}
-          onSelectFeature={selectFeature}
-          onMoveRollback={moveRollback}
-          rollbackBusy={rollbackBusy}
-        />
+      {/* Full-bleed scene: the canvas owns the frame; the tree + inspector
+          FLOAT over it as collapsible instruments (Batch 1 makeover, P0-4) —
+          no more columns subtracted from the viewport. */}
+      <main className="relative min-h-0 grow">
         <Viewport
           glb={body.data}
           rotateEnabled={mode !== "draw"}
           groundGrid={mode !== "draw"}
+          viewNav={mode === "off"}
           hud={
             <>
               <SketchDro solving={syncPending || evaluation.isFetching} />
@@ -2106,7 +2091,7 @@ export function PartPage() {
                 <div
                   role="status"
                   data-testid="body-regenerating"
-                  className="absolute left-3 top-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
+                  className="absolute left-editor top-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
                 >
                   <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
                     Regenerating body
@@ -2119,7 +2104,7 @@ export function PartPage() {
                 <div
                   role="alert"
                   data-testid="body-regen-failed"
-                  className="absolute left-3 top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
                 >
                   <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
                     Body unavailable
@@ -2157,25 +2142,41 @@ export function PartPage() {
             />
           ) : null}
         </Viewport>
-        {showInspector ? (
-          <BodyInspector
-            properties={bodyProperties}
-            status={bodyStatus}
-            partId={partId}
+        <FloatingPanel side="left" title="Feature tree" id="tree">
+          <FeatureTreePanel
+            tree={tree.data}
+            treeError={tree.error}
+            evaluation={evaluation.data}
+            evaluating={evaluation.isFetching}
+            selectedFeatureId={selectedFeatureId}
+            onSelectFeature={selectFeature}
+            onMoveRollback={moveRollback}
+            rollbackBusy={rollbackBusy}
           />
+        </FloatingPanel>
+        {showInspector ? (
+          <FloatingPanel side="right" title="Inspector" id="inspector">
+            <BodyInspector
+              properties={bodyProperties}
+              status={bodyStatus}
+              partId={partId}
+            />
+          </FloatingPanel>
         ) : showExportOnly ? (
           // No body yet (a sketch-only or rolled-back tree), but the part is
           // modeled enough to have a tree — offer the EXPORT strip in its
           // honest disabled state so the affordance is discoverable.
-          <aside
-            className="w-full shrink-0 p-3 md:w-inspector"
-            aria-label="Part export"
-            data-testid="part-export-idle"
-          >
-            <Panel>
-              <PartExportControls partId={partId} hasBody={false} />
-            </Panel>
-          </aside>
+          <FloatingPanel side="right" title="Export" id="inspector">
+            <aside
+              className="w-full"
+              aria-label="Part export"
+              data-testid="part-export-idle"
+            >
+              <Panel>
+                <PartExportControls partId={partId} hasBody={false} />
+              </Panel>
+            </aside>
+          </FloatingPanel>
         ) : null}
       </main>
     </div>

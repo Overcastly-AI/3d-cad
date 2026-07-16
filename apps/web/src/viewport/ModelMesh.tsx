@@ -4,11 +4,12 @@ import {
   BufferGeometry,
   EdgesGeometry,
   LineBasicMaterial,
-  MeshStandardMaterial,
+  MeshMatcapMaterial,
 } from "three";
 import { useThree } from "@react-three/fiber";
 
 import { loadGlbGeometry } from "./glbGeometry";
+import { studioMatcap } from "./studioMatcap";
 
 export interface ModelMeshProps {
   glb: ArrayBuffer;
@@ -27,14 +28,12 @@ export function ModelMesh({ glb, onGeometry, onError }: ModelMeshProps) {
   const invalidate = useThree((state) => state.invalidate);
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
 
-  // Materials are created once and shared across re-tessellations.
+  // Materials are created once and shared across re-tessellations. The
+  // studio matcap ("machined aluminum under shop lights") carries the whole
+  // lighting rig — the scene needs no lights, and the body reads its
+  // curvature at every camera angle (Batch 1 makeover, P0-3).
   const surfaceMaterial = useMemo(
-    () =>
-      new MeshStandardMaterial({
-        color: viewport.modelSurface,
-        metalness: 0.35,
-        roughness: 0.55,
-      }),
+    () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
     [],
   );
   const edgeMaterial = useMemo(
