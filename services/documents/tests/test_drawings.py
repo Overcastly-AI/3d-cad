@@ -204,9 +204,7 @@ def test_list_drawings_owner_scoped(client: TestClient) -> None:
 
 def test_duplicate_drawing_name_is_409(client: TestClient) -> None:
     _create_drawing(client, "dup")
-    response = client.post(
-        "/api/v1/drawings", json={"name": "dup"}, headers=_headers()
-    )
+    response = client.post("/api/v1/drawings", json={"name": "dup"}, headers=_headers())
     assert response.status_code == 409
     assert _error(response.json())["code"] == "drawing_name_taken"
 
@@ -380,18 +378,24 @@ def test_delete_view_cascades_dimensions_and_renumbers(client: TestClient) -> No
     for ev in (3, 4):
         client.post(
             f"/api/v1/drawings/{drawing_id}/views/{v1}/dimensions",
-            json={"expected_version": ev, "dimension": {
-                "type": "linear",
-                "measurement": {"mode": "edge_length", "edge": _edge_sig()},
-            }},
+            json={
+                "expected_version": ev,
+                "dimension": {
+                    "type": "linear",
+                    "measurement": {"mode": "edge_length", "edge": _edge_sig()},
+                },
+            },
             headers=_headers(),
         )
     client.post(
         f"/api/v1/drawings/{drawing_id}/views/{v2}/dimensions",
-        json={"expected_version": 5, "dimension": {
-            "type": "linear",
-            "measurement": {"mode": "edge_length", "edge": _edge_sig()},
-        }},
+        json={
+            "expected_version": 5,
+            "dimension": {
+                "type": "linear",
+                "measurement": {"mode": "edge_length", "edge": _edge_sig()},
+            },
+        },
         headers=_headers(),
     )
 
@@ -417,10 +421,13 @@ def test_delete_sheet_cascades(client: TestClient, any_db_url: str) -> None:
     view_id = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
     client.post(
         f"/api/v1/drawings/{drawing_id}/views/{view_id}/dimensions",
-        json={"expected_version": 2, "dimension": {
-            "type": "linear",
-            "measurement": {"mode": "edge_length", "edge": _edge_sig()},
-        }},
+        json={
+            "expected_version": 2,
+            "dimension": {
+                "type": "linear",
+                "measurement": {"mode": "edge_length", "edge": _edge_sig()},
+            },
+        },
         headers=_headers(),
     )
 

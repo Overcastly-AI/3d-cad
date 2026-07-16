@@ -120,9 +120,7 @@ async def get_owned_drawing(
     ``doc_version`` bump is then race-free. SQLAlchemy's SQLite dialect ignores
     FOR UPDATE (single-writer anyway).
     """
-    drawing = await session.get(
-        Drawing, drawing_id, with_for_update=for_update or None
-    )
+    drawing = await session.get(Drawing, drawing_id, with_for_update=for_update or None)
     if drawing is None or drawing.owner_id != owner_id:
         raise NotFoundError("Drawing not found.", code="drawing_not_found")
     return drawing

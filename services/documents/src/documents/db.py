@@ -508,8 +508,7 @@ class Sheet(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (
-            f"Sheet(id={self.id!r}, drawing_id={self.drawing_id!r}, "
-            f"name={self.name!r})"
+            f"Sheet(id={self.id!r}, drawing_id={self.drawing_id!r}, name={self.name!r})"
         )
 
 

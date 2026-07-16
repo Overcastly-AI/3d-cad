@@ -151,9 +151,7 @@ def test_0004_offline_sql_matches_design_ddl(
     assert "CONSTRAINT uq_drawings_owner_name UNIQUE (owner_id, name)" in sql
     # §2.2 — sheets: title_block JSONB + plain per-drawing order unique + CASCADE.
     assert "title_block JSONB" in sql
-    assert (
-        "CONSTRAINT uq_sheets_drawing_order UNIQUE (drawing_id, order_index)" in sql
-    )
+    assert "CONSTRAINT uq_sheets_drawing_order UNIQUE (drawing_id, order_index)" in sql
     assert "REFERENCES drawings (id) ON DELETE CASCADE" in sql
     # §2.2 — views: cross-document ref (NOT an FK), pin-ready column, scalar
     # scale + position columns, reverse-lookup index for the 409 pre-check.
@@ -167,9 +165,7 @@ def test_0004_offline_sql_matches_design_ddl(
     assert "CONSTRAINT uq_dimensions_sheet_order UNIQUE (sheet_id, order_index)" in sql
     assert "params JSONB NOT NULL" in sql
     # §2.2 — annotations: per-sheet order unique.
-    assert (
-        "CONSTRAINT uq_annotations_sheet_order UNIQUE (sheet_id, order_index)" in sql
-    )
+    assert "CONSTRAINT uq_annotations_sheet_order UNIQUE (sheet_id, order_index)" in sql
 
 
 def test_0004_offline_downgrade_drops_everything(

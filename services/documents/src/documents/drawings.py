@@ -402,9 +402,7 @@ async def delete_drawing(
     drawing = await get_owned_drawing(session, owner_id, drawing_id)
     await session.delete(drawing)
     await session.commit()
-    _logger.info(
-        "drawing_deleted", drawing_id=str(drawing_id), owner_id=str(owner_id)
-    )
+    _logger.info("drawing_deleted", drawing_id=str(drawing_id), owner_id=str(owner_id))
 
 
 # --- sheet routes -----------------------------------------------------------------
@@ -810,9 +808,7 @@ async def delete_annotation(
     version)."""
     drawing = await get_owned_drawing(session, owner_id, drawing_id, for_update=True)
     _ensure_fresh(drawing, expected_version)
-    annotation, sheet = await _get_annotation_and_sheet(
-        session, drawing, annotation_id
-    )
+    annotation, sheet = await _get_annotation_and_sheet(session, drawing, annotation_id)
 
     await session.delete(annotation)
     await session.flush()
