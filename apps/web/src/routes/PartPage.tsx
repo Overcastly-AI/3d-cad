@@ -131,6 +131,7 @@ import {
   pickedFromChamferParams,
   pickedFromFilletParams,
 } from "../features/modify";
+import { useCommandActionStore } from "../features/commandActions";
 import { useEdgePickStore } from "../features/edgePickStore";
 import { EdgePickOverlay } from "../viewport/EdgePickOverlay";
 import {
@@ -1944,6 +1945,16 @@ export function PartPage() {
     bodyProperties === null &&
     (tree.data?.features.length ?? 0) > 0;
 
+  // A blank part — the tree has loaded with nothing in it and we're at rest.
+  // The empty scene gets a first-run call to action (item 13); the grid +
+  // atmosphere (Batch 1) already keep it from being a black void.
+  const isEmptyPart =
+    mode === "off" &&
+    editor === null &&
+    !measureActive &&
+    tree.data !== undefined &&
+    features.length === 0;
+
   // The open command scopes the band + names the mode (breadcrumb + lock).
   const activeCommand =
     editor === null ? null : (COMMAND_LABEL[editor.kind] ?? null);
@@ -1998,6 +2009,8 @@ export function PartPage() {
             measuring={measureActive}
             onToggleMeasure={toggleMeasure}
             activeCommand={activeCommand}
+            onCommandOk={() => useCommandActionStore.getState().requestSubmit()}
+            onCommandCancel={closeEditor}
           />
         ) : (
           <SketchStrip
@@ -2028,11 +2041,30 @@ export function PartPage() {
           rotateEnabled={mode !== "draw"}
           groundGrid={mode !== "draw"}
           viewNav={mode === "off"}
+          bodyInteractive={mode === "off" && editor === null && !measureActive}
+          bodySelected={mode === "off" && selectedFeatureId !== null}
           hud={
             <>
               <SketchDro solving={syncPending || evaluation.isFetching} />
               <SolveDiagnostic />
               <MeasureReadout />
+              {isEmptyPart ? (
+                <div
+                  data-testid="empty-viewport-hint"
+                  className="pointer-events-none absolute left-1/2 top-[42%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 text-center"
+                >
+                  <span className="font-display text-2xs uppercase tracking-[0.24em] text-gauge">
+                    Empty part
+                  </span>
+                  <span className="font-body text-sm text-mist">
+                    Start with a <span className="text-brass">Sketch</span> —
+                    pick a plane, then draw.
+                  </span>
+                  <span className="font-body text-xs text-gauge">
+                    Or Import a STEP solid as the base body.
+                  </span>
+                </div>
+              ) : null}
               {mode === "off" && editor !== null ? (
                 editor.kind === "extrude" ? (
                   <ExtrudeEditor

@@ -16,6 +16,7 @@ import { NumberField, Panel, PanelActionCell } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import type { ShellParams } from "../api/parts";
+import { useCommandBridge } from "../features/commandActions";
 import { useFacePickStore } from "../features/facePickStore";
 import {
   buildShellParams,
@@ -82,6 +83,7 @@ export function ShellEditor({
   );
 
   const canSubmit = canSubmitShell(form, picked, bodyFeatureId) && !saving;
+  useCommandBridge(submit, canSubmit);
 
   return (
     <div

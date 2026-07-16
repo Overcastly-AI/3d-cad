@@ -332,13 +332,19 @@ _Post-review fixes (code-reviewer on `c83b43b`, landed on top):_
   mode. Plane resolution moved inside the `try`; a defensive chain `.catch`
   clears the create guards so no freak error can wedge the sketch or the chain.
 
-**Batch 3 — "in-command depth" (Track C structural + Track A follow-through):**
-10. In-command band state (active command + OK/Cancel, rest recedes; guard
-    against silent editor swaps).
-11. Selection/hover feedback on the body; tree↔geometry linking.
-12. Live ghost previews (datum plane first — cheapest — then extrude/pattern).
-13. Empty-viewport state (origin triad, resting datum sheets, first-run hint)
-    + parts-home thumbnails.
+**Batch 3 — "in-command depth" (Track C structural + Track A follow-through)
+— ✅ 10 + 11 (body/tree link) + 13 (hint) SHIPPED 2026-07-16; deferred slices
+re-filed to BACKLOG (see the addendum below):**
+10. ✅ In-command band state (open editor recedes the band to the active
+    command + wired OK/Cancel; the editor-swap guard shipped in Batch 2).
+11. ✅ Selection/hover feedback on the body + the tree→geometry link (hover
+    glows the body's edges, selecting a feature warms it). 🔶 Per-face pick
+    highlight + tree↔FACE linking DEFERRED — needs geometry-service
+    face→feature attribution (OverlayResult carries none today).
+12. 🔶 Live ghost previews — DEFERRED whole (avoid a half-built preview; datum
+    cheapest, then extrude/pattern).
+13. ✅ Empty-viewport first-run hint. 🔶 Origin triad + resting datum sheets +
+    parts-home thumbnails DEFERRED (thumbnails need a snapshot pipeline).
 
 ### Component checklist
 
@@ -347,9 +353,11 @@ _Post-review fixes (code-reviewer on `c83b43b`, landed on top):_
 | Viewport (grid/atmosphere/shading/nav) | 🔴 P0 ×4 — Batch 1 |
 | Shell layout (panel columns vs full-bleed) | 🔴 P0 — Batch 1 |
 | Assembly viewport (fit, mate HUD) | 🔴 P1 — Batch 1 |
-| Command band (CreateStrip/SketchStrip/ToolButton) | ✅ Batch 2 (group eyebrows, aria-disabled reasons, in-command lock) / 🔴 in-command OK-Cancel band state — Batch 3 |
+| Command band (CreateStrip/SketchStrip/ToolButton) | ✅ Batch 2 (group eyebrows, aria-disabled reasons, in-command lock) + ✅ Batch 3 (in-command band state: recede to active command + wired OK/Cancel) |
 | Inspector/title-block footers (both) | ✅ Batch 2 — decorative cells deleted, counts folded into eyebrows |
-| Feature editors (all 7 forms) | ✅ forms sound / 🔴 no preview, no band scoping — Batch 3 |
+| Feature editors (all 7 forms) | ✅ forms sound + ✅ Batch 3 band scoping (in-command OK/Cancel) / 🔶 live preview DEFERRED (item 12) |
+| Body selection/hover feedback | ✅ Batch 3 (hover glow + selected warm-tint, tree→geometry) / 🔶 per-face highlight + tree↔face DEFERRED (needs attribution) |
+| Empty viewport | ✅ Batch 3 first-run hint / 🔶 origin triad + datum sheets DEFERRED |
 | Feature tree panel | ✅ rows, status, rollback, errors / 🔴 footer cells |
 | Sketch mode (strip, DRO, grid) | ✅ mode swap, DRO / 🔴 grid fade, exit semantics |
 | Measure | ✅ functional; readout hierarchy P3 |
@@ -473,3 +481,54 @@ scoped,sketch}-{desktop,laptop}.png` + `-disabled-reason-desktop.png` vs the
 `docs/screenshots/ui-audit/07-body-default-desktop.png` / `06-sketch-drawn-*`
 befores. Founder gallery refreshed (`UPDATE_SCREENSHOTS=1`) so the committed
 shots match the new band + breadcrumb + cleaned footers.
+
+---
+
+## 2026-07-16 — Makeover Batch 3 SHIPPED: "in-command depth" (frontend-builder)
+
+The final makeover batch. Items 10, 11 (body/tree link) and 13 (hint) landed;
+the attribution- and snapshot-blocked slices are re-filed to BACKLOG (below) —
+quality over coverage, no half-built previews (the founder's own bar).
+
+- **Item 10 — in-command band state.** An open editor now RECEDES the command
+  band to an in-command bar: a brass `▸ <command>` indicator + wired **OK** /
+  **Cancel** cells (Esc/Enter captions), the tool groups falling out of the
+  visual band (kept `sr-only` in the a11y tree, still locked). OK is real — it
+  runs the OPEN editor's OWN validated submit through a tiny command-action bus
+  (`features/commandActions.ts`): the band bumps a nonce, the editor's
+  `useCommandBridge(submit, canSubmit)` runs its Enter-path submit (added to all
+  10 editors); Cancel closes the editor. The band reads "you are inside Fillet",
+  not "the whole toolbar, greyed" — Fusion/Plasticity's in-command chrome.
+- **Item 11 — body selection/hover feedback + the tree→geometry link.**
+  Hovering the body brightens its B-rep edges (`viewport.hover`); selecting a
+  feature in the tree WARMS the whole body — brass edges (`viewport.selection`)
+  + a surface tint that multiplies the studio matcap toward brass
+  (`viewport.selectedSurfaceTint`, shared with the assembly selection language —
+  one source). Gated so a pick tool (measure/edge/face) always wins the
+  viewport. QA hook `data-body-highlight` (none/hover/selected) on the viewport
+  container. **Deferred:** per-face pick highlight + tree↔FACE linking — the
+  merged GLB has no face groups AND `OverlayResult` carries no face→feature
+  attribution, so "highlight Extrude1's faces specifically" needs a
+  geometry-service slice first (out of frontend territory).
+- **Item 13 — empty part.** A blank part now shows a first-run call to action
+  ("Start with a Sketch — pick a plane, then draw · Or Import a STEP solid")
+  centred in the horizon grid, cleared the moment work begins. **Deferred:**
+  origin triad + resting datum sheets (coordinate-transform work) and
+  parts-home thumbnails (needs a last-evaluated-mesh snapshot pipeline).
+- **Item 12 — live ghost previews:** DEFERRED whole rather than ship a datum-
+  only slice that reads as half-built.
+
+**Fusion/Plasticity side-by-side (mandate 3a-d).** In-command chrome now matches
+Fusion's (command name + OK/Cancel occupy the band, tools gone); body selection
+reads like Fusion's rollover/selection warmth. Remaining honest gaps to the
+incumbents: per-face hover highlight (Plasticity highlights the exact face under
+the cursor — we highlight the whole body until face attribution lands) and live
+parametric previews (item 12).
+
+**Gates.** `frontend-design` run; `tsc` + eslint + prettier clean; web unit
+517 green; Playwright `makeover-batch3.spec.ts` (5) + `nav-chrome` +
+`viewport-makeover` + extrude/fillet/chamfer/datum slices green on the real
+stack (isolated ports 8010–8012). Evidence (afters):
+`docs/screenshots/makeover-batch3-{in-command,selected,empty}-{desktop,laptop}.png`
+vs `docs/screenshots/ui-audit/{11-fillet-editor,17-extrude-editor,03-part-empty}-desktop.png`
+befores.

@@ -22,7 +22,7 @@ import { useReducedMotion } from "../lib/useReducedMotion";
 import { ViewBar } from "../components/ViewBar";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { groundShadowTexture } from "./groundShadow";
-import { ModelMesh } from "./ModelMesh";
+import { ModelMesh, type BodyHighlight } from "./ModelMesh";
 import {
   useViewCommandStore,
   useViewHotkeys,
@@ -277,6 +277,13 @@ export interface ViewportProps {
    * never racing the GLB fetch). Defaults to the parsed geometry's identity.
    */
   fitKey?: string;
+  /**
+   * The body responds to the pointer (hover glow) — off while a pick tool owns
+   * the viewport. Item 11 selection/hover feedback on the body.
+   */
+  bodyInteractive?: boolean;
+  /** The body's feature is selected in the tree (the tree→geometry link). */
+  bodySelected?: boolean;
 }
 
 /**
@@ -295,6 +302,8 @@ export function Viewport({
   viewNav = true,
   worldBounds,
   fitKey,
+  bodyInteractive = false,
+  bodySelected = false,
 }: ViewportProps) {
   const reducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -328,6 +337,12 @@ export function Viewport({
       scale: [Math.max(size.x, 1) * 2.1, Math.max(size.z, 1) * 2.1, 1] as const,
     };
   }, [bounds]);
+
+  /** QA hook: the body's hover/selection highlight, stamped on the container. */
+  const handleHighlight = useCallback((highlight: BodyHighlight) => {
+    const node = containerRef.current;
+    if (node !== null) node.dataset["bodyHighlight"] = highlight;
+  }, []);
 
   /** QA hook: the settled view + camera position, stamped on the container. */
   const handleSettle = useCallback((view: string, position: Vector3) => {
@@ -393,6 +408,9 @@ export function Viewport({
             glb={glb}
             onGeometry={handleGeometry}
             onError={handleError}
+            interactive={bodyInteractive}
+            selected={bodySelected}
+            onHighlightChange={handleHighlight}
           />
         ) : null}
         {children}

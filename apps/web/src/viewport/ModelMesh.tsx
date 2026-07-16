@@ -1,15 +1,18 @@
 import { viewport } from "@loft/design/tokens";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BufferGeometry,
   EdgesGeometry,
   LineBasicMaterial,
   MeshMatcapMaterial,
 } from "three";
-import { useThree } from "@react-three/fiber";
+import { useThree, type ThreeEvent } from "@react-three/fiber";
 
 import { loadGlbGeometry } from "./glbGeometry";
 import { studioMatcap } from "./studioMatcap";
+
+/** How the body reads: neutral, pointer-hovered, or feature-selected. */
+export type BodyHighlight = "none" | "hover" | "selected";
 
 export interface ModelMeshProps {
   glb: ArrayBuffer;
@@ -21,12 +24,39 @@ export interface ModelMeshProps {
    * empty viewport.
    */
   onError?: (error: Error) => void;
+  /**
+   * The body responds to the pointer (hover glow) when true — off while a pick
+   * tool owns the viewport (measure / edge / face pick), so the two highlight
+   * languages never fight (Makeover Batch 3, item 11).
+   */
+  interactive?: boolean;
+  /**
+   * The body's feature is selected in the tree — the body warms even when not
+   * interactive (the tree→geometry link). Wins over hover.
+   */
+  selected?: boolean;
+  /** Report the current highlight so the viewport can stamp a QA hook. */
+  onHighlightChange?: (highlight: BodyHighlight) => void;
 }
 
 /** The tessellated model: token-driven surface + B-rep edge overlay. */
-export function ModelMesh({ glb, onGeometry, onError }: ModelMeshProps) {
+export function ModelMesh({
+  glb,
+  onGeometry,
+  onError,
+  interactive = false,
+  selected = false,
+  onHighlightChange,
+}: ModelMeshProps) {
   const invalidate = useThree((state) => state.invalidate);
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
+  const [hovered, setHovered] = useState(false);
+  // Selection wins over hover; hover only reads while the body is interactive.
+  const highlight: BodyHighlight = selected
+    ? "selected"
+    : interactive && hovered
+      ? "hover"
+      : "none";
 
   // Materials are created once and shared across re-tessellations. The
   // studio matcap ("machined aluminum under shop lights") carries the whole
@@ -47,6 +77,46 @@ export function ModelMesh({ glb, onGeometry, onError }: ModelMeshProps) {
     },
     [surfaceMaterial, edgeMaterial],
   );
+
+  // Highlight cue (Batch 3, item 11): selection warms the surface + brasses the
+  // edges (the assembly selection language); hover only brightens the edges.
+  // Matcap tint multiplies the studio sphere — the machined read is preserved.
+  useEffect(() => {
+    surfaceMaterial.color.set(
+      highlight === "selected"
+        ? viewport.selectedSurfaceTint
+        : viewport.restSurfaceTint,
+    );
+    edgeMaterial.color.set(
+      highlight === "selected"
+        ? viewport.selection
+        : highlight === "hover"
+          ? viewport.hover
+          : viewport.modelEdge,
+    );
+    invalidate();
+  }, [highlight, surfaceMaterial, edgeMaterial, invalidate]);
+
+  // Report the highlight up so the viewport can stamp a QA hook on its DOM.
+  useEffect(() => {
+    onHighlightChange?.(highlight);
+  }, [highlight, onHighlightChange]);
+
+  // Leaving interactive mode drops a stale hover (e.g. arming Measure while the
+  // pointer rests on the body) so the body never sticks lit.
+  useEffect(() => {
+    if (!interactive && hovered) setHovered(false);
+  }, [interactive, hovered]);
+
+  const onPointerOver = useCallback(
+    (event: ThreeEvent<PointerEvent>) => {
+      if (!interactive) return;
+      event.stopPropagation();
+      setHovered(true);
+    },
+    [interactive],
+  );
+  const onPointerOut = useCallback(() => setHovered(false), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +164,12 @@ export function ModelMesh({ glb, onGeometry, onError }: ModelMeshProps) {
   }
   return (
     <group>
-      <mesh geometry={geometry} material={surfaceMaterial} />
+      <mesh
+        geometry={geometry}
+        material={surfaceMaterial}
+        onPointerOver={interactive ? onPointerOver : undefined}
+        onPointerOut={interactive ? onPointerOut : undefined}
+      />
       <lineSegments geometry={edges} material={edgeMaterial} />
     </group>
   );

@@ -24,6 +24,7 @@ import {
 } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
+import { useCommandBridge } from "../features/commandActions";
 import type { SweepParams } from "../api/parts";
 import {
   buildSweepParams,
@@ -119,6 +120,7 @@ export function SweepEditor({
   );
 
   const canSubmit = canSubmitSweep(form) && paths.length > 0 && !saving;
+  useCommandBridge(submit, canSubmit);
 
   return (
     <div

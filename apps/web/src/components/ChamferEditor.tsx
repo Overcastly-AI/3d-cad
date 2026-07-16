@@ -15,6 +15,7 @@ import {
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import type { ChamferParams } from "../api/parts";
+import { useCommandBridge } from "../features/commandActions";
 import { useEdgePickStore } from "../features/edgePickStore";
 import {
   buildChamferParams,
@@ -85,6 +86,7 @@ export function ChamferEditor({
   );
 
   const canSubmit = canSubmitChamfer(form, picked, bodyFeatureId) && !saving;
+  useCommandBridge(submit, canSubmit);
 
   return (
     <div

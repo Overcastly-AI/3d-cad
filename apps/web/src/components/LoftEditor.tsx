@@ -34,6 +34,7 @@ import {
   useState,
 } from "react";
 
+import { useCommandBridge } from "../features/commandActions";
 import type { LoftParams } from "../api/parts";
 import {
   addSection,
@@ -117,6 +118,7 @@ export function LoftEditor({
   );
 
   const canSubmit = canSubmitLoft(form) && !saving;
+  useCommandBridge(submit, canSubmit);
   const canRemove = form.sections.length > MIN_LOFT_SECTIONS;
 
   return (

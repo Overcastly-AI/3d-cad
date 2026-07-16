@@ -21,6 +21,7 @@ import {
 } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
+import { useCommandBridge } from "../features/commandActions";
 import type { ExtrudeParams } from "../api/parts";
 import {
   canSubmitExtrude,
@@ -120,6 +121,7 @@ export function ExtrudeEditor({
 
   const distanceMsg = distanceError(form.distanceInput);
   const canSubmit = canSubmitExtrude(form) && !saving;
+  useCommandBridge(submit, canSubmit);
   const profileName =
     profiles.find((p) => p.id === form.profileFeatureId)?.name ?? "—";
 

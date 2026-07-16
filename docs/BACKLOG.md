@@ -84,12 +84,23 @@ nit, no user impact, stays Later).
       lock (no silent pick loss); idempotent sketch exit + fresh-tree naming.
       Evidence `docs/screenshots/makeover-batch2-*`; e2e `nav-chrome.spec.ts`;
       UI-REVIEW Batch-2 addendum. [src: UI-REVIEW 2026-07-16 items 6–9]
-- [ ] (P1, L) Viewport makeover Batch 3 — "in-command depth" — in-command
-      band state (active command + OK/Cancel folded INTO the band; the
-      editor-swap guard already shipped in Batch 2 as the band lock), body
-      selection/hover feedback + tree↔geometry linking, live ghost previews
-      (datum plane first), empty-viewport state (origin triad, resting datum
-      sheets, first-run hint) + parts-home thumbnails.
+- [x] (P1, L) Viewport makeover Batch 3 — "in-command depth" — SHIPPED
+      2026-07-16. Item 10: in-command band state (open editor recedes the band
+      to the active command + wired OK/Cancel via a command-action bus + a
+      per-editor bridge hook). Item 11: body selection/hover feedback + the
+      tree→geometry link (hover glows body edges; selecting a feature warms the
+      body — brass edges + matcap tint). Item 13 (partial): empty-part first-run
+      call to action. Evidence `docs/screenshots/makeover-batch3-*`; e2e
+      `makeover-batch3.spec.ts`; UI-REVIEW Batch 3 addendum. [src: UI-REVIEW
+      full audit, Batch 3]
+- [ ] (P1, M) Viewport makeover Batch 3 remainder / deferred slices —
+      per-face pick highlight + tree↔FACE linking (blocked: OverlayResult has no
+      face→feature attribution — needs a geometry-service slice attributing
+      B-rep faces/edges to their source feature; frontend wires once it exists);
+      live ghost previews (item 12 — datum plane cheapest, then extrude/pattern;
+      deferred whole to avoid a half-built preview); empty-viewport origin triad
+      + resting datum sheets, and parts-home thumbnails (item 13 remainder —
+      needs a last-evaluated-mesh snapshot pipeline). [src: UI-REVIEW Batch 3]
       [src: UI-REVIEW 2026-07-16 remediation items 10–13]
 - [x] (P1, M) Assemblies v1 #1 — document model + CRUD API (documents) — **DONE
       2026-07-15.** `py_kit.schemas.assemblies` (Placement/Quat, MateFace/AxisRef

@@ -30,6 +30,7 @@ import {
   type DraftForm,
   neutralOffsetError,
 } from "../features/draft";
+import { useCommandBridge } from "../features/commandActions";
 import { useFacePickStore } from "../features/facePickStore";
 import type { DatumPlaneName } from "../sketch/plane";
 
@@ -114,6 +115,7 @@ export function DraftEditor({
   );
 
   const canSubmit = canSubmitDraft(form, picked, bodyFeatureId) && !saving;
+  useCommandBridge(submit, canSubmit);
 
   return (
     <div

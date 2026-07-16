@@ -21,6 +21,7 @@ import {
 } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
+import { useCommandBridge } from "../features/commandActions";
 import type { PatternParams } from "../api/parts";
 import {
   AXIS_PRESETS,
@@ -104,6 +105,7 @@ export function PatternEditor({
   );
 
   const canSubmit = canSubmitPattern(form) && !saving;
+  useCommandBridge(submit, canSubmit);
   // When the count is valid (or still being typed) show the informational note;
   // an invalid count already flags "use 2 or more", so don't say it twice.
   const showCountNote = countError(form.countInput) === null;

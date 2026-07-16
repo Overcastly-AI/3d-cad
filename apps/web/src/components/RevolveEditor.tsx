@@ -21,6 +21,7 @@ import {
 } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
+import { useCommandBridge } from "../features/commandActions";
 import type { RevolveParams } from "../api/parts";
 import {
   angleError,
@@ -145,6 +146,7 @@ export function RevolveEditor({
 
   const angleMsg = angleError(form.angleInput);
   const canSubmit = canSubmitRevolve(form) && axes.length > 0 && !saving;
+  useCommandBridge(submit, canSubmit);
   const profileName =
     profiles.find((p) => p.id === form.profileFeatureId)?.name ?? "—";
 

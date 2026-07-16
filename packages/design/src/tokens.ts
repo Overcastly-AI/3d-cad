@@ -60,6 +60,15 @@ export const viewport = {
   selection: color.brass,
   hover: color.brassHover,
   /**
+   * Body selection/hover feedback (Makeover Batch 3, item 11). Hovering the
+   * body brightens its edges (`hover`); selecting its feature warms the whole
+   * body — brass edges (`selection`) + a surface tint that multiplies the
+   * studio matcap toward brass (matcaps carry no emissive channel, so the metal
+   * read is preserved). The rest tint is the matcap multiply identity.
+   */
+  selectedSurfaceTint: "#E8CDA4",
+  restSurfaceTint: "#FFFFFF",
+  /**
    * Atmosphere — the DOM half of the scene (the canvas is transparent and the
    * wrapper paints depth behind it; the vignette overlays it). One palette,
    * two renderers: the WebGL grid fades into these exact inks.
@@ -205,10 +214,11 @@ export const assembly = {
   /**
    * Surface tint of the addressed instance — multiplies the studio matcap
    * toward brass (matcaps carry no emissive channel), warm but still metal.
+   * Shares the part body's selection tint — one selection language, one source.
    */
-  selectedTint: "#E8CDA4",
+  selectedTint: viewport.selectedSurfaceTint,
   /** Resting surface tint — the matcap multiply identity (no tint). */
-  restTint: "#FFFFFF",
+  restTint: viewport.restSurfaceTint,
   /** Hovered instance / mate pick — brass-hover. */
   hover: color.brassHover,
 } as const;

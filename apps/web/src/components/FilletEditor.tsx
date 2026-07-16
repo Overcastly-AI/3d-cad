@@ -23,6 +23,7 @@ import {
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import type { FilletParams } from "../api/parts";
+import { useCommandBridge } from "../features/commandActions";
 import { useEdgePickStore } from "../features/edgePickStore";
 import {
   buildFilletParams,
@@ -93,6 +94,7 @@ export function FilletEditor({
   );
 
   const canSubmit = canSubmitFillet(form, picked, bodyFeatureId) && !saving;
+  useCommandBridge(submit, canSubmit);
 
   return (
     <div

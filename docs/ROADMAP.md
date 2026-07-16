@@ -251,9 +251,17 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       register › document › mode breadcrumb; open-editor band lock (no silent
       pick loss); idempotent sketch exit + fresh naming. Gates green incl. new
       `nav-chrome.spec.ts`; evidence `docs/screenshots/makeover-batch2-*`.
-      **Batch 3 remains** (in-command OK/Cancel band state, body selection/hover
-      feedback + tree↔geometry linking, live editor previews, empty-viewport
-      state + parts-home thumbnails).
+      **Batch 3 "in-command depth" ✅ 2026-07-16:** in-command band state (an
+      open editor recedes the band to the active command + wired OK/Cancel via a
+      command-action bus + per-editor bridge; item 10); body selection/hover
+      feedback — hovering the body glows its edges, selecting its feature warms
+      it (brass edges + matcap tint), the tree→geometry link (item 11); empty-
+      part first-run call to action (item 13). Gates green incl. new
+      `makeover-batch3.spec.ts`; evidence `docs/screenshots/makeover-batch3-*`.
+      **Deferred to BACKLOG:** per-face pick highlight + tree↔face linking (needs
+      geometry-service face→feature attribution — OverlayResult carries none
+      today), live ghost previews (item 12), resting datum sheets / origin triad
+      + parts-home thumbnails (item 13 remainder — snapshot pipeline).
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive

@@ -17,6 +17,7 @@ import {
 } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
+import { useCommandBridge } from "../features/commandActions";
 import type { DatumParams } from "../api/parts";
 import {
   buildDatumParams,
@@ -95,6 +96,7 @@ export function DatumEditor({
   );
 
   const canSubmit = canSubmitDatum(form) && !saving;
+  useCommandBridge(submit, canSubmit);
 
   return (
     <div
