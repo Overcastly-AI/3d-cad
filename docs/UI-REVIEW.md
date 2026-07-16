@@ -318,6 +318,20 @@ _Post-review fixes (code-reviewer on `9767e17`, landed on top):_
    Command scoping (item 10's guard, pulled forward): an open editor LOCKS the
    band with a "Finish X first" reason — no more silent fillet→extrude pick loss.
 
+_Post-review fixes (code-reviewer on `c83b43b`, landed on top):_
+- 🔴 **The band lock was pointer-only.** The Create/Modify (H/D/P/S/L) and
+  Measure (M) keyboard accelerators bailed on sketch `mode` but not on an open
+  feature `editor`, so a single keystroke `setEditor(...)`'d over a live command
+  and silently discarded its picks — the keyboard twin of the fillet→extrude
+  loss the lock claimed to close. Both accelerator effects now also bail while
+  `editor !== null`; new `nav-chrome` spec presses H/D/P/M against an open Fillet
+  and asserts the command + picked edge survive (pre-fix the editor is swapped).
+- 🟡 **`persistBuffer` could hard-lock sketch mode.** `planeRefFromSpec` ran
+  outside the save `try`, so a throw skipped the `finally` that clears
+  `creatingRef` → stuck `true` → every finish blocked, user trapped in sketch
+  mode. Plane resolution moved inside the `try`; a defensive chain `.catch`
+  clears the create guards so no freak error can wedge the sketch or the chain.
+
 **Batch 3 — "in-command depth" (Track C structural + Track A follow-through):**
 10. In-command band state (active command + OK/Cancel, rest recedes; guard
     against silent editor swaps).

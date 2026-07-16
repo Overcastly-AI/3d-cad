@@ -210,6 +210,54 @@ test.describe("an open command scopes the band", () => {
     );
     await expect(extrude).toBeEnabled();
   });
+
+  test("keyboard accelerators can't discard an open command's picks either", async ({
+    page,
+  }) => {
+    // The pointer lock is only half the guarantee: the Create/Modify keyboard
+    // accelerators (H/D/P/S/L, M) must ALSO be inert while a command is open, or
+    // a single documented keystroke silently `setEditor(...)`s over the live
+    // selection — the keyboard twin of the fillet→extrude pick-loss.
+    const part = await seedBoxPart(page);
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("prop-volume")).toContainText("6,000", {
+      timeout: 30_000,
+    });
+    await expect
+      .poll(() => distinctCanvasColors(page), { timeout: 20_000 })
+      .toBeGreaterThan(24);
+
+    // Open Fillet and pick an edge — a live, unsaved selection worth protecting.
+    await page.getByTestId("new-fillet").click();
+    await expect(page.getByTestId("fillet-editor")).toBeVisible();
+    await page.getByTestId("fillet-mode-pick").click();
+    await page.locator('[data-testid^="edge-pick-"]').first().click();
+    await expect(page.getByTestId("selected-count")).toHaveText(
+      "1 edge picked",
+    );
+
+    // Every Create/Modify accelerator that is otherwise live once a body exists
+    // (H shell, D draft, P pattern) is swallowed while the command is open.
+    for (const key of ["h", "d", "p", "m"]) {
+      await page.keyboard.press(key);
+    }
+
+    // The Fillet command and its picked edge are untouched — no editor was
+    // swapped in, and Measure never activated.
+    await expect(page.getByTestId("fillet-editor")).toBeVisible();
+    await expect(page.getByTestId("selected-count")).toHaveText(
+      "1 edge picked",
+    );
+    await expect(page.getByTestId("shell-editor")).toHaveCount(0);
+    await expect(page.getByTestId("draft-editor")).toHaveCount(0);
+    await expect(page.getByTestId("pattern-editor")).toHaveCount(0);
+
+    // Cancel still exits cleanly and the accelerators come back to life.
+    await page.getByTestId("fillet-cancel").click();
+    await expect(page.getByTestId("fillet-editor")).toHaveCount(0);
+    await page.keyboard.press("h");
+    await expect(page.getByTestId("shell-editor")).toBeVisible();
+  });
 });
 
 test.describe("sketch exit is idempotent", () => {

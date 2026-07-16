@@ -418,83 +418,98 @@ export function PartPage() {
       if (isCreate) creatingRef.current = true;
       inFlight.current += 1;
       setSyncPending(true);
-      chain.current = chain.current.then(async () => {
-        const planeRef = planeRefFromSpec(payload.plane);
-        // Default sketch name numbers off the FRESHEST tree, never a stale query
-        // — so the first sketch is "Sketch1", the next "Sketch2", never a dupe.
-        const runCreate = async () => {
-          const fresh = await fetchFeatureTree(partId);
-          const count = fresh.features.filter(
-            (f) => f.feature.type === "sketch",
-          ).length;
-          return createFeature(
-            partId,
-            sketchFeatureCreate(
-              `Sketch${count + 1}`,
-              planeRef,
-              payload.entities,
-              payload.constraints,
-              fresh.tree_version,
-            ),
-          );
-        };
-        const runUpdate = (version: number) =>
-          updateFeature(
-            partId,
-            payload.featureId as string,
-            sketchFeatureUpdate(
-              planeRef,
-              payload.entities,
-              payload.constraints,
-              version,
-            ),
-          );
-        try {
-          let response;
-          if (isCreate) {
-            response = await runCreate();
-          } else {
-            try {
-              response = await runUpdate(
-                treeVersionRef.current ??
+      chain.current = chain.current
+        .then(async () => {
+          // Everything that can throw — including plane resolution — lives inside
+          // the try so the `finally` ALWAYS clears `creatingRef`. A throw before
+          // the try (the old shape) skipped the finally and wedged the create
+          // guard on, hard-locking the user in sketch mode (worse than the soft
+          // sync error it replaced).
+          try {
+            const planeRef = planeRefFromSpec(payload.plane);
+            // Default sketch name numbers off the FRESHEST tree, never a stale
+            // query — first sketch "Sketch1", next "Sketch2", never a dupe.
+            const runCreate = async () => {
+              const fresh = await fetchFeatureTree(partId);
+              const count = fresh.features.filter(
+                (f) => f.feature.type === "sketch",
+              ).length;
+              return createFeature(
+                partId,
+                sketchFeatureCreate(
+                  `Sketch${count + 1}`,
+                  planeRef,
+                  payload.entities,
+                  payload.constraints,
+                  fresh.tree_version,
+                ),
+              );
+            };
+            const runUpdate = (version: number) =>
+              updateFeature(
+                partId,
+                payload.featureId as string,
+                sketchFeatureUpdate(
+                  planeRef,
+                  payload.entities,
+                  payload.constraints,
+                  version,
+                ),
+              );
+            let response;
+            if (isCreate) {
+              response = await runCreate();
+            } else {
+              try {
+                response = await runUpdate(
+                  treeVersionRef.current ??
+                    (await fetchFeatureTree(partId)).tree_version,
+                );
+              } catch {
+                // Stale tree version (or a hiccup): refetch, retry once.
+                response = await runUpdate(
                   (await fetchFeatureTree(partId)).tree_version,
-              );
-            } catch {
-              // Stale tree version (or a hiccup): refetch, retry once.
-              response = await runUpdate(
-                (await fetchFeatureTree(partId)).tree_version,
-              );
+                );
+              }
             }
+            treeVersionRef.current = response.tree_version;
+            lastSynced.current = Math.max(lastSynced.current, payload.revision);
+            failedRevision.current = null;
+            setSyncError(null);
+            const now = useSketchStore.getState();
+            if (now.mode === "draw") {
+              if (isCreate && now.featureId === null)
+                now.bind(response.feature.id);
+              if (exitAfter || pendingExitRef.current) now.exit();
+            }
+            await queryClient.invalidateQueries({
+              queryKey: ["features", partId],
+            });
+          } catch (error) {
+            failedRevision.current = payload.revision;
+            setSyncError(
+              error instanceof Error
+                ? error.message
+                : "The sketch could not be saved — reload and try again.",
+            );
+          } finally {
+            if (isCreate) {
+              creatingRef.current = false;
+              pendingExitRef.current = false;
+            }
+            inFlight.current -= 1;
+            if (inFlight.current === 0) setSyncPending(false);
           }
-          treeVersionRef.current = response.tree_version;
-          lastSynced.current = Math.max(lastSynced.current, payload.revision);
-          failedRevision.current = null;
-          setSyncError(null);
-          const now = useSketchStore.getState();
-          if (now.mode === "draw") {
-            if (isCreate && now.featureId === null)
-              now.bind(response.feature.id);
-            if (exitAfter || pendingExitRef.current) now.exit();
-          }
-          await queryClient.invalidateQueries({
-            queryKey: ["features", partId],
-          });
-        } catch (error) {
-          failedRevision.current = payload.revision;
-          setSyncError(
-            error instanceof Error
-              ? error.message
-              : "The sketch could not be saved — reload and try again.",
-          );
-        } finally {
-          if (isCreate) {
-            creatingRef.current = false;
-            pendingExitRef.current = false;
-          }
-          inFlight.current -= 1;
-          if (inFlight.current === 0) setSyncPending(false);
-        }
-      });
+        })
+        .catch(() => {
+          // Belt-and-suspenders: the inner try/catch/finally already handles
+          // every expected failure, so this only fires if something truly
+          // unexpected throws. Never let a freak error wedge the create guard
+          // (which hard-locks sketch mode) or leave the chain permanently
+          // rejected for all later saves.
+          creatingRef.current = false;
+          pendingExitRef.current = false;
+        });
     },
     [partId, queryClient],
   );
@@ -1168,9 +1183,10 @@ export function PartPage() {
   }, []);
 
   // Measure keyboard path (mode off): M toggles the tool; Escape clears the
-  // picks, then exits — the same cascade grammar the sketcher uses.
+  // picks, then exits — the same cascade grammar the sketcher uses. Locked while
+  // a feature editor is open (M would `setEditor(null)` and discard its picks).
   useEffect(() => {
-    if (mode !== "off") return;
+    if (mode !== "off" || editor !== null) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
@@ -1202,7 +1218,7 @@ export function PartPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, hasBody]);
+  }, [mode, editor, hasBody]);
 
   const openCreateExtrude = useCallback(() => {
     const profileId = defaultProfileId(tree.data?.features ?? []);
@@ -1863,8 +1879,13 @@ export function PartPage() {
   // Create/Modify accelerators (mode off): P patterns the current body (needs a
   // body); S sweeps a profile along a path (needs two solved sketches) — the
   // same guard grammar as the Measure M accelerator.
+  //
+  // These are LOCKED behind an open editor exactly like the pointer band is: an
+  // open command owns the picks, and firing another opener would `setEditor(...)`
+  // over the top, silently discarding the in-progress selection (the keyboard
+  // twin of the fillet→extrude pick-loss the pointer lock closes).
   useEffect(() => {
-    if (mode !== "off") return;
+    if (mode !== "off" || editor !== null) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
@@ -1890,6 +1911,7 @@ export function PartPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     mode,
+    editor,
     hasBody,
     canSweep,
     canLoft,
