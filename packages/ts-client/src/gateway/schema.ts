@@ -202,6 +202,238 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Drawings
+         * @description The caller's drawings, oldest first.
+         */
+        get: operations["list_drawings_api_v1_drawings_get"];
+        put?: never;
+        /**
+         * Create Drawing
+         * @description Create a drawing owned by the caller (201; 409 envelope on duplicate name).
+         */
+        post: operations["create_drawing_api_v1_drawings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Drawing
+         * @description One owned drawing with its full sheet/view/dimension/annotation tree.
+         */
+        get: operations["get_drawing_api_v1_drawings__drawing_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Drawing
+         * @description Delete an owned drawing (204; uniform 404 for unknown/foreign ids).
+         *
+         *     A drawing is a pure LEAF (nothing references it), so its entire
+         *     sheet/view/dimension/annotation layout CASCADEs — no dependents pre-check.
+         */
+        delete: operations["delete_drawing_api_v1_drawings__drawing_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Drawing
+         * @description Rename a drawing (bumps ``doc_version``; 422 stale / 409 name clash).
+         */
+        patch: operations["update_drawing_api_v1_drawings__drawing_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/annotations/{annotation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Annotation
+         * @description Delete an annotation; returns the updated tree (bumps ``doc_version``).
+         */
+        delete: operations["delete_annotation_api_v1_drawings__drawing_id__annotations__annotation_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/dimensions/{dimension_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Dimension
+         * @description Delete a dimension; returns the updated tree (bumps ``doc_version``).
+         */
+        delete: operations["delete_dimension_api_v1_drawings__drawing_id__dimensions__dimension_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/sheets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Sheet
+         * @description Add a sheet to a drawing (append at the tip; 422 on a stale version).
+         */
+        post: operations["create_sheet_api_v1_drawings__drawing_id__sheets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Sheet
+         * @description Delete a sheet (cascades its views/dimensions/annotations); returns the tree.
+         */
+        delete: operations["delete_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Sheet
+         * @description Update a sheet's header (bumps ``doc_version``; 422 on empty/stale).
+         */
+        patch: operations["update_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}/annotations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Annotation
+         * @description Add an annotation (v1: a note) to a sheet (append at the tip).
+         */
+        post: operations["create_annotation_api_v1_drawings__drawing_id__sheets__sheet_id__annotations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create View
+         * @description Add a view referencing a part / assembly (append at the tip).
+         *
+         *     Documents enforces cross-document integrity (the referenced document must
+         *     exist and belong to the caller); its ``ref_document_not_found`` 422 and the
+         *     ``stale_drawing_version`` 422 are re-surfaced verbatim.
+         */
+        post: operations["create_view_api_v1_drawings__drawing_id__sheets__sheet_id__views_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/views/{view_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete View
+         * @description Delete a view (cascades the dimensions it carries); returns the tree.
+         */
+        delete: operations["delete_view_api_v1_drawings__drawing_id__views__view_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update View
+         * @description Re-frame / re-scale / re-place a view (bumps ``doc_version``).
+         */
+        patch: operations["update_view_api_v1_drawings__drawing_id__views__view_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/views/{view_id}/dimensions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Dimension
+         * @description Add a dimension to a view (append at the tip, ordered per sheet).
+         *
+         *     Documents runs the kernel-free write-time checks (a diameter/radius must
+         *     name a circular edge, an angular dimension two straight edges); its
+         *     ``dimension_requires_circular_edge`` / ``dimension_requires_straight_edges``
+         *     422 envelopes are re-surfaced verbatim.
+         */
+        post: operations["create_dimension_api_v1_drawings__drawing_id__views__view_id__dimensions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/assembly/evaluate": {
         parameters: {
             query?: never;
@@ -227,6 +459,37 @@ export interface paths {
          *     for transport/validation failures of this call itself.
          */
         post: operations["assembly_evaluate_api_v1_geometry_assembly_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/geometry/drawing/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Drawing Evaluate
+         * @description Proxy a drawing-view evaluation to the geometry service (drawings §1.2/§4).
+         *
+         *     Auth-protected (a drawing belongs to a signed-in user); the geometry hop
+         *     stays identity-free, so the principal never travels upstream (same posture
+         *     as measure/overlay + assembly-evaluate, RESEARCH §3). The shared
+         *     :class:`EvaluateDrawingViewsRequest` DTO validates at the gateway before
+         *     anything goes upstream. Geometry evaluates the referenced part body once
+         *     (reusing ``evaluate_tree``) then runs exact HLR per requested view, returning
+         *     per-view canonically-ordered neutral 2D edges OR a typed per-view projection
+         *     error. A feature/HLR failure is a 200 with a typed per-view (or whole-part)
+         *     error (design §1.5/§4); the envelope stays reserved for transport/validation
+         *     failures of this call itself.
+         */
+        post: operations["drawing_evaluate_api_v1_geometry_drawing_evaluate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -802,6 +1065,67 @@ export interface components {
              * @enum {string}
              */
             type: "angle";
+        };
+        /**
+         * AngularDimensionParams
+         * @description An angular dimension between two straight model edges (design §3.1).
+         */
+        AngularDimensionParams: {
+            /** @description First straight model edge */
+            edge_a: components["schemas"]["EdgeSignature"];
+            /** @description Second straight model edge */
+            edge_b: components["schemas"]["EdgeSignature"];
+            /** @description Authored 2D placement */
+            placement?: components["schemas"]["DimensionPlacement"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "angular";
+        };
+        /**
+         * AnnotationCreate
+         * @description Add an annotation to a sheet (append at the tip; design §2.2).
+         */
+        AnnotationCreate: {
+            /** @description The annotation (v1: a note) */
+            annotation: components["schemas"]["NoteAnnotationParams"];
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §2.1)
+             */
+            expected_version: number;
+        };
+        /**
+         * AnnotationMutationResponse
+         * @description Result of a single-annotation mutation: the annotation + the new version.
+         */
+        AnnotationMutationResponse: {
+            annotation: components["schemas"]["AnnotationResponse"];
+            /** Doc Version */
+            doc_version: number;
+        };
+        /**
+         * AnnotationResponse
+         * @description An annotation as stored (design §2.2).
+         */
+        AnnotationResponse: {
+            annotation: components["schemas"]["NoteAnnotationParams"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Order Index
+             * @description Stable per-sheet order (dense 0..n-1)
+             */
+            order_index: number;
+            /**
+             * Sheet Id
+             * Format: uuid
+             */
+            sheet_id: string;
         };
         /**
          * AssemblyCreate
@@ -1417,6 +1741,123 @@ export interface components {
             plane: "XY" | "XZ" | "YZ";
         };
         /**
+         * DiameterDimensionParams
+         * @description A diameter dimension on a circular model edge (design §3.1).
+         *
+         *     ``edge`` must resolve to a CIRCULAR edge (``curve == "circle"``) — the
+         *     identical reuse a ``concentric`` mate makes for its axis (design §3.3), so one
+         *     signature names a hole for both mating and dimensioning. The measured value
+         *     (2·radius) is computed geometry-side.
+         */
+        DiameterDimensionParams: {
+            /** @description Circular model edge (curve == 'circle') */
+            edge: components["schemas"]["EdgeSignature"];
+            /** @description Authored 2D placement */
+            placement?: components["schemas"]["DimensionPlacement"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "diameter";
+        };
+        /**
+         * DimensionCreate
+         * @description Add a dimension to a view (append at the tip; design §3).
+         *
+         *     ``dimension`` is the discriminated :data:`Dimension` union; its geometry
+         *     references (via :class:`~py_kit.schemas.features.EdgeSignature`) resolve
+         *     against the view's referenced body geometry-side. ``order_index`` is stable
+         *     per sheet, appended at the tip.
+         */
+        DimensionCreate: {
+            /**
+             * Dimension
+             * @description The dimension (discriminated on `type`)
+             */
+            dimension: components["schemas"]["LinearDimensionParams"] | components["schemas"]["DiameterDimensionParams"] | components["schemas"]["RadiusDimensionParams"] | components["schemas"]["AngularDimensionParams"];
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §2.1)
+             */
+            expected_version: number;
+        };
+        /**
+         * DimensionEndpointRef
+         * @description One canonical endpoint of a model edge (design §3.3 point-to-point linear).
+         *
+         *     ``endpoint`` selects ``end_a`` or ``end_b`` of the ``signature``'s
+         *     canonically-ordered pair — a vertex named through an EDGE, so v1 needs no
+         *     (unshipped) bare-vertex signature (topological-naming Open Q 10).
+         */
+        DimensionEndpointRef: {
+            /**
+             * Endpoint
+             * @description Which canonical end of the edge (end_a / end_b)
+             * @enum {string}
+             */
+            endpoint: "end_a" | "end_b";
+            /** @description The model edge whose endpoint this names (reused EdgeSignature) */
+            signature: components["schemas"]["EdgeSignature"];
+        };
+        /**
+         * DimensionMutationResponse
+         * @description Result of a single-dimension mutation: the dimension + the new version.
+         */
+        DimensionMutationResponse: {
+            dimension: components["schemas"]["DimensionResponse"];
+            /** Doc Version */
+            doc_version: number;
+        };
+        /**
+         * DimensionPlacement
+         * @description Authored 2D placement of a dimension on the sheet (design §3.1).
+         *
+         *     Placement is AUTHORED data (which side of the geometry the dimension line +
+         *     witness lines sit, and the text position); the measured VALUE is always taken
+         *     from the model, never typed (a v1 drawing dimension is driven-by-geometry,
+         *     never driving — design §3.1). ``offset_mm`` is the signed distance of the
+         *     dimension line from the geometry in the view plane; ``text_pos`` optionally
+         *     overrides the text placement.
+         */
+        DimensionPlacement: {
+            /**
+             * Offset Mm
+             * @description Signed offset of the dimension line from the geometry (mm)
+             * @default 0
+             */
+            offset_mm: number;
+            /** @description Optional text-position override (sheet mm) */
+            text_pos?: components["schemas"]["SheetPoint"] | null;
+        };
+        /**
+         * DimensionResponse
+         * @description A dimension as stored, with its params envelope reassembled (design §3).
+         */
+        DimensionResponse: {
+            /** Dimension */
+            dimension: components["schemas"]["LinearDimensionParams"] | components["schemas"]["DiameterDimensionParams"] | components["schemas"]["RadiusDimensionParams"] | components["schemas"]["AngularDimensionParams"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Order Index
+             * @description Stable per-sheet order (dense 0..n-1)
+             */
+            order_index: number;
+            /**
+             * Sheet Id
+             * Format: uuid
+             */
+            sheet_id: string;
+            /**
+             * View Id
+             * Format: uuid
+             */
+            view_id: string;
+        };
+        /**
          * DistanceConstraint
          * @description Dimension: the length of a line (mm). Driving by default; see
          *     :class:`DimensionConstraint` for the expression/name/driving fields.
@@ -1585,6 +2026,136 @@ export interface components {
             faces: components["schemas"]["FaceSelector"];
             /** @description The fixed plane the picked faces rotate about; its normal is the pull direction (:class:`DraftNeutralPlaneV1`). */
             neutral_plane: components["schemas"]["DraftNeutralPlaneV1"];
+        };
+        /**
+         * DrawingCreate
+         * @description Create a drawing owned by the calling user (design §2.1).
+         */
+        DrawingCreate: {
+            /**
+             * Name
+             * @description Drawing name; unique per owner, whitespace-trimmed, 1-200 characters
+             */
+            name: string;
+        };
+        /**
+         * DrawingListResponse
+         * @description The caller's drawings, oldest first (wrapper leaves room for paging).
+         */
+        DrawingListResponse: {
+            /** Drawings */
+            drawings: components["schemas"]["DrawingResponse"][];
+        };
+        /**
+         * DrawingResponse
+         * @description A drawing header as stored — identity, ownership, and its OCC token.
+         */
+        DrawingResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Doc Version
+             * @description Monotonic optimistic-concurrency counter (design §2.1)
+             */
+            doc_version: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Owner Id
+             * Format: uuid
+             * @description Owning user id (gateway-verified)
+             */
+            owner_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * DrawingTreeResponse
+         * @description A drawing plus its full sheet → view/dimension/annotation tree + OCC token.
+         *
+         *     The read model a client renders (design §2.2): the drawing header, its sheets
+         *     in ``order_index`` order (each with its views/dimensions/annotations in
+         *     ``order_index`` order), and the ``doc_version`` the client echoes as its next
+         *     ``expected_version``.
+         */
+        DrawingTreeResponse: {
+            /**
+             * Doc Version
+             * @description Echoed OCC token (== drawing.doc_version)
+             */
+            doc_version: number;
+            drawing: components["schemas"]["DrawingResponse"];
+            /** Sheets */
+            sheets: components["schemas"]["SheetContent"][];
+        };
+        /**
+         * DrawingUpdate
+         * @description Rename a drawing. Bumps ``doc_version`` (any mutation bumps — §2.1).
+         */
+        DrawingUpdate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard: the doc_version the client last saw; a stale value is rejected 422 (design §2.1)
+             */
+            expected_version: number;
+            /**
+             * Name
+             * @description New drawing name
+             */
+            name: string;
+        };
+        /**
+         * DrawingViewResult
+         * @description One requested view's projection outcome inside a 200 (design §1.3/§1.5).
+         *
+         *     On success, ``edges`` carries the view's canonically-ordered visible+hidden 2D
+         *     edges and ``error`` is null. On an exact-HLR failure (a fragile body — tangent
+         *     edges, self-intersections, §1.5), ``edges`` is empty and ``error`` is a typed
+         *     ``view_projection_failed`` (the boundary form of
+         *     ``geometry.drawings.ViewProjectionError``) — never a 500, never a silently
+         *     empty success. A per-view failure NEVER fails the whole request; the other
+         *     requested views still project (mirroring the per-feature/per-mate posture).
+         */
+        DrawingViewResult: {
+            /**
+             * Edges
+             * @description Canonically-ordered visible+hidden 2D edges (empty on error)
+             */
+            edges?: components["schemas"]["ProjectedViewEdge"][];
+            /** @description Typed per-view HLR failure (`view_projection_failed`), or null on success (design §1.5) */
+            error?: components["schemas"]["FeatureError"] | null;
+            /** @description The scale applied (echoes the request) */
+            scale: components["schemas"]["ViewScale"];
+            /**
+             * View
+             * @description The projection direction of this view
+             * @enum {string}
+             */
+            view: "front" | "top" | "right" | "iso";
+        };
+        /**
+         * EdgeLengthMeasurement
+         * @description Measure the length of a single model edge (design §3.1 linear).
+         */
+        EdgeLengthMeasurement: {
+            /** @description The model edge whose length is measured */
+            edge: components["schemas"]["EdgeSignature"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "edge_length";
         };
         /**
          * EdgeSelectorV1
@@ -1831,6 +2402,79 @@ export interface components {
             status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
             /** Version */
             version: number;
+        };
+        /**
+         * EvaluateDrawingViewsRequest
+         * @description Project a part into its requested standard drawing views (design §1.2/§4).
+         *
+         *     documents sends INTENT — the referenced part's ordered, rollback-applied
+         *     feature prefix (reusing the feature-tree §4 contract VERBATIM, so geometry
+         *     stays the sole evaluator and no kernel body crosses) plus the standard views to
+         *     project and the drawing scale. geometry evaluates the part body ONCE
+         *     (``evaluate_tree``) then runs exact HLR per requested view. Deterministic
+         *     (RESEARCH §9): the same request yields byte-identical projected edges,
+         *     in-process AND across an interpreter restart.
+         */
+        EvaluateDrawingViewsRequest: {
+            /**
+             * Features
+             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Part Id
+             * Format: uuid
+             * @description The referenced part's identity (echoed)
+             */
+            part_id: string;
+            /**
+             * @description Drawing scale (rational; 1:1 default) applied to every view
+             * @default {
+             *       "denominator": 1,
+             *       "numerator": 1
+             *     }
+             */
+            scale: components["schemas"]["ViewScale"];
+            /**
+             * Tree Version
+             * @description Echoed back; cache/correlation key
+             */
+            tree_version: number;
+            /**
+             * Views
+             * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order
+             */
+            views: ("front" | "top" | "right" | "iso")[];
+        };
+        /**
+         * EvaluateDrawingViewsResult
+         * @description Per-view projected geometry for a part, with an honest whole-part failure
+         *     channel (design §1.5/§4).
+         *
+         *     ``views`` carries one :class:`DrawingViewResult` per requested view, in request
+         *     order — each either its canonically-ordered 2D edges or a typed per-view
+         *     projection error. ``part_error`` is set ONLY when the part tree produced no
+         *     body (a strict-prefix feature failure or a body-less tree): there is nothing to
+         *     project, so ``views`` is empty and the failing feature's error rides here (the
+         *     single-part analogue of the assembly per-instance ``no_body``). A feature/HLR
+         *     failure is a 200 with a typed error, never a 500 — the py-kit error envelope
+         *     stays reserved for transport/validation failures of this call itself.
+         */
+        EvaluateDrawingViewsResult: {
+            /** @description Set when the part evaluated to no body (nothing to project); `views` is then empty (design §4) */
+            part_error?: components["schemas"]["FeatureError"] | null;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /** Tree Version */
+            tree_version: number;
+            /**
+             * Views
+             * @description One result per requested view, in request order (empty when `part_error` is set)
+             */
+            views?: components["schemas"]["DrawingViewResult"][];
         };
         /**
          * EvaluateTreeRequest
@@ -2589,6 +3233,24 @@ export interface components {
             placement?: components["schemas"]["Placement"] | null;
         };
         /**
+         * LinearDimensionParams
+         * @description A linear dimension — an edge length or a point-to-point distance (§3.1).
+         */
+        LinearDimensionParams: {
+            /**
+             * Measurement
+             * @description What is measured (an edge's length or two endpoints)
+             */
+            measurement: components["schemas"]["EdgeLengthMeasurement"] | components["schemas"]["PointToPointMeasurement"];
+            /** @description Authored 2D placement */
+            placement?: components["schemas"]["DimensionPlacement"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "linear";
+        };
+        /**
          * LinearPatternParamsV1
          * @description A linear (row/grid-line) pattern along a world-space direction.
          *
@@ -2976,6 +3638,30 @@ export interface components {
             kind: "points";
         };
         /**
+         * NoteAnnotationParams
+         * @description A free text note placed on the sheet (design §2.2 v1 minimal).
+         *
+         *     v1 ships the ``note`` kind only (text + sheet position); a ``leader`` (a note
+         *     with a pointer) joins additively later — hence :data:`Annotation` is a plain
+         *     alias today (pydantic forbids a single-member discriminated union), promoted
+         *     to a ``type``-discriminated union when the second kind lands.
+         */
+        NoteAnnotationParams: {
+            /** @description Anchor position on the sheet (mm) */
+            position: components["schemas"]["SheetPoint"];
+            /**
+             * Text
+             * @description The note body
+             */
+            text: string;
+            /**
+             * Type
+             * @default note
+             * @constant
+             */
+            type: "note";
+        };
+        /**
          * OverlayEdge
          * @description One pickable B-rep edge of the evaluated body (transient index).
          *
@@ -3325,6 +4011,86 @@ export interface components {
             position: components["schemas"]["Vec3"];
         };
         /**
+         * PointToPointMeasurement
+         * @description Measure the distance between two model-edge endpoints (design §3.1/§3.3).
+         */
+        PointToPointMeasurement: {
+            /** @description First endpoint */
+            a: components["schemas"]["DimensionEndpointRef"];
+            /** @description Second endpoint */
+            b: components["schemas"]["DimensionEndpointRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "point_to_point";
+        };
+        /**
+         * ProjectedPoint
+         * @description A 2D point of a projected view edge, in view-plane mm at the view's scale.
+         *
+         *     View-local millimetres (model-mm x the view scale, design §9 q4) — NOT yet
+         *     placed at a sheet position (sheet layout is a later slice). A projected edge's
+         *     endpoints, midpoint, centre, and polyline sample points are all this type.
+         */
+        ProjectedPoint: {
+            /**
+             * X Mm
+             * @description X in the view plane (mm, model-mm x scale)
+             */
+            x_mm: number;
+            /**
+             * Y Mm
+             * @description Y in the view plane (mm, model-mm x scale)
+             */
+            y_mm: number;
+        };
+        /**
+         * ProjectedViewEdge
+         * @description One classified 2D edge of a projected view (design §1.3) — a neutral
+         *     primitive, never a kernel handle (the boundary twin of
+         *     ``geometry.drawings.project.ProjectedEdge``).
+         *
+         *     ``visible`` distinguishes solid-drawn (``True``) from hidden/dashed (``False``,
+         *     occluded). ``start``/``end`` are the canonical (orientation-independent)
+         *     endpoints and ``midpoint`` a point ON the edge. ``center``/``radius`` are
+         *     populated for ``circle``/``arc`` (a real projected circle a Ø/radius dimension
+         *     reads off, §1.1); ``points`` holds the sampled vertices of a ``polyline``
+         *     (empty for the analytic kinds). Edges arrive in the canonical total order
+         *     (§1.4) — a consumer serialising them verbatim gets byte-deterministic output.
+         */
+        ProjectedViewEdge: {
+            /** @description Circle/arc centre (null for line/polyline) */
+            center?: components["schemas"]["ProjectedPoint"] | null;
+            /** @description Canonical second endpoint */
+            end: components["schemas"]["ProjectedPoint"];
+            /** @description A point ON the edge (orientation-independent) */
+            midpoint: components["schemas"]["ProjectedPoint"];
+            /**
+             * Points
+             * @description Sampled polyline vertices (empty for line/circle/arc)
+             */
+            points?: components["schemas"]["ProjectedPoint"][];
+            /**
+             * Primitive
+             * @description Neutral 2D primitive kind
+             * @enum {string}
+             */
+            primitive: "line" | "circle" | "arc" | "polyline";
+            /**
+             * Radius
+             * @description Circle/arc radius, mm x scale (null otherwise)
+             */
+            radius?: number | null;
+            /** @description Canonical first endpoint */
+            start: components["schemas"]["ProjectedPoint"];
+            /**
+             * Visible
+             * @description True = solid (visible); False = dashed (hidden/occluded)
+             */
+            visible: boolean;
+        };
+        /**
          * Quat
          * @description Unit quaternion — the solver's internal orientation representation (§2.3).
          *
@@ -3393,6 +4159,21 @@ export interface components {
              * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
              */
             value_mm: number;
+        };
+        /**
+         * RadiusDimensionParams
+         * @description A radius dimension on a circular / arc model edge (design §3.1).
+         */
+        RadiusDimensionParams: {
+            /** @description Circular / arc model edge */
+            edge: components["schemas"]["EdgeSignature"];
+            /** @description Authored 2D placement */
+            placement?: components["schemas"]["DimensionPlacement"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "radius";
         };
         /**
          * RegisterRequest
@@ -3549,6 +4330,158 @@ export interface components {
              * @description Volume (mm^3)
              */
             volume: number;
+        };
+        /**
+         * SheetContent
+         * @description One sheet plus its views, dimensions, and annotations (design §2.2).
+         */
+        SheetContent: {
+            /** Annotations */
+            annotations: components["schemas"]["AnnotationResponse"][];
+            /** Dimensions */
+            dimensions: components["schemas"]["DimensionResponse"][];
+            sheet: components["schemas"]["SheetResponse"];
+            /** Views */
+            views: components["schemas"]["ViewResponse"][];
+        };
+        /**
+         * SheetCreate
+         * @description Add a sheet to a drawing (append at the tip; design §2.2).
+         */
+        SheetCreate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §2.1)
+             */
+            expected_version: number;
+            /**
+             * Name
+             * @description Sheet name ("Sheet 1")
+             */
+            name: string;
+            /**
+             * Orientation
+             * @description Sheet orientation
+             * @default landscape
+             * @enum {string}
+             */
+            orientation: "landscape" | "portrait";
+            /**
+             * Projection
+             * @description Projection convention (third-angle default, design §1.2)
+             * @default third_angle
+             * @enum {string}
+             */
+            projection: "third_angle" | "first_angle";
+            /**
+             * Size
+             * @description Sheet size (ISO / ANSI)
+             * @default A4
+             * @enum {string}
+             */
+            size: "A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D";
+            /** @description Free-text title block (design §9 q6) */
+            title_block?: components["schemas"]["TitleBlock"] | null;
+        };
+        /**
+         * SheetMutationResponse
+         * @description Result of a single-sheet mutation: the sheet + the new version.
+         */
+        SheetMutationResponse: {
+            /** Doc Version */
+            doc_version: number;
+            sheet: components["schemas"]["SheetResponse"];
+        };
+        /**
+         * SheetPoint
+         * @description A 2D point in SHEET space (mm), origin at the title-block corner (§9 q4).
+         *
+         *     Sheet space is millimetres at 1:1; a view's scale maps model-mm → sheet-mm
+         *     (design §9 open-q 4). Used for view placement, dimension text, and note
+         *     positions. Full precision; a non-finite coordinate is a request-validation
+         *     422 (``allow_inf_nan=False``), never a silently-defaulted position.
+         */
+        SheetPoint: {
+            /**
+             * X Mm
+             * @description X on the sheet, mm from the origin corner
+             */
+            x_mm: number;
+            /**
+             * Y Mm
+             * @description Y on the sheet, mm from the origin corner
+             */
+            y_mm: number;
+        };
+        /**
+         * SheetResponse
+         * @description A sheet as stored (design §2.2).
+         */
+        SheetResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Drawing Id
+             * Format: uuid
+             */
+            drawing_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Order Index
+             * @description Stable sheet order (dense 0..n-1)
+             */
+            order_index: number;
+            /**
+             * Orientation
+             * @enum {string}
+             */
+            orientation: "landscape" | "portrait";
+            /**
+             * Projection
+             * @enum {string}
+             */
+            projection: "third_angle" | "first_angle";
+            /**
+             * Size
+             * @enum {string}
+             */
+            size: "A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D";
+            title_block: components["schemas"]["TitleBlock"] | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * SheetUpdate
+         * @description Update a sheet's header (design §2.2). At least one field must be provided.
+         */
+        SheetUpdate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §2.1)
+             */
+            expected_version: number;
+            /** Name */
+            name?: string | null;
+            /** Orientation */
+            orientation?: ("landscape" | "portrait") | null;
+            /** Projection */
+            projection?: ("third_angle" | "first_angle") | null;
+            /** Size */
+            size?: ("A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D") | null;
+            /** @description Replacement title block (None leaves it unchanged; clear via an empty TitleBlock) */
+            title_block?: components["schemas"]["TitleBlock"] | null;
         };
         /**
          * ShellFeature
@@ -4398,6 +5331,36 @@ export interface components {
             properties: components["schemas"]["ShapeProperties"];
         };
         /**
+         * TitleBlock
+         * @description Free-text title-block fields (design §9 open-q 6 — v1 holds free text).
+         *
+         *     Every field is optional; a structured/field-mapped title block auto-filled
+         *     from the referenced part is a fast-follow. The composed artifact stamps these
+         *     geometry-side (design §4.2).
+         */
+        TitleBlock: {
+            /**
+             * Author
+             * @description Author / drafter
+             */
+            author?: string | null;
+            /**
+             * Date
+             * @description Free-text date
+             */
+            date?: string | null;
+            /**
+             * Notes
+             * @description Free-text notes
+             */
+            notes?: string | null;
+            /**
+             * Title
+             * @description Drawing title
+             */
+            title?: string | null;
+        };
+        /**
          * TopologyCounts
          * @description B-rep entity counts — asserted exactly by the golden-model suite.
          */
@@ -4470,6 +5433,155 @@ export interface components {
              * @enum {string}
              */
             kind: "vertical";
+        };
+        /**
+         * ViewCreate
+         * @description Add a view referencing a part / assembly at a projection (design §2.2).
+         *
+         *     ``ref_document_id`` is a cross-document reference, NOT an FK (design §2.2,
+         *     identical to an assembly instance): documents enforces existence at write time
+         *     and deleting the referenced document is a 409-with-dependents. v1 tracks the
+         *     referenced document's TIP (``ref_pinned_version`` present but NULL — design
+         *     §2.3, the schema is pin-ready). ``projection`` is the standard orthographic /
+         *     iso direction (all documents stores — mapping it to a 3D frame + HLR is
+         *     geometry's job). ``order_index`` is appended at the tip when omitted.
+         */
+        ViewCreate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §2.1)
+             */
+            expected_version: number;
+            /** @description View placement on the sheet (mm) */
+            position: components["schemas"]["SheetPoint"];
+            /**
+             * Projection
+             * @description Projection direction (front / top / right / iso)
+             * @enum {string}
+             */
+            projection: "front" | "top" | "right" | "iso";
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The part / assembly document this view projects
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' (v1) or 'assembly' (assembly views are the fast-follow, design §7)
+             * @default part
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+            /**
+             * @description Drawing scale (rational; 1:1 default)
+             * @default {
+             *       "denominator": 1,
+             *       "numerator": 1
+             *     }
+             */
+            scale: components["schemas"]["ViewScale"];
+        };
+        /**
+         * ViewMutationResponse
+         * @description Result of a single-view mutation: the view + the new version.
+         */
+        ViewMutationResponse: {
+            /** Doc Version */
+            doc_version: number;
+            view: components["schemas"]["ViewResponse"];
+        };
+        /**
+         * ViewResponse
+         * @description A view as stored (design §2.2).
+         */
+        ViewResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Order Index
+             * @description Stable view order on the sheet (dense 0..n-1)
+             */
+            order_index: number;
+            position: components["schemas"]["SheetPoint"];
+            /**
+             * Projection
+             * @enum {string}
+             */
+            projection: "front" | "top" | "right" | "iso";
+            /**
+             * Ref Document Id
+             * Format: uuid
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+            /**
+             * Ref Pinned Version
+             * @description Pinned referenced-document version, or null = track tip. NULL in v1 (design §2.3 — the schema is pin-ready).
+             */
+            ref_pinned_version: number | null;
+            scale: components["schemas"]["ViewScale"];
+            /**
+             * Sheet Id
+             * Format: uuid
+             */
+            sheet_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * ViewScale
+         * @description A view's drawing scale as an exact rational ``numerator:denominator``.
+         *
+         *     Stored as two integers (design §2.2 ``scale_num``/``scale_den``) so the scale
+         *     is EXACT — 1:2 is ``1/2``, never a lossy float. A model-mm length maps to
+         *     ``length * numerator / denominator`` sheet-mm. Both are >= 1.
+         */
+        ViewScale: {
+            /**
+             * Denominator
+             * @description Scale denominator (N for 1:N)
+             */
+            denominator: number;
+            /**
+             * Numerator
+             * @description Scale numerator (1 for 1:N)
+             */
+            numerator: number;
+        };
+        /**
+         * ViewUpdate
+         * @description Re-frame / re-scale / re-place a view (design §2.2).
+         *
+         *     Every field is optional; at least one must be provided. Re-pointing the
+         *     referenced document is NOT an update (it changes which body the view's
+         *     dimensions resolve against) — that is a delete + recreate.
+         */
+        ViewUpdate: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §2.1)
+             */
+            expected_version: number;
+            position?: components["schemas"]["SheetPoint"] | null;
+            /** Projection */
+            projection?: ("front" | "top" | "right" | "iso") | null;
+            scale?: components["schemas"]["ViewScale"] | null;
         };
     };
     responses: never;
@@ -4890,6 +6002,509 @@ export interface operations {
             };
         };
     };
+    list_drawings_api_v1_drawings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingListResponse"];
+                };
+            };
+        };
+    };
+    create_drawing_api_v1_drawings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DrawingCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_drawing_api_v1_drawings__drawing_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_drawing_api_v1_drawings__drawing_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_drawing_api_v1_drawings__drawing_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DrawingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_annotation_api_v1_drawings__drawing_id__annotations__annotation_id__delete: {
+        parameters: {
+            query: {
+                /** @description Optimistic-concurrency guard */
+                expected_version: number;
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+                annotation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_dimension_api_v1_drawings__drawing_id__dimensions__dimension_id__delete: {
+        parameters: {
+            query: {
+                /** @description Optimistic-concurrency guard */
+                expected_version: number;
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+                dimension_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_sheet_api_v1_drawings__drawing_id__sheets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SheetCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__delete: {
+        parameters: {
+            query: {
+                /** @description Optimistic-concurrency guard */
+                expected_version: number;
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+                sheet_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+                sheet_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SheetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_annotation_api_v1_drawings__drawing_id__sheets__sheet_id__annotations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+                sheet_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotationMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_view_api_v1_drawings__drawing_id__sheets__sheet_id__views_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+                sheet_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_view_api_v1_drawings__drawing_id__views__view_id__delete: {
+        parameters: {
+            query: {
+                /** @description Optimistic-concurrency guard */
+                expected_version: number;
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_view_api_v1_drawings__drawing_id__views__view_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_dimension_api_v1_drawings__drawing_id__views__view_id__dimensions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DimensionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DimensionMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assembly_evaluate_api_v1_geometry_assembly_evaluate_post: {
         parameters: {
             query?: never;
@@ -4910,6 +6525,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluateAssemblyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    drawing_evaluate_api_v1_geometry_drawing_evaluate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateDrawingViewsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateDrawingViewsResult"];
                 };
             };
             /** @description Validation Error */

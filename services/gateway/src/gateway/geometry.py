@@ -14,6 +14,10 @@ from typing import Annotated, Any, NoReturn
 import httpx2 as httpx
 from fastapi import APIRouter, Path, Request, Response
 from py_kit.schemas.assemblies import EvaluateAssemblyRequest, EvaluateAssemblyResult
+from py_kit.schemas.drawings import (
+    EvaluateDrawingViewsRequest,
+    EvaluateDrawingViewsResult,
+)
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
@@ -240,6 +244,29 @@ async def assembly_evaluate(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return EvaluateAssemblyResult.model_validate_json(upstream.content)
+
+
+@router.post("/drawing/evaluate", dependencies=[COMPUTE_RATE_LIMIT])
+async def drawing_evaluate(
+    request: EvaluateDrawingViewsRequest, user: CurrentUser, http_request: Request
+) -> EvaluateDrawingViewsResult:
+    """Proxy a drawing-view evaluation to the geometry service (drawings §1.2/§4).
+
+    Auth-protected (a drawing belongs to a signed-in user); the geometry hop
+    stays identity-free, so the principal never travels upstream (same posture
+    as measure/overlay + assembly-evaluate, RESEARCH §3). The shared
+    :class:`EvaluateDrawingViewsRequest` DTO validates at the gateway before
+    anything goes upstream. Geometry evaluates the referenced part body once
+    (reusing ``evaluate_tree``) then runs exact HLR per requested view, returning
+    per-view canonically-ordered neutral 2D edges OR a typed per-view projection
+    error. A feature/HLR failure is a 200 with a typed per-view (or whole-part)
+    error (design §1.5/§4); the envelope stays reserved for transport/validation
+    failures of this call itself.
+    """
+    upstream = await _forward(http_request, "/api/v1/drawing/evaluate", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return EvaluateDrawingViewsResult.model_validate_json(upstream.content)
 
 
 @router.post("/measure", dependencies=[COMPUTE_RATE_LIMIT])

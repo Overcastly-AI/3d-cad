@@ -322,7 +322,15 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       request `part_error`, a per-view HLR throw → that view's typed
       `view_projection_failed` (the rest still project) — never a 500; plate golden
       front=40x10 rect, top=2×Ø10 circles r5.000 (`test_drawings_evaluate.py`, 9
-      passed). Remaining: gateway proxy, SVG export, dimension measurement +
+      passed). **Drawings v1 #4 — gateway proxy (gateway) SHIPPED**:
+      `gateway.drawings` proxies the documents drawing CRUD (drawing + sheet +
+      view + dimension + annotation create/get/list/update/delete) — every route
+      auth-gated (`CurrentUser`, audit F7) with the principal reaching documents
+      via `X-Loft-User`, upstream 422/409/404 envelopes re-surfaced verbatim —
+      plus `POST /api/v1/geometry/drawing/evaluate` mirroring the assembly-evaluate
+      proxy (auth-gated, identity-free geometry hop); contracts + ts-client
+      regenerated, `test_drawings_proxy.py` + `test_drawing_evaluate_proxy.py`
+      (34 passed). Remaining: SVG export, dimension measurement +
       projected-edge→model-edge map (§3.3), frontend sheet editor (design doc
       §3/§4/§6).
 - ⬜ 3MF/OBJ export; mesh quality controls

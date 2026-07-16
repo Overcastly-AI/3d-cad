@@ -104,11 +104,16 @@ nit, no user impact, stays Later).
       + resting datum sheets, and parts-home thumbnails (item 13 remainder —
       needs a last-evaluated-mesh snapshot pipeline). [src: UI-REVIEW Batch 3]
       [src: UI-REVIEW 2026-07-16 remediation items 10–13]
-- [ ] (P1, S) Drawings v1 #4 — gateway evaluate proxy (gateway). Owner-scoped
-      auth + aggregation wrapper over the shipped geometry
-      `/api/v1/drawing/evaluate` so apps/web reaches drawing projection through the
-      gateway (same posture as the assembly-evaluate proxy). [src:
-      design/drawings.md §4/§5]
+- [x] (P1, S) Drawings v1 #4 — gateway proxy (gateway) — **DONE 2026-07-16.**
+      `gateway.drawings` proxies the documents drawing CRUD (drawing + sheet +
+      view + dimension + annotation create/get/list/update/delete), every route
+      auth-gated (`CurrentUser`, audit F7) with the principal reaching documents
+      via `X-Loft-User` and upstream 422/409/404 envelopes re-surfaced verbatim;
+      plus `POST /api/v1/geometry/drawing/evaluate` mirroring the assembly-evaluate
+      proxy (auth-gated, identity-free geometry hop). Contracts + ts-client
+      regenerated (gen-check clean), full lint/pyright/eslint/tsc + gateway tests
+      (`test_drawings_proxy.py` + `test_drawing_evaluate_proxy.py`, 34 passed)
+      green. [src: design/drawings.md §4/§5]
 - [ ] (P1, M) Drawings v1 #5 — server-composed SVG export, content-addressed +
       byte-deterministic (geometry, §4). PDF/DXF are the fast-follow behind the
       same seam. [src: design/drawings.md §4/§8]
@@ -549,6 +554,10 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-16 — **Drawings v1 #4 (gateway proxy) done:** `gateway.drawings`
+  proxies the documents drawing CRUD + `POST /api/v1/geometry/drawing/evaluate`;
+  every route auth-gated (F7), identity-free geometry hop, envelopes verbatim;
+  contracts/ts-client regenerated, 34 gateway tests green.
 - 2026-07-16 — **Drawings v1 #3 (drawing-view evaluate endpoint) done:**
   `geometry.drawings.evaluate_drawing_views` + `POST /api/v1/drawing/evaluate`
   (stateless) reuse `evaluate_tree` once then `project_view` per view; new py-kit

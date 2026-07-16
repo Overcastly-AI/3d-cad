@@ -25,6 +25,7 @@ from py_kit.ratelimit import RateLimiter
 
 from gateway.assemblies import router as assemblies_router
 from gateway.auth import auth_router, resolve_auth_config
+from gateway.drawings import router as drawings_router
 from gateway.features import router as features_router
 from gateway.geometry import create_geometry_client
 from gateway.geometry import router as geometry_router
@@ -155,6 +156,7 @@ def build_app(
     app.include_router(parts_router)
     app.include_router(features_router)
     app.include_router(assemblies_router)
+    app.include_router(drawings_router)
     app.include_router(step_import_router)
     return app
 
