@@ -49,9 +49,10 @@ function Cell({
 
 export function MeasureReadout() {
   const unit = useDocumentLengthUnit();
-  // Measured lengths format in the document unit (the eyebrow carries the unit
-  // suffix, so the numeral itself stays bare); the angle is always degrees.
-  const len = (mm: number) => formatLength(mm, unit, { unitSuffix: false });
+  // Measured lengths format in the document unit with the unit stamped
+  // lowercase adjacent to the value (`25.4 mm`) — the app-wide convention, so
+  // the eyebrow stays a bare caption. The angle is always degrees.
+  const len = (mm: number) => formatLength(mm, unit, { unitSuffix: true });
   const active = useMeasureStore((s) => s.active);
   const picks = useMeasureStore((s) => s.picks);
   const result = useMeasureStore((s) => s.result);
@@ -132,24 +133,24 @@ export function MeasureReadout() {
         </p>
         <div className="grid grid-flow-col auto-cols-auto divide-x divide-hairline">
           <Cell
-            eyebrow={`Distance · ${unit}`}
+            eyebrow="Distance"
             value={len(result.distance)}
             tone="brass"
             testid="measure-readout-distance"
             wide
           />
           <Cell
-            eyebrow={`Δx · ${unit}`}
+            eyebrow="Δx"
             value={len(result.delta.x)}
             testid="measure-readout-dx"
           />
           <Cell
-            eyebrow={`Δy · ${unit}`}
+            eyebrow="Δy"
             value={len(result.delta.y)}
             testid="measure-readout-dy"
           />
           <Cell
-            eyebrow={`Δz · ${unit}`}
+            eyebrow="Δz"
             value={len(result.delta.z)}
             testid="measure-readout-dz"
           />

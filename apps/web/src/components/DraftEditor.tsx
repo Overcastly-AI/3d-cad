@@ -206,7 +206,7 @@ export function DraftEditor({
                 }))
               }
               onFocus={(e) => e.currentTarget.select()}
-              aria-label="Neutral-plane offset (mm, signed)"
+              aria-label={`Neutral-plane offset (${unit}, signed)`}
             />
             <p className="-mt-1 font-body text-xs text-gauge">
               The fixed plane the faces pivot about; its normal is the pull. 0

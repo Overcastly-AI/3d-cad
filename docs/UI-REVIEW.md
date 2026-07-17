@@ -918,3 +918,34 @@ propagation across feature editors, the mate HUD, `MeasureReadout`, and the
 - Feature-editor unit suffixes ✅ (uniform lowercase, value-adjacent)
 - `MeasureReadout` unit presentation 🟡 — P3 eyebrow-uppercase + placement divergence
 - `mate-value-echo` / `mateDetail` ✅ (lowercase suffix; P3 `°` spacing nit only)
+
+### Resolution — orchestrator fix pass (2026-07-17)
+
+Batched with the `code-reviewer` findings on the same slice.
+
+- **FIXED — `MeasureReadout` unit presentation** (the P3 above): `len` now formats
+  with the unit suffix (`formatLength(mm, unit, {unitSuffix: true})` → `25.4 mm`,
+  lowercase, value-adjacent, in the `font-data` value span — not the uppercase
+  eyebrow); the four eyebrows dropped to bare captions (`Distance`, `Δx`/`Δy`/`Δz`).
+  Kills the `m`→`M` SI-prefix collision and aligns the readout to the app-wide
+  convention.
+- **FIXED — stale `(mm)` aria-labels** (`code-reviewer` 🟡, WCAG name/label
+  mismatch that the PASS note above missed): `DraftEditor.tsx` neutral-plane
+  offset + `SketchStrip.tsx` offset-plane distance now interpolate the doc unit
+  (`(${unit}, signed)`), so the accessible name tracks the visible suffix.
+- **FIXED — imperial seed precision** (`code-reviewer` 🟢, a correctness item, not
+  cosmetic): `lengthInputValue` seeded at 4 fraction digits quantised an inch/foot
+  value by > the 1e-4 mm kernel tolerance, silently shifting geometry on an
+  unchanged re-save. Now unit-aware (`ceil(log10(mm-per-unit)+5)` digits,
+  round-trip ≤1e-5 mm), covered by `apps/web/src/units/length.test.ts` (35 cases).
+- **DEFERRED (filed, P3 cosmetic) — degree-symbol spacing** (`MateHud.tsx:99`):
+  the `°` sits a `gap-1` space off the numeral (`45 °`) vs tight elsewhere (`45°`).
+  Left for a deliberate `NumberField` pass — tightening it means teaching the
+  shared primitive that symbol-suffixes (`°`) hug the value while worded units
+  (`mm`, `in`) keep their space; that's a primitive-level design call, not a
+  casual polish edit.
+- **DEFERRED (filed, P3 cosmetic) — revolve axis-candidate label** (`revolve.ts`
+  `axisLabel`): the picker labels each eligible sketch line with its length in raw
+  `mm` regardless of doc unit. It's a line *identifier*, not an editable/measured
+  value, so it sits just outside the "readouts format the same way" contract;
+  route through `formatLength` when the revolve module is next touched.

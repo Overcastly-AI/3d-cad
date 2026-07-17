@@ -443,7 +443,7 @@ function OffsetPlanePanel({
               setForm((f) => ({ ...f, offsetInput: e.target.value }))
             }
             onFocus={(e) => e.currentTarget.select()}
-            aria-label="Offset distance (mm, signed)"
+            aria-label={`Offset distance (${unit}, signed)`}
           />
           <SegmentedControl
             label="Normal"
