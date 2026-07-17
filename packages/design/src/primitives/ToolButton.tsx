@@ -10,6 +10,7 @@
  * accelerator through a `Kbd` chip in the tooltip — icons for the eye, letters
  * for the hands.
  */
+import { useId } from "react";
 import type {
   ButtonHTMLAttributes,
   HTMLAttributes,
@@ -80,6 +81,13 @@ export interface ToolButtonProps extends Omit<
  * keyboard (UI-REVIEW 2026-07-16, Track C P1). It's inert on activation:
  * clicks and Enter/Space are swallowed. Playwright's `toBeDisabled()` /
  * `toBeEnabled()` honor `aria-disabled`, so existing gate assertions still hold.
+ *
+ * The gate reason also reaches SCREEN READERS: while disabled, the button's
+ * `aria-describedby` points at the caption node (which is always in the DOM —
+ * the tooltip hides by opacity, not unmount), so `aria-disabled` announces WITH
+ * its why. Directly-referenced nodes are exempt from `aria-hidden` in the
+ * accessible name/description computation, so the visual tooltip behavior is
+ * untouched (BACKLOG P2, UR2 QA pass 2026-07-17).
  */
 export function ToolButton({
   icon,
@@ -93,11 +101,23 @@ export function ToolButton({
   type,
   disabled,
   onClick,
+  "aria-describedby": describedByProp,
   ...rest
 }: ToolButtonProps) {
   const accessibleName =
     rest["aria-label"] ?? (shortcut ? `${label} — ${shortcut}` : label);
   const isDisabled = disabled === true;
+  // Gate-reason description (see the doc comment above): while disabled, the
+  // caption node describes the button. A consumer-provided `aria-describedby`
+  // is preserved alongside it, never clobbered.
+  const reasonId = useId();
+  // Truthiness deliberately mirrors the caption render condition below, so the
+  // id is only referenced when the caption node actually exists in the DOM.
+  const hasGateReason = isDisabled && Boolean(caption);
+  const describedBy =
+    [describedByProp, hasGateReason ? reasonId : undefined]
+      .filter(Boolean)
+      .join(" ") || undefined;
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     if (isDisabled) {
       event.preventDefault();
@@ -111,6 +131,7 @@ export function ToolButton({
       type={type ?? "button"}
       aria-pressed={active}
       aria-disabled={isDisabled || undefined}
+      aria-describedby={describedBy}
       aria-label={accessibleName}
       onClick={handleClick}
       className={cx(
@@ -159,7 +180,9 @@ export function ToolButton({
           {shortcut ? <Kbd>{shortcut}</Kbd> : null}
         </span>
         {caption ? (
-          <span className="font-data text-2xs text-gauge">{caption}</span>
+          <span id={reasonId} className="font-data text-2xs text-gauge">
+            {caption}
+          </span>
         ) : null}
       </span>
     </button>
