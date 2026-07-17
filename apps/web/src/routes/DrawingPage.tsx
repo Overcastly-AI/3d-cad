@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type DimensionParams,
@@ -32,6 +32,7 @@ import { FloatingPanel } from "../components/FloatingPanel";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import { formatDimensionLabel } from "../drawing/dimensions";
+import { exportSheetSvg } from "../drawing/exportSvg";
 import {
   SCALE_OPTIONS,
   STANDARD_VIEWS,
@@ -277,6 +278,27 @@ export function DrawingPage() {
   }, [queryClient, effectivePartId]);
 
   // ---------------------------------------------------------------------
+  // Export SVG (#5): serialize the already-rendered sheet <svg> to a
+  // standalone, self-contained .svg and hand it to the browser as a download.
+  // The renderer IS the export — no second drafting engine (DRY).
+  // ---------------------------------------------------------------------
+  const sheetSvgRef = useRef<SVGSVGElement>(null);
+  const handleExportSvg = useCallback(() => {
+    const svg = sheetSvgRef.current;
+    if (svg === null) return;
+    setActionError(null);
+    try {
+      exportSheetSvg(svg, tree?.drawing.name ?? "drawing");
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "The drawing could not be exported.",
+      );
+    }
+  }, [tree]);
+
+  // ---------------------------------------------------------------------
   // Dimension authoring: pick a dimensionable edge → choose a valid type →
   // persist it (CRUD) → the re-evaluate measures + renders it model-true.
   // ---------------------------------------------------------------------
@@ -355,10 +377,16 @@ export function DrawingPage() {
         if (hasLayout) handleReproject();
         else handleLayout();
       }
+      // E exports the laid-out sheet to a .svg (keyboard-first, mirrors the
+      // command band's Export SVG action). No-op before layout.
+      if (event.key.toLowerCase() === "e" && hasLayout) {
+        event.preventDefault();
+        handleExportSvg();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hasLayout, handleLayout, handleReproject]);
+  }, [hasLayout, handleLayout, handleReproject, handleExportSvg]);
 
   const draftedPartName =
     parts.find((part) => part.id === draftedPartId)?.name ?? null;
@@ -389,6 +417,7 @@ export function DrawingPage() {
             draftedPartName={draftedPartName}
             onLayout={handleLayout}
             onReproject={handleReproject}
+            onExportSvg={handleExportSvg}
             busy={busy || projecting}
           />
         ) : null}
@@ -424,6 +453,7 @@ export function DrawingPage() {
           // slides under it (the panel would clip the sheet's framed corner).
           <div className="absolute inset-0 flex items-center justify-center p-6 sm:p-10 lg:pr-[22rem]">
             <DrawingSheet
+              svgRef={sheetSvgRef}
               sheet={sheet}
               views={views}
               resultByProjection={resultByProjection}

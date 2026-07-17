@@ -385,8 +385,23 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       geometry + 14 unit tests; e2e authors Ø10.000 on the hole + 40.000 on the
       40 mm edge and deletes one, against the real stack; `just lint` green.
       Deferred to BACKLOG: angular + point-to-point linear authoring, manual
-      drag-to-place. Remaining in the pillar: SVG export (#5),
-      section/detail/assembly views.
+      drag-to-place. **Drawings v1 #5 — SVG export (apps/web) SHIPPED**: an
+      **Export SVG** action in the drawing command band (near Re-project, shortcut
+      **E**, enabled only once `hasLayout`, honest disabled reason before) and a
+      keyboard path serialize the already-rendered `DrawingSheet` `<svg>` to a
+      **standalone, self-contained** `.svg` download — `XMLSerializer` on a clone,
+      XML prolog + `xmlns`, screen-only chrome (Tailwind sizing + bench shadow)
+      stripped, concrete mm `width`/`height` from the `viewBox` (scale-correct),
+      Blob + object-URL + synthetic `<a download>` (reuses the shared
+      `downloadBlob`; DRY). Colours are already inline `drawing`-token attributes,
+      so the file opens in a browser/Inkscape unchanged. ARCH DECISION (drawings.md
+      §4.1a): v1 SVG ships **client-side** (reuse the shipped renderer, not a second
+      Python drafting composer); server-composed PDF/DXF + content-addressed
+      deterministic stored artifacts deferred to BACKLOG. New `SheetExportIcon`
+      primitive; `drawing/exportSvg.ts` + 3 unit tests; e2e downloads the `.svg`
+      and asserts the sheet root, the hole `<circle>`, and the `10.000` value;
+      `just lint` green. **Drawings v1 export loop closed.** Remaining in the
+      pillar: section/detail/assembly views + server-composed PDF/DXF.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 5 — Agent-native & extensibility ⬜

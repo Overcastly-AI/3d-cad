@@ -7,7 +7,13 @@
  * its current tip (functional, never decorative — design mandate 3a). Chrome
  * recedes; the sheet is the hero.
  */
-import { RectIcon, SelectField, ToolButton, ToolGroup } from "@loft/design";
+import {
+  RectIcon,
+  SelectField,
+  SheetExportIcon,
+  ToolButton,
+  ToolGroup,
+} from "@loft/design";
 
 import type { PartResponse } from "../api/parts";
 import { SCALE_OPTIONS } from "../drawing/layout";
@@ -24,6 +30,8 @@ export interface DrawingCommandBandProps {
   draftedPartName: string | null;
   onLayout: () => void;
   onReproject: () => void;
+  /** Serialize the laid-out sheet to a downloadable `.svg` (#5). */
+  onExportSvg: () => void;
   busy: boolean;
 }
 
@@ -37,6 +45,7 @@ export function DrawingCommandBand({
   draftedPartName,
   onLayout,
   onReproject,
+  onExportSvg,
   busy,
 }: DrawingCommandBandProps) {
   const noParts = parts.length === 0;
@@ -122,6 +131,26 @@ export function DrawingCommandBand({
             onClick={onLayout}
           />
         )}
+      </ToolGroup>
+      <ToolGroup eyebrow="Export">
+        <ToolButton
+          icon={<SheetExportIcon />}
+          label="Export SVG"
+          showLabel
+          shortcut="E"
+          // Enabled only once the sheet has laid-out views — an honest disabled
+          // state (with a reason) when there is nothing to download yet.
+          disabled={!hasLayout || busy}
+          caption={
+            !hasLayout
+              ? "Lay out the views first"
+              : busy
+                ? "Projecting…"
+                : "Download the sheet as .svg"
+          }
+          data-testid="drawing-export-svg"
+          onClick={onExportSvg}
+        />
       </ToolGroup>
     </div>
   );

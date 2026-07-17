@@ -13,7 +13,7 @@
  * arrowheads, and the MODEL-true value with its prefix (Ø / R / bare). It stays
  * honest about a per-view projection failure and a per-dimension measure error.
  */
-import { useState } from "react";
+import { useState, type Ref } from "react";
 
 import { drawing, font, viewport } from "@loft/design";
 
@@ -88,6 +88,8 @@ export interface DrawingSheetProps {
   selectedEdgeKey?: string | null;
   /** Fired when a dimensionable edge is picked (click or keyboard). */
   onPickEdge?: (event: EdgePickEvent) => void;
+  /** Handle on the root `<svg>` so the editor can serialize it to a file (#5). */
+  svgRef?: Ref<SVGSVGElement>;
 }
 
 /** Stroke props for a visible (solid) or hidden (dashed) projected edge. */
@@ -624,6 +626,7 @@ export function DrawingSheet({
   measuredById,
   selectedEdgeKey,
   onPickEdge,
+  svgRef,
 }: DrawingSheetProps) {
   const dims = sheetDimensions(sheet.size, sheet.orientation);
   // Space the views by their own projected extents so they never overlap for a
@@ -662,6 +665,7 @@ export function DrawingSheet({
 
   return (
     <svg
+      ref={svgRef}
       data-testid="drawing-sheet"
       role="img"
       aria-label={`Drawing sheet — ${title}, ${placed.length} views at ${scaleLabel}`}

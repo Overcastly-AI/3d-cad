@@ -546,6 +546,23 @@ export const StlIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Export SVG = the drafting SHEET saved out as a vector file. A framed sheet
+ * with a title-block cell scribed into its lower-right corner (the drawing you
+ * see), and a scribed arrow descending out from under it — the "download the
+ * sheet" gesture. Its framed-sheet + title-block vocabulary ties it to the
+ * drawing signature and separates it from the STEP cube (a solid) and the STL
+ * strip (a mesh): this exports the 2D print, not the 3D body.
+ */
+export const SheetExportIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={4} y={3} width={16} height={11} />
+    <path d="M14 14 V10 H20" />
+    <path d="M12 15 V22" />
+    <path d="M8.5 18.5 L12 22 L15.5 18.5" />
+  </Icon>
+);
+
 // --- Chrome -----------------------------------------------------------------
 
 export const CaretDownIcon = (p: IconProps) => (

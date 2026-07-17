@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test, type Page } from "./fixtures";
 
 import { SCREENSHOT_DIR, seedSession } from "./support";
@@ -272,4 +274,60 @@ test("author a diameter on the hole and a linear on the 40 mm edge", async ({
       '[data-testid="drawing-dimension"][data-dimension-value="40.000"]',
     ),
   ).toHaveCount(0, { timeout: 30_000 });
+});
+
+/**
+ * Drawings v1 #5 — SVG export. The shipped `DrawingSheet` renderer IS the
+ * export: the laid-out sheet's `<svg>` (edges, dimensions, title block, inline
+ * token colours) is serialized to a standalone, self-contained `.svg` and
+ * handed to the browser as a download. This drives it end-to-end — lay out the
+ * plate, author a Ø10 diameter, click Export SVG, catch the download, and
+ * assert the file is a real standalone SVG carrying the sheet root, the hole's
+ * circle, and the model-true dimension value.
+ */
+test("export the laid-out sheet as a standalone .svg", async ({ page }) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // Pre-layout the export is enabled once views exist; author a dimension so
+  // the file carries a value stamp too.
+  const exportButton = page.getByTestId("drawing-export-svg");
+  await expect(exportButton).toBeEnabled();
+
+  const topCircle = page
+    .locator(
+      '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
+    )
+    .first();
+  await topCircle.click({ force: true });
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-diameter").click();
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
+    ),
+  ).toHaveCount(1, { timeout: 30_000 });
+
+  // Click Export SVG and catch the download the anchor fires.
+  const downloadPromise = page.waitForEvent("download");
+  await exportButton.click();
+  const download = await downloadPromise;
+
+  // Filename is the sanitized drawing name ("Plate — dimensions"), .svg.
+  expect(download.suggestedFilename()).toBe("plate-dimensions.svg");
+
+  const path = await download.path();
+  const svg = await readFile(path, "utf-8");
+
+  // Standalone + self-contained: XML prolog, the SVG namespace, the sheet root.
+  expect(svg.startsWith("<?xml")).toBe(true);
+  expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
+  expect(svg).toContain('data-testid="drawing-sheet"');
+  // The hole projects to a real circle, and the authored diameter is stamped.
+  expect(svg).toContain("<circle");
+  expect(svg).toContain("10.000");
+  // The screen-only Tailwind sizing classes are stripped; a concrete mm size
+  // is written so the file opens/prints scale-correct.
+  expect(svg).toContain('width="297mm"');
+  expect(svg).toContain('height="210mm"');
 });

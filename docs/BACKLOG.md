@@ -114,9 +114,29 @@ nit, no user impact, stays Later).
       regenerated (gen-check clean), full lint/pyright/eslint/tsc + gateway tests
       (`test_drawings_proxy.py` + `test_drawing_evaluate_proxy.py`, 34 passed)
       green. [src: design/drawings.md §4/§5]
-- [ ] (P1, M) Drawings v1 #5 — server-composed SVG export, content-addressed +
-      byte-deterministic (geometry, §4). PDF/DXF are the fast-follow behind the
-      same seam. [src: design/drawings.md §4/§8]
+- [x] (P1, M) Drawings v1 #5 — SVG export (apps/web, client-side) — **DONE
+      2026-07-17.** An **Export SVG** action in the drawing command band (near
+      Re-project, shortcut **E**, enabled only once `hasLayout`, honest disabled
+      reason before) serializes the already-rendered `DrawingSheet` `<svg>` to a
+      **standalone, self-contained** `.svg` download: `XMLSerializer` on a clone,
+      XML prolog + `xmlns`, screen-only chrome (Tailwind sizing + bench shadow)
+      stripped, concrete mm `width`/`height` from the `viewBox` (scale-correct),
+      Blob + object-URL + synthetic `<a download>` (reuses shared `downloadBlob`;
+      DRY). Colours are already inline `drawing`-token attributes → opens in a
+      browser/Inkscape unchanged. **ARCH DECISION (drawings.md §4.1a):** v1 SVG
+      ships client-side (reuse the shipped renderer, not a second Python drafting
+      composer); server-composed PDF/DXF + deterministic stored artifacts deferred
+      (new item below). New `SheetExportIcon` primitive; `drawing/exportSvg.ts` + 3
+      unit tests; e2e downloads the `.svg` and asserts the sheet root, hole
+      `<circle>`, and `10.000` value; `just lint` green. Drawings v1 export loop
+      closed. [src: design/drawings.md §4.1a]
+- [ ] (P2, M) Drawings — server-composed export (PDF + DXF + deterministic stored
+      artifact) (geometry, §4.2/§8.3). The geometry `project_view` seam already
+      produces the projected 2D geometry + resolved dimension positions; add
+      reportlab (PDF) + ezdxf (DXF) composition, a content-addressed SVG/PDF/DXF
+      artifact-to-storage, and the §8.3 byte-stability golden. The shop deliverables
+      + determinism gate v1 SVG's client-side download does NOT cover. [src:
+      design/drawings.md §4.1a/§4.2/§8]
 - [x] (P1, M) Drawings v1 #6 — dimension measurement + projected-edge→model-edge
       provenance (geometry) — **DONE 2026-07-16.** `geometry.drawings.project_view`
       now tags each SHARP projected edge with the originating model `EdgeSignature`
@@ -652,6 +672,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-17 — **Drawings v1 #5 (SVG export, client-side) done:** Export SVG
+  action (band + `E`) serializes the rendered `DrawingSheet` `<svg>` to a
+  standalone, self-contained `.svg` download. ARCH: v1 ships client-side (reuse
+  the shipped renderer); server-composed PDF/DXF + deterministic stored artifacts
+  deferred (drawings.md §4.1a). e2e + 3 unit tests; `just lint` green.
 - 2026-07-17 — **Drawings v1 #6b review fixes:** diameter value now clear of the
   circle (halo no longer masks the arc — hole reads whole); gutter-aware
   placement (sibling bounds + wider `VIEW_GUTTER_MM`) so `40.000` clears the

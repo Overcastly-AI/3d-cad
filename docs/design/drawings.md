@@ -409,6 +409,51 @@ it is v1: fewer moving parts, total byte control, and it doubles as the on-scree
 render. PDF and DXF are additive artifact writers behind the same composition seam
 — adding them does **not** change the projection engine or the document model.
 
+### 4.1a IMPLEMENTATION DECISION — v1 SVG export ships CLIENT-SIDE (2026-07-17, Drawings v1 #5)
+
+**This §4/§5 originally specified SERVER-composed SVG export (geometry composes
+the artifact, §4.2).** Superseded for v1 by the shipping reality: the frontend
+already renders the *complete, correct* dimensioned sheet.
+`apps/web/src/components/DrawingSheet.tsx` draws the whole print — projected
+edges (solid/dashed), dimensions (extension/dimension lines, arrowheads, value
+stamps), and the title block — in **one self-contained `<svg>`** reading the
+SAME `drawing` design tokens as inline attribute colours (no external CSS, no CSS
+variables, no `<use>`/xlink refs; fonts carry a generic-`monospace` fallback in
+the token string). Given that, the DRY + immediate-value path for v1 is
+**client-side export: serialize the already-rendered `<svg>` DOM node to a
+downloadable file** (`XMLSerializer` on a clone of the live node → an XML-prolog +
+namespaced, size-concrete standalone `.svg` → Blob + object-URL + a synthetic
+`<a download>` click). This **reuses the shipped renderer** rather than
+re-implementing the entire drafting renderer a second time in Python.
+
+Rationale + honest scope:
+
+- **DRY.** One renderer (the `DrawingSheet` React/SVG component) is the source of
+  truth for what a Loft print looks like — the on-screen sheet and the exported
+  file are literally the same pixels. A parallel Python composer would be a second
+  full drafting renderer to keep in lock-step (WET, a defect class here).
+- **Self-contained by construction.** Colours are inline attribute values from
+  the `drawing` tokens; the export strips only the two screen-only affordances
+  (the Tailwind `h-full w-full` sizing classes and the bench drop-shadow) and
+  writes a concrete mm `width`/`height` from the `viewBox`, so the file opens and
+  prints scale-correct in a browser / Inkscape. Verified by e2e (below).
+- **What v1 client-side export does NOT give (deferred, unchanged):**
+  server-composed PDF + DXF (the shop deliverables — reportlab/ezdxf, §4.1) and
+  **content-addressed, byte-deterministic *stored* artifacts** (§8.3 byte-stability
+  gate). Those need headless/deterministic composition and the object-storage
+  seam, and remain the sequenced follow-on behind the **same `project_view`
+  geometry seam** (the projected 2D geometry + resolved dimension positions are
+  already produced server-side). The §4.2 "geometry composes the artifact"
+  decision stands **for the PDF/DXF/stored-artifact path**; it is simply not the
+  v1 SVG-download path.
+
+Net: v1 = "download the SVG you see," shipped from the frontend; server-composed
+PDF/DXF + stored deterministic artifacts are the next export loop. Verified end to
+end by `apps/web/e2e/drawings.spec.ts` ("export the laid-out sheet as a standalone
+.svg": lay out → author a Ø10 → click Export SVG → `waitForEvent('download')` →
+assert the file is XML-prolog'd, namespaced, carries the `drawing-sheet` root, the
+hole's `<circle>`, the `10.000` value, and a scale-correct mm size).
+
 ### 4.2 Where composition runs — DECISION: geometry composes the artifact
 
 **Geometry produces the 2D view geometry AND composes the final vector artifact.**
@@ -447,7 +492,7 @@ the kernel; web talks only to the gateway; **no kernel type crosses a boundary**
 | Evaluate the referenced part/assembly to bodies (+ solved transforms) | **geometry** | Reuses `evaluate_tree` / `evaluate_assembly` — the kernel lives here. |
 | **Projection / HLR** (visible + hidden 2D edges) | **geometry** | `HLRBRep_Algo` is OCCT — kernel-only. |
 | Resolve a dimension's `EdgeSignature` → the model edge → its projected 2D geometry + **measure the value** | **geometry** | Needs the evaluated body + the signature resolver (`geometry.kernel.edges`, reused) + GProp measurement. |
-| **Compose** the sheet → SVG (v1) / PDF / DXF artifact | **geometry** | It has the 2D geometry + the artifact-to-storage machinery (§4.2). |
+| **Compose** the sheet → SVG (v1) / PDF / DXF artifact | **geometry** (PDF/DXF + stored deterministic artifacts) / **web** (v1 SVG download, §4.1a) | v1 SVG export serializes the already-rendered `DrawingSheet` `<svg>` client-side (DRY — reuse the shipped renderer); geometry-composed artifacts remain for PDF/DXF + the content-addressed byte-stability gate (§4.2, §8.3). |
 | Aggregation, auth, WebSocket fan-out | **gateway** | apps/web talks **only** to the gateway. |
 
 **The crossing representation (standing boundary check):** the *only* things
@@ -517,13 +562,20 @@ read":**
 - **Manual dimensions:** `linear` (edge / edge-endpoint-to-endpoint), `diameter`,
   `radius`, `angular` — referencing model geometry via `EdgeSignature`
   (§3.3), value measured from the model, `foreshortened` flag surfaced.
-- **SVG export** — server-composed, content-addressed, byte-deterministic.
-- New **golden(s)** in the same commit (§8) — DoD.
+- **SVG export** — **v1 ships client-side** (serialize the rendered
+  `DrawingSheet` `<svg>` to a downloadable standalone file, §4.1a); the
+  server-composed, content-addressed, byte-deterministic path is deferred with
+  PDF/DXF.
+- New **golden(s)** in the same commit (§8) — DoD (the server-composed
+  byte-stability golden lands with the geometry-composed export).
 
 **Explicitly deferred (each a later, independently shippable loop item):**
 
-- **PDF + DXF export** (immediate fast-follow — reportlab/ezdxf, permissive; same
-  composition seam).
+- **Server-composed export** (immediate fast-follow — the geometry `project_view`
+  composition seam, §4.2): **PDF + DXF** (reportlab/ezdxf, permissive) and the
+  **content-addressed, byte-deterministic stored artifact** (the §8.3 byte-stability
+  gate). v1 SVG already downloads client-side (§4.1a); this adds the shop
+  deliverables + the deterministic stored SVG/PDF/DXF.
 - **Assembly drawings** (§1.2 shows the projection already handles a compound;
   v1 ships *part* drawings first — assembly views are the natural fast-follow) —
   and **BOM tables + balloons** on assembly drawings (BOM data is already a free
