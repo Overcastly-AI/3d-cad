@@ -851,3 +851,70 @@ tab-stop-at-scale concern are filed to BACKLOG (P3). Evidence:
 - **🟢 `DimensionAuthorMenu` shadow → RESOLVED.** Now the `shadow-float` token.
 
 Checklist now: `DrawingSheet` dimension layer ✅ · `dimensions.ts` placement ✅.
+
+---
+
+## 2026-07-17 — Spot-check: Units U2 (document length-unit system) — commit `fb26305`
+
+Static/token + a11y review (live stack unbootable in sandbox — Docker registry
+403; render-level checks below are CI-deferred and noted as such). Scope: the
+new `InlineSelect` primitive, `DocumentUnitSelect` chrome, and the unit-suffix
+propagation across feature editors, the mate HUD, `MeasureReadout`, and the
+`mate-value-echo`.
+
+### PASS
+
+- **`InlineSelect` primitive** (`packages/design/src/primitives/InlineSelect.tsx`)
+  — disciplined instrument, no findings. Tokens only (`border-etch`,
+  `bg-carbide`, `text-gauge`, `text-mist`, `outline-brass`, `bg-anvil`,
+  `font-display`/`font-data`, `text-2xs`/`text-md`) — no hex, no raw-element
+  restyle. Built on a **native `<select>`** so it is keyboard-operable and
+  screen-reader-correct for free; the `eyebrow` span is `aria-hidden` and the
+  accessible name comes from `aria-label ?? eyebrow` (no double-labeling).
+  Visible focus via `focus-within:outline-2 outline-offset-1 outline-brass`.
+  Contrast AA in both themes (mist 13.2:1 / gauge 7.2:1 on carbide/anvil). Quiet
+  ruled pill — reads as chrome, not a marketing dropdown.
+- **`DocumentUnitSelect`** (`apps/web/src/components/DocumentUnitSelect.tsx`) —
+  `aria-label="Document length unit"`, `data-testid` preserved, transient
+  `disabled` during the PATCH (sub-second, no explain-tooltip needed).
+  **Placement is consistent** across both editors: in `TopBar` immediately after
+  `Breadcrumb` (chrome, not viewport — hero layout untouched), identical props
+  in `PartPage` and `AssemblyPage`.
+- **Feature editors + mate HUD** — every dimension cell now feeds
+  `unit={docUnit}` into `NumberField`, which renders the unit as a lowercase
+  value-adjacent suffix span (`font-body text-xs text-gauge`). Uniform
+  placement/casing/spacing across Extrude/Fillet/Chamfer/Shell/Draft/Datum/
+  Pattern/offset-plane and the mate HUD field. Stale `aria-label="… (mm, signed)"`
+  hardcodes correctly dropped for `"… (signed)"`.
+
+### Findings
+
+- **P3 — `MeasureReadout` / unit-label presentation — the readout is the odd
+  surface out — `apps/web/src/components/MeasureReadout.tsx:135-155`
+  (render-visual, CI-deferred to confirm on screen).** Every other unit-bearing
+  surface (feature cells, mate HUD field, `mate-value-echo`) shows the unit
+  **lowercase, adjacent to the numeral** (`25.4 mm`). `MeasureReadout` instead
+  folds the unit into the **eyebrow caption** (`Distance · ${unit}`,
+  `Δx · ${unit}`), and that eyebrow carries `uppercase`, so `mm`/`in`/`m` render
+  as `MM`/`IN`/`M`. Two issues: (a) placement diverges from the app-wide
+  value-adjacent convention; (b) uppercasing mangles case-sensitive unit symbols
+  — `m` (metre) → `M` collides with the SI mega prefix. Reads templated against
+  the "quiet precision instrument" mandate. **System-level fix:** adopt one
+  readout convention — keep the eyebrow as the bare quantity ("Distance", "Δx")
+  and stamp the unit lowercase adjacent to the value (a shared readout suffix),
+  matching `NumberField`/`formatLength`. Fold the minor angle-spacing nit below
+  into the same convention.
+- **P3 (minor, fold-in) — degree-symbol spacing inconsistent — `MateHud.tsx:99`
+  vs `mates.ts` `mateDetail` / `formatAngleDeg`.** The mate HUD renders `°` as a
+  `gap-1` suffix span (a space before the glyph: `45 °`), while `mate-value-echo`
+  and the measure readout set it tight (`45°`, `45.0°` — the conventional
+  typographic form). Normalize to tight `°` when the shared readout convention
+  above lands.
+
+### Component checklist (delta)
+
+- `InlineSelect` primitive ✅
+- `DocumentUnitSelect` chrome ✅ (placement consistent part/assembly)
+- Feature-editor unit suffixes ✅ (uniform lowercase, value-adjacent)
+- `MeasureReadout` unit presentation 🟡 — P3 eyebrow-uppercase + placement divergence
+- `mate-value-echo` / `mateDetail` ✅ (lowercase suffix; P3 `°` spacing nit only)
