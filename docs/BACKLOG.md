@@ -540,6 +540,12 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
 
 ## Next (P2)
 
+- [ ] (P2, S) ToolButton gate reasons never reach screen readers (packages/design)
+      — the disabled-reason tooltip is `aria-hidden`, so keyboard/SR users get
+      `aria-disabled` with no why, band-wide (every gated tool, not just History).
+      Fix at the primitive: wire the reason via `aria-describedby` on ToolButton
+      so all bands inherit it. Filed from the UR2 frontend-qa spot-check
+      (2026-07-17, "pre-existing, noted not charged"). [src: UI-REVIEW UR2 pass]
 - [ ] (P2, S) Sheet metal — design-doc endorsement (`code-reviewer` review of
       `docs/design/sheet-metal.md` before any implementation, CLAUDE.md's
       hard-problem-gets-a-design-doc-first rule). Gates the four slices below
