@@ -260,6 +260,22 @@ recipe here in the same commit as the fix.**
   picks up `/usr/bin/python3.12` automatically. PyPI + npm registries are
   direct (proxy no-proxy list), so `uv sync` / `pnpm install` just work.
 - `just` is not preinstalled: `uv tool install rust-just` → `~/.local/bin/just`.
+- **The full compose stack can't boot in this sandbox — the Docker registry is
+  blocked, not the daemon.** `dockerd` is NOT running by default but CAN be
+  started (`sudo dockerd &`; binary at `/usr/bin/dockerd`). The real wall is
+  the egress proxy: `docker pull` of `postgres:16` / `redis:7` /
+  `minio/minio:*` fails mid-blob with **403 Forbidden** from
+  `production.cloudfront.docker.com/...blobs...` — the same policy-denial class
+  as the github python-build block above (don't retry/route around). No infra
+  image caches. Consequence: `just dev` / `just e2e` (which need db/redis/minio
+  as containers; the services themselves run natively via uvicorn, not
+  containers) **cannot run here** — they run in CI where the registry is
+  reachable. So for a UI/backend slice in this sandbox, the runnable gates are
+  `pnpm --filter @loft/web {typecheck,test}` (vitest) + `just lint` +
+  geometry `pytest` (goldens/solver need no containers); the Playwright e2e
+  and founder before/after screenshots are written-and-committed but deferred
+  to CI. Don't report a slice as "e2e-verified" from this sandbox — say
+  "vitest/lint/pytest green; e2e committed, runs in CI."
 - **Stale dev uvicorns poison `just e2e`.** Long-lived service uvicorns (from a
   prior `just dev` or an agent that booted the stack) run **without**
   `--reload`, so after any backend commit their served OpenAPI/routes go stale.
