@@ -116,6 +116,31 @@ unblocks the most workflows. Architecture accepted in `docs/design/units.md`
       form also stay mm (design §"out of v1"). Wire both once the expression-unit
       model is designed. [src: docs/design/units.md §"out of v1"]
 
+**Active pick 2026-07-17 (founder "keep going" → undo/redo):** the next
+daily-driver ❌→✅ flip after units. Architecture accepted in
+`docs/design/undo-redo.md` — **server-side bounded state snapshots**, NOT
+client command-inversion (a parametric tree cross-references by entity id, so
+redo must preserve ids verbatim; snapshots do, command-replay can't). v1 covers
+the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
+
+- [ ] (P1, L) Undo/redo UR1 — server-side snapshot history + endpoints (documents
+      + contract). A bounded per-part state-snapshot ring (recommend a
+      `part_snapshots` table + `history_cursor` on `parts`) written in-transaction
+      on every feature create/update/delete/reorder; `POST /parts/{id}/undo|redo`
+      restore an adjacent snapshot verbatim (ids preserved → `feature_dependencies`
+      stays valid), bump `tree_version` under the existing OCC guard; tree GET gains
+      `can_undo`/`can_redo`; alembic migration; gateway proxy; `just gen`.
+      Correctness IS the deliverable — tests: byte-identical restore at any
+      distance, fillet-on-extrude survives delete→undo, fresh-edit truncates redo,
+      ring-drop at cap, stale-version 422, baseline/top no-ops clean.
+      [src: docs/design/undo-redo.md §UR1]
+- [ ] (P1, M) Undo/redo UR2 — frontend controls + shortcuts (apps/web). Toolbar
+      undo/redo buttons (design-system, disabled via `can_undo`/`can_redo`) +
+      `Ctrl/⌘+Z` / `Ctrl/⌘+Shift+Z` / `Ctrl+Y` guarded by `isTypingTarget`; issue
+      the endpoint → refresh tree + viewport; stale-version 409 → soft reload. e2e:
+      extrude → fillet → undo×2 (both gone) → redo×2 (both back, fillet still bound
+      to the extrude); keyboard/button parity. [src: docs/design/undo-redo.md §UR2]
+
 - [x] (P0, L) Viewport makeover Batch 1 — "the scene is a place" (apps/web +
       packages/design) — **DONE 2026-07-16** (founder recalibration, mandate
       3a; spec = UI-REVIEW 2026-07-16 audit). Full-bleed canvas + floating
