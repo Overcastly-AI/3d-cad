@@ -75,6 +75,43 @@ describe("undoRedoStep — modifier matrix", () => {
   });
 });
 
+describe("undoRedoStep — non-Latin / remapped layouts", () => {
+  it("Cyrillic layout: key 'я' with physical KeyZ still undoes/redoes", () => {
+    expect(
+      undoRedoStep(chord({ key: "я", code: "KeyZ", ctrlKey: true }), false),
+    ).toBe("undo");
+    expect(
+      undoRedoStep(
+        chord({ key: "Я", code: "KeyZ", ctrlKey: true, shiftKey: true }),
+        false,
+      ),
+    ).toBe("redo");
+  });
+
+  it("Cyrillic layout: key 'н' with physical KeyY fires Ctrl+Y redo", () => {
+    expect(
+      undoRedoStep(chord({ key: "н", code: "KeyY", ctrlKey: true }), false),
+    ).toBe("redo");
+  });
+
+  it("non-Latin keys on OTHER physical keys stay unbound", () => {
+    expect(
+      undoRedoStep(chord({ key: "ф", code: "KeyA", ctrlKey: true }), false),
+    ).toBeNull();
+  });
+
+  it("QWERTZ: the layout's label wins over the physical code", () => {
+    // Physical KeyY types "z" — the user's Ctrl+Z must undo…
+    expect(
+      undoRedoStep(chord({ key: "z", code: "KeyY", ctrlKey: true }), false),
+    ).toBe("undo");
+    // …and physical KeyZ types "y" — their Ctrl+Y redoes, never undoes.
+    expect(
+      undoRedoStep(chord({ key: "y", code: "KeyZ", ctrlKey: true }), false),
+    ).toBe("redo");
+  });
+});
+
 describe("undoRedoStep — typing-target guard", () => {
   it("never hijacks a focused text control's native undo", () => {
     expect(undoRedoStep(chord({ key: "z", ctrlKey: true }), true)).toBeNull();

@@ -184,8 +184,80 @@ import { Viewport } from "../viewport/Viewport";
 /** Constraint/dimension edits persist after this quiet gap (the live loop). */
 const SYNC_DEBOUNCE_MS = 400;
 
+/**
+ * The one open feature editor (the authoring seat holds a single editor at a
+ * time). Hoisted to a named union so `COMMAND_LABEL` can be keyed on
+ * `OpenEditor["kind"]` — a future editor kind missing from the map is a
+ * COMPILE error, never a silently unlocked band with unregistered keys.
+ */
+type OpenEditor =
+  | {
+      kind: "extrude";
+      mode: "create" | "edit";
+      initial: ExtrudeForm;
+      featureId?: string;
+    }
+  | {
+      kind: "revolve";
+      mode: "create" | "edit";
+      initial: RevolveForm;
+      featureId?: string;
+    }
+  | {
+      kind: "sweep";
+      mode: "create" | "edit";
+      initial: SweepForm;
+      featureId?: string;
+    }
+  | {
+      kind: "loft";
+      mode: "create" | "edit";
+      initial: LoftForm;
+      featureId?: string;
+    }
+  | {
+      kind: "pattern";
+      mode: "create" | "edit";
+      initial: PatternForm;
+      featureId?: string;
+    }
+  | {
+      kind: "fillet";
+      mode: "create" | "edit";
+      initial: FilletForm;
+      initialPicked: EdgeSignature[];
+      featureId?: string;
+    }
+  | {
+      kind: "chamfer";
+      mode: "create" | "edit";
+      initial: ChamferForm;
+      initialPicked: EdgeSignature[];
+      featureId?: string;
+    }
+  | {
+      kind: "shell";
+      mode: "create" | "edit";
+      initial: ShellForm;
+      initialPickedFaces: PlanarFaceSignature[];
+      featureId?: string;
+    }
+  | {
+      kind: "draft";
+      mode: "create" | "edit";
+      initial: DraftForm;
+      initialPickedFaces: PlanarFaceSignature[];
+      featureId?: string;
+    }
+  | {
+      kind: "datum";
+      mode: "create" | "edit";
+      initial: DatumForm;
+      featureId?: string;
+    };
+
 /** Editor kind → the command name shown in the breadcrumb + band lock reason. */
-const COMMAND_LABEL: Record<string, string> = {
+const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   extrude: "Extrude",
   revolve: "Revolve",
   sweep: "Sweep",
@@ -975,73 +1047,8 @@ export function PartPage() {
   }, [sketchProfiles, features]);
   // The authoring seat holds one editor at a time — an extrude OR a revolve —
   // so they share the saving/error state and the viewport top-left anchor.
-  const [editor, setEditor] = useState<
-    | {
-        kind: "extrude";
-        mode: "create" | "edit";
-        initial: ExtrudeForm;
-        featureId?: string;
-      }
-    | {
-        kind: "revolve";
-        mode: "create" | "edit";
-        initial: RevolveForm;
-        featureId?: string;
-      }
-    | {
-        kind: "sweep";
-        mode: "create" | "edit";
-        initial: SweepForm;
-        featureId?: string;
-      }
-    | {
-        kind: "loft";
-        mode: "create" | "edit";
-        initial: LoftForm;
-        featureId?: string;
-      }
-    | {
-        kind: "pattern";
-        mode: "create" | "edit";
-        initial: PatternForm;
-        featureId?: string;
-      }
-    | {
-        kind: "fillet";
-        mode: "create" | "edit";
-        initial: FilletForm;
-        initialPicked: EdgeSignature[];
-        featureId?: string;
-      }
-    | {
-        kind: "chamfer";
-        mode: "create" | "edit";
-        initial: ChamferForm;
-        initialPicked: EdgeSignature[];
-        featureId?: string;
-      }
-    | {
-        kind: "shell";
-        mode: "create" | "edit";
-        initial: ShellForm;
-        initialPickedFaces: PlanarFaceSignature[];
-        featureId?: string;
-      }
-    | {
-        kind: "draft";
-        mode: "create" | "edit";
-        initial: DraftForm;
-        initialPickedFaces: PlanarFaceSignature[];
-        featureId?: string;
-      }
-    | {
-        kind: "datum";
-        mode: "create" | "edit";
-        initial: DatumForm;
-        featureId?: string;
-      }
-    | null
-  >(null);
+  // (The union lives in `OpenEditor` above, which also keys COMMAND_LABEL.)
+  const [editor, setEditor] = useState<OpenEditor | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
     null,
   );
@@ -1920,8 +1927,95 @@ export function PartPage() {
     setFacePicking((armed) => !armed);
   }, []);
 
+  // ---------------------------------------------------------------------
+  // Undo/redo (docs/design/undo-redo.md §UR2). History is SERVER-side snapshot
+  // state: the tree GET's can_undo/can_redo gate the controls, and a step is a
+  // document edit under the same tree-version OCC as every other write. The
+  // restored tree re-renders through the SAME post-mutation refresh path all
+  // feature saves use — never a second pipeline.
+  // ---------------------------------------------------------------------
+  const canUndo = tree.data?.can_undo ?? false;
+  const canRedo = tree.data?.can_redo ?? false;
+  /** Which step is in flight (drives the honest hold caption), or null. */
+  const [historyStep, setHistoryStep] = useState<HistoryStep | null>(null);
+  const historyInFlight = useRef(false);
+  /** A non-stale undo/redo failure, surfaced in the viewport HUD. */
+  const [historyError, setHistoryError] = useState<{
+    step: HistoryStep;
+    message: string;
+  } | null>(null);
+
+  const runHistoryStep = useCallback(
+    (step: HistoryStep) => {
+      // One tree rewrite at a time: repeats (held key / double click) AND an
+      // in-flight rollback-bar move are ignored until the write settles —
+      // history and the bar mutually exclude (both rewrite the tree; the OCC
+      // would 422 the loser, but the bar's blind retry must never run against
+      // a freshly restored tree).
+      if (historyInFlight.current || rollbackBusy) return;
+      historyInFlight.current = true;
+      setHistoryStep(step);
+      setHistoryError(null);
+      void (async () => {
+        try {
+          const version = await freshTreeVersion();
+          const restored =
+            step === "undo"
+              ? await undoPart(partId, version)
+              : await redoPart(partId, version);
+          if (restored.tree_version === version) {
+            // Boundary no-op (clean 200): nothing changed — adopt the echoed
+            // tree (fresh can_undo/can_redo) without a re-evaluate cycle.
+            queryClient.setQueryData(["features", partId], restored);
+          } else {
+            // A REAL restore happened: only now disarm measure and drop the
+            // selection (the tree is known to have changed under them), then
+            // resync through the shared invalidation path.
+            useMeasureStore.getState().deactivate();
+            setSelectedFeatureId(null);
+            await refreshTreeAndBody();
+          }
+        } catch (error) {
+          if (error instanceof StaleTreeVersionError) {
+            // Someone else moved the tree: the design doc's soft reload —
+            // resync quietly; the user re-issues against what they now see.
+            await refreshTreeAndBody();
+          } else {
+            // A transient network/server failure: the tree is unchanged
+            // server-side — say so through the HUD (the import-error
+            // affordance), never a silent busy flash.
+            setHistoryError({
+              step,
+              message:
+                error instanceof Error && error.message !== ""
+                  ? error.message
+                  : step === "undo"
+                    ? "The last edit could not be undone."
+                    : "The edit could not be redone.",
+            });
+          }
+        } finally {
+          historyInFlight.current = false;
+          setHistoryStep(null);
+        }
+      })();
+    },
+    [partId, rollbackBusy, freshTreeVersion, refreshTreeAndBody, queryClient],
+  );
+
+  const triggerUndo = useCallback(() => {
+    if (canUndo) runHistoryStep("undo");
+  }, [canUndo, runHistoryStep]);
+  const triggerRedo = useCallback(() => {
+    if (canRedo) runHistoryStep("redo");
+  }, [canRedo, runHistoryStep]);
+
   const moveRollback = useCallback(
     (rollbackFeatureId: string | null) => {
+      // Mutual exclusion with undo/redo (and drag re-entry): both rewrite the
+      // tree, and the bar's blind stale-retry must never land on a tree a
+      // history step just restored.
+      if (rollbackBusy || historyInFlight.current) return;
       // Moving the bar rebuilds the body → the measure overlay refetches
       // against a different tree version; disarm the tool so a mid-measure
       // rollback can never resolve a stale pick index (matches every other
@@ -1943,69 +2037,8 @@ export function PartPage() {
         }
       })();
     },
-    [partId, freshTreeVersion, refreshTreeAndBody],
+    [partId, rollbackBusy, freshTreeVersion, refreshTreeAndBody],
   );
-
-  // ---------------------------------------------------------------------
-  // Undo/redo (docs/design/undo-redo.md §UR2). History is SERVER-side snapshot
-  // state: the tree GET's can_undo/can_redo gate the controls, and a step is a
-  // document edit under the same tree-version OCC as every other write. The
-  // restored tree re-renders through the SAME post-mutation refresh path all
-  // feature saves use — never a second pipeline.
-  // ---------------------------------------------------------------------
-  const canUndo = tree.data?.can_undo ?? false;
-  const canRedo = tree.data?.can_redo ?? false;
-  const [historyBusy, setHistoryBusy] = useState(false);
-  const historyInFlight = useRef(false);
-
-  const runHistoryStep = useCallback(
-    (step: HistoryStep) => {
-      // One step at a time: repeats (held key / double click) are ignored
-      // until the in-flight step settles and the tree has re-synced.
-      if (historyInFlight.current) return;
-      historyInFlight.current = true;
-      setHistoryBusy(true);
-      // A restore changes the tree under every armed tool — disarm measure
-      // and drop the selection, exactly like the rollback-bar move.
-      useMeasureStore.getState().deactivate();
-      setSelectedFeatureId(null);
-      void (async () => {
-        try {
-          const version = await freshTreeVersion();
-          const restored =
-            step === "undo"
-              ? await undoPart(partId, version)
-              : await redoPart(partId, version);
-          if (restored.tree_version === version) {
-            // Boundary no-op (clean 200): nothing changed — adopt the echoed
-            // tree (fresh can_undo/can_redo) without a re-evaluate cycle.
-            queryClient.setQueryData(["features", partId], restored);
-          } else {
-            await refreshTreeAndBody();
-          }
-        } catch (error) {
-          if (error instanceof StaleTreeVersionError) {
-            // Someone else moved the tree: the design doc's soft reload —
-            // resync quietly; the user re-issues against what they now see.
-            await refreshTreeAndBody();
-          }
-          // Anything else (transient network/server hiccup): the tree is
-          // unchanged server-side; the buttons re-enable for a retry.
-        } finally {
-          historyInFlight.current = false;
-          setHistoryBusy(false);
-        }
-      })();
-    },
-    [partId, freshTreeVersion, refreshTreeAndBody, queryClient],
-  );
-
-  const triggerUndo = useCallback(() => {
-    if (canUndo) runHistoryStep("undo");
-  }, [canUndo, runHistoryStep]);
-  const triggerRedo = useCallback(() => {
-    if (canRedo) runHistoryStep("redo");
-  }, [canRedo, runHistoryStep]);
 
   // A solved sketch must exist before an extrude or revolve can consume one.
   const hasSolvedSketch =
@@ -2135,8 +2168,9 @@ export function PartPage() {
     features.length === 0;
 
   // The open command scopes the band + names the mode (breadcrumb + lock).
-  const activeCommand =
-    editor === null ? null : (COMMAND_LABEL[editor.kind] ?? null);
+  // No runtime fallback: COMMAND_LABEL is total over OpenEditor["kind"], so
+  // an unmapped editor kind cannot compile, let alone unlock the band.
+  const activeCommand = editor === null ? null : COMMAND_LABEL[editor.kind];
   // The breadcrumb's mode leaf: sketch step / measure / open command / model.
   const workspaceMode =
     mode === "draw"
@@ -2173,7 +2207,9 @@ export function PartPage() {
               treeReady={tree.data !== undefined}
               canUndo={canUndo}
               canRedo={canRedo}
-              historyBusy={historyBusy}
+              historyHold={
+                historyStep ?? (rollbackBusy ? ("rollback" as const) : null)
+              }
               onUndo={triggerUndo}
               onRedo={triggerRedo}
               onNewSketch={handleNewSketch}
@@ -2400,6 +2436,30 @@ export function PartPage() {
                     </button>
                   </div>
                 ) : null}
+                {historyError !== null ? (
+                  <div
+                    role="alert"
+                    data-testid="history-error"
+                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      {historyError.step === "undo"
+                        ? "Undo failed"
+                        : "Redo failed"}
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {historyError.message}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryError(null)}
+                      data-testid="history-error-dismiss"
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
                 {regenerating ? (
                   <div
                     role="status"
@@ -2464,7 +2524,9 @@ export function PartPage() {
               selectedFeatureId={selectedFeatureId}
               onSelectFeature={selectFeature}
               onMoveRollback={moveRollback}
-              rollbackBusy={rollbackBusy}
+              // The bar also holds while a history step is restoring (the
+              // mutual exclusion's visible half — runHistoryStep guards it).
+              rollbackBusy={rollbackBusy || historyStep !== null}
             />
           </FloatingPanel>
           {showInspector ? (

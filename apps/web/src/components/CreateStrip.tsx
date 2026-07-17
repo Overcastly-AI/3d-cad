@@ -19,6 +19,7 @@ import {
   DraftIcon,
   ExtrudeIcon,
   FilletIcon,
+  formatChord,
   ImportStepIcon,
   LoftIcon,
   MeasureIcon,
@@ -47,8 +48,14 @@ export interface CreateStripProps {
   canUndo?: boolean;
   /** A later history snapshot exists to restore (`can_redo` — the mirror gate). */
   canRedo?: boolean;
-  /** An undo/redo is in flight — both buttons hold until it settles. */
-  historyBusy?: boolean;
+  /**
+   * The tree write currently holding the History tools, or null. Both buttons
+   * disable while ANY of these is in flight, and the tooltip names the TRUE
+   * reason (an idle Redo held by a running undo says "Undoing…", never
+   * "Redoing…"): an undo, a redo, or a rollback-bar move (history and the
+   * rollback bar mutually exclude — both rewrite the tree under the OCC).
+   */
+  historyHold?: "undo" | "redo" | "rollback" | null;
   /** Undo one feature-tree edit (Ctrl/⌘+Z). */
   onUndo?: () => void;
   /** Redo one feature-tree edit (Ctrl/⌘+Shift+Z, Ctrl+Y). */
@@ -129,7 +136,7 @@ export function CreateStrip({
   treeReady,
   canUndo = false,
   canRedo = false,
-  historyBusy = false,
+  historyHold = null,
   onUndo,
   onRedo,
   onNewSketch,
@@ -165,10 +172,20 @@ export function CreateStrip({
   // (disabled) state on an invalid form instead of looking actionable but no-op.
   const okReady = useCommandActionStore((s) => s.okReady);
 
+  const historyBusy = historyHold !== null;
   const undoReady =
     treeReady && canUndo && !historyBusy && onUndo !== undefined;
   const redoReady =
     treeReady && canRedo && !historyBusy && onRedo !== undefined;
+  /** The one true reason both History buttons are holding, or undefined. */
+  const holdCaption =
+    historyHold === "undo"
+      ? "Undoing…"
+      : historyHold === "redo"
+        ? "Redoing…"
+        : historyHold === "rollback"
+          ? "Moving the rollback bar…"
+          : undefined;
 
   const filletReady = canModify && treeReady && onFillet !== undefined;
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
@@ -264,32 +281,34 @@ export function CreateStrip({
       >
         {/* History leads the band (the Fusion position): every modeling edit is
             reversible from here, gated honestly by the server's can_undo /
-            can_redo — the buttons are wired state, never decoration. */}
+            can_redo — the buttons are wired state, never decoration. Icon-only
+            at every width (Fusion ships undo/redo unlabeled; the two most
+            self-evident glyphs in software) — the tooltip title + platform-
+            aware chord chip still teach the names and the keys, and it keeps
+            the no-wrap band inside the 1280×800 floor (frontend-qa 07-17 P2). */}
         <ToolGroup eyebrow="History">
           <ToolButton
             icon={<UndoIcon />}
-            showLabel
             label="Undo"
-            shortcut="Ctrl+Z"
+            shortcut={formatChord("Ctrl+Z")}
             data-testid="undo-button"
             aria-label="Undo"
             caption={captionFor(
               undoReady,
-              canUndo ? "Undoing…" : "Nothing to undo",
+              holdCaption ?? (canUndo ? "One moment…" : "Nothing to undo"),
             )}
             disabled={locked || !undoReady}
             onClick={onUndo}
           />
           <ToolButton
             icon={<RedoIcon />}
-            showLabel
             label="Redo"
-            shortcut="Ctrl+Shift+Z"
+            shortcut={formatChord("Ctrl+Shift+Z")}
             data-testid="redo-button"
             aria-label="Redo"
             caption={captionFor(
               redoReady,
-              canRedo ? "Redoing…" : "Nothing to redo",
+              holdCaption ?? (canRedo ? "One moment…" : "Nothing to redo"),
             )}
             disabled={locked || !redoReady}
             onClick={onRedo}

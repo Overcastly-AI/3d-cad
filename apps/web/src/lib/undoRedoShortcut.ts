@@ -16,10 +16,25 @@ export type HistoryStep = "undo" | "redo";
 /** The keydown fields the grammar reads (a structural subset of KeyboardEvent). */
 export interface HistoryKeyEvent {
   key: string;
+  /** Physical key (e.g. "KeyZ") — the non-Latin-layout fallback. */
+  code?: string;
   ctrlKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
   altKey: boolean;
+}
+
+/**
+ * Layout-proof letter match. The layout's OWN label wins where it produces a
+ * Latin letter (QWERTZ's physical KeyY types "z" — that user's Ctrl+Z must
+ * undo, and their physical KeyZ types "y" — Ctrl+Y must redo, not undo). A
+ * non-Latin layout (Cyrillic Ctrl+Z reports key "я") falls back to the
+ * physical `event.code`, so the chord still fires.
+ */
+function matchesLetter(event: HistoryKeyEvent, letter: "z" | "y"): boolean {
+  const key = event.key.toLowerCase();
+  if (/^[a-z]$/.test(key)) return key === letter;
+  return event.code === (letter === "z" ? "KeyZ" : "KeyY");
 }
 
 /**
@@ -34,9 +49,13 @@ export function undoRedoStep(
   if (typing) return null;
   if (event.altKey) return null;
   if (!event.ctrlKey && !event.metaKey) return null;
-  const key = event.key.toLowerCase();
-  if (key === "z") return event.shiftKey ? "redo" : "undo";
-  if (key === "y" && event.ctrlKey && !event.metaKey && !event.shiftKey) {
+  if (matchesLetter(event, "z")) return event.shiftKey ? "redo" : "undo";
+  if (
+    matchesLetter(event, "y") &&
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey
+  ) {
     return "redo";
   }
   return null;

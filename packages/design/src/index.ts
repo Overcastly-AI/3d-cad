@@ -12,6 +12,7 @@ export {
 } from "./units";
 export { loftPreset } from "./tailwind-preset";
 export { cx } from "./cx";
+export { formatChord, isMacPlatform } from "./chord";
 export { Button, type ButtonProps } from "./primitives/Button";
 export {
   Panel,

@@ -45,7 +45,16 @@ export interface ToolButtonProps extends Omit<
   shortcut?: string;
   /** Toggle/selected state — sets `aria-pressed` and the brass scribe. */
   active?: boolean;
-  /** Show the `label` text beside the icon (the feature toolbar does). */
+  /**
+   * Show the `label` text beside the icon (the feature toolbar does) — on
+   * WIDE frames only. Labels are a width tier, not a constant: below 1360px
+   * the band sheds them (icon + eyebrow + tooltip carry the names) so the
+   * no-wrap command band never clips or ellipsizes at the 1280×800 floor.
+   * Every `showLabel` surface is a full-width top band, so a viewport query
+   * IS its container query. Arithmetic: the labeled band ≈ 1315px natural
+   * (12 labeled tools + icon-only History) → fits ≥1360 with margin; the
+   * label-shed band ≈ 580px → categorical fit at 1280.
+   */
   showLabel?: boolean;
   /** Quiet supplement (count / reason) — engraved in the tooltip, not stacked. */
   caption?: ReactNode;
@@ -105,8 +114,9 @@ export function ToolButton({
       aria-label={accessibleName}
       onClick={handleClick}
       className={cx(
-        "group/tt relative inline-flex select-none items-center gap-2 rounded-sm",
-        showLabel ? "px-3 py-1.5" : "px-2 py-1.5",
+        "group/tt relative inline-flex select-none items-center rounded-sm py-1.5",
+        // Padding + gap follow the label tier: icon-only spacing below it.
+        showLabel ? "gap-2 px-2 min-[1360px]:px-3" : "px-2",
         "transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
         isDisabled ? "cursor-not-allowed opacity-40" : "hover:bg-carbide",
@@ -117,7 +127,7 @@ export function ToolButton({
     >
       <span className="flex shrink-0 items-center">{icon}</span>
       {showLabel ? (
-        <span className="min-w-0 truncate text-left font-display text-2xs uppercase tracking-[0.12em]">
+        <span className="hidden min-w-0 truncate text-left font-display text-2xs uppercase tracking-[0.12em] min-[1360px]:block">
           {label}
         </span>
       ) : null}

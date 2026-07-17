@@ -949,3 +949,115 @@ Batched with the `code-reviewer` findings on the same slice.
   `mm` regardless of doc unit. It's a line *identifier*, not an editable/measured
   value, so it sits just outside the "readouts format the same way" contract;
   route through `formatLength` when the revolve module is next touched.
+
+## 2026-07-17 — Spot-check: Undo/Redo UR2 (History ToolGroup + shortcuts) — commit `6f33d94`
+
+Static/code + token review (compose stack can't boot in this sandbox); render
+checks marked CI-deferred. Scope: `packages/design/src/primitives/icons.tsx`
+(UndoIcon/RedoIcon), `apps/web/src/components/CreateStrip.tsx` (History group),
+`apps/web/src/routes/PartPage.tsx` (wiring + chord handler).
+
+**What's right (evidence, not vibes):** icons inherit the house frame exactly
+(24-grid, 1.6 stroke, square-cap/miter via the shared `Icon` wrapper,
+`currentColor`); ink density (~40 grid-units) sits mid-family (Trim ~43,
+Sketch ~45); the chevron arrowhead's 4√2 arms match `SymmetricIcon` precedent;
+Redo is a true mirror of Undo about x=12. A11y: explicit `aria-label="Undo"` /
+`"Redo"` keeps the shortcut chip out of the accessible name; gating rides the
+band's `aria-disabled` ToolButton pattern (still focusable, reason caption on
+hover AND focus-visible — no `pointer-events-none` trap); `locked` state uses
+the same `captionFor` lock reason ("Finish Fillet first") as every other tool;
+`motion-safe:` on the tooltip transition; e2e asserts names + gates at every
+history bound. Chord grammar correctly leaves ⌘Y to the platform and native
+undo to focused text fields; buttons are wired to real server `can_undo`/
+`can_redo` state — no decorative chrome.
+
+- **P2 — CreateStrip band width at the 1280×800 floor —
+  `apps/web/src/components/CreateStrip.tsx` History group + `ToolButton`
+  `showLabel` sizing — screenshot: CI `undo-redo-band-desktop.png`
+  (render-verify; finding is arithmetic).** The band is a no-wrap flex row
+  (`TopToolbar` → `divide-x` groups). Pre-change natural width ≈ 1236 px
+  (13 labeled buttons: 48 px fixed + ~7.2 px/char labels at `text-2xs`
+  Fragment Mono, group padding, dividers) — fit at 1280 with ~44 px spare.
+  The History group adds ~170 px → ≈ 1405 px natural width, ~125 px over the
+  1280 floor. Best case the `min-w-0 truncate` chain ellipsizes most labels
+  (~1 char each: "EXTRUD…", "CHAMBE…"); worst case (if any flex item's
+  `min-width:auto` doesn't resolve through) the Inspect group clips off-frame.
+  Either way this commit is the one that tips it. **System-level fix:** shed
+  labels responsively at the primitive level, not per-instance — e.g. a
+  container-query tier on `ToolGroup`/`ToolButton` that drops `showLabel`
+  below a band-width threshold; or ship History icon-only outright (undo/redo
+  arrows are the two most self-evident glyphs in software; Fusion shows them
+  unlabeled) which recovers ~90 px, plus icon-only Measure (~45 px) to clear
+  the floor. Verify with the CI screenshot before and after.
+- **P3 — busy-caption claims the wrong direction — `CreateStrip.tsx:276-293`.**
+  While `historyBusy` (either operation in flight) BOTH buttons disable, and
+  each shows its own verb: click Undo, hover/focus Redo → tooltip reads
+  "Redoing…" though nothing is being redone (and vice versa). Honest-chrome
+  nit: the reason shown must be the true reason. Fix: thread which step is in
+  flight (PartPage already knows) and caption the idle partner "History busy…"
+  (or reuse the in-flight verb only on the button that owns it).
+- **P3 — icon doc-comment vs geometry — `icons.tsx:595-612`.** The section
+  comment sells "hard-elbow returns … not the round-cap circular-arrow of the
+  office icon sets", but both glyphs return through a 4.5-unit semicircular
+  arc (`A4.5 4.5`) — a round hook; only the caps/joins are square. Visually it
+  still reads scribed (square caps do the work at 16 px), but it sits closer
+  to the generic "reply" arrow than the comment claims. Either sharpen the
+  return to a true elbow (`H…V…H…` — would rhyme with Perpendicular/Mirror's
+  L-bends and buy real distinctiveness) or fix the comment to match the ink.
+- **P3 — shortcut chips aren't platform-aware — `CreateStrip.tsx:273,287`.**
+  First multi-key chords in any chip ("Ctrl+Z", "Ctrl+Shift+Z"); on macOS the
+  canonical chord is ⌘Z/⇧⌘Z (the handler accepts `metaKey`, so function is
+  fine — the label just teaches the wrong hand position). Single-letter chips
+  elsewhere dodge this. **System-level fix:** a shared `formatChord()` helper
+  (platform-detect → `⌘Z` vs `Ctrl+Z`) feeding `Kbd`, so future chord chips
+  (there will be more) inherit it. Note the Redo chip also can't advertise the
+  bound `Ctrl+Y` alias — acceptable, the chip shows the primary chord.
+- **Pre-existing (not this commit, noted for the running list):** the
+  ToolButton tooltip (title + reason caption) is `aria-hidden`, so gate
+  reasons reach sighted keyboard users but are never announced to screen
+  readers — the accepted Track C P1 pattern; an `aria-describedby` hook on
+  the primitive would close it for the whole band at once.
+
+### Component checklist (delta)
+
+- `UndoIcon` / `RedoIcon` glyph construction ✅ (family-true; P3 comment nit)
+- History ToolGroup a11y (names, aria-disabled gating, focus tooltip) ✅
+- History group honest gating (server `can_undo`/`can_redo`, lock reason) ✅
+- Undo/redo chord grammar (mac/win, typing-target guard, ⌘Y unbound) ✅
+- CreateStrip fit at 1280×800 🔴 — P2 above (CI screenshot to confirm mode of failure)
+- Busy-state caption honesty 🟡 — P3 wrong-direction verb
+
+### Resolution — fix pass (2026-07-17, follow-up commit)
+
+- **P2 band width — fixed at the primitive.** History ships icon-only outright
+  (Fusion precedent; ~90 px back) AND `ToolButton` gained a label TIER:
+  `showLabel` renders its text only ≥1360px viewport (every `showLabel`
+  surface is a full-width band, so the viewport query IS its container query;
+  padding follows the tier). Arithmetic: labeled band ≈ 1315 px natural →
+  fits ≥1360 with ~45 px margin; below the tier the label-shed band ≈ 580 px →
+  categorical fit at 1280. e2e (`undo-redo.spec.ts` 1280×800 block) asserts
+  Measure's right edge inside the frame + zero band scroll-overflow, and
+  captures `undo-redo-band-laptop.png` for render confirmation in CI.
+- **P3 busy caption — fixed.** `historyHold` ("undo" | "redo" | "rollback")
+  threads the actual in-flight tree write; BOTH held buttons caption the true
+  reason ("Undoing…" while an undo runs — never the partner's verb; "Moving
+  the rollback bar…" during a bar move).
+- **P3 icon geometry — sharpened, not re-captioned.** True squared elbow
+  (`M5 9 H16 V17 H8` / mirror about x=12) replacing the `A4.5` arc — rhymes
+  with Perpendicular/Mirror's L-bends as suggested; ink ≈ 38 grid-units,
+  still mid-family. Comment now matches the ink.
+- **P3 chord chips — platform-aware via shared helper.** `formatChord()`
+  (`packages/design/src/chord.ts`, node-tested, exported for future chips):
+  "Ctrl+Z" → "⌘Z", "Ctrl+Shift+Z" → "⇧⌘Z" on Apple platforms, authored
+  notation elsewhere; single-letter chips pass through verbatim.
+- **Code-review batch (same commit):** non-stale undo/redo failures now
+  surface an HUD alert (`history-error`, import-error affordance) and the
+  measure-disarm/selection-clear hygiene runs only AFTER a confirmed restore
+  (version-changed discriminator); `COMMAND_LABEL` re-keyed
+  `Record<OpenEditor["kind"], string>` (compiler holds the band lock); chord
+  grammar layout-proofed (`event.code` fallback for non-Latin layouts, label
+  wins on Latin remaps — vitest matrix extended); rollback-bar drag and
+  history steps mutually excluded (guards both directions + bar disabled
+  while a step restores).
+- **Deferred as agreed:** the band-wide `aria-hidden` tooltip SR gap →
+  BACKLOG (an `aria-describedby` hook on the ToolButton primitive).

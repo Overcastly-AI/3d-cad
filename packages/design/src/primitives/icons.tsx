@@ -595,21 +595,21 @@ export const CloseIcon = (p: IconProps) => (
 // --- History -----------------------------------------------------------------
 //
 // Undo/redo in the scribed idiom: a return stroke that doubles back through a
-// hard elbow (square caps, miter arrowhead) — the drafting "strike and re-run
-// the line" gesture, not the round-cap circular-arrow of the office icon sets.
+// TRUE squared elbow (H–V–H, mitered corners) — rhyming with the L-bends of
+// Perpendicular/Mirror, not the round circular-arrow of the office icon sets.
 
-/** Undo — the scribe line runs back left, hooking under through a hard elbow. */
+/** Undo — the scribe line runs back left, returning under via a squared elbow. */
 export const UndoIcon = (p: IconProps) => (
   <Icon {...p}>
-    <path d="M5 9 H14 A4.5 4.5 0 0 1 14 18 H8" />
+    <path d="M5 9 H16 V17 H8" />
     <path d="M9 5 L5 9 L9 13" />
   </Icon>
 );
 
-/** Redo — the mirror stroke: the line re-runs right, hooking under. */
+/** Redo — the mirror stroke (about x=12): the line re-runs right, elbow under. */
 export const RedoIcon = (p: IconProps) => (
   <Icon {...p}>
-    <path d="M19 9 H10 A4.5 4.5 0 0 0 10 18 H16" />
+    <path d="M19 9 H8 V17 H16" />
     <path d="M15 5 L19 9 L15 13" />
   </Icon>
 );

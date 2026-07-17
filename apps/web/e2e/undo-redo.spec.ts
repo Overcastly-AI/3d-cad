@@ -235,4 +235,35 @@ test.describe("undo/redo", () => {
     // Back at the ring's top: redo pins disabled again.
     await expectHistoryGates(page, { undo: true, redo: false });
   });
+
+  test.describe("small laptop (1280×800)", () => {
+    test.use({ viewport: { width: 1280, height: 800 } });
+
+    test("the command band fits the floor with History aboard", async ({
+      page,
+    }) => {
+      const partId = await seedFilletedCube(page);
+      await page.goto(`/parts/${partId}`);
+      await expect(page.getByTestId("feature-row")).toHaveCount(3);
+
+      // History leads and the whole band fits: below the ToolButton label
+      // tier (<1360px) the band sheds labels, so the last group's last tool
+      // (Measure) renders fully INSIDE the frame — no clip, no ellipsis
+      // (frontend-qa 2026-07-17 P2).
+      await expect(page.getByTestId("undo-button")).toBeVisible();
+      const measure = await page.getByTestId("measure-tool").boundingBox();
+      expect(measure).not.toBeNull();
+      expect(
+        (measure?.x ?? Infinity) + (measure?.width ?? 0),
+      ).toBeLessThanOrEqual(1280);
+      // The band itself reports no horizontal overflow.
+      const overflow = await page
+        .getByTestId("create-strip")
+        .evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+      await page.screenshot({
+        path: `${SCREENSHOT_DIR}/undo-redo-band-laptop.png`,
+      });
+    });
+  });
 });
