@@ -24,6 +24,7 @@ from py_kit.schemas.parts import (
     PartCreate,
     PartListResponse,
     PartResponse,
+    PartUpdate,
 )
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -36,7 +37,12 @@ NOW = datetime(2026, 7, 10, 12, 0, 0, tzinfo=UTC)
 
 def _part(owner_id: uuid.UUID, name: str = "Bracket") -> PartResponse:
     return PartResponse(
-        id=uuid.uuid4(), name=name, owner_id=owner_id, created_at=NOW, updated_at=NOW
+        id=uuid.uuid4(),
+        name=name,
+        owner_id=owner_id,
+        length_unit="mm",
+        created_at=NOW,
+        updated_at=NOW,
     )
 
 
@@ -82,6 +88,12 @@ def _echo_documents(seen: list[httpx.Request]) -> Handler:
         if request.method == "POST":
             name = PartCreate.model_validate_json(request.content).name
             return httpx.Response(201, content=_part(owner_id, name).model_dump_json())
+        if request.method == "PATCH":
+            update = PartUpdate.model_validate_json(request.content)
+            part = _part(owner_id)
+            if update.length_unit is not None:
+                part.length_unit = update.length_unit
+            return httpx.Response(200, content=part.model_dump_json())
         if request.method == "DELETE":
             return httpx.Response(204)
         if request.url.path == "/api/v1/parts":
@@ -196,6 +208,27 @@ def test_delete_part_204_empty_body(db_url: str, seen: list[httpx.Request]) -> N
     [upstream] = seen
     assert upstream.method == "DELETE"
     assert upstream.url.path == f"/api/v1/parts/{part_id}"
+
+
+def test_update_part_forwards_unit(db_url: str, seen: list[httpx.Request]) -> None:
+    """The document-unit selector (units.md §U1) PATCHes length_unit through
+    the gateway; the principal + body forward and the response re-surfaces."""
+    part_id = uuid.uuid4()
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        response = client.patch(
+            f"/api/v1/parts/{part_id}",
+            json={"expected_tree_version": 0, "length_unit": "in"},
+            headers=bearer,
+        )
+
+    assert response.status_code == 200
+    assert PartResponse.model_validate(response.json()).length_unit == "in"
+    [upstream] = seen
+    assert upstream.method == "PATCH"
+    assert upstream.url.path == f"/api/v1/parts/{part_id}"
+    assert upstream.headers[PRINCIPAL_HEADER] == user_id
+    assert PartUpdate.model_validate_json(upstream.content).length_unit == "in"
 
 
 # --- upstream error surfaces -----------------------------------------------------

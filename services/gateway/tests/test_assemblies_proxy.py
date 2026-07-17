@@ -54,6 +54,7 @@ def _assembly(owner_id: uuid.UUID, name: str = "Gearbox") -> AssemblyResponse:
         id=ASSEMBLY,
         name=name,
         owner_id=owner_id,
+        length_unit="mm",
         doc_version=0,
         created_at=NOW,
         updated_at=NOW,

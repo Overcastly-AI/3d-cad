@@ -74,6 +74,12 @@ class Part(Base):
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
     name: Mapped[str] = mapped_column(sa.String(PART_NAME_MAX_LENGTH), nullable=False)
+    #: Document DISPLAY unit (docs/design/units.md §U1) — presentation metadata
+    #: only; storage/kernel stay canonical mm. NOT NULL, server-default 'mm' so
+    #: pre-units rows backfill to mm (the migration adds the same default).
+    length_unit: Mapped[str] = mapped_column(
+        sa.String(8), nullable=False, default="mm", server_default=sa.text("'mm'")
+    )
     #: Monotonic optimistic-concurrency counter — bumped in the same
     #: transaction as ANY tree mutation (feature-tree.md §1.2).
     tree_version: Mapped[int] = mapped_column(
@@ -238,6 +244,12 @@ class Assembly(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
     name: Mapped[str] = mapped_column(
         sa.String(ASSEMBLY_NAME_MAX_LENGTH), nullable=False
+    )
+    #: Document DISPLAY unit (docs/design/units.md §U1) — presentation metadata
+    #: only; storage/kernel stay canonical mm. NOT NULL, server-default 'mm' so
+    #: pre-units rows backfill to mm (the migration adds the same default).
+    length_unit: Mapped[str] = mapped_column(
+        sa.String(8), nullable=False, default="mm", server_default=sa.text("'mm'")
     )
     #: Monotonic optimistic-concurrency counter — bumped in the same
     #: transaction as ANY instance/mate mutation (assemblies.md §1.2).

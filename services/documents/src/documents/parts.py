@@ -16,13 +16,20 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, status
-from py_kit import ConflictError, NotFoundError, UnauthorizedError, get_logger
+from py_kit import (
+    ConflictError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationApiError,
+    get_logger,
+)
 from py_kit.db import SessionDep
 from py_kit.schemas.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
     PartListResponse,
     PartResponse,
+    PartUpdate,
 )
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -217,7 +224,7 @@ async def create_part(
     request: PartCreate, owner_id: Principal, session: SessionDep
 ) -> PartResponse:
     """Create a part (201; envelope 409 on a duplicate name for this owner)."""
-    part = Part(owner_id=owner_id, name=request.name)
+    part = Part(owner_id=owner_id, name=request.name, length_unit=request.length_unit)
     session.add(part)
     try:
         await session.commit()
@@ -248,6 +255,53 @@ async def get_part(
 ) -> PartResponse:
     """One owned part (uniform 404 for unknown/foreign ids)."""
     return PartResponse.model_validate(await get_owned_part(session, owner_id, part_id))
+
+
+@router.patch("/{part_id}")
+async def update_part(
+    part_id: uuid.UUID,
+    request: PartUpdate,
+    owner_id: Principal,
+    session: SessionDep,
+) -> PartResponse:
+    """Rename and/or re-unit a part (bumps ``tree_version``; uniform 404).
+
+    Changing the display unit is a document edit (docs/design/units.md §U1) —
+    it bumps ``tree_version`` like any header mutation but touches no stored
+    ``*_mm`` value (storage stays canonical mm). Stale ``expected_tree_version``
+    is a 422 (mirroring the feature-tree write guard); 409 stays reserved for a
+    duplicate-name conflict.
+    """
+    if request.name is None and request.length_unit is None:
+        raise ValidationApiError(
+            "Provide at least one of name or length_unit.",
+            code="empty_part_update",
+        )
+    part = await get_owned_part(session, owner_id, part_id, for_update=True)
+    if part.tree_version != request.expected_tree_version:
+        raise ValidationApiError(
+            "Stale part version: the part changed since it was last read.",
+            code="stale_tree_version",
+            details={
+                "provided": request.expected_tree_version,
+                "current": part.tree_version,
+            },
+        )
+    if request.name is not None:
+        part.name = request.name
+    if request.length_unit is not None:
+        part.length_unit = request.length_unit
+    part.tree_version += 1
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise ConflictError(
+            f"A part named {request.name!r} already exists.",
+            code="part_name_taken",
+        ) from None
+    _logger.info("part_updated", part_id=str(part.id), tree_version=part.tree_version)
+    return PartResponse.model_validate(part)
 
 
 @router.delete("/{part_id}", status_code=status.HTTP_204_NO_CONTENT)

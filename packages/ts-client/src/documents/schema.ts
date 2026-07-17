@@ -53,7 +53,12 @@ export interface paths {
         head?: never;
         /**
          * Update Assembly
-         * @description Rename an assembly (bumps ``doc_version``; envelope 409 on a name clash).
+         * @description Rename and/or re-unit an assembly (bumps ``doc_version``; 409 on a name
+         *     clash).
+         *
+         *     Changing ``length_unit`` is a document edit (docs/design/units.md §U1) —
+         *     metadata only, storage stays canonical mm — and bumps ``doc_version`` like
+         *     any header mutation.
          */
         patch: operations["update_assembly_api_v1_assemblies__assembly_id__patch"];
         trace?: never;
@@ -457,7 +462,17 @@ export interface paths {
         delete: operations["delete_part_api_v1_parts__part_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Part
+         * @description Rename and/or re-unit a part (bumps ``tree_version``; uniform 404).
+         *
+         *     Changing the display unit is a document edit (docs/design/units.md §U1) —
+         *     it bumps ``tree_version`` like any header mutation but touches no stored
+         *     ``*_mm`` value (storage stays canonical mm). Stale ``expected_tree_version``
+         *     is a 422 (mirroring the feature-tree write guard); 409 stays reserved for a
+         *     duplicate-name conflict.
+         */
+        patch: operations["update_part_api_v1_parts__part_id__patch"];
         trace?: never;
     };
     "/api/v1/parts/{part_id}/evaluation-request": {
@@ -693,6 +708,13 @@ export interface components {
          */
         AssemblyCreate: {
             /**
+             * Length Unit
+             * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm. Defaults to 'mm'.
+             * @default mm
+             * @enum {string}
+             */
+            length_unit: "mm" | "cm" | "m" | "in" | "ft";
+            /**
              * Name
              * @description Assembly name; unique per owner, whitespace-trimmed, 1-200 characters
              */
@@ -749,6 +771,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Length Unit
+             * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm.
+             * @enum {string}
+             */
+            length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /** Name */
             name: string;
             /**
@@ -765,7 +793,12 @@ export interface components {
         };
         /**
          * AssemblyUpdate
-         * @description Rename an assembly. Bumps ``doc_version`` (any mutation bumps — §1.2).
+         * @description Rename and/or re-unit an assembly. Bumps ``doc_version`` (any mutation
+         *     bumps — §1.2).
+         *
+         *     Both mutable fields are optional; at least one must be provided (mirroring
+         *     :class:`InstanceUpdate`). Changing the display unit is a document edit
+         *     (docs/design/units.md §U1) — metadata only, no stored ``*_mm`` value moves.
          */
         AssemblyUpdate: {
             /**
@@ -774,10 +807,15 @@ export interface components {
              */
             expected_version: number;
             /**
+             * Length Unit
+             * @description New document display unit (metadata only)
+             */
+            length_unit?: ("mm" | "cm" | "m" | "in" | "ft") | null;
+            /**
              * Name
              * @description New assembly name
              */
-            name: string;
+            name?: string | null;
         };
         /**
          * AxisParallelEdgesSelector
@@ -2551,6 +2589,13 @@ export interface components {
          */
         PartCreate: {
             /**
+             * Length Unit
+             * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm. Defaults to 'mm'.
+             * @default mm
+             * @enum {string}
+             */
+            length_unit: "mm" | "cm" | "m" | "in" | "ft";
+            /**
              * Name
              * @description Part name; unique per owner, whitespace-trimmed, 1-200 characters
              */
@@ -2566,7 +2611,7 @@ export interface components {
         };
         /**
          * PartResponse
-         * @description A part as stored — identity, ownership, and timestamps.
+         * @description A part as stored — identity, ownership, unit, and timestamps.
          *
          *     The feature tree is NOT here yet: it lands as its own tables per
          *     docs/design/feature-tree.md once the implementation item ships.
@@ -2582,6 +2627,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Length Unit
+             * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm.
+             * @enum {string}
+             */
+            length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /** Name */
             name: string;
             /**
@@ -2595,6 +2646,32 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * PartUpdate
+         * @description Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit
+         *     bumps — the feature-tree.md §1.2 pattern applied to the part header).
+         *
+         *     Both mutable fields are optional; at least one must be provided. Changing
+         *     the display unit is a document edit (docs/design/units.md §U1) — it does
+         *     NOT convert any stored ``*_mm`` value, only relabels how they render.
+         */
+        PartUpdate: {
+            /**
+             * Expected Tree Version
+             * @description Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md §1.2)
+             */
+            expected_tree_version: number;
+            /**
+             * Length Unit
+             * @description New document display unit (metadata only)
+             */
+            length_unit?: ("mm" | "cm" | "m" | "in" | "ft") | null;
+            /**
+             * Name
+             * @description New part name
+             */
+            name?: string | null;
         };
         /**
          * PatternFeature
@@ -4800,6 +4877,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_part_api_v1_parts__part_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

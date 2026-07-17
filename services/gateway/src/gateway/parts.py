@@ -19,6 +19,7 @@ from py_kit.schemas.parts import (
     PartCreate,
     PartListResponse,
     PartResponse,
+    PartUpdate,
 )
 
 from gateway.auth import CurrentUser
@@ -99,6 +100,31 @@ async def get_part(
     """One of the caller's parts (404 envelope for unknown/foreign ids)."""
     upstream = await forward_documents(
         http_request, user, "GET", f"/api/v1/parts/{part_id}"
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return PartResponse.model_validate_json(upstream.content)
+
+
+@router.patch("/{part_id}")
+async def update_part(
+    part_id: uuid.UUID,
+    request: PartUpdate,
+    user: CurrentUser,
+    http_request: Request,
+) -> PartResponse:
+    """Rename and/or re-unit one of the caller's parts (bumps ``tree_version``).
+
+    The document-unit selector (docs/design/units.md §U1) changes ``length_unit``
+    through this route; 404 envelope for unknown/foreign ids, 422 on a stale
+    ``expected_tree_version``, 409 on a duplicate name.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "PATCH",
+        f"/api/v1/parts/{part_id}",
+        request.model_dump_json(),
     )
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)

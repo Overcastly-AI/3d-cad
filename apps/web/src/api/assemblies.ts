@@ -74,7 +74,10 @@ export async function createAssembly(
   client: GatewayClient = gatewayClient,
 ): Promise<AssemblyResponse> {
   const { data, error } = await client.POST("/api/v1/assemblies", {
-    body: { name },
+    // length_unit is DISPLAY metadata (docs/design/units.md §U1); new
+    // assemblies default to canonical mm. The document-unit selector (U2)
+    // changes it via the update route.
+    body: { name, length_unit: "mm" },
   });
   if (error !== undefined) {
     if (

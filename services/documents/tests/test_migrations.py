@@ -181,6 +181,30 @@ def test_0004_offline_downgrade_drops_everything(
     assert "DROP TABLE drawings" in sql
 
 
+def test_0005_offline_sql_adds_length_unit_with_mm_default(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0004:0005")
+    # units.md §U1 — NOT NULL display-unit column, server-default 'mm' so every
+    # pre-existing row backfills to canonical mm in one statement.
+    assert (
+        "ALTER TABLE parts ADD COLUMN length_unit VARCHAR(8) DEFAULT 'mm' NOT NULL"
+        in sql
+    )
+    assert (
+        "ALTER TABLE assemblies ADD COLUMN length_unit VARCHAR(8) DEFAULT 'mm' NOT NULL"
+        in sql
+    )
+
+
+def test_0005_offline_downgrade_drops_length_unit(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0005:0004", downgrade=True)
+    assert "ALTER TABLE assemblies DROP COLUMN length_unit" in sql
+    assert "ALTER TABLE parts DROP COLUMN length_unit" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:

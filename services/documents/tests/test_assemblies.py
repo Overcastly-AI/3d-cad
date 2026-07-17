@@ -161,6 +161,71 @@ def test_assembly_crud_round_trip(client: TestClient) -> None:
     assert mates[0]["mate"]["b_instance_id"] == instance_b
 
 
+# --- length_unit (docs/design/units.md §U1) ------------------------------------
+
+
+def test_assembly_defaults_to_mm(client: TestClient) -> None:
+    """An assembly created without a unit reads back canonical mm."""
+    assembly_id = _create_assembly(client, "no-unit")
+    header = client.get(f"/api/v1/assemblies/{assembly_id}", headers=_headers()).json()[
+        "assembly"
+    ]
+    assert header["length_unit"] == "mm"
+
+
+def test_assembly_create_with_unit_round_trips(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/assemblies",
+        json={"name": "imperial-asm", "length_unit": "in"},
+        headers=_headers(),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["length_unit"] == "in"
+    assembly_id = response.json()["id"]
+    header = client.get(f"/api/v1/assemblies/{assembly_id}", headers=_headers()).json()[
+        "assembly"
+    ]
+    assert header["length_unit"] == "in"
+
+
+def test_assembly_create_invalid_unit_422(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/assemblies",
+        json={"name": "bad-unit", "length_unit": "furlong"},
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _error(response.json())["code"] == "validation_error"
+
+
+def test_update_assembly_unit_persists_and_bumps_version(client: TestClient) -> None:
+    """mm→in via PATCH persists and bumps doc_version (a document edit)."""
+    assembly_id = _create_assembly(client, "unit-edit")
+    response = client.patch(
+        f"/api/v1/assemblies/{assembly_id}",
+        json={"expected_version": 0, "length_unit": "in"},
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["length_unit"] == "in"
+    assert response.json()["doc_version"] == 1
+
+    graph = client.get(f"/api/v1/assemblies/{assembly_id}", headers=_headers()).json()
+    assert graph["assembly"]["length_unit"] == "in"
+    assert graph["doc_version"] == 1
+
+
+def test_update_assembly_empty_422(client: TestClient) -> None:
+    assembly_id = _create_assembly(client, "empty-edit")
+    response = client.patch(
+        f"/api/v1/assemblies/{assembly_id}",
+        json={"expected_version": 0},
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _error(response.json())["code"] == "empty_assembly_update"
+
+
 def test_list_assemblies_owner_scoped(client: TestClient) -> None:
     _create_assembly(client, "mine-1")
     _create_assembly(client, "mine-2")

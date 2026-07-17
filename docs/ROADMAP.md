@@ -259,6 +259,17 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `distance`/`angle` mate from the generated client union; unit tests +
       `assembly.spec.ts` distance-mate e2e cover it. Both mates are now
       user-authorable end-to-end.
+- 🚧 **Units (length) — `docs/design/units.md`.** Load-bearing rule: storage +
+      kernel stay canonical mm forever; `length_unit` is display metadata only.
+      **U1 ✅ 2026-07-17 (backend + contract):** one `LengthUnit =
+      Literal["mm","cm","m","in","ft"]` in `py_kit.schemas.units`, persisted as
+      `length_unit` (default `"mm"`) on the part + assembly documents (alembic
+      `0005`, server-default `mm` backfills existing rows); documents CRUD
+      accepts it on create, returns it, and a version-bumping update path
+      (part PATCH added; assembly PATCH widened) changes it; gateway passes it
+      through; `just gen` regen (ts-client gains the field). Documents +
+      gateway pytest cover default/round-trip/update-bump/backfill/invalid-422.
+      **U2 (frontend units core + wiring) next.**
 - 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
       3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
       place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible

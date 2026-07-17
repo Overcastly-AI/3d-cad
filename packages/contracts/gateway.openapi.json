@@ -149,6 +149,19 @@
       "AssemblyCreate": {
         "description": "Create an assembly owned by the calling user (design \u00a71.2).",
         "properties": {
+          "length_unit": {
+            "default": "mm",
+            "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm. Defaults to 'mm'.",
+            "enum": [
+              "mm",
+              "cm",
+              "m",
+              "in",
+              "ft"
+            ],
+            "title": "Length Unit",
+            "type": "string"
+          },
           "name": {
             "description": "Assembly name; unique per owner, whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
@@ -233,6 +246,18 @@
             "title": "Id",
             "type": "string"
           },
+          "length_unit": {
+            "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm.",
+            "enum": [
+              "mm",
+              "cm",
+              "m",
+              "in",
+              "ft"
+            ],
+            "title": "Length Unit",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -253,6 +278,7 @@
           "id",
           "name",
           "owner_id",
+          "length_unit",
           "doc_version",
           "created_at",
           "updated_at"
@@ -335,7 +361,7 @@
         "type": "object"
       },
       "AssemblyUpdate": {
-        "description": "Rename an assembly. Bumps ``doc_version`` (any mutation bumps \u2014 \u00a71.2).",
+        "description": "Rename and/or re-unit an assembly. Bumps ``doc_version`` (any mutation\nbumps \u2014 \u00a71.2).\n\nBoth mutable fields are optional; at least one must be provided (mirroring\n:class:`InstanceUpdate`). Changing the display unit is a document edit\n(docs/design/units.md \u00a7U1) \u2014 metadata only, no stored ``*_mm`` value moves.",
         "properties": {
           "expected_version": {
             "description": "Optimistic-concurrency guard: the doc_version the client last saw; a stale value is rejected 422 (design \u00a71.2)",
@@ -343,17 +369,42 @@
             "title": "Expected Version",
             "type": "integer"
           },
+          "length_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mm",
+                  "cm",
+                  "m",
+                  "in",
+                  "ft"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New document display unit (metadata only)",
+            "title": "Length Unit"
+          },
           "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "New assembly name",
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
+            "title": "Name"
           }
         },
         "required": [
-          "expected_version",
-          "name"
+          "expected_version"
         ],
         "title": "AssemblyUpdate",
         "type": "object"
@@ -4199,6 +4250,19 @@
       "PartCreate": {
         "description": "Create a part owned by the calling user.",
         "properties": {
+          "length_unit": {
+            "default": "mm",
+            "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm. Defaults to 'mm'.",
+            "enum": [
+              "mm",
+              "cm",
+              "m",
+              "in",
+              "ft"
+            ],
+            "title": "Length Unit",
+            "type": "string"
+          },
           "name": {
             "description": "Part name; unique per owner, whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
@@ -4231,7 +4295,7 @@
         "type": "object"
       },
       "PartResponse": {
-        "description": "A part as stored \u2014 identity, ownership, and timestamps.\n\nThe feature tree is NOT here yet: it lands as its own tables per\ndocs/design/feature-tree.md once the implementation item ships.",
+        "description": "A part as stored \u2014 identity, ownership, unit, and timestamps.\n\nThe feature tree is NOT here yet: it lands as its own tables per\ndocs/design/feature-tree.md once the implementation item ships.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -4241,6 +4305,18 @@
           "id": {
             "format": "uuid",
             "title": "Id",
+            "type": "string"
+          },
+          "length_unit": {
+            "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm.",
+            "enum": [
+              "mm",
+              "cm",
+              "m",
+              "in",
+              "ft"
+            ],
+            "title": "Length Unit",
             "type": "string"
           },
           "name": {
@@ -4263,10 +4339,60 @@
           "id",
           "name",
           "owner_id",
+          "length_unit",
           "created_at",
           "updated_at"
         ],
         "title": "PartResponse",
+        "type": "object"
+      },
+      "PartUpdate": {
+        "description": "Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit\nbumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part header).\n\nBoth mutable fields are optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.",
+        "properties": {
+          "expected_tree_version": {
+            "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "length_unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mm",
+                  "cm",
+                  "m",
+                  "in",
+                  "ft"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New document display unit (metadata only)",
+            "title": "Length Unit"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New part name",
+            "title": "Name"
+          }
+        },
+        "required": [
+          "expected_tree_version"
+        ],
+        "title": "PartUpdate",
         "type": "object"
       },
       "PatternFeature": {
@@ -9411,6 +9537,63 @@
           }
         ],
         "summary": "Get Part",
+        "tags": [
+          "parts"
+        ]
+      },
+      "patch": {
+        "description": "Rename and/or re-unit one of the caller's parts (bumps ``tree_version``).\n\nThe document-unit selector (docs/design/units.md \u00a7U1) changes ``length_unit``\nthrough this route; 404 envelope for unknown/foreign ids, 422 on a stale\n``expected_tree_version``, 409 on a duplicate name.",
+        "operationId": "update_part_api_v1_parts__part_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Part",
         "tags": [
           "parts"
         ]

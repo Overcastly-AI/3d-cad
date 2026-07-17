@@ -268,7 +268,9 @@ async def create_assembly(
     request: AssemblyCreate, owner_id: Principal, session: SessionDep
 ) -> AssemblyResponse:
     """Create an assembly (201; envelope 409 on a duplicate name for this owner)."""
-    assembly = db.Assembly(owner_id=owner_id, name=request.name)
+    assembly = db.Assembly(
+        owner_id=owner_id, name=request.name, length_unit=request.length_unit
+    )
     session.add(assembly)
     try:
         await session.commit()
@@ -315,10 +317,24 @@ async def update_assembly(
     owner_id: Principal,
     session: SessionDep,
 ) -> AssemblyResponse:
-    """Rename an assembly (bumps ``doc_version``; envelope 409 on a name clash)."""
+    """Rename and/or re-unit an assembly (bumps ``doc_version``; 409 on a name
+    clash).
+
+    Changing ``length_unit`` is a document edit (docs/design/units.md §U1) —
+    metadata only, storage stays canonical mm — and bumps ``doc_version`` like
+    any header mutation.
+    """
+    if request.name is None and request.length_unit is None:
+        raise ValidationApiError(
+            "Provide at least one of name or length_unit.",
+            code="empty_assembly_update",
+        )
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     _ensure_fresh(assembly, request.expected_version)
-    assembly.name = request.name
+    if request.name is not None:
+        assembly.name = request.name
+    if request.length_unit is not None:
+        assembly.length_unit = request.length_unit
     assembly.doc_version += 1
     try:
         await session.commit()

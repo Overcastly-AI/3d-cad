@@ -33,6 +33,7 @@ from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
 from py_kit.db import async_dsn
 from py_kit.schemas.parts import PRINCIPAL_HEADER
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 OWNER = "6f3f6b64-0000-4000-8000-00000000000a"
@@ -109,7 +110,14 @@ def _create(
 
 def test_create_part_returns_full_dto(client: TestClient) -> None:
     body = _create(client)
-    assert set(body) == {"id", "name", "owner_id", "created_at", "updated_at"}
+    assert set(body) == {
+        "id",
+        "name",
+        "owner_id",
+        "length_unit",
+        "created_at",
+        "updated_at",
+    }
     uuid.UUID(body["id"])  # well-formed id
     assert body["name"] == "Bracket"
     assert body["owner_id"] == OWNER
@@ -140,6 +148,137 @@ def test_create_invalid_name_422(client: TestClient, name: str) -> None:
     response = client.post("/api/v1/parts", json={"name": name}, headers=_headers())
     assert response.status_code == 422
     assert _envelope(response.json())["code"] == "validation_error"
+
+
+# --- length_unit (docs/design/units.md §U1) ------------------------------------
+
+
+def _tree_version(client: TestClient, part_id: str) -> int:
+    """The part's current tree_version, read via the feature-tree endpoint."""
+    response = client.get(f"/api/v1/parts/{part_id}/features", headers=_headers())
+    assert response.status_code == 200, response.text
+    return int(response.json()["tree_version"])
+
+
+def test_create_part_defaults_to_mm(client: TestClient) -> None:
+    """A part created without a unit reads back canonical mm (backward compat)."""
+    body = _create(client)
+    assert body["length_unit"] == "mm"
+    fetched = client.get(f"/api/v1/parts/{body['id']}", headers=_headers()).json()
+    assert fetched["length_unit"] == "mm"
+
+
+def test_create_part_with_unit_round_trips(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/parts",
+        json={"name": "Imperial", "length_unit": "in"},
+        headers=_headers(),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["length_unit"] == "in"
+    part_id = response.json()["id"]
+    fetched = client.get(f"/api/v1/parts/{part_id}", headers=_headers()).json()
+    assert fetched["length_unit"] == "in"
+
+
+def test_create_part_invalid_unit_422(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/parts",
+        json={"name": "Bad", "length_unit": "furlong"},
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == "validation_error"
+
+
+def test_update_part_unit_persists_and_bumps_version(client: TestClient) -> None:
+    """mm→in via PATCH persists and bumps tree_version (a document edit)."""
+    body = _create(client)
+    part_id = body["id"]
+    assert body["length_unit"] == "mm"
+    before = _tree_version(client, part_id)
+
+    response = client.patch(
+        f"/api/v1/parts/{part_id}",
+        json={"expected_tree_version": before, "length_unit": "in"},
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["length_unit"] == "in"
+    assert _tree_version(client, part_id) == before + 1
+
+    fetched = client.get(f"/api/v1/parts/{part_id}", headers=_headers()).json()
+    assert fetched["length_unit"] == "in"
+
+
+def test_update_part_stale_version_422(client: TestClient) -> None:
+    body = _create(client)
+    response = client.patch(
+        f"/api/v1/parts/{body['id']}",
+        json={"expected_tree_version": 99, "length_unit": "cm"},
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == "stale_tree_version"
+
+
+def test_update_part_empty_422(client: TestClient) -> None:
+    body = _create(client)
+    response = client.patch(
+        f"/api/v1/parts/{body['id']}",
+        json={"expected_tree_version": 0},
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == "empty_part_update"
+
+
+def test_update_part_invalid_unit_422(client: TestClient) -> None:
+    body = _create(client)
+    response = client.patch(
+        f"/api/v1/parts/{body['id']}",
+        json={"expected_tree_version": 0, "length_unit": "parsec"},
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == "validation_error"
+
+
+def test_preexisting_row_backfills_to_mm(db_url: str) -> None:
+    """A row written WITHOUT length_unit (the pre-units world) surfaces 'mm'.
+
+    Inserts a part with only the pre-units columns via raw SQL, then reads it
+    back through the API — the NOT NULL server-default 'mm' backfills it, so the
+    response is canonical mm without any per-row migration of stored values.
+    """
+    part_id = uuid.uuid4()
+    settings = DocumentsSettings(postgres_url=db_url)
+
+    async def _insert_legacy_row() -> None:
+        engine = create_async_engine(async_dsn(db_url))
+        now = datetime.now(UTC).isoformat()
+        # SQLAlchemy's Uuid type stores dash-less hex on SQLite — match it so
+        # the ORM read (session.get) finds the row.
+        async with engine.begin() as connection:
+            await connection.execute(
+                sa_text(
+                    "INSERT INTO parts "
+                    "(id, owner_id, name, tree_version, created_at, updated_at) "
+                    "VALUES (:id, :owner, :name, 0, :now, :now)"
+                ),
+                {
+                    "id": part_id.hex,
+                    "owner": uuid.UUID(OWNER).hex,
+                    "name": "Legacy",
+                    "now": now,
+                },
+            )
+        await engine.dispose()
+
+    asyncio.run(_insert_legacy_row())
+    with TestClient(build_app(settings)) as client:
+        fetched = client.get(f"/api/v1/parts/{part_id}", headers=_headers()).json()
+    assert fetched["length_unit"] == "mm"
 
 
 # --- principal header (gateway trust boundary) ---------------------------------

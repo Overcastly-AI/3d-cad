@@ -80,6 +80,7 @@ function graph(
       id: "a1",
       name: "Bolted plates",
       owner_id: "u1",
+      length_unit: "mm",
       doc_version: 7,
       created_at: "2026-07-15T00:00:00Z",
       updated_at: "2026-07-15T00:00:00Z",

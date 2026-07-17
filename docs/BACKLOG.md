@@ -86,12 +86,14 @@ unblocks the most workflows. Architecture accepted in `docs/design/units.md`
 (canonical mm forever; unit enum in the contract; convert/parse/format core in
 `packages/design`; kernel untouched). Sequenced U1→U2 below.
 
-- [ ] (P1, M) Units U1 — document length_unit foundation (documents + contract)
-      — add `length_unit: LengthUnit` (`Literal["mm","cm","m","in","ft"]`) to the
-      part + assembly document models + Create/Response schemas; alembic
-      migration (default `mm`, backfill existing rows); documents CRUD
-      accepts/returns it; gateway pass-through; `just gen` regen. Backward
-      compatible (existing rows read `mm`). [src: docs/design/units.md §U1]
+- [x] (P1, M) Units U1 — document length_unit foundation (documents + contract)
+      — DONE 2026-07-17. `LengthUnit = Literal["mm","cm","m","in","ft"]` lives
+      once in `py_kit.schemas.units`; persisted as `length_unit` (default `mm`)
+      on part + assembly Create/Response + update paths; alembic `0005` adds the
+      NOT-NULL column with server-default `mm` (backfills existing rows);
+      documents CRUD + gateway pass it through (part PATCH added, assembly PATCH
+      widened); `just gen` regen. Tests: default/round-trip/update-bump/backfill/
+      invalid-422 (documents + gateway). [src: docs/design/units.md §U1]
 - [ ] (P1, M) Units U2 — frontend units core + wiring (packages/design + apps/web)
       — the pure convert/parse/format module in `packages/design` (`toMm`/`fromMm`/
       `parseLength`/`formatLength`, exact factors, full vitest); a document-unit

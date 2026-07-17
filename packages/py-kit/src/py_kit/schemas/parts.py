@@ -18,6 +18,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
+
 #: Internal header carrying the authenticated user id (gateway → documents).
 PRINCIPAL_HEADER = "X-Loft-User"
 
@@ -40,10 +42,35 @@ class PartCreate(BaseModel):
         description="Part name; unique per owner, whitespace-trimmed, "
         f"1-{PART_NAME_MAX_LENGTH} characters"
     )
+    length_unit: LengthUnit = Field(
+        default=DEFAULT_LENGTH_UNIT,
+        description="Document display unit (docs/design/units.md §1); DISPLAY "
+        "metadata only — storage stays canonical mm. Defaults to 'mm'.",
+    )
+
+
+class PartUpdate(BaseModel):
+    """Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit
+    bumps — the feature-tree.md §1.2 pattern applied to the part header).
+
+    Both mutable fields are optional; at least one must be provided. Changing
+    the display unit is a document edit (docs/design/units.md §U1) — it does
+    NOT convert any stored ``*_mm`` value, only relabels how they render.
+    """
+
+    expected_tree_version: int = Field(
+        ge=0,
+        description="Optimistic-concurrency guard: the tree_version the client "
+        "last saw; a stale value is rejected 422 (feature-tree.md §1.2)",
+    )
+    name: PartName | None = Field(default=None, description="New part name")
+    length_unit: LengthUnit | None = Field(
+        default=None, description="New document display unit (metadata only)"
+    )
 
 
 class PartResponse(BaseModel):
-    """A part as stored — identity, ownership, and timestamps.
+    """A part as stored — identity, ownership, unit, and timestamps.
 
     The feature tree is NOT here yet: it lands as its own tables per
     docs/design/feature-tree.md once the implementation item ships.
@@ -54,6 +81,10 @@ class PartResponse(BaseModel):
     id: uuid.UUID
     name: str
     owner_id: uuid.UUID = Field(description="Owning user id (gateway-verified)")
+    length_unit: LengthUnit = Field(
+        description="Document display unit (docs/design/units.md §1); DISPLAY "
+        "metadata only — storage stays canonical mm."
+    )
     created_at: datetime
     updated_at: datetime
 

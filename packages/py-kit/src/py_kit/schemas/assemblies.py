@@ -35,6 +35,7 @@ from py_kit.schemas.geometry import (
     ShapeProperties,
     Vec3,
 )
+from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 #: Upper bound for a user-facing assembly name ("Gearbox", "Bracket Stack").
 ASSEMBLY_NAME_MAX_LENGTH = 200
@@ -281,17 +282,31 @@ class AssemblyCreate(BaseModel):
         description="Assembly name; unique per owner, whitespace-trimmed, "
         f"1-{ASSEMBLY_NAME_MAX_LENGTH} characters"
     )
+    length_unit: LengthUnit = Field(
+        default=DEFAULT_LENGTH_UNIT,
+        description="Document display unit (docs/design/units.md §1); DISPLAY "
+        "metadata only — storage stays canonical mm. Defaults to 'mm'.",
+    )
 
 
 class AssemblyUpdate(BaseModel):
-    """Rename an assembly. Bumps ``doc_version`` (any mutation bumps — §1.2)."""
+    """Rename and/or re-unit an assembly. Bumps ``doc_version`` (any mutation
+    bumps — §1.2).
+
+    Both mutable fields are optional; at least one must be provided (mirroring
+    :class:`InstanceUpdate`). Changing the display unit is a document edit
+    (docs/design/units.md §U1) — metadata only, no stored ``*_mm`` value moves.
+    """
 
     expected_version: int = Field(
         ge=0,
         description="Optimistic-concurrency guard: the doc_version the client "
         "last saw; a stale value is rejected 422 (design §1.2)",
     )
-    name: AssemblyName = Field(description="New assembly name")
+    name: AssemblyName | None = Field(default=None, description="New assembly name")
+    length_unit: LengthUnit | None = Field(
+        default=None, description="New document display unit (metadata only)"
+    )
 
 
 class InstanceCreate(BaseModel):
@@ -409,6 +424,10 @@ class AssemblyResponse(BaseModel):
     id: uuid.UUID
     name: str
     owner_id: uuid.UUID = Field(description="Owning user id (gateway-verified)")
+    length_unit: LengthUnit = Field(
+        description="Document display unit (docs/design/units.md §1); DISPLAY "
+        "metadata only — storage stays canonical mm."
+    )
     doc_version: int = Field(
         description="Monotonic optimistic-concurrency counter (design §1.2)"
     )
