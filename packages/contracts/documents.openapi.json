@@ -1962,6 +1962,16 @@
       "FeatureTreeResponse": {
         "description": "The ordered feature tree of a part plus its concurrency token.",
         "properties": {
+          "can_redo": {
+            "description": "True when a later history snapshot exists to restore (the history cursor is below the ring's top)",
+            "title": "Can Redo",
+            "type": "boolean"
+          },
+          "can_undo": {
+            "description": "True when an earlier history snapshot exists to restore (docs/design/undo-redo.md) \u2014 lets the toolbar disable undo without a second call",
+            "title": "Can Undo",
+            "type": "boolean"
+          },
           "features": {
             "items": {
               "$ref": "#/components/schemas/FeatureResponse"
@@ -1996,7 +2006,9 @@
           "part_id",
           "tree_version",
           "rollback_feature_id",
-          "features"
+          "features",
+          "can_undo",
+          "can_redo"
         ],
         "title": "FeatureTreeResponse",
         "type": "object"
@@ -4417,6 +4429,21 @@
           }
         },
         "title": "TitleBlock",
+        "type": "object"
+      },
+      "UndoRedoRequest": {
+        "description": "Restore the adjacent history snapshot (docs/design/undo-redo.md).\n\nUndo/redo ARE document edits: each bumps ``tree_version`` under the same\noptimistic-concurrency guard as every other write (stale \u2192 422), and the\nresponse is the restored tree (ids preserved VERBATIM \u2014 the load-bearing\nsnapshot decision). At a boundary \u2014 undo at the ring's floor, redo at its\ntop \u2014 the op is a CLEAN no-op, not an error: 200 with the current tree,\nversion unchanged. ``can_undo``/``can_redo`` on the tree response let the\nUI disable the controls, so a click racing that state is harmless.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_tree_version"
+        ],
+        "title": "UndoRedoRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -7348,6 +7375,78 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/redo": {
+      "post": {
+        "description": "Restore the next history snapshot VERBATIM (ids preserved).\n\nClean no-op at the top of the ring; stale ``expected_tree_version`` \u2192 422.",
+        "operationId": "redo_api_v1_parts__part_id__redo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UndoRedoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Redo",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/rollback": {
       "put": {
         "description": "Move the rollback bar (design \u00a73). Nothing below the bar is deleted or\nmutated; features after it are only MARKED rolled back.",
@@ -7415,6 +7514,78 @@
           }
         },
         "summary": "Move Rollback Bar",
+        "tags": [
+          "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/undo": {
+      "post": {
+        "description": "Restore the previous history snapshot VERBATIM (ids preserved).\n\nClean no-op at the baseline; stale ``expected_tree_version`` \u2192 422.",
+        "operationId": "undo_api_v1_parts__part_id__undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UndoRedoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo",
         "tags": [
           "features"
         ]

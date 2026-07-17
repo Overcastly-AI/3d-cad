@@ -24,6 +24,7 @@ from py_kit.schemas.features import (
     FeatureResponse,
     FeatureTreeResponse,
     SketchFeature,
+    UndoRedoRequest,
 )
 from py_kit.schemas.parts import PRINCIPAL_HEADER
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -64,6 +65,8 @@ def _tree(part_id: uuid.UUID, tree_version: int = 1) -> FeatureTreeResponse:
         tree_version=tree_version,
         rollback_feature_id=None,
         features=[_feature_response(part_id)],
+        can_undo=False,
+        can_redo=False,
     )
 
 
@@ -104,6 +107,14 @@ def _echo_documents(seen: list[httpx.Request]) -> Handler:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         part_id = uuid.UUID(request.url.path.split("/")[4])
+        if request.url.path.endswith(("/undo", "/redo")):
+            body = UndoRedoRequest.model_validate_json(request.content)
+            return httpx.Response(
+                200,
+                content=_tree(
+                    part_id, body.expected_tree_version + 1
+                ).model_dump_json(),
+            )
         if request.method == "POST":
             body = FeatureCreate.model_validate_json(request.content)
             payload = FeatureMutationResponse(
@@ -182,6 +193,8 @@ CREATE_BODY = {
             f"/api/v1/parts/{PART}/rollback",
             {"expected_tree_version": 0, "rollback_feature_id": None},
         ),
+        ("POST", f"/api/v1/parts/{PART}/undo", {"expected_tree_version": 0}),
+        ("POST", f"/api/v1/parts/{PART}/redo", {"expected_tree_version": 0}),
     ],
 )
 def test_unauthenticated_401_and_nothing_forwarded(
@@ -258,6 +271,68 @@ def test_tree_and_rollback_passthrough(db_url: str, seen: list[httpx.Request]) -
         assert response.status_code == 200
         FeatureTreeResponse.model_validate(response.json())
     assert [request.method for request in seen] == ["GET", "PUT", "PUT"]
+
+
+def test_undo_redo_forward_principal_and_body(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """POST /undo and /redo forward the OCC body + principal; the restored
+    tree (with can_undo/can_redo) passes back through the shared DTO."""
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        undo = client.post(
+            f"/api/v1/parts/{PART}/undo",
+            json={"expected_tree_version": 4},
+            headers=bearer,
+        )
+        redo = client.post(
+            f"/api/v1/parts/{PART}/redo",
+            json={"expected_tree_version": 5},
+            headers=bearer,
+        )
+
+    assert undo.status_code == 200, undo.text
+    assert redo.status_code == 200, redo.text
+    assert FeatureTreeResponse.model_validate(undo.json()).tree_version == 5
+    assert FeatureTreeResponse.model_validate(redo.json()).tree_version == 6
+    undo_request, redo_request = seen
+    assert undo_request.method == "POST"
+    assert undo_request.url.path == f"/api/v1/parts/{PART}/undo"
+    assert redo_request.url.path == f"/api/v1/parts/{PART}/redo"
+    for upstream, version in ((undo_request, 4), (redo_request, 5)):
+        assert upstream.headers[PRINCIPAL_HEADER] == user_id
+        parsed = UndoRedoRequest.model_validate_json(upstream.content)
+        assert parsed.expected_tree_version == version
+
+
+def test_undo_stale_version_envelope_is_resurfaced(db_url: str) -> None:
+    """Documents' 422 stale_tree_version passes through verbatim on undo."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "error": {
+                    "code": "stale_tree_version",
+                    "message": "Stale tree version.",
+                    "details": {"provided": 1, "current": 3},
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(db_url, handler) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/parts/{PART}/undo",
+            json={"expected_tree_version": 1},
+            headers=bearer,
+        )
+
+    assert response.status_code == 422
+    error = _envelope(response.json())
+    assert error["code"] == "stale_tree_version"
+    assert error["details"] == {"provided": 1, "current": 3}
 
 
 def test_dependents_conflict_envelope_is_resurfaced(db_url: str) -> None:

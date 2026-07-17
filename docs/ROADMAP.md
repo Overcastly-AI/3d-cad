@@ -282,6 +282,26 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       measure readout + mate gap echo format via the core. e2e proves inch entry
       stores 50.8 mm canonical. Sketch dimensions + mass/area roll-ups stay mm
       (deferred to a later slice — see BACKLOG).
+- 🚧 **Undo/redo (docs/design/undo-redo.md — server-side bounded state
+      snapshots, NOT client command-inversion; accepted 2026-07-17).**
+      **UR1 ✅ 2026-07-17 (backend + contract):** a per-part `part_snapshots`
+      ring (alembic `0006`: `(part_id, seq)` PK + `parts.history_cursor`;
+      `documents.history.HISTORY_MAX = 50`, oldest pruned, logged) written in
+      the SAME transaction as every feature create/update/delete/reorder
+      (lazy baseline seed, redo-tail truncation on fresh edits);
+      `POST /api/v1/parts/{id}/undo|redo` restore the adjacent snapshot
+      VERBATIM — every feature id / dependency edge / order_index / param /
+      timestamp byte-preserved, ids never re-minted — under the existing OCC
+      guard (stale → 422), bumping `tree_version`; boundary calls are clean
+      no-ops (200, current tree); tree GET gains `can_undo`/`can_redo`;
+      gateway proxies auth-gated; contracts + ts-client regenerated. Proof:
+      byte-identical full-tree equality at every step of a 7-deep undo/redo
+      walk over a cross-referencing tree, fillet delete→undo re-binds the
+      edge to the ORIGINAL extrude id (and re-arms the 409), fresh-edit
+      truncates redo, 50-cap ring prune + cursor math, stale 422, boundary
+      no-op flags — documents 227 + gateway 205 pytest green on SQLite AND
+      the real migrated scratch PG. **UR2 (frontend controls + shortcuts):
+      next.**
 - 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
       3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
       place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible

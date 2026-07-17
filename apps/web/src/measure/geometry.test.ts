@@ -50,6 +50,8 @@ const TREE: FeatureTreeResponse = {
   tree_version: 7,
   rollback_feature_id: "a",
   features: [feature("a", false), feature("b", false), feature("c", true)],
+  can_undo: false,
+  can_redo: false,
 };
 
 describe("buildEvaluateTree", () => {

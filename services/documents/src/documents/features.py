@@ -38,12 +38,13 @@ from py_kit.schemas.features import (
     FeatureTreeResponse,
     FeatureUpdate,
     RollbackBarMove,
+    UndoRedoRequest,
     feature_references,
 )
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from documents import db
+from documents import db, history
 from documents.parts import Principal, get_owned_part
 
 _logger = get_logger("documents.features")
@@ -257,11 +258,14 @@ def _to_response(feature: db.Feature, bar_index: int | None) -> FeatureResponse:
 async def _tree_response(session: AsyncSession, part: db.Part) -> FeatureTreeResponse:
     features = await _ordered_features(session, part.id)
     bar_index = _bar_index(part, features)
+    can_undo, can_redo = await history.availability(session, part)
     return FeatureTreeResponse(
         part_id=part.id,
         tree_version=part.tree_version,
         rollback_feature_id=part.rollback_feature_id,
         features=[_to_response(feature, bar_index) for feature in features],
+        can_undo=can_undo,
+        can_redo=can_redo,
     )
 
 
@@ -338,6 +342,7 @@ async def create_feature(
     the bar and move the bar to it (design §3)."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, request.expected_tree_version)
+    pre_op = await history.baseline_state(session, part)
 
     features = await _ordered_features(session, part.id)
     features_by_id = {feature.id: feature for feature in features}
@@ -363,6 +368,7 @@ async def create_feature(
     if part.rollback_feature_id is not None:
         part.rollback_feature_id = feature.id  # bar follows the insert (§3)
     part.tree_version += 1
+    await history.record(session, part, pre_op)
     await session.commit()
     _logger.info(
         "feature_created",
@@ -390,6 +396,7 @@ async def update_feature(
     (uniform rule, design §1.2) — including a name-only change."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, request.expected_tree_version)
+    pre_op = await history.baseline_state(session, part)
     feature = await _get_feature(session, part, feature_id)
 
     if request.feature is not None:
@@ -412,6 +419,7 @@ async def update_feature(
         feature.name = request.name
 
     part.tree_version += 1
+    await history.record(session, part, pre_op)
     await session.commit()
     _logger.info(
         "feature_updated",
@@ -444,6 +452,7 @@ async def delete_feature(
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, expected_tree_version)
+    pre_op = await history.baseline_state(session, part)
     feature = await _get_feature(session, part, feature_id)
 
     dependents = (
@@ -486,6 +495,7 @@ async def delete_feature(
     await session.flush()
     await _shift_indexes(session, part.id, deleted_index + 1, -1)
     part.tree_version += 1
+    await history.record(session, part, pre_op)
     await session.commit()
     _logger.info(
         "feature_deleted",
@@ -507,6 +517,7 @@ async def reorder_features(
     (§2.2 rule 2) under the new order before renumbering."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, request.expected_tree_version)
+    pre_op = await history.baseline_state(session, part)
 
     features = await _ordered_features(session, part.id)
     current_ids = {feature.id for feature in features}
@@ -561,6 +572,7 @@ async def reorder_features(
             .values(order_index=final_index[feature.id])
         )
     part.tree_version += 1
+    await history.record(session, part, pre_op)
     await session.commit()
     _logger.info(
         "features_reordered",
@@ -600,3 +612,65 @@ async def move_rollback_bar(
         tree_version=part.tree_version,
     )
     return await _tree_response(session, part)
+
+
+async def _restore_history_step(
+    part_id: uuid.UUID,
+    request: UndoRedoRequest,
+    owner_id: uuid.UUID,
+    session: AsyncSession,
+    direction: history.Direction,
+) -> FeatureTreeResponse:
+    """Shared undo/redo body (docs/design/undo-redo.md).
+
+    Undo/redo ARE document edits: the same OCC guard as every other write
+    (stale → 422), a ``tree_version`` bump, and the restored tree in the
+    response so the client re-renders (and re-evaluates) authoritatively.
+
+    Boundary shape — undo at the ring's floor / redo at its top is a CLEAN
+    no-op per the design ("clean no-ops, not errors"): 200 with the CURRENT
+    tree, ``tree_version`` untouched, nothing committed. The UI disables the
+    controls via ``can_undo``/``can_redo`` on this same response, so a click
+    racing a just-changed history state lands harmlessly here and resyncs.
+    """
+    part = await get_owned_part(session, owner_id, part_id, for_update=True)
+    _ensure_fresh(part, request.expected_tree_version)
+    if await history.restore_adjacent(session, part, direction):
+        part.tree_version += 1
+        await session.commit()
+        _logger.info(
+            "history_restored",
+            part_id=str(part.id),
+            direction=direction,
+            history_cursor=part.history_cursor,
+            tree_version=part.tree_version,
+        )
+    return await _tree_response(session, part)
+
+
+@router.post("/{part_id}/undo")
+async def undo(
+    part_id: uuid.UUID,
+    request: UndoRedoRequest,
+    owner_id: Principal,
+    session: SessionDep,
+) -> FeatureTreeResponse:
+    """Restore the previous history snapshot VERBATIM (ids preserved).
+
+    Clean no-op at the baseline; stale ``expected_tree_version`` → 422.
+    """
+    return await _restore_history_step(part_id, request, owner_id, session, "undo")
+
+
+@router.post("/{part_id}/redo")
+async def redo(
+    part_id: uuid.UUID,
+    request: UndoRedoRequest,
+    owner_id: Principal,
+    session: SessionDep,
+) -> FeatureTreeResponse:
+    """Restore the next history snapshot VERBATIM (ids preserved).
+
+    Clean no-op at the top of the ring; stale ``expected_tree_version`` → 422.
+    """
+    return await _restore_history_step(part_id, request, owner_id, session, "redo")

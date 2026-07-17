@@ -34,6 +34,7 @@ from py_kit.schemas.features import (
     FeatureTreeResponse,
     FeatureUpdate,
     RollbackBarMove,
+    UndoRedoRequest,
 )
 from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, export_responses
 
@@ -262,6 +263,51 @@ async def export_part(
         media_type=EXPORT_MEDIA_TYPES[format],
         headers=headers,
     )
+
+
+@router.post("/{part_id}/undo")
+async def undo_part(
+    part_id: uuid.UUID,
+    request: UndoRedoRequest,
+    user: CurrentUser,
+    http_request: Request,
+) -> FeatureTreeResponse:
+    """Undo one feature-tree history step (docs/design/undo-redo.md).
+
+    The restored tree comes back with its new ``tree_version``; at the
+    ring's floor this is documents' clean no-op (current tree, version
+    unchanged). Stale ``expected_tree_version`` → 422, resurfaced verbatim.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "POST",
+        f"/api/v1/parts/{part_id}/undo",
+        request.model_dump_json(),
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return FeatureTreeResponse.model_validate_json(upstream.content)
+
+
+@router.post("/{part_id}/redo")
+async def redo_part(
+    part_id: uuid.UUID,
+    request: UndoRedoRequest,
+    user: CurrentUser,
+    http_request: Request,
+) -> FeatureTreeResponse:
+    """Redo one feature-tree history step (clean no-op at the ring's top)."""
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "POST",
+        f"/api/v1/parts/{part_id}/redo",
+        request.model_dump_json(),
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return FeatureTreeResponse.model_validate_json(upstream.content)
 
 
 @router.put("/{part_id}/rollback")

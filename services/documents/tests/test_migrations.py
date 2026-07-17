@@ -205,6 +205,33 @@ def test_0005_offline_downgrade_drops_length_unit(
     assert "ALTER TABLE parts DROP COLUMN length_unit" in sql
 
 
+def test_0006_offline_sql_creates_part_snapshots(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0005:0006")
+    # undo-redo.md UR1 — the bounded snapshot ring: (part_id, seq) natural PK
+    # (its backing index serves every history scan), JSONB full-state payload,
+    # part-scoped CASCADE.
+    assert "CREATE TABLE part_snapshots" in sql
+    assert "seq BIGINT NOT NULL" in sql
+    assert "state JSONB NOT NULL" in sql
+    assert "CONSTRAINT pk_part_snapshots PRIMARY KEY (part_id, seq)" in sql
+    assert (
+        "CONSTRAINT fk_part_snapshots_part FOREIGN KEY(part_id) "
+        "REFERENCES parts (id) ON DELETE CASCADE" in sql
+    )
+    # The cursor: NULLable (NULL = history never seeded), app-maintained.
+    assert "ALTER TABLE parts ADD COLUMN history_cursor BIGINT" in sql
+
+
+def test_0006_offline_downgrade_drops_everything(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0006:0005", downgrade=True)
+    assert "ALTER TABLE parts DROP COLUMN history_cursor" in sql
+    assert "DROP TABLE part_snapshots" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:
@@ -235,11 +262,13 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "views",
         "dimensions",
         "annotations",
+        "part_snapshots",
         "alembic_version",
     }
 
     alembic_runner(pg_url, "base", downgrade=True)
     remaining = asyncio.run(_table_names(pg_url))
+    assert "part_snapshots" not in remaining
     assert "features" not in remaining
     assert "feature_dependencies" not in remaining
     assert "parts" not in remaining  # 0001 downgrade too
@@ -265,4 +294,5 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "views",
         "dimensions",
         "annotations",
+        "part_snapshots",
     }

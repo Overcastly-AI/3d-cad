@@ -123,16 +123,16 @@ client command-inversion (a parametric tree cross-references by entity id, so
 redo must preserve ids verbatim; snapshots do, command-replay can't). v1 covers
 the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
 
-- [ ] (P1, L) Undo/redo UR1 — server-side snapshot history + endpoints (documents
-      + contract). A bounded per-part state-snapshot ring (recommend a
-      `part_snapshots` table + `history_cursor` on `parts`) written in-transaction
-      on every feature create/update/delete/reorder; `POST /parts/{id}/undo|redo`
-      restore an adjacent snapshot verbatim (ids preserved → `feature_dependencies`
-      stays valid), bump `tree_version` under the existing OCC guard; tree GET gains
-      `can_undo`/`can_redo`; alembic migration; gateway proxy; `just gen`.
-      Correctness IS the deliverable — tests: byte-identical restore at any
-      distance, fillet-on-extrude survives delete→undo, fresh-edit truncates redo,
-      ring-drop at cap, stale-version 422, baseline/top no-ops clean.
+- [x] (P1, L) Undo/redo UR1 — server-side snapshot history + endpoints (documents
+      + contract) — **DONE 2026-07-17.** `part_snapshots` ring (alembic `0006`,
+      `HISTORY_MAX = 50`) + `parts.history_cursor`, snapshot-on-mutation in all
+      four feature ops (one shared `documents.history` path), `undo`/`redo`
+      endpoints restoring snapshots VERBATIM (ids/edges/order byte-preserved)
+      under the OCC guard, `can_undo`/`can_redo` on the tree GET, gateway proxy,
+      contracts + ts-client regenerated. Proof: byte-identical restore at any
+      distance, fillet delete→undo re-binds the ORIGINAL extrude id, fresh-edit
+      truncates redo, ring prune at cap, stale 422, boundary no-ops clean
+      (documents 227 + gateway 205 pytest, SQLite + real PG).
       [src: docs/design/undo-redo.md §UR1]
 - [ ] (P1, M) Undo/redo UR2 — frontend controls + shortcuts (apps/web). Toolbar
       undo/redo buttons (design-system, disabled via `can_undo`/`can_redo`) +

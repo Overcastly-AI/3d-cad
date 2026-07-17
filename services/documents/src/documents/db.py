@@ -91,6 +91,11 @@ class Part(Base):
     rollback_feature_id: Mapped[uuid.UUID | None] = mapped_column(
         sa.Uuid(), nullable=True
     )
+    #: Undo/redo cursor (docs/design/undo-redo.md): the ``part_snapshots.seq``
+    #: whose state IS the current tree; NULL = history never seeded (no
+    #: mutation yet). Maintained by :mod:`documents.history` in the same
+    #: transaction as every tree write.
+    history_cursor: Mapped[int | None] = mapped_column(sa.BigInteger(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
@@ -221,6 +226,45 @@ class FeatureDependency(Base):
             f"FeatureDependency(feature_id={self.feature_id!r}, "
             f"references_feature_id={self.references_feature_id!r})"
         )
+
+
+class PartSnapshot(Base):
+    """One entry of a part's bounded undo/redo history (docs/design/undo-redo.md).
+
+    ``state`` is the part's FULL serialized mutable child state — the ordered
+    features (id / order_index / type / param_version / params / name +
+    timestamps), the ``feature_dependencies`` edges, and the
+    ``rollback_feature_id`` pointer — captured in the SAME transaction as the
+    tree write that produced it. Undo/redo restore a snapshot VERBATIM (every
+    entity id byte-preserved; ids are never regenerated), which is the
+    load-bearing decision of the design: re-creating entities with fresh ids
+    would orphan every downstream ``feature_dependencies`` reference on redo.
+
+    ``seq`` is per-part monotonic and CONTIGUOUS within the retained window:
+    appends use ``cursor + 1`` (after truncating any redo tail), pruning only
+    ever drops from the floor, so ``documents.history`` can address adjacent
+    snapshots as ``cursor ± 1``. The ring keeps at most
+    :data:`documents.history.HISTORY_MAX` rows per part.
+    """
+
+    __tablename__ = "part_snapshots"
+
+    part_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("parts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    seq: Mapped[int] = mapped_column(sa.BigInteger(), primary_key=True)
+    state: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"PartSnapshot(part_id={self.part_id!r}, seq={self.seq!r})"
 
 
 class Assembly(Base):

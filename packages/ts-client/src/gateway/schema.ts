@@ -1015,6 +1015,26 @@ export interface paths {
         patch: operations["update_feature_api_v1_parts__part_id__features__feature_id__patch"];
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redo Part
+         * @description Redo one feature-tree history step (clean no-op at the ring's top).
+         */
+        post: operations["redo_part_api_v1_parts__part_id__redo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/rollback": {
         parameters: {
             query?: never;
@@ -1029,6 +1049,30 @@ export interface paths {
          */
         put: operations["move_rollback_bar_api_v1_parts__part_id__rollback_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Part
+         * @description Undo one feature-tree history step (docs/design/undo-redo.md).
+         *
+         *     The restored tree comes back with its new ``tree_version``; at the
+         *     ring's floor this is documents' clean no-op (current tree, version
+         *     unchanged). Stale ``expected_tree_version`` → 422, resurfaced verbatim.
+         */
+        post: operations["undo_part_api_v1_parts__part_id__undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2970,6 +3014,16 @@ export interface components {
          * @description The ordered feature tree of a part plus its concurrency token.
          */
         FeatureTreeResponse: {
+            /**
+             * Can Redo
+             * @description True when a later history snapshot exists to restore (the history cursor is below the ring's top)
+             */
+            can_redo: boolean;
+            /**
+             * Can Undo
+             * @description True when an earlier history snapshot exists to restore (docs/design/undo-redo.md) — lets the toolbar disable undo without a second call
+             */
+            can_undo: boolean;
             /** Features */
             features: components["schemas"]["FeatureResponse"][];
             /**
@@ -5554,6 +5608,22 @@ export interface components {
             shells: number;
         };
         /**
+         * UndoRedoRequest
+         * @description Restore the adjacent history snapshot (docs/design/undo-redo.md).
+         *
+         *     Undo/redo ARE document edits: each bumps ``tree_version`` under the same
+         *     optimistic-concurrency guard as every other write (stale → 422), and the
+         *     response is the restored tree (ids preserved VERBATIM — the load-bearing
+         *     snapshot decision). At a boundary — undo at the ring's floor, redo at its
+         *     top — the op is a CLEAN no-op, not an error: 200 with the current tree,
+         *     version unchanged. ``can_undo``/``can_redo`` on the tree response let the
+         *     UI disable the controls, so a click racing that state is harmless.
+         */
+        UndoRedoRequest: {
+            /** Expected Tree Version */
+            expected_tree_version: number;
+        };
+        /**
          * UserResponse
          * @description Public view of an account — no credential material, ever.
          */
@@ -7613,6 +7683,41 @@ export interface operations {
             };
         };
     };
+    redo_part_api_v1_parts__part_id__redo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoRedoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     move_rollback_bar_api_v1_parts__part_id__rollback_put: {
         parameters: {
             query?: never;
@@ -7625,6 +7730,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RollbackBarMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_part_api_v1_parts__part_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoRedoRequest"];
             };
         };
         responses: {

@@ -1775,6 +1775,15 @@ class FeatureTreeResponse(BaseModel):
         description="Last INCLUDED feature; null = bar at the tip (§3)"
     )
     features: list[FeatureResponse]
+    can_undo: bool = Field(
+        description="True when an earlier history snapshot exists to restore "
+        "(docs/design/undo-redo.md) — lets the toolbar disable undo without "
+        "a second call"
+    )
+    can_redo: bool = Field(
+        description="True when a later history snapshot exists to restore "
+        "(the history cursor is below the ring's top)"
+    )
 
 
 class FeatureMutationResponse(BaseModel):
@@ -1803,6 +1812,21 @@ class RollbackBarMove(BaseModel):
 
     expected_tree_version: int = Field(ge=0)
     rollback_feature_id: uuid.UUID | None
+
+
+class UndoRedoRequest(BaseModel):
+    """Restore the adjacent history snapshot (docs/design/undo-redo.md).
+
+    Undo/redo ARE document edits: each bumps ``tree_version`` under the same
+    optimistic-concurrency guard as every other write (stale → 422), and the
+    response is the restored tree (ids preserved VERBATIM — the load-bearing
+    snapshot decision). At a boundary — undo at the ring's floor, redo at its
+    top — the op is a CLEAN no-op, not an error: 200 with the current tree,
+    version unchanged. ``can_undo``/``can_redo`` on the tree response let the
+    UI disable the controls, so a click racing that state is harmless.
+    """
+
+    expected_tree_version: int = Field(ge=0)
 
 
 # --- §4 Evaluation contract (documents → geometry) ---------------------------------
