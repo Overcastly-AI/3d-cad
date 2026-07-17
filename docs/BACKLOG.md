@@ -134,12 +134,18 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       truncates redo, ring prune at cap, stale 422, boundary no-ops clean
       (documents 227 + gateway 205 pytest, SQLite + real PG).
       [src: docs/design/undo-redo.md §UR1]
-- [ ] (P1, M) Undo/redo UR2 — frontend controls + shortcuts (apps/web). Toolbar
-      undo/redo buttons (design-system, disabled via `can_undo`/`can_redo`) +
-      `Ctrl/⌘+Z` / `Ctrl/⌘+Shift+Z` / `Ctrl+Y` guarded by `isTypingTarget`; issue
-      the endpoint → refresh tree + viewport; stale-version 409 → soft reload. e2e:
-      extrude → fillet → undo×2 (both gone) → redo×2 (both back, fillet still bound
-      to the extrude); keyboard/button parity. [src: docs/design/undo-redo.md §UR2]
+- [x] (P1, M) Undo/redo UR2 — frontend controls + shortcuts (apps/web +
+      packages/design) — **DONE 2026-07-17.** History `ToolGroup` leads the
+      command band (`ToolButton` aria-disabled from `can_undo`/`can_redo` with
+      honest reasons; scribed `UndoIcon`/`RedoIcon` added to `@loft/design`);
+      `Ctrl/⌘+Z` / `Ctrl/⌘+Shift+Z` / `Ctrl+Y` via pure `undoRedoStep` grammar
+      guarded by `isTypingTarget` (native field undo untouched; model-idle only);
+      posts `expected_tree_version` → resync via the shared `refreshTreeAndBody`
+      path (boundary no-op adopts echoed tree; stale 422 → typed
+      `StaleTreeVersionError` → quiet soft reload; in-flight repeats ignored).
+      Vitest 637 (43 new) + typecheck + lint green; `e2e/undo-redo.spec.ts`
+      (undo×3/redo×3, button+chord parity, bound gating, fillet re-binds the
+      extrude) committed, runs in CI. [src: docs/design/undo-redo.md §UR2]
 
 - [x] (P0, L) Viewport makeover Batch 1 — "the scene is a place" (apps/web +
       packages/design) — **DONE 2026-07-16** (founder recalibration, mandate
@@ -810,6 +816,9 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-17 — **Undo/redo UR2 (frontend controls + shortcuts) done:** History
+  band group (gated by `can_undo`/`can_redo`) + Ctrl/⌘+Z / +Shift+Z / Ctrl+Y via
+  `isTypingTarget`-guarded grammar; shared refresh path; stale 422 → soft reload.
 - 2026-07-17 — **Units U2 (frontend units core + wiring) done:** pure
   `toMm`/`fromMm`/`parseLength`/`formatLength` in `packages/design` (21 vitest);
   `useDocumentLengthUnit` seam threads the doc unit through every feature-param

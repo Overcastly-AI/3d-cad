@@ -22,6 +22,7 @@ import {
   type PatternParams,
   patternFeatureCreate,
   patternFeatureUpdate,
+  redoPart,
   type RevolveParams,
   revolveFeatureCreate,
   revolveFeatureUpdate,
@@ -29,9 +30,11 @@ import {
   sketchFeatureUpdate,
   type SketchConstraint,
   type SketchEntity,
+  StaleTreeVersionError,
   type SweepParams,
   sweepFeatureCreate,
   sweepFeatureUpdate,
+  undoPart,
 } from "./parts";
 
 const entities: SketchEntity[] = [
@@ -139,6 +142,99 @@ describe("createPart", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(PartNameTakenError);
     expect((error as Error).message).toMatch(/server exploded/);
+  });
+});
+
+describe("undoPart / redoPart", () => {
+  /** The restored tree the endpoints echo (docs/design/undo-redo.md). */
+  const restoredTree = {
+    part_id: samplePart.id,
+    tree_version: 5,
+    rollback_feature_id: null,
+    can_undo: true,
+    can_redo: true,
+    features: [],
+  };
+
+  it("undoPart POSTs the expected_tree_version and returns the restored tree", async () => {
+    let captured: Request | undefined;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        captured = request;
+        return Promise.resolve(json(restoredTree, 200));
+      },
+    });
+
+    await expect(undoPart(samplePart.id, 4, client)).resolves.toEqual(
+      restoredTree,
+    );
+    expect(captured?.method).toBe("POST");
+    expect(new URL(captured?.url ?? "").pathname).toBe(
+      `/api/v1/parts/${samplePart.id}/undo`,
+    );
+    expect(JSON.parse(await captured!.text())).toEqual({
+      expected_tree_version: 4,
+    });
+  });
+
+  it("redoPart POSTs the expected_tree_version to the redo route", async () => {
+    let captured: Request | undefined;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        captured = request;
+        return Promise.resolve(json(restoredTree, 200));
+      },
+    });
+
+    await expect(redoPart(samplePart.id, 4, client)).resolves.toEqual(
+      restoredTree,
+    );
+    expect(new URL(captured?.url ?? "").pathname).toBe(
+      `/api/v1/parts/${samplePart.id}/redo`,
+    );
+    expect(JSON.parse(await captured!.text())).toEqual({
+      expected_tree_version: 4,
+    });
+  });
+
+  it("throws the typed StaleTreeVersionError on a 422 stale_tree_version", async () => {
+    const stale = json(
+      { error: { code: "stale_tree_version", message: "tree moved on" } },
+      422,
+    );
+    const undoError = await undoPart(
+      samplePart.id,
+      1,
+      clientReturning(stale),
+    ).catch((e: unknown) => e);
+    expect(undoError).toBeInstanceOf(StaleTreeVersionError);
+    expect((undoError as Error).message).toMatch(/tree moved on/);
+
+    const redoError = await redoPart(
+      samplePart.id,
+      1,
+      clientReturning(
+        json(
+          { error: { code: "stale_tree_version", message: "tree moved on" } },
+          422,
+        ),
+      ),
+    ).catch((e: unknown) => e);
+    expect(redoError).toBeInstanceOf(StaleTreeVersionError);
+  });
+
+  it("surfaces the envelope message (untyped) on other failures", async () => {
+    const client = clientReturning(
+      json({ error: { code: "part_not_found", message: "no such part" } }, 404),
+    );
+    const error = await undoPart(samplePart.id, 1, client).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(StaleTreeVersionError);
+    expect((error as Error).message).toMatch(/no such part/);
   });
 });
 

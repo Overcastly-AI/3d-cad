@@ -23,12 +23,14 @@ import {
   LoftIcon,
   MeasureIcon,
   PatternIcon,
+  RedoIcon,
   RevolveIcon,
   ShellIcon,
   SketchIcon,
   SweepIcon,
   ToolButton,
   ToolGroup,
+  UndoIcon,
 } from "@loft/design";
 import { useRef } from "react";
 
@@ -37,6 +39,20 @@ import { useCommandActionStore } from "../features/commandActions";
 export interface CreateStripProps {
   /** The feature tree has loaded (buttons stay disabled until it has). */
   treeReady: boolean;
+  /**
+   * An earlier history snapshot exists to restore (the tree response's
+   * `can_undo` — docs/design/undo-redo.md). At the ring's floor the button
+   * disables with its honest reason, like every other gated tool.
+   */
+  canUndo?: boolean;
+  /** A later history snapshot exists to restore (`can_redo` — the mirror gate). */
+  canRedo?: boolean;
+  /** An undo/redo is in flight — both buttons hold until it settles. */
+  historyBusy?: boolean;
+  /** Undo one feature-tree edit (Ctrl/⌘+Z). */
+  onUndo?: () => void;
+  /** Redo one feature-tree edit (Ctrl/⌘+Shift+Z, Ctrl+Y). */
+  onRedo?: () => void;
   /** Enter sketch mode — pick a plane, then L / R / C / A. */
   onNewSketch: () => void;
   /**
@@ -111,6 +127,11 @@ export interface CreateStripProps {
 
 export function CreateStrip({
   treeReady,
+  canUndo = false,
+  canRedo = false,
+  historyBusy = false,
+  onUndo,
+  onRedo,
   onNewSketch,
   canImportStep = false,
   importingStep = false,
@@ -143,6 +164,11 @@ export function CreateStrip({
   // The open editor publishes its submit gate here; the OK cell shows its true
   // (disabled) state on an invalid form instead of looking actionable but no-op.
   const okReady = useCommandActionStore((s) => s.okReady);
+
+  const undoReady =
+    treeReady && canUndo && !historyBusy && onUndo !== undefined;
+  const redoReady =
+    treeReady && canRedo && !historyBusy && onRedo !== undefined;
 
   const filletReady = canModify && treeReady && onFillet !== undefined;
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
@@ -236,6 +262,40 @@ export function CreateStrip({
           locked ? "sr-only" : "flex items-stretch divide-x divide-hairline"
         }
       >
+        {/* History leads the band (the Fusion position): every modeling edit is
+            reversible from here, gated honestly by the server's can_undo /
+            can_redo — the buttons are wired state, never decoration. */}
+        <ToolGroup eyebrow="History">
+          <ToolButton
+            icon={<UndoIcon />}
+            showLabel
+            label="Undo"
+            shortcut="Ctrl+Z"
+            data-testid="undo-button"
+            aria-label="Undo"
+            caption={captionFor(
+              undoReady,
+              canUndo ? "Undoing…" : "Nothing to undo",
+            )}
+            disabled={locked || !undoReady}
+            onClick={onUndo}
+          />
+          <ToolButton
+            icon={<RedoIcon />}
+            showLabel
+            label="Redo"
+            shortcut="Ctrl+Shift+Z"
+            data-testid="redo-button"
+            aria-label="Redo"
+            caption={captionFor(
+              redoReady,
+              canRedo ? "Redoing…" : "Nothing to redo",
+            )}
+            disabled={locked || !redoReady}
+            onClick={onRedo}
+          />
+        </ToolGroup>
+
         <ToolGroup eyebrow="Create">
           <ToolButton
             icon={<ImportStepIcon />}

@@ -113,6 +113,20 @@ export class PartNameTakenError extends Error {
   }
 }
 
+/**
+ * The write raced another edit: the sent `expected_tree_version` no longer
+ * matches the document (422 `stale_tree_version`). Typed so undo/redo can
+ * resync quietly (the design doc's "soft reload", docs/design/undo-redo.md)
+ * instead of surfacing a scary error — a narrowing the OpenAPI schema can't
+ * express, mirroring `PartNameTakenError`.
+ */
+export class StaleTreeVersionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StaleTreeVersionError";
+  }
+}
+
 /** The caller's parts, oldest first (register order). */
 export async function fetchParts(
   client: GatewayClient = gatewayClient,
@@ -652,6 +666,53 @@ export async function moveRollbackBar(
     );
   }
   return data;
+}
+
+/**
+ * Undo one feature-tree history step (docs/design/undo-redo.md): restore the
+ * previous snapshot, ids verbatim. Undo IS a document edit — it takes the
+ * client's `expected_tree_version` and returns the restored tree + the new
+ * token; at the ring's floor it's a clean 200 no-op echoing the current tree
+ * (version unchanged). A stale version throws the typed
+ * `StaleTreeVersionError` so the caller can soft-reload instead of erroring.
+ */
+export async function undoPart(
+  partId: string,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureTreeResponse> {
+  const { data, error } = await client.POST("/api/v1/parts/{part_id}/undo", {
+    params: { path: { part_id: partId } },
+    body: { expected_tree_version: expectedTreeVersion },
+  });
+  if (error !== undefined) {
+    throw historyStepError(error, "The last edit could not be undone.");
+  }
+  return data;
+}
+
+/** Redo one feature-tree history step — `undoPart`'s mirror, same contract. */
+export async function redoPart(
+  partId: string,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureTreeResponse> {
+  const { data, error } = await client.POST("/api/v1/parts/{part_id}/redo", {
+    params: { path: { part_id: partId } },
+    body: { expected_tree_version: expectedTreeVersion },
+  });
+  if (error !== undefined) {
+    throw historyStepError(error, "The edit could not be redone.");
+  }
+  return data;
+}
+
+/** Shared undo/redo failure mapping: stale → typed, everything else verbatim. */
+function historyStepError(error: unknown, fallback: string): Error {
+  const message = envelopeMessage(error, fallback);
+  return envelopeCode(error) === "stale_tree_version"
+    ? new StaleTreeVersionError(message)
+    : new Error(message);
 }
 
 /** Replace a feature's params (200; 422 on stale version). */

@@ -49,6 +49,9 @@ import {
   loftFeatureCreate,
   loftFeatureUpdate,
   moveRollbackBar,
+  redoPart,
+  StaleTreeVersionError,
+  undoPart,
   type PatternParams,
   patternFeatureCreate,
   patternFeatureUpdate,
@@ -170,6 +173,7 @@ import {
 } from "../sketch/plane";
 import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
 import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
@@ -1942,6 +1946,67 @@ export function PartPage() {
     [partId, freshTreeVersion, refreshTreeAndBody],
   );
 
+  // ---------------------------------------------------------------------
+  // Undo/redo (docs/design/undo-redo.md §UR2). History is SERVER-side snapshot
+  // state: the tree GET's can_undo/can_redo gate the controls, and a step is a
+  // document edit under the same tree-version OCC as every other write. The
+  // restored tree re-renders through the SAME post-mutation refresh path all
+  // feature saves use — never a second pipeline.
+  // ---------------------------------------------------------------------
+  const canUndo = tree.data?.can_undo ?? false;
+  const canRedo = tree.data?.can_redo ?? false;
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const historyInFlight = useRef(false);
+
+  const runHistoryStep = useCallback(
+    (step: HistoryStep) => {
+      // One step at a time: repeats (held key / double click) are ignored
+      // until the in-flight step settles and the tree has re-synced.
+      if (historyInFlight.current) return;
+      historyInFlight.current = true;
+      setHistoryBusy(true);
+      // A restore changes the tree under every armed tool — disarm measure
+      // and drop the selection, exactly like the rollback-bar move.
+      useMeasureStore.getState().deactivate();
+      setSelectedFeatureId(null);
+      void (async () => {
+        try {
+          const version = await freshTreeVersion();
+          const restored =
+            step === "undo"
+              ? await undoPart(partId, version)
+              : await redoPart(partId, version);
+          if (restored.tree_version === version) {
+            // Boundary no-op (clean 200): nothing changed — adopt the echoed
+            // tree (fresh can_undo/can_redo) without a re-evaluate cycle.
+            queryClient.setQueryData(["features", partId], restored);
+          } else {
+            await refreshTreeAndBody();
+          }
+        } catch (error) {
+          if (error instanceof StaleTreeVersionError) {
+            // Someone else moved the tree: the design doc's soft reload —
+            // resync quietly; the user re-issues against what they now see.
+            await refreshTreeAndBody();
+          }
+          // Anything else (transient network/server hiccup): the tree is
+          // unchanged server-side; the buttons re-enable for a retry.
+        } finally {
+          historyInFlight.current = false;
+          setHistoryBusy(false);
+        }
+      })();
+    },
+    [partId, freshTreeVersion, refreshTreeAndBody, queryClient],
+  );
+
+  const triggerUndo = useCallback(() => {
+    if (canUndo) runHistoryStep("undo");
+  }, [canUndo, runHistoryStep]);
+  const triggerRedo = useCallback(() => {
+    if (canRedo) runHistoryStep("redo");
+  }, [canRedo, runHistoryStep]);
+
   // A solved sketch must exist before an extrude or revolve can consume one.
   const hasSolvedSketch =
     sketchProfiles.length > 0 &&
@@ -2016,6 +2081,27 @@ export function PartPage() {
     openCreateDraft,
   ]);
 
+  // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — model idle
+  // only. Sketch mode owns its own buffer (sketch-internal undo is a later,
+  // finer-grained layer — docs/design/undo-redo.md "out of v1"), and an open
+  // editor locks the band's History tools, so the keys hold to the same gate.
+  // A focused text field keeps its NATIVE undo (the typing-target guard is
+  // resolved inside the pure grammar helper).
+  useEffect(() => {
+    if (mode !== "off" || editor !== null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const step = undoRedoStep(event, isTypingTarget(event.target));
+      if (step === null) return;
+      // The chord is ours in the workspace even at a history bound — swallow
+      // it so the browser never runs its own undo behind the tool.
+      event.preventDefault();
+      if (step === "undo") triggerUndo();
+      else triggerRedo();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, editor, triggerUndo, triggerRedo]);
+
   // The body is the hero: once a solid renders, the profile sketch that
   // defined it recedes (it sits on the body's base face — coincident scribe
   // ink would only z-fight the solid). It returns, live, on sketch re-entry.
@@ -2085,6 +2171,11 @@ export function PartPage() {
           {mode === "off" ? (
             <CreateStrip
               treeReady={tree.data !== undefined}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              historyBusy={historyBusy}
+              onUndo={triggerUndo}
+              onRedo={triggerRedo}
               onNewSketch={handleNewSketch}
               canImportStep={bodyFeatureId === null}
               importingStep={importing}

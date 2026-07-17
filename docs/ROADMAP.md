@@ -300,8 +300,22 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       edge to the ORIGINAL extrude id (and re-arms the 409), fresh-edit
       truncates redo, 50-cap ring prune + cursor math, stale 422, boundary
       no-op flags — documents 227 + gateway 205 pytest green on SQLite AND
-      the real migrated scratch PG. **UR2 (frontend controls + shortcuts):
-      next.**
+      the real migrated scratch PG. **UR2 ✅ 2026-07-17 (frontend controls +
+      shortcuts):** History group leads the command band (design-system
+      `ToolButton` + new scribed `UndoIcon`/`RedoIcon` in `@loft/design`;
+      aria-disabled gating from the tree's `can_undo`/`can_redo` with honest
+      tooltip reasons); `Ctrl/⌘+Z` / `Ctrl/⌘+Shift+Z` / `Ctrl+Y` via a pure
+      node-tested grammar helper guarded by `isTypingTarget` (a text field's
+      native undo is never hijacked; model-idle only — sketch mode owns its
+      buffer, an open editor locks History); the call path posts
+      `expected_tree_version`, resyncs through the SAME
+      `refreshTreeAndBody` invalidation every feature save uses (boundary
+      no-op adopts the echoed tree without re-evaluating; stale 422 → typed
+      `StaleTreeVersionError` → quiet soft reload), in-flight repeats
+      ignored. Vitest 637 (43 new: modifier matrix incl. Ctrl+Y + builders)
+      + typecheck + lint green; `e2e/undo-redo.spec.ts` walks
+      sketch→extrude→fillet undo×3/redo×3 with button+chord parity, bound
+      gating, and fillet-rebinds-extrude volume proof (runs in CI).
 - 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
       3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
       place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible
