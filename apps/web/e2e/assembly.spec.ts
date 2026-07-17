@@ -305,7 +305,7 @@ test.describe("Assemblies v1 — parametric mates (distance / angle)", () => {
 
     // The value field appears (not auto-committed) with the sensible default,
     // and is editable before commit — keyboard-first.
-    const value = page.getByTestId("mate-value").locator("input");
+    const value = page.getByTestId("mate-value");
     await expect(value).toBeVisible();
     await expect(value).toHaveValue("10");
     await value.fill("20");
