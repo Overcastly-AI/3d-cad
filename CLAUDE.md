@@ -271,6 +271,24 @@ recipe here in the same commit as the fix.**
   then `kill` those pids (parents + children) so the suite reboots from current
   code. Agents that need a stack mid-run should boot **isolated** ports (e.g.
   :8010/:8012) and tear them down, leaving the shared stack untouched.
+- **A stale Vite on :5173 poisons `just e2e` worse than a stale uvicorn — every
+  spec 500s at register.** `apps/web/playwright.config.ts` sets
+  `reuseExistingServer: true` (so e2e composes with a running `just dev`), and
+  the Vite `/api` proxy targets `GATEWAY_ORIGIN ?? http://127.0.0.1:8000`
+  (`apps/web/vite.config.ts`). An agent that booted an **isolated** frontend
+  (its own Vite on :5173 with `GATEWAY_ORIGIN=http://127.0.0.1:8010`) and tore
+  down its :8010 gateway but **left the Vite process running** leaves a
+  :5173 whose proxy now points at a DEAD gateway. A later shared `just e2e`
+  *reuses that stale Vite* → `/api/v1/auth/register` proxies to nothing →
+  **500**, and since every spec's `seedSession` registers first, the WHOLE
+  suite fails ("e2e register failed: 500", ~157 failed / 2 passed) while
+  leg-1 geometry gates pass and a direct curl to the real :8000 gateway
+  returns 201. Symptom ≠ code regression. **Before a batch-end `just e2e`,
+  also kill a stale Vite:** `curl -sf -m2 http://127.0.0.1:5173/ >/dev/null &&
+  ps -eo pid,args | grep -E 'vite/bin/vite' | grep -v grep` then `kill` it, so
+  Playwright boots a fresh Vite proxying to the :8000 gateway `just e2e`
+  starts. Agents booting an isolated frontend MUST kill their Vite in teardown,
+  not just their uvicorns.
 - **Founder screenshots are refresh-on-demand, not a per-run output.** `just
   e2e` used to rewrite ~90 PNGs under `docs/screenshots/` every run, forcing a
   noise commit. Two churn sources: (1) the per-run random session email in the
