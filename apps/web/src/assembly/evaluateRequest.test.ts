@@ -86,6 +86,8 @@ function graph(
       updated_at: "2026-07-15T00:00:00Z",
     },
     doc_version: 7,
+    can_undo: false,
+    can_redo: false,
     instances: [
       instance({ id: "i1", ref_document_id: "part-1", grounded: true }),
       instance({ id: "i2", ref_document_id: "part-1", grounded: false }),

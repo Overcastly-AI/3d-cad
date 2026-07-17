@@ -146,6 +146,21 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       Vitest 637 (43 new) + typecheck + lint green; `e2e/undo-redo.spec.ts`
       (undo×3/redo×3, button+chord parity, bound gating, fillet re-binds the
       extrude) committed, runs in CI. [src: docs/design/undo-redo.md §UR2]
+- [x] (P1, M) Undo/redo UR3 — assembly backend + contract (documents + gateway
+      + py-kit) — **DONE 2026-07-17.** Ring mechanics factored ONCE into
+      `documents.history_core.DocumentHistory` (part history rewired over it,
+      UR1 tests untouched-green); `assembly_snapshots` ring (alembic `0007`) +
+      `assemblies.history_cursor`; snapshot-on-mutation in ALL six assembly ops
+      (instance create/update/delete, mate create/delete, assembly PATCH —
+      header name/length_unit ride in the state so a rename undoes; collision
+      on restore → `assembly_name_taken` 409); `undo`/`redo` endpoints restore
+      VERBATIM (ids/placements/params byte-preserved) under `expected_version`
+      OCC (stale 422); graph GET gains `can_undo`/`can_redo`; gateway proxies;
+      contracts + ts-client regenerated. Proof: 7-deep byte-identical walk,
+      delete-mate→undo keeps ORIGINAL mate/instance ids, instance-delete's
+      mate-cascade reversed exactly, ring at 50, boundary no-ops — documents
+      247 + gateway 209 pytest, SQLite + real PG. Frontend wiring = follow-up.
+      [src: docs/design/undo-redo.md §"Out of v1" UR3]
 
 - [x] (P0, L) Viewport makeover Batch 1 — "the scene is a place" (apps/web +
       packages/design) — **DONE 2026-07-16** (founder recalibration, mandate
@@ -821,6 +836,9 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-17 — **Undo/redo UR3 (assembly backend + contract) done:** shared
+  `history_core` ring reused by part + assembly; `assembly_snapshots` (0007);
+  verbatim graph restore + `can_undo`/`can_redo`; gateway proxy; regen clean.
 - 2026-07-17 — **Undo/redo UR2 (frontend controls + shortcuts) done:** History
   band group (gated by `can_undo`/`can_redo`) + Ctrl/⌘+Z / +Shift+Z / Ctrl+Y via
   `isTypingTarget`-guarded grammar; shared refresh path; stale 422 → soft reload.

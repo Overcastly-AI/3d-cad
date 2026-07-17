@@ -182,6 +182,16 @@
           "assembly": {
             "$ref": "#/components/schemas/AssemblyResponse"
           },
+          "can_redo": {
+            "description": "True when a later history snapshot exists to restore (the history cursor is below the ring's top)",
+            "title": "Can Redo",
+            "type": "boolean"
+          },
+          "can_undo": {
+            "description": "True when an earlier history snapshot exists to restore (docs/design/undo-redo.md UR3) \u2014 lets the toolbar disable undo without a second call (the part tree's can_undo, applied here)",
+            "title": "Can Undo",
+            "type": "boolean"
+          },
           "doc_version": {
             "description": "Echoed OCC token (== assembly.doc_version)",
             "title": "Doc Version",
@@ -206,7 +216,9 @@
           "assembly",
           "doc_version",
           "instances",
-          "mates"
+          "mates",
+          "can_undo",
+          "can_redo"
         ],
         "title": "AssemblyGraphResponse",
         "type": "object"
@@ -284,6 +296,22 @@
           "updated_at"
         ],
         "title": "AssemblyResponse",
+        "type": "object"
+      },
+      "AssemblyUndoRedoRequest": {
+        "description": "Restore the adjacent assembly history snapshot (undo-redo.md UR3).\n\nThe assembly sibling of the part's\n:class:`~py_kit.schemas.features.UndoRedoRequest`: undo/redo ARE document\nedits \u2014 each bumps ``doc_version`` under the same optimistic-concurrency\nguard as every other assembly write (stale \u2192 422,\n``stale_assembly_version``), and the response is the restored graph\n(instance/mate ids preserved VERBATIM \u2014 the load-bearing snapshot\ndecision). At a boundary \u2014 undo at the ring's floor, redo at its top \u2014\nthe op is a CLEAN no-op, not an error: 200 with the current graph,\nversion unchanged. ``can_undo``/``can_redo`` on\n:class:`AssemblyGraphResponse` let the UI disable the controls, so a\nclick racing that state is harmless.",
+        "properties": {
+          "expected_version": {
+            "description": "Optimistic-concurrency guard (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "AssemblyUndoRedoRequest",
         "type": "object"
       },
       "AssemblyUpdate": {
@@ -5005,7 +5033,7 @@
         ]
       },
       "patch": {
-        "description": "Rename and/or re-unit an assembly (bumps ``doc_version``; 409 on a name\nclash).\n\nChanging ``length_unit`` is a document edit (docs/design/units.md \u00a7U1) \u2014\nmetadata only, storage stays canonical mm \u2014 and bumps ``doc_version`` like\nany header mutation.",
+        "description": "Rename and/or re-unit an assembly (bumps ``doc_version``; 409 on a name\nclash).\n\nChanging ``length_unit`` is a document edit (docs/design/units.md \u00a7U1) \u2014\nmetadata only, storage stays canonical mm \u2014 and bumps ``doc_version`` like\nany header mutation. Unlike a part rename (outside UR1 history), this IS a\nUR3 history event \u2014 the snapshot state carries the mutable header fields,\nso undo restores them (docs/design/undo-redo.md UR3).",
         "operationId": "update_assembly_api_v1_assemblies__assembly_id__patch",
         "parameters": [
           {
@@ -5462,6 +5490,150 @@
           }
         },
         "summary": "Delete Mate",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/redo": {
+      "post": {
+        "description": "Restore the next history snapshot VERBATIM (ids preserved).\n\nClean no-op at the top of the ring; stale ``expected_version`` \u2192 422.",
+        "operationId": "redo_api_v1_assemblies__assembly_id__redo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssemblyUndoRedoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Redo",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/undo": {
+      "post": {
+        "description": "Restore the previous history snapshot VERBATIM (ids preserved).\n\nClean no-op at the baseline; stale ``expected_version`` \u2192 422.",
+        "operationId": "undo_api_v1_assemblies__assembly_id__undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssemblyUndoRedoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyGraphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo",
         "tags": [
           "assemblies"
         ]

@@ -300,6 +300,12 @@ class Assembly(Base):
     doc_version: Mapped[int] = mapped_column(
         sa.BigInteger(), nullable=False, default=0, server_default=sa.text("0")
     )
+    #: Undo/redo cursor (docs/design/undo-redo.md UR3): the
+    #: ``assembly_snapshots.seq`` whose state IS the current graph; NULL =
+    #: history never seeded (no mutation yet). Maintained by
+    #: :mod:`documents.assembly_history` in the same transaction as every
+    #: graph/header write — the exact :class:`Part` pattern.
+    history_cursor: Mapped[int | None] = mapped_column(sa.BigInteger(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
@@ -456,6 +462,47 @@ class Mate(Base):
             f"Mate(id={self.id!r}, assembly_id={self.assembly_id!r}, "
             f"type={self.type!r})"
         )
+
+
+class AssemblySnapshot(Base):
+    """One entry of an assembly's bounded undo/redo history (undo-redo.md UR3).
+
+    The assembly sibling of :class:`PartSnapshot` — same mechanism
+    (:mod:`documents.history_core`), different serialized state: ``state`` is
+    the assembly's FULL mutable state — the mutable header fields
+    (``name`` / ``length_unit``, because the assembly PATCH is a history
+    event), the ordered instances (every column: id / ref / pin / name /
+    grounded / placement / order_index + timestamps) and the ordered mates
+    (id / order_index / type / params + timestamps) — captured in the SAME
+    transaction as the write that produced it. Undo/redo restore a snapshot
+    VERBATIM (instance/mate ids byte-preserved, never re-minted), so a
+    mate's instance references inside its params JSONB stay valid across any
+    undo/redo distance.
+
+    ``seq`` is per-assembly monotonic and CONTIGUOUS within the retained
+    window (appends at ``cursor + 1`` after redo-tail truncation, pruning
+    only from the floor); the ring keeps at most
+    :data:`documents.history_core.HISTORY_MAX` rows per assembly.
+    """
+
+    __tablename__ = "assembly_snapshots"
+
+    assembly_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("assemblies.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    seq: Mapped[int] = mapped_column(sa.BigInteger(), primary_key=True)
+    state: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"AssemblySnapshot(assembly_id={self.assembly_id!r}, seq={self.seq!r})"
 
 
 class Drawing(Base):

@@ -58,7 +58,9 @@ export interface paths {
          *
          *     Changing ``length_unit`` is a document edit (docs/design/units.md §U1) —
          *     metadata only, storage stays canonical mm — and bumps ``doc_version`` like
-         *     any header mutation.
+         *     any header mutation. Unlike a part rename (outside UR1 history), this IS a
+         *     UR3 history event — the snapshot state carries the mutable header fields,
+         *     so undo restores them (docs/design/undo-redo.md UR3).
          */
         patch: operations["update_assembly_api_v1_assemblies__assembly_id__patch"];
         trace?: never;
@@ -157,6 +159,50 @@ export interface paths {
          * @description Remove a mate; renumbers the rest dense (bumps ``doc_version``).
          */
         delete: operations["delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redo
+         * @description Restore the next history snapshot VERBATIM (ids preserved).
+         *
+         *     Clean no-op at the top of the ring; stale ``expected_version`` → 422.
+         */
+        post: operations["redo_api_v1_assemblies__assembly_id__redo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo
+         * @description Restore the previous history snapshot VERBATIM (ids preserved).
+         *
+         *     Clean no-op at the baseline; stale ``expected_version`` → 422.
+         */
+        post: operations["undo_api_v1_assemblies__assembly_id__undo_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -775,6 +821,16 @@ export interface components {
         AssemblyGraphResponse: {
             assembly: components["schemas"]["AssemblyResponse"];
             /**
+             * Can Redo
+             * @description True when a later history snapshot exists to restore (the history cursor is below the ring's top)
+             */
+            can_redo: boolean;
+            /**
+             * Can Undo
+             * @description True when an earlier history snapshot exists to restore (docs/design/undo-redo.md UR3) — lets the toolbar disable undo without a second call (the part tree's can_undo, applied here)
+             */
+            can_undo: boolean;
+            /**
              * Doc Version
              * @description Echoed OCC token (== assembly.doc_version)
              */
@@ -834,6 +890,29 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * AssemblyUndoRedoRequest
+         * @description Restore the adjacent assembly history snapshot (undo-redo.md UR3).
+         *
+         *     The assembly sibling of the part's
+         *     :class:`~py_kit.schemas.features.UndoRedoRequest`: undo/redo ARE document
+         *     edits — each bumps ``doc_version`` under the same optimistic-concurrency
+         *     guard as every other assembly write (stale → 422,
+         *     ``stale_assembly_version``), and the response is the restored graph
+         *     (instance/mate ids preserved VERBATIM — the load-bearing snapshot
+         *     decision). At a boundary — undo at the ring's floor, redo at its top —
+         *     the op is a CLEAN no-op, not an error: 200 with the current graph,
+         *     version unchanged. ``can_undo``/``can_redo`` on
+         *     :class:`AssemblyGraphResponse` let the UI disable the controls, so a
+         *     click racing that state is harmless.
+         */
+        AssemblyUndoRedoRequest: {
+            /**
+             * Expected Version
+             * @description Optimistic-concurrency guard (design §1.2)
+             */
+            expected_version: number;
         };
         /**
          * AssemblyUpdate
@@ -4247,6 +4326,82 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    redo_api_v1_assemblies__assembly_id__redo_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssemblyUndoRedoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_api_v1_assemblies__assembly_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssemblyUndoRedoRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

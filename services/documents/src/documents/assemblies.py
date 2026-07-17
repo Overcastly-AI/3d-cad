@@ -27,6 +27,7 @@ from py_kit.schemas.assemblies import (
     AssemblyGraphResponse,
     AssemblyListResponse,
     AssemblyResponse,
+    AssemblyUndoRedoRequest,
     AssemblyUpdate,
     InstanceCreate,
     InstanceMutationResponse,
@@ -44,6 +45,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db
+from documents.assembly_history import (
+    ASSEMBLY_HISTORY,
+    ordered_instances,
+    ordered_mates,
+)
+from documents.history_core import Direction
 from documents.parts import (
     Principal,
     get_owned_assembly,
@@ -77,32 +84,6 @@ def _ensure_fresh(assembly: db.Assembly, expected_version: int) -> None:
                 "current": assembly.doc_version,
             },
         )
-
-
-async def _ordered_instances(
-    session: AsyncSession, assembly_id: uuid.UUID
-) -> list[db.Instance]:
-    """The assembly's instances, ``ORDER BY order_index`` (total by uniqueness)."""
-    result = await session.execute(
-        select(db.Instance)
-        .where(db.Instance.assembly_id == assembly_id)
-        .order_by(db.Instance.order_index)
-        .execution_options(populate_existing=True)
-    )
-    return list(result.scalars())
-
-
-async def _ordered_mates(
-    session: AsyncSession, assembly_id: uuid.UUID
-) -> list[db.Mate]:
-    """The assembly's mates, ``ORDER BY order_index`` (total by uniqueness)."""
-    result = await session.execute(
-        select(db.Mate)
-        .where(db.Mate.assembly_id == assembly_id)
-        .order_by(db.Mate.order_index)
-        .execution_options(populate_existing=True)
-    )
-    return list(result.scalars())
 
 
 async def _get_instance(
@@ -250,13 +231,16 @@ def _mate_response(mate: db.Mate) -> MateResponse:
 async def _graph_response(
     session: AsyncSession, assembly: db.Assembly
 ) -> AssemblyGraphResponse:
-    instances = await _ordered_instances(session, assembly.id)
-    mates = await _ordered_mates(session, assembly.id)
+    instances = await ordered_instances(session, assembly.id)
+    mates = await ordered_mates(session, assembly.id)
+    can_undo, can_redo = await ASSEMBLY_HISTORY.availability(session, assembly)
     return AssemblyGraphResponse(
         assembly=AssemblyResponse.model_validate(assembly),
         doc_version=assembly.doc_version,
         instances=[_instance_response(row) for row in instances],
         mates=[_mate_response(row) for row in mates],
+        can_undo=can_undo,
+        can_redo=can_redo,
     )
 
 
@@ -322,7 +306,9 @@ async def update_assembly(
 
     Changing ``length_unit`` is a document edit (docs/design/units.md §U1) —
     metadata only, storage stays canonical mm — and bumps ``doc_version`` like
-    any header mutation.
+    any header mutation. Unlike a part rename (outside UR1 history), this IS a
+    UR3 history event — the snapshot state carries the mutable header fields,
+    so undo restores them (docs/design/undo-redo.md UR3).
     """
     if request.name is None and request.length_unit is None:
         raise ValidationApiError(
@@ -331,12 +317,16 @@ async def update_assembly(
         )
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     _ensure_fresh(assembly, request.expected_version)
+    pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     if request.name is not None:
         assembly.name = request.name
     if request.length_unit is not None:
         assembly.length_unit = request.length_unit
     assembly.doc_version += 1
     try:
+        # record() flushes while serializing, so a duplicate-name violation can
+        # surface here as well as at commit — both map to the friendly 409.
+        await ASSEMBLY_HISTORY.record(session, assembly, pre_op)
         await session.commit()
     except IntegrityError:
         await session.rollback()
@@ -422,6 +412,7 @@ async def create_instance(
             details={"ref_document_id": str(request.ref_document_id)},
         )
 
+    pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     position = await _count(session, db.Instance, assembly_id)
     instance = db.Instance(
         id=uuid.uuid4(),
@@ -436,6 +427,7 @@ async def create_instance(
     )
     session.add(instance)
     assembly.doc_version += 1
+    await ASSEMBLY_HISTORY.record(session, assembly, pre_op)
     await session.commit()
     _logger.info(
         "instance_created",
@@ -475,6 +467,7 @@ async def update_instance(
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     _ensure_fresh(assembly, request.expected_version)
     instance = await _get_instance(session, assembly, instance_id)
+    pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
     if request.name is not None:
         instance.name = request.name
@@ -486,6 +479,7 @@ async def update_instance(
         await _reorder_instance(session, assembly_id, instance, request.order_index)
 
     assembly.doc_version += 1
+    await ASSEMBLY_HISTORY.record(session, assembly, pre_op)
     await session.commit()
     _logger.info(
         "instance_updated",
@@ -509,7 +503,7 @@ async def _reorder_instance(
     Two-phase through a disjoint range (final+offset → final) so no per-row
     state is ever duplicated under IMMEDIATE unique checking (the reorder-
     features posture)."""
-    instances = await _ordered_instances(session, assembly_id)
+    instances = await ordered_instances(session, assembly_id)
     ids = [row.id for row in instances]
     ids.remove(instance.id)
     clamped = max(0, min(new_index, len(ids)))
@@ -553,9 +547,10 @@ async def delete_instance(
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     _ensure_fresh(assembly, expected_version)
     instance = await _get_instance(session, assembly, instance_id)
+    pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
     # Cascade-remove mates that reference this instance (§1.2 graph integrity).
-    for mate in await _ordered_mates(session, assembly_id):
+    for mate in await ordered_mates(session, assembly_id):
         if instance_id in mate_instance_ids(_MATE_ADAPTER.validate_python(mate.params)):
             deleted_mate_index = mate.order_index
             await session.delete(mate)
@@ -567,6 +562,7 @@ async def delete_instance(
     await session.flush()
     await _shift_down(session, db.Instance, assembly_id, deleted_index + 1)
     assembly.doc_version += 1
+    await ASSEMBLY_HISTORY.record(session, assembly, pre_op)
     await session.commit()
     _logger.info(
         "instance_deleted",
@@ -603,7 +599,7 @@ async def create_mate(
             details={"instance_id": str(named_ids[0])},
         )
 
-    member_ids = {row.id for row in await _ordered_instances(session, assembly_id)}
+    member_ids = {row.id for row in await ordered_instances(session, assembly_id)}
     for named_id in named_ids:
         if named_id not in member_ids:
             raise ValidationApiError(
@@ -613,6 +609,7 @@ async def create_mate(
                 details={"instance_id": str(named_id)},
             )
 
+    pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     position = await _count(session, db.Mate, assembly_id)
     mate = db.Mate(
         id=uuid.uuid4(),
@@ -623,6 +620,7 @@ async def create_mate(
     )
     session.add(mate)
     assembly.doc_version += 1
+    await ASSEMBLY_HISTORY.record(session, assembly, pre_op)
     await session.commit()
     _logger.info(
         "mate_created",
@@ -651,12 +649,14 @@ async def delete_mate(
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     _ensure_fresh(assembly, expected_version)
     mate = await _get_mate(session, assembly, mate_id)
+    pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
 
     deleted_index = mate.order_index
     await session.delete(mate)
     await session.flush()
     await _shift_down(session, db.Mate, assembly_id, deleted_index + 1)
     assembly.doc_version += 1
+    await ASSEMBLY_HISTORY.record(session, assembly, pre_op)
     await session.commit()
     _logger.info(
         "mate_deleted",
@@ -665,3 +665,81 @@ async def delete_mate(
         doc_version=assembly.doc_version,
     )
     return await _graph_response(session, assembly)
+
+
+# --- undo / redo (docs/design/undo-redo.md UR3) -----------------------------------
+
+
+async def _restore_history_step(
+    assembly_id: uuid.UUID,
+    request: AssemblyUndoRedoRequest,
+    owner_id: uuid.UUID,
+    session: AsyncSession,
+    direction: Direction,
+) -> AssemblyGraphResponse:
+    """Shared undo/redo body — the assembly sibling of the part's.
+
+    Undo/redo ARE document edits: the same OCC guard as every other assembly
+    write (stale → 422), a ``doc_version`` bump, and the restored graph in
+    the response so the client re-renders (and re-evaluates) authoritatively.
+
+    Boundary shape — undo at the ring's floor / redo at its top is a CLEAN
+    no-op per the design ("clean no-ops, not errors"): 200 with the CURRENT
+    graph, ``doc_version`` untouched, nothing committed. The UI disables the
+    controls via ``can_undo``/``can_redo`` on this same response, so a click
+    racing a just-changed history state lands harmlessly here and resyncs.
+
+    Restoring a snapshotted assembly ``name`` (the header rides in UR3
+    snapshots — see :mod:`documents.assembly_history`) can collide with a
+    name taken since; that surfaces as the same friendly
+    ``assembly_name_taken`` 409 the PATCH itself uses.
+    """
+    assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
+    _ensure_fresh(assembly, request.expected_version)
+    if await ASSEMBLY_HISTORY.restore_adjacent(session, assembly, direction):
+        assembly.doc_version += 1
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise ConflictError(
+                "Restoring this history step would collide with an existing "
+                "assembly name.",
+                code="assembly_name_taken",
+            ) from None
+        _logger.info(
+            "history_restored",
+            assembly_id=str(assembly.id),
+            direction=direction,
+            history_cursor=assembly.history_cursor,
+            doc_version=assembly.doc_version,
+        )
+    return await _graph_response(session, assembly)
+
+
+@router.post("/{assembly_id}/undo")
+async def undo(
+    assembly_id: uuid.UUID,
+    request: AssemblyUndoRedoRequest,
+    owner_id: Principal,
+    session: SessionDep,
+) -> AssemblyGraphResponse:
+    """Restore the previous history snapshot VERBATIM (ids preserved).
+
+    Clean no-op at the baseline; stale ``expected_version`` → 422.
+    """
+    return await _restore_history_step(assembly_id, request, owner_id, session, "undo")
+
+
+@router.post("/{assembly_id}/redo")
+async def redo(
+    assembly_id: uuid.UUID,
+    request: AssemblyUndoRedoRequest,
+    owner_id: Principal,
+    session: SessionDep,
+) -> AssemblyGraphResponse:
+    """Restore the next history snapshot VERBATIM (ids preserved).
+
+    Clean no-op at the top of the ring; stale ``expected_version`` → 422.
+    """
+    return await _restore_history_step(assembly_id, request, owner_id, session, "redo")

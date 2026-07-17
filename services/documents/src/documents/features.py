@@ -258,7 +258,7 @@ def _to_response(feature: db.Feature, bar_index: int | None) -> FeatureResponse:
 async def _tree_response(session: AsyncSession, part: db.Part) -> FeatureTreeResponse:
     features = await _ordered_features(session, part.id)
     bar_index = _bar_index(part, features)
-    can_undo, can_redo = await history.availability(session, part)
+    can_undo, can_redo = await history.PART_HISTORY.availability(session, part)
     return FeatureTreeResponse(
         part_id=part.id,
         tree_version=part.tree_version,
@@ -342,7 +342,7 @@ async def create_feature(
     the bar and move the bar to it (design §3)."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, request.expected_tree_version)
-    pre_op = await history.baseline_state(session, part)
+    pre_op = await history.PART_HISTORY.baseline_state(session, part)
 
     features = await _ordered_features(session, part.id)
     features_by_id = {feature.id: feature for feature in features}
@@ -368,7 +368,7 @@ async def create_feature(
     if part.rollback_feature_id is not None:
         part.rollback_feature_id = feature.id  # bar follows the insert (§3)
     part.tree_version += 1
-    await history.record(session, part, pre_op)
+    await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()
     _logger.info(
         "feature_created",
@@ -396,7 +396,7 @@ async def update_feature(
     (uniform rule, design §1.2) — including a name-only change."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, request.expected_tree_version)
-    pre_op = await history.baseline_state(session, part)
+    pre_op = await history.PART_HISTORY.baseline_state(session, part)
     feature = await _get_feature(session, part, feature_id)
 
     if request.feature is not None:
@@ -419,7 +419,7 @@ async def update_feature(
         feature.name = request.name
 
     part.tree_version += 1
-    await history.record(session, part, pre_op)
+    await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()
     _logger.info(
         "feature_updated",
@@ -452,7 +452,7 @@ async def delete_feature(
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, expected_tree_version)
-    pre_op = await history.baseline_state(session, part)
+    pre_op = await history.PART_HISTORY.baseline_state(session, part)
     feature = await _get_feature(session, part, feature_id)
 
     dependents = (
@@ -495,7 +495,7 @@ async def delete_feature(
     await session.flush()
     await _shift_indexes(session, part.id, deleted_index + 1, -1)
     part.tree_version += 1
-    await history.record(session, part, pre_op)
+    await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()
     _logger.info(
         "feature_deleted",
@@ -517,7 +517,7 @@ async def reorder_features(
     (§2.2 rule 2) under the new order before renumbering."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, request.expected_tree_version)
-    pre_op = await history.baseline_state(session, part)
+    pre_op = await history.PART_HISTORY.baseline_state(session, part)
 
     features = await _ordered_features(session, part.id)
     current_ids = {feature.id for feature in features}
@@ -572,7 +572,7 @@ async def reorder_features(
             .values(order_index=final_index[feature.id])
         )
     part.tree_version += 1
-    await history.record(session, part, pre_op)
+    await history.PART_HISTORY.record(session, part, pre_op)
     await session.commit()
     _logger.info(
         "features_reordered",
@@ -635,7 +635,7 @@ async def _restore_history_step(
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, request.expected_tree_version)
-    if await history.restore_adjacent(session, part, direction):
+    if await history.PART_HISTORY.restore_adjacent(session, part, direction):
         part.tree_version += 1
         await session.commit()
         _logger.info(

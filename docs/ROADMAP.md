@@ -316,6 +316,28 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       + typecheck + lint green; `e2e/undo-redo.spec.ts` walks
       sketch→extrude→fillet undo×3/redo×3 with button+chord parity, bound
       gating, and fillet-rebinds-extrude volume proof (runs in CI).
+      **UR3 ✅ 2026-07-17 (assembly backend + contract):** the ring/cursor/seq
+      mechanics factored into a shared `documents.history_core.DocumentHistory`
+      (part history rewired over it — all UR1 tests green untouched; serializers
+      stay per-document-type); `assembly_snapshots` ring (alembic `0007`:
+      `(assembly_id, seq)` PK + `assemblies.history_cursor`) written in the SAME
+      transaction as every instance create/update/delete, mate create/delete AND
+      the assembly PATCH (header `name`/`length_unit` ride in the snapshot so
+      undo-of-a-rename restores them — a deliberate UR3 extension over UR1's
+      part-rename posture; a restore-name collision surfaces as the friendly
+      `assembly_name_taken` 409); `POST /api/v1/assemblies/{id}/undo|redo`
+      restore VERBATIM (instance/mate ids, placements, mate params, order,
+      timestamps byte-preserved) under the `expected_version` OCC guard
+      (stale → 422); graph GET gains `can_undo`/`can_redo`; gateway proxies
+      auth-gated; contracts + ts-client regenerated. Proof: byte-identical
+      graph equality at every step of a 7-deep walk (2 placed instances +
+      distance mate with face signatures + lock mate + re-place + header
+      PATCH + mate delete); delete-mate→undo returns the ORIGINAL mate id
+      with refs to the ORIGINAL instance ids; instance-delete's documented
+      mate-cascade reversed exactly; fresh-edit truncates redo; 50-cap ring;
+      boundary no-ops; stale 422 — documents 247 + gateway 209 pytest green
+      on SQLite AND the real migrated scratch PG. Frontend wiring is the
+      UR3-frontend follow-up.
 - 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
       3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
       place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible

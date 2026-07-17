@@ -25,6 +25,7 @@ from py_kit.schemas.assemblies import (
     AssemblyGraphResponse,
     AssemblyListResponse,
     AssemblyResponse,
+    AssemblyUndoRedoRequest,
     InstanceCreate,
     InstanceMutationResponse,
     InstanceResponse,
@@ -92,6 +93,8 @@ def _graph(owner_id: uuid.UUID) -> AssemblyGraphResponse:
         doc_version=3,
         instances=[_instance(INSTANCE_A), _instance(INSTANCE_B, "Bracket <2>")],
         mates=[_mate()],
+        can_undo=True,
+        can_redo=False,
     )
 
 
@@ -139,6 +142,12 @@ def _echo_documents(seen: list[httpx.Request]) -> Handler:
             # instance / mate delete → the updated graph
             return httpx.Response(200, content=_graph(owner_id).model_dump_json())
         if request.method == "POST":
+            if path.endswith(("/undo", "/redo")):
+                AssemblyUndoRedoRequest.model_validate_json(request.content)
+                restored = _graph(owner_id).model_copy(
+                    update={"doc_version": 4, "can_undo": False, "can_redo": True}
+                )
+                return httpx.Response(200, content=restored.model_dump_json())
             if path.endswith("/instances"):
                 body = InstanceMutationResponse(
                     instance=_instance(INSTANCE_A), doc_version=1
@@ -208,6 +217,8 @@ def _envelope(body: dict[str, Any]) -> dict[str, Any]:
             "DELETE",
             f"/api/v1/assemblies/{ASSEMBLY}/mates/{uuid.uuid4()}?expected_version=0",
         ),
+        ("POST", f"/api/v1/assemblies/{ASSEMBLY}/undo"),
+        ("POST", f"/api/v1/assemblies/{ASSEMBLY}/redo"),
     ],
 )
 def test_unauthenticated_401_and_nothing_forwarded(
@@ -370,6 +381,70 @@ def test_delete_instance_forwards_expected_version(
     AssemblyGraphResponse.model_validate(response.json())
     [upstream] = seen
     assert upstream.url.params["expected_version"] == "3"
+
+
+def test_undo_redo_forward_principal_and_body(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """POST /undo and /redo forward the OCC body + principal; the restored
+    graph (with can_undo/can_redo) passes back through the shared DTO."""
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        undo = client.post(
+            f"/api/v1/assemblies/{ASSEMBLY}/undo",
+            json={"expected_version": 4},
+            headers=bearer,
+        )
+        redo = client.post(
+            f"/api/v1/assemblies/{ASSEMBLY}/redo",
+            json={"expected_version": 5},
+            headers=bearer,
+        )
+
+    assert undo.status_code == 200, undo.text
+    assert redo.status_code == 200, redo.text
+    for response in (undo, redo):
+        graph = AssemblyGraphResponse.model_validate(response.json())
+        assert graph.doc_version == 4
+        assert (graph.can_undo, graph.can_redo) == (False, True)
+    undo_request, redo_request = seen
+    assert undo_request.method == "POST"
+    assert undo_request.url.path == f"/api/v1/assemblies/{ASSEMBLY}/undo"
+    assert redo_request.url.path == f"/api/v1/assemblies/{ASSEMBLY}/redo"
+    for upstream, version in ((undo_request, 4), (redo_request, 5)):
+        assert upstream.headers[PRINCIPAL_HEADER] == user_id
+        parsed = AssemblyUndoRedoRequest.model_validate_json(upstream.content)
+        assert parsed.expected_version == version
+
+
+def test_undo_stale_version_envelope_is_resurfaced(db_url: str) -> None:
+    """Documents' 422 stale_assembly_version passes through verbatim on undo."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "error": {
+                    "code": "stale_assembly_version",
+                    "message": "Stale assembly version.",
+                    "details": {"provided": 0, "current": 2},
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(db_url, handler) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/assemblies/{ASSEMBLY}/undo",
+            json={"expected_version": 0},
+            headers=bearer,
+        )
+
+    assert response.status_code == 422
+    error = _envelope(response.json())
+    assert error["code"] == "stale_assembly_version"
+    assert error["details"] == {"provided": 0, "current": 2}
 
 
 # --- upstream error surfaces (documents 422 / 409 / 404 re-surfaced) ------------

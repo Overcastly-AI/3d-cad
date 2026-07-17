@@ -232,6 +232,33 @@ def test_0006_offline_downgrade_drops_everything(
     assert "DROP TABLE part_snapshots" in sql
 
 
+def test_0007_offline_sql_creates_assembly_snapshots(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0006:0007")
+    # undo-redo.md UR3 — the assembly ring, mirroring 0006's part ring:
+    # (assembly_id, seq) natural PK, JSONB full-state payload, assembly-scoped
+    # CASCADE.
+    assert "CREATE TABLE assembly_snapshots" in sql
+    assert "seq BIGINT NOT NULL" in sql
+    assert "state JSONB NOT NULL" in sql
+    assert "CONSTRAINT pk_assembly_snapshots PRIMARY KEY (assembly_id, seq)" in sql
+    assert (
+        "CONSTRAINT fk_assembly_snapshots_assembly FOREIGN KEY(assembly_id) "
+        "REFERENCES assemblies (id) ON DELETE CASCADE" in sql
+    )
+    # The cursor: NULLable (NULL = history never seeded), app-maintained.
+    assert "ALTER TABLE assemblies ADD COLUMN history_cursor BIGINT" in sql
+
+
+def test_0007_offline_downgrade_drops_everything(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0007:0006", downgrade=True)
+    assert "ALTER TABLE assemblies DROP COLUMN history_cursor" in sql
+    assert "DROP TABLE assembly_snapshots" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:
@@ -263,11 +290,13 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "dimensions",
         "annotations",
         "part_snapshots",
+        "assembly_snapshots",
         "alembic_version",
     }
 
     alembic_runner(pg_url, "base", downgrade=True)
     remaining = asyncio.run(_table_names(pg_url))
+    assert "assembly_snapshots" not in remaining
     assert "part_snapshots" not in remaining
     assert "features" not in remaining
     assert "feature_dependencies" not in remaining
@@ -295,4 +324,5 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "dimensions",
         "annotations",
         "part_snapshots",
+        "assembly_snapshots",
     }

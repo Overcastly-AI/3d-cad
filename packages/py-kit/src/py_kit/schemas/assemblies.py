@@ -453,6 +453,36 @@ class AssemblyGraphResponse(BaseModel):
     doc_version: int = Field(description="Echoed OCC token (== assembly.doc_version)")
     instances: list[InstanceResponse]
     mates: list[MateResponse]
+    can_undo: bool = Field(
+        description="True when an earlier history snapshot exists to restore "
+        "(docs/design/undo-redo.md UR3) — lets the toolbar disable undo "
+        "without a second call (the part tree's can_undo, applied here)"
+    )
+    can_redo: bool = Field(
+        description="True when a later history snapshot exists to restore "
+        "(the history cursor is below the ring's top)"
+    )
+
+
+class AssemblyUndoRedoRequest(BaseModel):
+    """Restore the adjacent assembly history snapshot (undo-redo.md UR3).
+
+    The assembly sibling of the part's
+    :class:`~py_kit.schemas.features.UndoRedoRequest`: undo/redo ARE document
+    edits — each bumps ``doc_version`` under the same optimistic-concurrency
+    guard as every other assembly write (stale → 422,
+    ``stale_assembly_version``), and the response is the restored graph
+    (instance/mate ids preserved VERBATIM — the load-bearing snapshot
+    decision). At a boundary — undo at the ring's floor, redo at its top —
+    the op is a CLEAN no-op, not an error: 200 with the current graph,
+    version unchanged. ``can_undo``/``can_redo`` on
+    :class:`AssemblyGraphResponse` let the UI disable the controls, so a
+    click racing that state is harmless.
+    """
+
+    expected_version: int = Field(
+        ge=0, description="Optimistic-concurrency guard (design §1.2)"
+    )
 
 
 class InstanceMutationResponse(BaseModel):

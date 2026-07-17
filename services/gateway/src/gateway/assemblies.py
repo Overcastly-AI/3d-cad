@@ -26,6 +26,7 @@ from py_kit.schemas.assemblies import (
     AssemblyGraphResponse,
     AssemblyListResponse,
     AssemblyResponse,
+    AssemblyUndoRedoRequest,
     AssemblyUpdate,
     InstanceCreate,
     InstanceMutationResponse,
@@ -210,6 +211,52 @@ async def create_mate(
     if upstream.status_code != status.HTTP_201_CREATED:
         raise_upstream_error(upstream, service=_SERVICE)
     return MateMutationResponse.model_validate_json(upstream.content)
+
+
+@router.post("/{assembly_id}/undo")
+async def undo_assembly(
+    assembly_id: uuid.UUID,
+    request: AssemblyUndoRedoRequest,
+    user: CurrentUser,
+    http_request: Request,
+) -> AssemblyGraphResponse:
+    """Undo one assembly-graph history step (docs/design/undo-redo.md UR3).
+
+    The restored graph comes back with its new ``doc_version`` (and
+    ``can_undo``/``can_redo``); at the ring's floor this is documents' clean
+    no-op (current graph, version unchanged). Stale ``expected_version`` →
+    422, resurfaced verbatim.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "POST",
+        f"/api/v1/assemblies/{assembly_id}/undo",
+        request.model_dump_json(),
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return AssemblyGraphResponse.model_validate_json(upstream.content)
+
+
+@router.post("/{assembly_id}/redo")
+async def redo_assembly(
+    assembly_id: uuid.UUID,
+    request: AssemblyUndoRedoRequest,
+    user: CurrentUser,
+    http_request: Request,
+) -> AssemblyGraphResponse:
+    """Redo one assembly-graph history step (clean no-op at the ring's top)."""
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "POST",
+        f"/api/v1/assemblies/{assembly_id}/redo",
+        request.model_dump_json(),
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return AssemblyGraphResponse.model_validate_json(upstream.content)
 
 
 @router.delete("/{assembly_id}/mates/{mate_id}")
