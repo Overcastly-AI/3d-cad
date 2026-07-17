@@ -28,6 +28,16 @@ export type EvaluateDrawingViewsResult =
 export type DrawingViewResult = components["schemas"]["DrawingViewResult"];
 export type ProjectedViewEdge = components["schemas"]["ProjectedViewEdge"];
 export type ProjectedPoint = components["schemas"]["ProjectedPoint"];
+export type EdgeSignature = components["schemas"]["EdgeSignature"];
+export type DimensionResponse = components["schemas"]["DimensionResponse"];
+/** The discriminated dimension params union (linear | diameter | radius | angular). */
+export type DimensionParams = DimensionResponse["dimension"];
+export type DimensionCreate = components["schemas"]["DimensionCreate"];
+export type DrawingDimensionInput =
+  components["schemas"]["DrawingDimensionInput"];
+export type MeasuredDimension = components["schemas"]["MeasuredDimension"];
+export type MeasuredDimensionResult =
+  components["schemas"]["MeasuredDimensionResult"];
 
 /**
  * The chosen name already belongs to another of the caller's drawings
@@ -143,6 +153,61 @@ export async function createView(
   );
   if (error !== undefined) {
     throw new Error(envelopeMessage(error, "The view could not be added."));
+  }
+  return data;
+}
+
+/**
+ * Author a dimension against a view (201; 422 on a stale version, on a wrong
+ * edge/type combo the documents write-time check rejects — e.g. a diameter on a
+ * line). Returns the new dimension + the bumped `doc_version`; the caller re-
+ * fetches the tree so the stored dimension appears, then re-evaluates to measure
+ * it. The value is ALWAYS taken from the model server-side (design §3.1).
+ */
+export async function createDimension(
+  drawingId: string,
+  viewId: string,
+  body: DimensionCreate,
+  client: GatewayClient = gatewayClient,
+): Promise<components["schemas"]["DimensionMutationResponse"]> {
+  const { data, error } = await client.POST(
+    "/api/v1/drawings/{drawing_id}/views/{view_id}/dimensions",
+    {
+      params: { path: { drawing_id: drawingId, view_id: viewId } },
+      body,
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The dimension could not be added."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Delete a dimension (200 with the updated tree; the delete bumps `doc_version`).
+ * `expectedVersion` guards the optimistic-concurrency counter.
+ */
+export async function deleteDimension(
+  drawingId: string,
+  dimensionId: string,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingTreeResponse> {
+  const { data, error } = await client.DELETE(
+    "/api/v1/drawings/{drawing_id}/dimensions/{dimension_id}",
+    {
+      params: {
+        path: { drawing_id: drawingId, dimension_id: dimensionId },
+        query: { expected_version: expectedVersion },
+      },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The dimension could not be deleted."),
+    );
   }
   return data;
 }

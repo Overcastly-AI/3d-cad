@@ -2,21 +2,36 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  type DimensionParams,
+  type DimensionResponse,
+  type DrawingDimensionInput,
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
+  type MeasuredDimension,
   type ViewProjection,
+  createDimension,
   createSheet,
   createView,
+  deleteDimension,
   evaluateDrawingViews,
   fetchDrawing,
 } from "../api/drawings";
 import { fetchFeatureTree, fetchParts } from "../api/parts";
 import { Breadcrumb } from "../components/Breadcrumb";
+import {
+  type AuthorableType,
+  DimensionAuthorMenu,
+} from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
-import { DrawingSheet } from "../components/DrawingSheet";
+import {
+  DrawingSheet,
+  type EdgePickEvent,
+  edgeKey,
+} from "../components/DrawingSheet";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
+import { formatDimensionLabel } from "../drawing/dimensions";
 import {
   SCALE_OPTIONS,
   STANDARD_VIEWS,
@@ -26,6 +41,24 @@ import {
 } from "../drawing/layout";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { drawingRoute } from "../router";
+
+/** Build the create-payload params for a dimension on a picked model edge. */
+function dimensionParamsFor(
+  type: AuthorableType,
+  sourceEdge: EdgePickEvent["sourceEdge"],
+): DimensionParams {
+  switch (type) {
+    case "diameter":
+      return { type: "diameter", edge: sourceEdge };
+    case "radius":
+      return { type: "radius", edge: sourceEdge };
+    case "linear":
+      return {
+        type: "linear",
+        measurement: { mode: "edge_length", edge: sourceEdge },
+      };
+  }
+}
 
 /** The scale (num/den) for a picker value like "1:2", defaulting to 1:1. */
 function scaleFromValue(value: string): {
@@ -58,7 +91,40 @@ export function DrawingPage() {
   const docVersion = tree?.doc_version ?? 0;
   const sheet = tree?.sheets[0]?.sheet ?? null;
   const views = useMemo(() => tree?.sheets[0]?.views ?? [], [tree]);
+  const dimensions = useMemo<readonly DimensionResponse[]>(
+    () => tree?.sheets[0]?.dimensions ?? [],
+    [tree],
+  );
   const hasLayout = sheet !== null && views.length > 0;
+
+  // view id → its projection, and dimensions grouped by the view they annotate.
+  const projectionByViewId = useMemo(() => {
+    const map = new Map<string, ViewProjection>();
+    for (const view of views) map.set(view.id, view.projection);
+    return map;
+  }, [views]);
+  const dimensionsByView = useMemo(() => {
+    const map = new Map<ViewProjection, DimensionResponse[]>();
+    for (const dim of dimensions) {
+      const projection = projectionByViewId.get(dim.view_id);
+      if (!projection) continue;
+      const list = map.get(projection) ?? [];
+      list.push(dim);
+      map.set(projection, list);
+    }
+    return map;
+  }, [dimensions, projectionByViewId]);
+  // The evaluate-request twin of the stored dimensions (each tagged with its
+  // view) — geometry measures these against the SAME body it projects (§3.1).
+  const dimensionInputs = useMemo<DrawingDimensionInput[]>(() => {
+    const out: DrawingDimensionInput[] = [];
+    for (const dim of dimensions) {
+      const view = projectionByViewId.get(dim.view_id);
+      if (!view) continue;
+      out.push({ id: dim.id, view, dimension: dim.dimension });
+    }
+    return out;
+  }, [dimensions, projectionByViewId]);
 
   // The part the sheet drafts: the referenced part of its first view once laid
   // out (v1 references a single part across the standard views).
@@ -102,6 +168,8 @@ export function DrawingPage() {
       effectivePartId,
       partTree?.tree_version,
       effectiveScaleValue,
+      // Re-measure whenever a dimension is added/removed (any mutation bumps it).
+      docVersion,
     ],
     enabled: hasLayout && partTree !== undefined,
     queryFn: () => {
@@ -114,6 +182,7 @@ export function DrawingPage() {
         features: t.features
           .filter((feature) => !feature.rolled_back)
           .map((feature) => ({ id: feature.id, feature: feature.feature })),
+        dimensions: dimensionInputs,
       };
       return evaluateDrawingViews(request);
     },
@@ -124,6 +193,14 @@ export function DrawingPage() {
   const resultByProjection = useMemo(() => {
     const map = new Map<ViewProjection, DrawingViewResult>();
     for (const result of evaluation?.views ?? []) map.set(result.view, result);
+    return map;
+  }, [evaluation]);
+  // Model-true measured value per dimension id (design §3.1).
+  const measuredById = useMemo(() => {
+    const map = new Map<string, MeasuredDimension>();
+    for (const result of evaluation?.dimensions ?? []) {
+      if (result.id) map.set(result.id, result.measured);
+    }
     return map;
   }, [evaluation]);
 
@@ -199,9 +276,78 @@ export function DrawingPage() {
     void queryClient.invalidateQueries({ queryKey: ["drawing-eval"] });
   }, [queryClient, effectivePartId]);
 
+  // ---------------------------------------------------------------------
+  // Dimension authoring: pick a dimensionable edge → choose a valid type →
+  // persist it (CRUD) → the re-evaluate measures + renders it model-true.
+  // ---------------------------------------------------------------------
+  const [pick, setPick] = useState<EdgePickEvent | null>(null);
+  const [dimBusy, setDimBusy] = useState(false);
+  const selectedEdgeKey = pick
+    ? edgeKey(pick.projection, pick.sourceEdge)
+    : null;
+
+  const handleAuthorDimension = useCallback(
+    (type: AuthorableType) => {
+      if (pick === null || dimBusy) return;
+      setDimBusy(true);
+      setActionError(null);
+      const target = pick;
+      void (async () => {
+        try {
+          await createDimension(drawingId, target.viewId, {
+            dimension: dimensionParamsFor(type, target.sourceEdge),
+            expected_version: docVersion,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+          setPick(null);
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The dimension could not be added.",
+          );
+        } finally {
+          setDimBusy(false);
+        }
+      })();
+    },
+    [pick, dimBusy, drawingId, docVersion, queryClient],
+  );
+
+  const handleDeleteDimension = useCallback(
+    (dimensionId: string) => {
+      if (dimBusy) return;
+      setDimBusy(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await deleteDimension(drawingId, dimensionId, docVersion);
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The dimension could not be deleted.",
+          );
+        } finally {
+          setDimBusy(false);
+        }
+      })();
+    },
+    [dimBusy, drawingId, docVersion, queryClient],
+  );
+
   // Keyboard-first: L lays out (or re-projects once laid out).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPick(null);
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       if (event.key.toLowerCase() === "l") {
@@ -282,6 +428,10 @@ export function DrawingPage() {
               views={views}
               resultByProjection={resultByProjection}
               title={tree.drawing.name}
+              dimensionsByView={dimensionsByView}
+              measuredById={measuredById}
+              selectedEdgeKey={selectedEdgeKey}
+              onPickEdge={setPick}
             />
           </div>
         ) : (
@@ -335,11 +485,38 @@ export function DrawingPage() {
             id="drawing-views"
             maxHeightClassName="max-h-[calc(100%-4.5rem)]"
           >
-            <ViewsPanel
-              projecting={projecting}
-              resultByProjection={resultByProjection}
-            />
+            <div className="flex flex-col gap-3">
+              <ViewsPanel
+                projecting={projecting}
+                resultByProjection={resultByProjection}
+              />
+              <DimensionsPanel
+                dimensions={dimensions}
+                measuredById={measuredById}
+                busy={dimBusy}
+                onDelete={handleDeleteDimension}
+              />
+            </div>
           </FloatingPanel>
+        ) : null}
+
+        {/* The dimension author menu — opens by a picked, dimensionable edge. */}
+        {pick ? (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              aria-hidden="true"
+              onClick={() => setPick(null)}
+            />
+            <DimensionAuthorMenu
+              primitive={pick.primitive}
+              x={pick.clientX}
+              y={pick.clientY}
+              busy={dimBusy}
+              onChoose={handleAuthorDimension}
+              onClose={() => setPick(null)}
+            />
+          </>
         ) : null}
       </main>
     </div>
@@ -484,6 +661,94 @@ function ViewsPanel({
           <span className="font-body text-2xs text-gauge">Hidden edge</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The Dimensions panel — the authored dimensions with their model-true value and
+ * a delete affordance (design §3 "Manage"). It is the keyboard/touch path to
+ * removing a dimension and the honest place a measurement error surfaces.
+ */
+function DimensionsPanel({
+  dimensions,
+  measuredById,
+  busy,
+  onDelete,
+}: {
+  dimensions: readonly DimensionResponse[];
+  measuredById: Map<string, MeasuredDimension>;
+  busy: boolean;
+  onDelete: (dimensionId: string) => void;
+}) {
+  return (
+    <div
+      className="border border-hairline bg-anvil"
+      data-testid="dimensions-panel"
+    >
+      <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
+        <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+          Dimensions
+        </h2>
+        <span className="grow" />
+        <span className="font-data text-2xs tabular-nums text-gauge">
+          {dimensions.length}
+        </span>
+      </header>
+      {dimensions.length === 0 ? (
+        <p className="px-3 py-2.5 font-body text-2xs text-gauge">
+          Click a highlighted edge on a view to add a dimension — a circle takes
+          a diameter or radius, a straight edge a linear.
+        </p>
+      ) : (
+        <ul className="divide-y divide-hairline">
+          {dimensions.map((dim) => {
+            const measured = measuredById.get(dim.id);
+            const errored = Boolean(measured?.error);
+            const value =
+              measured && typeof measured.value === "number"
+                ? (measured.foreshortened ? "~" : "") +
+                  formatDimensionLabel(
+                    dim.dimension.type,
+                    measured.value,
+                    measured.unit,
+                  )
+                : errored
+                  ? "unresolved"
+                  : "…";
+            return (
+              <li
+                key={dim.id}
+                className="flex items-center gap-2 px-3 py-1.5"
+                data-testid="dimension-row"
+                data-dimension-type={dim.dimension.type}
+              >
+                <span className="font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+                  {dim.dimension.type}
+                </span>
+                <span
+                  data-testid="dimension-row-value"
+                  className={`grow text-right font-data text-2xs tabular-nums ${
+                    errored ? "text-flag" : "text-mist"
+                  }`}
+                >
+                  {value}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  data-testid="dimension-delete"
+                  aria-label={`Delete ${dim.dimension.type} dimension`}
+                  onClick={() => onDelete(dim.id)}
+                  className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge transition-colors duration-fast hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+                >
+                  Delete
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

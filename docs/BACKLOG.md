@@ -136,10 +136,8 @@ nit, no user impact, stays Later).
       `MeasuredDimension`. Analytic goldens Ø10→10.000, r5→5.000, 40 mm→40.000,
       45° vee, + model-true-when-foreshortened (`test_drawings_measure.py`, 18
       passed); project determinism/restart probes unaffected; full `just lint` +
-      `just gen`/`gen-check` clean. **Follow-on #6b — dimension-authoring UI
-      (apps/web)**: pick a dimensionable projected edge → create/place a dimension
-      and render the measured value + foreshortened warning (frontend territory).
-      [src: design/drawings.md §3/§8]
+      `just gen`/`gen-check` clean. Follow-on #6b (dimension-authoring UI) DONE
+      2026-07-17. [src: design/drawings.md §3/§8]
 - [x] (P1, S) Drawings v1 #6a — wire dimension measurement into the API
       (geometry) — **DONE 2026-07-16.** `POST /api/v1/drawing/evaluate` (request
       `EvaluateDrawingViewsRequest` gains `dimensions: list[DrawingDimensionInput]`,
@@ -155,13 +153,21 @@ nit, no user impact, stays Later).
       proxy is a typed passthrough (no change). `test_drawings_evaluate.py` +4
       specs; full `just lint` + `just gen`/`gen-check` clean. Unblocks #6b.
       [src: design/drawings.md §3/§5]
-- [ ] (P1, M) Drawings v1 #6b — dimension-authoring UI (apps/web) — **UNBLOCKED
-      by #6a.** Pick a `dimensionable` projected edge (the `source_edge` ref rides
-      the `/drawing/evaluate` response), place a linear/diameter/radius/angular
-      dimension via the existing dimension CRUD, send it in the evaluate request's
-      `dimensions`, and render the returned model-true measured value + a
-      `foreshortened` warning. Backend measurement + provenance + API wiring shipped
-      (#6/#6a). [src: design/drawings.md §3/§6]
+- [x] (P1, M) Drawings v1 #6b — dimension-authoring UI (apps/web) — **DONE
+      2026-07-17.** Pick a `dimensionable` projected edge (blueprint-blue hover/
+      focus/select, keyboard-reachable) → a type menu gated to the valid types
+      (circle → diameter/radius, straight edge → linear) → persist via the
+      dimension CRUD → re-evaluate → render as a drafting annotation (extension +
+      dimension lines, filled arrowheads, MODEL-true value with Ø/R/bare prefix,
+      `~` on `foreshortened`, honest marker on a measure error) + a Dimensions
+      panel to list/delete. New `drawing` dimension/pick tokens (no raw hex);
+      `drawing/dimensions.ts` + 14 unit tests; e2e authors Ø10.000 + 40.000 and
+      deletes one against the real stack; `just lint` green. [src: drawings.md §3]
+- [ ] (P2, S) Drawings — dimension authoring: angular (two straight edges) +
+      point-to-point linear (edge-endpoint refs), and manual drag-to-place of the
+      dimension line (v1 auto-places at a fixed offset). The measurement backend
+      already supports all four types (#6); this is the authoring/placement UI.
+      [src: design/drawings.md §3.1/§3.3, deferred from #6b]
 - [ ] (P3, S) Drawings — hidden-edge provenance can tag the FAR coincident edge.
       `_attach_provenance` disambiguates a VISIBLE coincident 2D edge by nearest-eye
       depth (correct, proven), but a HIDDEN coincident edge with NO visible edge
@@ -621,6 +627,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-17 — **Drawings v1 #6b (dimension-authoring UI) done:** pick a
+  dimensionable edge → gated type menu → CRUD → re-evaluate renders the drafting
+  annotation (Ø/R/linear, model-true value, `~` foreshortened, honest error
+  marker) + Dimensions panel to delete; new `drawing` dimension/pick tokens;
+  `dimensions.ts` + 14 unit tests; e2e authors Ø10.000/40.000 real stack; lint green.
 - 2026-07-16 — **Drawings v1 #7 (frontend drawing canvas) done:** `/drawings`
   register + `/drawings/{id}` sheet editor; one action auto-lays-out the standard
   four (front/top/right third-angle + iso) and renders them as scale-correct SVG

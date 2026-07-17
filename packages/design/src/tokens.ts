@@ -253,6 +253,44 @@ export const drawing = {
   /** Hidden-edge dash pattern (sheet mm) — the conventional short dash. */
   hiddenDashMm: 2,
   hiddenGapMm: 1.4,
+
+  // --- Dimensions — the drafting-annotation layer (Drawings v1 #6b). ---
+  // A dimension is a precise annotation drawn OVER the projected geometry:
+  // thin extension + dimension lines, filled arrowheads, and a stamped value.
+  // The annotation ink is a lighter graphite than the object lines so the
+  // measurement reads as a second layer, yet still clears WCAG-AA on the vellum.
+  /** Extension + dimension-line ink and arrowheads — annotation graphite. */
+  dimensionInk: "#2A3542",
+  /** The stamped value text — full graphite for maximum legibility (AA on paper). */
+  dimensionText: "#1B222B",
+  /** A dimension the model could not measure — a muted drafting red marker (AA on paper). */
+  dimensionFlag: "#B23A2E",
+  /** Dimension-line weight (mm) — thinner than a visible object edge. */
+  dimensionWeightMm: 0.3,
+  /** Witness/extension-line weight (mm) — the lightest rule on the sheet. */
+  extensionWeightMm: 0.25,
+  /** Filled arrowhead length + half-width (mm) — the drafting barb. */
+  arrowLengthMm: 3.4,
+  arrowHalfWidthMm: 0.9,
+  /** Gap (mm) between the measured feature and where its extension line starts. */
+  dimensionGapMm: 1.4,
+  /** Extension-line overrun (mm) past the dimension line — the drafting tick. */
+  extensionOverrunMm: 1.6,
+  /** Default auto-place offset (mm) of the dimension line from its edge. */
+  dimensionOffsetMm: 11,
+  /** Stamped value text height (mm) — sibling of the title-block value stamp. */
+  dimensionTextMm: 3.2,
+
+  // --- Pick affordance — dimensionable edges are interactive. ---
+  // A blueprint blue: the one accent on the graphite sheet, grounded in the
+  // subject (the blueprint), never a generic UI highlight. Both clear AA on the
+  // vellum so a hovered/selected edge stays legible.
+  /** Hover ink for a pickable (dimensionable) projected edge — blueprint blue. */
+  pickHover: "#1E6FBF",
+  /** Selected-edge ink — the deeper blueprint blue. */
+  pickSelected: "#0F4C81",
+  /** Invisible hit-stroke width (mm) so thin edges are easy to click/focus. */
+  pickHitMm: 2.6,
 } as const;
 
 export const font = {

@@ -370,8 +370,23 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       passthrough (no logic change). `just lint`/`gen`/`gen-check` clean;
       `test_drawings_evaluate.py` 4 new specs (measured 10.000/40.000 beside
       edges, bad-signature typed error + survivors, no-dimensions regression,
-      endpoint JSON). Remaining: SVG export (#5), dimension-authoring UI (#6b, now
-      UNBLOCKED — the wire returns measured values), section/detail/assembly views.
+      endpoint JSON). **Drawings v1 #6b — dimension-authoring UI (apps/web)
+      SHIPPED**: the sheet is now a dimensioning surface — a `dimensionable`
+      projected edge is interactive (hover/focus/select in a blueprint-blue pick
+      ink, keyboard-reachable), picking one opens a type menu gated to the valid
+      types (circle → diameter/radius, straight edge → linear; invalid combos
+      never offered), and the authored dimension persists via the CRUD then re-
+      evaluates so each renders as a proper drafting annotation — extension lines
+      + dimension line + filled arrowheads + the MODEL-true value with its prefix
+      (Ø / R / bare), a `~` marker when `foreshortened`, an honest marker on a
+      per-dimension measure error. A Dimensions panel lists + deletes them. New
+      `drawing` tokens (dimension/extension ink + weights, arrow size, pick ink)
+      — no raw hex, primitives not instances. `drawing/dimensions.ts` pure
+      geometry + 14 unit tests; e2e authors Ø10.000 on the hole + 40.000 on the
+      40 mm edge and deletes one, against the real stack; `just lint` green.
+      Deferred to BACKLOG: angular + point-to-point linear authoring, manual
+      drag-to-place. Remaining in the pillar: SVG export (#5),
+      section/detail/assembly views.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 5 — Agent-native & extensibility ⬜

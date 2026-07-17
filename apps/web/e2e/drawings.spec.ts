@@ -168,3 +168,108 @@ test("lay out the standard four views on a sheet", async ({ page }) => {
   await expect(sheet).toBeVisible();
   await page.screenshot({ path: `${SCREENSHOT_DIR}/drawings-editor-1280.png` });
 });
+
+/** Lay out the standard views for a fresh plate-with-hole drawing. */
+async function layOutPlateDrawing(page: Page, token: string): Promise<string> {
+  const part = await createPlateWithHoleViaApi(page, token, "Plate 40×25");
+  await page.goto("/drawings");
+  await expect(page.getByTestId("nav-drawings")).toBeVisible();
+  await page.getByTestId("create-drawing-name").fill("Plate — dimensions");
+  await page.getByTestId("create-drawing-submit").click();
+  const row = page.getByTestId("drawing-row").first();
+  await expect(row).toBeVisible();
+  await row.getByTestId("drawing-open").click();
+  await expect(page.getByTestId("drawing-setup-hint")).toBeVisible();
+  await page.getByTestId("drawing-part-select").selectOption(part.id);
+  await page.getByTestId("drawing-autolayout").click();
+  await expect(page.getByTestId("drawing-sheet")).toBeVisible({
+    timeout: 30_000,
+  });
+  return part.id;
+}
+
+/** The longest horizontal (≈ 40 mm) line pick-target in a view, by bbox width. */
+async function longestHorizontalEdge(page: Page, view: string) {
+  const edges = page.locator(
+    `[data-testid="drawing-pick-edge"][data-view="${view}"][data-primitive="line"]`,
+  );
+  const count = await edges.count();
+  let best = 0;
+  let bestWidth = 0;
+  for (let i = 0; i < count; i += 1) {
+    const box = await edges.nth(i).boundingBox();
+    if (!box) continue;
+    if (box.width > box.height && box.width > bestWidth) {
+      bestWidth = box.width;
+      best = i;
+    }
+  }
+  return edges.nth(best);
+}
+
+test("author a diameter on the hole and a linear on the 40 mm edge", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // --- Diameter: pick the hole's circle in the top view, author Ø. ---------
+  const topCircle = page
+    .locator(
+      '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
+    )
+    .first();
+  await topCircle.click({ force: true });
+
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-diameter").click();
+
+  // The re-evaluate measures it off the model and stamps Ø10.000 on the sheet.
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
+    ),
+  ).toHaveCount(1, { timeout: 30_000 });
+  // And it appears in the Dimensions panel with the same model-true value.
+  await expect(
+    page.locator(
+      '[data-testid="dimension-row"][data-dimension-type="diameter"]',
+    ),
+  ).toHaveCount(1);
+
+  // --- Linear: pick a 40 mm edge in the top view, author the length. -------
+  const longEdge = await longestHorizontalEdge(page, "top");
+  await longEdge.click({ force: true });
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-linear").click();
+
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="40.000"]',
+    ),
+  ).toHaveCount(1, { timeout: 30_000 });
+
+  // Founder frames — a dimensioned sheet, desktop + small-laptop widths.
+  const sheet = page.getByTestId("drawing-sheet");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(sheet).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-dimensioned-1440.png`,
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(sheet).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-dimensioned-1280.png`,
+  });
+
+  // --- Manage: delete the linear dimension, it disappears from the sheet. --
+  const linearRow = page.locator(
+    '[data-testid="dimension-row"][data-dimension-type="linear"]',
+  );
+  await linearRow.getByTestId("dimension-delete").click();
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="40.000"]',
+    ),
+  ).toHaveCount(0, { timeout: 30_000 });
+});

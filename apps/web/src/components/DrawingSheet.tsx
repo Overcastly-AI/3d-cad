@@ -4,18 +4,37 @@
  * otherwise all-dark product (design mandate: spend boldness in one place). It
  * renders in a SINGLE SVG coordinate system (millimetres, so the print is
  * scale-correct) reading stroke colours + weights straight from the `drawing`
- * design tokens — one palette, two renderers (DOM + this SVG). Purely
- * presentational: it draws whatever projected edges it is handed and stays
- * honest about a per-view projection failure.
+ * design tokens — one palette, two renderers (DOM + this SVG).
+ *
+ * Beyond drawing the projected edges it is now a DIMENSIONING surface (Drawings
+ * v1 #6b): a `dimensionable` projected edge is interactive (hover/focus/select
+ * in the blueprint-blue pick ink), and each authored dimension is stamped as a
+ * proper drafting annotation — extension lines, a dimension line with filled
+ * arrowheads, and the MODEL-true value with its prefix (Ø / R / bare). It stays
+ * honest about a per-view projection failure and a per-dimension measure error.
  */
+import { useState } from "react";
+
 import { drawing, font, viewport } from "@loft/design";
 
 import type {
+  DimensionParams,
+  DimensionResponse,
   DrawingViewResult,
+  EdgeSignature,
+  MeasuredDimension,
+  ProjectedViewEdge,
   SheetResponse,
   ViewProjection,
   ViewResponse,
 } from "../api/drawings";
+import {
+  buildDimensionAnnotation,
+  dimensionEdgeSignature,
+  edgeSignatureKey,
+  findMatchingEdge,
+  type DimensionAnnotation,
+} from "../drawing/dimensions";
 import {
   SHEET_MARGIN_MM,
   STANDARD_VIEWS,
@@ -26,9 +45,31 @@ import {
   sheetDimensions,
   viewBounds,
   viewToSvgEdges,
+  viewTransform,
   type Anchor,
   type SvgEdge,
 } from "../drawing/layout";
+
+/** A pick on a dimensionable projected edge — the seed of an authored dimension. */
+export interface EdgePickEvent {
+  projection: ViewProjection;
+  viewId: string;
+  /** The MODEL edge the dimension will name (design §3.3). */
+  sourceEdge: EdgeSignature;
+  /** The projected primitive — gates the valid dimension types. */
+  primitive: ProjectedViewEdge["primitive"];
+  /** Pointer position (viewport px) so the author menu opens by the edge. */
+  clientX: number;
+  clientY: number;
+}
+
+/** A stable key for a projected edge — `projection:signature`. */
+export function edgeKey(
+  projection: ViewProjection,
+  sig: EdgeSignature,
+): string {
+  return `${projection}:${edgeSignatureKey(sig)}`;
+}
 
 export interface DrawingSheetProps {
   sheet: SheetResponse;
@@ -37,6 +78,14 @@ export interface DrawingSheetProps {
   resultByProjection: Map<ViewProjection, DrawingViewResult>;
   /** Title-block title (the drawing name). */
   title: string;
+  /** Authored dimensions grouped by the view they annotate. */
+  dimensionsByView?: Map<ViewProjection, readonly DimensionResponse[]>;
+  /** Model-true measured result per dimension id (from the evaluate response). */
+  measuredById?: Map<string, MeasuredDimension>;
+  /** The currently-selected pickable edge (`edgeKey`), highlighted for authoring. */
+  selectedEdgeKey?: string | null;
+  /** Fired when a dimensionable edge is picked (click or keyboard). */
+  onPickEdge?: (event: EdgePickEvent) => void;
 }
 
 /** Stroke props for a visible (solid) or hidden (dashed) projected edge. */
@@ -50,8 +99,22 @@ function strokeFor(visible: boolean) {
       };
 }
 
-function EdgeShape({ edge, index }: { edge: SvgEdge; index: number }) {
-  const stroke = strokeFor(edge.visible);
+type Highlight = "hover" | "selected" | null;
+
+function EdgeShape({
+  edge,
+  highlight,
+}: {
+  edge: SvgEdge;
+  highlight: Highlight;
+}) {
+  const stroke = highlight
+    ? {
+        stroke:
+          highlight === "selected" ? drawing.pickSelected : drawing.pickHover,
+        strokeWidth: 0.8,
+      }
+    : strokeFor(edge.visible);
   const common = {
     ...stroke,
     fill: "none" as const,
@@ -59,44 +122,254 @@ function EdgeShape({ edge, index }: { edge: SvgEdge; index: number }) {
     strokeLinejoin: "round" as const,
     "data-edge": edge.kind,
     "data-visible": edge.visible ? "true" : "false",
+    "data-dimensionable": edge.dimensionable ? "true" : "false",
   };
   if (edge.kind === "line") {
     return (
-      <line
-        key={index}
-        x1={edge.x1}
-        y1={edge.y1}
-        x2={edge.x2}
-        y2={edge.y2}
-        {...common}
-      />
+      <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} {...common} />
     );
   }
   if (edge.kind === "circle") {
-    return (
-      <circle key={index} cx={edge.cx} cy={edge.cy} r={edge.r} {...common} />
-    );
+    return <circle cx={edge.cx} cy={edge.cy} r={edge.r} {...common} />;
   }
   return (
     <polyline
-      key={index}
       points={edge.points.map((p) => `${p.x},${p.y}`).join(" ")}
       {...common}
     />
   );
 }
 
-/** One placed view: its projected edges + a stamped caption, or a failure note. */
+/** A transparent, generously-wide hit region over one shape. */
+function HitShape({ edge }: { edge: SvgEdge }) {
+  const stroke = {
+    stroke: "transparent",
+    strokeWidth: drawing.pickHitMm,
+    fill: "none" as const,
+    pointerEvents: "stroke" as const,
+  };
+  if (edge.kind === "line") {
+    return (
+      <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} {...stroke} />
+    );
+  }
+  if (edge.kind === "circle") {
+    // A hole reads as a target — the whole disc is pickable (`all` captures the
+    // transparent interior too), so clicking the hole dimensions it.
+    return (
+      <circle
+        cx={edge.cx}
+        cy={edge.cy}
+        r={edge.r}
+        fill="transparent"
+        pointerEvents="all"
+      />
+    );
+  }
+  return (
+    <polyline
+      points={edge.points.map((p) => `${p.x},${p.y}`).join(" ")}
+      {...stroke}
+    />
+  );
+}
+
+/** One projected edge — solid/dashed, and interactive when dimensionable. */
+function PickableEdge({
+  edge,
+  projection,
+  viewId,
+  selected,
+  onPickEdge,
+}: {
+  edge: SvgEdge;
+  projection: ViewProjection;
+  viewId: string | null;
+  selected: boolean;
+  onPickEdge?: (event: EdgePickEvent) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const interactive =
+    edge.dimensionable &&
+    edge.sourceEdge !== null &&
+    viewId !== null &&
+    onPickEdge !== undefined;
+  const highlight: Highlight = selected ? "selected" : hover ? "hover" : null;
+
+  if (!interactive) return <EdgeShape edge={edge} highlight={highlight} />;
+
+  const fire = (clientX: number, clientY: number) => {
+    if (edge.sourceEdge === null || viewId === null) return;
+    onPickEdge?.({
+      projection,
+      viewId,
+      sourceEdge: edge.sourceEdge,
+      primitive: edge.edgePrimitive,
+      clientX,
+      clientY,
+    });
+  };
+
+  return (
+    <g>
+      <EdgeShape edge={edge} highlight={highlight} />
+      <g
+        role="button"
+        tabIndex={0}
+        aria-label={`Dimension this ${edge.edgePrimitive} edge in the ${VIEW_LABEL[projection]} view`}
+        data-testid="drawing-pick-edge"
+        data-view={projection}
+        data-primitive={edge.edgePrimitive}
+        data-selected={selected ? "true" : "false"}
+        style={{ cursor: "pointer", outline: "none" }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onFocus={() => setHover(true)}
+        onBlur={() => setHover(false)}
+        onClick={(event) => fire(event.clientX, event.clientY)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            fire(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          }
+        }}
+      >
+        <HitShape edge={edge} />
+      </g>
+    </g>
+  );
+}
+
+/** A placed dimension — extension + dimension lines, arrowheads, value stamp. */
+function DimensionGlyph({
+  annotation,
+  dimensionType,
+  dimensionId,
+}: {
+  annotation: DimensionAnnotation;
+  dimensionType: DimensionParams["type"];
+  dimensionId: string;
+}) {
+  if (annotation.kind === "error") {
+    const { at, code } = annotation;
+    return (
+      <g
+        data-testid="drawing-dimension"
+        data-dimension-id={dimensionId}
+        data-dimension-type={dimensionType}
+        data-dimension-error={code}
+      >
+        <title>Dimension could not be measured ({code})</title>
+        <circle
+          cx={at.x}
+          cy={at.y}
+          r={2.6}
+          fill="none"
+          stroke={drawing.dimensionFlag}
+          strokeWidth={drawing.dimensionWeightMm}
+          strokeDasharray="1 1"
+        />
+        <text
+          x={at.x}
+          y={at.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill={drawing.dimensionFlag}
+          fontFamily={font.data}
+          fontSize={3}
+        >
+          !
+        </text>
+      </g>
+    );
+  }
+
+  const { lines, arrows, text, foreshortened } = annotation;
+  // A paper halo behind the value so lines never cross the digits (keeps the
+  // AA contrast the vellum gives — text sits on paper, not on a graphite rule).
+  const haloW = text.label.length * drawing.dimensionTextMm * 0.62 + 1.8;
+  const haloH = drawing.dimensionTextMm + 1.4;
+  return (
+    <g
+      data-testid="drawing-dimension"
+      data-dimension-id={dimensionId}
+      data-dimension-type={dimensionType}
+      data-dimension-value={text.label}
+      data-foreshortened={foreshortened ? "true" : "false"}
+    >
+      <title>
+        {foreshortened
+          ? `${text.label} — foreshortened; dimension in a true-size view for the drawn length`
+          : text.label}
+      </title>
+      {lines.map((l, i) => (
+        <line
+          key={i}
+          x1={l.x1}
+          y1={l.y1}
+          x2={l.x2}
+          y2={l.y2}
+          stroke={drawing.dimensionInk}
+          strokeWidth={
+            l.role === "extension"
+              ? drawing.extensionWeightMm
+              : drawing.dimensionWeightMm
+          }
+          strokeLinecap="round"
+        />
+      ))}
+      {arrows.map((points, i) => (
+        <polygon key={i} points={points} fill={drawing.dimensionInk} />
+      ))}
+      <g transform={`rotate(${text.angle} ${text.x} ${text.y})`}>
+        <rect
+          x={text.x - haloW / 2}
+          y={text.y - haloH / 2}
+          width={haloW}
+          height={haloH}
+          fill={drawing.paper}
+          opacity={0.92}
+        />
+        <text
+          data-testid="drawing-dimension-value"
+          x={text.x}
+          y={text.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill={foreshortened ? drawing.dimensionFlag : drawing.dimensionText}
+          fontFamily={font.data}
+          fontSize={drawing.dimensionTextMm}
+          letterSpacing={0.1}
+        >
+          {text.label}
+        </text>
+      </g>
+    </g>
+  );
+}
+
+/** One placed view: its projected edges + dimensions + caption, or a failure. */
 function SheetView({
   projection,
   anchor,
   sheetHeight,
   result,
+  viewId,
+  dimensions,
+  measuredById,
+  selectedEdgeKey,
+  onPickEdge,
 }: {
   projection: ViewProjection;
   anchor: Anchor;
   sheetHeight: number;
   result: DrawingViewResult | undefined;
+  viewId: string | null;
+  dimensions: readonly DimensionResponse[];
+  measuredById: Map<string, MeasuredDimension> | undefined;
+  selectedEdgeKey: string | null | undefined;
+  onPickEdge?: (event: EdgePickEvent) => void;
 }) {
   const anchorSvgX = anchor.x;
   const anchorSvgY = sheetHeight - anchor.y;
@@ -108,12 +381,39 @@ function SheetView({
   const belowMm = bounds ? bounds.center.y - bounds.min.y : 0;
   const labelY = anchorSvgY + belowMm + 8;
 
+  // Resolve each authored dimension to a drafting annotation on this view.
+  const toSvg = viewTransform(edges, anchor, sheetHeight);
+  const viewCenter = bounds?.center ?? { x: 0, y: 0 };
+  const annotations: {
+    id: string;
+    type: DimensionParams["type"];
+    annotation: DimensionAnnotation;
+  }[] = [];
+  for (const dim of dimensions) {
+    const sig = dimensionEdgeSignature(dim.dimension);
+    if (sig === null) continue;
+    const matched = findMatchingEdge(edges, sig);
+    if (matched === null) continue;
+    const measured = measuredById?.get(dim.id);
+    if (measured === undefined) continue;
+    const annotation = buildDimensionAnnotation({
+      type: dim.dimension.type,
+      measured,
+      edge: matched,
+      viewCenter,
+      toSvg,
+    });
+    if (annotation === null) continue;
+    annotations.push({ id: dim.id, type: dim.dimension.type, annotation });
+  }
+
   return (
     <g
       data-testid="drawing-view"
       data-view={projection}
       data-view-error={failed ? "true" : "false"}
       data-edge-count={svgEdges.length}
+      data-dimension-count={annotations.length}
     >
       {failed ? (
         <g>
@@ -140,7 +440,31 @@ function SheetView({
           </text>
         </g>
       ) : (
-        svgEdges.map((edge, i) => <EdgeShape key={i} edge={edge} index={i} />)
+        <>
+          {svgEdges.map((edge, i) => (
+            <PickableEdge
+              key={i}
+              edge={edge}
+              projection={projection}
+              viewId={viewId}
+              selected={
+                selectedEdgeKey !== null &&
+                selectedEdgeKey !== undefined &&
+                edge.sourceEdge !== null &&
+                edgeKey(projection, edge.sourceEdge) === selectedEdgeKey
+              }
+              onPickEdge={onPickEdge}
+            />
+          ))}
+          {annotations.map((a) => (
+            <DimensionGlyph
+              key={a.id}
+              annotation={a.annotation}
+              dimensionType={a.type}
+              dimensionId={a.id}
+            />
+          ))}
+        </>
       )}
       <text
         data-testid="drawing-view-label"
@@ -238,6 +562,10 @@ export function DrawingSheet({
   views,
   resultByProjection,
   title,
+  dimensionsByView,
+  measuredById,
+  selectedEdgeKey,
+  onPickEdge,
 }: DrawingSheetProps) {
   const dims = sheetDimensions(sheet.size, sheet.orientation);
   // Space the views by their own projected extents so they never overlap for a
@@ -254,6 +582,8 @@ export function DrawingSheet({
   const scaleLabel = formatScale(
     views[0]?.scale ?? { numerator: 1, denominator: 1 },
   );
+  const viewIdByProjection = new Map<ViewProjection, string>();
+  for (const view of views) viewIdByProjection.set(view.projection, view.id);
   // Draw in the standard order, but only views that were actually created.
   const placed = STANDARD_VIEWS.filter((projection) =>
     views.some((view) => view.projection === projection),
@@ -301,6 +631,11 @@ export function DrawingSheet({
           anchor={layout[projection]}
           sheetHeight={dims.height}
           result={resultByProjection.get(projection)}
+          viewId={viewIdByProjection.get(projection) ?? null}
+          dimensions={dimensionsByView?.get(projection) ?? []}
+          measuredById={measuredById}
+          selectedEdgeKey={selectedEdgeKey}
+          onPickEdge={onPickEdge}
         />
       ))}
       <TitleBlock

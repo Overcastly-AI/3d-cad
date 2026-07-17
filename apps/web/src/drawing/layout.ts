@@ -10,6 +10,7 @@
  * component never re-flips axes or reasons about reflected arc sweeps.
  */
 import type {
+  EdgeSignature,
   ProjectedPoint,
   ProjectedViewEdge,
   SheetResponse,
@@ -230,8 +231,21 @@ export function boundsAwareLayout(
   };
 }
 
+/**
+ * Pick metadata carried alongside every SVG primitive so the sheet can make a
+ * dimensionable edge interactive without re-deriving the mapping: whether a
+ * dimension may attach here (design §3.3), the MODEL edge it would name, and the
+ * projected primitive kind (which gates the valid dimension types — a circle
+ * offers diameter/radius, a line offers linear).
+ */
+export interface EdgePickInfo {
+  dimensionable: boolean;
+  sourceEdge: EdgeSignature | null;
+  edgePrimitive: ProjectedViewEdge["primitive"];
+}
+
 /** An SVG-ready primitive in final sheet coordinates (mm, y-down, top-left). */
-export type SvgEdge =
+export type SvgEdge = (
   | {
       kind: "line";
       x1: number;
@@ -241,7 +255,9 @@ export type SvgEdge =
       visible: boolean;
     }
   | { kind: "circle"; cx: number; cy: number; r: number; visible: boolean }
-  | { kind: "polyline"; points: Point2D[]; visible: boolean };
+  | { kind: "polyline"; points: Point2D[]; visible: boolean }
+) &
+  EdgePickInfo;
 
 const TAU = Math.PI * 2;
 const norm = (a: number): number => ((a % TAU) + TAU) % TAU;
@@ -282,25 +298,46 @@ function sampleArc(
 }
 
 /**
+ * The projected(y-up, centred)→SVG(y-down, top-left) point map for one placed
+ * view: it centres the view's bounding box at `anchor` on a sheet of height
+ * `sheetHeight`, flipping y once. The SINGLE transform both the edge renderer
+ * and the dimension-annotation renderer share, so a dimension lands exactly on
+ * the geometry it measures (no second, divergent mapping).
+ */
+export function viewTransform(
+  edges: readonly ProjectedViewEdge[],
+  anchor: Anchor,
+  sheetHeight: number,
+): (p: Point2D) => Point2D {
+  const bounds = viewBounds(edges);
+  const cx = bounds?.center.x ?? 0;
+  const cy = bounds?.center.y ?? 0;
+  const anchorSvgX = anchor.x;
+  const anchorSvgY = sheetHeight - anchor.y;
+  return (p: Point2D): Point2D => ({
+    x: anchorSvgX + (p.x - cx),
+    y: anchorSvgY - (p.y - cy),
+  });
+}
+
+/**
  * Map one view's projected edges into final SVG primitives, placing the view's
  * bounding-box centre at `anchor` on a sheet of height `sheetHeight`. Sheet mm
  * are y-UP with a bottom-left origin; SVG is y-DOWN top-left, so the anchor and
- * every edge point are flipped once here (`sheetHeight - y`).
+ * every edge point are flipped once here (`sheetHeight - y`). Each primitive
+ * carries its pick metadata (dimensionable + source edge) so the sheet can wire
+ * interaction without re-deriving the mapping.
  */
 export function viewToSvgEdges(
   edges: readonly ProjectedViewEdge[],
   anchor: Anchor,
   sheetHeight: number,
 ): SvgEdge[] {
-  const bounds = viewBounds(edges);
-  const cx = bounds?.center.x ?? 0;
-  const cy = bounds?.center.y ?? 0;
-  const anchorSvgX = anchor.x;
-  const anchorSvgY = sheetHeight - anchor.y;
-  // Projected (y-up, centred) → SVG (y-down): translate to the anchor, flip y.
-  const toSvg = (p: Point2D): Point2D => ({
-    x: anchorSvgX + (p.x - cx),
-    y: anchorSvgY - (p.y - cy),
+  const toSvg = viewTransform(edges, anchor, sheetHeight);
+  const pick = (edge: ProjectedViewEdge): EdgePickInfo => ({
+    dimensionable: edge.dimensionable,
+    sourceEdge: edge.source_edge ?? null,
+    edgePrimitive: edge.primitive,
   });
 
   const out: SvgEdge[] = [];
@@ -315,6 +352,7 @@ export function viewToSvgEdges(
         x2: b.x,
         y2: b.y,
         visible: edge.visible,
+        ...pick(edge),
       });
     } else if (
       edge.primitive === "circle" &&
@@ -328,6 +366,7 @@ export function viewToSvgEdges(
         cy: c.y,
         r: edge.radius,
         visible: edge.visible,
+        ...pick(edge),
       });
     } else if (
       edge.primitive === "arc" &&
@@ -341,7 +380,12 @@ export function viewToSvgEdges(
         p2(edge.midpoint),
         p2(edge.end),
       ).map(toSvg);
-      out.push({ kind: "polyline", points: pts, visible: edge.visible });
+      out.push({
+        kind: "polyline",
+        points: pts,
+        visible: edge.visible,
+        ...pick(edge),
+      });
     } else {
       // polyline (or an under-specified circle/arc): draw the sampled vertices,
       // falling back to start→end so a malformed edge still renders a segment.
@@ -353,6 +397,7 @@ export function viewToSvgEdges(
         kind: "polyline",
         points: raw.map(toSvg),
         visible: edge.visible,
+        ...pick(edge),
       });
     }
   }
