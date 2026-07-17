@@ -163,11 +163,36 @@ nit, no user impact, stays Later).
       panel to list/delete. New `drawing` dimension/pick tokens (no raw hex);
       `drawing/dimensions.ts` + 14 unit tests; e2e authors Ø10.000 + 40.000 and
       deletes one against the real stack; `just lint` green. [src: drawings.md §3]
+- [x] (P2, S) Drawings v1 #6b — dimension-authoring review fixes — **DONE
+      2026-07-17.** P2: diameter value stamped CLEAR of the circle (halo no longer
+      masks the arc — a Ø10 hole reads whole, was a semicircle). P1: gutter-aware
+      auto-placement (sibling view SVG bounds fed into `buildDimensionAnnotation`;
+      the offset flips off an occupied side) + `VIEW_GUTTER_MM` 14→24 so a callout
+      seats clear of the neighbour. P2: keyboard focus now a distinct deep-blue
+      RING (split from hover; `pickFocusRingMm` token; blanket `outline:none`
+      replaced). P2: `~` foreshortened flagged consistently on sheet + panel with
+      an always-visible (keyboard-reachable) legend. 🟢 `shadow-float` token in the
+      author menu. Refreshed founder shots; `just lint` + web unit (562) + drawings
+      e2e green. [src: docs/UI-REVIEW.md 2026-07-17]
 - [ ] (P2, S) Drawings — dimension authoring: angular (two straight edges) +
       point-to-point linear (edge-endpoint refs), and manual drag-to-place of the
       dimension line (v1 auto-places at a fixed offset). The measurement backend
       already supports all four types (#6); this is the authoring/placement UI.
       [src: design/drawings.md §3.1/§3.3, deferred from #6b]
+- [ ] (P3, S) Drawings — pickable-edge discoverability at rest. Dimensionable
+      edges only reveal their pickability on hover/focus; at 0 dimensions the sheet
+      looks identical to the read-only editor. Add a quiet resting cue (one-time
+      pulse, cursor/legend hint, or faint pick-tint) so a first-run user knows the
+      sheet is interactive. [src: docs/UI-REVIEW.md 2026-07-17 P3, deferred #6b]
+- [ ] (P3, S) Drawings — Dimensions-panel row ↔ view/sheet association. A row is
+      `TYPE · value · Delete` with no view column and no panel→sheet highlight, so
+      with several dimensions you can't tell which edge a row names or find it on
+      the paper. Add a view tag + hover→geometry-highlight (the sketcher/measure
+      precedent). [src: docs/UI-REVIEW.md 2026-07-17 P3, deferred #6b]
+- [ ] (P3, M) Drawings — pickable edges as individual tab stops don't scale. On a
+      real part that's dozens of SVG tab stops before any other control. Move to a
+      roving-tabindex / "enter the sheet then arrow between edges" pattern. [src:
+      docs/UI-REVIEW.md 2026-07-17 P3, deferred #6b]
 - [ ] (P3, S) Drawings — hidden-edge provenance can tag the FAR coincident edge.
       `_attach_provenance` disambiguates a VISIBLE coincident 2D edge by nearest-eye
       depth (correct, proven), but a HIDDEN coincident edge with NO visible edge
@@ -627,6 +652,12 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-17 — **Drawings v1 #6b review fixes:** diameter value now clear of the
+  circle (halo no longer masks the arc — hole reads whole); gutter-aware
+  placement (sibling bounds + wider `VIEW_GUTTER_MM`) so `40.000` clears the
+  neighbour; distinct keyboard-focus ring (split from hover); consistent `~`
+  foreshortened flag + keyboard-reachable legend; `shadow-float` token. Founder
+  shots refreshed; lint + web unit + drawings e2e green. [docs/UI-REVIEW.md 07-17]
 - 2026-07-17 — **Drawings v1 #6b (dimension-authoring UI) done:** pick a
   dimensionable edge → gated type menu → CRUD → re-evaluate renders the drafting
   annotation (Ø/R/linear, model-true value, `~` foreshortened, honest error

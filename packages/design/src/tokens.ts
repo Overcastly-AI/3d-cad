@@ -289,6 +289,11 @@ export const drawing = {
   pickHover: "#1E6FBF",
   /** Selected-edge ink — the deeper blueprint blue. */
   pickSelected: "#0F4C81",
+  /** Keyboard-focus ring width (mm) — a deep-blue halo UNDER the edge so a
+   * focused edge reads as a ring (a distinct shape), not merely the hover
+   * recolor: keyboard focus must be visibly distinct from mouse hover (WCAG
+   * 2.4.7). The ring ink reuses `pickSelected` (≥3:1 on the vellum). */
+  pickFocusRingMm: 2.4,
   /** Invisible hit-stroke width (mm) so thin edges are easy to click/focus. */
   pickHitMm: 2.6,
 } as const;

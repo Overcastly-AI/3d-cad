@@ -149,6 +149,47 @@ describe("buildDimensionAnnotation", () => {
     expect(dim?.y1).toBeLessThan(0);
   });
 
+  it("stamps the diameter value CLEAR of the circle (halo never masks the arc)", () => {
+    const a = buildDimensionAnnotation({
+      type: "diameter",
+      measured: ok(10, "mm"),
+      edge: projectedCircle(), // centre (20, 12.5), radius 5
+      viewCenter: { x: 20, y: 12.5 },
+      toSvg: identity,
+    });
+    if (a?.kind !== "measured") throw new Error("expected a measured diameter");
+    // The value sits beyond the arc (|x - cx| > radius), so its opaque paper
+    // halo lands on empty paper and the circle renders whole (frontend-QA P2).
+    expect(Math.abs(a.text.x - 20)).toBeGreaterThan(5);
+  });
+
+  it("flips a linear dimension away from a neighbouring view it would overlap", () => {
+    // viewCenter above the edge → the conventional outboard side is BELOW (y<0).
+    const common = {
+      type: "linear" as const,
+      measured: ok(40, "mm"),
+      edge: projectedLine(),
+      viewCenter: { x: 20, y: 12.5 },
+      toSvg: identity,
+    };
+    // A sibling view occupying the space just below the edge (the gutter).
+    const obstacle = { minX: -50, minY: -30, maxX: 90, maxY: -1 };
+    const flipped = buildDimensionAnnotation({
+      ...common,
+      obstacles: [obstacle],
+    });
+    if (flipped?.kind !== "measured") throw new Error("expected measured");
+    const dim = flipped.lines.find((l) => l.role === "dimension");
+    // With the outboard side blocked, the dimension line flips ABOVE (y>0).
+    expect(dim?.y1).toBeGreaterThan(0);
+    // …and with no obstacle it keeps the conventional outboard (below) side.
+    const normal = buildDimensionAnnotation(common);
+    if (normal?.kind !== "measured") throw new Error("expected measured");
+    expect(normal.lines.find((l) => l.role === "dimension")?.y1).toBeLessThan(
+      0,
+    );
+  });
+
   it("flags a foreshortened dimension with a ~ marker", () => {
     const a = buildDimensionAnnotation({
       type: "diameter",

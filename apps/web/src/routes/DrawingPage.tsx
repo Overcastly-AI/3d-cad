@@ -701,53 +701,70 @@ function DimensionsPanel({
           a diameter or radius, a straight edge a linear.
         </p>
       ) : (
-        <ul className="divide-y divide-hairline">
-          {dimensions.map((dim) => {
-            const measured = measuredById.get(dim.id);
-            const errored = Boolean(measured?.error);
-            const value =
-              measured && typeof measured.value === "number"
-                ? (measured.foreshortened ? "~" : "") +
-                  formatDimensionLabel(
-                    dim.dimension.type,
-                    measured.value,
-                    measured.unit,
-                  )
-                : errored
-                  ? "unresolved"
-                  : "…";
-            return (
-              <li
-                key={dim.id}
-                className="flex items-center gap-2 px-3 py-1.5"
-                data-testid="dimension-row"
-                data-dimension-type={dim.dimension.type}
-              >
-                <span className="font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-                  {dim.dimension.type}
-                </span>
-                <span
-                  data-testid="dimension-row-value"
-                  className={`grow text-right font-data text-2xs tabular-nums ${
-                    errored ? "text-flag" : "text-mist"
-                  }`}
+        <>
+          <ul className="divide-y divide-hairline">
+            {dimensions.map((dim) => {
+              const measured = measuredById.get(dim.id);
+              const errored = Boolean(measured?.error);
+              const foreshortened = Boolean(measured?.foreshortened);
+              const value =
+                measured && typeof measured.value === "number"
+                  ? (foreshortened ? "~" : "") +
+                    formatDimensionLabel(
+                      dim.dimension.type,
+                      measured.value,
+                      measured.unit,
+                    )
+                  : errored
+                    ? "unresolved"
+                    : "…";
+              return (
+                <li
+                  key={dim.id}
+                  className="flex items-center gap-2 px-3 py-1.5"
+                  data-testid="dimension-row"
+                  data-dimension-type={dim.dimension.type}
+                  data-foreshortened={foreshortened ? "true" : "false"}
                 >
-                  {value}
-                </span>
-                <button
-                  type="button"
-                  disabled={busy}
-                  data-testid="dimension-delete"
-                  aria-label={`Delete ${dim.dimension.type} dimension`}
-                  onClick={() => onDelete(dim.id)}
-                  className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge transition-colors duration-fast hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
-                >
-                  Delete
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                  <span className="font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+                    {dim.dimension.type}
+                  </span>
+                  <span
+                    data-testid="dimension-row-value"
+                    // Foreshortened matches the sheet: the ~value reads in the
+                    // same flag ink on BOTH renderers (was un-flagged here).
+                    className={`grow text-right font-data text-2xs tabular-nums ${
+                      errored || foreshortened ? "text-flag" : "text-mist"
+                    }`}
+                  >
+                    {value}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    data-testid="dimension-delete"
+                    aria-label={`Delete ${dim.dimension.type} dimension`}
+                    onClick={() => onDelete(dim.id)}
+                    className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge transition-colors duration-fast hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    Delete
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {/* An ALWAYS-VISIBLE legend for the `~` flag — the sheet only explains
+              it via a mouse-hover SVG <title>; this reaches keyboard + touch. */}
+          {dimensions.some((dim) => measuredById.get(dim.id)?.foreshortened) ? (
+            <p
+              data-testid="dimension-foreshortened-note"
+              className="border-t border-hairline px-3 py-2 font-body text-2xs text-flag"
+            >
+              <span className="font-data">~</span> shown from a true-size view
+              for the drawn length (foreshortened).
+            </p>
+          ) : null}
+        </>
       )}
     </div>
   );

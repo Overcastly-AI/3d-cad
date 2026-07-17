@@ -71,8 +71,12 @@ export function sheetDimensions(
 export const SHEET_MARGIN_MM = 10;
 /** Title-block box (mm), seated in the bottom-right corner inside the border. */
 export const TITLE_BLOCK_MM = { width: 96, height: 34 } as const;
-/** Clear space (mm) between adjacent views' bounding boxes. */
-export const VIEW_GUTTER_MM = 14;
+/**
+ * Clear space (mm) between adjacent views' bounding boxes. Sized to seat an
+ * auto-placed dimension (offset + text + halo ≈ 16 mm) in the third-angle
+ * gutter without it landing on the neighbouring view (frontend-QA P1).
+ */
+export const VIEW_GUTTER_MM = 24;
 
 export interface Anchor {
   /** View-centre X in sheet mm (origin bottom-left, y-UP). */
@@ -107,6 +111,14 @@ export function standardLayout(
 export interface Point2D {
   x: number;
   y: number;
+}
+
+/** An axis-aligned rectangle in final SVG (sheet-mm) space. */
+export interface SvgRect {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
 }
 
 interface Bounds2D {
@@ -318,6 +330,31 @@ export function viewTransform(
     x: anchorSvgX + (p.x - cx),
     y: anchorSvgY - (p.y - cy),
   });
+}
+
+/**
+ * The view's drawn extent as a final SVG (sheet-mm) rectangle — the box a
+ * dimension on a *sibling* view must avoid so a callout never lands on another
+ * view's geometry (frontend-QA P1 collision fix). Null when the view is empty.
+ */
+export function viewContentSvgRect(
+  edges: readonly ProjectedViewEdge[],
+  anchor: Anchor,
+  sheetHeight: number,
+): SvgRect | null {
+  const bounds = viewBounds(edges);
+  if (!bounds) return null;
+  const toSvg = viewTransform(edges, anchor, sheetHeight);
+  // A y-flip keeps the box axis-aligned, so the two mapped opposite corners
+  // bound it (min/max collapses the flip cleanly).
+  const a = toSvg({ x: bounds.min.x, y: bounds.min.y });
+  const b = toSvg({ x: bounds.max.x, y: bounds.max.y });
+  return {
+    minX: Math.min(a.x, b.x),
+    minY: Math.min(a.y, b.y),
+    maxX: Math.max(a.x, b.x),
+    maxY: Math.max(a.y, b.y),
+  };
 }
 
 /**

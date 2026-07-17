@@ -824,3 +824,30 @@ pickable edge is visually identical to mouse hover.
 - `DimensionsPanel` ✅ — honest states / P3 view-association + foreshorten parity
 - `dimensions.ts` placement 🟡 — fixed offset collides (P1); diameter text placement (P2)
 - `drawing` token group (dimension ink/weights/arrows + pick ink) ✅
+
+### Resolution — frontend-builder fix pass (2026-07-17)
+
+All four flagged P1/P2s (and the 🟢) fixed; the two deferred P3s + the
+tab-stop-at-scale concern are filed to BACKLOG (P3). Evidence:
+`docs/screenshots/drawings-dimensioned-{1440,1280}.png` (regenerated) — the
+Ø10 hole renders as a FULL circle with `Ø10.000` clear to its right, and
+`40.000` seats in the widened gutter clear of the FRONT view.
+
+- **P2 diameter halo masked the arc → RESOLVED.** `dimensions.ts` diameter
+  branch stamps the value beyond the arc along the dimension line (outboard,
+  obstacle-aware side); the paper halo now lands on empty paper. (Radius text
+  pushed out by its half-width for the same reason.)
+- **P1 gutter collision → RESOLVED.** `buildDimensionAnnotation` takes
+  sibling-view SVG bounds (`obstacles`) + sheet extent and flips the offset off
+  an occupied side (`chooseByPenalty`); `viewContentSvgRect` supplies them and
+  `VIEW_GUTTER_MM` 14→24 guarantees clearance. Unit test covers the flip.
+- **P2 focus==hover → RESOLVED.** `PickableEdge` splits `hover`/`focus`;
+  focus adds a distinct deep-blue RING (`drawing.pickFocusRingMm`) under the
+  edge (a shape change, not colour-only); blanket `outline:none` replaced by the
+  custom ring.
+- **P2 `~` mouse-only/inconsistent → RESOLVED.** The Dimensions panel flags a
+  foreshortened value in the same flag ink as the sheet and carries an
+  always-visible (keyboard/touch-reachable) legend explaining `~`.
+- **🟢 `DimensionAuthorMenu` shadow → RESOLVED.** Now the `shadow-float` token.
+
+Checklist now: `DrawingSheet` dimension layer ✅ · `dimensions.ts` placement ✅.

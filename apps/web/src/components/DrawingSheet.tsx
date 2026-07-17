@@ -44,10 +44,12 @@ import {
   formatScale,
   sheetDimensions,
   viewBounds,
+  viewContentSvgRect,
   viewToSvgEdges,
   viewTransform,
   type Anchor,
   type SvgEdge,
+  type SvgRect,
 } from "../drawing/layout";
 
 /** A pick on a dimensionable projected edge — the seed of an authored dimension. */
@@ -99,21 +101,57 @@ function strokeFor(visible: boolean) {
       };
 }
 
-type Highlight = "hover" | "selected" | null;
+/** Render one SVG primitive for `edge` with the given stroke props. */
+function edgePrimitive(
+  edge: SvgEdge,
+  props: Record<string, unknown>,
+  key?: string,
+) {
+  if (edge.kind === "line") {
+    return (
+      <line
+        key={key}
+        x1={edge.x1}
+        y1={edge.y1}
+        x2={edge.x2}
+        y2={edge.y2}
+        {...props}
+      />
+    );
+  }
+  if (edge.kind === "circle") {
+    return <circle key={key} cx={edge.cx} cy={edge.cy} r={edge.r} {...props} />;
+  }
+  return (
+    <polyline
+      key={key}
+      points={edge.points.map((p) => `${p.x},${p.y}`).join(" ")}
+      {...props}
+    />
+  );
+}
 
 function EdgeShape({
   edge,
-  highlight,
+  hover,
+  focus,
+  selected,
 }: {
   edge: SvgEdge;
-  highlight: Highlight;
+  hover: boolean;
+  focus: boolean;
+  selected: boolean;
 }) {
-  const stroke = highlight
-    ? {
-        stroke:
-          highlight === "selected" ? drawing.pickSelected : drawing.pickHover,
-        strokeWidth: 0.8,
-      }
+  // Keyboard focus MUST read differently from mouse hover (WCAG 2.4.7): hover
+  // recolors the edge blueprint-blue; focus adds a deep-blue RING under it (a
+  // distinct shape, not a colour-only cue) and brightens the core.
+  const coreColor = selected
+    ? drawing.pickSelected
+    : focus || hover
+      ? drawing.pickHover
+      : null;
+  const stroke = coreColor
+    ? { stroke: coreColor, strokeWidth: 0.8 }
     : strokeFor(edge.visible);
   const common = {
     ...stroke,
@@ -123,20 +161,27 @@ function EdgeShape({
     "data-edge": edge.kind,
     "data-visible": edge.visible ? "true" : "false",
     "data-dimensionable": edge.dimensionable ? "true" : "false",
+    "data-focused": focus ? "true" : "false",
   };
-  if (edge.kind === "line") {
-    return (
-      <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} {...common} />
-    );
-  }
-  if (edge.kind === "circle") {
-    return <circle cx={edge.cx} cy={edge.cy} r={edge.r} {...common} />;
-  }
   return (
-    <polyline
-      points={edge.points.map((p) => `${p.x},${p.y}`).join(" ")}
-      {...common}
-    />
+    <>
+      {focus
+        ? edgePrimitive(
+            edge,
+            {
+              stroke: drawing.pickSelected,
+              strokeWidth: drawing.pickFocusRingMm,
+              fill: "none",
+              strokeLinecap: "round",
+              strokeLinejoin: "round",
+              opacity: 0.5,
+              "data-testid": "drawing-edge-focus-ring",
+            },
+            "ring",
+          )
+        : null}
+      {edgePrimitive(edge, common, "core")}
+    </>
   );
 }
 
@@ -189,14 +234,17 @@ function PickableEdge({
   onPickEdge?: (event: EdgePickEvent) => void;
 }) {
   const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
   const interactive =
     edge.dimensionable &&
     edge.sourceEdge !== null &&
     viewId !== null &&
     onPickEdge !== undefined;
-  const highlight: Highlight = selected ? "selected" : hover ? "hover" : null;
 
-  if (!interactive) return <EdgeShape edge={edge} highlight={highlight} />;
+  if (!interactive)
+    return (
+      <EdgeShape edge={edge} hover={false} focus={false} selected={selected} />
+    );
 
   const fire = (clientX: number, clientY: number) => {
     if (edge.sourceEdge === null || viewId === null) return;
@@ -212,7 +260,7 @@ function PickableEdge({
 
   return (
     <g>
-      <EdgeShape edge={edge} highlight={highlight} />
+      <EdgeShape edge={edge} hover={hover} focus={focus} selected={selected} />
       <g
         role="button"
         tabIndex={0}
@@ -221,11 +269,14 @@ function PickableEdge({
         data-view={projection}
         data-primitive={edge.edgePrimitive}
         data-selected={selected ? "true" : "false"}
+        data-focused={focus ? "true" : "false"}
+        // A custom SVG focus ring (in `EdgeShape`) is the visible focus
+        // affordance, so the default box outline on this hit-group is suppressed.
         style={{ cursor: "pointer", outline: "none" }}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        onFocus={() => setHover(true)}
-        onBlur={() => setHover(false)}
+        onFocus={() => setFocus(true)}
+        onBlur={() => setFocus(false)}
         onClick={(event) => fire(event.clientX, event.clientY)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -353,22 +404,27 @@ function DimensionGlyph({
 function SheetView({
   projection,
   anchor,
+  sheetWidth,
   sheetHeight,
   result,
   viewId,
   dimensions,
   measuredById,
   selectedEdgeKey,
+  obstacles,
   onPickEdge,
 }: {
   projection: ViewProjection;
   anchor: Anchor;
+  sheetWidth: number;
   sheetHeight: number;
   result: DrawingViewResult | undefined;
   viewId: string | null;
   dimensions: readonly DimensionResponse[];
   measuredById: Map<string, MeasuredDimension> | undefined;
   selectedEdgeKey: string | null | undefined;
+  /** Sibling views' SVG bounds a dimension on THIS view must not overlap. */
+  obstacles: readonly SvgRect[];
   onPickEdge?: (event: EdgePickEvent) => void;
 }) {
   const anchorSvgX = anchor.x;
@@ -402,6 +458,8 @@ function SheetView({
       edge: matched,
       viewCenter,
       toSvg,
+      obstacles,
+      sheet: { width: sheetWidth, height: sheetHeight },
     });
     if (annotation === null) continue;
     annotations.push({ id: dim.id, type: dim.dimension.type, annotation });
@@ -579,6 +637,19 @@ export function DrawingSheet({
       result && !result.error ? viewBounds(result.edges ?? []) : null;
   }
   const layout = boundsAwareLayout(boundsByProjection, dims);
+  // Each placed view's drawn extent in SVG space — a dimension on any view must
+  // clear its SIBLINGS' boxes (no callout landing on a neighbour — P1 fix).
+  const svgRectByProjection = new Map<ViewProjection, SvgRect>();
+  for (const projection of STANDARD_VIEWS) {
+    const result = resultByProjection.get(projection);
+    if (!result || result.error) continue;
+    const rect = viewContentSvgRect(
+      result.edges ?? [],
+      layout[projection],
+      dims.height,
+    );
+    if (rect) svgRectByProjection.set(projection, rect);
+  }
   const scaleLabel = formatScale(
     views[0]?.scale ?? { numerator: 1, denominator: 1 },
   );
@@ -629,12 +700,16 @@ export function DrawingSheet({
           key={projection}
           projection={projection}
           anchor={layout[projection]}
+          sheetWidth={dims.width}
           sheetHeight={dims.height}
           result={resultByProjection.get(projection)}
           viewId={viewIdByProjection.get(projection) ?? null}
           dimensions={dimensionsByView?.get(projection) ?? []}
           measuredById={measuredById}
           selectedEdgeKey={selectedEdgeKey}
+          obstacles={[...svgRectByProjection]
+            .filter(([p]) => p !== projection)
+            .map(([, rect]) => rect)}
           onPickEdge={onPickEdge}
         />
       ))}
