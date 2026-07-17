@@ -667,3 +667,160 @@ list.
 - `DrawingCommandBand` ✅ (P3 icon only)
 - `drawing` token group ✅
 - `WorkspaceNav` / `Breadcrumb` drawings parity ✅
+
+---
+
+## 2026-07-17 — Drawings v1 #6b: dimension authoring on the sheet (frontend-builder)
+
+**Scope.** Dimension authoring on the drawing sheet — pickable projected edges
+(blueprint-blue hover/focus), a type-gated author menu, drafting annotations
+(extension/witness lines, dimension line, filled arrowheads, prefixed value),
+a right-hand Dimensions list with model-true value + Delete. Commit `78ae196`
+on `claude/open-source-3d-cad-o7hl49`. Method: source cross-read of
+`DrawingSheet.tsx`, `dimensions.ts`, `DimensionAuthorMenu.tsx`,
+`DrawingPage.tsx`, `tokens.ts`, plus pixel inspection of the founder shots
+(`drawings-dimensioned-1440.png` / `-1280.png` vs `drawings-editor-1440.png`).
+
+### Executive verdict
+
+**Ships, with polish owed — not a blocker.** The dimensioning layer is real
+(server-measured values, honest error/pending states, token-driven ink, one
+palette across the SVG renderer) and reads *mostly* like an engineering print:
+the weight hierarchy is right (dimension/extension lines are visibly thinner
+than object edges), arrowheads are a slender drafting barb, the `Ø`/`R` prefix
+and value stamp are legible on the vellum, and chrome honesty holds (every
+panel/tile is wired to eval state, no decorative readouts). Two things keep it
+from reading as a finished print: (1) the auto-placed `40.000` linear
+dimension collides with the neighbouring view in the third-angle gutter, and
+(2) the diameter value's opaque paper halo eats the top arc of the hole, so a
+`Ø10` circle reads as a semicircle. Both are system-level (token/geometry)
+fixes, not instance patches. a11y has one real gap: keyboard focus on a
+pickable edge is visually identical to mouse hover.
+
+### Findings
+
+- **P1 — DrawingSheet / dimensions.ts — auto-placed linear dimension collides
+  with the adjacent view in the inter-view gutter.** In
+  `drawings-dimensioned-1440.png` the `40.000` linear sits in the narrow
+  top↔front gutter: its value stamp lands *on* the FRONT view's top object
+  line, and the dimension line runs near-colinear with that border — an
+  ambiguous read (is that rule the dimension line or the view edge?). This is
+  not a one-off: `dimensionOffsetMm = 11` is a *fixed* outboard offset, and in
+  a third-angle layout the top view's bottom edge and the front view's top
+  edge face each other across a shared gutter, so any width/length dimension on
+  a gutter-facing edge is dropped predictably into that gutter. Manual drag is
+  deferred for v1, which makes the fixed offset the *only* placement — so it
+  must not routinely collide. Screenshot ref: `drawings-dimensioned-1440.png`
+  (crop: the `40.000` between TOP and FRONT). **System fix:** make placement
+  gutter-aware — clamp/flip the offset when the outboard side points at a
+  neighbouring view's bounds (the layout already computes `viewBounds` per
+  projection in `boundsAwareLayout`; feed sibling bounds into
+  `buildDimensionAnnotation` so it can shorten/flip/stack the offset), or widen
+  the standard inter-view spacing enough to seat a dimension. Until drag lands,
+  a collision-avoiding auto-offset is the correctness bar.
+
+- **P2 — dimensions.ts / DrawingSheet `DimensionGlyph` — the diameter value's
+  opaque halo occludes the circle it measures.** The value is stamped at
+  `c.y + (TXT*0.5 + 1)` — *inside* a Ø10 hole (r = 5 mm) — behind a
+  `fill=drawing.paper opacity 0.92` rect (`haloW × haloH`). For a small hole
+  the halo spans the upper arc, so the circle renders as a semicircle
+  (`drawings-dimensioned-1440.png`, TOP view: the hole reads as a half-round).
+  The value-on-paper halo is the right idea for keeping AA contrast off the
+  graphite rules, but it must never mask *object* geometry. **System fix:** in
+  the `diameter`/`radius` branch place the value clear of the circle (outside
+  `r`, or leadered out) so the halo sits on empty paper; or paint the halo only
+  under the annotation lines, never over the projected circle. Size-dependent
+  (a Ø50 hole hides it), which is why P2 not P1 — but it's the demo hole, so
+  it's the first thing the founder sees.
+
+- **P2 — DrawingSheet `PickableEdge` — keyboard focus on a pickable edge is
+  indistinguishable from mouse hover, and the focus ring is suppressed.** The
+  interactive `<g role="button" tabIndex={0}>` carries `style={{ outline:
+  "none" }}` and its `onFocus` merely sets the same `hover` state, so a
+  keyboard user tabbing onto an edge gets the *identical* blueprint-blue
+  recolor a mouse hover gives — no distinct focus affordance, and colour-only.
+  It technically shows *a* state change (WCAG 2.4.7 scrapes by) but a keyboard
+  user can't tell "focused" from "someone's mouse is over it," and on a dense
+  sheet that's a real wayfinding loss. **System fix:** give the pick `<g>` a
+  distinct focus treatment from the design tokens (e.g. a brass/`pickSelected`
+  focus halo dot or a thicker outline ring) driven by a real `focus`/`hover`
+  split, not the current merged flag; drop the blanket `outline: none`.
+
+- **P2 — DrawingSheet / DimensionsPanel — the foreshortened (`~`) warning is
+  explained only by an SVG `<title>` (mouse-hover), and the sheet/panel signal
+  it inconsistently.** On the sheet a foreshortened value renders in
+  `dimensionFlag` red with a `~` and a hover `<title>` ("dimension in a
+  true-size view for the drawn length"); in the Dimensions panel the same
+  dimension shows a bare `~` in normal `mist` ink with no explanation and no
+  tooltip. So (a) the only explanation of what `~` means is mouse-reachable
+  only — a keyboard/touch user gets a cryptic tilde (brushes the mandate-7
+  "explain to mouse AND keyboard" rule), and (b) the same condition is red on
+  the sheet but un-flagged in the panel. **System fix:** carry one
+  foreshortened treatment across both renderers (flag ink in the panel too) and
+  surface the reason in a keyboard-reachable way (a panel affordance / visible
+  caption, not just SVG `<title>`).
+
+- **P3 — DrawingSheet — pickable edges are only discoverable on hover; no
+  resting affordance.** At 0 dimensions the sheet looks identical to the
+  read-only editor — edges reveal their pickability only once hovered/focused.
+  The Dimensions panel empty-state copy ("Click a highlighted edge…") is the
+  sole cue and it lives in the right gutter, easy to miss. Consider a quiet
+  resting hint that dimensionable edges are live (a one-time pulse, a
+  cursor/legend cue, or a faint pick-tint) so a first-run user knows the sheet
+  is interactive. Screenshot ref: `drawings-editor-1440.png` vs the hover
+  state has no before-hover tell.
+
+- **P3 — DimensionsPanel — rows don't associate a dimension with its view or
+  locate it on the sheet.** A row is `TYPE · value · Delete` with no view
+  column and no panel→sheet highlight link, so with several dimensions (or the
+  same length in two views) you can't tell which edge a row names or find it on
+  the paper. The sketcher/measure surfaces set a hover→geometry-highlight
+  precedent (Batch 3). Fine to defer for v1's two-dimension demo; note for when
+  the count grows.
+
+- **P3 — DrawingSheet — every dimensionable edge is an individual tab stop.**
+  On the demo plate that's a handful; on a real part it's dozens of SVG tab
+  stops to page through before reaching anything else. Not a v1 blocker; flag
+  for scale (a roving-tabindex or an "enter the sheet then arrow between edges"
+  pattern is the eventual answer).
+
+### What passes
+
+- **Weight hierarchy / arrowheads / value stamp** read as drafting-standard:
+  `visibleWeightMm 0.5` > `dimensionWeightMm 0.3` > `extensionWeightMm 0.25`
+  is visible in the crops; the `3.4×0.9 mm` barb is a slender drafting arrow;
+  `Ø`/`R`/bare prefixes format correctly; the diameter line is a full chord
+  through centre with outward arrows (conventional). The `40.000`'s witness
+  lines with gap + overrun are textbook.
+- **Contrast (AA).** `dimensionText #1B222B` and `dimensionInk #2A3542` on
+  `paper #ECEFF2` are ~13:1 / ~11:1; `pickHover #1E6FBF` ≈4.6:1 and
+  `pickSelected #0F4C81` deeper — all pass AA for text and clear 3:1 for
+  graphics; `dimensionFlag #B23A2E` ≈5:1.
+- **Author menu a11y.** `role=menu`/`menuitem`, first item auto-focused,
+  Up/Down wrap, Escape closes, brass `focus-visible` outline, `disabled` while
+  busy — keyboard-authorable without a mouse. Type-gating (circle → Ø/R, line →
+  linear) means an impossible combo is never offered.
+- **Honest states.** Pending value `…`, measure error `unresolved`/red flag +
+  an on-sheet dashed `!` marker with a `<title>`, per-view `VIEW FAILED`, the
+  `part_error` alert banner — no silent wrong number. Empty Dimensions panel
+  gives an instructive hint.
+- **Chrome honesty (3a).** Every element is wired: STANDARD VIEWS edge counts +
+  legend are eval data, DIMENSIONS count/rows/Delete are live, the panel
+  collapse caret is a real control, the title block reflects real scale/size.
+  No decorative tiles.
+- **Responsive 1280.** `drawings-dimensioned-1280.png`: the sheet stays clear
+  of the `lg:pr-[22rem]` panel gutter, dimensions remain legible, nothing
+  clipped or overflowing the root. The gutter collision (P1) and halo occlusion
+  (P2) persist at laptop width (same relative geometry) but no *new* responsive
+  defect.
+- **Reduced-motion.** Only colour transitions (`transition-colors
+  duration-fast`) on edges/menu — no transforms/animation to gate; nothing to
+  fault.
+
+### Component checklist (delta)
+
+- `DrawingSheet` dimension layer 🟡 — P1 gutter collision + P2 halo-occludes-circle + P2 edge focus==hover
+- `DimensionAuthorMenu` ✅ — type-gated, keyboard-first, AA
+- `DimensionsPanel` ✅ — honest states / P3 view-association + foreshorten parity
+- `dimensions.ts` placement 🟡 — fixed offset collides (P1); diameter text placement (P2)
+- `drawing` token group (dimension ink/weights/arrows + pick ink) ✅
