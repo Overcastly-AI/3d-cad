@@ -24,6 +24,7 @@ v1 — the bar is view-state-like; it still RESTORES with each snapshot (it is
 part of the serialized state), so a restore lands on a fully consistent tree.
 """
 
+import copy
 import uuid
 from datetime import datetime
 from typing import Any, Literal
@@ -86,7 +87,11 @@ async def _serialize_state(session: AsyncSession, part: db.Part) -> dict[str, An
                 "name": feature.name,
                 "type": feature.type,
                 "param_version": feature.param_version,
-                "params": feature.params,
+                # Deep-copy: the baseline is captured pre-op and flushed later
+                # in the transaction; holding a reference to the live row's
+                # params dict would let any future in-place mutation silently
+                # rewrite the snapshot (review 2026-07-17, latent hardening).
+                "params": copy.deepcopy(feature.params),
                 "created_at": feature.created_at.isoformat(),
                 "updated_at": feature.updated_at.isoformat(),
             }
