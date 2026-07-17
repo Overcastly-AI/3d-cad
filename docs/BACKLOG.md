@@ -79,6 +79,28 @@ the gateway's OCCT-CPU routes); audit F7 now fully closed.
 real but low severity/likelihood, stays Next) and F5 (spline epsilon — P3
 nit, no user impact, stays Later).
 
+**Active pick 2026-07-17 (founder "keep going" → units):** Assemblies v1 +
+distance/angle mates closed; the next daily-driver ❌→✅ flip is a document
+**length-unit** system (type/read `2 in`, set doc units) — cheapest flip that
+unblocks the most workflows. Architecture accepted in `docs/design/units.md`
+(canonical mm forever; unit enum in the contract; convert/parse/format core in
+`packages/design`; kernel untouched). Sequenced U1→U2 below.
+
+- [ ] (P1, M) Units U1 — document length_unit foundation (documents + contract)
+      — add `length_unit: LengthUnit` (`Literal["mm","cm","m","in","ft"]`) to the
+      part + assembly document models + Create/Response schemas; alembic
+      migration (default `mm`, backfill existing rows); documents CRUD
+      accepts/returns it; gateway pass-through; `just gen` regen. Backward
+      compatible (existing rows read `mm`). [src: docs/design/units.md §U1]
+- [ ] (P1, M) Units U2 — frontend units core + wiring (packages/design + apps/web)
+      — the pure convert/parse/format module in `packages/design` (`toMm`/`fromMm`/
+      `parseLength`/`formatLength`, exact factors, full vitest); a document-unit
+      selector in the editor chrome; every dimension input (feature params + the
+      distance/angle mate value) parses via `parseLength` and displays via
+      `formatLength` in the doc unit; readouts format the same way. `LengthUnit`
+      imported from the generated ts-client (one home). e2e: inch doc, type `2` →
+      body is 50.8 mm canonical, field reads `2 in`. [src: docs/design/units.md §U2]
+
 - [x] (P0, L) Viewport makeover Batch 1 — "the scene is a place" (apps/web +
       packages/design) — **DONE 2026-07-16** (founder recalibration, mandate
       3a; spec = UI-REVIEW 2026-07-16 audit). Full-bleed canvas + floating
