@@ -70,14 +70,14 @@ describe("angleError", () => {
 
 describe("neutralOffsetError", () => {
   it("is null while empty and for any finite value", () => {
-    expect(neutralOffsetError("")).toBeNull();
-    expect(neutralOffsetError("0")).toBeNull();
-    expect(neutralOffsetError("-4")).toBeNull();
+    expect(neutralOffsetError("", "mm")).toBeNull();
+    expect(neutralOffsetError("0", "mm")).toBeNull();
+    expect(neutralOffsetError("-4", "mm")).toBeNull();
   });
 
   it("messages a non-numeric offset", () => {
-    expect(neutralOffsetError("abc")).toBe(
-      "Enter a distance in millimetres (0, negative, or positive).",
+    expect(neutralOffsetError("abc", "mm")).toBe(
+      "Enter a distance (0, negative, or positive).",
     );
   });
 });
@@ -85,20 +85,27 @@ describe("neutralOffsetError", () => {
 describe("buildNeutralPlane", () => {
   it("builds a datum-kind neutral plane from base + offset + flip", () => {
     expect(
-      buildNeutralPlane({ base: "XZ", offsetInput: "-4", flip: true }),
+      buildNeutralPlane({ base: "XZ", offsetInput: "-4", flip: true }, "mm"),
     ).toEqual({ kind: "datum", base: "XZ", offset_mm: -4, flip: true });
+  });
+
+  it("converts the offset through the document unit", () => {
+    expect(
+      buildNeutralPlane({ base: "XZ", offsetInput: "1", flip: false }, "in")
+        ?.offset_mm,
+    ).toBe(25.4);
   });
 
   it("is null for a missing/invalid offset", () => {
     expect(
-      buildNeutralPlane({ base: "XY", offsetInput: "", flip: false }),
+      buildNeutralPlane({ base: "XY", offsetInput: "", flip: false }, "mm"),
     ).toBeNull();
   });
 });
 
 describe("buildDraftParams", () => {
   it("builds params from angle + picked faces + neutral plane", () => {
-    const params = buildDraftParams(form, [SIDE_A, SIDE_B], "feat-1");
+    const params = buildDraftParams(form, [SIDE_A, SIDE_B], "feat-1", "mm");
     expect(params).toEqual({
       angle_deg: 5,
       faces: {
@@ -113,23 +120,23 @@ describe("buildDraftParams", () => {
   });
 
   it("is null with NO picked faces (a draft has nothing to taper)", () => {
-    expect(buildDraftParams(form, [], "feat-1")).toBeNull();
+    expect(buildDraftParams(form, [], "feat-1", "mm")).toBeNull();
   });
 
   it("is null for a zero, out-of-range, or missing angle", () => {
     expect(
-      buildDraftParams({ ...form, angleInput: "0" }, [SIDE_A], "feat-1"),
+      buildDraftParams({ ...form, angleInput: "0" }, [SIDE_A], "feat-1", "mm"),
     ).toBeNull();
     expect(
-      buildDraftParams({ ...form, angleInput: "90" }, [SIDE_A], "feat-1"),
+      buildDraftParams({ ...form, angleInput: "90" }, [SIDE_A], "feat-1", "mm"),
     ).toBeNull();
     expect(
-      buildDraftParams({ ...form, angleInput: "" }, [SIDE_A], "feat-1"),
+      buildDraftParams({ ...form, angleInput: "" }, [SIDE_A], "feat-1", "mm"),
     ).toBeNull();
   });
 
   it("is null when faces are picked without a body anchor", () => {
-    expect(buildDraftParams(form, [SIDE_A], null)).toBeNull();
+    expect(buildDraftParams(form, [SIDE_A], null, "mm")).toBeNull();
   });
 
   it("is null for an invalid neutral offset", () => {
@@ -137,17 +144,17 @@ describe("buildDraftParams", () => {
       ...form,
       neutral: { ...form.neutral, offsetInput: "abc" },
     };
-    expect(buildDraftParams(bad, [SIDE_A], "feat-1")).toBeNull();
+    expect(buildDraftParams(bad, [SIDE_A], "feat-1", "mm")).toBeNull();
   });
 });
 
 describe("canSubmitDraft", () => {
   it("allows a valid angle with at least one picked face", () => {
-    expect(canSubmitDraft(form, [SIDE_A], "feat-1")).toBe(true);
+    expect(canSubmitDraft(form, [SIDE_A], "feat-1", "mm")).toBe(true);
   });
 
   it("blocks with no picked faces", () => {
-    expect(canSubmitDraft(form, [], "feat-1")).toBe(false);
+    expect(canSubmitDraft(form, [], "feat-1", "mm")).toBe(false);
   });
 });
 
@@ -168,7 +175,7 @@ describe("formFromDraftParams / pickedFacesFromDraftParams", () => {
   };
 
   it("seeds the form from persisted params (angle + neutral)", () => {
-    expect(formFromDraftParams(params)).toEqual({
+    expect(formFromDraftParams(params, "mm")).toEqual({
       angleInput: "-7.5",
       neutral: { base: "YZ", offsetInput: "12", flip: true },
     });

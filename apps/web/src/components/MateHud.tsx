@@ -9,11 +9,13 @@
  * let the user set its value (a design-system `NumberField`, mm / degrees) and
  * commit — keyboard-first: the field autofocuses, Enter commits, Escape cancels.
  */
-import { Button, NumberField } from "@loft/design";
+import { Button, NumberField, parseLength } from "@loft/design";
 import { type KeyboardEvent, useEffect, useState } from "react";
 
 import { isParametricMate, useMateAuthoringStore } from "../assembly/mateStore";
 import { mateToolLabel, parseMateValue } from "../assembly/mates";
+import { useDocumentLengthUnit } from "../units/documentUnit";
+import { lengthInputValue } from "../units/length";
 
 const FIRST: Record<string, string> = {
   coincident: "Pick a flat face on the first part.",
@@ -40,12 +42,18 @@ export interface MateHudProps {
 }
 
 export function MateHud({ submitError, submitting, onCommit }: MateHudProps) {
+  const docUnit = useDocumentLengthUnit();
   const tool = useMateAuthoringStore((s) => s.tool);
   const picks = useMateAuthoringStore((s) => s.picks);
   const value = useMateAuthoringStore((s) => s.value);
   const error = useMateAuthoringStore((s) => s.error);
   const setValue = useMateAuthoringStore((s) => s.setValue);
   const setTool = useMateAuthoringStore((s) => s.setTool);
+
+  // A distance mate carries a canonical-mm gap; an angle mate carries degrees.
+  // The distance field converts through the document unit at its boundary; the
+  // angle field never touches length conversion (angles are always degrees).
+  const isDistance = tool === "distance";
 
   // A local editing buffer so decimals/signs type smoothly; the parsed number
   // flows to the store (the commit's source of truth).
@@ -54,18 +62,28 @@ export function MateHud({ submitError, submitting, onCommit }: MateHudProps) {
     tool !== null && isParametricMate(tool) && picks.length === 2;
   // Seed the buffer from the store's default when the value phase opens. Keyed
   // on `needsValue` only so a keystroke (which updates `value`) never clobbers
-  // what the user is typing — the seed is a one-shot on entering the phase.
+  // what the user is typing — the seed is a one-shot on entering the phase. A
+  // distance seed formats the canonical mm into the document unit.
   useEffect(() => {
     if (needsValue) {
-      setDraft(useMateAuthoringStore.getState().value?.toString() ?? "");
+      const seed = useMateAuthoringStore.getState().value;
+      setDraft(
+        seed === null
+          ? ""
+          : isDistance
+            ? lengthInputValue(seed, docUnit)
+            : seed.toString(),
+      );
     }
-  }, [needsValue]);
+  }, [needsValue, isDistance, docUnit]);
 
   if (tool === null) return null;
 
   const onDraftChange = (next: string) => {
     setDraft(next);
-    setValue(parseMateValue(next));
+    // Distance parses through the document unit → canonical mm; angle stays a
+    // plain signed number of degrees.
+    setValue(isDistance ? parseLength(next, docUnit) : parseMateValue(next));
   };
   const onFieldKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Enter") {
@@ -78,7 +96,7 @@ export function MateHud({ submitError, submitting, onCommit }: MateHudProps) {
   };
 
   const prompt = picks.length === 0 ? FIRST[tool] : SECOND[tool];
-  const unit = tool === "distance" ? "mm" : "°";
+  const unit = isDistance ? docUnit : "°";
 
   return (
     <div

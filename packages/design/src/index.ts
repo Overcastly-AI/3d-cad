@@ -1,4 +1,15 @@
 export * from "./tokens";
+export {
+  formatLength,
+  fromMm,
+  LENGTH_UNITS,
+  type FormatLengthOptions,
+  type LengthUnit,
+  lengthUnitLabel,
+  MM_PER_UNIT,
+  parseLength,
+  toMm,
+} from "./units";
 export { loftPreset } from "./tailwind-preset";
 export { cx } from "./cx";
 export { Button, type ButtonProps } from "./primitives/Button";
@@ -41,3 +52,8 @@ export {
   type SelectFieldProps,
   type SelectFieldOption,
 } from "./primitives/SelectField";
+export {
+  InlineSelect,
+  type InlineSelectProps,
+  type InlineSelectOption,
+} from "./primitives/InlineSelect";

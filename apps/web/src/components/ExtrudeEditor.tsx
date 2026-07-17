@@ -22,6 +22,7 @@ import {
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { ExtrudeParams } from "../api/parts";
 import {
   canSubmitExtrude,
@@ -91,12 +92,13 @@ export function ExtrudeEditor({
   saving,
   error,
 }: ExtrudeEditorProps) {
+  const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<ExtrudeForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
   useEffect(() => setForm(initial), [initial]);
 
   const submit = useCallback(() => {
-    const distance = parseDistanceMm(form.distanceInput);
+    const distance = parseDistanceMm(form.distanceInput, unit);
     if (distance === null || form.profileFeatureId === "") return;
     onSubmit({
       profile: { kind: "feature", feature_id: form.profileFeatureId },
@@ -104,7 +106,7 @@ export function ExtrudeEditor({
       operation: form.operation,
       direction: form.direction,
     });
-  }, [form, onSubmit]);
+  }, [form, onSubmit, unit]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -119,8 +121,8 @@ export function ExtrudeEditor({
     [saving, submit, onCancel],
   );
 
-  const distanceMsg = distanceError(form.distanceInput);
-  const canSubmit = canSubmitExtrude(form) && !saving;
+  const distanceMsg = distanceError(form.distanceInput, unit);
+  const canSubmit = canSubmitExtrude(form, unit) && !saving;
   useCommandBridge(submit, canSubmit);
   const profileName =
     profiles.find((p) => p.id === form.profileFeatureId)?.name ?? "—";
@@ -160,7 +162,7 @@ export function ExtrudeEditor({
 
             <NumberField
               label="Distance"
-              unit="mm"
+              unit={unit}
               data-testid="extrude-distance"
               autoFocus
               value={form.distanceInput}

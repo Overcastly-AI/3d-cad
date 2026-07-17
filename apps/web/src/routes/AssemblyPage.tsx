@@ -13,8 +13,10 @@ import {
   evaluateAssembly,
   fetchAssemblyGraph,
   type InstanceResponse,
+  type LengthUnit,
   type Mate,
   type MateResponse,
+  updateAssemblyUnit,
   updateInstance,
 } from "../api/assemblies";
 import { MeshNotFoundError, fetchBodyMesh } from "../api/mesh";
@@ -29,6 +31,8 @@ import { AssemblyCommandBand } from "../components/AssemblyCommandBand";
 import { AssemblyInspector } from "../components/AssemblyInspector";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { AssemblyTreePanel } from "../components/AssemblyTreePanel";
+import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
+import { DocumentUnitProvider } from "../units/documentUnit";
 import { MateHud } from "../components/MateHud";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
@@ -76,6 +80,7 @@ export function AssemblyPage() {
   });
   const graph = graphQuery.data;
   const docVersion = graph?.doc_version ?? 0;
+  const lengthUnit = graph?.assembly.length_unit ?? "mm";
   const instances = useMemo(() => graph?.instances ?? [], [graph]);
 
   const partDocIds = useMemo(
@@ -264,6 +269,29 @@ export function AssemblyPage() {
       }
     },
     [refreshGraph],
+  );
+
+  // Document-unit change (docs/design/units.md §U2): a pure re-label under the
+  // doc_version OCC. No stored mm value changes, so the assembly never
+  // re-solves — every dimension echo simply re-formats on the next render.
+  const [unitBusy, setUnitBusy] = useState(false);
+  const changeUnit = useCallback(
+    (next: LengthUnit) => {
+      if (next === lengthUnit || unitBusy) return;
+      setUnitBusy(true);
+      void (async () => {
+        try {
+          await updateAssemblyUnit(assemblyId, next, docVersion);
+          await refreshGraph();
+        } catch {
+          // A stale-version race (422) or transient failure leaves the unit as
+          // it was; nothing stored changed and the user can retry.
+        } finally {
+          setUnitBusy(false);
+        }
+      })();
+    },
+    [lengthUnit, unitBusy, assemblyId, docVersion, refreshGraph],
   );
 
   // Add part: seed the Nth instance APART along +X so a later mate visibly
@@ -457,113 +485,120 @@ export function AssemblyPage() {
   );
 
   return (
-    <div className="flex h-full flex-col">
-      <TopBar>
-        <Breadcrumb
-          register="assemblies"
-          documentName={graph?.assembly.name ?? "Assembly"}
-          documentTestId="assembly-name"
-          mode={
-            tool !== null ? mateToolLabel(tool) : addOpen ? "Add part" : null
-          }
-        />
-      </TopBar>
-      <TopToolbar>
-        <AssemblyCommandBand
-          canAddPart={graph !== undefined}
-          onAddPart={() => setAddOpen((open) => !open)}
-          canMate={canMate}
-          activeTool={tool}
-          onToggleTool={toggleTool}
-        />
-      </TopToolbar>
-      {/* Full-bleed scene; tree + inspector float over it (Batch 1, P0-4). */}
-      <main className="relative min-h-0 grow">
-        <Viewport
-          worldBounds={sceneBounds}
-          fitKey={sceneFitKey}
-          hud={
-            <>
-              <MateHud
-                submitError={submitError}
-                submitting={submitting}
-                onCommit={commitMate}
-              />
-              {addOpen ? (
-                <AddInstancePanel
-                  addingPartId={addingPartId}
-                  error={addError}
-                  onAdd={handleAddPart}
-                  onClose={() => setAddOpen(false)}
+    <DocumentUnitProvider unit={lengthUnit}>
+      <div className="flex h-full flex-col">
+        <TopBar>
+          <Breadcrumb
+            register="assemblies"
+            documentName={graph?.assembly.name ?? "Assembly"}
+            documentTestId="assembly-name"
+            mode={
+              tool !== null ? mateToolLabel(tool) : addOpen ? "Add part" : null
+            }
+          />
+          <DocumentUnitSelect
+            value={lengthUnit}
+            onChange={changeUnit}
+            busy={unitBusy}
+          />
+        </TopBar>
+        <TopToolbar>
+          <AssemblyCommandBand
+            canAddPart={graph !== undefined}
+            onAddPart={() => setAddOpen((open) => !open)}
+            canMate={canMate}
+            activeTool={tool}
+            onToggleTool={toggleTool}
+          />
+        </TopToolbar>
+        {/* Full-bleed scene; tree + inspector float over it (Batch 1, P0-4). */}
+        <main className="relative min-h-0 grow">
+          <Viewport
+            worldBounds={sceneBounds}
+            fitKey={sceneFitKey}
+            hud={
+              <>
+                <MateHud
+                  submitError={submitError}
+                  submitting={submitting}
+                  onCommit={commitMate}
                 />
-              ) : null}
-              {actionError ? (
-                <div
-                  role="alert"
-                  data-testid="assembly-action-error"
-                  className="absolute bottom-3 left-3 max-w-sm border border-flag bg-anvil px-3 py-2"
-                >
-                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                    Action failed
-                  </span>
-                  <span className="mt-1 block font-body text-xs text-mist">
-                    {actionError}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActionError(null)}
-                    className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                {addOpen ? (
+                  <AddInstancePanel
+                    addingPartId={addingPartId}
+                    error={addError}
+                    onAdd={handleAddPart}
+                    onClose={() => setAddOpen(false)}
+                  />
+                ) : null}
+                {actionError ? (
+                  <div
+                    role="alert"
+                    data-testid="assembly-action-error"
+                    className="absolute bottom-3 left-3 max-w-sm border border-flag bg-anvil px-3 py-2"
                   >
-                    Dismiss
-                  </button>
-                </div>
-              ) : null}
-              {instances.length === 0 ? (
-                <div
-                  data-testid="assembly-hint"
-                  // Inline pointer-events beats the HUD's `[&>*]:pointer-events-auto`
-                  // so this centred hint never intercepts a click on the add
-                  // panel / balloons beneath it.
-                  style={{ pointerEvents: "none" }}
-                  className="absolute inset-0 flex items-center justify-center"
-                >
-                  <p className="max-w-xs text-center font-body text-sm text-gauge">
-                    Add a part to begin. Ground the first one, then mate the
-                    rest to bolt them together.
-                  </p>
-                </div>
-              ) : null}
-            </>
-          }
-        >
-          <AssemblyScene
-            instances={sceneInstances}
-            reducedMotion={reducedMotion}
-            selectedInstanceId={selectedInstanceId}
-            onSelectInstance={selectInstance}
-            overlaysByInstance={overlaysByInstance}
-          />
-        </Viewport>
-        <FloatingPanel side="left" title="Components" id="tree">
-          <AssemblyTreePanel
-            graph={graph}
-            graphError={graphQuery.error}
-            evaluation={evaluation}
-            selectedInstanceId={selectedInstanceId}
-            onSelectInstance={selectInstance}
-            onToggleGrounded={handleToggleGrounded}
-            onDeleteInstance={handleDeleteInstance}
-            onDeleteMate={handleDeleteMate}
-            busy={busy}
-          />
-        </FloatingPanel>
-        <FloatingPanel side="right" title="Solve" id="inspector">
-          <AssemblyInspector
-            evaluation={evaluation}
-            evaluating={evalQuery.isFetching}
-          />
-        </FloatingPanel>
-      </main>
-    </div>
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      Action failed
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {actionError}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActionError(null)}
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
+                {instances.length === 0 ? (
+                  <div
+                    data-testid="assembly-hint"
+                    // Inline pointer-events beats the HUD's `[&>*]:pointer-events-auto`
+                    // so this centred hint never intercepts a click on the add
+                    // panel / balloons beneath it.
+                    style={{ pointerEvents: "none" }}
+                    className="absolute inset-0 flex items-center justify-center"
+                  >
+                    <p className="max-w-xs text-center font-body text-sm text-gauge">
+                      Add a part to begin. Ground the first one, then mate the
+                      rest to bolt them together.
+                    </p>
+                  </div>
+                ) : null}
+              </>
+            }
+          >
+            <AssemblyScene
+              instances={sceneInstances}
+              reducedMotion={reducedMotion}
+              selectedInstanceId={selectedInstanceId}
+              onSelectInstance={selectInstance}
+              overlaysByInstance={overlaysByInstance}
+            />
+          </Viewport>
+          <FloatingPanel side="left" title="Components" id="tree">
+            <AssemblyTreePanel
+              graph={graph}
+              graphError={graphQuery.error}
+              evaluation={evaluation}
+              selectedInstanceId={selectedInstanceId}
+              onSelectInstance={selectInstance}
+              onToggleGrounded={handleToggleGrounded}
+              onDeleteInstance={handleDeleteInstance}
+              onDeleteMate={handleDeleteMate}
+              busy={busy}
+            />
+          </FloatingPanel>
+          <FloatingPanel side="right" title="Solve" id="inspector">
+            <AssemblyInspector
+              evaluation={evaluation}
+              evaluating={evalQuery.isFetching}
+            />
+          </FloatingPanel>
+        </main>
+      </div>
+    </DocumentUnitProvider>
   );
 }

@@ -64,9 +64,13 @@ import {
   sketchFeatureCreate,
   sketchFeatureUpdate,
   updateFeature,
+  updatePartUnit,
+  type LengthUnit,
 } from "../api/parts";
 import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
+import { DocumentUnitProvider } from "../units/documentUnit";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CreateStrip } from "../components/CreateStrip";
 import { FloatingPanel } from "../components/FloatingPanel";
@@ -219,6 +223,10 @@ export function PartPage() {
     queryFn: () => fetchPart(partId),
     staleTime: Infinity,
   });
+  // The document display unit (docs/design/units.md §U2). Edit-form seeds render
+  // their canonical mm in this unit; the DocumentUnitProvider carries it to
+  // every dimension cell + readout below. Falls back to mm until the part loads.
+  const lengthUnit = part.data?.length_unit ?? "mm";
   const tree = useQuery({
     queryKey: ["features", partId],
     queryFn: () => fetchFeatureTree(partId),
@@ -1161,6 +1169,36 @@ export function PartPage() {
     await queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
   }, [partId, queryClient]);
 
+  // Document-unit change (docs/design/units.md §U2): a pure re-label. It PATCHes
+  // the part's `length_unit` under the tree-version OCC and refreshes the part +
+  // tree — NO stored mm value is touched, so the body never re-solves; every
+  // dimension cell + readout simply re-formats into the new unit on the next
+  // render (the DocumentUnitProvider feeds them the new value).
+  const [unitBusy, setUnitBusy] = useState(false);
+  const changeUnit = useCallback(
+    (next: LengthUnit) => {
+      if (next === lengthUnit || unitBusy) return;
+      setUnitBusy(true);
+      void (async () => {
+        try {
+          const version = await freshTreeVersion();
+          await updatePartUnit(partId, next, version);
+          await queryClient.invalidateQueries({ queryKey: ["part", partId] });
+          await queryClient.invalidateQueries({
+            queryKey: ["features", partId],
+          });
+        } catch {
+          // A stale-version race (422) or transient failure leaves the unit as
+          // it was; the selector reverts to the loaded value and the user can
+          // retry. Nothing stored changed.
+        } finally {
+          setUnitBusy(false);
+        }
+      })();
+    },
+    [lengthUnit, unitBusy, partId, freshTreeVersion, queryClient],
+  );
+
   /** Enter sketch mode: reset the sync bookkeeping, drop any open editor. */
   const handleNewSketch = useCallback(() => {
     lastSynced.current = 0;
@@ -1410,93 +1448,100 @@ export function PartPage() {
     setEditor({ kind: "datum", mode: "create", initial: defaultDatumForm() });
   }, []);
 
-  const selectFeature = useCallback((feature: FeatureResponse) => {
-    useMeasureStore.getState().deactivate();
-    setSelectedFeatureId(feature.id);
-    setEditorError(null);
-    if (feature.feature.type === "extrude") {
-      setEditor({
-        kind: "extrude",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromParams(feature.feature.params),
-      });
-    } else if (feature.feature.type === "revolve") {
-      setEditor({
-        kind: "revolve",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromRevolveParams(feature.feature.params),
-      });
-    } else if (feature.feature.type === "sweep") {
-      setEditor({
-        kind: "sweep",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromSweepParams(feature.feature.params),
-      });
-    } else if (feature.feature.type === "loft") {
-      setEditor({
-        kind: "loft",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromLoftParams(feature.feature.params),
-      });
-    } else if (feature.feature.type === "pattern") {
-      setEditor({
-        kind: "pattern",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromPatternParams(feature.feature.params),
-      });
-    } else if (feature.feature.type === "fillet") {
-      setEditor({
-        kind: "fillet",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromFilletParams(feature.feature.params),
-        initialPicked: pickedFromFilletParams(feature.feature.params),
-      });
-    } else if (feature.feature.type === "chamfer") {
-      setEditor({
-        kind: "chamfer",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromChamferParams(feature.feature.params),
-        initialPicked: pickedFromChamferParams(feature.feature.params),
-      });
-    } else if (feature.feature.type === "shell") {
-      setEditor({
-        kind: "shell",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromShellParams(feature.feature.params),
-        initialPickedFaces: pickedFacesFromShellParams(feature.feature.params),
-      });
-    } else if (feature.feature.type === "draft") {
-      setEditor({
-        kind: "draft",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromDraftParams(feature.feature.params),
-        initialPickedFaces: pickedFacesFromDraftParams(feature.feature.params),
-      });
-    } else if (
-      feature.feature.type === "datum" &&
-      feature.feature.params.kind !== "on_face"
-    ) {
-      // Offset / offset-from / midplane datums are editable here; an on_face
-      // datum is authored + retargeted through the sketch-on-face picker.
-      setEditor({
-        kind: "datum",
-        mode: "edit",
-        featureId: feature.id,
-        initial: formFromDatumParams(feature.feature.params),
-      });
-    } else {
-      setEditor(null);
-    }
-  }, []);
+  const selectFeature = useCallback(
+    (feature: FeatureResponse) => {
+      useMeasureStore.getState().deactivate();
+      setSelectedFeatureId(feature.id);
+      setEditorError(null);
+      if (feature.feature.type === "extrude") {
+        setEditor({
+          kind: "extrude",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromParams(feature.feature.params, lengthUnit),
+        });
+      } else if (feature.feature.type === "revolve") {
+        setEditor({
+          kind: "revolve",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromRevolveParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "sweep") {
+        setEditor({
+          kind: "sweep",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromSweepParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "loft") {
+        setEditor({
+          kind: "loft",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromLoftParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "pattern") {
+        setEditor({
+          kind: "pattern",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromPatternParams(feature.feature.params, lengthUnit),
+        });
+      } else if (feature.feature.type === "fillet") {
+        setEditor({
+          kind: "fillet",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromFilletParams(feature.feature.params, lengthUnit),
+          initialPicked: pickedFromFilletParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "chamfer") {
+        setEditor({
+          kind: "chamfer",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromChamferParams(feature.feature.params, lengthUnit),
+          initialPicked: pickedFromChamferParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "shell") {
+        setEditor({
+          kind: "shell",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromShellParams(feature.feature.params, lengthUnit),
+          initialPickedFaces: pickedFacesFromShellParams(
+            feature.feature.params,
+          ),
+        });
+      } else if (feature.feature.type === "draft") {
+        setEditor({
+          kind: "draft",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromDraftParams(feature.feature.params, lengthUnit),
+          initialPickedFaces: pickedFacesFromDraftParams(
+            feature.feature.params,
+          ),
+        });
+      } else if (
+        feature.feature.type === "datum" &&
+        feature.feature.params.kind !== "on_face"
+      ) {
+        // Offset / offset-from / midplane datums are editable here; an on_face
+        // datum is authored + retargeted through the sketch-on-face picker.
+        setEditor({
+          kind: "datum",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromDatumParams(feature.feature.params, lengthUnit),
+        });
+      } else {
+        setEditor(null);
+      }
+    },
+    [lengthUnit],
+  );
 
   const closeEditor = useCallback(() => {
     setEditor(null);
@@ -2017,335 +2062,346 @@ export function PartPage() {
           : activeCommand;
 
   return (
-    <div className="flex h-full flex-col">
-      <TopBar>
-        <Breadcrumb
-          register="parts"
-          documentName={part.data?.name ?? "Part"}
-          documentTestId="part-name"
-          mode={workspaceMode}
-        />
-      </TopBar>
-      {/* The full-width command band, directly under the brand bar: the
+    <DocumentUnitProvider unit={lengthUnit}>
+      <div className="flex h-full flex-col">
+        <TopBar>
+          <Breadcrumb
+            register="parts"
+            documentName={part.data?.name ?? "Part"}
+            documentTestId="part-name"
+            mode={workspaceMode}
+          />
+          <DocumentUnitSelect
+            value={lengthUnit}
+            onChange={changeUnit}
+            busy={unitBusy}
+          />
+        </TopBar>
+        {/* The full-width command band, directly under the brand bar: the
           mode-aware CAD top-toolbar. Sketch tools while sketching, the
           feature-create tools otherwise — one edge-to-edge surface, the
           viewport below it. */}
-      <TopToolbar>
-        {mode === "off" ? (
-          <CreateStrip
-            treeReady={tree.data !== undefined}
-            onNewSketch={handleNewSketch}
-            canImportStep={bodyFeatureId === null}
-            importingStep={importing}
-            onImportStep={handleImportStep}
-            onNewDatum={openCreateDatum}
-            canExtrude={hasSolvedSketch}
-            onNewExtrude={openCreateExtrude}
-            canRevolve={hasSolvedSketch}
-            onNewRevolve={openCreateRevolve}
-            canSweep={canSweep}
-            onNewSweep={openCreateSweep}
-            canLoft={canLoft}
-            onNewLoft={openCreateLoft}
-            canModify={hasBody}
-            onFillet={openCreateFillet}
-            onChamfer={openCreateChamfer}
-            onPattern={openCreatePattern}
-            onShell={openCreateShell}
-            onDraft={openCreateDraft}
-            canMeasure={hasBody}
-            measuring={measureActive}
-            onToggleMeasure={toggleMeasure}
-            activeCommand={activeCommand}
-            onCommandOk={() => useCommandActionStore.getState().requestSubmit()}
-            onCommandCancel={closeEditor}
-          />
-        ) : (
-          <SketchStrip
-            onSave={finishSketch}
-            saving={syncPending}
-            saveError={syncError}
-            datumPlanes={datumPlaneOptions}
-            onChoosePlaneSpec={(spec) =>
-              useSketchStore.getState().choosePlaneSpec(spec)
-            }
-            onAuthorOffsetPlane={authorOffsetPlane}
-            authoringOffset={offsetPlaneBusy}
-            offsetPlaneError={offsetPlaneError}
-            onTogglePickFace={togglePickFace}
-            canPickFace={hasBody}
-            facePicking={facePicking}
-            authoringFace={facePlaneBusy}
-            facePickError={facePlaneError}
-          />
-        )}
-      </TopToolbar>
-      {/* Full-bleed scene: the canvas owns the frame; the tree + inspector
+        <TopToolbar>
+          {mode === "off" ? (
+            <CreateStrip
+              treeReady={tree.data !== undefined}
+              onNewSketch={handleNewSketch}
+              canImportStep={bodyFeatureId === null}
+              importingStep={importing}
+              onImportStep={handleImportStep}
+              onNewDatum={openCreateDatum}
+              canExtrude={hasSolvedSketch}
+              onNewExtrude={openCreateExtrude}
+              canRevolve={hasSolvedSketch}
+              onNewRevolve={openCreateRevolve}
+              canSweep={canSweep}
+              onNewSweep={openCreateSweep}
+              canLoft={canLoft}
+              onNewLoft={openCreateLoft}
+              canModify={hasBody}
+              onFillet={openCreateFillet}
+              onChamfer={openCreateChamfer}
+              onPattern={openCreatePattern}
+              onShell={openCreateShell}
+              onDraft={openCreateDraft}
+              canMeasure={hasBody}
+              measuring={measureActive}
+              onToggleMeasure={toggleMeasure}
+              activeCommand={activeCommand}
+              onCommandOk={() =>
+                useCommandActionStore.getState().requestSubmit()
+              }
+              onCommandCancel={closeEditor}
+            />
+          ) : (
+            <SketchStrip
+              onSave={finishSketch}
+              saving={syncPending}
+              saveError={syncError}
+              datumPlanes={datumPlaneOptions}
+              onChoosePlaneSpec={(spec) =>
+                useSketchStore.getState().choosePlaneSpec(spec)
+              }
+              onAuthorOffsetPlane={authorOffsetPlane}
+              authoringOffset={offsetPlaneBusy}
+              offsetPlaneError={offsetPlaneError}
+              onTogglePickFace={togglePickFace}
+              canPickFace={hasBody}
+              facePicking={facePicking}
+              authoringFace={facePlaneBusy}
+              facePickError={facePlaneError}
+            />
+          )}
+        </TopToolbar>
+        {/* Full-bleed scene: the canvas owns the frame; the tree + inspector
           FLOAT over it as collapsible instruments (Batch 1 makeover, P0-4) —
           no more columns subtracted from the viewport. */}
-      <main className="relative min-h-0 grow">
-        <Viewport
-          glb={body.data}
-          rotateEnabled={mode !== "draw"}
-          groundGrid={mode !== "draw"}
-          viewNav={mode === "off"}
-          bodyInteractive={mode === "off" && editor === null && !measureActive}
-          bodySelected={
-            mode === "off" && selectedFeatureId !== null && !measureActive
-          }
-          hud={
-            <>
-              <SketchDro solving={syncPending || evaluation.isFetching} />
-              <SolveDiagnostic />
-              <MeasureReadout />
-              {isEmptyPart ? (
-                <div
-                  data-testid="empty-viewport-hint"
-                  className="pointer-events-none absolute left-1/2 top-[42%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 text-center"
-                >
-                  <span className="font-display text-2xs uppercase tracking-[0.24em] text-gauge">
-                    Empty part
-                  </span>
-                  <span className="font-body text-sm text-mist">
-                    Start with a <span className="text-brass">Sketch</span> —
-                    pick a plane, then draw.
-                  </span>
-                  <span className="font-body text-xs text-gauge">
-                    Or Import a STEP solid as the base body.
-                  </span>
-                </div>
-              ) : null}
-              {mode === "off" && editor !== null ? (
-                editor.kind === "extrude" ? (
-                  <ExtrudeEditor
-                    mode={editor.mode}
-                    profiles={sketchProfiles}
-                    initial={editor.initial}
-                    onSubmit={submitExtrude}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : editor.kind === "revolve" ? (
-                  <RevolveEditor
-                    mode={editor.mode}
-                    profiles={sketchProfiles}
-                    axesByProfile={axesByProfile}
-                    initial={editor.initial}
-                    onSubmit={submitRevolve}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : editor.kind === "sweep" ? (
-                  <SweepEditor
-                    mode={editor.mode}
-                    profiles={sketchProfiles}
-                    pathsByProfile={pathsByProfile}
-                    initial={editor.initial}
-                    onSubmit={submitSweep}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : editor.kind === "loft" ? (
-                  <LoftEditor
-                    mode={editor.mode}
-                    sections={sketchProfiles}
-                    initial={editor.initial}
-                    onSubmit={submitLoft}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : editor.kind === "pattern" ? (
-                  <PatternEditor
-                    mode={editor.mode}
-                    initial={editor.initial}
-                    onSubmit={submitPattern}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : editor.kind === "fillet" ? (
-                  <FilletEditor
-                    mode={editor.mode}
-                    initial={editor.initial}
-                    bodyFeatureId={bodyFeatureId}
-                    onSubmit={submitFillet}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : editor.kind === "chamfer" ? (
-                  <ChamferEditor
-                    mode={editor.mode}
-                    initial={editor.initial}
-                    bodyFeatureId={bodyFeatureId}
-                    onSubmit={submitChamfer}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : editor.kind === "shell" ? (
-                  <ShellEditor
-                    mode={editor.mode}
-                    initial={editor.initial}
-                    bodyFeatureId={bodyFeatureId}
-                    onSubmit={submitShell}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : editor.kind === "draft" ? (
-                  <DraftEditor
-                    mode={editor.mode}
-                    initial={editor.initial}
-                    bodyFeatureId={bodyFeatureId}
-                    onSubmit={submitDraft}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                ) : (
-                  <DatumEditor
-                    mode={editor.mode}
-                    initial={editor.initial}
-                    datumRefs={datumEditorRefs}
-                    onSubmit={submitDatum}
-                    onCancel={closeEditor}
-                    saving={editorSaving}
-                    error={editorError}
-                  />
-                )
-              ) : null}
-              {importing ? (
-                <div
-                  role="status"
-                  data-testid="import-step-status"
-                  className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
-                >
-                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-                    Importing STEP
-                  </span>
-                  <span className="mt-1 block font-body text-xs text-mist">
-                    Reading the solid and building the base body.
-                  </span>
-                </div>
-              ) : importError !== null ? (
-                <div
-                  role="alert"
-                  data-testid="import-step-error"
-                  className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                >
-                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                    Import failed
-                  </span>
-                  <span className="mt-1 block font-body text-xs text-mist">
-                    {importError}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setImportError(null)}
-                    data-testid="import-step-dismiss"
-                    className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+        <main className="relative min-h-0 grow">
+          <Viewport
+            glb={body.data}
+            rotateEnabled={mode !== "draw"}
+            groundGrid={mode !== "draw"}
+            viewNav={mode === "off"}
+            bodyInteractive={
+              mode === "off" && editor === null && !measureActive
+            }
+            bodySelected={
+              mode === "off" && selectedFeatureId !== null && !measureActive
+            }
+            hud={
+              <>
+                <SketchDro solving={syncPending || evaluation.isFetching} />
+                <SolveDiagnostic />
+                <MeasureReadout />
+                {isEmptyPart ? (
+                  <div
+                    data-testid="empty-viewport-hint"
+                    className="pointer-events-none absolute left-1/2 top-[42%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 text-center"
                   >
-                    Dismiss
-                  </button>
-                </div>
-              ) : null}
-              {regenerating ? (
-                <div
-                  role="status"
-                  data-testid="body-regenerating"
-                  className="absolute left-editor top-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
-                >
-                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-                    Regenerating body
-                  </span>
-                  <span className="mt-1 block font-body text-xs text-mist">
-                    The mesh expired from the cache — re-evaluating the tree.
-                  </span>
-                </div>
-              ) : regenFailed ? (
-                <div
-                  role="alert"
-                  data-testid="body-regen-failed"
-                  className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                >
-                  <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                    Body unavailable
-                  </span>
-                  <span className="mt-1 block font-body text-xs text-mist">
-                    The body mesh could not be regenerated.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={retryBody}
-                    className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    <span className="font-display text-2xs uppercase tracking-[0.24em] text-gauge">
+                      Empty part
+                    </span>
+                    <span className="font-body text-sm text-mist">
+                      Start with a <span className="text-brass">Sketch</span> —
+                      pick a plane, then draw.
+                    </span>
+                    <span className="font-body text-xs text-gauge">
+                      Or Import a STEP solid as the base body.
+                    </span>
+                  </div>
+                ) : null}
+                {mode === "off" && editor !== null ? (
+                  editor.kind === "extrude" ? (
+                    <ExtrudeEditor
+                      mode={editor.mode}
+                      profiles={sketchProfiles}
+                      initial={editor.initial}
+                      onSubmit={submitExtrude}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "revolve" ? (
+                    <RevolveEditor
+                      mode={editor.mode}
+                      profiles={sketchProfiles}
+                      axesByProfile={axesByProfile}
+                      initial={editor.initial}
+                      onSubmit={submitRevolve}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "sweep" ? (
+                    <SweepEditor
+                      mode={editor.mode}
+                      profiles={sketchProfiles}
+                      pathsByProfile={pathsByProfile}
+                      initial={editor.initial}
+                      onSubmit={submitSweep}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "loft" ? (
+                    <LoftEditor
+                      mode={editor.mode}
+                      sections={sketchProfiles}
+                      initial={editor.initial}
+                      onSubmit={submitLoft}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "pattern" ? (
+                    <PatternEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      onSubmit={submitPattern}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "fillet" ? (
+                    <FilletEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      bodyFeatureId={bodyFeatureId}
+                      onSubmit={submitFillet}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "chamfer" ? (
+                    <ChamferEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      bodyFeatureId={bodyFeatureId}
+                      onSubmit={submitChamfer}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "shell" ? (
+                    <ShellEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      bodyFeatureId={bodyFeatureId}
+                      onSubmit={submitShell}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "draft" ? (
+                    <DraftEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      bodyFeatureId={bodyFeatureId}
+                      onSubmit={submitDraft}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : (
+                    <DatumEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      datumRefs={datumEditorRefs}
+                      onSubmit={submitDatum}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  )
+                ) : null}
+                {importing ? (
+                  <div
+                    role="status"
+                    data-testid="import-step-status"
+                    className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
                   >
-                    Re-evaluate
-                  </button>
-                </div>
-              ) : null}
-            </>
-          }
-        >
-          <SketchScene solved={solvedLayers} facePicking={facePicking} />
-          <MeasureOverlay />
-          {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
-          {mode === "off" && shellPicking ? (
-            <ShellFaceOverlay
-              testIdPrefix={
-                editor?.kind === "draft" ? "draft-face" : "shell-face"
-              }
-            />
-          ) : null}
-          {mode === "plane" && facePicking ? (
-            <FacePickOverlay
-              faces={pickableFaces}
-              onPick={authorFacePlane}
-              pendingIndex={pendingFaceIndex}
-            />
-          ) : null}
-        </Viewport>
-        <FloatingPanel side="left" title="Feature tree" id="tree">
-          <FeatureTreePanel
-            tree={tree.data}
-            treeError={tree.error}
-            evaluation={evaluation.data}
-            evaluating={evaluation.isFetching}
-            selectedFeatureId={selectedFeatureId}
-            onSelectFeature={selectFeature}
-            onMoveRollback={moveRollback}
-            rollbackBusy={rollbackBusy}
-          />
-        </FloatingPanel>
-        {showInspector ? (
-          <FloatingPanel side="right" title="Inspector" id="inspector">
-            <BodyInspector
-              properties={bodyProperties}
-              status={bodyStatus}
-              partId={partId}
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                      Importing STEP
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      Reading the solid and building the base body.
+                    </span>
+                  </div>
+                ) : importError !== null ? (
+                  <div
+                    role="alert"
+                    data-testid="import-step-error"
+                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      Import failed
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {importError}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setImportError(null)}
+                      data-testid="import-step-dismiss"
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
+                {regenerating ? (
+                  <div
+                    role="status"
+                    data-testid="body-regenerating"
+                    className="absolute left-editor top-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                      Regenerating body
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      The mesh expired from the cache — re-evaluating the tree.
+                    </span>
+                  </div>
+                ) : regenFailed ? (
+                  <div
+                    role="alert"
+                    data-testid="body-regen-failed"
+                    className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      Body unavailable
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      The body mesh could not be regenerated.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={retryBody}
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Re-evaluate
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            }
+          >
+            <SketchScene solved={solvedLayers} facePicking={facePicking} />
+            <MeasureOverlay />
+            {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
+            {mode === "off" && shellPicking ? (
+              <ShellFaceOverlay
+                testIdPrefix={
+                  editor?.kind === "draft" ? "draft-face" : "shell-face"
+                }
+              />
+            ) : null}
+            {mode === "plane" && facePicking ? (
+              <FacePickOverlay
+                faces={pickableFaces}
+                onPick={authorFacePlane}
+                pendingIndex={pendingFaceIndex}
+              />
+            ) : null}
+          </Viewport>
+          <FloatingPanel side="left" title="Feature tree" id="tree">
+            <FeatureTreePanel
+              tree={tree.data}
+              treeError={tree.error}
+              evaluation={evaluation.data}
+              evaluating={evaluation.isFetching}
+              selectedFeatureId={selectedFeatureId}
+              onSelectFeature={selectFeature}
+              onMoveRollback={moveRollback}
+              rollbackBusy={rollbackBusy}
             />
           </FloatingPanel>
-        ) : showExportOnly ? (
-          // No body yet (a sketch-only or rolled-back tree), but the part is
-          // modeled enough to have a tree — offer the EXPORT strip in its
-          // honest disabled state so the affordance is discoverable.
-          <FloatingPanel side="right" title="Export" id="inspector">
-            <aside
-              className="w-full"
-              aria-label="Part export"
-              data-testid="part-export-idle"
-            >
-              <Panel>
-                <PartExportControls partId={partId} hasBody={false} />
-              </Panel>
-            </aside>
-          </FloatingPanel>
-        ) : null}
-      </main>
-    </div>
+          {showInspector ? (
+            <FloatingPanel side="right" title="Inspector" id="inspector">
+              <BodyInspector
+                properties={bodyProperties}
+                status={bodyStatus}
+                partId={partId}
+              />
+            </FloatingPanel>
+          ) : showExportOnly ? (
+            // No body yet (a sketch-only or rolled-back tree), but the part is
+            // modeled enough to have a tree — offer the EXPORT strip in its
+            // honest disabled state so the affordance is discoverable.
+            <FloatingPanel side="right" title="Export" id="inspector">
+              <aside
+                className="w-full"
+                aria-label="Part export"
+                data-testid="part-export-idle"
+              >
+                <Panel>
+                  <PartExportControls partId={partId} hasBody={false} />
+                </Panel>
+              </aside>
+            </FloatingPanel>
+          ) : null}
+        </main>
+      </div>
+    </DocumentUnitProvider>
   );
 }

@@ -259,7 +259,8 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `distance`/`angle` mate from the generated client union; unit tests +
       `assembly.spec.ts` distance-mate e2e cover it. Both mates are now
       user-authorable end-to-end.
-- 🚧 **Units (length) — `docs/design/units.md`.** Load-bearing rule: storage +
+- ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
+      Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.
       **U1 ✅ 2026-07-17 (backend + contract):** one `LengthUnit =
       Literal["mm","cm","m","in","ft"]` in `py_kit.schemas.units`, persisted as
@@ -269,7 +270,18 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       (part PATCH added; assembly PATCH widened) changes it; gateway passes it
       through; `just gen` regen (ts-client gains the field). Documents +
       gateway pytest cover default/round-trip/update-bump/backfill/invalid-422.
-      **U2 (frontend units core + wiring) next.**
+      **U2 ✅ 2026-07-17 (frontend units core + wiring):** the pure conversion
+      core in `packages/design` (`toMm`/`fromMm`/`parseLength`/`formatLength`,
+      exact factors, suffix-override parsing, 21 vitest); one seam
+      (`useDocumentLengthUnit` context + a `unit`-threaded parse/build boundary)
+      routes every feature-param LENGTH input (extrude/shell/fillet/chamfer/
+      pattern spacing+coords/datum offset/draft neutral-offset + the sketch
+      offset-plane) and the assembly distance-mate value through the doc unit —
+      angles stay degrees; a compact `InlineSelect` document-unit selector in the
+      part + assembly chrome PATCHes the document (pure re-label, no re-solve);
+      measure readout + mate gap echo format via the core. e2e proves inch entry
+      stores 50.8 mm canonical. Sketch dimensions + mass/area roll-ups stay mm
+      (deferred to a later slice — see BACKLOG).
 - 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
       3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
       place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible

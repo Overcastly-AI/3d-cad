@@ -32,6 +32,7 @@ import {
 } from "../features/draft";
 import { useCommandBridge } from "../features/commandActions";
 import { useFacePickStore } from "../features/facePickStore";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { DatumPlaneName } from "../sketch/plane";
 
 export interface DraftEditorProps {
@@ -88,6 +89,7 @@ export function DraftEditor({
   saving,
   error,
 }: DraftEditorProps) {
+  const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<DraftForm>(initial);
   useEffect(() => setForm(initial), [initial]);
 
@@ -96,10 +98,10 @@ export function DraftEditor({
   const clearPicks = useFacePickStore((s) => s.clearPicks);
 
   const submit = useCallback(() => {
-    const params = buildDraftParams(form, picked, bodyFeatureId);
+    const params = buildDraftParams(form, picked, bodyFeatureId, unit);
     if (params === null) return;
     onSubmit(params);
-  }, [form, picked, bodyFeatureId, onSubmit]);
+  }, [form, picked, bodyFeatureId, onSubmit, unit]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -114,7 +116,8 @@ export function DraftEditor({
     [saving, submit, onCancel],
   );
 
-  const canSubmit = canSubmitDraft(form, picked, bodyFeatureId) && !saving;
+  const canSubmit =
+    canSubmitDraft(form, picked, bodyFeatureId, unit) && !saving;
   useCommandBridge(submit, canSubmit);
 
   return (
@@ -192,10 +195,10 @@ export function DraftEditor({
             />
             <NumberField
               label="Neutral offset"
-              unit="mm"
+              unit={unit}
               data-testid="draft-neutral-offset"
               value={form.neutral.offsetInput}
-              error={neutralOffsetError(form.neutral.offsetInput)}
+              error={neutralOffsetError(form.neutral.offsetInput, unit)}
               onChange={(e) =>
                 setForm((f) => ({
                   ...f,

@@ -94,14 +94,27 @@ unblocks the most workflows. Architecture accepted in `docs/design/units.md`
       documents CRUD + gateway pass it through (part PATCH added, assembly PATCH
       widened); `just gen` regen. Tests: default/round-trip/update-bump/backfill/
       invalid-422 (documents + gateway). [src: docs/design/units.md §U1]
-- [ ] (P1, M) Units U2 — frontend units core + wiring (packages/design + apps/web)
-      — the pure convert/parse/format module in `packages/design` (`toMm`/`fromMm`/
-      `parseLength`/`formatLength`, exact factors, full vitest); a document-unit
-      selector in the editor chrome; every dimension input (feature params + the
-      distance/angle mate value) parses via `parseLength` and displays via
-      `formatLength` in the doc unit; readouts format the same way. `LengthUnit`
-      imported from the generated ts-client (one home). e2e: inch doc, type `2` →
-      body is 50.8 mm canonical, field reads `2 in`. [src: docs/design/units.md §U2]
+- [x] (P1, M) Units U2 — frontend units core + wiring (packages/design + apps/web)
+      — DONE 2026-07-17. Pure convert/parse/format module in `packages/design`
+      (`toMm`/`fromMm`/`parseLength`/`formatLength`, exact factors, suffix-override
+      parsing, 21 vitest); `LengthUnit` imported from the generated ts-client (one
+      home). One seam: a `useDocumentLengthUnit` context + a `unit`-threaded
+      parse/build boundary — every feature-param LENGTH input (extrude/shell/
+      fillet/chamfer/pattern spacing+coords/datum offset/draft neutral-offset +
+      the sketch offset-plane) and the assembly distance-mate value parses via
+      `parseLength`/seeds via `formatLength` in the doc unit; angles stay degrees.
+      Compact `InlineSelect` document-unit selector in the part + assembly chrome
+      PATCHes the document (pure re-label — no re-solve, stored mm untouched);
+      measure readout + mate gap echo format via the core. e2e
+      (`document-units.spec.ts`): inch doc, type `2` → 50.8 mm canonical, field
+      reads `2`; `25.4 mm` → 25.4 mm / `1`. [src: docs/design/units.md §U2]
+- [ ] (P2, M) Units — sketch-dimension + roll-up unit display (follow-up to U2).
+      Sketch driving/driven dimensions (ConstraintGlyphs/DimensionForm) still
+      enter/read canonical mm because their values are stored EXPRESSIONS solved
+      server-side (`width/2`, named dims) — unit-aware parametric expressions are
+      a distinct design problem. Mass/volume/area/extents roll-ups + the box-demo
+      form also stay mm (design §"out of v1"). Wire both once the expression-unit
+      model is designed. [src: docs/design/units.md §"out of v1"]
 
 - [x] (P0, L) Viewport makeover Batch 1 — "the scene is a place" (apps/web +
       packages/design) — **DONE 2026-07-16** (founder recalibration, mandate
@@ -772,6 +785,12 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-17 — **Units U2 (frontend units core + wiring) done:** pure
+  `toMm`/`fromMm`/`parseLength`/`formatLength` in `packages/design` (21 vitest);
+  `useDocumentLengthUnit` seam threads the doc unit through every feature-param
+  LENGTH input + the distance mate (angles stay degrees); `InlineSelect`
+  document-unit selector PATCHes the doc (pure re-label); measure/mate readouts
+  format via the core. e2e proves inch entry stores 50.8 mm. lint + vitest green.
 - 2026-07-17 — **Drawings v1 #5 (SVG export, client-side) done:** Export SVG
   action (band + `E`) serializes the rendered `DrawingSheet` `<svg>` to a
   standalone, self-contained `.svg` download. ARCH: v1 ships client-side (reuse

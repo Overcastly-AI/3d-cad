@@ -50,21 +50,31 @@ function extrude(id: string, profileId: string): FeatureResponse {
 
 describe("parseDistanceMm", () => {
   it("accepts positive numbers, rejects empty/non-numeric/non-positive", () => {
-    expect(parseDistanceMm("10")).toBe(10);
-    expect(parseDistanceMm(" 2.5 ")).toBe(2.5);
-    expect(parseDistanceMm("")).toBeNull();
-    expect(parseDistanceMm("abc")).toBeNull();
-    expect(parseDistanceMm("0")).toBeNull();
-    expect(parseDistanceMm("-4")).toBeNull();
+    expect(parseDistanceMm("10", "mm")).toBe(10);
+    expect(parseDistanceMm(" 2.5 ", "mm")).toBe(2.5);
+    expect(parseDistanceMm("", "mm")).toBeNull();
+    expect(parseDistanceMm("abc", "mm")).toBeNull();
+    expect(parseDistanceMm("0", "mm")).toBeNull();
+    expect(parseDistanceMm("-4", "mm")).toBeNull();
+  });
+
+  it("converts a bare number in the document unit to canonical mm", () => {
+    expect(parseDistanceMm("2", "in")).toBe(50.8);
+    expect(parseDistanceMm("1", "cm")).toBe(10);
+  });
+
+  it("honours an explicit suffix override", () => {
+    expect(parseDistanceMm("25.4 mm", "in")).toBe(25.4);
+    expect(parseDistanceMm("2in", "mm")).toBe(50.8);
   });
 });
 
 describe("distanceError", () => {
   it("is quiet while empty (pending) and flags invalid non-empty input", () => {
-    expect(distanceError("")).toBeNull();
-    expect(distanceError("10")).toBeNull();
-    expect(distanceError("0")).toContain("positive");
-    expect(distanceError("nope")).toContain("positive");
+    expect(distanceError("", "mm")).toBeNull();
+    expect(distanceError("10", "mm")).toBeNull();
+    expect(distanceError("0", "mm")).toContain("positive");
+    expect(distanceError("nope", "mm")).toContain("positive");
   });
 });
 
@@ -87,21 +97,34 @@ describe("formFromParams", () => {
       operation: "cut",
       direction: "reverse",
     };
-    expect(formFromParams(params)).toEqual({
+    expect(formFromParams(params, "mm")).toEqual({
       profileFeatureId: "sk",
       distanceInput: "6.5",
       operation: "cut",
       direction: "reverse",
     });
   });
+
+  it("seeds the edit form in the document unit (mm → in)", () => {
+    const params: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk" },
+      distance_mm: 50.8,
+      operation: "add",
+      direction: "normal",
+    };
+    expect(formFromParams(params, "in").distanceInput).toBe("2");
+  });
 });
 
 describe("canSubmitExtrude", () => {
   it("needs both a profile and a valid distance", () => {
-    expect(canSubmitExtrude(defaultExtrudeForm("sk"))).toBe(true);
-    expect(canSubmitExtrude(defaultExtrudeForm(""))).toBe(false);
+    expect(canSubmitExtrude(defaultExtrudeForm("sk"), "mm")).toBe(true);
+    expect(canSubmitExtrude(defaultExtrudeForm(""), "mm")).toBe(false);
     expect(
-      canSubmitExtrude({ ...defaultExtrudeForm("sk"), distanceInput: "0" }),
+      canSubmitExtrude(
+        { ...defaultExtrudeForm("sk"), distanceInput: "0" },
+        "mm",
+      ),
     ).toBe(false);
   });
 });

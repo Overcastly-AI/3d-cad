@@ -18,6 +18,7 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 import type { ShellParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
 import { useFacePickStore } from "../features/facePickStore";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
   buildShellParams,
   canSubmitShell,
@@ -56,6 +57,7 @@ export function ShellEditor({
   saving,
   error,
 }: ShellEditorProps) {
+  const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<ShellForm>(initial);
   useEffect(() => setForm(initial), [initial]);
 
@@ -64,10 +66,10 @@ export function ShellEditor({
   const clearPicks = useFacePickStore((s) => s.clearPicks);
 
   const submit = useCallback(() => {
-    const params = buildShellParams(form, picked, bodyFeatureId);
+    const params = buildShellParams(form, picked, bodyFeatureId, unit);
     if (params === null) return;
     onSubmit(params);
-  }, [form, picked, bodyFeatureId, onSubmit]);
+  }, [form, picked, bodyFeatureId, onSubmit, unit]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -82,7 +84,8 @@ export function ShellEditor({
     [saving, submit, onCancel],
   );
 
-  const canSubmit = canSubmitShell(form, picked, bodyFeatureId) && !saving;
+  const canSubmit =
+    canSubmitShell(form, picked, bodyFeatureId, unit) && !saving;
   useCommandBridge(submit, canSubmit);
 
   return (
@@ -98,11 +101,11 @@ export function ShellEditor({
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
             <NumberField
               label="Thickness"
-              unit="mm"
+              unit={unit}
               data-testid="shell-thickness"
               autoFocus
               value={form.thicknessInput}
-              error={thicknessError(form.thicknessInput)}
+              error={thicknessError(form.thicknessInput, unit)}
               onChange={(e) =>
                 setForm((f) => ({ ...f, thicknessInput: e.target.value }))
               }

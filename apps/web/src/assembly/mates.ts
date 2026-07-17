@@ -5,6 +5,8 @@
  * client (CLAUDE.md DRY rule); this only assembles refs the pick UI already
  * produced (the SAME signatures sketch-on-face / edge-pick emit).
  */
+import { formatLength, type LengthUnit } from "@loft/design";
+
 import type { Mate } from "../api/assemblies";
 import type { MatePick, MateTool } from "./mateStore";
 
@@ -50,6 +52,20 @@ export function mateLabel(mate: Mate): string {
     case "angle":
       return "Angle";
   }
+}
+
+/**
+ * The value echo for a parametric mate — the gap of a distance mate formatted
+ * in the document `unit` (canonical mm → display), or the signed degrees of an
+ * angle mate (angles are always degrees). `null` for non-parametric mates.
+ */
+export function mateDetail(mate: Mate, unit: LengthUnit): string | null {
+  if (mate.type === "distance") return formatLength(mate.distance_mm, unit);
+  if (mate.type === "angle") {
+    const deg = Object.is(mate.angle_deg, -0) ? 0 : mate.angle_deg;
+    return `${deg}°`;
+  }
+  return null;
 }
 
 /** The two instance ids a mate relates (for tree cross-highlight / cleanup). */

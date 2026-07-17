@@ -31,27 +31,32 @@ const BOTTOM: PlanarFaceSignature = {
 
 describe("parseThicknessMm", () => {
   it("parses a positive number", () => {
-    expect(parseThicknessMm("2")).toBe(2);
-    expect(parseThicknessMm(" 1.5 ")).toBe(1.5);
+    expect(parseThicknessMm("2", "mm")).toBe(2);
+    expect(parseThicknessMm(" 1.5 ", "mm")).toBe(1.5);
+  });
+
+  it("converts through the document unit", () => {
+    expect(parseThicknessMm("2", "in")).toBe(50.8);
+    expect(parseThicknessMm("2in", "mm")).toBe(50.8);
   });
 
   it("rejects empty, non-numeric, zero, and negative", () => {
-    expect(parseThicknessMm("")).toBeNull();
-    expect(parseThicknessMm("abc")).toBeNull();
-    expect(parseThicknessMm("0")).toBeNull();
-    expect(parseThicknessMm("-3")).toBeNull();
+    expect(parseThicknessMm("", "mm")).toBeNull();
+    expect(parseThicknessMm("abc", "mm")).toBeNull();
+    expect(parseThicknessMm("0", "mm")).toBeNull();
+    expect(parseThicknessMm("-3", "mm")).toBeNull();
   });
 });
 
 describe("thicknessError", () => {
   it("is null while empty (pending) and for a valid value", () => {
-    expect(thicknessError("")).toBeNull();
-    expect(thicknessError("2")).toBeNull();
+    expect(thicknessError("", "mm")).toBeNull();
+    expect(thicknessError("2", "mm")).toBeNull();
   });
 
   it("messages an invalid value", () => {
-    expect(thicknessError("0")).toBe(
-      "Thickness must be a positive number of millimetres.",
+    expect(thicknessError("0", "mm")).toBe(
+      "Thickness must be a positive length.",
     );
   });
 });
@@ -78,36 +83,46 @@ describe("buildShellParams", () => {
   const form: ShellForm = { thicknessInput: "2" };
 
   it("builds a sealed hollow from thickness alone (no picks)", () => {
-    expect(buildShellParams(form, [], "feat-1")).toEqual({
+    expect(buildShellParams(form, [], "feat-1", "mm")).toEqual({
       thickness_mm: 2,
       faces: { kind: "faces", refs: [] },
     });
   });
 
   it("builds an open-face shell from the picked faces", () => {
-    const params = buildShellParams(form, [TOP], "feat-1");
+    const params = buildShellParams(form, [TOP], "feat-1", "mm");
     expect(params).toEqual({
       thickness_mm: 2,
       faces: { kind: "faces", refs: [faceSubshapeRef("feat-1", TOP)] },
     });
   });
 
+  it("converts the thickness through the document unit", () => {
+    expect(buildShellParams(form, [], "feat-1", "in")?.thickness_mm).toBe(50.8);
+  });
+
   it("is null for an invalid thickness", () => {
-    expect(buildShellParams({ thicknessInput: "0" }, [], "feat-1")).toBeNull();
+    expect(
+      buildShellParams({ thicknessInput: "0" }, [], "feat-1", "mm"),
+    ).toBeNull();
   });
 
   it("is null when faces are picked without a body anchor", () => {
-    expect(buildShellParams(form, [TOP], null)).toBeNull();
+    expect(buildShellParams(form, [TOP], null, "mm")).toBeNull();
   });
 });
 
 describe("canSubmitShell", () => {
   it("allows a valid thickness with zero picks (sealed hollow)", () => {
-    expect(canSubmitShell({ thicknessInput: "2" }, [], "feat-1")).toBe(true);
+    expect(canSubmitShell({ thicknessInput: "2" }, [], "feat-1", "mm")).toBe(
+      true,
+    );
   });
 
   it("blocks an invalid thickness", () => {
-    expect(canSubmitShell({ thicknessInput: "" }, [], "feat-1")).toBe(false);
+    expect(canSubmitShell({ thicknessInput: "" }, [], "feat-1", "mm")).toBe(
+      false,
+    );
   });
 });
 
@@ -128,8 +143,8 @@ describe("formFromShellParams / pickedFacesFromShellParams", () => {
   };
 
   it("seeds the form thickness as trimmed text", () => {
-    expect(formFromShellParams(sealed)).toEqual({ thicknessInput: "3" });
-    expect(formFromShellParams(open)).toEqual({ thicknessInput: "2.5" });
+    expect(formFromShellParams(sealed, "mm")).toEqual({ thicknessInput: "3" });
+    expect(formFromShellParams(open, "mm")).toEqual({ thicknessInput: "2.5" });
   });
 
   it("seeds no picked faces from a sealed shell", () => {

@@ -13,7 +13,14 @@
  * principal axis. `count` INCLUDES the seed (instance 0), so the smallest
  * pattern that adds anything is `count = 2`.
  */
+import type { LengthUnit } from "@loft/design";
+
 import type { PatternParams, Vec3 } from "../api/parts";
+import {
+  lengthInputValue,
+  parsePositiveLengthMm,
+  parseSignedLengthMm,
+} from "../units/length";
 // The angle field shares revolve's (0, 360] parse/validation exactly (DRY).
 import { angleError, parseAngleDeg } from "./revolve";
 
@@ -106,13 +113,16 @@ export function defaultPatternForm(): PatternForm {
   };
 }
 
-/** Trim trailing zeros so 10 shows as "10", not "10.000"; -0 renders as "0". */
-function formatMm(mm: number): string {
-  return String(Object.is(mm, -0) ? 0 : mm);
+/** Trim trailing zeros for a UNITLESS value (an angle in degrees); -0 → "0". */
+function formatDeg(value: number): string {
+  return String(Object.is(value, -0) ? 0 : value);
 }
 
-/** Seed the form from an existing pattern feature for editing. */
-export function formFromPatternParams(params: PatternParams): PatternForm {
+/** Seed the form from an existing pattern feature for editing (lengths in `unit`). */
+export function formFromPatternParams(
+  params: PatternParams,
+  unit: LengthUnit,
+): PatternForm {
   const base = defaultPatternForm();
   const p = params.pattern;
   if (p.kind === "linear") {
@@ -121,7 +131,7 @@ export function formFromPatternParams(params: PatternParams): PatternForm {
       kind: "linear",
       countInput: String(p.count),
       direction: nearestPreset(p.direction),
-      spacingInput: formatMm(p.spacing_mm),
+      spacingInput: lengthInputValue(p.spacing_mm, unit),
     };
   }
   return {
@@ -129,10 +139,10 @@ export function formFromPatternParams(params: PatternParams): PatternForm {
     kind: "circular",
     countInput: String(p.count),
     axisDirection: nearestPreset(p.axis_direction),
-    axisPointXInput: formatMm(p.axis_point.x),
-    axisPointYInput: formatMm(p.axis_point.y),
-    axisPointZInput: formatMm(p.axis_point.z),
-    angleInput: formatMm(p.angle_deg),
+    axisPointXInput: lengthInputValue(p.axis_point.x, unit),
+    axisPointYInput: lengthInputValue(p.axis_point.y, unit),
+    axisPointZInput: lengthInputValue(p.axis_point.z, unit),
+    angleInput: formatDeg(p.angle_deg),
   };
 }
 
@@ -157,35 +167,28 @@ export function countError(input: string): string | null {
     : null;
 }
 
-/** Parse the spacing field to a positive millimetre step, or null. */
-export function parseSpacingMm(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === "") return null;
-  const value = Number(trimmed);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return value;
+/** Parse the spacing field to a positive canonical-mm step in `unit`, or null. */
+export function parseSpacingMm(input: string, unit: LengthUnit): number | null {
+  return parsePositiveLengthMm(input, unit);
 }
 
 /** Field-level spacing message, or null when valid (empty is pending). */
-export function spacingError(input: string): string | null {
+export function spacingError(input: string, unit: LengthUnit): string | null {
   if (input.trim() === "") return null;
-  return parseSpacingMm(input) === null
-    ? "Spacing must be a positive number of millimetres."
+  return parseSpacingMm(input, unit) === null
+    ? "Spacing must be a positive length."
     : null;
 }
 
-/** Parse an axis-point coordinate — any finite millimetre value (0 / negative ok). */
-export function parseCoordMm(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === "") return null;
-  const value = Number(trimmed);
-  return Number.isFinite(value) ? value : null;
+/** Parse an axis-point coordinate → canonical mm in `unit` (0 / negative ok). */
+export function parseCoordMm(input: string, unit: LengthUnit): number | null {
+  return parseSignedLengthMm(input, unit);
 }
 
 /** Field-level coordinate message, or null when valid (empty is pending). */
-export function coordError(input: string): string | null {
+export function coordError(input: string, unit: LengthUnit): string | null {
   if (input.trim() === "") return null;
-  return parseCoordMm(input) === null ? "Enter a number of millimetres." : null;
+  return parseCoordMm(input, unit) === null ? "Enter a length." : null;
 }
 
 /**
@@ -194,11 +197,14 @@ export function coordError(input: string): string | null {
  * still validates geometry (disjoint copies, degenerate axes) — this only
  * guards the shape.
  */
-export function buildPatternParams(form: PatternForm): PatternParams | null {
+export function buildPatternParams(
+  form: PatternForm,
+  unit: LengthUnit,
+): PatternParams | null {
   const count = parseCount(form.countInput);
   if (count === null) return null;
   if (form.kind === "linear") {
-    const spacing = parseSpacingMm(form.spacingInput);
+    const spacing = parseSpacingMm(form.spacingInput, unit);
     if (spacing === null) return null;
     return {
       pattern: {
@@ -210,9 +216,9 @@ export function buildPatternParams(form: PatternForm): PatternParams | null {
     };
   }
   const angle = parseAngleDeg(form.angleInput);
-  const x = parseCoordMm(form.axisPointXInput);
-  const y = parseCoordMm(form.axisPointYInput);
-  const z = parseCoordMm(form.axisPointZInput);
+  const x = parseCoordMm(form.axisPointXInput, unit);
+  const y = parseCoordMm(form.axisPointYInput, unit);
+  const z = parseCoordMm(form.axisPointZInput, unit);
   if (angle === null || x === null || y === null || z === null) return null;
   return {
     pattern: {
@@ -226,6 +232,6 @@ export function buildPatternParams(form: PatternForm): PatternParams | null {
 }
 
 /** True when the form can be submitted (all active-mode fields valid). */
-export function canSubmitPattern(form: PatternForm): boolean {
-  return buildPatternParams(form) !== null;
+export function canSubmitPattern(form: PatternForm, unit: LengthUnit): boolean {
+  return buildPatternParams(form, unit) !== null;
 }

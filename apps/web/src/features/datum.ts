@@ -15,6 +15,8 @@
  * two resolved sides is total, so the only invalid input is a missing reference
  * or a non-numeric field.
  */
+import type { LengthUnit } from "@loft/design";
+
 import type {
   DatumMidplaneParams,
   DatumOffsetFromParams,
@@ -22,6 +24,7 @@ import type {
   DatumParams,
   MidplaneSide,
 } from "../api/parts";
+import { lengthInputValue, parseSignedLengthMm } from "../units/length";
 import type { DatumPlaneName } from "../sketch/plane";
 
 /** The three origin datums a plane can parallel, in a stable order. */
@@ -58,29 +61,30 @@ export function defaultOffsetForm(): OffsetForm {
 }
 
 /**
- * Parse the offset field. Any FINITE millimetre value is valid (0 coincides
- * with the base plane; negatives select the other side) — only an empty or
- * non-numeric field is not-yet-valid.
+ * Parse the offset field → canonical mm in the document `unit`. Any FINITE
+ * value is valid (0 coincides with the base plane; negatives select the other
+ * side) — only an empty or non-numeric field is not-yet-valid. A bare number
+ * reads in `unit`; a suffix overrides it.
  */
-export function parseOffsetMm(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === "") return null;
-  const value = Number(trimmed);
-  return Number.isFinite(value) ? value : null;
+export function parseOffsetMm(input: string, unit: LengthUnit): number | null {
+  return parseSignedLengthMm(input, unit);
 }
 
 /** Field-level offset message, or null when valid (empty is pending). */
-export function offsetError(input: string): string | null {
+export function offsetError(input: string, unit: LengthUnit): string | null {
   if (input.trim() === "") return null;
-  return parseOffsetMm(input) === null
-    ? "Enter a distance in millimetres (0, negative, or positive)."
+  return parseOffsetMm(input, unit) === null
+    ? "Enter a distance (0, negative, or positive)."
     : null;
 }
 
 /** Build the offset params from the offset form, or null when the offset is
  * missing/invalid (the inline picker's submit gate). */
-export function buildOffsetParams(form: OffsetForm): DatumOffsetParams | null {
-  const offset = parseOffsetMm(form.offsetInput);
+export function buildOffsetParams(
+  form: OffsetForm,
+  unit: LengthUnit,
+): DatumOffsetParams | null {
+  const offset = parseOffsetMm(form.offsetInput, unit);
   if (offset === null) return null;
   return {
     kind: "offset",
@@ -91,8 +95,8 @@ export function buildOffsetParams(form: OffsetForm): DatumOffsetParams | null {
 }
 
 /** True when the offset form can be submitted (offset present + finite). */
-export function canSubmitOffset(form: OffsetForm): boolean {
-  return buildOffsetParams(form) !== null;
+export function canSubmitOffset(form: OffsetForm, unit: LengthUnit): boolean {
+  return buildOffsetParams(form, unit) !== null;
 }
 
 // --- Midplane side encoding (a select's string value ⇄ a wire MidplaneSide) ---
@@ -208,26 +212,24 @@ export function defaultFormForKind(kind: DatumKind, flip: boolean): DatumForm {
   }
 }
 
-/** Trim trailing zeros so 30 shows as "30"; -0 renders as "0". */
-function formatMm(mm: number): string {
-  return String(Object.is(mm, -0) ? 0 : mm);
-}
-
-/** Seed the form from an existing datum feature for editing. */
-export function formFromDatumParams(params: DatumParams): DatumForm {
+/** Seed the form from an existing datum feature for editing (offset in `unit`). */
+export function formFromDatumParams(
+  params: DatumParams,
+  unit: LengthUnit,
+): DatumForm {
   switch (params.kind) {
     case "offset":
       return {
         kind: "offset",
         base: params.base,
-        offsetInput: formatMm(params.offset_mm),
+        offsetInput: lengthInputValue(params.offset_mm, unit),
         flip: params.flip,
       };
     case "offset_from":
       return {
         kind: "offset_from",
         baseFeatureId: params.base.feature_id,
-        offsetInput: formatMm(params.offset_mm),
+        offsetInput: lengthInputValue(params.offset_mm, unit),
         flip: params.flip,
       };
     case "midplane":
@@ -248,10 +250,13 @@ export function formFromDatumParams(params: DatumParams): DatumForm {
  * missing/invalid (the submit gate). Server-side rebuild is total for finite
  * offsets and any two resolved midplane sides — this only guards the shape.
  */
-export function buildDatumParams(form: DatumForm): DatumParams | null {
+export function buildDatumParams(
+  form: DatumForm,
+  unit: LengthUnit,
+): DatumParams | null {
   switch (form.kind) {
     case "offset": {
-      const offset = parseOffsetMm(form.offsetInput);
+      const offset = parseOffsetMm(form.offsetInput, unit);
       if (offset === null) return null;
       return {
         kind: "offset",
@@ -262,7 +267,7 @@ export function buildDatumParams(form: DatumForm): DatumParams | null {
     }
     case "offset_from": {
       if (form.baseFeatureId === "") return null;
-      const offset = parseOffsetMm(form.offsetInput);
+      const offset = parseOffsetMm(form.offsetInput, unit);
       if (offset === null) return null;
       const params: DatumOffsetFromParams = {
         kind: "offset_from",
@@ -288,6 +293,6 @@ export function buildDatumParams(form: DatumForm): DatumParams | null {
 }
 
 /** True when the form can be submitted (all required fields present + valid). */
-export function canSubmitDatum(form: DatumForm): boolean {
-  return buildDatumParams(form) !== null;
+export function canSubmitDatum(form: DatumForm, unit: LengthUnit): boolean {
+  return buildDatumParams(form, unit) !== null;
 }

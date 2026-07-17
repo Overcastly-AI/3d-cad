@@ -20,6 +20,7 @@ import {
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { DatumParams } from "../api/parts";
 import {
   buildDatumParams,
@@ -106,15 +107,16 @@ export function DatumEditor({
   saving,
   error,
 }: DatumEditorProps) {
+  const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<DatumForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
   useEffect(() => setForm(initial), [initial]);
 
   const submit = useCallback(() => {
-    const params = buildDatumParams(form);
+    const params = buildDatumParams(form, unit);
     if (params === null) return;
     onSubmit(params);
-  }, [form, onSubmit]);
+  }, [form, onSubmit, unit]);
 
   // Enter commits, Escape cancels — except when a button (the footer / a
   // segment) has focus: Enter must fire that control's own action.
@@ -132,7 +134,7 @@ export function DatumEditor({
     [saving, submit, onCancel],
   );
 
-  const canSubmit = canSubmitDatum(form) && !saving;
+  const canSubmit = canSubmitDatum(form, unit) && !saving;
   useCommandBridge(submit, canSubmit);
 
   const noDatums = datumRefs.length === 0;
@@ -171,16 +173,16 @@ export function DatumEditor({
                 />
                 <NumberField
                   label="Offset"
-                  unit="mm"
+                  unit={unit}
                   data-testid="datum-offset"
                   autoFocus
                   value={form.offsetInput}
-                  error={offsetError(form.offsetInput)}
+                  error={offsetError(form.offsetInput, unit)}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, offsetInput: e.target.value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
-                  aria-label="Offset distance (mm, signed)"
+                  aria-label="Offset distance (signed)"
                 />
                 <p className="-mt-1 font-body text-xs text-gauge">
                   Distance along the {form.base} normal. 0 sits on the datum;
@@ -208,15 +210,15 @@ export function DatumEditor({
                 />
                 <NumberField
                   label="Offset"
-                  unit="mm"
+                  unit={unit}
                   data-testid="datum-offset"
                   value={form.offsetInput}
-                  error={offsetError(form.offsetInput)}
+                  error={offsetError(form.offsetInput, unit)}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, offsetInput: e.target.value }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
-                  aria-label="Offset distance (mm, signed)"
+                  aria-label="Offset distance (signed)"
                 />
                 <p className="-mt-1 font-body text-xs text-gauge">
                   {noDatums

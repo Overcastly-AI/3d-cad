@@ -11,6 +11,8 @@ import { gatewayClient } from "./client";
 import { envelopeCode, envelopeMessage } from "./envelope";
 
 export type AssemblyResponse = components["schemas"]["AssemblyResponse"];
+/** Document display unit — the single source is the generated contract. */
+export type LengthUnit = AssemblyResponse["length_unit"];
 export type AssemblyGraphResponse =
   components["schemas"]["AssemblyGraphResponse"];
 export type InstanceResponse = components["schemas"]["InstanceResponse"];
@@ -91,6 +93,34 @@ export async function createAssembly(
     }
     throw new Error(
       envelopeMessage(error, "The assembly could not be created."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Change the assembly's document display unit (docs/design/units.md §U2).
+ * DISPLAY metadata only — no stored mm value is touched, so this never
+ * re-solves the assembly; it bumps `doc_version` under the OCC guard. The route
+ * + types are generated; the server envelope surfaces verbatim on a stale
+ * version (422) or unknown assembly (404).
+ */
+export async function updateAssemblyUnit(
+  assemblyId: string,
+  lengthUnit: LengthUnit,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyResponse> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/assemblies/{assembly_id}",
+    {
+      params: { path: { assembly_id: assemblyId } },
+      body: { length_unit: lengthUnit, expected_version: expectedVersion },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The document unit could not be changed."),
     );
   }
   return data;

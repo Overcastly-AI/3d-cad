@@ -26,6 +26,9 @@ import type {
   DraftParams,
   PlanarFaceSignature,
 } from "../api/parts";
+import type { LengthUnit } from "@loft/design";
+
+import { lengthInputValue } from "../units/length";
 import type { DatumPlaneName } from "../sketch/plane";
 import { parseOffsetMm } from "./datum";
 import { faceSubshapeRef } from "./face";
@@ -77,20 +80,26 @@ export function defaultDraftForm(): DraftForm {
   };
 }
 
-/** Seed the neutral sub-form from a persisted neutral plane. */
-function neutralFormFrom(plane: DraftNeutralPlane): DraftNeutralForm {
+/** Seed the neutral sub-form from a persisted neutral plane (offset in `unit`). */
+function neutralFormFrom(
+  plane: DraftNeutralPlane,
+  unit: LengthUnit,
+): DraftNeutralForm {
   return {
     base: plane.base,
-    offsetInput: formatNumber(plane.offset_mm),
+    offsetInput: lengthInputValue(plane.offset_mm, unit),
     flip: plane.flip,
   };
 }
 
-/** Seed the whole form from an existing draft feature for editing. */
-export function formFromDraftParams(params: DraftParams): DraftForm {
+/** Seed the whole form from an existing draft feature for editing (in `unit`). */
+export function formFromDraftParams(
+  params: DraftParams,
+  unit: LengthUnit,
+): DraftForm {
   return {
     angleInput: formatNumber(params.angle_deg),
-    neutral: neutralFormFrom(params.neutral_plane),
+    neutral: neutralFormFrom(params.neutral_plane, unit),
   };
 }
 
@@ -127,10 +136,13 @@ export function angleError(input: string): string | null {
 }
 
 /** Field-level neutral-plane offset message (any finite value is valid). */
-export function neutralOffsetError(input: string): string | null {
+export function neutralOffsetError(
+  input: string,
+  unit: LengthUnit,
+): string | null {
   if (input.trim() === "") return null;
-  return parseOffsetMm(input) === null
-    ? "Enter a distance in millimetres (0, negative, or positive)."
+  return parseOffsetMm(input, unit) === null
+    ? "Enter a distance (0, negative, or positive)."
     : null;
 }
 
@@ -141,8 +153,9 @@ export function neutralOffsetError(input: string): string | null {
  */
 export function buildNeutralPlane(
   form: DraftNeutralForm,
+  unit: LengthUnit,
 ): DraftNeutralPlane | null {
-  const offset = parseOffsetMm(form.offsetInput);
+  const offset = parseOffsetMm(form.offsetInput, unit);
   if (offset === null) return null;
   return {
     kind: "datum",
@@ -163,12 +176,13 @@ export function buildDraftParams(
   form: DraftForm,
   pickedFaces: readonly PlanarFaceSignature[],
   bodyFeatureId: string | null,
+  unit: LengthUnit,
 ): DraftParams | null {
   const angle = parseAngleDeg(form.angleInput);
   if (angle === null || angle === 0) return null;
   if (pickedFaces.length === 0) return null;
   if (bodyFeatureId === null) return null;
-  const neutral = buildNeutralPlane(form.neutral);
+  const neutral = buildNeutralPlane(form.neutral, unit);
   if (neutral === null) return null;
   return {
     angle_deg: angle,
@@ -187,6 +201,7 @@ export function canSubmitDraft(
   form: DraftForm,
   pickedFaces: readonly PlanarFaceSignature[],
   bodyFeatureId: string | null,
+  unit: LengthUnit,
 ): boolean {
-  return buildDraftParams(form, pickedFaces, bodyFeatureId) !== null;
+  return buildDraftParams(form, pickedFaces, bodyFeatureId, unit) !== null;
 }

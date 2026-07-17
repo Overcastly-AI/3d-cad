@@ -22,6 +22,7 @@ import {
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { PatternParams } from "../api/parts";
 import {
   AXIS_PRESETS,
@@ -75,15 +76,16 @@ export function PatternEditor({
   saving,
   error,
 }: PatternEditorProps) {
+  const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<PatternForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
   useEffect(() => setForm(initial), [initial]);
 
   const submit = useCallback(() => {
-    const params = buildPatternParams(form);
+    const params = buildPatternParams(form, unit);
     if (params === null) return;
     onSubmit(params);
-  }, [form, onSubmit]);
+  }, [form, onSubmit, unit]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -104,7 +106,7 @@ export function PatternEditor({
     [],
   );
 
-  const canSubmit = canSubmitPattern(form) && !saving;
+  const canSubmit = canSubmitPattern(form, unit) && !saving;
   useCommandBridge(submit, canSubmit);
   // When the count is valid (or still being typed) show the informational note;
   // an invalid count already flags "use 2 or more", so don't say it twice.
@@ -159,10 +161,10 @@ export function PatternEditor({
                 />
                 <NumberField
                   label="Spacing"
-                  unit="mm"
+                  unit={unit}
                   data-testid="pattern-spacing"
                   value={form.spacingInput}
-                  error={spacingError(form.spacingInput)}
+                  error={spacingError(form.spacingInput, unit)}
                   onChange={(e) => set("spacingInput", e.target.value)}
                   onFocus={(e) => e.currentTarget.select()}
                 />
@@ -188,28 +190,28 @@ export function PatternEditor({
                   <div className="grid grid-cols-3 gap-2">
                     <NumberField
                       label="X"
-                      unit="mm"
+                      unit={unit}
                       data-testid="pattern-axis-x"
                       value={form.axisPointXInput}
-                      error={coordError(form.axisPointXInput)}
+                      error={coordError(form.axisPointXInput, unit)}
                       onChange={(e) => set("axisPointXInput", e.target.value)}
                       onFocus={(e) => e.currentTarget.select()}
                     />
                     <NumberField
                       label="Y"
-                      unit="mm"
+                      unit={unit}
                       data-testid="pattern-axis-y"
                       value={form.axisPointYInput}
-                      error={coordError(form.axisPointYInput)}
+                      error={coordError(form.axisPointYInput, unit)}
                       onChange={(e) => set("axisPointYInput", e.target.value)}
                       onFocus={(e) => e.currentTarget.select()}
                     />
                     <NumberField
                       label="Z"
-                      unit="mm"
+                      unit={unit}
                       data-testid="pattern-axis-z"
                       value={form.axisPointZInput}
-                      error={coordError(form.axisPointZInput)}
+                      error={coordError(form.axisPointZInput, unit)}
                       onChange={(e) => set("axisPointZInput", e.target.value)}
                       onFocus={(e) => e.currentTarget.select()}
                     />

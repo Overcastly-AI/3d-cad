@@ -12,11 +12,14 @@
  * zero picks. Each picked face becomes the SAME stage-1 `SubshapeRef` the
  * sketch-on-face pick echoes, anchored on the prior body-affecting feature.
  */
+import type { LengthUnit } from "@loft/design";
+
 import type {
   FaceSelector,
   PlanarFaceSignature,
   ShellParams,
 } from "../api/parts";
+import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 import { faceSubshapeRef } from "./face";
 
 /**
@@ -28,31 +31,29 @@ export interface ShellForm {
   thicknessInput: string;
 }
 
-/** Trim trailing zeros so 2 shows as "2", not "2.000"; -0 renders as "0". */
-function formatMm(mm: number): string {
-  return String(Object.is(mm, -0) ? 0 : mm);
-}
-
 /**
- * Parse a positive-millimetre thickness field, or null when empty, non-numeric,
- * or non-positive (a zero-thickness shell is no wall).
+ * Parse a positive thickness field → canonical mm in the document `unit`, or
+ * null when empty, non-numeric, or non-positive (a zero-thickness shell is no
+ * wall). A bare number reads in `unit`; a suffix overrides it.
  */
-export function parseThicknessMm(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === "") return null;
-  const value = Number(trimmed);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return value;
+export function parseThicknessMm(
+  input: string,
+  unit: LengthUnit,
+): number | null {
+  return parsePositiveLengthMm(input, unit);
 }
 
-/** The default new-shell form: a 2 mm wall — the common enclosure thickness. */
+/** The default new-shell form: a 2-unit wall — the common enclosure thickness. */
 export function defaultShellForm(): ShellForm {
   return { thicknessInput: "2" };
 }
 
-/** Seed the form from an existing shell feature for editing. */
-export function formFromShellParams(params: ShellParams): ShellForm {
-  return { thicknessInput: formatMm(params.thickness_mm) };
+/** Seed the form from an existing shell feature for editing (in `unit`). */
+export function formFromShellParams(
+  params: ShellParams,
+  unit: LengthUnit,
+): ShellForm {
+  return { thicknessInput: lengthInputValue(params.thickness_mm, unit) };
 }
 
 /** The picked-open face signatures of a persisted shell (empty = a sealed hollow). */
@@ -63,10 +64,10 @@ export function pickedFacesFromShellParams(
 }
 
 /** Field-level thickness message, or null when valid (empty is pending). */
-export function thicknessError(input: string): string | null {
+export function thicknessError(input: string, unit: LengthUnit): string | null {
   if (input.trim() === "") return null;
-  return parseThicknessMm(input) === null
-    ? "Thickness must be a positive number of millimetres."
+  return parseThicknessMm(input, unit) === null
+    ? "Thickness must be a positive length."
     : null;
 }
 
@@ -98,8 +99,9 @@ export function buildShellParams(
   form: ShellForm,
   pickedFaces: readonly PlanarFaceSignature[],
   bodyFeatureId: string | null,
+  unit: LengthUnit,
 ): ShellParams | null {
-  const thickness = parseThicknessMm(form.thicknessInput);
+  const thickness = parseThicknessMm(form.thicknessInput, unit);
   if (thickness === null) return null;
   const faces = facesSelector(bodyFeatureId, pickedFaces);
   if (faces === null) return null;
@@ -111,6 +113,7 @@ export function canSubmitShell(
   form: ShellForm,
   pickedFaces: readonly PlanarFaceSignature[],
   bodyFeatureId: string | null,
+  unit: LengthUnit,
 ): boolean {
-  return buildShellParams(form, pickedFaces, bodyFeatureId) !== null;
+  return buildShellParams(form, pickedFaces, bodyFeatureId, unit) !== null;
 }

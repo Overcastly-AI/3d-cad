@@ -17,6 +17,7 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 import type { ChamferParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
 import { useEdgePickStore } from "../features/edgePickStore";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
   buildChamferParams,
   canSubmitChamfer,
@@ -50,6 +51,7 @@ export function ChamferEditor({
   saving,
   error,
 }: ChamferEditorProps) {
+  const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<ChamferForm>(initial);
   useEffect(() => setForm(initial), [initial]);
 
@@ -59,10 +61,10 @@ export function ChamferEditor({
   const clearPicks = useEdgePickStore((s) => s.clearPicks);
 
   const submit = useCallback(() => {
-    const params = buildChamferParams(form, picked, bodyFeatureId);
+    const params = buildChamferParams(form, picked, bodyFeatureId, unit);
     if (params === null) return;
     onSubmit(params);
-  }, [form, picked, bodyFeatureId, onSubmit]);
+  }, [form, picked, bodyFeatureId, onSubmit, unit]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -85,7 +87,8 @@ export function ChamferEditor({
     [setPicking],
   );
 
-  const canSubmit = canSubmitChamfer(form, picked, bodyFeatureId) && !saving;
+  const canSubmit =
+    canSubmitChamfer(form, picked, bodyFeatureId, unit) && !saving;
   useCommandBridge(submit, canSubmit);
 
   return (
@@ -101,11 +104,11 @@ export function ChamferEditor({
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
             <NumberField
               label="Distance"
-              unit="mm"
+              unit={unit}
               data-testid="chamfer-distance"
               autoFocus
               value={form.distanceInput}
-              error={distanceError(form.distanceInput)}
+              error={distanceError(form.distanceInput, unit)}
               onChange={(e) =>
                 setForm((f) => ({ ...f, distanceInput: e.target.value }))
               }

@@ -9,6 +9,8 @@ import { gatewayClient } from "./client";
 import { envelopeCode, envelopeMessage } from "./envelope";
 
 export type PartResponse = components["schemas"]["PartResponse"];
+/** Document display unit — the single source is the generated contract. */
+export type LengthUnit = PartResponse["length_unit"];
 export type FeatureTreeResponse = components["schemas"]["FeatureTreeResponse"];
 export type FeatureResponse = components["schemas"]["FeatureResponse"];
 export type FeatureCreate = components["schemas"]["FeatureCreate"];
@@ -672,6 +674,34 @@ export async function updateFeature(
         error,
         "The sketch could not be saved — reload and try again.",
       ),
+    );
+  }
+  return data;
+}
+
+/**
+ * Change the part's document display unit (docs/design/units.md §U2). DISPLAY
+ * metadata only — the server never touches a stored mm value, so this is a pure
+ * re-label; it bumps `tree_version` under the OCC guard like any part edit. The
+ * route + types are generated (`@loft/ts-client`); the server envelope surfaces
+ * verbatim on a stale version (422) or unknown part (404).
+ */
+export async function updatePartUnit(
+  partId: string,
+  lengthUnit: LengthUnit,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<PartResponse> {
+  const { data, error } = await client.PATCH("/api/v1/parts/{part_id}", {
+    params: { path: { part_id: partId } },
+    body: {
+      length_unit: lengthUnit,
+      expected_tree_version: expectedTreeVersion,
+    },
+  });
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The document unit could not be changed."),
     );
   }
   return data;

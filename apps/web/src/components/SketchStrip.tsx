@@ -76,6 +76,7 @@ import {
   type SketchPlaneSpec,
 } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SketchTool } from "../sketch/tools";
 
 const TOOLS: ReadonlyArray<{
@@ -397,11 +398,12 @@ function OffsetPlanePanel({
   busy: boolean;
   error: string | null;
 }) {
+  const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<OffsetForm>(defaultOffsetForm());
-  const canSubmit = canSubmitOffset(form) && !busy;
+  const canSubmit = canSubmitOffset(form, unit) && !busy;
 
   const author = () => {
-    const params = buildOffsetParams(form);
+    const params = buildOffsetParams(form, unit);
     if (params === null) return;
     onAuthor(params);
   };
@@ -432,11 +434,11 @@ function OffsetPlanePanel({
           />
           <NumberField
             label="Distance"
-            unit="mm"
+            unit={unit}
             data-testid="offset-plane-offset"
             autoFocus
             value={form.offsetInput}
-            error={offsetError(form.offsetInput)}
+            error={offsetError(form.offsetInput, unit)}
             onChange={(e) =>
               setForm((f) => ({ ...f, offsetInput: e.target.value }))
             }

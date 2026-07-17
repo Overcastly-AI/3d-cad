@@ -6,15 +6,11 @@
  * targets are picked it is a quiet prompt; a failed measurement or overlay
  * surfaces its server message legibly. Chrome stays out of the model's way.
  */
-import { CloseIcon, MeasureIcon, Panel } from "@loft/design";
+import { CloseIcon, formatLength, MeasureIcon, Panel } from "@loft/design";
 
-import {
-  describePick,
-  formatAngleDeg,
-  formatDeltaMm,
-  formatDistanceMm,
-} from "../measure/geometry";
+import { describePick, formatAngleDeg } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 
 /** One title-block cell: tracked eyebrow over a data-face value. */
 function Cell({
@@ -52,6 +48,10 @@ function Cell({
 }
 
 export function MeasureReadout() {
+  const unit = useDocumentLengthUnit();
+  // Measured lengths format in the document unit (the eyebrow carries the unit
+  // suffix, so the numeral itself stays bare); the angle is always degrees.
+  const len = (mm: number) => formatLength(mm, unit, { unitSuffix: false });
   const active = useMeasureStore((s) => s.active);
   const picks = useMeasureStore((s) => s.picks);
   const result = useMeasureStore((s) => s.result);
@@ -132,25 +132,25 @@ export function MeasureReadout() {
         </p>
         <div className="grid grid-flow-col auto-cols-auto divide-x divide-hairline">
           <Cell
-            eyebrow="Distance · mm"
-            value={formatDistanceMm(result.distance)}
+            eyebrow={`Distance · ${unit}`}
+            value={len(result.distance)}
             tone="brass"
             testid="measure-readout-distance"
             wide
           />
           <Cell
-            eyebrow="Δx · mm"
-            value={formatDeltaMm(result.delta.x)}
+            eyebrow={`Δx · ${unit}`}
+            value={len(result.delta.x)}
             testid="measure-readout-dx"
           />
           <Cell
-            eyebrow="Δy · mm"
-            value={formatDeltaMm(result.delta.y)}
+            eyebrow={`Δy · ${unit}`}
+            value={len(result.delta.y)}
             testid="measure-readout-dy"
           />
           <Cell
-            eyebrow="Δz · mm"
-            value={formatDeltaMm(result.delta.z)}
+            eyebrow={`Δz · ${unit}`}
+            value={len(result.delta.z)}
             testid="measure-readout-dz"
           />
           {result.angle_deg !== null && result.angle_deg !== undefined ? (

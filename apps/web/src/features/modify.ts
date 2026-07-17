@@ -13,12 +13,15 @@
  * neighbour sharp. The picked signatures live in the edge-pick store (shared
  * with the viewport overlay); the size stays in the editor's form.
  */
+import type { LengthUnit } from "@loft/design";
+
 import type {
   ChamferParams,
   EdgeSelector,
   EdgeSignature,
   FilletParams,
 } from "../api/parts";
+import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 import { pickedEdgesSelector } from "./edge";
 
 /** How the fillet/chamfer chooses its edges: a predicate, or clicked edges. */
@@ -74,21 +77,13 @@ export function edgeSelectorId(selector: EdgeSelector): EdgeSelectorId {
   return "all_edges";
 }
 
-/** Trim trailing zeros so 5 shows as "5", not "5.000"; -0 renders as "0". */
-function formatMm(mm: number): string {
-  return String(Object.is(mm, -0) ? 0 : mm);
-}
-
 /**
- * Parse a positive-millimetre size field (fillet radius / chamfer distance), or
- * null when empty, non-numeric, or non-positive (a zero radius is no round).
+ * Parse a positive size field (fillet radius / chamfer distance) → canonical mm
+ * in the document `unit`, or null when empty, non-numeric, or non-positive (a
+ * zero radius is no round). A bare number reads in `unit`; a suffix overrides it.
  */
-export function parseSizeMm(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === "") return null;
-  const value = Number(trimmed);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return value;
+export function parseSizeMm(input: string, unit: LengthUnit): number | null {
+  return parsePositiveLengthMm(input, unit);
 }
 
 /**
@@ -128,10 +123,13 @@ export function defaultFilletForm(): FilletForm {
   return { radiusInput: "2", mode: "rule", edges: "all_edges" };
 }
 
-/** Seed the form from an existing fillet feature for editing. */
-export function formFromFilletParams(params: FilletParams): FilletForm {
+/** Seed the form from an existing fillet feature for editing (in `unit`). */
+export function formFromFilletParams(
+  params: FilletParams,
+  unit: LengthUnit,
+): FilletForm {
   return {
-    radiusInput: formatMm(params.radius_mm),
+    radiusInput: lengthInputValue(params.radius_mm, unit),
     mode: params.edges.kind === "edges" ? "pick" : "rule",
     edges: edgeSelectorId(params.edges),
   };
@@ -145,10 +143,10 @@ export function pickedFromFilletParams(params: FilletParams): EdgeSignature[] {
 }
 
 /** Field-level radius message, or null when valid (empty is pending). */
-export function radiusError(input: string): string | null {
+export function radiusError(input: string, unit: LengthUnit): string | null {
   if (input.trim() === "") return null;
-  return parseSizeMm(input) === null
-    ? "Radius must be a positive number of millimetres."
+  return parseSizeMm(input, unit) === null
+    ? "Radius must be a positive length."
     : null;
 }
 
@@ -161,8 +159,9 @@ export function buildFilletParams(
   form: FilletForm,
   picked: readonly EdgeSignature[],
   bodyFeatureId: string | null,
+  unit: LengthUnit,
 ): FilletParams | null {
-  const radius = parseSizeMm(form.radiusInput);
+  const radius = parseSizeMm(form.radiusInput, unit);
   if (radius === null) return null;
   const edges = buildEdgeSelector(form.mode, form.edges, picked, bodyFeatureId);
   if (edges === null) return null;
@@ -174,8 +173,9 @@ export function canSubmitFillet(
   form: FilletForm,
   picked: readonly EdgeSignature[],
   bodyFeatureId: string | null,
+  unit: LengthUnit,
 ): boolean {
-  return buildFilletParams(form, picked, bodyFeatureId) !== null;
+  return buildFilletParams(form, picked, bodyFeatureId, unit) !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,10 +193,13 @@ export function defaultChamferForm(): ChamferForm {
   return { distanceInput: "1", mode: "rule", edges: "all_edges" };
 }
 
-/** Seed the form from an existing chamfer feature for editing. */
-export function formFromChamferParams(params: ChamferParams): ChamferForm {
+/** Seed the form from an existing chamfer feature for editing (in `unit`). */
+export function formFromChamferParams(
+  params: ChamferParams,
+  unit: LengthUnit,
+): ChamferForm {
   return {
-    distanceInput: formatMm(params.distance_mm),
+    distanceInput: lengthInputValue(params.distance_mm, unit),
     mode: params.edges.kind === "edges" ? "pick" : "rule",
     edges: edgeSelectorId(params.edges),
   };
@@ -212,10 +215,10 @@ export function pickedFromChamferParams(
 }
 
 /** Field-level distance message, or null when valid (empty is pending). */
-export function distanceError(input: string): string | null {
+export function distanceError(input: string, unit: LengthUnit): string | null {
   if (input.trim() === "") return null;
-  return parseSizeMm(input) === null
-    ? "Distance must be a positive number of millimetres."
+  return parseSizeMm(input, unit) === null
+    ? "Distance must be a positive length."
     : null;
 }
 
@@ -227,8 +230,9 @@ export function buildChamferParams(
   form: ChamferForm,
   picked: readonly EdgeSignature[],
   bodyFeatureId: string | null,
+  unit: LengthUnit,
 ): ChamferParams | null {
-  const distance = parseSizeMm(form.distanceInput);
+  const distance = parseSizeMm(form.distanceInput, unit);
   if (distance === null) return null;
   const edges = buildEdgeSelector(form.mode, form.edges, picked, bodyFeatureId);
   if (edges === null) return null;
@@ -240,6 +244,7 @@ export function canSubmitChamfer(
   form: ChamferForm,
   picked: readonly EdgeSignature[],
   bodyFeatureId: string | null,
+  unit: LengthUnit,
 ): boolean {
-  return buildChamferParams(form, picked, bodyFeatureId) !== null;
+  return buildChamferParams(form, picked, bodyFeatureId, unit) !== null;
 }

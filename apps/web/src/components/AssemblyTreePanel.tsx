@@ -17,7 +17,8 @@ import type {
   InstanceResponse,
   MateResponse,
 } from "../api/assemblies";
-import { mateLabel, mateInstanceIds } from "../assembly/mates";
+import { mateDetail, mateLabel, mateInstanceIds } from "../assembly/mates";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 
 export interface AssemblyTreePanelProps {
   graph: AssemblyGraphResponse | undefined;
@@ -42,6 +43,7 @@ export function AssemblyTreePanel({
   onDeleteMate,
   busy,
 }: AssemblyTreePanelProps) {
+  const unit = useDocumentLengthUnit();
   const instances = graph?.instances ?? [];
   const mates = graph?.mates ?? [];
   // Counts fold into the section eyebrows (the INSTANCES footer cell in the
@@ -179,6 +181,17 @@ export function AssemblyTreePanel({
                         }`}
                       >
                         {mateLabel(mate.mate)}
+                        {(() => {
+                          const detail = mateDetail(mate.mate, unit);
+                          return detail ? (
+                            <span
+                              className="ml-1.5 font-data text-2xs tabular-nums text-brass"
+                              data-testid="mate-value-echo"
+                            >
+                              {detail}
+                            </span>
+                          ) : null;
+                        })()}
                       </span>
                       <span className="block font-data text-2xs tabular-nums text-gauge">
                         ①{balloonById.get(a) ?? "?"} · ②

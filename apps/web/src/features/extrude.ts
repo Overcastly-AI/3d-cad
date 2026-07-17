@@ -4,7 +4,10 @@
  * a DOM. Param shapes come from the generated client (CLAUDE.md DRY rule); the
  * builders live in `../api/parts` alongside the sketch builders.
  */
+import type { LengthUnit } from "@loft/design";
+
 import type { ExtrudeParams, FeatureResponse } from "../api/parts";
+import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 
 export type ExtrudeOperation = ExtrudeParams["operation"];
 export type ExtrudeDirection = ExtrudeParams["direction"];
@@ -33,45 +36,45 @@ export function defaultExtrudeForm(profileFeatureId: string): ExtrudeForm {
   };
 }
 
-/** Seed the form from an existing extrude feature for editing. */
-export function formFromParams(params: ExtrudeParams): ExtrudeForm {
+/** Seed the form from an existing extrude feature for editing (in `unit`). */
+export function formFromParams(
+  params: ExtrudeParams,
+  unit: LengthUnit,
+): ExtrudeForm {
   return {
     profileFeatureId: params.profile.feature_id,
-    distanceInput: formatDistanceInput(params.distance_mm),
+    distanceInput: lengthInputValue(params.distance_mm, unit),
     operation: params.operation,
     direction: params.direction,
   };
 }
 
-/** Trim trailing zeros so 10 shows as "10", not "10.000". */
-export function formatDistanceInput(distanceMm: number): string {
-  return String(distanceMm);
-}
-
 /**
- * Parse the distance field to a positive millimetre value, or null when it is
- * empty, non-numeric, or non-positive (an extrude of zero depth is no solid).
+ * Parse the distance field to a positive CANONICAL millimetre value in the
+ * document `unit`, or null when empty, non-numeric, or non-positive (an extrude
+ * of zero depth is no solid). A bare number reads in `unit`; a suffix (`2in`)
+ * overrides it — the storage value is always mm.
  */
-export function parseDistanceMm(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === "") return null;
-  const value = Number(trimmed);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return value;
+export function parseDistanceMm(
+  input: string,
+  unit: LengthUnit,
+): number | null {
+  return parsePositiveLengthMm(input, unit);
 }
 
 /** Field-level validation message for the distance, or null when it is valid. */
-export function distanceError(input: string): string | null {
+export function distanceError(input: string, unit: LengthUnit): string | null {
   if (input.trim() === "") return null; // empty is pending, not yet wrong
-  return parseDistanceMm(input) === null
-    ? "Distance must be a positive number of millimetres."
+  return parseDistanceMm(input, unit) === null
+    ? "Distance must be a positive length."
     : null;
 }
 
 /** True when the form can be submitted (a profile and a valid distance). */
-export function canSubmitExtrude(form: ExtrudeForm): boolean {
+export function canSubmitExtrude(form: ExtrudeForm, unit: LengthUnit): boolean {
   return (
-    form.profileFeatureId !== "" && parseDistanceMm(form.distanceInput) !== null
+    form.profileFeatureId !== "" &&
+    parseDistanceMm(form.distanceInput, unit) !== null
   );
 }
 

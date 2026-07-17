@@ -96,12 +96,17 @@ describe("buildEdgeSelector", () => {
 
 describe("parseSizeMm", () => {
   it("accepts positive millimetres, rejects zero / negative / empty / NaN", () => {
-    expect(parseSizeMm("5")).toBe(5);
-    expect(parseSizeMm("2.5")).toBe(2.5);
-    expect(parseSizeMm("0")).toBeNull();
-    expect(parseSizeMm("-3")).toBeNull();
-    expect(parseSizeMm("")).toBeNull();
-    expect(parseSizeMm("abc")).toBeNull();
+    expect(parseSizeMm("5", "mm")).toBe(5);
+    expect(parseSizeMm("2.5", "mm")).toBe(2.5);
+    expect(parseSizeMm("0", "mm")).toBeNull();
+    expect(parseSizeMm("-3", "mm")).toBeNull();
+    expect(parseSizeMm("", "mm")).toBeNull();
+    expect(parseSizeMm("abc", "mm")).toBeNull();
+  });
+
+  it("converts through the document unit", () => {
+    expect(parseSizeMm("2", "in")).toBe(50.8);
+    expect(parseSizeMm("2in", "mm")).toBe(50.8);
   });
 });
 
@@ -119,6 +124,7 @@ describe("fillet form", () => {
         { radiusInput: "5", mode: "rule", edges: "axis_z" },
         [],
         null,
+        "mm",
       ),
     ).toEqual({
       radius_mm: 5,
@@ -129,6 +135,7 @@ describe("fillet form", () => {
         { radiusInput: "0", mode: "rule", edges: "all_edges" },
         [],
         null,
+        "mm",
       ),
     ).toBeNull();
     expect(
@@ -136,6 +143,7 @@ describe("fillet form", () => {
         { radiusInput: "", mode: "rule", edges: "all_edges" },
         [],
         null,
+        "mm",
       ),
     ).toBe(false);
   });
@@ -145,6 +153,7 @@ describe("fillet form", () => {
       { radiusInput: "5", mode: "pick", edges: "all_edges" },
       [SIG_A],
       "feat-1",
+      "mm",
     );
     expect(params).toEqual({
       radius_mm: 5,
@@ -168,18 +177,27 @@ describe("fillet form", () => {
         { radiusInput: "5", mode: "pick", edges: "all_edges" },
         [],
         "feat-1",
+        "mm",
       ),
     ).toBe(false);
   });
 
   it("round-trips a predicate fillet into the form", () => {
     const params: FilletParams = { radius_mm: 3, edges: { kind: "all_edges" } };
-    expect(formFromFilletParams(params)).toEqual({
+    expect(formFromFilletParams(params, "mm")).toEqual({
       radiusInput: "3",
       mode: "rule",
       edges: "all_edges",
     });
     expect(pickedFromFilletParams(params)).toEqual([]);
+  });
+
+  it("seeds the radius in the document unit (mm → in)", () => {
+    const params: FilletParams = {
+      radius_mm: 25.4,
+      edges: { kind: "all_edges" },
+    };
+    expect(formFromFilletParams(params, "in").radiusInput).toBe("1");
   });
 
   it("round-trips a picked-edge fillet into pick mode + its signatures", () => {
@@ -203,14 +221,14 @@ describe("fillet form", () => {
         ],
       },
     };
-    expect(formFromFilletParams(params).mode).toBe("pick");
+    expect(formFromFilletParams(params, "mm").mode).toBe("pick");
     expect(pickedFromFilletParams(params)).toEqual([SIG_A, SIG_B]);
   });
 
   it("flags a non-positive radius, stays quiet while empty", () => {
-    expect(radiusError("")).toBeNull();
-    expect(radiusError("5")).toBeNull();
-    expect(radiusError("0")).toContain("positive");
+    expect(radiusError("", "mm")).toBeNull();
+    expect(radiusError("5", "mm")).toBeNull();
+    expect(radiusError("0", "mm")).toContain("positive");
   });
 });
 
@@ -228,6 +246,7 @@ describe("chamfer form", () => {
         { distanceInput: "1.5", mode: "rule", edges: "axis_x" },
         [],
         null,
+        "mm",
       ),
     ).toEqual({
       distance_mm: 1.5,
@@ -238,6 +257,7 @@ describe("chamfer form", () => {
         { distanceInput: "-1", mode: "rule", edges: "all_edges" },
         [],
         null,
+        "mm",
       ),
     ).toBeNull();
     expect(
@@ -245,6 +265,7 @@ describe("chamfer form", () => {
         { distanceInput: "2", mode: "rule", edges: "all_edges" },
         [],
         null,
+        "mm",
       ),
     ).toBe(true);
   });
@@ -254,6 +275,7 @@ describe("chamfer form", () => {
       { distanceInput: "2", mode: "pick", edges: "all_edges" },
       [SIG_B],
       "feat-1",
+      "mm",
     );
     expect(params?.edges).toEqual({
       kind: "edges",
@@ -273,7 +295,7 @@ describe("chamfer form", () => {
       distance_mm: 2,
       edges: { kind: "axis_parallel", axis: "Y" },
     };
-    expect(formFromChamferParams(params)).toEqual({
+    expect(formFromChamferParams(params, "mm")).toEqual({
       distanceInput: "2",
       mode: "rule",
       edges: "axis_y",
@@ -282,8 +304,8 @@ describe("chamfer form", () => {
   });
 
   it("flags a non-positive distance, stays quiet while empty", () => {
-    expect(distanceError("")).toBeNull();
-    expect(distanceError("1")).toBeNull();
-    expect(distanceError("0")).toContain("positive");
+    expect(distanceError("", "mm")).toBeNull();
+    expect(distanceError("1", "mm")).toBeNull();
+    expect(distanceError("0", "mm")).toContain("positive");
   });
 });

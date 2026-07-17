@@ -48,19 +48,23 @@ describe("countError", () => {
 
 describe("parseSpacingMm", () => {
   it("accepts positive millimetres only", () => {
-    expect(parseSpacingMm("6")).toBe(6);
-    expect(parseSpacingMm("0")).toBeNull();
-    expect(parseSpacingMm("-3")).toBeNull();
-    expect(parseSpacingMm("")).toBeNull();
-    expect(spacingError("0")).toContain("positive");
+    expect(parseSpacingMm("6", "mm")).toBe(6);
+    expect(parseSpacingMm("0", "mm")).toBeNull();
+    expect(parseSpacingMm("-3", "mm")).toBeNull();
+    expect(parseSpacingMm("", "mm")).toBeNull();
+    expect(spacingError("0", "mm")).toContain("positive");
+  });
+
+  it("converts through the document unit", () => {
+    expect(parseSpacingMm("2", "in")).toBe(50.8);
   });
 });
 
 describe("coordError", () => {
   it("accepts any finite value (0 / negative ok), flags gibberish", () => {
-    expect(coordError("0")).toBeNull();
-    expect(coordError("-25")).toBeNull();
-    expect(coordError("nope")).toContain("millimetres");
+    expect(coordError("0", "mm")).toBeNull();
+    expect(coordError("-25", "mm")).toBeNull();
+    expect(coordError("nope", "mm")).toContain("length");
   });
 });
 
@@ -78,13 +82,16 @@ describe("presetVec / nearestPreset", () => {
 
 describe("buildPatternParams", () => {
   it("builds a linear pattern from a valid linear form", () => {
-    const params = buildPatternParams({
-      ...defaultPatternForm(),
-      kind: "linear",
-      direction: "+y",
-      spacingInput: "6",
-      countInput: "4",
-    });
+    const params = buildPatternParams(
+      {
+        ...defaultPatternForm(),
+        kind: "linear",
+        direction: "+y",
+        spacingInput: "6",
+        countInput: "4",
+      },
+      "mm",
+    );
     expect(params).toEqual({
       pattern: {
         kind: "linear",
@@ -96,18 +103,21 @@ describe("buildPatternParams", () => {
   });
 
   it("builds a circular pattern, ignoring the linear fields", () => {
-    const params = buildPatternParams({
-      ...defaultPatternForm(),
-      kind: "circular",
-      axisDirection: "+z",
-      axisPointXInput: "0",
-      axisPointYInput: "0",
-      axisPointZInput: "0",
-      angleInput: "360",
-      countInput: "6",
-      // stale/garbage linear fields must not block a circular build
-      spacingInput: "not-a-number",
-    });
+    const params = buildPatternParams(
+      {
+        ...defaultPatternForm(),
+        kind: "circular",
+        axisDirection: "+z",
+        axisPointXInput: "0",
+        axisPointYInput: "0",
+        axisPointZInput: "0",
+        angleInput: "360",
+        countInput: "6",
+        // stale/garbage linear fields must not block a circular build
+        spacingInput: "not-a-number",
+      },
+      "mm",
+    );
     expect(params).toEqual({
       pattern: {
         kind: "circular",
@@ -121,26 +131,29 @@ describe("buildPatternParams", () => {
 
   it("returns null when a required field is invalid", () => {
     expect(
-      buildPatternParams({ ...defaultPatternForm(), countInput: "1" }),
+      buildPatternParams({ ...defaultPatternForm(), countInput: "1" }, "mm"),
     ).toBeNull();
     expect(
-      buildPatternParams({ ...defaultPatternForm(), spacingInput: "0" }),
+      buildPatternParams({ ...defaultPatternForm(), spacingInput: "0" }, "mm"),
     ).toBeNull();
     expect(
-      buildPatternParams({
-        ...defaultPatternForm(),
-        kind: "circular",
-        angleInput: "400",
-      }),
+      buildPatternParams(
+        {
+          ...defaultPatternForm(),
+          kind: "circular",
+          angleInput: "400",
+        },
+        "mm",
+      ),
     ).toBeNull();
   });
 });
 
 describe("canSubmitPattern", () => {
   it("mirrors buildPatternParams success", () => {
-    expect(canSubmitPattern(defaultPatternForm())).toBe(true);
+    expect(canSubmitPattern(defaultPatternForm(), "mm")).toBe(true);
     expect(
-      canSubmitPattern({ ...defaultPatternForm(), spacingInput: "" }),
+      canSubmitPattern({ ...defaultPatternForm(), spacingInput: "" }, "mm"),
     ).toBe(false);
   });
 });
@@ -155,7 +168,7 @@ describe("formFromPatternParams", () => {
         count: 5,
       },
     };
-    const form = formFromPatternParams(params);
+    const form = formFromPatternParams(params, "mm");
     expect(form.kind).toBe("linear");
     expect(form.direction).toBe("-x");
     expect(form.spacingInput).toBe("8");
@@ -172,12 +185,29 @@ describe("formFromPatternParams", () => {
         count: 6,
       },
     };
-    const form = formFromPatternParams(params);
+    const form = formFromPatternParams(params, "mm");
     expect(form.kind).toBe("circular");
     expect(form.axisDirection).toBe("+z");
     expect(form.axisPointXInput).toBe("10");
     expect(form.axisPointYInput).toBe("-4");
     expect(form.angleInput).toBe("270");
     expect(form.countInput).toBe("6");
+  });
+
+  it("seeds spacing + coords in the document unit, angle stays degrees", () => {
+    const params: PatternParams = {
+      pattern: {
+        kind: "circular",
+        axis_point: { x: 25.4, y: -50.8, z: 0 },
+        axis_direction: { x: 0, y: 0, z: 1 },
+        angle_deg: 90,
+        count: 4,
+      },
+    };
+    const form = formFromPatternParams(params, "in");
+    expect(form.axisPointXInput).toBe("1");
+    expect(form.axisPointYInput).toBe("-2");
+    // Angle is unitless — never converted through length.
+    expect(form.angleInput).toBe("90");
   });
 });

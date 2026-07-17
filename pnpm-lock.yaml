@@ -113,6 +113,9 @@ importers:
       '@fontsource/hanken-grotesk':
         specifier: ^5.2.0
         version: 5.2.8
+      '@loft/ts-client':
+        specifier: workspace:*
+        version: link:../ts-client
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
@@ -126,6 +129,9 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.10(@types/node@22.20.1)(vite@7.3.6(@types/node@22.20.1)(jiti@1.21.7))
 
   packages/ts-client:
     dependencies:
