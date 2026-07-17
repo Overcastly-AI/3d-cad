@@ -16,9 +16,22 @@ Residuals (world frame, design §2.3):
 - ``coincident(A, B, flush)`` → ``[nA·(pB-pA) - target, nA ± nB]`` — a signed gap
   along the normal (``target`` = 0, or ``distance_mm`` for a distance mate) plus
   normals anti-parallel (flush, ``nA + nB``) / parallel (``nA - nB``).
+- ``distance(A, B)`` → the SAME coincident residual with ``target = distance_mm``
+  and the flush (anti-parallel) alignment. PINNED SIGN CONVENTION (design §2.3):
+  ``distance_mm`` is the signed gap measured along face A's OUTWARD normal ``nA``
+  — at the solution ``nA·(pB-pA) = distance_mm``, so ``pB`` sits ``distance_mm``
+  along ``+nA`` from ``pA`` (positive = a gap on the ``+nA`` side, negative = B on
+  the ``-nA`` side, zero = a plain flush coincident). Proved by the
+  ``assembly-two-plates-gap`` golden + ``test_assembly_distance_angle``.
 - ``concentric(A, B)`` → ``[dA x dB, (pB-pA) - ((pB-pA)·dA) dA]`` — axes parallel
   plus lines coincident.
-- ``angle(A, B)`` → ``[nA·nB - cos θ]`` — the angle between normals (fast-follow).
+- ``angle(A, B)`` → ``[sin(φ - θ)]`` for a non-degenerate target θ (``sinφ·cosθ -
+  cosφ·sinθ`` with ``cosφ = nA·nB``, ``sinφ = ‖nAxnB‖``), falling back to
+  ``[cosφ - cosθ]`` at the (anti)parallel degenerate. PINNED ANGLE CONVENTION
+  (design §2.3): ``angle_deg`` is the angle φ between the two OUTWARD normals,
+  ``acos(nA·nB) = angle_deg`` (no flush sense). ``sin(φ - θ)`` keeps the Jacobian
+  row full-strength at the target so the numeric LM converges cleanly (the scalar
+  ``nA·nB - cosθ`` is flat near alignment and stalls); see :meth:`residual`.
 - ``lock(A, B)`` → ``[tB - t*, log(qB ⊗ q*⁻¹)]`` where ``(t*, q*) = A ∘ rel`` and
   ``rel`` is the authored seed relative pose — B rigidly fixed to A.
 """
@@ -66,6 +79,13 @@ CompiledMateKind = Literal["coincident", "concentric", "angle", "lock"]
 
 _ZERO3 = np.zeros(3, dtype=np.float64)
 
+#: sinθ below this treats the angle target as the (anti)parallel DEGENERATE (θ
+#: within ~2.6e-4° of 0° or 180°) and switches the angle residual from the
+#: well-conditioned sin(φ - θ) form to (cosφ - cosθ), whose sign distinguishes
+#: parallel from anti-parallel (see :meth:`CompiledMate.residual`). Far above the
+#: solver's float64 noise, far below any real non-degenerate angle mate.
+_ANGLE_DEGENERATE_SIN = 1e-9
+
 
 @dataclass(frozen=True)
 class CompiledMate:
@@ -90,6 +110,7 @@ class CompiledMate:
     target: float
     flush: bool
     cos_theta: float
+    sin_theta: float
     lock_rel: Pose | None
 
     def residual(self, pose_a: Pose, pose_b: Pose) -> Vector:
@@ -123,10 +144,34 @@ class CompiledMate:
             perp = w - float(np.dot(w, da_w)) * da_w
             return np.concatenate([parallel, perp])
 
-        # angle
+        # angle: drive the angle φ between the two outward normals to the target
+        # θ, where cosφ = n_A·n_B and sinφ = ‖n_A x n_B‖ (≥ 0 since φ ∈ [0, π]).
         na_w = pose_a.apply_direction(self.dir_a)
         nb_w = pose_b.apply_direction(self.dir_b)
-        return np.array([float(np.dot(na_w, nb_w)) - self.cos_theta], dtype=np.float64)
+        cos_phi = float(np.dot(na_w, nb_w))
+        if self.sin_theta >= _ANGLE_DEGENERATE_SIN:
+            # Non-degenerate target θ ∈ (0°, 180°): residual sin(φ - θ) =
+            # sinφ·cosθ - cosφ·sinθ, NOT the scalar (n_A·n_B - cosθ). Both vanish
+            # exactly at φ = θ, but d/dφ of sin(φ - θ) is cos(φ - θ) = 1 at the
+            # target whereas d/dφ of (cosφ - cosθ) is -sinφ, which collapses toward
+            # the parallel/anti-parallel ends and stalls the LM seed-dependently
+            # just short of tolerance. sin(φ - θ) keeps the Jacobian row
+            # full-strength at the target so the numeric solve converges cleanly.
+            # Unique zero in [0, π] at φ = θ; no division → NaN-free everywhere.
+            sin_phi = float(np.linalg.norm(np.cross(na_w, nb_w)))
+            return np.array(
+                [sin_phi * self.cos_theta - cos_phi * self.sin_theta],
+                dtype=np.float64,
+            )
+        # Degenerate target: exactly parallel (θ ≈ 0°, cosθ = +1) or anti-parallel
+        # (θ ≈ 180°, cosθ = -1). sin(φ - θ) can't distinguish the two ends (sinφ
+        # vanishes at both), so use (cosφ - cosθ): its SIGN pins parallel vs
+        # anti-parallel and it still drives the correct direction. The gradient
+        # vanishes at the target (an inherent zero-gradient bifurcation of the
+        # (anti)parallel configuration), so this end is the honest degenerate the
+        # diagnosis reports as under_constrained / not_converged — never NaN, never
+        # a wrong pose claimed well_constrained (design §2.3).
+        return np.array([cos_phi - self.cos_theta], dtype=np.float64)
 
 
 def _face(geom: ResolvedMateGeometry, mate_type: str, slot: str) -> ResolvedFace:
@@ -193,6 +238,7 @@ def compile_mate(
     target = 0.0
     flush = True
     cos_theta = 0.0
+    sin_theta = 0.0
     lock_rel: Pose | None = None
 
     if isinstance(mate, LockMate):
@@ -208,10 +254,13 @@ def compile_mate(
         dir_a = normalize(as_vector(fa.normal))
         point_b = as_vector(fb.point)
         dir_b = normalize(as_vector(fb.normal))
-        # NOTE (unverified -- distance/angle are fast-follow, design 2.3/5): the
-        # SIGN convention of a distance offset (gap measured along +n_A vs -n_A,
-        # and its interaction with `flush`) is not yet exercised by a golden and
-        # must be pinned when the distance mate actually ships.
+        # PINNED SIGN CONVENTION (design §2.3; proved by assembly-two-plates-gap +
+        # test_assembly_distance_angle): a distance mate rides the coincident
+        # residual with target = distance_mm and the flush (anti-parallel)
+        # alignment. distance_mm is the SIGNED gap along face A's OUTWARD normal
+        # n_A — at the solution n_A·(p_B - p_A) = distance_mm, so p_B sits
+        # distance_mm along +n_A from p_A (positive = gap on the +n_A side,
+        # negative = B on the -n_A side, zero = a plain flush coincident).
         target = mate.distance_mm if isinstance(mate, DistanceMate) else 0.0
         flush = mate.flush if isinstance(mate, CoincidentMate) else True
     elif isinstance(mate, ConcentricMate):
@@ -234,6 +283,7 @@ def compile_mate(
         point_b = as_vector(fb.point)
         dir_b = normalize(as_vector(fb.normal))
         cos_theta = math.cos(math.radians(mate.angle_deg))
+        sin_theta = math.sin(math.radians(mate.angle_deg))
 
     return CompiledMate(
         mate_id=solver_mate.mate_id,
@@ -249,5 +299,6 @@ def compile_mate(
         target=target,
         flush=flush,
         cos_theta=cos_theta,
+        sin_theta=sin_theta,
         lock_rel=lock_rel,
     )

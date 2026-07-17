@@ -172,7 +172,8 @@ exists), and a phased v1 — instances + placement + 3 mates (lock/
 coincident/concentric) + shared-mesh tessellation. Sequenced into 6 Ready
 items on `docs/BACKLOG.md` (document model → solver core → mate-geometry
 resolution → gateway endpoints → evaluation/tessellation DoD golden →
-frontend). Deferred past v1 (design doc §5): distance/angle mates,
+frontend). Distance/angle mates landed as the fast-follow (2026-07-17,
+conventions pinned + goldens). Still deferred past v1 (design doc §5):
 interference detection, exploded views, BOM formatting, STEP-assembly
 export, flexible sub-assemblies, part-version pinning-as-default.
 
@@ -233,6 +234,23 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       diagnosis + combined roll-up). e2e `assembly.spec.ts` (desktop + 1280×800)
       proves it live; `frontend-design` skill run; founder before/after shots.
       **"Bolt two parts together and see it" is real in the browser.**
+      **Fast-follow landed 2026-07-17 — distance + angle mates (the "same
+      solver, one extra scalar" §2.3/§5):** the residuals compiled both but
+      carried an explicit "unverified sign convention" note; now PINNED and
+      golden-backed. **Distance** sign convention: `distance_mm` is the signed
+      gap along face A's OUTWARD normal (`n_A·(p_B−p_A) = distance_mm`; +side gap,
+      −side overlap, 0 = flush coincident) — proved by the `assembly-two-plates-
+      gap` golden (two real plates land EXACTLY 5 mm apart, well_constrained) +
+      `test_assembly_distance_angle` (both signs + zero == coincident bitwise).
+      **Angle** convention: `angle_deg = acos(n_A·n_B)`; the residual was
+      re-conditioned from the flat scalar `n_A·n_B−cosθ` (stalled the LM
+      seed-dependently) to `sin(φ−θ)` (30°/90°/120° land the dihedral < 1e-6°),
+      with the (anti)parallel degenerate on `cosφ−cosθ`, NaN-free + honest. DOF
+      diagnosis correct (distance removes 3 like a coincident, angle removes 1);
+      determinism (bitwise + interpreter-restart) holds on a mixed distance+angle
+      graph. documents/resolve already accepted both — no write-layer gap.
+      **Follow-on: frontend distance/angle mate authoring UI** (a value field on
+      the two-face pick — deferred to a frontend-builder loop item).
 - 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
       3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
       place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible

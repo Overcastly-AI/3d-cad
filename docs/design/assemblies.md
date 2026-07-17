@@ -360,10 +360,27 @@ confines the solver's genuine difficulty to the cases that need it.
     leaves a 180° flip free. The implementation
     (`services/geometry/.../residuals.py`) uses `n_A ∓ n_B`; this line is the
     spec of record.
-  - `distance/angle`: the coincident residual with the gap target = `distance_mm`
-    / the angle target between normals = `angle_deg`. (The `flush` sense of the
-    forthcoming `distance` mate — whether the offset is measured along `+n_A` or
-    `−n_A` — is unverified until that mate ships; see the note in `residuals.py`.)
+  - `distance(A,B)`: the coincident residual with the gap target = `distance_mm`
+    and the flush (anti-parallel) alignment. **PINNED sign convention (shipped
+    2026-07-17):** `distance_mm` is the signed gap measured along face A's
+    **outward** normal `n_A` — at the solution `n_A·(p_B − p_A) = distance_mm`, so
+    `p_B` sits `distance_mm` along `+n_A` from `p_A` (positive = a gap on the
+    `+n_A` side, the two outward normals facing each other across it; negative = B
+    on the `−n_A` side; **zero = a plain flush coincident**). Proved by the
+    `assembly-two-plates-gap` golden (two real plates landing exactly 5 mm apart)
+    + `test_assembly_distance_angle` (both signs + the zero degenerate).
+  - `angle(A,B)`: the angle `φ` between the two **outward** normals driven to
+    `angle_deg`, i.e. `acos(n_A·n_B) = angle_deg` (no `flush` sense — an angle mate
+    constrains only the scalar angle). **PINNED (shipped 2026-07-17):** the
+    residual is `sin(φ − θ) = sinφ·cosθ − cosφ·sinθ` (with `cosφ = n_A·n_B`,
+    `sinφ = ‖n_A×n_B‖`), **not** the scalar `n_A·n_B − cosθ`: both vanish at
+    `φ = θ`, but `sin(φ − θ)` has unit gradient at the target whereas the scalar
+    form is flat near alignment and stalls the LM seed-dependently just short of
+    tolerance. The parallel/anti-parallel **degenerate** target (`θ ≈ 0°/180°`)
+    falls back to `cosφ − cosθ` (whose sign distinguishes the two ends) and is
+    reported honestly (`under_constrained`/`not_converged`), never NaN, never a
+    wrong pose. Proved by `test_assembly_distance_angle` (30°, 90°, 120° land
+    exactly; 0°/180° handled cleanly).
   - `concentric(A,B)`: `[ d_A × d_B (parallel),  (p_B − p_A) − ((p_B − p_A)·d_A)
     d_A (line-coincident) ]`.
   - `lock(A,B)`: relative pose residual (6) driving `x_B` to a fixed transform of

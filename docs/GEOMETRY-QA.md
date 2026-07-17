@@ -50,6 +50,54 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-17 — Distance + angle mates shipped: conventions PINNED with analytic goldens
+
+The assembly solver's fast-follow (`distance` + `angle` mates, design §2.3/§5)
+is now proven end-to-end and its sign/angle conventions are pinned by goldens —
+the residuals were previously compiled but carried an explicit "unverified sign
+convention" note. **Reachability trace (author → resolve → solve):** the
+`Mate` union, `documents.create_mate` (stores any `mate.type`, `String(32)`
+column, membership-checked via `mate_instance_ids`), `resolve._resolve_mate_pair`
+(distance/angle resolve both face slots like any non-lock mate), and
+`evaluate_assembly` already accepted both — no documents/resolve gap; the only
+gap was the missing goldens + the ill-conditioned angle residual (below).
+
+**PINNED distance sign convention.** `distance_mm` is the SIGNED gap measured
+along face A's OUTWARD normal `n_A`: at the solution `n_A·(p_B − p_A) =
+distance_mm`, B's outward normal held anti-parallel (the coincident flush sense).
+Positive = a gap on the `+n_A` side, negative = B on the `−n_A` side, **zero = a
+plain flush coincident**.
+- Golden `assembly-two-plates-gap` (full pipeline, REAL bodies): the bolted
+  golden with the face mate swapped for `distance_mm = 5`. A's top at z=10 ⇒ B
+  lands EXACTLY (0, 0, 15) identity, well_constrained (two holes still fully
+  locate). Combined roll-up: volume `16858.407346410208`, centroid `(20, 12.5,
+  12.5)`, AABB `[0,0,0]..[40,25,25]` (the z-gap 10→15 is the physical 5 mm air
+  gap), topology 16/36/2, 1 shared mesh. Worst measured deviation 4.6e-10 mm
+  (tolerance 1e-6, ~2000× headroom — matches the bolted golden's solver posture).
+- `test_assembly_distance_angle` (solver-level, synthetic): the solved gap equals
+  `distance_mm` for +5, −5, and 0; zero-distance is BYTE-identical to the
+  equivalent coincident solve; a lone distance mate reports remaining_dof=3 —
+  the SAME DOF a coincident removes.
+
+**PINNED angle convention.** `angle_deg = acos(n_A·n_B)` — the angle φ between the
+two OUTWARD normals, no flush sense. The residual was changed from the scalar
+`n_A·n_B − cosθ` (which is FLAT near alignment: d/dφ = −sinφ → stalls the LM
+seed-dependently just short of tolerance; observed a 30° target land at
+30.000017° → `not_converged`) to `sin(φ − θ)` (`sinφ·cosθ − cosφ·sinθ`, unit
+gradient at the target). No existing golden uses an angle mate, so only the angle
+residual changed — the coincident/concentric/lock determinism goldens are byte-
+unchanged. The (anti)parallel degenerate target (θ ≈ 0°/180°, `sinθ < 1e-9`)
+falls back to `cosφ − cosθ` (sign distinguishes the two ends).
+- `test_assembly_distance_angle`: 30°, 90°, 120° land the dihedral within 1e-4°
+  (measured < 1e-6°) from a tilted seed; a lone angle mate reports remaining_dof=5
+  (removes exactly 1 DOF); 0°/180° are NaN-free, drive the correct way, and are
+  reported honestly (never `well_constrained`, never a wrong pose).
+
+**Determinism** holds with the new mates in the graph: a mixed distance + angle
+assembly is bitwise-identical across two solver instances AND across an
+interpreter restart (BLAS-pinned), plus the two full-pipeline restart-probe
+checks on `assembly-two-plates-gap`.
+
 ## 2026-07-16 — Independent geometry-QA of Drawings v1 #6: measurement + provenance-attach (`5e16f9d`, `test_drawings_measure.py`)
 
 Independent re-verification of dimension measurement + projected-edge→model-edge

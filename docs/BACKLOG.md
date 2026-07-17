@@ -26,8 +26,9 @@ duplication:
 - **Assemblies — ➖ (2026-07-15, flipped from ❌).** v1 MVP shipped
   end-to-end this batch (documents → solver → resolution → evaluation →
   gateway → viewport, all 6 Ready slices below), golden independently
-  geometry-QA'd, e2e green live. Honest residuals, not gating the ➖: only
-  lock/coincident/concentric wired (distance/angle schema'd, unimplemented),
+  geometry-QA'd, e2e green live. **Distance + angle mates landed 2026-07-17**
+  (fast-follow, conventions pinned + goldens). Honest residuals, not gating
+  the ➖: no distance/angle authoring UI yet (solver-ready),
   no collision detection, no exploded views, no BOM, no assembly-level STEP
   IO, instances track a part's live tip not a pinned version, sub-assemblies
   rigid-only. See VISION.md row for full evidence chain.
@@ -397,6 +398,26 @@ nit, no user impact, stays Later).
       solved (bolted) — green live. Full lint + 517 ts + 1122 py tests green;
       founder before/after screenshots under docs/screenshots/. [src:
       design/assemblies.md §4, product-auditor #1]
+- [x] (P1, S) Assemblies — distance + angle mates (the fast-follow, geometry) —
+      **DONE 2026-07-17.** Proved end-to-end + PINNED the sign/angle conventions
+      the residuals previously flagged "unverified". Reachability: documents
+      (`create_mate`, `String(32)` type col) + `resolve` + `evaluate_assembly`
+      already accepted both — no write-layer gap. **Distance:** `distance_mm` =
+      signed gap along face A's OUTWARD normal (`n_A·(p_B−p_A)=distance_mm`; +gap,
+      −overlap, 0 = flush coincident); golden `assembly-two-plates-gap` (real
+      plates land EXACTLY 5 mm apart, well_constrained) + `test_assembly_distance_
+      angle` (both signs, zero == coincident bitwise, DOF=3). **Angle:** `angle_deg
+      = acos(n_A·n_B)`; residual re-conditioned scalar→`sin(φ−θ)` so 30°/90°/120°
+      land < 1e-6° (the scalar form stalled the LM), (anti)parallel degenerate on
+      `cosφ−cosθ`, NaN-free + honest; DOF=5. Determinism (bitwise + restart) holds
+      on a mixed distance+angle graph. residuals.py NOTE + assemblies.md §2.3 +
+      GEOMETRY-QA updated. Full lint + geometry suite green. [src: design/
+      assemblies.md §2.3/§5]
+- [ ] (P2, S) Assemblies — distance/angle mate authoring UI (apps/web) — the
+      solver-ready follow-on: a numeric value field on the two-face pick
+      (distance mm / angle deg) → `MateCreate` → re-evaluate, reusing the v1 #6
+      mate-authoring overlays. Solver + contract already ship both. [src:
+      design/assemblies.md §2.3/§5]
 - [x] (P2, M) Mesh store: MinIO-backed object-storage swap (engineering audit
       **F1/F6**) — **DONE 2026-07-15.** `configure_mesh_store` (wired in
       `build_app`) selects a shared content-addressed `S3MeshStore`
