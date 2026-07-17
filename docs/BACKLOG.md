@@ -31,18 +31,29 @@ duplication:
   no collision detection, no exploded views, no BOM, no assembly-level STEP
   IO, instances track a part's live tip not a pinned version, sub-assemblies
   rigid-only. See VISION.md row for full evidence chain.
-- **Drawings — ❌→🚧, now in build** (product audit's honest #2 — smaller
-  build than Assemblies, completes the make-loop for the already-solid
-  single-part case via STEP-to-shop). **Slice #1 (document model + CRUD,
-  documents) + #2 (HLR 2D-projection module, geometry) SHIPPED** (see Done);
-  dimension measurement + projected-edge→model-edge map, gateway routes, SVG
-  export, and the frontend sheet editor follow (design doc §3/§4/§6).
+- **Drawings — flipped ❌→➖ (2026-07-17).** v1 shipped end-to-end (document
+  model → HLR projection → evaluate endpoint → gateway proxy → dimension
+  measurement/provenance → frontend sheet editor → dimension authoring → SVG
+  export), every stage independently reviewed/QA'd, e2e-proven live. Honest
+  residuals, not gating the ➖: no server-composed export (PDF/DXF/byte-
+  stable stored artifact), no assembly drawings, no section/detail/auxiliary
+  views, angular + point-to-point dimension authoring unbuilt (backend
+  supports both), no GD&T/auto-dimensioning. See VISION.md row for the full
+  evidence chain.
+- **Sheet metal — new ❌ row this pass (founder ask 2026-07-17: "anything for
+  sheet metal?").** Scoped, not built: `docs/design/sheet-metal.md` names
+  the flat-pattern unfold as the pillar's genuine kernel risk (OCCT has no
+  turnkey unfold — verified) and proposes a v1 cut (one provenance-tracked
+  bend, reusing the shipped extrude/sweep kernel primitives + the Drawings
+  view pipeline). **Not yet endorsed for build** — the design doc needs a
+  `code-reviewer` pass before its slices (filed below, Next) move to Ready.
 - **Unfiled-but-named product-audit follow-ups** (history-tree drag-reorder/
   suppress, feature-mirror + 2-direction pattern, a friendlier
   `boolean_failed` message) — next groom pass, once assemblies v1 has room.
-- **`docs/COMPETITIVE.md` is stale** (dated 2026-07-12 — pre-dates Phase 2's
-  close and the assemblies design doc); flagged for the vision-steward to
-  refresh against the Phase 3 focus.
+- **`docs/COMPETITIVE.md` refreshed this pass** (sheet-metal comparison vs.
+  Fusion 360 / SolidWorks added, see its own table) — the rest of the map
+  still pre-dates Phase 3/4's close; a fuller refresh against Assemblies/
+  Drawings remains flagged for a future pass.
 - Performance, Collaboration, Extensibility, Agent access — untouched, later
   phases.
 
@@ -438,6 +449,49 @@ nit, no user impact, stays Later).
       eng-audit F7]
 
 ## Next (P2)
+
+- [ ] (P2, S) Sheet metal — design-doc endorsement (`code-reviewer` review of
+      `docs/design/sheet-metal.md` before any implementation, CLAUDE.md's
+      hard-problem-gets-a-design-doc-first rule). Gates the four slices below
+      the same way `assemblies.md`/`drawings.md` were reviewed before their
+      Ready items were queued. Not code; a review gate. [src: founder]
+- [ ] (P2, M) Sheet metal v1 #1 — base flange feature (documents + geometry)
+      — `SheetMetalBaseFlangeParamsV1` (gauge `thickness_mm` + default
+      `k_factor`/`bend_radius_mm`), kernel-side reusing `extrude.py`'s
+      `build_profile_face` + thicken path verbatim (no new geometry code).
+      Blocked on the endorsement item above. [src: founder, design/
+      sheet-metal.md §4.1/§10]
+- [ ] (P2, L) Sheet metal v1 #2 — the flat-pattern unfold algorithm
+      (geometry) — THE flagged risk (design doc §2), proven EARLY against a
+      directly hand-built OCCT test body (a known single cylindrical bend
+      face, constructed without a real edge-flange feature) — mirrors how
+      the `AssemblySolver` was proven on synthetic residuals before real
+      mate-geometry resolution existed. Face classification
+      (`BRepAdaptor_Surface.GetType()`) + rigid-transform + bend-allowance
+      (`BA = angle × (radius + K·thickness)`) reconstruction via
+      `BRepBuilderAPI`; ships with the analytic unfolded-length +
+      area-conservation goldens (design doc §9 items 1–2) in the same
+      commit — DoD. Depends on #1 (needs a real sheet body/thickness to
+      classify against, even if the bend face is hand-built for this
+      slice). [src: founder, design/sheet-metal.md §2/§6/§10]
+- [ ] (P2, M) Sheet metal v1 #3 — edge-flange (bend) feature (geometry +
+      documents) — `SheetMetalEdgeFlangeParamsV1` (`flange_length_mm`/
+      `bend_angle_deg`/`bend_radius_mm`/`k_factor`, parameter-driven arc+line
+      path reusing `sweep.py`'s profile-along-path primitives internally);
+      tags the bend region's faces via the shipped `SubshapeRef`/
+      `EdgeSignature` machinery so #2's unfold never has to blind-detect a
+      bend. Wires #2 to real authored geometry — the "does the algorithm
+      that passed on a hand-built body also unfold something a user actually
+      modeled" proof. [src: founder, design/sheet-metal.md §4.2/§5/§10]
+- [ ] (P2, M) Sheet metal v1 #4 — flat pattern as a drawing view + bend
+      table (geometry + documents + web) — the v1 DoD, "one bracket → a
+      dimensionally-correct flat blank a shop can cut." `views.projection =
+      "flat_pattern"` feeds the `FlatPattern` output directly into the
+      shipped `ViewGeometry` DTO (no HLR needed — already flat) so the sheet
+      editor/dimension UI/SVG export work with ZERO new frontend renderer
+      code; `annotations.type = "table"` carries the per-bend rows (angle,
+      radius, direction, allowance) the unfold already computed. [src:
+      founder, design/sheet-metal.md §7/§10]
 
 - [ ] (P2, M) Datum-plane completeness (founder ask 2026-07-16: "do we have
       planes, offset planes, midpoint planes etc") — **backend slice ✅

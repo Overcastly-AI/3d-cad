@@ -404,6 +404,54 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       pillar: section/detail/assembly views + server-composed PDF/DXF.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
+## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)
+
+**Not started, not yet green-lit** — a candidate pillar the vision-steward
+scoped 2026-07-17 in response to a founder ask ("anything for sheet metal?").
+Architecture decision: `docs/design/sheet-metal.md`. Named after Drawings
+(not before Phase 5) because it composes directly with the shipped
+Drawings pipeline — the flat pattern rides the same `ViewGeometry`/HLR-view
+machinery as a part drawing (design doc §7) — and because Drawings landing
+first is what makes a flat-pattern-as-a-drawing-view cheap. **The genuine
+kernel risk, named plainly (design doc §2): OCCT ships no turnkey
+flat-pattern unfold** (verified — no `Unfold`/`Sheet`/`Develop`/`Flatten`
+module in OCP); v1 scopes to a single provenance-tracked bend to avoid the
+harder general bend-graph relaxation problem. No new document type needed
+(unlike Assemblies/Drawings) — sheet-metal features extend the existing part
+feature-tree model.
+
+Sequenced slice titles (BACKLOG "Next" for full text; dependency-ordered,
+kernel risk moved EARLY — mirrors how Assemblies proved its solver on
+synthetic residuals before real mate-geometry resolution existed, `docs/
+design/assemblies.md` v1 #2):
+
+1. Base flange feature (`SheetMetalBaseFlangeParamsV1` — gauge thickness +
+   default K-factor/bend radius, reuses `extrude.py`) — the minimal
+   foundation the risk item needs a real (if trivial) sheet body to act on.
+2. **The flat-pattern unfold algorithm — THE flagged risk, proven early**
+   (`geometry.sheet_metal.unfold`: face classification + rigid-transform +
+   bend-allowance reconstruction, single-bend v1 scope), proven against a
+   directly hand-built OCCT test body (a known cylindrical bend face
+   constructed without going through a real edge-flange feature yet) — the
+   same "prove the hard algorithm in isolation before wiring real authored
+   geometry to it" posture the mate solver took. Ships with the analytic
+   unfolded-length + area-conservation goldens in the same commit.
+3. Edge-flange (bend) feature (`SheetMetalEdgeFlangeParamsV1` — parameter-
+   driven arc+line path, reuses `sweep.py`'s profile-along-path primitives;
+   bend-region provenance tagged via the shipped `SubshapeRef`/
+   `EdgeSignature` machinery) — wires #2's proven algorithm to real,
+   user-authored bend geometry.
+4. Flat pattern as a drawing view (`views.projection = "flat_pattern"`,
+   reuses the shipped `ViewGeometry` DTO + sheet editor + SVG export with no
+   new frontend renderer) + bend-table annotation (`annotations.type =
+   "table"`) — the v1 DoD, "one bracket → a flat blank a shop can cut."
+
+Explicitly deferred past v1 (design doc §10): multi-bend/bend-graph
+flattening (boxes, hat channels), miter flanges/hems/jogs/tabs/corner
+reliefs, gauge/material bend-allowance tables, lofted bends, cosmetic bend
+reliefs, import-as-sheet-metal recognition, server-composed flat-pattern
+export (rides the same deferred item as Drawings' PDF/DXF).
+
 ## Phase 5 — Agent-native & extensibility ⬜
 
 - ⬜ Public Python scripting API (same code path as the UI)

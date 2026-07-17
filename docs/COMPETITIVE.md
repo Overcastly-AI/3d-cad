@@ -65,6 +65,27 @@
 | Realtime multi-user | — | — | ⬜ | Phase 3 |
 | Python scripting API / MCP | — | — | ⬜ | Phase 5 — structural advantage #4 |
 
+## Sheet metal
+
+| Capability | Fusion 360 | SolidWorks | Loft status | Proposed phase / notes |
+|---|---|---|---|---|
+| Base flange (profile sketch → constant-gauge-thickness body) | Sheet Metal workspace's base feature, driven by a per-design gauge/rule — [Sheet metal rule reference](https://help.autodesk.com/view/fusion360/ENU/?guid=SM-RULES-REF) | Base-Flange/Tab — insert a sketch profile and extrude it to the part's material thickness — [Design a Sheet Metal Part from the Flattened State](https://help.solidworks.com/2022/english/SolidWorks/sldworks/t_design_sheet_metal_flattened.htm) | ⬜ | Scoped v1 #1, `docs/design/sheet-metal.md` §4.1 — reuses the shipped `extrude` kernel path |
+| Edge flange (a new flange off a straight edge, at a bend radius/angle) | Create sheet metal flanges from a selected edge with a length/angle/radius — [Create sheet metal flanges](https://help.autodesk.com/view/fusion360/ENU/?guid=SM-CREATE-FLANGE) | Edge-Flange PropertyManager — pick an edge, set flange length/angle/bend radius and a bend-allowance type — [Edge-Flange PropertyManager](https://help.solidworks.com/2024/english/Solidworks/sldworks/HIDD_FEAT_SM_EDGE_FLANGE.htm), [Edge Flanges](https://help.solidworks.com/2024/English/SolidWorks/sldworks/c_Edge_Flanges.htm) | ⬜ | Scoped v1 #3, §4.2 — reuses the shipped `sweep` profile-along-path primitives, parameter-driven instead of sketch-driven |
+| Bend allowance / K-factor | Sheet-metal rules configure K-factor as the neutral-axis offset fraction, per material/thickness — [Sheet metal rule reference](https://help.autodesk.com/view/fusion360/ENU/?guid=SM-RULES-REF) | Bend-allowance type (K-factor, bend table, or bend allowance/deduction) set per flange or part default — [Edge-Flange PropertyManager](https://help.solidworks.com/2024/english/Solidworks/sldworks/HIDD_FEAT_SM_EDGE_FLANGE.htm) | ⬜ | Scoped v1 — single global/per-feature K-factor only (§1); full gauge/material rule TABLES explicitly deferred (§10) |
+| Flat pattern / unfold | "Create a flat pattern" activity flattens the formed body for a drawing, showing bend lines and factoring the bend allowance — [Sheet metal flat patterns](https://help.autodesk.com/view/fusion360/ENU/?guid=GUID-121F6E58-0459-4552-85EF-319F44324AE6) | "Flatten" flattens bends for editing/dimensioning the developed shape — [Flattening Sheet Metal Bends](https://help.solidworks.com/2022/English/SolidWorks/sldworks/t_Flattening_Sheet_Metal_Bends.htm) | ⬜ | Scoped v1 #2, §2/§6 — **the named genuine risk**: OCCT ships no turnkey unfold (verified — no `Unfold`/`Sheet`/`Develop`/`Flatten` OCP module); v1 is single-bend, provenance-tracked, not a general bend-graph solver |
+| Hem, jog, miter flange, corner relief, tab | Documented as distinct Sheet Metal tools alongside base/edge flange (not independently verified this pass — flag for next pass with direct citations per tool) | Same family, documented alongside Edge-Flange (not independently verified this pass) | ⬜ | Explicitly deferred past v1 (§10) — compositions of more bends/corner-cases on the same primitive, not new kernel risk |
+| Convert-to-sheet-metal / recognition (unfold an imported/arbitrary solid) | Not verified this pass — flag for next pass | Not verified this pass — flag for next pass | ⬜ | Explicitly deferred past v1 (§2.2/§10) — a genuinely separate, harder geometric-recognition problem the design doc does not attempt to solve |
+
+Sources read this pass (WebSearch snippets against `help.autodesk.com` /
+`help.solidworks.com`, described in our own words, no pasted text): Fusion —
+`SM-RULES-REF`, `SM-CREATE-FLANGE`, `SM-FLANGES`, `SM-REF-FLANGE`,
+`GUID-121F6E58...` (flat patterns). SolidWorks —
+`t_design_sheet_metal_flattened.htm`, `HIDD_FEAT_SM_EDGE_FLANGE.htm`,
+`c_Edge_Flanges.htm`, `t_Flattening_Sheet_Metal_Bends.htm`. Full detail in
+`docs/design/sheet-metal.md`, which additionally verifies the OCCT/OCP side
+(what primitives exist, what a turnkey unfold command does NOT) directly
+against this repo's geometry environment rather than a competitor doc.
+
 ## Discovery log
 
 _Dated entries as the vision-steward runs each web pass — what was read (with
@@ -139,3 +160,28 @@ the groomer._
      any current ❌ row since Loft's parametric core itself isn't finished;
      breadth-for-breadth's-sake per the operating question. Phase 3/4,
      revisit once Part modeling is closer to parity.
+
+- **2026-07-17 (sheet metal pass, founder ask).** New **Sheet metal** table
+  added (above), scoped in response to a direct founder question ("anything
+  for sheet metal?") rather than a routine pipeline-refill pass — the rest of
+  this file's rows are untouched this pass (Drawings/Assemblies still show
+  their pre-Phase-3/4-close status; a fuller sweep-through refresh remains
+  flagged from the prior note, unaddressed this pass — scope was the founder
+  ask only). `WebSearch` against `help.autodesk.com`/`help.solidworks.com`
+  (full-page `WebFetch` not attempted this pass — WebSearch snippets
+  sufficed and are cited per-URL, no pasted text). **What was newly
+  enumerated:** base/edge flange as the two core sheet-metal feature types;
+  K-factor/bend-allowance-type as the incumbent-standard neutral-axis
+  parameter (Fusion's rule reference, SolidWorks' Edge-Flange
+  PropertyManager); flat-pattern/"Flatten" as the shared unfold deliverable
+  in both tools; hem/jog/miter-flange/corner-relief/tab named as a shared
+  secondary-feature family (not independently verified per-tool this pass —
+  flagged for a future pass); convert-to-sheet-metal/recognition named as a
+  distinct, harder capability (not verified this pass). **Candidate handed to
+  the groomer** (`[src: founder]`, not `[src: competitive]` — the pillar
+  originated from a direct founder ask, not a routine WebSearch pipeline
+  scan): the sheet-metal v1 slices filed in `docs/BACKLOG.md` Next (P2),
+  gated on `docs/design/sheet-metal.md` endorsement. Per the operating
+  question, this is filed at P2 (not promoted to Ready) — it doesn't flip a
+  ❌ row on its own until built, and the design doc is explicitly
+  unendorsed.
