@@ -18,7 +18,28 @@ import { create } from "zustand";
 
 import type { EdgeSignature, PlanarFaceSignature } from "../api/parts";
 
-export type MateTool = "coincident" | "concentric" | "lock";
+export type MateTool =
+  "coincident" | "concentric" | "lock" | "distance" | "angle";
+
+/**
+ * A parametric mate carries a numeric value the user edits before commit:
+ * distance in mm, angle in degrees. Both pick two planar faces (the residual
+ * reads face normals + a point on each — the same pair a coincident collects).
+ */
+export function isParametricMate(tool: MateTool): tool is "distance" | "angle" {
+  return tool === "distance" || tool === "angle";
+}
+
+/** The seeded default when a parametric pair completes (mm / degrees). */
+export const MATE_DEFAULT_VALUE: Record<"distance" | "angle", number> = {
+  distance: 10,
+  angle: 90,
+};
+
+/** Tools whose pick pair is two planar faces. */
+function collectsFaces(tool: MateTool): boolean {
+  return tool === "coincident" || isParametricMate(tool);
+}
 
 /** One collected pick: a face (coincident), an axis (concentric), or an instance (lock). */
 export type MatePick =
@@ -42,6 +63,12 @@ export interface MateAuthoringState {
   tool: MateTool | null;
   /** Collected picks, in order (≤ 2). A complete pair is on distinct instances. */
   picks: MatePick[];
+  /**
+   * The pending numeric parameter for a parametric mate (distance mm / angle
+   * degrees), seeded to a sensible default once the face pair completes and
+   * editable before commit. Null for non-parametric tools / an incomplete pair.
+   */
+  value: number | null;
   /** A rejected pick's reason (e.g. same instance twice), or null. */
   error: string | null;
 
@@ -49,6 +76,8 @@ export interface MateAuthoringState {
   setTool: (tool: MateTool | null) => void;
   /** Toggle-arm: choosing the active tool again disarms it. */
   toggleTool: (tool: MateTool) => void;
+  /** Edit the pending parametric value (mm / degrees) before commit. */
+  setValue: (value: number | null) => void;
   pickFace: (
     instanceId: string,
     faceIndex: number,
@@ -86,28 +115,33 @@ function acceptSecond(
 export const useMateAuthoringStore = create<MateAuthoringState>((set) => ({
   tool: null,
   picks: [],
+  value: null,
   error: null,
 
-  setTool: (tool) => set({ tool, picks: [], error: null }),
+  setTool: (tool) => set({ tool, picks: [], value: null, error: null }),
   toggleTool: (tool) =>
     set((state) =>
       state.tool === tool
-        ? { tool: null, picks: [], error: null }
-        : { tool, picks: [], error: null },
+        ? { tool: null, picks: [], value: null, error: null }
+        : { tool, picks: [], value: null, error: null },
     ),
+  setValue: (value) => set({ value }),
 
   pickFace: (instanceId, faceIndex, signature) =>
     set((state) => {
-      if (state.tool !== "coincident") return state;
+      if (state.tool === null || !collectsFaces(state.tool)) return state;
       const { ok, error } = acceptSecond(state.picks, instanceId);
       if (!ok) return { ...state, error };
-      return {
-        picks: [
-          ...state.picks,
-          { kind: "face", instanceId, faceIndex, signature },
-        ],
-        error: null,
-      };
+      const picks = [
+        ...state.picks,
+        { kind: "face" as const, instanceId, faceIndex, signature },
+      ];
+      // A completed parametric pair seeds its default value to edit before commit.
+      const value =
+        picks.length === 2 && isParametricMate(state.tool)
+          ? MATE_DEFAULT_VALUE[state.tool]
+          : state.value;
+      return { picks, value, error: null };
     }),
 
   pickAxis: (instanceId, edgeIndex, signature) =>
@@ -135,6 +169,6 @@ export const useMateAuthoringStore = create<MateAuthoringState>((set) => ({
       };
     }),
 
-  resetPicks: () => set({ picks: [], error: null }),
-  clear: () => set({ tool: null, picks: [], error: null }),
+  resetPicks: () => set({ picks: [], value: null, error: null }),
+  clear: () => set({ tool: null, picks: [], value: null, error: null }),
 }));

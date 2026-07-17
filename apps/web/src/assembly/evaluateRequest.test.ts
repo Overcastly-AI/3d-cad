@@ -167,6 +167,42 @@ describe("buildEvaluateAssemblyRequest", () => {
     ]);
   });
 
+  it("passes a parametric mate through with its numeric field intact", () => {
+    const faceRef = (instanceId: string) => ({
+      kind: "face" as const,
+      instance_id: instanceId,
+      signature: {
+        subshape_type: "face" as const,
+        surface: "plane" as const,
+        normal: { x: 0, y: 0, z: 1 },
+        centroid: { x: 0, y: 0, z: 0 },
+        area_mm2: 100,
+      },
+    });
+    const req = buildEvaluateAssemblyRequest(
+      graph({
+        mates: [
+          {
+            id: "m1",
+            assembly_id: "a1",
+            order_index: 0,
+            mate: {
+              type: "distance",
+              distance_mm: 12.5,
+              a: faceRef("i1"),
+              b: faceRef("i2"),
+            },
+          },
+        ],
+      }),
+      new Map([["part-1", tree("part-1")]]),
+    );
+    expect(req.mates?.[0]?.mate).toMatchObject({
+      type: "distance",
+      distance_mm: 12.5,
+    });
+  });
+
   it("contributes an empty prefix when a part tree is missing (no crash)", () => {
     const req = buildEvaluateAssemblyRequest(graph(), new Map());
     expect(req.instances[0]?.features).toEqual([]);

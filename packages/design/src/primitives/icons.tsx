@@ -212,6 +212,14 @@ export const DistanceIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const AngleIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 18 H19" />
+    <path d="M5 18 L18 7" />
+    <path d="M5 18 A8 8 0 0 1 10.5 11" />
+  </Icon>
+);
+
 export const RadiusIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx={12} cy={12} r={7} />

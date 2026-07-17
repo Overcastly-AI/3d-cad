@@ -173,7 +173,8 @@ coincident/concentric) + shared-mesh tessellation. Sequenced into 6 Ready
 items on `docs/BACKLOG.md` (document model → solver core → mate-geometry
 resolution → gateway endpoints → evaluation/tessellation DoD golden →
 frontend). Distance/angle mates landed as the fast-follow (2026-07-17,
-conventions pinned + goldens). Still deferred past v1 (design doc §5):
+conventions pinned + goldens + frontend authoring UI). Still deferred past v1
+(design doc §5):
 interference detection, exploded views, BOM formatting, STEP-assembly
 export, flexible sub-assemblies, part-version pinning-as-default.
 
@@ -249,8 +250,15 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       diagnosis correct (distance removes 3 like a coincident, angle removes 1);
       determinism (bitwise + interpreter-restart) holds on a mixed distance+angle
       graph. documents/resolve already accepted both — no write-layer gap.
-      **Follow-on: frontend distance/angle mate authoring UI** (a value field on
-      the two-face pick — deferred to a frontend-builder loop item).
+      **Frontend distance/angle authoring UI landed 2026-07-17** — Distance/Angle
+      command-band tools (D / G) mirror the coincident face-pick pair; on a
+      complete pair the mate HUD holds and shows a design-system `NumberField`
+      (mm / degrees, default 10 mm / 90°, keyboard-first: Enter commits, Esc
+      cancels) instead of auto-committing; a new `AngleIcon` was added to the
+      design package. `buildMate(tool, picks, value)` builds the discriminated
+      `distance`/`angle` mate from the generated client union; unit tests +
+      `assembly.spec.ts` distance-mate e2e cover it. Both mates are now
+      user-authorable end-to-end.
 - 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
       3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
       place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible

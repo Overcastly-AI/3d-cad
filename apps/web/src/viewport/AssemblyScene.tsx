@@ -146,8 +146,14 @@ export function AssemblyScene({
   const pickAxis = useMateAuthoringStore((s) => s.pickAxis);
   const pickInstance = useMateAuthoringStore((s) => s.pickInstance);
 
-  const overlayTool =
-    tool === "coincident" || tool === "concentric" ? tool : null;
+  // Distance / angle pick two planar faces like coincident, so they reuse the
+  // face overlay; concentric picks circular-edge axes; lock picks the body.
+  const overlayTool: "coincident" | "concentric" | null =
+    tool === "concentric"
+      ? "concentric"
+      : tool !== null && tool !== "lock"
+        ? "coincident"
+        : null;
 
   /** The face/edge index picked on a given instance (overlay highlight). */
   const selectedPickIndex = (instanceId: string): number | null => {

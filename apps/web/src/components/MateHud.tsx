@@ -4,18 +4,30 @@
  * for the active tool + how many picks are collected and tells the user the
  * next click; the store's rejection (same instance twice) and the submit error
  * surface here too. Nothing renders when no tool is armed.
+ *
+ * A parametric mate (distance / angle) collects two faces, then holds here to
+ * let the user set its value (a design-system `NumberField`, mm / degrees) and
+ * commit — keyboard-first: the field autofocuses, Enter commits, Escape cancels.
  */
-import { useMateAuthoringStore } from "../assembly/mateStore";
+import { Button, NumberField } from "@loft/design";
+import { type KeyboardEvent, useEffect, useState } from "react";
+
+import { isParametricMate, useMateAuthoringStore } from "../assembly/mateStore";
+import { mateToolLabel, parseMateValue } from "../assembly/mates";
 
 const FIRST: Record<string, string> = {
   coincident: "Pick a flat face on the first part.",
   concentric: "Pick a hole edge on the first part.",
   lock: "Pick the first part to anchor to.",
+  distance: "Pick a flat face on the first part.",
+  angle: "Pick a flat face on the first part.",
 };
 const SECOND: Record<string, string> = {
   coincident: "Now pick the mating face on the OTHER part — they snap flush.",
   concentric: "Now pick the mating hole edge on the OTHER part — axes align.",
   lock: "Now pick the OTHER part to lock it rigidly.",
+  distance: "Now pick the offset face on the OTHER part — set the gap next.",
+  angle: "Now pick the angled face on the OTHER part — set the angle next.",
 };
 
 export interface MateHudProps {
@@ -23,15 +35,50 @@ export interface MateHudProps {
   submitError: string | null;
   /** The mate is being added + re-solved (the snap). */
   submitting: boolean;
+  /** Commit the pending parametric mate (distance / angle) at its set value. */
+  onCommit: () => void;
 }
 
-export function MateHud({ submitError, submitting }: MateHudProps) {
+export function MateHud({ submitError, submitting, onCommit }: MateHudProps) {
   const tool = useMateAuthoringStore((s) => s.tool);
   const picks = useMateAuthoringStore((s) => s.picks);
+  const value = useMateAuthoringStore((s) => s.value);
   const error = useMateAuthoringStore((s) => s.error);
+  const setValue = useMateAuthoringStore((s) => s.setValue);
+  const setTool = useMateAuthoringStore((s) => s.setTool);
+
+  // A local editing buffer so decimals/signs type smoothly; the parsed number
+  // flows to the store (the commit's source of truth).
+  const [draft, setDraft] = useState("");
+  const needsValue =
+    tool !== null && isParametricMate(tool) && picks.length === 2;
+  // Seed the buffer from the store's default when the value phase opens. Keyed
+  // on `needsValue` only so a keystroke (which updates `value`) never clobbers
+  // what the user is typing — the seed is a one-shot on entering the phase.
+  useEffect(() => {
+    if (needsValue) {
+      setDraft(useMateAuthoringStore.getState().value?.toString() ?? "");
+    }
+  }, [needsValue]);
+
   if (tool === null) return null;
 
+  const onDraftChange = (next: string) => {
+    setDraft(next);
+    setValue(parseMateValue(next));
+  };
+  const onFieldKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (value !== null && !submitting) onCommit();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setTool(null);
+    }
+  };
+
   const prompt = picks.length === 0 ? FIRST[tool] : SECOND[tool];
+  const unit = tool === "distance" ? "mm" : "°";
 
   return (
     <div
@@ -41,15 +88,35 @@ export function MateHud({ submitError, submitting }: MateHudProps) {
       className="absolute left-editor top-3 max-w-sm border border-brass bg-anvil px-3 py-2"
     >
       <span className="block font-display text-2xs uppercase tracking-[0.18em] text-brass">
-        {tool === "coincident"
-          ? "Coincident mate"
-          : tool === "concentric"
-            ? "Concentric mate"
-            : "Lock mate"}
+        {`${mateToolLabel(tool)} mate`}
       </span>
-      <span className="mt-1 block font-body text-xs text-mist">
-        {submitting ? "Solving the assembly…" : prompt}
-      </span>
+      {needsValue && !submitting ? (
+        <div className="mt-2 flex items-end gap-2">
+          <NumberField
+            label={mateToolLabel(tool)}
+            unit={unit}
+            className="w-28"
+            data-testid="mate-value"
+            autoFocus
+            value={draft}
+            onChange={(event) => onDraftChange(event.target.value)}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={onFieldKeyDown}
+          />
+          <Button
+            variant="solid"
+            data-testid="mate-commit"
+            disabled={value === null}
+            onClick={onCommit}
+          >
+            Add mate
+          </Button>
+        </div>
+      ) : (
+        <span className="mt-1 block font-body text-xs text-mist">
+          {submitting ? "Solving the assembly…" : prompt}
+        </span>
+      )}
       {error ? (
         <span
           role="alert"

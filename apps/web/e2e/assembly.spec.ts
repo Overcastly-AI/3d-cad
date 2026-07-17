@@ -140,10 +140,14 @@ async function pickDispatch(page: Page, selector: string): Promise<void> {
   await node.dispatchEvent("click");
 }
 
-async function runAssemblyFlow(
+/**
+ * Seed a session, build the hole-plate part, open a fresh assembly, and add two
+ * instances (A auto-grounded, B seeded apart at x ≈ 80). Shared by every mate
+ * flow so each test only authors its own mate.
+ */
+async function setupTwoInstances(
   page: Page,
-  seedShot?: string,
-): Promise<{ idA: string; idB: string }> {
+): Promise<{ idA: string; idB: string; seedX: number }> {
   const account = await seedSession(page);
   const part = await createPlateWithHoleViaApi(
     page,
@@ -197,6 +201,15 @@ async function runAssemblyFlow(
   // The free instance sits at its authored seed (x ≈ 80) before any mate.
   const seedX = await balloonX(page, idB);
   expect(seedX).toBeGreaterThan(60);
+
+  return { idA, idB, seedX };
+}
+
+async function runAssemblyFlow(
+  page: Page,
+  seedShot?: string,
+): Promise<{ idA: string; idB: string }> {
+  const { idA, idB, seedX } = await setupTwoInstances(page);
 
   // Founder before-shot: the two parts seeded APART, pre-mate.
   if (seedShot) {
@@ -265,6 +278,50 @@ test.describe("Assemblies v1 — bolt two parts and see it", () => {
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/assembly-bolted-desktop.png`,
     });
+  });
+});
+
+test.describe("Assemblies v1 — parametric mates (distance / angle)", () => {
+  test("distance mate: pick two faces, set a value, commit, re-solve", async ({
+    page,
+  }) => {
+    const { idA, idB } = await setupTwoInstances(page);
+
+    // Arm the distance tool and pick a face on each part (the same face pair a
+    // coincident collects — the residual reads the normals + a point on each).
+    await page.getByTestId("mate-distance").click();
+    await expect(page.getByTestId("mate-hud")).toHaveAttribute(
+      "data-mate-tool",
+      "distance",
+    );
+    await pickDispatch(
+      page,
+      `[data-testid^="mate-face-${idA}-"][aria-label*="12.5, 10 "]`,
+    );
+    await pickDispatch(
+      page,
+      `[data-testid^="mate-face-${idB}-"][aria-label*="12.5, 0 "]`,
+    );
+
+    // The value field appears (not auto-committed) with the sensible default,
+    // and is editable before commit — keyboard-first.
+    const value = page.getByTestId("mate-value").locator("input");
+    await expect(value).toBeVisible();
+    await expect(value).toHaveValue("10");
+    await value.fill("20");
+    await page.getByTestId("mate-commit").click();
+
+    // The distance mate lands in the tree and the assembly re-solves cleanly.
+    const mateRow = page
+      .getByTestId("mate-row")
+      .filter({ hasText: "Distance" });
+    await expect(mateRow).toHaveCount(1, { timeout: 30_000 });
+    const status = await waitForSolved(page);
+    expect(status).not.toMatch(/Conflicting|Not converged/);
+    // Both plates still render at their solved poses.
+    await expect
+      .poll(() => distinctCanvasColors(page), { timeout: 20_000 })
+      .toBeGreaterThan(24);
   });
 });
 

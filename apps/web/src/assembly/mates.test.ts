@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { EdgeSignature, PlanarFaceSignature } from "../api/parts";
 import type { MatePick } from "./mateStore";
-import { buildMate, mateInstanceIds, mateLabel } from "./mates";
+import {
+  buildMate,
+  mateInstanceIds,
+  mateLabel,
+  mateToolLabel,
+  parseMateValue,
+} from "./mates";
 
 const faceSig: PlanarFaceSignature = {
   subshape_type: "face",
@@ -67,8 +73,54 @@ describe("buildMate", () => {
     });
   });
 
+  it("builds a distance mate from two face picks + a value", () => {
+    const mate = buildMate("distance", [facePick("i1"), facePick("i2")], 12.5);
+    expect(mate).toEqual({
+      type: "distance",
+      distance_mm: 12.5,
+      a: { kind: "face", instance_id: "i1", signature: faceSig },
+      b: { kind: "face", instance_id: "i2", signature: faceSig },
+    });
+  });
+
+  it("builds an angle mate from two face picks + a value (signed ok)", () => {
+    const mate = buildMate("angle", [facePick("i1"), facePick("i2")], -30);
+    expect(mate).toEqual({
+      type: "angle",
+      angle_deg: -30,
+      a: { kind: "face", instance_id: "i1", signature: faceSig },
+      b: { kind: "face", instance_id: "i2", signature: faceSig },
+    });
+  });
+
+  it("returns null for a distance/angle mate with no value", () => {
+    expect(buildMate("distance", [facePick("i1"), facePick("i2")])).toBeNull();
+    expect(
+      buildMate("angle", [facePick("i1"), facePick("i2")], null),
+    ).toBeNull();
+  });
+
+  it("returns null for a non-finite parametric value", () => {
+    expect(
+      buildMate("distance", [facePick("i1"), facePick("i2")], Number.NaN),
+    ).toBeNull();
+  });
+
+  it("returns null for a distance mate with non-face picks", () => {
+    expect(
+      buildMate("distance", [axisPick("i1"), axisPick("i2")], 10),
+    ).toBeNull();
+  });
+
+  it("returns null for a distance mate on the same instance", () => {
+    expect(
+      buildMate("distance", [facePick("i1"), facePick("i1")], 10),
+    ).toBeNull();
+  });
+
   it("returns null for an incomplete pair", () => {
     expect(buildMate("coincident", [facePick("i1")])).toBeNull();
+    expect(buildMate("distance", [facePick("i1")], 10)).toBeNull();
   });
 
   it("returns null when both picks are on the same instance", () => {
@@ -106,5 +158,26 @@ describe("mateLabel", () => {
     expect(
       mateLabel({ type: "lock", a_instance_id: "a", b_instance_id: "b" }),
     ).toBe("Lock");
+  });
+});
+
+describe("mateToolLabel", () => {
+  it("names the parametric tools", () => {
+    expect(mateToolLabel("distance")).toBe("Distance");
+    expect(mateToolLabel("angle")).toBe("Angle");
+  });
+});
+
+describe("parseMateValue", () => {
+  it("parses finite signed numbers", () => {
+    expect(parseMateValue("12.5")).toBe(12.5);
+    expect(parseMateValue(" -30 ")).toBe(-30);
+    expect(parseMateValue("0")).toBe(0);
+  });
+
+  it("rejects empty / non-numeric input", () => {
+    expect(parseMateValue("")).toBeNull();
+    expect(parseMateValue("  ")).toBeNull();
+    expect(parseMateValue("abc")).toBeNull();
   });
 });

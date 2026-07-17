@@ -8,8 +8,10 @@
  */
 import {
   AddIcon,
+  AngleIcon,
   CoincidentIcon,
   ConcentricIcon,
+  DistanceIcon,
   FixedIcon,
   ToolButton,
   ToolGroup,
@@ -68,6 +70,28 @@ export function AssemblyCommandBand({
           caption={mateReason}
           data-testid="mate-concentric"
           onClick={() => onToggleTool("concentric")}
+        />
+        <ToolButton
+          icon={<DistanceIcon />}
+          label="Distance"
+          showLabel
+          shortcut="D"
+          active={activeTool === "distance"}
+          disabled={!canMate}
+          caption={mateReason}
+          data-testid="mate-distance"
+          onClick={() => onToggleTool("distance")}
+        />
+        <ToolButton
+          icon={<AngleIcon />}
+          label="Angle"
+          showLabel
+          shortcut="G"
+          active={activeTool === "angle"}
+          disabled={!canMate}
+          caption={mateReason}
+          data-testid="mate-angle"
+          onClick={() => onToggleTool("angle")}
         />
         <ToolButton
           icon={<FixedIcon />}

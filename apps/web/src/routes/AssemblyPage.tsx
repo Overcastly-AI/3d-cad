@@ -13,6 +13,7 @@ import {
   evaluateAssembly,
   fetchAssemblyGraph,
   type InstanceResponse,
+  type Mate,
   type MateResponse,
   updateInstance,
 } from "../api/assemblies";
@@ -35,8 +36,12 @@ import {
   buildEvaluateAssemblyRequest,
   uniquePartDocumentIds,
 } from "../assembly/evaluateRequest";
-import { buildMate } from "../assembly/mates";
-import { type MateTool, useMateAuthoringStore } from "../assembly/mateStore";
+import { buildMate, mateToolLabel } from "../assembly/mates";
+import {
+  isParametricMate,
+  type MateTool,
+  useMateAuthoringStore,
+} from "../assembly/mateStore";
 import { placementToScene } from "../assembly/placement";
 import { buildEvaluateTree } from "../measure/geometry";
 import { FloatingPanel } from "../components/FloatingPanel";
@@ -191,6 +196,7 @@ export function AssemblyPage() {
   );
   const tool = useMateAuthoringStore((s) => s.tool);
   const picks = useMateAuthoringStore((s) => s.picks);
+  const mateValue = useMateAuthoringStore((s) => s.value);
   const toggleTool = useMateAuthoringStore((s) => s.toggleTool);
   const resetPicks = useMateAuthoringStore((s) => s.resetPicks);
   const setTool = useMateAuthoringStore((s) => s.setTool);
@@ -200,7 +206,9 @@ export function AssemblyPage() {
 
   // Part overlays (faces/edges) — fetched once per unique part while a
   // face/axis mate tool is armed; mapped to each instance sharing that part.
-  const overlayActive = tool === "coincident" || tool === "concentric";
+  // Every mate but lock picks part geometry (faces for coincident / distance /
+  // angle, axes for concentric), so all of them want the overlay fetched.
+  const overlayActive = tool !== null && tool !== "lock";
   const overlaysQuery = useQuery({
     queryKey: ["assembly-overlays", assemblyId, docVersion, partDocKey],
     enabled: overlayActive && partTrees !== undefined && partDocIds.length > 0,
@@ -330,48 +338,59 @@ export function AssemblyPage() {
     [assemblyId, docVersion, runMutation],
   );
 
-  // Complete-pair watcher: two picks on distinct instances → POST the mate,
-  // re-solve (the snap), keep the tool armed to chain another. A nonce guards
-  // a double-fire (React strict mode / re-render).
+  // POST a built mate, re-solve (the snap), keep the tool armed to chain
+  // another. A nonce guards a double-fire (React strict mode / re-render).
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const submitNonce = useRef(0);
+  const submitMate = useCallback(
+    (mate: Mate) => {
+      if (submitting) return;
+      const nonce = submitNonce.current + 1;
+      submitNonce.current = nonce;
+      setSubmitting(true);
+      setSubmitError(null);
+      void (async () => {
+        try {
+          await createMate(assemblyId, {
+            expected_version: docVersion,
+            mate,
+          });
+          resetPicks();
+          await refreshGraph();
+        } catch (error) {
+          setSubmitError(
+            error instanceof Error
+              ? error.message
+              : "The mate could not be added.",
+          );
+          resetPicks();
+        } finally {
+          if (submitNonce.current === nonce) setSubmitting(false);
+        }
+      })();
+    },
+    [submitting, assemblyId, docVersion, resetPicks, refreshGraph],
+  );
+
+  // Complete-pair watcher for the value-free mates (coincident / concentric /
+  // lock): a complete pair auto-commits. Parametric mates (distance / angle)
+  // hold at a complete pair for the value edit and commit explicitly below.
   useEffect(() => {
-    if (tool === null || picks.length !== 2 || submitting) return;
+    if (tool === null || isParametricMate(tool)) return;
+    if (picks.length !== 2 || submitting) return;
     const mate = buildMate(tool, picks);
     if (mate === null) return;
-    const nonce = submitNonce.current + 1;
-    submitNonce.current = nonce;
-    setSubmitting(true);
-    setSubmitError(null);
-    void (async () => {
-      try {
-        await createMate(assemblyId, {
-          expected_version: docVersion,
-          mate,
-        });
-        resetPicks();
-        await refreshGraph();
-      } catch (error) {
-        setSubmitError(
-          error instanceof Error
-            ? error.message
-            : "The mate could not be added.",
-        );
-        resetPicks();
-      } finally {
-        if (submitNonce.current === nonce) setSubmitting(false);
-      }
-    })();
-  }, [
-    tool,
-    picks,
-    submitting,
-    assemblyId,
-    docVersion,
-    resetPicks,
-    refreshGraph,
-  ]);
+    submitMate(mate);
+  }, [tool, picks, submitting, submitMate]);
+
+  // Explicit commit for a parametric mate: build with the edited value.
+  const commitMate = useCallback(() => {
+    if (tool === null || !isParametricMate(tool)) return;
+    const mate = buildMate(tool, picks, mateValue);
+    if (mate === null) return;
+    submitMate(mate);
+  }, [tool, picks, mateValue, submitMate]);
 
   // Keyboard-first: A opens the picker; F/N/K arm the mate tools; Escape
   // disarms the tool / closes the picker.
@@ -401,6 +420,8 @@ export function AssemblyPage() {
         f: "coincident",
         n: "concentric",
         k: "lock",
+        d: "distance",
+        g: "angle",
       };
       const next = map[key];
       if (next !== undefined) {
@@ -443,15 +464,7 @@ export function AssemblyPage() {
           documentName={graph?.assembly.name ?? "Assembly"}
           documentTestId="assembly-name"
           mode={
-            tool === "coincident"
-              ? "Coincident"
-              : tool === "concentric"
-                ? "Concentric"
-                : tool === "lock"
-                  ? "Lock"
-                  : addOpen
-                    ? "Add part"
-                    : null
+            tool !== null ? mateToolLabel(tool) : addOpen ? "Add part" : null
           }
         />
       </TopBar>
@@ -471,7 +484,11 @@ export function AssemblyPage() {
           fitKey={sceneFitKey}
           hud={
             <>
-              <MateHud submitError={submitError} submitting={submitting} />
+              <MateHud
+                submitError={submitError}
+                submitting={submitting}
+                onCommit={commitMate}
+              />
               {addOpen ? (
                 <AddInstancePanel
                   addingPartId={addingPartId}

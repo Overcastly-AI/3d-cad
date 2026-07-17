@@ -10,11 +10,30 @@ import type { MatePick, MateTool } from "./mateStore";
 
 /** A short human label for a mate kind — the tree + readout share it. */
 export function mateToolLabel(tool: MateTool): string {
-  return tool === "coincident"
-    ? "Coincident"
-    : tool === "concentric"
-      ? "Concentric"
-      : "Lock";
+  switch (tool) {
+    case "coincident":
+      return "Coincident";
+    case "concentric":
+      return "Concentric";
+    case "lock":
+      return "Lock";
+    case "distance":
+      return "Distance";
+    case "angle":
+      return "Angle";
+  }
+}
+
+/**
+ * Parse a user-typed parametric value (distance mm / angle degrees) → a finite
+ * number, or null when the field is empty / not a number. Signed values are
+ * valid: distance is a signed gap, angle a signed rotation (schema §2.3).
+ */
+export function parseMateValue(input: string): number | null {
+  const trimmed = input.trim();
+  if (trimmed === "") return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
 }
 
 /** A human label for a stored mate (the tree row). */
@@ -49,13 +68,16 @@ export function mateInstanceIds(mate: Mate): [string, string] {
 
 /**
  * Build the `Mate` from a complete pick pair for `tool`, or null when the pair
- * is incomplete / the wrong kind (a coincident needs two faces, a concentric
- * two axes, a lock two instances — all on distinct instances, the store's
- * invariant). A coincident mates the two faces flush (mating faces touch).
+ * is incomplete / the wrong kind (a coincident, distance, or angle needs two
+ * faces; a concentric two axes; a lock two instances — all on distinct
+ * instances, the store's invariant). A parametric mate (distance / angle) also
+ * needs its finite numeric `value` (mm / degrees); it is null until the user
+ * supplies one. A coincident mates the two faces flush (mating faces touch).
  */
 export function buildMate(
   tool: MateTool,
   picks: readonly MatePick[],
+  value?: number | null,
 ): Mate | null {
   const [a, b] = picks;
   if (a === undefined || b === undefined) return null;
@@ -66,6 +88,26 @@ export function buildMate(
     return {
       type: "coincident",
       flush: true,
+      a: { kind: "face", instance_id: a.instanceId, signature: a.signature },
+      b: { kind: "face", instance_id: b.instanceId, signature: b.signature },
+    };
+  }
+  if (tool === "distance") {
+    if (a.kind !== "face" || b.kind !== "face") return null;
+    if (value == null || !Number.isFinite(value)) return null;
+    return {
+      type: "distance",
+      distance_mm: value,
+      a: { kind: "face", instance_id: a.instanceId, signature: a.signature },
+      b: { kind: "face", instance_id: b.instanceId, signature: b.signature },
+    };
+  }
+  if (tool === "angle") {
+    if (a.kind !== "face" || b.kind !== "face") return null;
+    if (value == null || !Number.isFinite(value)) return null;
+    return {
+      type: "angle",
+      angle_deg: value,
       a: { kind: "face", instance_id: a.instanceId, signature: a.signature },
       b: { kind: "face", instance_id: b.instanceId, signature: b.signature },
     };

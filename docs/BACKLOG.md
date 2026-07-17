@@ -27,9 +27,10 @@ duplication:
   end-to-end this batch (documents → solver → resolution → evaluation →
   gateway → viewport, all 6 Ready slices below), golden independently
   geometry-QA'd, e2e green live. **Distance + angle mates landed 2026-07-17**
-  (fast-follow, conventions pinned + goldens). Honest residuals, not gating
-  the ➖: no distance/angle authoring UI yet (solver-ready),
-  no collision detection, no exploded views, no BOM, no assembly-level STEP
+  (fast-follow, conventions pinned + goldens); **distance/angle authoring UI
+  shipped 2026-07-17** (command-band tools + `NumberField` value entry in the
+  mate HUD — pick two faces, set mm/deg, commit). Honest residuals, not gating
+  the ➖: no collision detection, no exploded views, no BOM, no assembly-level STEP
   IO, instances track a part's live tip not a pinned version, sub-assemblies
   rigid-only. See VISION.md row for full evidence chain.
 - **Drawings — flipped ❌→➖ (2026-07-17).** v1 shipped end-to-end (document
