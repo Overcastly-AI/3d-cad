@@ -94,6 +94,10 @@ def _to_edge(edge: ProjectedEdge) -> ProjectedViewEdge:
         # silhouette/free-form/ambiguous edges (un-dimensionable, §1.5).
         source_edge=edge.source_edge,
         dimensionable=edge.dimensionable,
+        # The model→projected endpoint correspondence (design §3.3) captured before
+        # `start`/`end` were canonicalised — lets a picked projected end name the
+        # correct model `end_a`/`end_b` without the caller re-projecting.
+        start_is_end_a=edge.start_is_end_a,
     )
 
 

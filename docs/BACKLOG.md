@@ -866,6 +866,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Drawings review-fix (endpoint correspondence) done:** projected
+  straight-edge DTO gains `start_is_end_a` (captured pre-canonicalisation in
+  `project.py`), so point-to-point authoring no longer replicates the geometry
+  view-frame/projection to map a picked end → model `end_a`/`end_b`. gen-check +
+  geometry pytest green.
 - 2026-07-18 — **Undo/redo UR3-frontend (assembly controls) done:** shared
   `HistoryGroup` in both bands + one `executeHistoryStep` engine; assembly
   chords at idle, typed stale → quiet resync; undo/redo closes ✅ in ROADMAP.

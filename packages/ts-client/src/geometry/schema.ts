@@ -2997,6 +2997,11 @@ export interface components {
             /** @description Canonical first endpoint */
             start: components["schemas"]["ProjectedPoint"];
             /**
+             * Start Is End A
+             * @description For a STRAIGHT dimensionable edge (design §3.3): True iff this edge's canonical `start` projected point corresponds to `source_edge`'s canonical `end_a` (False → `end_b`). The model→projected endpoint correspondence the lexicographic canonicalisation of `start`/`end` would otherwise drop — it lets a point-to-point linear dimension name the correct model endpoint (`DimensionEndpointRef.endpoint`) from a picked projected end WITHOUT re-deriving the view frame + projection. Null for a non-straight edge (circle/arc/polyline) or any edge with no single clean model source (silhouette/free-form/ambiguous, §1.5) — same optional-provenance style as `source_edge`.
+             */
+            start_is_end_a?: boolean | null;
+            /**
              * Visible
              * @description True = solid (visible); False = dashed (hidden/occluded)
              */

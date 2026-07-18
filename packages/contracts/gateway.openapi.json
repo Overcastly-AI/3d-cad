@@ -4764,6 +4764,18 @@
             "$ref": "#/components/schemas/ProjectedPoint",
             "description": "Canonical first endpoint"
           },
+          "start_is_end_a": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a STRAIGHT dimensionable edge (design \u00a73.3): True iff this edge's canonical `start` projected point corresponds to `source_edge`'s canonical `end_a` (False \u2192 `end_b`). The model\u2192projected endpoint correspondence the lexicographic canonicalisation of `start`/`end` would otherwise drop \u2014 it lets a point-to-point linear dimension name the correct model endpoint (`DimensionEndpointRef.endpoint`) from a picked projected end WITHOUT re-deriving the view frame + projection. Null for a non-straight edge (circle/arc/polyline) or any edge with no single clean model source (silhouette/free-form/ambiguous, \u00a71.5) \u2014 same optional-provenance style as `source_edge`.",
+            "title": "Start Is End A"
+          },
           "visible": {
             "description": "True = solid (visible); False = dashed (hidden/occluded)",
             "title": "Visible",

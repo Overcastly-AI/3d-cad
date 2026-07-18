@@ -61,6 +61,7 @@ from OCP.TopAbs import TopAbs_EDGE
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 from py_kit.schemas.features import EdgeSignature
+from py_kit.schemas.geometry import Vec3
 
 from geometry.kernel.edges import EdgeRecord, enumerate_edges
 
@@ -177,6 +178,19 @@ class ProjectedEdge:
     #: is ``True`` iff that source is unambiguous.
     source_edge: EdgeSignature | None = field(default=None, compare=False)
     dimensionable: bool = field(default=False, compare=False)
+    #: Model→projected endpoint correspondence for a STRAIGHT dimensionable edge
+    #: (design §3.3): ``True`` iff the emitted (lexicographically canonical)
+    #: ``start`` projected point corresponds to the source model edge's canonical
+    #: ``end_a`` (``False`` → it corresponds to ``end_b``). The one bit the
+    #: canonicalisation of ``start``/``end`` would otherwise throw away — it lets a
+    #: point-to-point linear dimension name the correct model endpoint from a picked
+    #: projected end WITHOUT the caller re-deriving the view frame + projection.
+    #: ``None`` for a non-straight edge (circle/arc/polyline) or any edge without a
+    #: single clean model source (silhouette/free-form/ambiguous, §1.5) — the same
+    #: optional-provenance discipline as ``source_edge``. ``compare=False`` keeps it
+    #: OUT of the canonical keys, so it NEVER perturbs the §1.4 order or the
+    #: byte-stable serialisation.
+    start_is_end_a: bool | None = field(default=None, compare=False)
 
     def _points_key(self) -> tuple[tuple[float, float], ...]:
         """The rounded interior sample points — the identity of a ``polyline``
@@ -422,6 +436,12 @@ class _ModelEdgeProjection:
 
     signature: EdgeSignature
     depth: float
+    #: For a STRAIGHT model edge: does the projected edge's canonical ``start``
+    #: correspond to this edge's canonical ``end_a`` (design §3.3)? ``None`` for a
+    #: circle/arc (no straight-endpoint correspondence). Captured here, BEFORE the
+    #: projected ``start``/``end`` are canonicalised away, and carried to the
+    #: attached projected edge.
+    start_is_end_a: bool | None = None
 
 
 def _project_model_edge(
@@ -457,15 +477,32 @@ def _project_model_edge(
         p = curve.Value(u)
         return p.X() * normal[0] + p.Y() * normal[1] + p.Z() * normal[2]
 
+    def project_world(v: Vec3) -> Point2D:
+        """Project a MODEL-space point (world mm) into the view plane — the same
+        affine map ``at`` applies to a curve sample, fed a signature endpoint."""
+        x = v.x * x_dir[0] + v.y * x_dir[1] + v.z * x_dir[2]
+        y = v.x * y_dir[0] + v.y * y_dir[1] + v.z * y_dir[2]
+        return Point2D(x * scale, y * scale)
+
     kind = curve.GetType()
     mid_u = 0.5 * (u0 + u1)
     depth = depth_of(mid_u)
+    start_is_end_a: bool | None = None
 
     if kind == GeomAbs_Line:
         start, end = _canonical_segment(at(u0), at(u1))
         edge = ProjectedEdge(
             primitive="line", visible=False, start=start, end=end, midpoint=at(mid_u)
         )
+        # Which of the model edge's canonical endpoints does the emitted (canonical)
+        # `start` project from? `_canonical_segment` picks the lexicographically
+        # smaller 2D point, so `start` == proj(end_a) iff proj(end_a) <= proj(end_b)
+        # — the one bit the canonicalisation drops. Captured NOW, from the SAME
+        # canonical `end_a`/`end_b` a picked EdgeSignature carries, so a picked
+        # projected end maps to the right model endpoint with no re-projection.
+        proj_a = project_world(record.signature.end_a)
+        proj_b = project_world(record.signature.end_b)
+        start_is_end_a = proj_a <= proj_b
     elif kind == GeomAbs_Circle:
         circ = curve.Circle()
         axis = circ.Axis().Direction()
@@ -508,7 +545,7 @@ def _project_model_edge(
         return None
 
     return edge.geometry_key(), _ModelEdgeProjection(
-        signature=record.signature, depth=depth
+        signature=record.signature, depth=depth, start_is_end_a=start_is_end_a
     )
 
 
@@ -557,12 +594,22 @@ def _attach_provenance(
     if not candidates:
         return edge
     if len(candidates) == 1:
-        return replace(edge, source_edge=candidates[0].signature, dimensionable=True)
+        return replace(
+            edge,
+            source_edge=candidates[0].signature,
+            dimensionable=True,
+            start_is_end_a=candidates[0].start_is_end_a,
+        )
     depths = [c.depth for c in candidates]
     target = max(depths) if edge.visible else min(depths)
     front = [c for c in candidates if abs(c.depth - target) <= _DEPTH_TIE_TOL]
     if len(front) == 1:
-        return replace(edge, source_edge=front[0].signature, dimensionable=True)
+        return replace(
+            edge,
+            source_edge=front[0].signature,
+            dimensionable=True,
+            start_is_end_a=front[0].start_is_end_a,
+        )
     return edge
 
 
