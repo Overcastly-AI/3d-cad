@@ -14,7 +14,12 @@ neutral :class:`ProjectedEdge` dataclasses, and the API-facing DTO + evaluate
 endpoint are a later slice.
 """
 
-from geometry.drawings.compose import place_sheet, serialize_pdf, serialize_svg
+from geometry.drawings.compose import (
+    place_sheet,
+    serialize_dxf,
+    serialize_pdf,
+    serialize_svg,
+)
 from geometry.drawings.evaluate import evaluate_drawing_views
 from geometry.drawings.measure import (
     DimensionTypeError,
@@ -47,6 +52,7 @@ __all__ = [
     "measure_dimension_dto",
     "place_sheet",
     "project_view",
+    "serialize_dxf",
     "serialize_pdf",
     "serialize_svg",
     "view_normal",

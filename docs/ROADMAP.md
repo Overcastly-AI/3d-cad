@@ -631,6 +631,23 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       artifact saved to `docs/screenshots/drawing-export.pdf`. **This flips the
       #1 Drawings residual — server-composed PDF export now ships end-to-end.**
       Remaining: DE-1c client-placement cutover + DE-3 DXF.
+      **Drawing export DE-3a — ezdxf DXF serializer (geometry) SHIPPED**
+      (2026-07-18): CAD/CAM interchange — reopen the drawing's geometry in another
+      tool. `serialize_dxf(ComposedSheet) -> bytes` emits REAL model-space entities
+      (ezdxf, MIT) on a clean layer scheme — `LINE`/`CIRCLE`/`LWPOLYLINE` (sampled
+      arcs stay polylines, no re-fit) on `VISIBLE`/`HIDDEN` (dashed linetype), dim
+      lines + filled-triangle `SOLID` arrowheads + `TEXT` on `DIMENSION`, border +
+      title block on `TITLE` — so a hole is a `CIRCLE` a CAM tool can path, not a
+      picture. The ONE y-flip is applied once at emission (model space is y-up);
+      placement math untouched. Deterministic (§8.3): `write_fixed_meta_data_for_
+      testing` pins the timestamps/GUIDs/handle-seed + the **R2000** version pin
+      (R2010's scaffold objects order in a PYTHONHASHSEED-dependent way; R2000 is
+      byte-identical across ANY seed — verified 14 seeds) → byte-identical in-process
+      AND across a fresh interpreter. Endpoint `?format=dxf` wired (`image/vnd.dxf`);
+      a **reopens-cleanly** gate (`ezdxf.read` → audit, entity counts by layer, the
+      Ø10 holes are real `CIRCLE`s, dim values are `TEXT`) proves it's CAD geometry.
+      Byte-stability DXF golden + reopen + endpoint gates green; ezdxf pinned.
+      **Frontend "Export DXF" button (DE-3b) follows.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)

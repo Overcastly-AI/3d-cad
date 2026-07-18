@@ -52,9 +52,9 @@ export interface paths {
          *     ``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values
          *     (no re-projection), places the sheet (``place_sheet`` — bounds-aware view
          *     anchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),
-         *     then serializes to the requested ``format``. Wires ``svg`` (dependency-free) and
-         *     ``pdf`` (reportlab base-14, deterministic); ``dxf`` (ezdxf, DE-3) is not yet
-         *     implemented. Identity-free — the gateway owns auth (same posture as
+         *     then serializes to the requested ``format``: ``svg`` (dependency-free),
+         *     ``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) — all
+         *     deterministic. Identity-free — the gateway owns auth (same posture as
          *     ``/export``). Deterministic (RESEARCH §9): same request ⇒ identical bytes.
          */
         post: operations["compose_drawing_route_api_v1_drawing_compose_post"];
@@ -4407,7 +4407,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The composed drawing artifact bytes (v1: `image/svg+xml`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes. */
+            /** @description The composed drawing artifact bytes (`image/svg+xml`, `application/pdf`, or `image/vnd.dxf` per `format`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes. */
             200: {
                 headers: {
                     [name: string]: unknown;

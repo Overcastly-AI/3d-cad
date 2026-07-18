@@ -28,6 +28,13 @@ dependencies = [
     # RESEARCH §9). Exact bytes are lock-pinned like STEP; a bump regenerates the
     # PDF golden.
     "reportlab>=5.0,<6",
+    # DXF drawing export (drawing-export.md DE-3). MIT (ezdxf 1.4.4) — permissive,
+    # NO GPL/LGPL/AGPL. Emits REAL model-space entities (LINE/CIRCLE/LWPOLYLINE/
+    # SOLID/TEXT) so a drawing reopens as CAD-editable geometry. Deterministic via
+    # `write_fixed_meta_data_for_testing` (pins timestamps/GUIDs) + the R2000 version
+    # (hash-seed-independent OBJECTS section, unlike R2010). Lock-pinned; a bump
+    # regenerates the DXF golden.
+    "ezdxf>=1.4,<2",
 ]
 
 [tool.uv.sources]

@@ -1213,6 +1213,7 @@ source = { editable = "services/geometry" }
 dependencies = [
     { name = "boto3" },
     { name = "build123d" },
+    { name = "ezdxf" },
     { name = "fastapi" },
     { name = "loft-py-kit" },
     { name = "numpy" },
@@ -1226,6 +1227,7 @@ dependencies = [
 requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
     { name = "build123d", specifier = ">=0.11.1" },
+    { name = "ezdxf", specifier = ">=1.4,<2" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
     { name = "numpy", specifier = ">=2.0" },

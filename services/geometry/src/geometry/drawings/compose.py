@@ -23,13 +23,15 @@ restart. Coordinates are emitted through a fixed-decimal formatter (the STEP /
 canonical-edge byte-determinism posture).
 """
 
-# reportlab ships py.typed but its canvas/colour APIs are only partially annotated,
-# so pyright reports Unknown types for `Canvas` method calls + `HexColor` results in
-# the PDF serializer below (the repo idiom for an untyped boundary — see
-# kernel/edges.py, kernel/faces.py). Scoped to the two reports reportlab triggers;
-# the placement math above uses only typed py-kit models + stdlib, so its strict
-# checking (reportArgumentType / reportCallIssue / …) is unaffected.
+# reportlab + ezdxf are the untyped/partially-typed boundaries for the PDF/DXF
+# serializers below (the repo idiom for an untyped dep — see kernel/edges.py,
+# kernel/faces.py): reportlab's canvas/colour APIs are only partially annotated, and
+# ezdxf's top-level `new`/`read`/`options` + `layouts.Modelspace` are public but not
+# formally re-exported (pyright flags reportPrivateImportUsage). Scoped to those
+# reports; the placement math above uses only typed py-kit models + stdlib, so its
+# strict checking (reportArgumentType / reportCallIssue / …) is unaffected.
 # pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false
+# pyright: reportPrivateImportUsage=false
 
 from __future__ import annotations
 
@@ -39,6 +41,9 @@ from collections.abc import Callable, Sequence
 from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
+import ezdxf
+from ezdxf.enums import TextEntityAlignment
+from ezdxf.layouts import Modelspace
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
     ComposedArrow,
@@ -1548,3 +1553,223 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
     c.showPage()
     c.save()
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------------
+# serialize_dxf — ezdxf, REAL model-space entities, deterministic (DE-3).
+# ---------------------------------------------------------------------------------
+# CAD/CAM interchange: reopen the drawing's geometry in another tool. Unlike the
+# SVG/PDF (a picture), DXF emits REAL entities — LINE / CIRCLE / LWPOLYLINE / SOLID
+# / TEXT in model space on a clean layer scheme — so a hole is a `CIRCLE` a CAM tool
+# can path, not a polygon. The single y-flip is applied ONCE at emission (DXF model
+# space is y-UP; ComposedSheet is y-DOWN), placement math untouched. Determinism is
+# ezdxf's `write_fixed_meta_data_for_testing` (the DXF analogue of reportlab's
+# `invariant=1`): it pins $TDCREATE/$TDUPDATE/$FINGERPRINTGUID/$VERSIONGUID/
+# $HANDSEED + the ezdxf metadata timestamp to fixed sentinels; entities are added in
+# canonical order (border → views front/top/right/iso → title block) so handles are
+# stable; the DXF version is pinned R2000.
+#
+# Version choice — R2000 (AC1015), NOT R2010: R2010 adds scaffold objects (an
+# ACDBPLACEHOLDER per layout) whose OBJECTS-section write order ezdxf derives via a
+# PYTHONHASHSEED-dependent internal traversal, so the same drawing serialises to two
+# distinct byte streams across a fresh interpreter. R2000's simpler OBJECTS section
+# has no such object, so output is byte-identical across ANY hash seed — verified
+# across 14 seeds. R2000 supports every entity we emit (LINE/CIRCLE/LWPOLYLINE/
+# SOLID/TEXT) and is universally readable.
+
+#: Pinned DXF version — R2000 (AC1015): hash-seed-independent + fully featured.
+_DXF_VERSION = "R2000"
+
+#: Layer scheme — a drawing reopens legibly by intent (ACI colours; HIDDEN dashed).
+_LYR_VISIBLE = "VISIBLE"
+_LYR_HIDDEN = "HIDDEN"
+_LYR_DIMENSION = "DIMENSION"
+_LYR_TITLE = "TITLE"
+
+#: Mono text style — the consuming CAD supplies the Courier face (no embed).
+_DXF_STYLE = "LOFT_MONO"
+
+
+def _dxf_line(
+    msp: Modelspace, x1: float, y1: float, x2: float, y2: float, layer: str
+) -> None:
+    msp.add_line((x1, y1), (x2, y2), dxfattribs={"layer": layer})
+
+
+def _dxf_text_entity(
+    msp: Modelspace,
+    text: str,
+    x: float,
+    y: float,
+    height: float,
+    rotation: float,
+    layer: str,
+    *,
+    centred: bool,
+) -> None:
+    """A TEXT entity at (x, y) — ``centred`` uses MIDDLE_CENTER (SVG middle/central),
+    else LEFT (baseline-left, the title-block default)."""
+    entity = msp.add_text(
+        text,
+        dxfattribs={
+            "layer": layer,
+            "style": _DXF_STYLE,
+            "height": height,
+            "rotation": rotation,
+        },
+    )
+    align = TextEntityAlignment.MIDDLE_CENTER if centred else TextEntityAlignment.LEFT
+    entity.set_placement((x, y), align=align)
+
+
+def _dxf_edge(
+    msp: Modelspace, edge: ComposedEdge, fy: Callable[[float], float]
+) -> None:
+    layer = _LYR_VISIBLE if edge.visible else _LYR_HIDDEN
+    if isinstance(edge, ComposedLineEdge):
+        _dxf_line(msp, edge.x1, fy(edge.y1), edge.x2, fy(edge.y2), layer)
+    elif isinstance(edge, ComposedCircleEdge):
+        msp.add_circle((edge.cx, fy(edge.cy)), edge.r, dxfattribs={"layer": layer})
+    else:
+        pts = [(p.x_mm, fy(p.y_mm)) for p in edge.points]
+        msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
+
+
+def _dxf_dimension(
+    msp: Modelspace, dim: ComposedDimension, fy: Callable[[float], float]
+) -> None:
+    if isinstance(dim, ComposedDimensionError):
+        msp.add_circle(
+            (dim.at.x_mm, fy(dim.at.y_mm)), 2.6, dxfattribs={"layer": _LYR_DIMENSION}
+        )
+        _dxf_text_entity(
+            msp, "!", dim.at.x_mm, fy(dim.at.y_mm), 3.0, 0.0, _LYR_DIMENSION,
+            centred=True,
+        )
+        return
+    for line in dim.lines:
+        _dxf_line(msp, line.x1, fy(line.y1), line.x2, fy(line.y2), _LYR_DIMENSION)
+    for arrow in dim.arrows:
+        # A 3-point SOLID renders as a filled arrowhead triangle (deterministic; the
+        # points already trace the perimeter tip→wingA→wingB, no bowtie).
+        pts = [(p.x_mm, fy(p.y_mm)) for p in arrow.points]
+        msp.add_solid(pts, dxfattribs={"layer": _LYR_DIMENSION})
+    # The SVG text angle is clockwise in y-down; the y-flip negates it in model space.
+    _dxf_text_entity(
+        msp, dim.text.value, dim.text.x, fy(dim.text.y), _TXT, -dim.text.angle,
+        _LYR_DIMENSION, centred=True,
+    )
+
+
+def _dxf_view(
+    msp: Modelspace, view: ComposedView, fy: Callable[[float], float]
+) -> None:
+    if view.failed:
+        ax = view.anchor.x_mm
+        ay = view.anchor.y_mm
+        corners = [
+            (ax - 26, fy(ay - 14)),
+            (ax + 26, fy(ay - 14)),
+            (ax + 26, fy(ay + 14)),
+            (ax - 26, fy(ay + 14)),
+        ]
+        msp.add_lwpolyline(corners, close=True, dxfattribs={"layer": _LYR_HIDDEN})
+        _dxf_text_entity(
+            msp, "VIEW FAILED", ax, fy(ay + 1), 3.0, 0.0, _LYR_TITLE, centred=True
+        )
+    else:
+        for edge in view.edges:
+            _dxf_edge(msp, edge, fy)
+        for dim in view.dimensions:
+            _dxf_dimension(msp, dim, fy)
+    _dxf_text_entity(
+        msp, view.label, view.label_pos.x_mm, fy(view.label_pos.y_mm), 3.4, 0.0,
+        _LYR_TITLE, centred=True,
+    )
+
+
+def _dxf_title_block(
+    msp: Modelspace, tb: ComposedTitleBlock, fy: Callable[[float], float]
+) -> None:
+    x, y, w, h = tb.x, tb.y, tb.width, tb.height
+    box = [
+        (x, fy(y)),
+        (x + w, fy(y)),
+        (x + w, fy(y + h)),
+        (x, fy(y + h)),
+    ]
+    msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
+    _dxf_line(msp, tb.split_x, fy(y), tb.split_x, fy(y + h), _LYR_TITLE)
+    _dxf_line(msp, tb.split_x, fy(tb.mid_y), x + w, fy(tb.mid_y), _LYR_TITLE)
+
+    def caption(cx: float, cy: float, text: str) -> None:
+        _dxf_text_entity(msp, text, cx, fy(cy), 2.3, 0.0, _LYR_TITLE, centred=False)
+
+    def value(cx: float, cy: float, text: str) -> None:
+        _dxf_text_entity(msp, text, cx, fy(cy), 3.4, 0.0, _LYR_TITLE, centred=False)
+
+    caption(x + 4, y + 8, "TITLE")
+    value(x + 4, y + 18, tb.title)
+    caption(x + 4, y + h - 4, "LOFT · PART DRAWING")
+    caption(tb.split_x + 4, y + 8, "SCALE")
+    value(tb.split_x + 4, tb.mid_y - 3, tb.scale)
+    caption(tb.split_x + 4, tb.mid_y + 8, "SIZE")
+    value(tb.split_x + 4, y + h - 4, tb.size)
+
+
+def serialize_dxf(composed: ComposedSheet) -> bytes:
+    """Render a :class:`ComposedSheet` to a deterministic, byte-stable DXF (DE-3).
+
+    REAL model-space entities (LINE / CIRCLE / LWPOLYLINE / SOLID / TEXT) on a clean
+    layer scheme (VISIBLE / HIDDEN [dashed] / DIMENSION / TITLE), so the drawing
+    reopens as CAD-editable geometry — a hole is a ``CIRCLE`` a CAM tool can path,
+    not a polygon picture. Sampled arcs stay honest LWPOLYLINEs (no arc re-fitting).
+    The single y-flip (DXF model space is y-UP, ComposedSheet y-DOWN) is applied once
+    here; placement math untouched. Byte-identical for the same ComposedSheet (§8.3),
+    in-process and across an interpreter restart: ``write_fixed_meta_data_for_testing``
+    pins the timestamps/GUIDs/handle-seed sentinels, entities are added in canonical
+    order, the version is pinned R2010. Text is a mono TEXT style (the consuming CAD
+    supplies the Courier face — no embed).
+    """
+    previous = ezdxf.options.write_fixed_meta_data_for_testing
+    ezdxf.options.write_fixed_meta_data_for_testing = True
+    try:
+        # setup=False: the standard-resource loader (setup=True) creates its
+        # resources in a hash-seed-dependent order, another byte-stability hazard;
+        # with setup=False we add exactly the resources we use — a DASHED linetype
+        # (2.0 dash / 1.4 gap — the SVG/PDF `2 1.4` pattern) and a mono TEXT style.
+        doc = ezdxf.new(_DXF_VERSION, setup=False)
+        doc.linetypes.add(
+            "DASHED", pattern="A,2.0,-1.4", description="Loft hidden edge — 2/1.4"
+        )
+        doc.layers.add(_LYR_VISIBLE, color=7)
+        doc.layers.add(_LYR_HIDDEN, color=8, linetype="DASHED")
+        doc.layers.add(_LYR_DIMENSION, color=1)
+        doc.layers.add(_LYR_TITLE, color=5)
+        doc.styles.add(_DXF_STYLE, font="cour.ttf")
+        msp = doc.modelspace()
+
+        height = composed.height_mm
+
+        def fy(y: float) -> float:
+            return height - y
+
+        # Border frame (sheet furniture) → TITLE layer.
+        margin = composed.margin_mm
+        border = [
+            (margin, fy(margin)),
+            (composed.width_mm - margin, fy(margin)),
+            (composed.width_mm - margin, fy(composed.height_mm - margin)),
+            (margin, fy(composed.height_mm - margin)),
+        ]
+        msp.add_lwpolyline(border, close=True, dxfattribs={"layer": _LYR_TITLE})
+
+        for view in composed.views:
+            _dxf_view(msp, view, fy)
+        _dxf_title_block(msp, composed.title_block, fy)
+
+        stream = io.StringIO()
+        doc.write(stream)
+        return stream.getvalue().encode("utf-8")
+    finally:
+        ezdxf.options.write_fixed_meta_data_for_testing = previous

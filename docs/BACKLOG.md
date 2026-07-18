@@ -112,8 +112,13 @@ reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
       `downloadBlob`), Export PDF action in the command band (shortcut P, honest
       disabled/in-flight states), e2e downloads a real `%PDF-` file. Shop
       deliverable ships end-to-end — flips the #1 Drawings residual. [src: drawing-export.md]
-- [ ] (P2, M) Drawing export DE-3 — DXF (ezdxf, real entities) + "Export DXF" +
-      golden + reopens-in-CAD smoke. [src: drawing-export.md]
+- [ ] (P2, M) Drawing export DE-3 — DXF (ezdxf, real entities). **DE-3a serializer
+      + geometry route + byte-stability golden + reopens-cleanly smoke SHIPPED
+      2026-07-18** (`serialize_dxf`: real LINE/CIRCLE/LWPOLYLINE/SOLID/TEXT on
+      VISIBLE/HIDDEN/DIMENSION/TITLE layers; `write_fixed_meta_data_for_testing` +
+      R2000 pin → hash-seed-independent byte determinism; `ezdxf.read`→audit gate;
+      ezdxf 1.4.4 MIT pinned; `format=dxf` wired). **Remaining: DE-3b frontend
+      "Export DXF" button.** [src: drawing-export.md]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
       mesh_store/S3 seam (§8.3). [src: drawing-export.md]
 
@@ -952,6 +957,14 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 ## Changelog
 
 Older entries live in `CHANGELOG.md`.
+
+- 2026-07-18 — **Drawing export DE-3a done (geometry):** ezdxf DXF serializer —
+  `serialize_dxf(ComposedSheet)` emits REAL model-space entities (LINE/CIRCLE/
+  LWPOLYLINE/SOLID/TEXT) on VISIBLE/HIDDEN/DIMENSION/TITLE layers; single y-flip at
+  emission. Deterministic via `write_fixed_meta_data_for_testing` + R2000 version
+  (R2010 orders scaffold objects hash-dependently; R2000 byte-identical across any
+  seed). `format=dxf` wired (`image/vnd.dxf`). Byte-golden + `ezdxf.read`→audit
+  reopen smoke + endpoint gates green; ezdxf 1.4.4 (MIT) pinned. DE-3b button follows.
 
 - 2026-07-18 — **Drawing export DE-2c done (frontend) — DE-2 complete:** Export PDF
   control beside Export SVG (shortcut P, honest disabled/"Composing…" states);

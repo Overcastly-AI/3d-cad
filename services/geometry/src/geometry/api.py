@@ -59,6 +59,7 @@ from geometry.assembly import evaluate_assembly
 from geometry.drawings import (
     evaluate_drawing_views,
     place_sheet,
+    serialize_dxf,
     serialize_pdf,
     serialize_svg,
 )
@@ -180,7 +181,8 @@ def evaluate_drawing_route(
 _COMPOSE_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {
         "description": (
-            "The composed drawing artifact bytes (v1: `image/svg+xml`). "
+            "The composed drawing artifact bytes (`image/svg+xml`, "
+            "`application/pdf`, or `image/vnd.dxf` per `format`). "
             "`Content-Disposition` carries the suggested download filename. "
             "Byte-deterministic: identical requests produce identical bytes."
         ),
@@ -200,23 +202,19 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
     ``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values
     (no re-projection), places the sheet (``place_sheet`` — bounds-aware view
     anchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),
-    then serializes to the requested ``format``. Wires ``svg`` (dependency-free) and
-    ``pdf`` (reportlab base-14, deterministic); ``dxf`` (ezdxf, DE-3) is not yet
-    implemented. Identity-free — the gateway owns auth (same posture as
+    then serializes to the requested ``format``: ``svg`` (dependency-free),
+    ``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) — all
+    deterministic. Identity-free — the gateway owns auth (same posture as
     ``/export``). Deterministic (RESEARCH §9): same request ⇒ identical bytes.
     """
-    if request.format == "dxf":
-        raise ValidationApiError(
-            "Artifact format 'dxf' is not yet implemented (lands in DE-3).",
-            code="not_implemented",
-        )
     evaluation = evaluate_drawing_views(request)
     composed = place_sheet(evaluation, request.dimensions, request.layout)
-    body = (
-        serialize_pdf(composed)
-        if request.format == "pdf"
-        else serialize_svg(composed).encode("utf-8")
-    )
+    if request.format == "pdf":
+        body = serialize_pdf(composed)
+    elif request.format == "dxf":
+        body = serialize_dxf(composed)
+    else:
+        body = serialize_svg(composed).encode("utf-8")
     filename = artifact_filename(request.layout.title, request.format)
     return Response(
         content=body,

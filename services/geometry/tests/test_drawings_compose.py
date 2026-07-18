@@ -19,16 +19,19 @@ Three gates prove the server placement composer:
 
 from __future__ import annotations
 
+import io
 import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import ezdxf
 import pytest
 from fastapi.testclient import TestClient
 from geometry.drawings import (
     evaluate_drawing_views,
     place_sheet,
+    serialize_dxf,
     serialize_pdf,
     serialize_svg,
 )
@@ -638,6 +641,89 @@ def test_golden_pdf_is_deterministic_across_interpreter_restart() -> None:
     )
 
 
+# --- byte-stability golden: DXF (ezdxf, §8.3) ----------------------------------
+def _compose_golden_dxf() -> bytes:
+    request = _golden_request()
+    evaluation = evaluate_drawing_views(request)
+    composed = place_sheet(evaluation, request.dimensions, request.layout)
+    return serialize_dxf(composed)
+
+
+def test_golden_dxf_is_byte_identical_to_committed() -> None:
+    """The composed DXF for the plate golden matches the committed golden
+    byte-for-byte. `write_fixed_meta_data_for_testing` + `setup=False` (deterministic
+    handle order) + canonical entity order pin every byte."""
+    expected = (_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert _compose_golden_dxf() == expected
+
+
+def test_golden_dxf_reopens_as_real_entities() -> None:
+    """The DXF reopens cleanly (ezdxf.read → audit) as REAL model-space geometry on
+    the expected layers — a hole is a `CIRCLE`, not a polygon; the dimension values
+    are `TEXT` entities. Proves it's CAD-editable geometry, not a picture."""
+    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
+        io.StringIO(_compose_golden_dxf().decode("utf-8"))
+    )
+    assert doc.dxfversion == "AC1015"  # R2000
+    layers = {layer.dxf.name for layer in doc.layers}
+    assert {"VISIBLE", "HIDDEN", "DIMENSION", "TITLE"} <= layers
+    assert "DASHED" in doc.linetypes
+    assert doc.layers.get("HIDDEN").dxf.linetype == "DASHED"
+
+    msp = doc.modelspace()
+    # The two Ø10 holes are REAL circles of radius 5 on the VISIBLE layer.
+    holes = [
+        e for e in msp if e.dxftype() == "CIRCLE" and e.dxf.layer == "VISIBLE"
+    ]
+    assert len(holes) == 2
+    assert {round(h.dxf.radius, 3) for h in holes} == {5.0}
+    # The dimension values are TEXT entities carrying the model-true strings.
+    dim_texts = {
+        e.dxf.text for e in msp if e.dxftype() == "TEXT" and e.dxf.layer == "DIMENSION"
+    }
+    assert {"40.000", "90.0°", "Ø10.000", "R5.000"} <= dim_texts
+    # Filled arrowhead triangles are SOLID entities.
+    assert sum(1 for e in msp if e.dxftype() == "SOLID") > 0
+    # Sampled arcs stay honest LWPOLYLINEs (no arc re-fitting).
+    assert any(e.dxftype() == "LWPOLYLINE" for e in msp)
+    # And it's structurally valid.
+    auditor = doc.audit()
+    assert not auditor.errors, [str(e) for e in auditor.errors]
+
+
+_RESTART_PROBE_DXF = """\
+import sys
+from pathlib import Path
+
+from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_dxf
+from py_kit.schemas.drawings import ComposeDrawingRequest
+
+golden = Path(sys.argv[1])
+request = ComposeDrawingRequest.model_validate_json(
+    (golden / "request.json").read_text(encoding="utf-8")
+)
+evaluation = evaluate_drawing_views(request)
+composed = place_sheet(evaluation, request.dimensions, request.layout)
+sys.stdout.buffer.write(serialize_dxf(composed))
+"""
+
+
+def test_golden_dxf_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose reproduces the SAME DXF bytes (worker-restart
+    emulation, §8.3) — even under a randomised PYTHONHASHSEED, because `setup=False`
+    makes ezdxf's handle assignment order deterministic."""
+    local = _compose_golden_dxf()
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE_DXF, str(_GOLDEN_DIR)],
+        capture_output=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr.decode()}"
+    assert result.stdout == local, (
+        "composed DXF bytes differ across interpreter restart"
+    )
+
+
 # --- endpoint (mirrors /export wiring) -----------------------------------------
 def test_endpoint_returns_svg_with_content_disposition() -> None:
     request = _golden_request()
@@ -672,13 +758,16 @@ def test_endpoint_is_deterministic() -> None:
     assert first.content == second.content
 
 
-def test_endpoint_dxf_is_not_implemented() -> None:
-    """DXF is a clean typed 422 until DE-3 — never a 500."""
-    payload = _golden_request().model_dump(mode="json")
+def test_endpoint_returns_dxf_with_content_disposition() -> None:
+    request = _golden_request()
+    payload = request.model_dump(mode="json")
     payload["format"] = "dxf"
     response = client.post("/api/v1/drawing/compose", json=payload)
-    assert response.status_code == 422, response.text
-    assert response.json()["error"]["code"] == "not_implemented"
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("image/vnd.dxf")
+    assert response.headers["content-disposition"].endswith('.dxf"')
+    # The wire bytes ARE the composed golden DXF.
+    assert response.content == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
 
 
 # --- place_sheet structure (failed view + placement wiring) --------------------

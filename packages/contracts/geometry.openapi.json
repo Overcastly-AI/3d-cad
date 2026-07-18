@@ -5360,7 +5360,7 @@
     },
     "/api/v1/drawing/compose": {
       "post": {
-        "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nApproach C's server-composed export: geometry OWNS drafting placement. Reuses\n``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values\n(no re-projection), places the sheet (``place_sheet`` \u2014 bounds-aware view\nanchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),\nthen serializes to the requested ``format``. Wires ``svg`` (dependency-free) and\n``pdf`` (reportlab base-14, deterministic); ``dxf`` (ezdxf, DE-3) is not yet\nimplemented. Identity-free \u2014 the gateway owns auth (same posture as\n``/export``). Deterministic (RESEARCH \u00a79): same request \u21d2 identical bytes.",
+        "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nApproach C's server-composed export: geometry OWNS drafting placement. Reuses\n``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values\n(no re-projection), places the sheet (``place_sheet`` \u2014 bounds-aware view\nanchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),\nthen serializes to the requested ``format``: ``svg`` (dependency-free),\n``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) \u2014 all\ndeterministic. Identity-free \u2014 the gateway owns auth (same posture as\n``/export``). Deterministic (RESEARCH \u00a79): same request \u21d2 identical bytes.",
         "operationId": "compose_drawing_route_api_v1_drawing_compose_post",
         "requestBody": {
           "content": {
@@ -5394,7 +5394,7 @@
                 }
               }
             },
-            "description": "The composed drawing artifact bytes (v1: `image/svg+xml`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes."
+            "description": "The composed drawing artifact bytes (`image/svg+xml`, `application/pdf`, or `image/vnd.dxf` per `format`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes."
           },
           "422": {
             "content": {
