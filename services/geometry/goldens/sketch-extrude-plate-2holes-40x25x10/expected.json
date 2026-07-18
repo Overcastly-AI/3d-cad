@@ -1,0 +1,27 @@
+{
+  "description": "FIRST MULTI-LOOP PROFILE GOLDEN (a plate with holes — the product audit's #1 daily-driver gap, docs/AUDIT-PRODUCT.md): a single sketch of an OUTER 40 x 25 mm rectangle plus TWO inner r5 circles, extruded 10 mm additively into a plate with two through-holes. Locks the multi-loop path of the SHARED build_profile_face: assemble the non-construction edges into three closed wires -> classify the largest-area loop as the outer boundary and the two circles as interior holes -> Face(outer, inner_wires) -> prism -> GProp -> curved-face tessellation of the two cylindrical hole walls -> content-addressed GLB. Every body-affecting feature (extrude/revolve/sweep/loft) consumes build_profile_face, so all gain holes for free; this golden anchors the analytic volume with the hole subtraction.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). Outer rectangle x in [0,40], y in [0,25] on the XY datum plane (4 lines); two holes are full circles radius 5 centred at (12, 12.5) and (28, 12.5) — both strictly interior to the rectangle and mutually disjoint (centres 16 mm apart, sum of radii 10 mm), the single-outer + disjoint-interior-holes case v1 supports.",
+    "The sketch entities start at their analytic positions with no constraints (zero residual, DOF free), so planegcs returns the input positions bitwise — the same solver posture as the sketch-extrude golden.",
+    "volume = (40*25 - 2*pi*5^2) * 10 = (1000 - 50*pi) * 10 = 8429.203673205104 mm^3 (outer area 1000 minus two circular holes pi*25 each, times 10 mm depth).",
+    "surface_area = 2*(1000 - 50*pi)  [top + bottom plate faces, each pierced by both holes]  + 2*(40+25)*10  [four outer side walls]  + 2*(2*pi*5*10)  [two cylindrical hole walls]  = 1685.840734641021 + 1300 + 628.3185307179587 = 3614.159265358979 mm^2.",
+    "centroid = (20, 12.5, 5) mm: the two holes are placed symmetrically about the plate centre x=20 and share y=12.5, so removing them preserves the full-plate centroid; extrude 'normal' on XY is +Z, z spans [0,10]. (GProp puts z at ulp scale ~1.8e-15, x/y exactly.)",
+    "bounding_box = [0,0,0]..[40,25,10]: the interior holes do not touch the outer boundary, so the AABB is the un-holed plate's box.",
+    "topology: 8 faces (top + bottom plate faces, 4 outer side walls, 2 cylindrical hole walls), 18 edges (top boundary = 4 rect edges + 2 hole circles = 6; bottom = 6; 4 vertical box corner edges; 1 vertical seam edge on each of the 2 periodic hole cylinders = 2), 1 shell. A plate face bounded by an outer loop + two inner hole loops is still ONE face — the holes add faces/edges only through the two cylinder walls they cut.",
+    "mesh (linear 0.1 mm / angular 0.1 rad, isRelative=False): each full hole circle discretizes to 2*ceil(2*pi/0.1) = 126 segments (the same 2x-angular rule the cylinder/revolve goldens exhibit). Two periodic hole cylinders = 2 * ((126+1)*2 nodes, 126*2 tris) = 508 nodes / 504 triangles. Each plate cap is a planar face with a rectangular outer loop (4 nodes) + two 126-gon holes = 4 + 2*126 = 256 boundary nodes, triangulated with holes to 256 - 2 + 2*2 = 258 triangles (no interior node); two caps = 512 nodes / 516 triangles. Four rectangular side walls = 4 * (4 nodes, 2 tris) = 16 nodes / 8 triangles. Totals = 508 + 512 + 16 = 1036 vertices and 504 + 516 + 8 = 1028 triangles (per-face faceted normals, no vertex sharing across faces — same convention as the box/cylinder/revolve goldens).",
+    "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CURVED-GEOMETRY tolerance (two cylindrical hole walls), measured first, then set (geometry-gates skill: never copy a bound blindly). The wire->face-with-holes->prism path plus the cylinders' Gauss-quadrature volume/surface integration in GProp accumulate ulp-scale error. Measured deviations vs the analytic values (2026-07-12, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume exactly 0.0, surface_area exactly 0.0, centroid <= 1.78e-15 mm (z at ulp scale; x/y exactly), AABB exactly 0.0 on all six bounds. Documented ceiling 1e-9 = ~5.6e5x the observed worst case, headroom for libm/platform variation across CI hosts — while staying 100x TIGHTER than the standing planar 1e-7 bound, matching the extrude/cylinder/revolve goldens' posture. The solver contributes zero error by construction (zero-residual start, solved == input bitwise). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 8429.203673205104,
+    "surface_area": 3614.159265358979,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 8, "edges": 18, "shells": 1 },
+  "mesh": { "vertices": 1036, "triangles": 1028 }
+}

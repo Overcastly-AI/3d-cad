@@ -1,0 +1,21 @@
+{
+  "name": "@loft/ts-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GENERATED typed API client (openapi-typescript + openapi-fetch) — do not edit src/; run `just gen`",
+  "type": "module",
+  "exports": {
+    "./gateway": "./src/gateway/index.ts",
+    "./documents": "./src/documents/index.ts",
+    "./geometry": "./src/geometry/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

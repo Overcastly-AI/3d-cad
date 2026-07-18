@@ -1,0 +1,44 @@
+{
+  "description": "DISTANCE-MATE GOLDEN — the fast-follow proof that a distance mate lands two plates EXACTLY a known gap apart (docs/design/assemblies.md §2.3/§5, GEOMETRY-QA distance/angle strategy). Same two instances of the SAME 40 x 25 x 10 mm plate (two r5 through-holes at (12, 12.5) and (28, 12.5)) as assembly-two-plates-bolted, but the top<->bottom face mate is a DISTANCE mate of 5 mm instead of a coincident: plate A grounded at the origin, plate B mated distance(A's top face +Z <-> B's bottom face -Z, distance_mm = 5) + two concentric (both hole axes). The pinned sign convention: distance_mm is the SIGNED gap measured along face A's OUTWARD normal, so B's bottom face sits at world z = 10 (A's top) + 5 = 15, with a physical 5 mm air gap between the plates. B is seeded displaced (3, 2, 16) and spun ~5.7 deg about Z so the solve does real work. Proves distance rides the coincident residual with target = distance_mm end to end (author -> resolve -> solve) against REAL bodies, and that the two concentric mates still fully locate the joint (well_constrained).",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded pipeline output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). Both instances share the plate-with-2-holes part whose own mass properties are the sketch-extrude-plate-2holes golden's (independently hand-derived there): volume 8429.203673205104 mm^3, surface_area 3614.159265358979 mm^2, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], topology 8 faces / 18 edges / 1 shell.",
+    "Plate A is grounded at identity, so its solved placement is the seed: position (0, 0, 0), orientation identity (0, 0, 0, 1).",
+    "Plate B's solved placement is the analytic distanced pose. The distance mate's residual is n_A . (p_B - p_A) - distance_mm with the flush (anti-parallel) normal alignment of a coincident: it puts B's bottom face (local z=0) a signed 5 mm along A's OUTWARD top normal (+Z, world z=10), so B's bottom face sits at world z = 15 and B translates +15 in z (a 5 mm air gap above A's top at z=10). The two concentric mates align B's holes (local (12,12.5) and (28,12.5)) with A's holes at the same x/y; two holes at DISTINCT x fully pin the spin about z, forcing B's rotation to identity and its x/y translation to zero. Solved B: position (0, 0, 15), orientation identity (0, 0, 0, 1). Two holes fully locate the joint, so the solve is well_constrained (0 remaining DOF) — the distance mate removes the SAME DOF a coincident does (the along-normal translation is pinned to 5 mm rather than 0).",
+    "combined volume = 2 * 8429.203673205104 = 16858.407346410208 mm^3 (Sigma of the two part volumes; the analytic roll-up does NO boolean, and the plates now do not even touch — a 5 mm gap — so there is certainly no overlap to subtract).",
+    "combined surface_area = 2 * 3614.159265358979 = 7228.318530717958 mm^2 (Sigma; the roll-up does not merge faces, and here no faces touch).",
+    "combined centroid = (20, 12.5, 12.5): equal-volume plates, A centroid (20, 12.5, 5), B centroid transformed by +15 z = (20, 12.5, 20); the volume-weighted mean of z is (5 + 20)/2 = 12.5, x/y unchanged.",
+    "combined bounding_box = [0,0,0]..[40,25,25]: union of A's AABB [0,0,0]..[40,25,10] and B's translated AABB [0,0,15]..[40,25,25]; no rotation so the corner-transform union is exact. The z-range gap between 10 and 15 is the physical 5 mm air gap; the AABB spans it.",
+    "combined topology = 16 faces / 36 edges / 2 shells: the analytic roll-up SUMS per-instance counts (8/18/1 each); the two shells stay distinct (render-time instanced assembly, not one fused solid).",
+    "distinct_mesh_count = 1: both instances share part_key 'part-plate-2holes@1', so the pipeline evaluates + tessellates the plate ONCE and both InstancePlacementResults carry the SAME content-addressed part_mesh_glb_id (the §6.4 shared-mesh dedup contract), identical to the bolted golden."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "SOLVER tolerance (a numeric mate solve), measured first then set (geometry-gates skill: never copy a bound blindly). As in the bolted golden all axis/normal correspondences of this joint are vertical (parallel), so the closed-form fast path cannot pin the spin-about-z from directions and correctly defers to the deterministic Levenberg-Marquardt, which converges to a small residual rather than exact zero. Measured deviations vs the analytic values (2026-07-17, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0, numpy BLAS pinned to 1 thread): B solved position within 4.6e-10 mm of (0,0,15) and orientation within 8.1e-12 of identity; combined centroid within 1.1e-12 mm, combined AABB within 1.7e-10 mm, combined volume/surface_area exactly 0.0 (pure sums of the exact part values). Documented ceiling 1e-6 = ~2000x the observed worst case (4.6e-10), headroom for libm/BLAS/platform variation across CI hosts, matching the assembly-two-plates-bolted and test_assembly_resolve RESOLVE_TOL posture (1e-6). Loosening this bound requires a reviewed justification recorded here and in docs/GEOMETRY-QA.md.",
+  "status": "well_constrained",
+  "distinct_mesh_count": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 15.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    }
+  ],
+  "properties": {
+    "volume": 16858.407346410208,
+    "surface_area": 7228.318530717958,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 12.5 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 25.0 }
+    }
+  },
+  "topology": { "faces": 16, "edges": 36, "shells": 2 }
+}

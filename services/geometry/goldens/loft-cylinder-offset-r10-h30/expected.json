@@ -1,0 +1,30 @@
+{
+  "description": "OFFSET-PLANE LOFT GOLDEN — the loft the loft note DEFERRED for lack of a second parallel plane (LoftParamsV1 docstring, GEOMETRY-QA 2026-07-12), now authorable via datum planes. Two equal r=10 mm circles on two PARALLEL datum planes (XY offset 0 and XY offset 30) ruled-lofted into a right circular cylinder r=10 x h=30 mm. This is the two-parallel-circles case docs/design/datum-planes.md §9 names as the concrete loft unlock. Locks: two datum handlers resolve parallel planes, two circle sketches resolve to them, a ruled loft between identical parallel circles yields an EXACT analytic cylinder (volume pi*r^2*h, 3-face cylinder topology), GProp over the quadric lateral surface, curved tessellation, STEP re-approximation. Analytic anchor = pi*r^2*h, independently cross-checked against the primitive cylinder-r10-h25 golden's mesh discretization (same r=10 -> same 126-segment circle).",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "two datum planes: Plane.XY.offset(0) (origin (0,0,0)) and Plane.XY.offset(30) (origin (0,0,30)); a circle r=10 centred at the sketch origin sits at world z=0 and z=30 respectively (fixed-centre + radius constraints have zero residual, solver contributes zero error)",
+    "a RULED loft between two IDENTICAL circles on parallel planes is exactly a right circular cylinder: corresponding points are joined by straight generators perpendicular to both planes, i.e. the analytic cylinder of radius 10, height 30, axis +Z through the origin (OCCT recovers the analytic cylindrical surface: topology 3/3/1, same as a primitive cylinder)",
+    "volume = pi * r^2 * h = pi * 10^2 * 30 = 3000*pi = 9424.77796076938 mm^3 (nearest double to 3000*pi)",
+    "surface_area = 2*pi*r*(r + h) = 2*pi*10*(10 + 30) = 800*pi = 2513.2741228718346 mm^2 (lateral 2*pi*r*h = 600*pi plus two caps 2 * pi*r^2 = 200*pi)",
+    "centroid = (0, 0, h/2) = (0, 0, 15) mm by symmetry: the axis passes through the origin along +Z, sections at z=0 and z=30",
+    "bounding_box analytic = [-10,-10,0]..[10,10,30]. NOTE: unlike the PRIMITIVE cylinder (Solid.make_cylinder, exact optimal AABB), a LOFTED solid carries the kernel's linear tolerance (Precision::Confusion = 1e-7 mm) on its constructed lateral surface, and shape.bounding_box(optimal=True) INCLUDES that tolerance, so the measured AABB is each analytic bound padded outward by ~1e-7 mm (measured -10.0000001, 10.0000001, -1e-7, 30.0000001). The expected values below are the ANALYTIC bounds; the ~1e-7 mm padding is absorbed by the documented per-model tolerance (see tolerance_rationale)",
+    "topology: OCCT models the closed cylinder as 3 faces (1 cylindrical lateral + 2 planar caps), 3 edges (2 cap circles + 1 straight SEAM edge where the periodic cylindrical surface's parametrization closes), 1 closed shell — identical to the primitive cylinder golden, confirming the loft recovered a true cylinder",
+    "mesh: OCCT's BRepMesh discretizes the r=10 circular boundary into 126 segments at linear_deflection 0.1 mm / angular_deflection 0.1 rad — the SAME count as the cylinder-r10-h25 golden (same radius, same deflection), independently cross-checking the mesher",
+    "mesh triangles = lateral 126*2 = 252 (two triangles per circumferential segment) + 2 caps * (126 - 2) = 248 (a 126-gon boundary with 0 interior vertices triangulates to 124 triangles) = 500",
+    "mesh vertices = lateral 2 rows * 127 = 254 (127 = 126 segments + 1: the seam column is duplicated in the parametric unwrap) + 2 caps * 126 = 252, total 506 (faceted per-face normals - no vertex sharing across faces)",
+    "GLB byte size is deliberately NOT pinned here: asserted deterministic (byte-identical) by the runner within one kernel version."
+  ],
+  "tolerance": 2e-7,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill: never copy a bound blindly). This golden's dominant deviation is NOT the mass properties (which round-trip near machine precision) but the AABB: a LOFTED cylinder's optimal bounding box includes the constructed lateral surface's kernel confusion tolerance (Precision::Confusion = 1e-7 mm), padding each analytic bound outward. Measured deviations vs the analytic values above (2026-07-12, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 0.0; surface_area 4.55e-13 mm^2 (~2e-16 relative, one-ulp scale); centroid <= 1.8e-15 mm; AABB padding <= 1.00000001e-7 mm on every bound (worst on max z). The single per-model tolerance must cover the worst check (the AABB padding), so it is set to 2e-7 mm = ~2x the observed worst and 2x the kernel confusion tolerance. This is a documented property of lofted (non-primitive) curved geometry, not tolerance noise: it is 500x TIGHTER than the standing kernel linear tolerance of 1e-7 m (= 1e-4 mm), and the mass properties it also gates are far tighter still. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 9424.77796076938,
+    "surface_area": 2513.2741228718346,
+    "centroid": { "x": 0.0, "y": 0.0, "z": 15.0 },
+    "bounding_box": {
+      "min": { "x": -10.0, "y": -10.0, "z": 0.0 },
+      "max": { "x": 10.0, "y": 10.0, "z": 30.0 }
+    }
+  },
+  "topology": { "faces": 3, "edges": 3, "shells": 1 },
+  "mesh": { "vertices": 506, "triangles": 500 }
+}

@@ -1,0 +1,27 @@
+{
+  "description": "FIRST PATTERN GOLDEN (BACKLOG #7 — new modeling capability: linear pattern). A 10x10 mm square sketched on the XY datum plane, extruded 10 mm into a unit cube [0,10]^3, then LINEAR-PATTERNED along world +X with spacing 6 mm and count 3 (total instances, incl. the seed). A three-feature TREE (sketch -> extrude -> pattern) evaluated through the same evaluate-tree path as the extrude/revolve/fillet goldens. v1 DESIGN DECISION (option B, docs/GEOMETRY-QA.md 2026-07-12): a pattern replicates the CURRENT body (here the cube) and BOOLEAN-UNIONS the copies into the single body chain (design 7.6). The three copies are placed at x=0, 6, 12; each cube spans 10 in x, so consecutive copies OVERLAP (6 < 10) and the union is a single connected bar [0,22] x [0,10] x [0,10] (proving the fuse ran AND merged into one solid -- a disjoint result would be a pattern_disjoint error). Locks: the pattern handler + linear placement math (unit direction * spacing * k) + incremental fuse + single-solid finalize, GProp over the fused bar, and (via the parametrized round-trip gate) STEP round-trip of the patterned body.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). The seed body is the unit cube: the 10x10 square (corners (0,0),(10,0),(10,10),(0,10) on XY, 4 corner coincidences + horizontal e1 + vertical e2 + distance e1=10 + distance e2=10, zero residual) extruded 10 mm along +Z = the box [0,10] x [0,10] x [0,10]. The sketch is underconstrained (position DOF remain) with zero initial residual, so planegcs provably returns the input positions bitwise (same solver posture as the extrude/revolve goldens); the extrude is the box golden's construction path.",
+    "pattern: linear, direction world +X = (1,0,0) (unit already), spacing 6 mm, count 3. Instance 0 is the seed cube at x in [0,10]; instance 1 is a copy translated +6 in x -> x in [6,16]; instance 2 is translated +12 -> x in [12,22]. The three x-intervals [0,10],[6,16],[12,22] are pairwise-overlapping and CONTIGUOUS (0<6<10, 6<12<16), so their union covers x in [0,22] with identical y in [0,10], z in [0,10] on every instance. The fused body is therefore exactly the box [0,22] x [0,10] x [0,10] -- a single connected solid.",
+    "volume = 22 * 10 * 10 = 2200 mm^3 (the union bar; NOT 3*1000 -- the 6 mm spacing on a 10 mm-wide cube overlaps 4 mm between consecutive instances, and the union counts overlapped material once).",
+    "surface_area = 2*(22*10) + 2*(22*10) + 2*(10*10) = 440 + 440 + 200 = 1080 mm^2 (a 22x10x10 rectangular prism: two 22x10 faces normal to Z, two 22x10 faces normal to Y, two 10x10 faces normal to X).",
+    "centroid = (22/2, 10/2, 10/2) = (11, 5, 5) mm by symmetry of the bar.",
+    "bounding_box = [0,0,0]..[22,10,10]: the union spans x in [0,22] (seed left face at 0, last copy right face at 12+10=22), y and z in [0,10] unchanged by the +X translation.",
+    "topology: the union of the three axis-aligned overlapping cubes is a single rectangular prism -> 6 planar faces, 12 straight edges, 1 closed shell (clean() merges the coincident/overlapping interior walls -- an UNMERGED union would show extra faces/edges, so this exact count proves the fuse+clean collapsed the seams).",
+    "mesh (linear 0.1 mm / angular default): each planar rectangular face tessellates to exactly 2 triangles (6 faces * 2 = 12 triangles); faceted per-face normals mean no vertex sharing across faces, so 6 faces * 4 corners = 24 vertices (same convention as the box-10x20x30 and sketch-extrude goldens).",
+    "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill: never copy a bound blindly). The pattern's placement (unit direction * spacing * k) is exact for an axis-aligned +X translation, and the union of coaxial axis-aligned boxes has planar faces only, so GProp integrates them exactly. Measured deviations vs the analytic values (2026-07-12, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume EXACTLY 0.0, surface_area EXACTLY 0.0, centroid EXACTLY 0.0 on all three components, AABB EXACTLY 0.0 on all six bounds -- the whole planar bar round-trips through the evaluate + clean path with zero residual (better than the curved revolve golden, matching the primitive box's exactness). Documented ceiling 1e-9 gives headroom for libm/platform variation across CI hosts while staying 100x TIGHTER than the standing planar 1e-7 bound, matching the box/sketch-extrude goldens' posture. The solver contributes zero error by construction (zero-residual start, solved == input bitwise). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 2200.0,
+    "surface_area": 1080.0,
+    "centroid": { "x": 11.0, "y": 5.0, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 22.0, "y": 10.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}

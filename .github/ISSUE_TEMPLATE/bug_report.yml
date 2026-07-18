@@ -1,0 +1,70 @@
+name: Bug report
+description: Something is broken, wrong, or geometrically incorrect
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Wrong geometry (bad volume, broken tessellation,
+        non-deterministic output) is a first-class bug here — don't hesitate to
+        file it even if the UI "looks fine".
+
+        **Security issues:** please do NOT file them here — see
+        [SECURITY.md](https://github.com/Overcastly-AI/3d-cad/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        Expected the 10×20×30 box to report 6,000 mm³; the title block shows …
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. `uv run python -m geometry.main` + `LOFT_ENV=dev uv run python -m gateway.main`
+        2. `pnpm --filter @loft/web dev`, open http://localhost:5173
+        3. Set X to …
+    validations:
+      required: true
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How are you running the stack?
+      options:
+        - Bare-metal dev (uvicorn services + `pnpm --filter @loft/web dev`)
+        - Docker Compose (`just dev` / `docker compose up`) — note this path is not yet runtime-verified upstream
+        - Other (describe below)
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: Output of `git rev-parse --short HEAD`
+      placeholder: f7cc919
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser (for viewport/UI issues), Python and Node versions.
+      placeholder: |
+        OS: Ubuntu 24.04
+        Browser: Chromium 137
+        Python: 3.12.x (`python3 --version`) · Node: 22.x · pnpm: 10.x · uv: x.y.z
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: |
+        Service logs (JSON lines include a `request_id` — include it if you have
+        one), browser console errors, or screenshots. For geometry bugs, the
+        exact request body and the reported mass properties are gold.
+      render: text

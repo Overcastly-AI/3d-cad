@@ -1,0 +1,38 @@
+# Build context is the repo root (deploy/docker/service.Dockerfile).
+# Keep the context tiny: only the Python workspace enters the images.
+
+# VCS / agent org / docs
+.git
+.github
+.claude
+docs
+*.md
+
+# Environments & caches
+.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.env
+.env.*
+
+# Node / frontend (web image will get its own Dockerfile + ignore rules)
+node_modules
+apps
+packages/design
+packages/ts-client
+packages/contracts
+pnpm-lock.yaml
+pnpm-workspace.yaml
+package.json
+eslint.config.js
+
+# Tests never ship in runtime images
+**/tests
+
+# Deploy assets themselves (Dockerfile is passed via -f)
+deploy
+docker-compose*.yml
+justfile
+scripts

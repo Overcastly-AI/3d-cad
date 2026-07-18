@@ -1,0 +1,597 @@
+"""``SketchSolver`` backed by planegcs (FreeCAD's PlaneGCS solver).
+
+planegcs (PyPI, LGPL-2.1-or-later — allowed as a dynamically-loaded dep,
+RESEARCH §8) wraps the planar geometric constraint solver extracted from
+FreeCAD's Sketcher. Spike verdict + license evidence: RESEARCH §2.
+
+planegcs types stay strictly inside this module — the interface speaks only
+the pydantic DTOs of :mod:`geometry.sketch.schemas`.
+
+Determinism: entities and constraints are translated in input list order,
+the solve uses planegcs's default DogLeg algorithm from the input positions
+as the starting guess, and PlaneGCS itself is deterministic (no random
+restarts). Same definition in → bitwise-identical solution out (asserted by
+the unit suite; RESEARCH §9 "solver determinism" gate).
+"""
+
+import math
+from typing import assert_never
+
+from planegcs import ArcId, CircleId, LineId, PointId
+from planegcs import Sketch as GcsSystem
+from planegcs import SolveStatus as GcsSolveStatus
+from py_kit.schemas.sketch import spline_fit_index
+
+from geometry.sketch.expression import (
+    evaluate_driving_dimensions,
+    measure_dimension,
+)
+from geometry.sketch.schemas import (
+    CoincidentConstraint,
+    ConcentricConstraint,
+    DimensionConstraint,
+    DistanceConstraint,
+    EntityPointRef,
+    EqualConstraint,
+    FixedConstraint,
+    HorizontalConstraint,
+    ParallelConstraint,
+    PerpendicularConstraint,
+    Point2D,
+    RadiusConstraint,
+    SketchArc,
+    SketchCircle,
+    SketchConstraint,
+    SketchDefinition,
+    SketchEntity,
+    SketchLine,
+    SketchPoint,
+    SketchSolveStatus,
+    SketchSpline,
+    SolvedDimension,
+    SolvedSketch,
+    SymmetricConstraint,
+    TangentConstraint,
+    VerticalConstraint,
+)
+from geometry.sketch.solver import SketchDefinitionError
+
+
+class PlanegcsSketchSolver:
+    """Solve :class:`SketchDefinition` sketches with planegcs.
+
+    Stateless: every :meth:`solve` builds a fresh planegcs system, so calls
+    are independent and safe to repeat (the geometry service is stateless by
+    contract).
+    """
+
+    def solve(self, sketch: SketchDefinition) -> SolvedSketch:
+        # Resolve dimension expressions FIRST (input prep): driving dimensions
+        # get a concrete value (literal or evaluated expression); a bad
+        # expression / unknown-or-driven ref / cycle / div-zero raises
+        # SketchExpressionError (a SketchDefinitionError → sketch_invalid).
+        # Driven dimensions are absent from this map and never fed to the solver.
+        driving_values = evaluate_driving_dimensions(sketch.constraints)
+        system = _GcsBuild(sketch, driving_values)
+        raw_status = system.gcs.solve()  # default DogLeg — deterministic
+        diagnosis = system.gcs.diagnose()
+        solved = raw_status in (GcsSolveStatus.Success, GcsSolveStatus.Converged)
+
+        status = _map_status(
+            solved=solved,
+            conflicting=bool(diagnosis.conflicting),
+            redundant=bool(diagnosis.redundant),
+            dof=diagnosis.dof,
+        )
+        # Internal tags (e.g. arc rules auto-added by planegcs) are not in
+        # the map; report only indices of caller-supplied constraints.
+        conflicting = sorted(
+            {
+                system.tag_to_index[tag]
+                for tag in diagnosis.conflicting
+                if tag in system.tag_to_index
+            }
+        )
+        redundant = sorted(
+            {
+                system.tag_to_index[tag]
+                for tag in diagnosis.redundant
+                if tag in system.tag_to_index
+            }
+        )
+        entities = (
+            system.read_back()
+            if solved
+            else [entity.model_copy(deep=True) for entity in sketch.entities]
+        )
+        dimensions = _dimension_readouts(sketch.constraints, entities, driving_values)
+        return SolvedSketch(
+            status=status,
+            entities=entities,
+            dof=diagnosis.dof if diagnosis.dof >= 0 else None,
+            conflicting_constraints=conflicting,
+            redundant_constraints=redundant,
+            dimensions=dimensions,
+        )
+
+
+def _dimension_readouts(
+    constraints: list[SketchConstraint],
+    entities: list[SketchEntity],
+    driving_values: dict[int, float],
+) -> list[SolvedDimension]:
+    """Per-dimension computed values for the solved payload.
+
+    A driving dimension reports the value fed to the solver (evaluated
+    expression / literal); a driven dimension reports the value MEASURED back
+    from the solved geometry (the read-only readout that tracks the geometry it
+    dimensions). One entry per dimension constraint, in input order.
+    """
+    entities_by_id = {entity.id: entity for entity in entities}
+    readouts: list[SolvedDimension] = []
+    for index, constraint in enumerate(constraints):
+        if not isinstance(constraint, DimensionConstraint):
+            continue
+        value = (
+            driving_values[index]
+            if constraint.is_driving
+            else measure_dimension(constraint, entities_by_id)
+        )
+        readouts.append(
+            SolvedDimension(
+                constraint_index=index,
+                name=constraint.name,
+                driving=constraint.is_driving,
+                value_mm=value,
+                expression=constraint.expression,
+            )
+        )
+    return readouts
+
+
+def _map_status(
+    *, solved: bool, conflicting: bool, redundant: bool, dof: int
+) -> SketchSolveStatus:
+    """Precedence documented on :data:`~geometry.sketch.schemas.SketchSolveStatus`."""
+    if conflicting:
+        return "conflicting"
+    if redundant:
+        return "overconstrained"
+    if not solved:
+        return "diverged"
+    if dof > 0:
+        return "underconstrained"
+    return "converged"
+
+
+def _constraint_point_refs(constraint: SketchConstraint) -> tuple[EntityPointRef, ...]:
+    """The ``EntityPointRef``s a constraint carries (empty for entity-only ones).
+
+    Only these three constraint kinds address individual points; the rest relate
+    whole entities by id. Used to discover which spline fit points a sketch
+    actually constrains (so only *those* enter the solver — an unconstrained
+    fit point contributes no DOF, matching the pre-v1.1 pass-through).
+
+    The entity-only kinds are enumerated EXPLICITLY (not a ``case _`` wildcard)
+    with an ``assert_never`` tail: if a future constraint kind grows an
+    ``EntityPointRef``, pyright fails here until it is classified, rather than a
+    wildcard silently dropping its point refs (whose fit points would then never
+    register and the valid constraint would surface a misleading error).
+    """
+    match constraint:
+        case CoincidentConstraint() | SymmetricConstraint():
+            return (constraint.a, constraint.b)
+        case FixedConstraint():
+            return (constraint.point,)
+        case (
+            HorizontalConstraint()
+            | VerticalConstraint()
+            | DistanceConstraint()
+            | RadiusConstraint()
+            | ParallelConstraint()
+            | PerpendicularConstraint()
+            | TangentConstraint()
+            | EqualConstraint()
+            | ConcentricConstraint()
+        ):
+            return ()
+        case _:
+            assert_never(constraint)
+
+
+def _referenced_fit_points(constraints: list[SketchConstraint]) -> set[tuple[str, str]]:
+    """``(entity_id, "fitN")`` pairs some constraint references, in the sketch.
+
+    A fit reference to a NON-spline entity (or an out-of-range index) is still
+    collected here; it simply never matches a registered spline fit point and so
+    surfaces later as a clean malformed-reference error at constraint time.
+    """
+    referenced: set[tuple[str, str]] = set()
+    for constraint in constraints:
+        for ref in _constraint_point_refs(constraint):
+            if spline_fit_index(ref.point) is not None:
+                referenced.add((ref.entity, ref.point))
+    return referenced
+
+
+class _GcsBuild:
+    """Translation of one ``SketchDefinition`` into a planegcs system.
+
+    Holds the DTO-id → planegcs-handle maps needed to apply constraints, map
+    diagnosis tags back to constraint indices, and read solved geometry out.
+    """
+
+    def __init__(
+        self, sketch: SketchDefinition, driving_values: dict[int, float]
+    ) -> None:
+        self.sketch = sketch
+        #: constraint index -> evaluated value, for DRIVING dimensions only. A
+        #: dimension constraint whose index is absent is DRIVEN — excluded from
+        #: the constraint system (its value is measured back post-solve).
+        self.driving_values = driving_values
+        self.gcs = GcsSystem()
+        self._points: dict[tuple[str, str], PointId] = {}
+        self._lines: dict[str, LineId] = {}
+        self._circles: dict[str, CircleId] = {}
+        self._arcs: dict[str, ArcId] = {}
+        #: ``(spline id, "fitN")`` pairs some constraint references. Only these
+        #: spline fit points are added to the constraint system; unreferenced fit
+        #: points stay out of it (zero DOF, preserved bitwise).
+        self._referenced_fit_points = _referenced_fit_points(sketch.constraints)
+        #: planegcs constraint tag → index into ``sketch.constraints``.
+        self.tag_to_index: dict[int, int] = {}
+        for entity in sketch.entities:  # input order — deterministic
+            self._add_entity(entity)
+        for index, constraint in enumerate(sketch.constraints):
+            self._add_constraint(index, constraint)
+
+    # -- entities -----------------------------------------------------------
+
+    def _add_point(self, entity_id: str, name: str, point: Point2D) -> PointId:
+        pid = self.gcs.add_point(point.x, point.y)
+        self._points[(entity_id, name)] = pid
+        return pid
+
+    def _add_entity(self, entity: SketchEntity) -> None:
+        match entity:
+            case SketchPoint():
+                self._add_point(entity.id, "position", entity.position)
+            case SketchLine():
+                p1 = self._add_point(entity.id, "start", entity.start)
+                p2 = self._add_point(entity.id, "end", entity.end)
+                self._lines[entity.id] = self.gcs.add_line(p1, p2)
+            case SketchCircle():
+                center = self._add_point(entity.id, "center", entity.center)
+                radius = self.gcs.add_param(entity.radius, fixed=False)
+                self._circles[entity.id] = self.gcs.add_circle(center, radius)
+            case SketchArc():
+                radius = math.hypot(
+                    entity.start.x - entity.center.x,
+                    entity.start.y - entity.center.y,
+                )
+                if radius == 0.0:
+                    raise SketchDefinitionError(
+                        f"Arc {entity.id!r} is degenerate: start coincides with center"
+                    )
+                start_angle = math.atan2(
+                    entity.start.y - entity.center.y,
+                    entity.start.x - entity.center.x,
+                )
+                end_angle = math.atan2(
+                    entity.end.y - entity.center.y,
+                    entity.end.x - entity.center.x,
+                )
+                if end_angle <= start_angle:  # CCW convention (schemas)
+                    end_angle += math.tau
+                center = self._add_point(entity.id, "center", entity.center)
+                start = self._add_point(entity.id, "start", entity.start)
+                end = self._add_point(entity.id, "end", entity.end)
+                # add_arc_cse -> add_arc auto-adds the arc-rules constraints
+                # tying start/end to center/radius/angles; do NOT add them
+                # again (that would be a redundant constraint).
+                self._arcs[entity.id] = self.gcs.add_arc_cse(
+                    center, start, end, radius, start_angle, end_angle
+                )
+            case SketchSpline():
+                # Constrainable FIT POINTS (v1.1, SketchSpline docstring):
+                # planegcs still has no spline primitive, so the CURVE is not in
+                # the solver — but each fit point a constraint references is added
+                # as a gcs point named ``"fitN"``, so it takes point-level
+                # constraints like any other point. A fit point NO constraint
+                # references is left out entirely (zero added DOF), so an
+                # unconstrained spline solves as fixed geometry exactly as before.
+                # An out-of-range ``"fitN"`` was collected but is never registered
+                # here (no such index), so it resolves to no point -> a clean
+                # SketchDefinitionError at constraint time. read_back() rebuilds
+                # the spline through the solved fit-point positions.
+                for index, point in enumerate(entity.points):
+                    name = f"fit{index}"
+                    if (entity.id, name) in self._referenced_fit_points:
+                        self._add_point(entity.id, name, point)
+
+    # -- constraints ---------------------------------------------------------
+
+    def _resolve_point(self, ref: EntityPointRef) -> PointId:
+        try:
+            return self._points[(ref.entity, ref.point)]
+        except KeyError:
+            raise SketchDefinitionError(
+                f"No point {ref.point!r} on entity {ref.entity!r} (unknown "
+                "entity id, or a point name the entity kind does not have)"
+            ) from None
+
+    def _resolve_line(self, entity_id: str, constraint_kind: str) -> LineId:
+        try:
+            return self._lines[entity_id]
+        except KeyError:
+            raise SketchDefinitionError(
+                f"Constraint {constraint_kind!r} requires a line entity; "
+                f"{entity_id!r} is not a known line"
+            ) from None
+
+    def _add_constraint(self, index: int, constraint: object) -> None:
+        gcs = self.gcs
+        match constraint:
+            case CoincidentConstraint():
+                tag = gcs.coincident(
+                    self._resolve_point(constraint.a),
+                    self._resolve_point(constraint.b),
+                )
+            case HorizontalConstraint():
+                line = self._resolve_line(constraint.entity, "horizontal")
+                tag = gcs.horizontal(line)
+            case VerticalConstraint():
+                tag = gcs.vertical(self._resolve_line(constraint.entity, "vertical"))
+            case DistanceConstraint():
+                if index not in self.driving_values:
+                    return  # DRIVEN — not fed to the solver (measured post-solve)
+                line_id = constraint.entity
+                self._resolve_line(line_id, "distance")  # kind check
+                tag = gcs.set_p2p_distance(
+                    self._points[(line_id, "start")],
+                    self._points[(line_id, "end")],
+                    self.driving_values[index],
+                )
+            case RadiusConstraint():
+                if index not in self.driving_values:
+                    return  # DRIVEN — not fed to the solver (measured post-solve)
+                value = self.driving_values[index]
+                if constraint.entity in self._circles:
+                    tag = gcs.set_circle_radius(self._circles[constraint.entity], value)
+                elif constraint.entity in self._arcs:
+                    tag = gcs.set_arc_radius(self._arcs[constraint.entity], value)
+                else:
+                    raise SketchDefinitionError(
+                        "Constraint 'radius' requires a circle or arc entity; "
+                        f"{constraint.entity!r} is neither"
+                    )
+            case FixedConstraint():
+                point_id = self._resolve_point(constraint.point)
+                x, y = gcs.get_point(point_id)  # pre-solve = input position
+                fix_x, fix_y = gcs.fix_point(point_id, x, y)
+                self.tag_to_index[fix_x] = index
+                self.tag_to_index[fix_y] = index
+                return
+            case ParallelConstraint():
+                tag = gcs.parallel(
+                    self._resolve_line(constraint.a, "parallel"),
+                    self._resolve_line(constraint.b, "parallel"),
+                )
+            case PerpendicularConstraint():
+                tag = gcs.perpendicular(
+                    self._resolve_line(constraint.a, "perpendicular"),
+                    self._resolve_line(constraint.b, "perpendicular"),
+                )
+            case TangentConstraint():
+                tag = self._add_tangent(constraint)
+            case EqualConstraint():
+                tag = self._add_equal(constraint)
+            case SymmetricConstraint():
+                tag = gcs.symmetric_line(
+                    self._resolve_point(constraint.a),
+                    self._resolve_point(constraint.b),
+                    self._resolve_line(constraint.line, "symmetric"),
+                )
+            case ConcentricConstraint():
+                tag = self._add_concentric(constraint)
+            case _:  # pragma: no cover — unreachable via the DTO union
+                raise SketchDefinitionError(f"Unsupported constraint: {constraint!r}")
+        self.tag_to_index[tag] = index
+
+    def _classify_curve(self, entity_id: str, constraint_kind: str = "tangent") -> str:
+        """Return ``"line"``/``"circle"``/``"arc"`` for an entity ref, or raise."""
+        if entity_id in self._lines:
+            return "line"
+        if entity_id in self._circles:
+            return "circle"
+        if entity_id in self._arcs:
+            return "arc"
+        raise SketchDefinitionError(
+            f"Constraint {constraint_kind!r} references {entity_id!r}, which is "
+            "not a known line, circle, or arc entity"
+        )
+
+    def _add_tangent(self, constraint: TangentConstraint) -> int:
+        """Dispatch to the planegcs tangency variant for the resolved kinds.
+
+        planegcs exposes a distinct native constraint per curve-pair shape
+        (``tangent_line_arc``/``tangent_line_circle``/``tangent_arc_arc``/
+        ``tangent_circle_circle``/``tangent_circle_arc``); tangency is
+        symmetric, so ``a``/``b`` are reordered to each variant's argument
+        order. Two lines cannot be tangent and are rejected. The (kind, kind)
+        match is fixed by input, so dispatch is deterministic.
+        """
+        gcs = self.gcs
+        a_id, b_id = constraint.a, constraint.b
+        pair = (self._classify_curve(a_id), self._classify_curve(b_id))
+        match pair:
+            case ("line", "arc"):
+                return gcs.tangent_line_arc(self._lines[a_id], self._arcs[b_id])
+            case ("arc", "line"):
+                return gcs.tangent_line_arc(self._lines[b_id], self._arcs[a_id])
+            case ("line", "circle"):
+                return gcs.tangent_line_circle(self._lines[a_id], self._circles[b_id])
+            case ("circle", "line"):
+                return gcs.tangent_line_circle(self._lines[b_id], self._circles[a_id])
+            case ("arc", "arc"):
+                return gcs.tangent_arc_arc(self._arcs[a_id], self._arcs[b_id])
+            case ("circle", "circle"):
+                return gcs.tangent_circle_circle(
+                    self._circles[a_id], self._circles[b_id]
+                )
+            case ("circle", "arc"):
+                return gcs.tangent_circle_arc(self._circles[a_id], self._arcs[b_id])
+            case ("arc", "circle"):
+                return gcs.tangent_circle_arc(self._circles[b_id], self._arcs[a_id])
+            case _:  # ("line", "line") — no common-tangent relation
+                raise SketchDefinitionError(
+                    "Constraint 'tangent' relates a line and a curve, or two "
+                    f"curves; {pair} is not a tangency-capable pair"
+                )
+
+    def _add_equal(self, constraint: EqualConstraint) -> int:
+        """Dispatch to the planegcs equal-size variant for the resolved kinds.
+
+        planegcs has no single "equal" constraint: two lines get
+        ``equal_length``; equal *radius* has one native variant per curve-pair
+        shape (``equal_radius_cc``/``equal_radius_aa``/``equal_radius_ca``).
+        Equality is symmetric, so the circle-and-arc pair is reordered to
+        ``equal_radius_ca``'s (circle, arc) argument order. A mismatched pair
+        (a line paired with a circle/arc) has no equal-size relation and is
+        rejected. The (kind, kind) match is fixed by input, so dispatch is
+        deterministic.
+        """
+        gcs = self.gcs
+        a_id, b_id = constraint.a, constraint.b
+        pair = (
+            self._classify_curve(a_id, "equal"),
+            self._classify_curve(b_id, "equal"),
+        )
+        match pair:
+            case ("line", "line"):
+                return gcs.equal_length(self._lines[a_id], self._lines[b_id])
+            case ("circle", "circle"):
+                return gcs.equal_radius_cc(self._circles[a_id], self._circles[b_id])
+            case ("arc", "arc"):
+                return gcs.equal_radius_aa(self._arcs[a_id], self._arcs[b_id])
+            case ("circle", "arc"):
+                return gcs.equal_radius_ca(self._circles[a_id], self._arcs[b_id])
+            case ("arc", "circle"):
+                return gcs.equal_radius_ca(self._circles[b_id], self._arcs[a_id])
+            case _:  # (line, circle/arc) and its mirror — no equal-size relation
+                raise SketchDefinitionError(
+                    "Constraint 'equal' relates two lines (equal length) or two "
+                    f"circles/arcs (equal radius); {pair} is not an equal-capable "
+                    "pair"
+                )
+
+    def _add_concentric(self, constraint: ConcentricConstraint) -> int:
+        """Tie two circle/arc centers together (planegcs has no ``concentric``).
+
+        FreeCAD's concentric constraint is coincident centers; planegcs offers
+        no dedicated method, so ``coincident`` on the two center points is the
+        exact equivalent. Both entities must be a circle or arc (each owns a
+        ``center`` point); a line is rejected.
+        """
+        a_kind = self._classify_curve(constraint.a, "concentric")
+        b_kind = self._classify_curve(constraint.b, "concentric")
+        for entity_id, kind in ((constraint.a, a_kind), (constraint.b, b_kind)):
+            if kind == "line":
+                raise SketchDefinitionError(
+                    "Constraint 'concentric' relates two circles/arcs; "
+                    f"{entity_id!r} is a line and has no center"
+                )
+        return self.gcs.coincident(
+            self._points[(constraint.a, "center")],
+            self._points[(constraint.b, "center")],
+        )
+
+    # -- results -------------------------------------------------------------
+
+    def read_back(self) -> list[SketchEntity]:
+        """Solved entities, same ids/kinds/order/construction-flag as input.
+
+        The ``construction`` flag is a property of the entity, not a solve
+        result, so it is carried through unchanged: construction geometry
+        solves like any other entity and stays flagged for the profile builder
+        and the UI (dashed/muted rendering).
+        """
+        solved: list[SketchEntity] = []
+        for entity in self.sketch.entities:
+            match entity:
+                case SketchPoint():
+                    x, y = self.gcs.get_point(self._points[(entity.id, "position")])
+                    solved.append(
+                        SketchPoint(
+                            id=entity.id,
+                            kind="point",
+                            construction=entity.construction,
+                            position=Point2D(x=x, y=y),
+                        )
+                    )
+                case SketchLine():
+                    info = self.gcs.get_line(self._lines[entity.id])
+                    solved.append(
+                        SketchLine(
+                            id=entity.id,
+                            kind="line",
+                            construction=entity.construction,
+                            start=Point2D(x=info.p1[0], y=info.p1[1]),
+                            end=Point2D(x=info.p2[0], y=info.p2[1]),
+                        )
+                    )
+                case SketchCircle():
+                    circle = self.gcs.get_circle(self._circles[entity.id])
+                    solved.append(
+                        SketchCircle(
+                            id=entity.id,
+                            kind="circle",
+                            construction=entity.construction,
+                            center=Point2D(x=circle.center[0], y=circle.center[1]),
+                            radius=circle.radius,
+                        )
+                    )
+                case SketchArc():
+                    arc = self.gcs.get_arc(self._arcs[entity.id])
+                    solved.append(
+                        SketchArc(
+                            id=entity.id,
+                            kind="arc",
+                            construction=entity.construction,
+                            center=Point2D(x=arc.center[0], y=arc.center[1]),
+                            start=Point2D(x=arc.start_point[0], y=arc.start_point[1]),
+                            end=Point2D(x=arc.end_point[0], y=arc.end_point[1]),
+                        )
+                    )
+                case SketchSpline():
+                    # Rebuild the spline THROUGH the solved fit-point positions:
+                    # a referenced fit point reads its solved (x, y) back from the
+                    # gcs; an unreferenced one keeps its input coordinate. When NO
+                    # fit point was referenced the spline never entered the solver,
+                    # so it is preserved bitwise (deep copy) — identical to the
+                    # pre-v1.1 pass-through (backward compat). The interpolating
+                    # curve itself is re-fitted downstream by the kernel
+                    # (Edge.make_spline) from these updated fit points.
+                    if not any(
+                        (entity.id, f"fit{i}") in self._points
+                        for i in range(len(entity.points))
+                    ):
+                        solved.append(entity.model_copy(deep=True))
+                        continue
+                    fit_points: list[Point2D] = []
+                    for index, point in enumerate(entity.points):
+                        pid = self._points.get((entity.id, f"fit{index}"))
+                        if pid is None:
+                            fit_points.append(point.model_copy(deep=True))
+                        else:
+                            x, y = self.gcs.get_point(pid)
+                            fit_points.append(Point2D(x=x, y=y))
+                    solved.append(
+                        SketchSpline(
+                            id=entity.id,
+                            kind="spline",
+                            construction=entity.construction,
+                            points=fit_points,
+                        )
+                    )
+        return solved

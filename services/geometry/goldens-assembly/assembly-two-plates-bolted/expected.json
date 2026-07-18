@@ -1,0 +1,44 @@
+{
+  "description": "FIRST ASSEMBLY GOLDEN — the v1 DoD, 'bolt two parts together and see it' (docs/design/assemblies.md §6.1). Two instances of the SAME 40 x 25 x 10 mm plate (each with two r5 through-holes at (12, 12.5) and (28, 12.5)): plate A grounded at the origin, plate B mated coincident (A's top face +Z <-> B's bottom face -Z, flush) + two concentric (both hole axes). B is seeded displaced (3, 2, 16) and spun ~5.7 deg about Z so the solve does real work. Locks the full §4 pipeline: evaluate each UNIQUE part once (dedup by part_key -> ONE content-addressed mesh shared by both instances), resolve every mate against the real bodies (#3), solve (#2) to a solved world Placement per instance, and roll up combined mass properties analytically (Sigma volumes, mass-weighted centroid, transformed-bbox union, summed topology -> no re-meshing, no boolean). The solved transform is applied at RENDER time over the shared mesh, never baked into a GLB.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded pipeline output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). Both instances share the plate-with-2-holes part whose own mass properties are the sketch-extrude-plate-2holes golden's (independently hand-derived there): volume 8429.203673205104 mm^3, surface_area 3614.159265358979 mm^2, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], topology 8 faces / 18 edges / 1 shell.",
+    "Plate A is grounded at identity, so its solved placement is the seed: position (0, 0, 0), orientation identity (0, 0, 0, 1).",
+    "Plate B's solved placement is the analytic bolted pose. coincident+flush makes B's bottom face (local z=0) sit on A's top face (world z=10), so B translates +10 in z. The two concentric mates align B's holes (local (12,12.5) and (28,12.5)) with A's holes at the same x/y; two holes at DISTINCT x fully pin the spin about z, forcing B's rotation to identity and its x/y translation to zero. Solved B: position (0, 0, 10), orientation identity (0, 0, 0, 1). Two holes fully locate the joint (a single bolt would leave the spin DOF), so the solve is well_constrained (0 remaining DOF).",
+    "combined volume = 2 * 8429.203673205104 = 16858.407346410208 mm^3 (Sigma of the two part volumes; the analytic roll-up does NO boolean, the plates only touch at a face so there is no overlap to subtract).",
+    "combined surface_area = 2 * 3614.159265358979 = 7228.318530717958 mm^2 (Sigma; the roll-up does not merge the touching faces).",
+    "combined centroid = (20, 12.5, 10): equal-volume plates, A centroid (20, 12.5, 5), B centroid transformed by +10 z = (20, 12.5, 15); the volume-weighted mean of z is (5 + 15)/2 = 10, x/y unchanged.",
+    "combined bounding_box = [0,0,0]..[40,25,20]: union of A's AABB [0,0,0]..[40,25,10] and B's translated AABB [0,0,10]..[40,25,20]; no rotation so the corner-transform union is exact.",
+    "combined topology = 16 faces / 36 edges / 2 shells: the analytic roll-up SUMS per-instance counts (8/18/1 each) — it does not boolean-merge the bodies, so the two shells stay distinct (this is a render-time instanced assembly, not one fused solid).",
+    "distinct_mesh_count = 1: both instances share part_key 'part-plate-2holes@1', so the pipeline evaluates + tessellates the plate ONCE and both InstancePlacementResults carry the SAME content-addressed part_mesh_glb_id (the §6.4 shared-mesh dedup contract — the whole point of per-instance-transform-over-shared-mesh)."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "SOLVER tolerance (a numeric mate solve), measured first then set (geometry-gates skill: never copy a bound blindly). All axis/normal correspondences of this joint are vertical (parallel), so the closed-form fast path cannot pin the spin-about-z from directions and correctly defers to the deterministic Levenberg-Marquardt, which converges to a small residual rather than exact zero. Measured deviations vs the analytic values (2026-07-15, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0, numpy BLAS pinned to 1 thread): B solved position within 1.2e-8 mm of (0,0,10) and orientation within 1e-8 of identity; combined centroid within 1.1e-9 mm, combined AABB within 1.2e-8 mm, combined volume/surface_area exactly 0.0 (pure sums of the exact part values). Documented ceiling 1e-6 = ~85x the observed worst case (1.2e-8), headroom for libm/BLAS/platform variation across CI hosts while staying an order of magnitude TIGHTER than the standing planar 1e-7 kernel bound is NOT the target here — this is the SOLVER's convergence bound, matching the test_assembly_resolve RESOLVE_TOL posture (1e-6). Loosening this bound requires a reviewed justification recorded here and in docs/GEOMETRY-QA.md.",
+  "status": "well_constrained",
+  "distinct_mesh_count": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    }
+  ],
+  "properties": {
+    "volume": 16858.407346410208,
+    "surface_area": 7228.318530717958,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 10.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 16, "edges": 36, "shells": 2 }
+}
