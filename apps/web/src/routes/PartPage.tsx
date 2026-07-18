@@ -174,6 +174,10 @@ import {
 import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { executeHistoryStep } from "../lib/historyStep";
+import {
+  HistoryErrorAlert,
+  type HistoryStepError,
+} from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
@@ -1941,10 +1945,9 @@ export function PartPage() {
   const [historyStep, setHistoryStep] = useState<HistoryStep | null>(null);
   const historyInFlight = useRef(false);
   /** A non-stale undo/redo failure, surfaced in the viewport HUD. */
-  const [historyError, setHistoryError] = useState<{
-    step: HistoryStep;
-    message: string;
-  } | null>(null);
+  const [historyError, setHistoryError] = useState<HistoryStepError | null>(
+    null,
+  );
 
   const runHistoryStep = useCallback(
     (step: HistoryStep) => {
@@ -2432,30 +2435,10 @@ export function PartPage() {
                     </button>
                   </div>
                 ) : null}
-                {historyError !== null ? (
-                  <div
-                    role="alert"
-                    data-testid="history-error"
-                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                      {historyError.step === "undo"
-                        ? "Undo failed"
-                        : "Redo failed"}
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      {historyError.message}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setHistoryError(null)}
-                      data-testid="history-error-dismiss"
-                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                ) : null}
+                <HistoryErrorAlert
+                  error={historyError}
+                  onDismiss={() => setHistoryError(null)}
+                />
                 {regenerating ? (
                   <div
                     role="status"
