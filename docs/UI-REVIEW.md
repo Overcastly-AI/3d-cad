@@ -380,6 +380,7 @@ both 🟡 landed on top):_
 | Parts/Assemblies home | ✅ functional / P3 thumbnails, delete-confirm |
 | Sign-in | ✅ |
 | A11y floor | ✅ (disabled-tooltip reachability fixed in Batch 2) |
+| Assembly BOM panel + SOLVE/PARTS toggle | ✅ PASS (spot-check cf617c8) / 2× P3 system-level below |
 
 Evidence: `docs/screenshots/ui-audit/*.png` (44 shots, desktop + laptop).
 Re-audit with before/afters after each batch lands.
@@ -1186,3 +1187,51 @@ prettier on touched files green. Drawings e2e is behaviourally unchanged (the
 authored dimension is identical — only the internal correspondence source moved
 from re-projection to the wire bool) and runs in CI; founder before/after shots
 CI-deferred (sandbox Docker-registry 403 per CLAUDE.md).
+
+---
+
+## 2026-07-18 — Assembly BOM panel + SOLVE/PARTS toggle (spot-check cf617c8) — PASS
+
+Static + token + screenshot review of the BOM parts-list schedule
+(`AssemblyBomPanel.tsx`), its inspector wrapper (`AssemblyInspectorPanel.tsx`,
+new `SegmentedControl` SOLVE/PARTS toggle), and the `AssemblyPage` wiring.
+Judged against `docs/screenshots/assembly-bom-desktop.png`. Correctness
+(fetch/aggregation/states) is covered by `bom.test.ts` + `assembly-bom.spec.ts`
+and out of scope here.
+
+**Design-system adherence — PASS.** Zero inline hex; every class resolves to a
+`packages/design` token (`brass`/`etch`/`gauge`/`mist`/`flag`/`hairline`/
+`anvil` via `Panel`, `font-display`/`body`/`data`, `text-2xs`/`base`,
+`duration-fast`). Composes `Panel`/`PanelSection` and the existing
+`SegmentedControl` primitive; no restyled raw chrome. Right-aligned QTY/TOTAL in
+the `font-data` tabular-nums DRO idiom and the brass TOTAL rule match the app's
+number/accent language. The hand-rolled `KindBadge` is NOT a primitive bypass —
+no `Badge` primitive exists in `@loft/design`, and the chip recipe
+(`rounded-sm px-1 font-display text-2xs uppercase tracking-[…]`) is the same one
+`AssemblyTreePanel` already hand-rolls, so it is consistent with app convention.
+
+**A11y — PASS.** Real semantic `<table>` (thead/`<th scope="col">`/tbody/tfoot),
+not divs. Toggle is keyboard-operable via `SegmentedControl` real `<button>`s
+(`aria-pressed`, `aria-label="View"`, `focus-visible:outline … outline-brass`).
+The `missing:true` line conveys state as literal text `(deleted)` — the `⚠` is
+`aria-hidden`, so SR users get the word, not colour/icon-only. Error is
+`role="alert"`, loading is `aria-live="polite"`. Contrast on `anvil`: `flag`
+6.5:1, `gauge` 7.2:1, `brass` ≈7.6:1, `mist` 13.2:1 — all AA. Name column
+`truncate min-w-0` + `shrink-0` badge holds at 1280×800 without overflow.
+
+Two P3 system-level follow-ups (neither blocks; both are repair-the-primitive):
+
+- **P3 — inspector table — no accessible name on the `<table>`.** The parts-list
+  `<table>` is announced as an unnamed "table"; the enclosing `<aside>` carries
+  `aria-label="Bill of materials"` but the table element itself does not.
+  System fix: add `aria-labelledby` to the eyebrow or a `sr-only` `<caption>`
+  (candidate for a `PanelSection`-provided caption seam so every schedule gets
+  one). Ref: `AssemblyBomPanel.tsx:85`.
+- **P3 — design system — extract a `Badge`/`Chip` primitive.** The token chip
+  recipe is now hand-rolled in ≥2 places (`AssemblyTreePanel`, BOM `KindBadge`),
+  each re-picking arbitrary `tracking-[…]` values (BOM alone mixes
+  `0.12`/`0.14`/`0.16em`). Per DRY "extract on the second real use," promote a
+  `Badge` primitive to `packages/design` and let both compose it; fold the
+  arbitrary tracking literals into a tracking scale token while there.
+
+Verdict: ship as-is; queue the two P3s for the design-system backlog. No P1/P2.
