@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Sequence
+from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
 from py_kit.schemas.drawings import (
@@ -493,7 +494,20 @@ def _endpoint_projected(
 # Value formatting — port of dimensions.ts.
 # ---------------------------------------------------------------------------------
 def _number_text(value: float, unit: str | None) -> str:
-    return f"{value:.1f}" if unit == "deg" else f"{value:.3f}"
+    """Format a measured value — a faithful port of dimensions.ts ``numberText``.
+
+    JS ``Number.prototype.toFixed`` rounds half-UP (ES spec: "ties pick the larger
+    n") on the EXACT IEEE-754 value; Python's ``f"{v:.3f}"`` rounds half-to-EVEN.
+    They diverge on dyadic ties (``0.0625`` → JS ``"0.063"`` vs Python ``"0.062"``),
+    which would stamp a DIFFERENT number in the SVG than the on-screen sheet shows
+    for the same dimension. ``Decimal(value)`` uses the EXACT binary value (not
+    ``Decimal(str(value))``, whose shortest-repr rounding diverges from ``toFixed``
+    for values like ``1.005``), so the composed value stays byte-identical to the
+    screen through the DE-1c cutover. Measured values are non-negative, so
+    half-away-from-zero == half-up == ``toFixed``'s "larger n".
+    """
+    exp = Decimal("0.1") if unit == "deg" else Decimal("0.001")
+    return str(Decimal(value).quantize(exp, rounding=ROUND_HALF_UP))
 
 
 def format_dimension_label(
@@ -989,7 +1003,18 @@ def place_sheet(
     dims_by_view: dict[
         ViewProjection, list[tuple[DrawingDimensionInput, MeasuredDimension]]
     ] = {}
-    for inp, mres in zip(dimensions, evaluation.dimensions, strict=False):
+    # Pair each authored input with its measured result. `evaluate_drawing_views`
+    # emits results 1:1 in request order, so `strict=True` (equal length) plus the
+    # id-equality guard catches a caller that passes a `dimensions` list that does
+    # not correspond to the `evaluation` — a placement can never silently attach to
+    # the wrong dimension. (Transient/library dims may omit the id; those pair
+    # positionally, which is correct by construction.)
+    for inp, mres in zip(dimensions, evaluation.dimensions, strict=True):
+        if inp.id is not None and mres.id is not None and inp.id != mres.id:
+            raise ValueError(
+                "place_sheet: dimension inputs do not correspond to the evaluation "
+                f"(input id {inp.id} != measured id {mres.id})"
+            )
         dims_by_view.setdefault(inp.view, []).append((inp, mres.measured))
 
     composed_views: list[ComposedView] = []

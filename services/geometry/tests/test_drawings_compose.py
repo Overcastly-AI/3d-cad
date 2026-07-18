@@ -33,6 +33,7 @@ from geometry.drawings.compose import (
     ViewBounds,
     bounds_aware_layout,
     build_dimension_annotation,
+    format_dimension_label,
     sheet_dimensions,
     view_to_svg_edges,
 )
@@ -52,6 +53,7 @@ from py_kit.schemas.drawings import (
     PointToPointMeasurement,
     ProjectedPoint,
     ProjectedViewEdge,
+    RadiusDimensionParams,
     ViewProjection,
 )
 from py_kit.schemas.features import EdgeSignature
@@ -337,6 +339,119 @@ def test_parity_point_to_point_missing_edge_is_none() -> None:
     assert a is None
 
 
+@pytest.mark.parametrize(
+    ("dim_type", "value", "unit", "expected"),
+    [
+        # Dyadic ties: JS `toFixed` rounds half-UP, Python default rounds
+        # half-to-even — the port must match the screen (dimensions.ts numberText).
+        ("linear", 0.0625, "mm", "0.063"),  # even→odd (half-even would give 0.062)
+        ("diameter", 2.0625, "mm", "Ø2.063"),
+        ("radius", 12.0625, "mm", "R12.063"),
+        ("angular", 22.25, "deg", "22.3°"),  # 1-dp tie
+    ],
+)
+def test_parity_number_text_rounds_half_up_like_tofixed(
+    dim_type: str, value: float, unit: str, expected: str
+) -> None:
+    """`format_dimension_label` matches JS `toFixed` on rounding ties — the
+    on-screen value stays identical through the DE-1c cutover."""
+    assert format_dimension_label(dim_type, value, unit) == expected
+
+
+def test_parity_radius_leader() -> None:
+    """A radius: a 45° leader from centre to the arc + the value clear of the arc
+    (dimensions.ts:577). Oracle: c=(20,12.5), r5 → edgePt=(23.5355,16.0355), the
+    value stamped past the arc along the leader."""
+    a = _build(
+        RadiusDimensionParams(edge=_circle_sig()), _ok(5, "mm"), [_projected_circle()]
+    )
+    assert isinstance(a, ComposedMeasuredDimension)
+    assert a.text.value == "R5.000"
+    assert len(a.lines) == 1
+    assert len(a.arrows) == 1
+    leader = a.lines[0]
+    assert leader.role == "dimension"
+    assert (leader.x1, leader.y1) == pytest.approx((20.0, 12.5), abs=_ARC_TOL)
+    assert (leader.x2, leader.y2) == pytest.approx(
+        (23.535534, 16.035534), abs=_ARC_TOL
+    )
+    # Value stamped past the arc along the 45° leader (not on the circle).
+    assert (a.text.x, a.text.y) == pytest.approx((30.077686, 22.577686), abs=_ARC_TOL)
+
+
+# --- angular: sweep direction + tangent + bearing, not just radius --------------
+def _angular_edges() -> tuple[EdgeSignature, EdgeSignature, list[ProjectedViewEdge]]:
+    """Two straight edges meeting at apex (0,0) at 135° (obtuse): the +X 40 mm edge
+    and a 135°-bearing edge (midpoint (-5,5)). Returns (sigA, sigB, projected)."""
+    sig_a = _line_sig()  # +X edge, midpoint (20,0)
+    sig_b = EdgeSignature(
+        curve="line",
+        end_a=_vec(-10, 10, 0),
+        end_b=_vec(0, 0, 0),
+        midpoint=_vec(-5, 5, 0),
+        length_mm=(10**2 + 10**2) ** 0.5,
+    )
+    edge_a = _projected_line()  # start (0,0) end (40,0) midpoint (20,0)
+    edge_b = ProjectedViewEdge(
+        primitive="line",
+        visible=True,
+        start=_pt(0, 0),
+        end=_pt(-10, 10),
+        midpoint=_pt(-5, 5),
+        dimensionable=True,
+        source_edge=sig_b,
+    )
+    return sig_a, sig_b, [edge_a, edge_b]
+
+
+def test_parity_angular_obtuse_sweep_tangent_and_bearing() -> None:
+    """An OBTUSE (135°) angular pins sweep DIRECTION, arrowhead tangent, and text
+    bearing — not just the arc radius (the symmetric 90° case is invariant to all
+    three). Oracle from TS placeAngular: tipA=(13,0), tipB=(-9.1924,9.1924), the
+    value bearing at 67.5° → (6.5209,15.7429)."""
+    sig_a, sig_b, edges = _angular_edges()
+    a = _build(
+        AngularDimensionParams(edge_a=sig_a, edge_b=sig_b), _ok(135, "deg"), edges
+    )
+    assert isinstance(a, ComposedMeasuredDimension)
+    assert a.text.value == "135.0°"
+    dims = [line for line in a.lines if line.role == "dimension"]
+    # First arc sample = tipA (sweep START), last = tipB (sweep END): a reversed
+    # sweep or wrong direction would land tipB elsewhere.
+    assert (dims[0].x1, dims[0].y1) == pytest.approx((13.0, 0.0), abs=_ARC_TOL)
+    assert (dims[-1].x2, dims[-1].y2) == pytest.approx(
+        (-9.192388, 9.192388), abs=_ARC_TOL
+    )
+    # Arrowhead tips sit on the arc ends (tangent geometry anchored there).
+    assert (a.arrows[0].points[0].x_mm, a.arrows[0].points[0].y_mm) == pytest.approx(
+        (13.0, 0.0), abs=_ARC_TOL
+    )
+    assert (a.arrows[1].points[0].x_mm, a.arrows[1].points[0].y_mm) == pytest.approx(
+        (-9.192388, 9.192388), abs=_ARC_TOL
+    )
+    # Value bearing (mid-sweep, 67.5°) — pins the text anchor, not just its radius.
+    assert (a.text.x, a.text.y) == pytest.approx((6.520926, 15.742907), abs=_ARC_TOL)
+
+
+def test_parity_angular_reversed_edge_order() -> None:
+    """Swapping edge_a/edge_b REVERSES the arc sweep (tipA↔tipB) but the value
+    bearing is INVARIANT (the dimension reads the same vee) — the TS placeAngular
+    contract. Pins that edge order flows through the sweep, not the bearing."""
+    sig_a, sig_b, edges = _angular_edges()
+    a = _build(
+        AngularDimensionParams(edge_a=sig_b, edge_b=sig_a), _ok(135, "deg"), edges
+    )
+    assert isinstance(a, ComposedMeasuredDimension)
+    dims = [line for line in a.lines if line.role == "dimension"]
+    # Sweep reversed: now starts at the 135° ray, ends at +X.
+    assert (dims[0].x1, dims[0].y1) == pytest.approx(
+        (-9.192388, 9.192388), abs=_ARC_TOL
+    )
+    assert (dims[-1].x2, dims[-1].y2) == pytest.approx((13.0, 0.0), abs=_ARC_TOL)
+    # …but the value bearing is identical to the forward order.
+    assert (a.text.x, a.text.y) == pytest.approx((6.520926, 15.742907), abs=_ARC_TOL)
+
+
 # --- port parity: layout.test.ts -----------------------------------------------
 def test_parity_sheet_dimensions() -> None:
     assert sheet_dimensions("A4", "landscape") == (297, 210)
@@ -506,3 +621,16 @@ def test_place_sheet_marks_absent_view_as_failed() -> None:
     }
     assert types["front"] == ["angular", "linear"]
     assert types["top"] == ["diameter", "radius"]
+
+
+def test_place_sheet_rejects_mismatched_dimension_inputs() -> None:
+    """`place_sheet` guards against a `dimensions` list that does not correspond to
+    the `evaluation` — a placement can never silently attach to the wrong dimension
+    (the id-equality guard, code-reviewer 🟢)."""
+    request = _golden_request()
+    evaluation = evaluate_drawing_views(request)
+    # Reverse the authored inputs so their ids no longer line up with the (in
+    # request-order) measured results.
+    shuffled = list(reversed(request.dimensions))
+    with pytest.raises(ValueError, match="do not correspond"):
+        place_sheet(evaluation, shuffled, request.layout)
