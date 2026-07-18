@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProjectedViewEdge } from "../api/drawings";
+import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
   VIEW_GUTTER_MM,
   boundsAwareLayout,
+  endpointHandlesForEdge,
+  endpointProjected,
   formatScale,
+  projectModelPoint,
   sheetDimensions,
   standardLayout,
   viewBounds,
@@ -221,5 +224,78 @@ describe("formatScale", () => {
     expect(formatScale({ numerator: 1, denominator: 1 })).toBe("1:1");
     expect(formatScale({ numerator: 1, denominator: 2 })).toBe("1:2");
     expect(formatScale({ numerator: 2, denominator: 1 })).toBe("2:1");
+  });
+});
+
+const vec = (x: number, y: number, z: number) => ({ x, y, z });
+
+describe("projectModelPoint", () => {
+  it("maps a model point through each standard view's plane", () => {
+    const p = vec(40, 25, 10);
+    // top looks down +Z → (x, y); front looks down -Y → (x, z); right → (y, z).
+    expect(projectModelPoint("top", p, 1)).toEqual({ x: 40, y: 25 });
+    expect(projectModelPoint("front", p, 1)).toEqual({ x: 40, y: 10 });
+    expect(projectModelPoint("right", p, 1)).toEqual({ x: 25, y: 10 });
+  });
+
+  it("applies the view scale factor", () => {
+    expect(projectModelPoint("top", vec(40, 25, 0), 0.5)).toEqual({
+      x: 20,
+      y: 12.5,
+    });
+  });
+});
+
+describe("endpoint handles", () => {
+  const lineSig: EdgeSignature = {
+    curve: "line",
+    end_a: vec(0, 0, 0),
+    end_b: vec(40, 0, 0),
+    midpoint: vec(20, 0, 0),
+    length_mm: 40,
+    subshape_type: "edge",
+  };
+  const edge: ProjectedViewEdge = {
+    primitive: "line",
+    visible: true,
+    start: { x_mm: 0, y_mm: 0 },
+    end: { x_mm: 40, y_mm: 0 },
+    midpoint: { x_mm: 20, y_mm: 0 },
+    dimensionable: true,
+    source_edge: lineSig,
+  };
+
+  it("labels each projected end with its canonical model endpoint", () => {
+    const handles = endpointHandlesForEdge(edge, "top", 1);
+    expect(handles).not.toBeNull();
+    if (!handles) return;
+    const byEnd = Object.fromEntries(
+      handles.map((h) => [h.endpoint, h.projected]),
+    );
+    expect(byEnd.end_a).toEqual({ x: 0, y: 0 });
+    expect(byEnd.end_b).toEqual({ x: 40, y: 0 });
+  });
+
+  it("resolves a named endpoint back to its projected sheet point", () => {
+    expect(endpointProjected(edge, "top", 1, "end_b")).toEqual({ x: 40, y: 0 });
+    expect(endpointProjected(edge, "top", 1, "end_a")).toEqual({ x: 0, y: 0 });
+  });
+
+  it("returns null for a non-line / un-dimensionable edge", () => {
+    const circle: ProjectedViewEdge = {
+      primitive: "circle",
+      visible: true,
+      start: { x_mm: 25, y_mm: 0 },
+      end: { x_mm: 25, y_mm: 0 },
+      midpoint: { x_mm: 15, y_mm: 0 },
+      center: { x_mm: 20, y_mm: 0 },
+      radius: 5,
+      dimensionable: true,
+      source_edge: { ...lineSig, curve: "circle" },
+    };
+    expect(endpointHandlesForEdge(circle, "top", 1)).toBeNull();
+    expect(
+      endpointHandlesForEdge({ ...edge, dimensionable: false }, "top", 1),
+    ).toBeNull();
   });
 });

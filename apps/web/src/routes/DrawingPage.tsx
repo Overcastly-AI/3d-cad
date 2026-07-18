@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  type DimensionParams,
   type DimensionResponse,
   type DrawingDimensionInput,
   type DrawingViewResult,
@@ -18,19 +17,32 @@ import {
 } from "../api/drawings";
 import { fetchFeatureTree, fetchParts } from "../api/parts";
 import { Breadcrumb } from "../components/Breadcrumb";
-import {
-  type AuthorableType,
-  DimensionAuthorMenu,
-} from "../components/DimensionAuthorMenu";
+import { DimensionAuthorMenu } from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
 import {
   DrawingSheet,
   type EdgePickEvent,
+  type EndpointPickEvent,
   edgeKey,
+  vertexKey,
 } from "../components/DrawingSheet";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
+import {
+  IDLE,
+  type AuthoringState,
+  type DimensionAction,
+  armAngular,
+  armedSignatures,
+  buildDimension,
+  menuActions,
+  menuAnchor,
+  pickEdge,
+  pickEndpoint,
+  pickHint,
+  selectedEndpoints,
+} from "../drawing/authoring";
 import { formatDimensionLabel } from "../drawing/dimensions";
 import { exportSheetSvg } from "../drawing/exportSvg";
 import {
@@ -42,24 +54,6 @@ import {
 } from "../drawing/layout";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { drawingRoute } from "../router";
-
-/** Build the create-payload params for a dimension on a picked model edge. */
-function dimensionParamsFor(
-  type: AuthorableType,
-  sourceEdge: EdgePickEvent["sourceEdge"],
-): DimensionParams {
-  switch (type) {
-    case "diameter":
-      return { type: "diameter", edge: sourceEdge };
-    case "radius":
-      return { type: "radius", edge: sourceEdge };
-    case "linear":
-      return {
-        type: "linear",
-        measurement: { mode: "edge_length", edge: sourceEdge },
-      };
-  }
-}
 
 /** The scale (num/den) for a picker value like "1:2", defaulting to 1:1. */
 function scaleFromValue(value: string): {
@@ -299,31 +293,76 @@ export function DrawingPage() {
   }, [tree]);
 
   // ---------------------------------------------------------------------
-  // Dimension authoring: pick a dimensionable edge → choose a valid type →
-  // persist it (CRUD) → the re-evaluate measures + renders it model-true.
+  // Dimension authoring: pick sheet geometry → choose a valid type → persist it
+  // (CRUD) → the re-evaluate measures + renders it model-true. Most types take
+  // one pick; angular takes two straight edges and point-to-point two endpoints,
+  // staged through the pure `authoring` state machine (design §3.1/§3.3).
   // ---------------------------------------------------------------------
-  const [pick, setPick] = useState<EdgePickEvent | null>(null);
+  const [authoring, setAuthoring] = useState<AuthoringState>(IDLE);
   const [dimBusy, setDimBusy] = useState(false);
-  const selectedEdgeKey = pick
-    ? edgeKey(pick.projection, pick.sourceEdge)
-    : null;
 
-  const handleAuthorDimension = useCallback(
-    (type: AuthorableType) => {
-      if (pick === null || dimBusy) return;
+  // Highlight sets the sheet reads: the single selected edge, all armed edges,
+  // and the selected endpoint handles for the in-progress pick.
+  const armed = armedSignatures(authoring);
+  const selectedEdgeKey = armed[0]
+    ? edgeKey(armed[0].projection, armed[0].sourceEdge)
+    : null;
+  const armedEdgeKeys = armed.map((a) => edgeKey(a.projection, a.sourceEdge));
+  const selectedVertexKeys = selectedEndpoints(authoring).map((e) =>
+    vertexKey(e.projection, e.sourceEdge, e.endpoint),
+  );
+  const menuActionList = menuActions(authoring);
+  const anchor = menuAnchor(authoring);
+  const hint = pickHint(authoring);
+
+  const handlePickEdge = useCallback((event: EdgePickEvent) => {
+    setAuthoring((state) =>
+      pickEdge(state, {
+        projection: event.projection,
+        viewId: event.viewId,
+        sourceEdge: event.sourceEdge,
+        primitive: event.primitive,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      }),
+    );
+  }, []);
+
+  const handlePickEndpoint = useCallback((event: EndpointPickEvent) => {
+    setAuthoring((state) =>
+      pickEndpoint(state, {
+        projection: event.projection,
+        viewId: event.viewId,
+        sourceEdge: event.sourceEdge,
+        endpoint: event.endpoint,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      }),
+    );
+  }, []);
+
+  const handleChooseAction = useCallback(
+    (action: DimensionAction) => {
+      if (dimBusy) return;
+      // "Angle" arms a second-edge pick rather than authoring immediately.
+      if (action === "start_angular") {
+        setAuthoring((state) => armAngular(state));
+        return;
+      }
+      const built = buildDimension(authoring, action);
+      if (built === null) return;
       setDimBusy(true);
       setActionError(null);
-      const target = pick;
       void (async () => {
         try {
-          await createDimension(drawingId, target.viewId, {
-            dimension: dimensionParamsFor(type, target.sourceEdge),
+          await createDimension(drawingId, built.viewId, {
+            dimension: built.params,
             expected_version: docVersion,
           });
           await queryClient.invalidateQueries({
             queryKey: ["drawing", drawingId],
           });
-          setPick(null);
+          setAuthoring(IDLE);
         } catch (error) {
           setActionError(
             error instanceof Error
@@ -335,7 +374,7 @@ export function DrawingPage() {
         }
       })();
     },
-    [pick, dimBusy, drawingId, docVersion, queryClient],
+    [authoring, dimBusy, drawingId, docVersion, queryClient],
   );
 
   const handleDeleteDimension = useCallback(
@@ -367,7 +406,7 @@ export function DrawingPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setPick(null);
+        setAuthoring(IDLE);
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -461,7 +500,10 @@ export function DrawingPage() {
               dimensionsByView={dimensionsByView}
               measuredById={measuredById}
               selectedEdgeKey={selectedEdgeKey}
-              onPickEdge={setPick}
+              armedEdgeKeys={armedEdgeKeys}
+              selectedVertexKeys={selectedVertexKeys}
+              onPickEdge={handlePickEdge}
+              onPickEndpoint={handlePickEndpoint}
             />
           </div>
         ) : (
@@ -530,21 +572,42 @@ export function DrawingPage() {
           </FloatingPanel>
         ) : null}
 
-        {/* The dimension author menu — opens by a picked, dimensionable edge. */}
-        {pick ? (
+        {/* A "pick the second …" hint while a two-pick dimension is in progress
+            (angular / point-to-point). Non-modal so the sheet stays live for the
+            second pick; Esc cancels. */}
+        {hint ? (
+          <div
+            role="status"
+            data-testid="dimension-pick-hint"
+            className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 border border-brass/60 bg-anvil px-3 py-1.5 shadow-float"
+          >
+            <span className="font-display text-2xs uppercase tracking-[0.16em] text-brass">
+              {hint}
+            </span>
+            <span className="ml-2 font-body text-2xs text-gauge">
+              Esc to cancel
+            </span>
+          </div>
+        ) : null}
+
+        {/* The gated dimension author menu — opens by the completing pick. A
+            backdrop closes it on an outside click; it renders only for a menu
+            state (a single-edge / two-edge / two-endpoint selection), never
+            while a second pick is still being made. */}
+        {anchor && menuActionList.length > 0 ? (
           <>
             <div
               className="fixed inset-0 z-40"
               aria-hidden="true"
-              onClick={() => setPick(null)}
+              onClick={() => setAuthoring(IDLE)}
             />
             <DimensionAuthorMenu
-              primitive={pick.primitive}
-              x={pick.clientX}
-              y={pick.clientY}
+              actions={menuActionList}
+              x={anchor.x}
+              y={anchor.y}
               busy={dimBusy}
-              onChoose={handleAuthorDimension}
-              onClose={() => setPick(null)}
+              onChoose={handleChooseAction}
+              onClose={() => setAuthoring(IDLE)}
             />
           </>
         ) : null}

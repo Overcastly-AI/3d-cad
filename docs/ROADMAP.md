@@ -513,8 +513,26 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       — no raw hex, primitives not instances. `drawing/dimensions.ts` pure
       geometry + 14 unit tests; e2e authors Ø10.000 on the hole + 40.000 on the
       40 mm edge and deletes one, against the real stack; `just lint` green.
-      Deferred to BACKLOG: angular + point-to-point linear authoring, manual
-      drag-to-place. **Drawings v1 #5 — SVG export (apps/web) SHIPPED**: an
+      **Drawings v1 #6c — angular + point-to-point authoring (apps/web)
+      SHIPPED**: the measurement backend already supported both; the sheet now
+      AUTHORS them too. A single straight-edge pick's type menu adds **Angle**
+      (arms a second-edge pick → the gated menu offers **Angular**, authored as
+      a real arc annotation: apex at the two edges' apparent intersection, a
+      sampled arc swept the short way through the enclosed region, tangent
+      arrowheads, the model-true degree value); straight edges also get **vertex
+      handles** (precise endpoint picking) whose pair authors a **point-to-point
+      linear** (extension lines from each named model vertex, the model-true
+      distance). Pure `drawing/authoring.ts` pick state machine + placement math
+      in `dimensions.ts` (`placeAngular`/`placeLinearBetween`) + a frontend twin
+      of the §1.2 view-frame table in `layout.ts` (`projectModelPoint`, to
+      recover the model→projected endpoint correspondence the wire format
+      canonicalises away). New `dimensionArcRadiusMm`/`vertexHandle*` tokens; +23
+      unit tests (angle value/arc radius, point-to-point distance/line geometry,
+      the null→placed transition, the pick reducer); e2e authors a 90.0° angular
+      between two perpendicular edges and a point-to-point linear between two
+      vertices against the real stack (runs in CI). Closes the named Drawings v1
+      residual. Deferred to BACKLOG: manual drag-to-place. **Drawings v1 #5 —
+      SVG export (apps/web) SHIPPED**: an
       **Export SVG** action in the drawing command band (near Re-project, shortcut
       **E**, enabled only once `hasLayout`, honest disabled reason before) and a
       keyboard path serialize the already-rendered `DrawingSheet` `<svg>` to a

@@ -441,6 +441,121 @@ export function viewToSvgEdges(
   return out;
 }
 
+// --- model-point projection (frontend twin of geometry `_VIEW_FRAMES` §1.2) --
+//
+// The wire format canonicalises a projected edge's endpoints lexicographically
+// (project.py `_canonical_segment`), which DROPS the model→projected endpoint
+// correspondence a point-to-point witness line needs. To locate the sheet
+// position of a named model vertex (`EdgeSignature.end_a`/`end_b`), we re-run
+// the SAME fixed projection frame the geometry service uses (design §1.2) — a
+// bounded duplication of a constant convention table (four views × two axes),
+// never B-rep computation. A model point `p` projects to view-plane mm as
+// `(p·xDir, p·yDir) × scale`, byte-identical to `project._project_model_edge`.
+
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+const v3dot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+const v3cross = (a: Vec3, b: Vec3): Vec3 => ({
+  x: a.y * b.z - a.z * b.y,
+  y: a.z * b.x - a.x * b.z,
+  z: a.x * b.y - a.y * b.x,
+});
+const v3unit = (a: Vec3): Vec3 => {
+  const l = Math.hypot(a.x, a.y, a.z);
+  return l < 1e-12
+    ? { x: 0, y: 0, z: 0 }
+    : { x: a.x / l, y: a.y / l, z: a.z / l };
+};
+
+// The isometric frame: outward normal N pinned to (-1,-1,+1), in-plane x-axis
+// (worldUp × N), y-axis (N × x) — reproduced verbatim from `project._ISO_*`.
+const ISO_N = v3unit({ x: -1, y: -1, z: 1 });
+const ISO_X = v3unit(v3cross({ x: 0, y: 0, z: 1 }, ISO_N));
+const ISO_Y = v3cross(ISO_N, ISO_X);
+
+/** view → [in-plane x-axis, in-plane y-axis] (design §1.2 `_VIEW_FRAMES`). */
+const VIEW_AXES: Record<ViewProjection, readonly [Vec3, Vec3]> = {
+  front: [
+    { x: 1, y: 0, z: 0 },
+    { x: 0, y: 0, z: 1 },
+  ],
+  top: [
+    { x: 1, y: 0, z: 0 },
+    { x: 0, y: 1, z: 0 },
+  ],
+  right: [
+    { x: 0, y: 1, z: 0 },
+    { x: 0, y: 0, z: 1 },
+  ],
+  iso: [ISO_X, ISO_Y],
+};
+
+/** Project a MODEL point (world mm) into a view's plane (mm × scale factor). */
+export function projectModelPoint(
+  view: ViewProjection,
+  p: Vec3,
+  scaleFactor: number,
+): Point2D {
+  const [xDir, yDir] = VIEW_AXES[view];
+  return { x: v3dot(xDir, p) * scaleFactor, y: v3dot(yDir, p) * scaleFactor };
+}
+
+/** One endpoint of a straight edge: its projected sheet point + canonical label. */
+export interface EndpointHandle {
+  /** Projected (view-plane mm) position — map through `viewTransform` for SVG. */
+  projected: Point2D;
+  /** Which canonical model endpoint this is (design §3.3 point-to-point ref). */
+  endpoint: "end_a" | "end_b";
+}
+
+const dist2 = (a: Point2D, b: Point2D): number =>
+  Math.hypot(a.x - b.x, a.y - b.y);
+
+/**
+ * The two endpoint handles of a dimensionable STRAIGHT projected edge, each
+ * tagged with the canonical `end_a`/`end_b` label the backend measures against
+ * (design §3.3). The projected edge's `start`/`end` are lexicographically
+ * canonicalised, so we recover the label by projecting the model endpoints and
+ * matching by nearest — the SINGLE mapping both the pick affordance and the
+ * point-to-point placement read, so an authored endpoint renders on the exact
+ * vertex it named. Null for a non-line / un-dimensionable / source-less edge.
+ */
+export function endpointHandlesForEdge(
+  edge: ProjectedViewEdge,
+  view: ViewProjection,
+  scaleFactor: number,
+): [EndpointHandle, EndpointHandle] | null {
+  if (edge.primitive !== "line" || !edge.dimensionable || !edge.source_edge) {
+    return null;
+  }
+  const sig = edge.source_edge;
+  const pa = projectModelPoint(view, sig.end_a, scaleFactor);
+  const pb = projectModelPoint(view, sig.end_b, scaleFactor);
+  const start = p2(edge.start);
+  const end = p2(edge.end);
+  const startIsA = dist2(start, pa) <= dist2(start, pb);
+  return [
+    { projected: start, endpoint: startIsA ? "end_a" : "end_b" },
+    { projected: end, endpoint: startIsA ? "end_b" : "end_a" },
+  ];
+}
+
+/** The projected sheet point of one named endpoint of a straight edge, or null. */
+export function endpointProjected(
+  edge: ProjectedViewEdge,
+  view: ViewProjection,
+  scaleFactor: number,
+  endpoint: "end_a" | "end_b",
+): Point2D | null {
+  const handles = endpointHandlesForEdge(edge, view, scaleFactor);
+  if (!handles) return null;
+  return handles.find((h) => h.endpoint === endpoint)?.projected ?? null;
+}
+
 /** "1:1", "1:2", "2:1" — the printed scale caption. */
 export function formatScale(scale: {
   numerator: number;

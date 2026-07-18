@@ -10,10 +10,12 @@
  * the SAME projected(y-up)→SVG(y-down) space `viewTransform` maps edges through,
  * so an annotation sits exactly on the geometry it measures.
  *
- * v1 renders `linear` (edge length), `diameter`, and `radius`. A dimension whose
- * geometry it cannot place (angular / point-to-point, or an unmatched edge) is
- * skipped honestly (null) rather than mis-drawn; a measurement error renders a
- * marker, never a crash.
+ * It places every v1 dimension type: `linear` (an edge length OR a point-to-
+ * point distance between two named model vertices), `diameter`, `radius`, and
+ * `angular` (an arc swept between two straight edges, stamped in degrees). A
+ * dimension whose geometry it cannot place (an unmatched edge, parallel angular
+ * edges) is skipped honestly (null) rather than mis-drawn; a measurement error
+ * renders a marker, never a crash.
  */
 import { drawing } from "@loft/design";
 
@@ -23,8 +25,10 @@ import type {
   MeasuredDimension,
   ProjectedPoint,
   ProjectedViewEdge,
+  ViewProjection,
+  ViewScale,
 } from "../api/drawings";
-import type { Point2D, SvgRect } from "./layout";
+import { endpointProjected, type Point2D, type SvgRect } from "./layout";
 
 // --- small 2D vector helpers (projected mm space, y-up) ------------------
 type V = Point2D;
@@ -163,6 +167,7 @@ const OVER = drawing.extensionOverrunMm;
 const AL = drawing.arrowLengthMm;
 const AW = drawing.arrowHalfWidthMm;
 const TXT = drawing.dimensionTextMm;
+const ARC_R = drawing.dimensionArcRadiusMm;
 
 /** An arrowhead triangle: tip at `tip`, barb pointing `dir` (unit), as points. */
 function arrowPoints(tip: V, dir: V, toSvg: (p: V) => V): string {
@@ -284,18 +289,189 @@ function chooseByPenalty(
 }
 
 /**
- * Build the drafting annotation for one measured dimension, placed on the
- * matched projected `edge` and mapped through `toSvg`. `viewCenter` (projected
- * mm) picks the conventional outboard side; `obstacles` (sibling views' SVG
- * bounds) let the placement FLIP away from a neighbour it would otherwise land
- * on in the third-angle gutter (frontend-QA P1), and `sheet` keeps it on paper.
- * Returns null when the type/edge cannot be placed in v1 (angular /
- * point-to-point / a geometry mismatch) — the caller lists it, never mis-draws.
+ * A straight linear dimension between two projected points `p`→`q` (both in
+ * projected mm) — the shared drafting primitive an edge-length dimension (the
+ * edge's two endpoints) and a point-to-point dimension (two named model
+ * vertices) both use: extension lines off each point, an offset dimension line
+ * with arrowheads, and the stamped value. `viewCenter` picks the conventional
+ * outboard side; `obstacles`/`sheet` let it flip away from a neighbour / off
+ * the sheet (frontend-QA P1). Null when the two points coincide.
+ */
+function placeLinearBetween(
+  p: V,
+  q: V,
+  label: string,
+  foreshortened: boolean,
+  viewCenter: Point2D,
+  toSvg: (pt: V) => V,
+  obstacles: readonly SvgRect[],
+  sheet: { width: number; height: number } | undefined,
+): DimensionAnnotation | null {
+  const d = unit(sub(q, p));
+  if (hyp(sub(q, p)) < 1e-9) return null;
+  const mid = mul(add(p, q), 0.5);
+  const n0 = perp(d);
+  const away = dot(n0, sub(mid, viewCenter)) >= 0 ? n0 : neg(n0);
+
+  const place = (n: V): MeasuredAnnotation => {
+    const dimA = add(p, mul(n, O));
+    const dimB = add(q, mul(n, O));
+    const lines: DimLine[] = [
+      svgLine(
+        add(p, mul(n, GAP)),
+        add(p, mul(n, O + OVER)),
+        "extension",
+        toSvg,
+      ),
+      svgLine(
+        add(q, mul(n, GAP)),
+        add(q, mul(n, O + OVER)),
+        "extension",
+        toSvg,
+      ),
+      svgLine(dimA, dimB, "dimension", toSvg),
+    ];
+    const arrows = [
+      arrowPoints(dimA, neg(d), toSvg),
+      arrowPoints(dimB, d, toSvg),
+    ];
+    const midDim = mul(add(dimA, dimB), 0.5);
+    const anchor = toSvg(add(midDim, mul(n, TXT * 0.5 + 0.6)));
+    const angle = uprightAngle(toSvg(dimA), toSvg(dimB));
+    return {
+      kind: "measured",
+      lines,
+      arrows,
+      text: { x: anchor.x, y: anchor.y, angle, label },
+      foreshortened,
+    };
+  };
+
+  return chooseByPenalty(place(away), place(neg(away)), obstacles, sheet);
+}
+
+/** Intersection of the two infinite lines through `a0a1` and `b0b1`, or null
+ * when they are parallel (an angular dimension then has no apparent vertex). */
+function lineIntersection(a0: V, a1: V, b0: V, b1: V): V | null {
+  const r = sub(a1, a0);
+  const s = sub(b1, b0);
+  const denom = r.x * s.y - r.y * s.x;
+  if (Math.abs(denom) < 1e-9) return null;
+  const qp = sub(b0, a0);
+  const t = (qp.x * s.y - qp.y * s.x) / denom;
+  return add(a0, mul(r, t));
+}
+
+/** Signed angle (rad) in (-π, π] from `a` to `b`. */
+function signedAngleBetween(a: V, b: V): number {
+  return Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y);
+}
+
+/**
+ * The angular-dimension annotation between two straight projected edges: a
+ * vertex at their (apparent) intersection, rays out along each edge, an arc
+ * swept through the region the two edges actually enclose, arrowheads tangent
+ * to the arc ends, and the model-true degree value stamped outside the arc.
+ *
+ * Drafting-standard region call: each ray is oriented from the vertex TOWARD
+ * its edge (the side the geometry is on), and the arc sweeps the SHORT way
+ * between them — so it dimensions the angle you see between the picked edges
+ * (the acute/obtuse vee ≤ 180°, never its reflex). The stamped value is the
+ * model-true angle (measured server-side); the drawn sweep is the apparent 2D
+ * angle, which the `~` flag warns about when the edges are foreshortened.
+ */
+function placeAngular(
+  edgeA: ProjectedViewEdge,
+  edgeB: ProjectedViewEdge,
+  label: string,
+  foreshortened: boolean,
+  toSvg: (pt: V) => V,
+): DimensionAnnotation | null {
+  const a0 = fromPt(edgeA.start);
+  const a1 = fromPt(edgeA.end);
+  const b0 = fromPt(edgeB.start);
+  const b1 = fromPt(edgeB.end);
+  const apex = lineIntersection(a0, a1, b0, b1);
+  if (apex === null) return null;
+  // Ray directions point from the vertex toward each edge's midpoint.
+  const dirA = unit(sub(fromPt(edgeA.midpoint), apex));
+  const dirB = unit(sub(fromPt(edgeB.midpoint), apex));
+  if (hyp(dirA) < 1e-9 || hyp(dirB) < 1e-9) return null;
+
+  const startAng = Math.atan2(dirA.y, dirA.x);
+  const delta = signedAngleBetween(dirA, dirB); // short way, (-π, π]
+  if (Math.abs(delta) < 1e-6) return null; // collinear rays — nothing to sweep
+
+  const arcAt = (t: number): V => {
+    const ang = startAng + delta * t;
+    return add(apex, v(Math.cos(ang) * ARC_R, Math.sin(ang) * ARC_R));
+  };
+  const segments = Math.max(6, Math.ceil(Math.abs(delta) / (Math.PI / 24)));
+  const lines: DimLine[] = [];
+  for (let i = 0; i < segments; i += 1) {
+    lines.push(
+      svgLine(
+        arcAt(i / segments),
+        arcAt((i + 1) / segments),
+        "dimension",
+        toSvg,
+      ),
+    );
+  }
+  // Witness lines extend each side from the vertex out past the arc.
+  lines.push(
+    svgLine(
+      add(apex, mul(dirA, GAP)),
+      add(apex, mul(dirA, ARC_R + OVER)),
+      "extension",
+      toSvg,
+    ),
+  );
+  lines.push(
+    svgLine(
+      add(apex, mul(dirB, GAP)),
+      add(apex, mul(dirB, ARC_R + OVER)),
+      "extension",
+      toSvg,
+    ),
+  );
+
+  // Arrowheads at the arc ends, tangent to the arc (pointing along the sweep).
+  const tipA = arcAt(0);
+  const tipB = arcAt(1);
+  const arrows = [
+    arrowPoints(tipA, unit(sub(arcAt(0.01), tipA)), toSvg),
+    arrowPoints(tipB, unit(sub(arcAt(0.99), tipB)), toSvg),
+  ];
+  // Value stamped just outside the arc at its mid-sweep bearing.
+  const midAng = startAng + delta / 2;
+  const midDir = v(Math.cos(midAng), Math.sin(midAng));
+  const anchor = toSvg(add(apex, mul(midDir, ARC_R + TXT * 0.7 + 1.8)));
+  return {
+    kind: "measured",
+    lines,
+    arrows,
+    text: { x: anchor.x, y: anchor.y, angle: 0, label },
+    foreshortened,
+  };
+}
+
+/**
+ * Build the drafting annotation for one measured `dimension`, resolved against
+ * the view's projected `edges` and mapped through `toSvg`. `viewCenter`
+ * (projected mm) picks the conventional outboard side; `obstacles` (sibling
+ * views' SVG bounds) let a placement FLIP away from a neighbour in the third-
+ * angle gutter (frontend-QA P1), and `sheet` keeps it on paper. `view`/`scale`
+ * locate a point-to-point dimension's named model vertices (design §3.3).
+ * Returns null when the dimension cannot be placed (an unmatched/mismatched
+ * edge, parallel angular edges) — the caller lists it, never mis-draws.
  */
 export function buildDimensionAnnotation(args: {
-  type: DimensionParams["type"];
+  dimension: DimensionParams;
   measured: MeasuredDimension;
-  edge: ProjectedViewEdge;
+  edges: readonly ProjectedViewEdge[];
+  view: ViewProjection;
+  scale: ViewScale;
   viewCenter: Point2D;
   toSvg: (p: Point2D) => Point2D;
   /** Sibling views' SVG bounds a callout must not overlap (default none). */
@@ -303,15 +479,24 @@ export function buildDimensionAnnotation(args: {
   /** The sheet's mm extent, so a placement is nudged to stay on paper. */
   sheet?: { width: number; height: number };
 }): DimensionAnnotation | null {
-  const { type, measured, edge, viewCenter, toSvg } = args;
+  const { dimension, measured, edges, view, scale, viewCenter, toSvg } = args;
+  const type = dimension.type;
   const obstacles = args.obstacles ?? [];
   const sheet = args.sheet;
+  const scaleFactor = scale.numerator / scale.denominator;
 
-  // A typed measurement failure: mark the edge, never draw a wrong number.
+  // A representative sheet point for an error marker / mismatch fallback.
+  const primarySig = dimensionEdgeSignature(dimension);
+  const primaryEdge = primarySig ? findMatchingEdge(edges, primarySig) : null;
+  const markerAt = primaryEdge
+    ? toSvg(fromPt(primaryEdge.midpoint))
+    : toSvg(viewCenter);
+
+  // A typed measurement failure: mark the geometry, never draw a wrong number.
   if (measured.error || typeof measured.value !== "number") {
     return {
       kind: "error",
-      at: toSvg(fromPt(edge.midpoint)),
+      at: markerAt,
       code: measured.error?.code ?? "unmeasured",
     };
   }
@@ -321,60 +506,50 @@ export function buildDimensionAnnotation(args: {
     formatDimensionLabel(type, value, measured.unit);
 
   if (type === "linear") {
-    if (edge.primitive !== "line") return null;
-    const s = fromPt(edge.start);
-    const e = fromPt(edge.end);
-    const d = unit(sub(e, s));
-    if (hyp(d) < 1e-9) return null;
-    const mid = mul(add(s, e), 0.5);
-    const n0 = perp(d);
-    // The conventional outboard normal points AWAY from the view centre.
-    const away = dot(n0, sub(mid, viewCenter)) >= 0 ? n0 : neg(n0);
+    if (dimension.measurement.mode === "point_to_point") {
+      const ref = dimension.measurement;
+      const edgeA = findMatchingEdge(edges, ref.a.signature);
+      const edgeB = findMatchingEdge(edges, ref.b.signature);
+      if (!edgeA || !edgeB) return null;
+      const p = endpointProjected(edgeA, view, scaleFactor, ref.a.endpoint);
+      const q = endpointProjected(edgeB, view, scaleFactor, ref.b.endpoint);
+      if (!p || !q) return null;
+      return placeLinearBetween(
+        p,
+        q,
+        label,
+        measured.foreshortened,
+        viewCenter,
+        toSvg,
+        obstacles,
+        sheet,
+      );
+    }
+    const edge = primaryEdge;
+    if (!edge || edge.primitive !== "line") return null;
+    return placeLinearBetween(
+      fromPt(edge.start),
+      fromPt(edge.end),
+      label,
+      measured.foreshortened,
+      viewCenter,
+      toSvg,
+      obstacles,
+      sheet,
+    );
+  }
 
-    // Build the full annotation for a given offset normal.
-    const place = (n: V): MeasuredAnnotation => {
-      const dimA = add(s, mul(n, O));
-      const dimB = add(e, mul(n, O));
-      const lines: DimLine[] = [
-        // extension (witness) lines, from a small gap off the edge past the line
-        svgLine(
-          add(s, mul(n, GAP)),
-          add(s, mul(n, O + OVER)),
-          "extension",
-          toSvg,
-        ),
-        svgLine(
-          add(e, mul(n, GAP)),
-          add(e, mul(n, O + OVER)),
-          "extension",
-          toSvg,
-        ),
-        // the dimension line between them
-        svgLine(dimA, dimB, "dimension", toSvg),
-      ];
-      const arrows = [
-        arrowPoints(dimA, neg(d), toSvg),
-        arrowPoints(dimB, d, toSvg),
-      ];
-      const midDim = mul(add(dimA, dimB), 0.5);
-      const anchor = toSvg(add(midDim, mul(n, TXT * 0.5 + 0.6)));
-      const angle = uprightAngle(toSvg(dimA), toSvg(dimB));
-      return {
-        kind: "measured",
-        lines,
-        arrows,
-        text: { x: anchor.x, y: anchor.y, angle, label },
-        foreshortened: measured.foreshortened,
-      };
-    };
-
-    // Prefer the outboard side, but flip to the opposite side if it would land
-    // on a neighbouring view in the third-angle gutter (frontend-QA P1).
-    return chooseByPenalty(place(away), place(neg(away)), obstacles, sheet);
+  if (type === "angular") {
+    const edgeA = findMatchingEdge(edges, dimension.edge_a);
+    const edgeB = findMatchingEdge(edges, dimension.edge_b);
+    if (!edgeA || !edgeB) return null;
+    if (edgeA.primitive !== "line" || edgeB.primitive !== "line") return null;
+    return placeAngular(edgeA, edgeB, label, measured.foreshortened, toSvg);
   }
 
   if (type === "diameter" || type === "radius") {
-    if (!edge.center || typeof edge.radius !== "number") return null;
+    const edge = primaryEdge;
+    if (!edge || !edge.center || typeof edge.radius !== "number") return null;
     const c = fromPt(edge.center);
     const rad = edge.radius;
     if (type === "diameter") {
@@ -420,6 +595,5 @@ export function buildDimensionAnnotation(args: {
     };
   }
 
-  // angular / point-to-point linear: not placed in v1 (deferred to BACKLOG).
   return null;
 }

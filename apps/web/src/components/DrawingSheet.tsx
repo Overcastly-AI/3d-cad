@@ -27,12 +27,11 @@ import type {
   SheetResponse,
   ViewProjection,
   ViewResponse,
+  ViewScale,
 } from "../api/drawings";
 import {
   buildDimensionAnnotation,
-  dimensionEdgeSignature,
   edgeSignatureKey,
-  findMatchingEdge,
   type DimensionAnnotation,
 } from "../drawing/dimensions";
 import {
@@ -41,6 +40,7 @@ import {
   TITLE_BLOCK_MM,
   VIEW_LABEL,
   boundsAwareLayout,
+  endpointHandlesForEdge,
   formatScale,
   sheetDimensions,
   viewBounds,
@@ -48,6 +48,7 @@ import {
   viewToSvgEdges,
   viewTransform,
   type Anchor,
+  type Point2D,
   type SvgEdge,
   type SvgRect,
 } from "../drawing/layout";
@@ -65,12 +66,34 @@ export interface EdgePickEvent {
   clientY: number;
 }
 
+/** A pick on a straight edge's endpoint handle — the seed of a point-to-point
+ * dimension (design §3.3 names a vertex THROUGH an edge + a canonical end). */
+export interface EndpointPickEvent {
+  projection: ViewProjection;
+  viewId: string;
+  /** The MODEL edge whose endpoint this is. */
+  sourceEdge: EdgeSignature;
+  /** Which canonical end of that edge (end_a / end_b). */
+  endpoint: "end_a" | "end_b";
+  clientX: number;
+  clientY: number;
+}
+
 /** A stable key for a projected edge — `projection:signature`. */
 export function edgeKey(
   projection: ViewProjection,
   sig: EdgeSignature,
 ): string {
   return `${projection}:${edgeSignatureKey(sig)}`;
+}
+
+/** A stable key for an edge endpoint — `projection:signature:end_a|end_b`. */
+export function vertexKey(
+  projection: ViewProjection,
+  sig: EdgeSignature,
+  endpoint: "end_a" | "end_b",
+): string {
+  return `${edgeKey(projection, sig)}:${endpoint}`;
 }
 
 export interface DrawingSheetProps {
@@ -86,8 +109,14 @@ export interface DrawingSheetProps {
   measuredById?: Map<string, MeasuredDimension>;
   /** The currently-selected pickable edge (`edgeKey`), highlighted for authoring. */
   selectedEdgeKey?: string | null;
+  /** Keys (`edgeKey`) of edges armed in a multi-pick (angular's first edge). */
+  armedEdgeKeys?: readonly string[];
+  /** Keys (`vertexKey`) of endpoint handles selected in a point-to-point pick. */
+  selectedVertexKeys?: readonly string[];
   /** Fired when a dimensionable edge is picked (click or keyboard). */
   onPickEdge?: (event: EdgePickEvent) => void;
+  /** Fired when a straight edge's endpoint handle is picked (point-to-point). */
+  onPickEndpoint?: (event: EndpointPickEvent) => void;
   /** Handle on the root `<svg>` so the editor can serialize it to a file (#5). */
   svgRef?: Ref<SVGSVGElement>;
 }
@@ -294,6 +323,81 @@ function PickableEdge({
   );
 }
 
+/** One endpoint handle on a straight edge — the vertex pick for point-to-point. */
+function VertexHandle({
+  at,
+  projection,
+  viewId,
+  sourceEdge,
+  endpoint,
+  selected,
+  onPickEndpoint,
+}: {
+  at: Point2D;
+  projection: ViewProjection;
+  viewId: string;
+  sourceEdge: EdgeSignature;
+  endpoint: "end_a" | "end_b";
+  selected: boolean;
+  onPickEndpoint: (event: EndpointPickEvent) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const active = hover || focus || selected;
+  const half = drawing.vertexHandleMm;
+  const fire = (clientX: number, clientY: number) =>
+    onPickEndpoint({
+      projection,
+      viewId,
+      sourceEdge,
+      endpoint,
+      clientX,
+      clientY,
+    });
+  return (
+    <g
+      role="button"
+      tabIndex={0}
+      aria-label={`Dimension from this vertex in the ${VIEW_LABEL[projection]} view`}
+      data-testid="drawing-pick-vertex"
+      data-view={projection}
+      data-endpoint={endpoint}
+      data-selected={selected ? "true" : "false"}
+      style={{ cursor: "pointer", outline: "none" }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setFocus(true)}
+      onBlur={() => setFocus(false)}
+      onClick={(event) => fire(event.clientX, event.clientY)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          const rect = event.currentTarget.getBoundingClientRect();
+          fire(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        }
+      }}
+    >
+      {/* Generous transparent hit target over the small drawn square. */}
+      <rect
+        x={at.x - drawing.pickHitMm}
+        y={at.y - drawing.pickHitMm}
+        width={drawing.pickHitMm * 2}
+        height={drawing.pickHitMm * 2}
+        fill="transparent"
+      />
+      <rect
+        x={at.x - half}
+        y={at.y - half}
+        width={half * 2}
+        height={half * 2}
+        fill={active ? drawing.pickSelected : drawing.paper}
+        stroke={active ? drawing.pickSelected : drawing.vertexHandleRest}
+        strokeWidth={active ? 0.6 : 0.4}
+      />
+    </g>
+  );
+}
+
 /** A placed dimension — extension + dimension lines, arrowheads, value stamp. */
 function DimensionGlyph({
   annotation,
@@ -410,11 +514,15 @@ function SheetView({
   sheetHeight,
   result,
   viewId,
+  scale,
   dimensions,
   measuredById,
   selectedEdgeKey,
+  armedEdgeKeys,
+  selectedVertexKeys,
   obstacles,
   onPickEdge,
+  onPickEndpoint,
 }: {
   projection: ViewProjection;
   anchor: Anchor;
@@ -422,12 +530,16 @@ function SheetView({
   sheetHeight: number;
   result: DrawingViewResult | undefined;
   viewId: string | null;
+  scale: ViewScale;
   dimensions: readonly DimensionResponse[];
   measuredById: Map<string, MeasuredDimension> | undefined;
   selectedEdgeKey: string | null | undefined;
+  armedEdgeKeys: readonly string[];
+  selectedVertexKeys: readonly string[];
   /** Sibling views' SVG bounds a dimension on THIS view must not overlap. */
   obstacles: readonly SvgRect[];
   onPickEdge?: (event: EdgePickEvent) => void;
+  onPickEndpoint?: (event: EndpointPickEvent) => void;
 }) {
   const anchorSvgX = anchor.x;
   const anchorSvgY = sheetHeight - anchor.y;
@@ -435,6 +547,7 @@ function SheetView({
   const failed = Boolean(result?.error) || result === undefined;
   const bounds = viewBounds(edges);
   const svgEdges = viewToSvgEdges(edges, anchor, sheetHeight);
+  const scaleFactor = scale.numerator / scale.denominator;
   // Caption sits below the view's drawn extent (or a fixed drop when empty).
   const belowMm = bounds ? bounds.center.y - bounds.min.y : 0;
   const labelY = anchorSvgY + belowMm + 8;
@@ -448,16 +561,14 @@ function SheetView({
     annotation: DimensionAnnotation;
   }[] = [];
   for (const dim of dimensions) {
-    const sig = dimensionEdgeSignature(dim.dimension);
-    if (sig === null) continue;
-    const matched = findMatchingEdge(edges, sig);
-    if (matched === null) continue;
     const measured = measuredById?.get(dim.id);
     if (measured === undefined) continue;
     const annotation = buildDimensionAnnotation({
-      type: dim.dimension.type,
+      dimension: dim.dimension,
       measured,
-      edge: matched,
+      edges,
+      view: projection,
+      scale,
       viewCenter,
       toSvg,
       obstacles,
@@ -465,6 +576,34 @@ function SheetView({
     });
     if (annotation === null) continue;
     annotations.push({ id: dim.id, type: dim.dimension.type, annotation });
+  }
+
+  // Endpoint handles for every dimensionable straight edge (deduped by position
+  // so a shared corner is one handle, not a stack) — the point-to-point pick.
+  const vertexHandles: {
+    key: string;
+    at: Point2D;
+    sourceEdge: EdgeSignature;
+    endpoint: "end_a" | "end_b";
+  }[] = [];
+  if (onPickEndpoint && viewId !== null && !failed) {
+    const seen = new Set<string>();
+    for (const edge of edges) {
+      const handles = endpointHandlesForEdge(edge, projection, scaleFactor);
+      if (!handles || !edge.source_edge) continue;
+      for (const h of handles) {
+        const at = toSvg(h.projected);
+        const posKey = `${at.x.toFixed(2)},${at.y.toFixed(2)}`;
+        if (seen.has(posKey)) continue;
+        seen.add(posKey);
+        vertexHandles.push({
+          key: vertexKey(projection, edge.source_edge, h.endpoint),
+          at,
+          sourceEdge: edge.source_edge,
+          endpoint: h.endpoint,
+        });
+      }
+    }
   }
 
   return (
@@ -501,21 +640,25 @@ function SheetView({
         </g>
       ) : (
         <>
-          {svgEdges.map((edge, i) => (
-            <PickableEdge
-              key={i}
-              edge={edge}
-              projection={projection}
-              viewId={viewId}
-              selected={
-                selectedEdgeKey !== null &&
-                selectedEdgeKey !== undefined &&
-                edge.sourceEdge !== null &&
-                edgeKey(projection, edge.sourceEdge) === selectedEdgeKey
-              }
-              onPickEdge={onPickEdge}
-            />
-          ))}
+          {svgEdges.map((edge, i) => {
+            const key =
+              edge.sourceEdge !== null
+                ? edgeKey(projection, edge.sourceEdge)
+                : null;
+            return (
+              <PickableEdge
+                key={i}
+                edge={edge}
+                projection={projection}
+                viewId={viewId}
+                selected={
+                  key !== null &&
+                  (key === selectedEdgeKey || armedEdgeKeys.includes(key))
+                }
+                onPickEdge={onPickEdge}
+              />
+            );
+          })}
           {annotations.map((a) => (
             <DimensionGlyph
               key={a.id}
@@ -524,6 +667,20 @@ function SheetView({
               dimensionId={a.id}
             />
           ))}
+          {onPickEndpoint && viewId !== null
+            ? vertexHandles.map((h) => (
+                <VertexHandle
+                  key={h.key}
+                  at={h.at}
+                  projection={projection}
+                  viewId={viewId}
+                  sourceEdge={h.sourceEdge}
+                  endpoint={h.endpoint}
+                  selected={selectedVertexKeys.includes(h.key)}
+                  onPickEndpoint={onPickEndpoint}
+                />
+              ))
+            : null}
         </>
       )}
       <text
@@ -625,9 +782,16 @@ export function DrawingSheet({
   dimensionsByView,
   measuredById,
   selectedEdgeKey,
+  armedEdgeKeys,
+  selectedVertexKeys,
   onPickEdge,
+  onPickEndpoint,
   svgRef,
 }: DrawingSheetProps) {
+  const sheetScale: ViewScale = views[0]?.scale ?? {
+    numerator: 1,
+    denominator: 1,
+  };
   const dims = sheetDimensions(sheet.size, sheet.orientation);
   // Space the views by their own projected extents so they never overlap for a
   // part larger than the demo plate (fixed sheet fractions did — code review).
@@ -708,13 +872,17 @@ export function DrawingSheet({
           sheetHeight={dims.height}
           result={resultByProjection.get(projection)}
           viewId={viewIdByProjection.get(projection) ?? null}
+          scale={sheetScale}
           dimensions={dimensionsByView?.get(projection) ?? []}
           measuredById={measuredById}
           selectedEdgeKey={selectedEdgeKey}
+          armedEdgeKeys={armedEdgeKeys ?? []}
+          selectedVertexKeys={selectedVertexKeys ?? []}
           obstacles={[...svgRectByProjection]
             .filter(([p]) => p !== projection)
             .map(([, rect]) => rect)}
           onPickEdge={onPickEdge}
+          onPickEndpoint={onPickEndpoint}
         />
       ))}
       <TitleBlock

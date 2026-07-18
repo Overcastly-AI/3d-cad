@@ -39,8 +39,8 @@ duplication:
   export), every stage independently reviewed/QA'd, e2e-proven live. Honest
   residuals, not gating the ➖: no server-composed export (PDF/DXF/byte-
   stable stored artifact), no assembly drawings, no section/detail/auxiliary
-  views, angular + point-to-point dimension authoring unbuilt (backend
-  supports both), no GD&T/auto-dimensioning. See VISION.md row for the full
+  views, no GD&T/auto-dimensioning. (Angular + point-to-point authoring shipped
+  #6c 2026-07-18, closing that residual.) See VISION.md row for the full
   evidence chain.
 - **Sheet metal — new ❌ row this pass (founder ask 2026-07-17: "anything for
   sheet metal?").** Scoped, not built: `docs/design/sheet-metal.md` names
@@ -309,11 +309,22 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       an always-visible (keyboard-reachable) legend. 🟢 `shadow-float` token in the
       author menu. Refreshed founder shots; `just lint` + web unit (562) + drawings
       e2e green. [src: docs/UI-REVIEW.md 2026-07-17]
-- [ ] (P2, S) Drawings — dimension authoring: angular (two straight edges) +
-      point-to-point linear (edge-endpoint refs), and manual drag-to-place of the
-      dimension line (v1 auto-places at a fixed offset). The measurement backend
-      already supports all four types (#6); this is the authoring/placement UI.
-      [src: design/drawings.md §3.1/§3.3, deferred from #6b]
+- [x] (P2, S) Drawings v1 #6c — angular + point-to-point dimension authoring
+      (apps/web) — **DONE 2026-07-18.** Single-edge menu adds **Angle** → arms a
+      second-edge pick → **Angular** authored as an arc annotation (apex at the
+      apparent intersection, short-way sweep through the enclosed region, tangent
+      arrowheads, model-true degree value); straight edges gain **vertex handles**
+      whose pair authors a **point-to-point linear** (witness lines from each named
+      model vertex, model-true distance). `drawing/authoring.ts` pick state machine +
+      `placeAngular`/`placeLinearBetween` in `dimensions.ts` + `projectModelPoint`
+      (frontend twin of the §1.2 view-frame table, recovers the endpoint
+      correspondence the wire format canonicalises away). New `dimensionArcRadiusMm`
+      + `vertexHandle*` tokens; +23 unit tests; e2e authors a 90.0° angular + a
+      point-to-point linear against the real stack. [src: design/drawings.md
+      §3.1/§3.3; closes the named residual]
+- [ ] (P3, S) Drawings — manual drag-to-place of the dimension line (v1
+      auto-places at a fixed offset, flipping off occupied sides). [src:
+      design/drawings.md §3.1, deferred from #6c]
 - [ ] (P3, S) Drawings — pickable-edge discoverability at rest. Dimensionable
       edges only reveal their pickability on hover/focus; at 0 dimensions the sheet
       looks identical to the read-only editor. Add a quiet resting cue (one-time
@@ -875,6 +886,13 @@ Older entries live in `CHANGELOG.md`.
   standalone, self-contained `.svg` download. ARCH: v1 ships client-side (reuse
   the shipped renderer); server-composed PDF/DXF + deterministic stored artifacts
   deferred (drawings.md §4.1a). e2e + 3 unit tests; `just lint` green.
+- 2026-07-18 — **Drawings v1 #6c (angular + point-to-point authoring) done:**
+  single-edge menu adds Angle → arms a 2nd-edge pick → Angular arc annotation
+  (apex/short-way sweep/tangent arrows/model-true °); vertex handles pair →
+  point-to-point linear (witness lines from each named vertex, model-true
+  distance). `authoring.ts` pick machine + `placeAngular`/`placeLinearBetween` +
+  `projectModelPoint`; new arc/vertex tokens; +23 unit tests; e2e authors 90.0°
+  + a point-to-point real stack. Closes the named residual.
 - 2026-07-17 — **Drawings v1 #6b review fixes:** diameter value now clear of the
   circle (halo no longer masks the arc — hole reads whole); gutter-aware
   placement (sibling bounds + wider `VIEW_GUTTER_MM`) so `40.000` clears the

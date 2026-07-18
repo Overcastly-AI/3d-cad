@@ -280,6 +280,18 @@ export const drawing = {
   dimensionOffsetMm: 11,
   /** Stamped value text height (mm) — sibling of the title-block value stamp. */
   dimensionTextMm: 3.2,
+  /** Radius (mm) of an angular dimension's arc, swept apex→out between the two
+   * edges. Sized to clear the vertex yet read as a distinct annotation layer. */
+  dimensionArcRadiusMm: 13,
+
+  // --- Vertex handles — the endpoint pick affordance for point-to-point. ---
+  // A point-to-point dimension names two edge ENDPOINTS (design §3.3), so a
+  // straight edge's ends get small square handles: precise vertex picking, the
+  // CAD idiom, in the same blueprint-blue pick ink as an edge.
+  /** Half-side (mm) of a vertex handle square on the sheet. */
+  vertexHandleMm: 1.5,
+  /** Vertex handle ink at rest — the quiet gauge graphite (recedes until used). */
+  vertexHandleRest: "#6E7A88",
 
   // --- Pick affordance — dimensionable edges are interactive. ---
   // A blueprint blue: the one accent on the graphite sheet, grounded in the

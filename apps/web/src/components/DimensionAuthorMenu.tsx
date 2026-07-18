@@ -1,84 +1,77 @@
 /**
- * The dimension author menu — a small popover that opens by a picked edge and
- * offers only the dimension types VALID for it (a circle → diameter / radius; a
- * straight edge → linear), so an impossible combo (a diameter on a line) is
- * never presented. Keyboard-first: the first choice is auto-focused, arrows and
- * Escape work, so a dimension can be authored without leaving the keyboard.
- * Chrome recedes — a quiet anvil card with hairline rules, the shop idiom.
+ * The dimension author menu — a small popover that opens by a picked target and
+ * offers only the dimension types VALID for it: a circle → diameter / radius, a
+ * straight edge → linear (plus "Angle", which arms a second-edge pick), two
+ * straight edges → angular, two endpoints → point to point. An impossible combo
+ * (a diameter on a line) is never presented. Keyboard-first: the first choice
+ * auto-focuses, arrows and Escape work, so a dimension is authored without
+ * leaving the keyboard. Chrome recedes — a quiet anvil card with hairline
+ * rules, the shop idiom.
  */
 import { useEffect, useRef } from "react";
 
-import { CircleIcon, DistanceIcon, RadiusIcon } from "@loft/design";
+import { AngleIcon, CircleIcon, DistanceIcon, RadiusIcon } from "@loft/design";
 
-import type { ProjectedViewEdge } from "../api/drawings";
-
-/** The dimension types v1 can author (angular deferred — BACKLOG). */
-export type AuthorableType = "linear" | "diameter" | "radius";
+import type { DimensionAction } from "../drawing/authoring";
 
 export interface DimensionAuthorMenuProps {
-  /** The picked edge's projected primitive — gates the offered types. */
-  primitive: ProjectedViewEdge["primitive"];
+  /** The type actions valid for the current pick (from `menuActions`). */
+  actions: readonly DimensionAction[];
   /** Popover anchor (viewport px). */
   x: number;
   y: number;
   busy: boolean;
-  onChoose: (type: AuthorableType) => void;
+  onChoose: (action: DimensionAction) => void;
   onClose: () => void;
 }
 
 interface Choice {
-  type: AuthorableType;
   label: string;
   hint: string;
   icon: React.ReactNode;
 }
 
-/** The valid dimension types for a projected primitive (design §3.1). */
-export function authorableTypes(
-  primitive: ProjectedViewEdge["primitive"],
-): AuthorableType[] {
-  switch (primitive) {
-    case "circle":
-      return ["diameter", "radius"];
-    case "arc":
-      return ["radius"];
-    case "line":
-      return ["linear"];
-    default:
-      return [];
-  }
-}
-
-const CHOICES: Record<AuthorableType, Choice> = {
+const CHOICES: Record<DimensionAction, Choice> = {
   diameter: {
-    type: "diameter",
     label: "Diameter",
     hint: "Ø",
     icon: <CircleIcon size={14} />,
   },
   radius: {
-    type: "radius",
     label: "Radius",
     hint: "R",
     icon: <RadiusIcon size={14} />,
   },
   linear: {
-    type: "linear",
     label: "Linear",
+    hint: "↔",
+    icon: <DistanceIcon size={14} />,
+  },
+  start_angular: {
+    label: "Angle",
+    hint: "pick 2nd edge",
+    icon: <AngleIcon size={14} />,
+  },
+  angular: {
+    label: "Angular",
+    hint: "°",
+    icon: <AngleIcon size={14} />,
+  },
+  point_to_point: {
+    label: "Point to point",
     hint: "↔",
     icon: <DistanceIcon size={14} />,
   },
 };
 
 export function DimensionAuthorMenu({
-  primitive,
+  actions,
   x,
   y,
   busy,
   onChoose,
   onClose,
 }: DimensionAuthorMenuProps) {
-  const types = authorableTypes(primitive);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   // Auto-focus the first choice — the keyboard path authors without a mouse.
@@ -87,12 +80,12 @@ export function DimensionAuthorMenu({
   }, []);
 
   const focusAt = (index: number) => {
-    const count = types.length;
+    const count = actions.length;
     if (count === 0) return;
     itemRefs.current[((index % count) + count) % count]?.focus();
   };
 
-  if (types.length === 0) return null;
+  if (actions.length === 0) return null;
 
   return (
     <div
@@ -120,20 +113,20 @@ export function DimensionAuthorMenu({
       <div className="border-b border-hairline px-3 pb-1.5 pt-1 font-display text-2xs uppercase tracking-[0.16em] text-gauge">
         Add dimension
       </div>
-      {types.map((type, index) => {
-        const choice = CHOICES[type];
+      {actions.map((action, index) => {
+        const choice = CHOICES[action];
         return (
           <button
-            key={type}
+            key={action}
             ref={(el) => {
               itemRefs.current[index] = el;
             }}
             type="button"
             role="menuitem"
             disabled={busy}
-            data-testid={`dimension-type-${type}`}
+            data-testid={`dimension-type-${action}`}
             className="flex w-full select-none items-center gap-2.5 px-3 py-1.5 text-left text-mist transition-colors duration-fast hover:bg-carbide focus-visible:bg-carbide focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
-            onClick={() => onChoose(type)}
+            onClick={() => onChoose(action)}
           >
             <span className="flex w-4 shrink-0 items-center justify-center text-gauge">
               {choice.icon}

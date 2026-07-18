@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  DimensionParams,
   EdgeSignature,
   MeasuredDimension,
   ProjectedViewEdge,
+  ViewProjection,
+  ViewScale,
 } from "../api/drawings";
 import {
   buildDimensionAnnotation,
@@ -27,13 +30,23 @@ const circleSig = (): EdgeSignature => ({
   subshape_type: "edge",
 });
 
-/** A straight-edge signature (the 40 mm bottom edge). */
+/** The straight 40 mm bottom edge (end_a (0,0,0) → end_b (40,0,0)). */
 const lineSig = (): EdgeSignature => ({
   curve: "line",
   end_a: vec(0, 0, 0),
   end_b: vec(40, 0, 0),
   midpoint: vec(20, 0, 0),
   length_mm: 40,
+  subshape_type: "edge",
+});
+
+/** The straight 25 mm left edge (end_a (0,0,0) → end_b (0,25,0)). */
+const vertSig = (): EdgeSignature => ({
+  curve: "line",
+  end_a: vec(0, 0, 0),
+  end_b: vec(0, 25, 0),
+  midpoint: vec(0, 12.5, 0),
+  length_mm: 25,
   subshape_type: "edge",
 });
 
@@ -45,6 +58,16 @@ const projectedLine = (): ProjectedViewEdge => ({
   midpoint: { x_mm: 20, y_mm: 0 },
   dimensionable: true,
   source_edge: lineSig(),
+});
+
+const projectedVert = (): ProjectedViewEdge => ({
+  primitive: "line",
+  visible: true,
+  start: { x_mm: 0, y_mm: 0 },
+  end: { x_mm: 0, y_mm: 25 },
+  midpoint: { x_mm: 0, y_mm: 12.5 },
+  dimensionable: true,
+  source_edge: vertSig(),
 });
 
 const projectedCircle = (): ProjectedViewEdge => ({
@@ -62,11 +85,34 @@ const projectedCircle = (): ProjectedViewEdge => ({
 /** Identity transform — tests annotation geometry in projected mm directly. */
 const identity = (p: Point2D): Point2D => p;
 
+const ONE_TO_ONE: ViewScale = { numerator: 1, denominator: 1 };
+
 const ok = (
   value: number,
   unit: "mm" | "deg",
   foreshortened = false,
 ): MeasuredDimension => ({ value, unit, foreshortened });
+
+/** Call the builder with the shared defaults (top view, 1:1, identity map). */
+function build(args: {
+  dimension: DimensionParams;
+  measured: MeasuredDimension;
+  edges: ProjectedViewEdge[];
+  view?: ViewProjection;
+  viewCenter?: Point2D;
+  obstacles?: { minX: number; minY: number; maxX: number; maxY: number }[];
+}) {
+  return buildDimensionAnnotation({
+    dimension: args.dimension,
+    measured: args.measured,
+    edges: args.edges,
+    view: args.view ?? "top",
+    scale: ONE_TO_ONE,
+    viewCenter: args.viewCenter ?? { x: 20, y: 12.5 },
+    toSvg: identity,
+    obstacles: args.obstacles,
+  });
+}
 
 describe("formatDimensionLabel", () => {
   it("prefixes each type and formats to a sensible precision", () => {
@@ -107,17 +153,34 @@ describe("dimensionEdgeSignature", () => {
         measurement: { mode: "edge_length", edge: lineSig() },
       })?.curve,
     ).toBe("line");
+    // A point-to-point linear points at its first endpoint's edge.
+    expect(
+      dimensionEdgeSignature({
+        type: "linear",
+        measurement: {
+          mode: "point_to_point",
+          a: { signature: lineSig(), endpoint: "end_b" },
+          b: { signature: vertSig(), endpoint: "end_b" },
+        },
+      })?.curve,
+    ).toBe("line");
+    // An angular points at its first edge.
+    expect(
+      dimensionEdgeSignature({
+        type: "angular",
+        edge_a: lineSig(),
+        edge_b: vertSig(),
+      })?.length_mm,
+    ).toBe(40);
   });
 });
 
 describe("buildDimensionAnnotation", () => {
   it("draws a diameter across the circle with two arrowheads and an Ø label", () => {
-    const a = buildDimensionAnnotation({
-      type: "diameter",
+    const a = build({
+      dimension: { type: "diameter", edge: circleSig() },
       measured: ok(10, "mm"),
-      edge: projectedCircle(),
-      viewCenter: { x: 20, y: 12.5 },
-      toSvg: identity,
+      edges: [projectedCircle()],
     });
     expect(a?.kind).toBe("measured");
     if (a?.kind !== "measured") return;
@@ -129,13 +192,14 @@ describe("buildDimensionAnnotation", () => {
     expect(a.lines[0]?.x2).toBeCloseTo(25);
   });
 
-  it("draws a linear dimension: two witness lines, one dimension line, two arrows", () => {
-    const a = buildDimensionAnnotation({
-      type: "linear",
+  it("draws a linear edge-length: two witness lines, one dimension line, two arrows", () => {
+    const a = build({
+      dimension: {
+        type: "linear",
+        measurement: { mode: "edge_length", edge: lineSig() },
+      },
       measured: ok(40, "mm"),
-      edge: projectedLine(),
-      viewCenter: { x: 20, y: 12.5 }, // above the edge → offsets below
-      toSvg: identity,
+      edges: [projectedLine()],
     });
     expect(a?.kind).toBe("measured");
     if (a?.kind !== "measured") return;
@@ -150,12 +214,10 @@ describe("buildDimensionAnnotation", () => {
   });
 
   it("stamps the diameter value CLEAR of the circle (halo never masks the arc)", () => {
-    const a = buildDimensionAnnotation({
-      type: "diameter",
+    const a = build({
+      dimension: { type: "diameter", edge: circleSig() },
       measured: ok(10, "mm"),
-      edge: projectedCircle(), // centre (20, 12.5), radius 5
-      viewCenter: { x: 20, y: 12.5 },
-      toSvg: identity,
+      edges: [projectedCircle()],
     });
     if (a?.kind !== "measured") throw new Error("expected a measured diameter");
     // The value sits beyond the arc (|x - cx| > radius), so its opaque paper
@@ -164,18 +226,16 @@ describe("buildDimensionAnnotation", () => {
   });
 
   it("flips a linear dimension away from a neighbouring view it would overlap", () => {
-    // viewCenter above the edge → the conventional outboard side is BELOW (y<0).
-    const common = {
-      type: "linear" as const,
-      measured: ok(40, "mm"),
-      edge: projectedLine(),
-      viewCenter: { x: 20, y: 12.5 },
-      toSvg: identity,
+    const dimension: DimensionParams = {
+      type: "linear",
+      measurement: { mode: "edge_length", edge: lineSig() },
     };
-    // A sibling view occupying the space just below the edge (the gutter).
+    // viewCenter above the edge → the conventional outboard side is BELOW (y<0).
     const obstacle = { minX: -50, minY: -30, maxX: 90, maxY: -1 };
-    const flipped = buildDimensionAnnotation({
-      ...common,
+    const flipped = build({
+      dimension,
+      measured: ok(40, "mm"),
+      edges: [projectedLine()],
       obstacles: [obstacle],
     });
     if (flipped?.kind !== "measured") throw new Error("expected measured");
@@ -183,7 +243,11 @@ describe("buildDimensionAnnotation", () => {
     // With the outboard side blocked, the dimension line flips ABOVE (y>0).
     expect(dim?.y1).toBeGreaterThan(0);
     // …and with no obstacle it keeps the conventional outboard (below) side.
-    const normal = buildDimensionAnnotation(common);
+    const normal = build({
+      dimension,
+      measured: ok(40, "mm"),
+      edges: [projectedLine()],
+    });
     if (normal?.kind !== "measured") throw new Error("expected measured");
     expect(normal.lines.find((l) => l.role === "dimension")?.y1).toBeLessThan(
       0,
@@ -191,12 +255,10 @@ describe("buildDimensionAnnotation", () => {
   });
 
   it("flags a foreshortened dimension with a ~ marker", () => {
-    const a = buildDimensionAnnotation({
-      type: "diameter",
+    const a = build({
+      dimension: { type: "diameter", edge: circleSig() },
       measured: ok(10, "mm", true),
-      edge: projectedCircle(),
-      viewCenter: { x: 20, y: 12.5 },
-      toSvg: identity,
+      edges: [projectedCircle()],
     });
     expect(a?.kind).toBe("measured");
     if (a?.kind !== "measured") return;
@@ -205,28 +267,115 @@ describe("buildDimensionAnnotation", () => {
   });
 
   it("renders a measurement error as an honest marker, never a value", () => {
-    const a = buildDimensionAnnotation({
-      type: "diameter",
+    const a = build({
+      dimension: { type: "diameter", edge: circleSig() },
       measured: {
         foreshortened: false,
         error: { code: "subshape_unresolved", message: "gone" },
       },
-      edge: projectedCircle(),
-      viewCenter: { x: 20, y: 12.5 },
-      toSvg: identity,
+      edges: [projectedCircle()],
     });
     expect(a?.kind).toBe("error");
     if (a?.kind !== "error") return;
     expect(a.code).toBe("subshape_unresolved");
   });
 
-  it("does not place an angular dimension in v1 (returns null)", () => {
-    const a = buildDimensionAnnotation({
-      type: "angular",
+  // --- angular: an arc swept between two straight edges (was null in v1) ------
+  it("places an angular dimension as an arc between two edges with the degree value", () => {
+    const a = build({
+      dimension: { type: "angular", edge_a: lineSig(), edge_b: vertSig() },
       measured: ok(90, "deg"),
-      edge: projectedLine(),
-      viewCenter: { x: 20, y: 12.5 },
-      toSvg: identity,
+      edges: [projectedLine(), projectedVert()],
+    });
+    expect(a?.kind).toBe("measured");
+    if (a?.kind !== "measured") return;
+    expect(a.text.label).toBe("90.0°");
+    // Two arrowheads at the arc ends.
+    expect(a.arrows).toHaveLength(2);
+    // A sampled arc (many dimension segments) plus the two witness lines.
+    const dims = a.lines.filter((l) => l.role === "dimension");
+    const ext = a.lines.filter((l) => l.role === "extension");
+    expect(dims.length).toBeGreaterThan(3);
+    expect(ext).toHaveLength(2);
+    // The arc points lie at the drafting radius (13 mm) from the shared vertex
+    // (0,0) — every sampled point ~13 mm out.
+    for (const l of dims) {
+      expect(Math.hypot(l.x1, l.y1)).toBeCloseTo(13, 4);
+    }
+  });
+
+  it("returns null for an angular between parallel edges (no apparent vertex)", () => {
+    const parallel: ProjectedViewEdge = {
+      primitive: "line",
+      visible: true,
+      start: { x_mm: 0, y_mm: 10 },
+      end: { x_mm: 40, y_mm: 10 },
+      midpoint: { x_mm: 20, y_mm: 10 },
+      dimensionable: true,
+      source_edge: {
+        curve: "line",
+        end_a: vec(0, 10, 0),
+        end_b: vec(40, 10, 0),
+        midpoint: vec(20, 10, 0),
+        length_mm: 40,
+        subshape_type: "edge",
+      },
+    };
+    const a = build({
+      dimension: {
+        type: "angular",
+        edge_a: lineSig(),
+        edge_b: parallel.source_edge as EdgeSignature,
+      },
+      measured: ok(0, "deg"),
+      edges: [projectedLine(), parallel],
+    });
+    expect(a).toBeNull();
+  });
+
+  // --- point-to-point linear: a distance between two named vertices (was null) -
+  it("places a point-to-point linear between two projected endpoints", () => {
+    const a = build({
+      dimension: {
+        type: "linear",
+        measurement: {
+          mode: "point_to_point",
+          a: { signature: lineSig(), endpoint: "end_b" }, // (40,0,0) → (40,0)
+          b: { signature: vertSig(), endpoint: "end_b" }, // (0,25,0) → (0,25)
+        },
+      },
+      // sqrt(40^2 + 25^2) = 47.16990566…
+      measured: ok(47.16990566, "mm"),
+      edges: [projectedLine(), projectedVert()],
+    });
+    expect(a?.kind).toBe("measured");
+    if (a?.kind !== "measured") return;
+    expect(a.text.label).toBe("47.170");
+    expect(a.arrows).toHaveLength(2);
+    expect(a.lines.filter((l) => l.role === "extension")).toHaveLength(2);
+    expect(a.lines.filter((l) => l.role === "dimension")).toHaveLength(1);
+    // The dimension line runs (offset) between the two projected corners
+    // (40,0) and (0,25): its span matches the point-to-point distance.
+    const dim = a.lines.find((l) => l.role === "dimension");
+    if (!dim) throw new Error("expected a dimension line");
+    expect(Math.hypot(dim.x2 - dim.x1, dim.y2 - dim.y1)).toBeCloseTo(
+      Math.hypot(40, 25),
+      4,
+    );
+  });
+
+  it("returns null for a point-to-point whose second edge is absent from the view", () => {
+    const a = build({
+      dimension: {
+        type: "linear",
+        measurement: {
+          mode: "point_to_point",
+          a: { signature: lineSig(), endpoint: "end_b" },
+          b: { signature: vertSig(), endpoint: "end_b" },
+        },
+      },
+      measured: ok(47.16990566, "mm"),
+      edges: [projectedLine()], // vertSig edge not present
     });
     expect(a).toBeNull();
   });
