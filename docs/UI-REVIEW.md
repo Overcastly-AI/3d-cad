@@ -1061,3 +1061,89 @@ undo to focused text fields; buttons are wired to real server `can_undo`/
   while a step restores).
 - **Deferred as agreed:** the band-wide `aria-hidden` tooltip SR gap →
   BACKLOG (an `aria-describedby` hook on the ToolButton primitive).
+
+---
+
+## 2026-07-18 — Spot-check: angular + point-to-point dimension authoring — commit `981c42f`
+
+Static/token + a11y/UX review (live stack unbootable in sandbox — Docker
+registry 403 per CLAUDE.md; render-level checks flagged CI-deferred). Scope:
+`VertexHandle` + `vertexHandleMm`/`vertexHandleRest` tokens, the staged
+multi-pick flow (hint pill + gated backdrop) in `DrawingPage`, the action-driven
+`DimensionAuthorMenu`, and the angular / point-to-point rendered annotations.
+
+### PASS
+
+- **`DimensionAuthorMenu`** (`apps/web/src/components/DimensionAuthorMenu.tsx`)
+  — clean refactor edge-type→action-driven; same anvil card, hairline rules,
+  brass `focus-visible`, `disabled` while busy, auto-focus first item, per-action
+  `data-testid`. Voice consistent (`Angle` hint `pick 2nd edge` is honest about
+  arming a second pick; `°` / `↔` hints match the existing Ø/R idiom). Empty
+  action list returns null — no orphan menu. No inline hex.
+- **Staged flow** (`DrawingPage.tsx`) — genuinely non-modal as claimed: the
+  `fixed inset-0` backdrop renders ONLY for a menu state (`anchor && actions>0`),
+  never while a second pick is pending, so the sheet stays live for the second
+  pick. Cancel is real and reachable: Escape is handled first in the global
+  keydown (before the typing-target/modifier guards) so it always resets to
+  `IDLE`, and it is not swallowed by `VertexHandle`/`PickableEdge` (those
+  preventDefault only Enter/Space). Hint pill is `role="status"` (announced),
+  `pointer-events-none` (never blocks a pick), eyebrow styling on tokens
+  (`border-brass/60 bg-anvil text-brass font-display text-2xs`), carries an
+  explicit `Esc to cancel`. Microcopy matches the app's terse voice.
+- **Angular + point-to-point annotations** (`dimensions.ts`) — reuse the shared
+  drafting primitives (`placeLinearBetween` factored out for both edge-length and
+  p2p; `arrowPoints`, `extension`/`dimension` weights, the paper halo, the
+  obstacle/sheet flip). Degree stamp is tight `${n}°` (1 dp) — matches the
+  resolved app-wide symbol-suffix convention and does NOT reintroduce the earlier
+  `MeasureReadout` `m`→`M` SI collision (angular uses the `°` glyph, linear stays
+  bare). `~` foreshorten flag prepended in `dimensionFlag` ink, identical to the
+  linear treatment; angular's `<title>` and the "stamped value is model-true, the
+  drawn sweep is apparent" honesty is preserved. Unplaceable cases (unmatched
+  edge, parallel angular edges, coincident p2p points) return null and list
+  honestly rather than mis-draw. Render-geometry correctness (arc sweep side,
+  arrow tangents) is CI/e2e-deferred and owned by code-review/geometry-qa.
+
+### Findings
+
+- **P2 — `DrawingSheet` `VertexHandle` — focus is NOT distinct from hover
+  (WCAG 2.4.7 regression vs. its sibling primitive).** The handle collapses
+  `const active = hover || focus || selected` and renders all three identically
+  (fill→`pickSelected`, stroke 0.6). The sibling `PickableEdge`/`EdgeShape` was
+  *explicitly* fixed for exactly this (2026-07-17 pass): hover recolors, focus
+  adds a distinct deep-blue RING (`drawing.pickFocusRingMm`) — a shape cue, not
+  colour-only. The new handle didn't inherit that seam.
+  *System fix:* give `VertexHandle` the same focus treatment as `EdgeShape`
+  (a `pickFocusRingMm` ring around the square on `focus`), so keyboard focus
+  reads differently from mouse hover. `docs/screenshots` CI-deferred.
+- **P2 — `DrawingSheet` — vertex handles render PERSISTENTLY on every
+  straight-edge endpoint, adding non-geometry marks + a tab stop per corner to
+  the hero blueprint.** `DrawingPage` always passes `onPickEndpoint`, and
+  `SheetView` draws a handle for every dimensionable straight edge's ends
+  whenever it is set — there is no authoring-mode / hover gate. Consequences vs.
+  mandate 3 ("chrome recedes; the model gets the pixels") and 3a (benchmark
+  Fusion/Plasticity, where vertex snaps appear on hover/proximity, not as
+  permanent stamps): (a) a dense multi-view drawing gains dozens of small squares
+  that are not geometry; (b) every corner becomes a keyboard tab stop *in
+  addition to* every edge — this compounds the already-filed "tab-stop-at-scale"
+  P3 (BACKLOG, 2026-07-17) rather than respecting it. `PickableEdge` adds no
+  at-rest mark (it decorates the existing geometry edge on hover only); the
+  handle is the first primitive to add persistent chrome to the sheet.
+  *System fix:* reveal endpoint handles contextually — on edge hover/focus, or
+  behind a "point-to-point" authoring affordance — instead of stamping all
+  corners at all times; keep them out of the tab order until revealed.
+- **P3 — `packages/design/src/tokens.ts` — `vertexHandleRest` duplicates a hex
+  literal and the comment mislabels it.** `vertexHandleRest: "#6E7A88"` restates
+  the exact literal of `edgeHidden: "#6E7A88"` in the same `drawing` object
+  instead of aliasing it — the "no hex duplicated" DRY rule applies inside the
+  token source too. The comment calls it "the quiet gauge graphite," but `gauge`
+  is `#9DAABA`; the value is `edgeHidden`. *System fix:* `vertexHandleRest:
+  drawing.edgeHidden` (or a shared `graphiteMuted` constant) + correct the
+  comment.
+
+### Component checklist (delta)
+
+- `DimensionAuthorMenu` (action-driven) ✅ — type-gated, keyboard-first, honest hints, AA
+- `DrawingSheet` staged multi-pick flow ✅ — non-modal, `role=status` hint, Esc cancels
+- `DrawingSheet` `VertexHandle` 🔴 — P2 focus==hover==selected + P2 persistent clutter/tab-stops
+- `dimensions.ts` angular + point-to-point placement ✅ — shared primitives, tight `°`, `~` parity (render CI-deferred)
+- `vertexHandle*` tokens 🟡 — P3 hex dup of `edgeHidden` + mislabeled comment
