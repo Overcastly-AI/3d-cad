@@ -591,6 +591,19 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       the drawings HLR goldens unchanged, `just lint`/pyright/`gen-check` green.
       **Client still renders its own placement until DE-1c (time-boxed two-engine
       window, by design).**
+      **Drawing export DE-2a — reportlab PDF serializer (geometry) SHIPPED**
+      (2026-07-18): the shop deliverable. `serialize_pdf(ComposedSheet) -> bytes`
+      draws the SAME placed primitives onto a reportlab canvas (BSD-3; base-14
+      Courier, no embedding); the ONE y-flip is the canvas mode `bottomup=0`
+      (top-left y-down, matching `ComposedSheet`), so the placement math is
+      untouched. Deterministic (§8.3): `invariant=1` pins `/CreationDate`/`/ModDate`/
+      `/ID`/`/Producer` (no version stamp) + `pageCompression=0` avoids zlib-version
+      bytes → byte-identical in-process AND across a fresh interpreter. Endpoint
+      `POST /api/v1/drawing/compose?format=pdf` wired (`application/pdf` +
+      `Content-Disposition`); `dxf` stays typed `not_implemented` until DE-3.
+      Byte-stability PDF golden + structural + endpoint gates green; reportlab
+      pinned in the geometry deps. **Gateway export route (DE-2b) + frontend
+      "Export PDF" (DE-2c) follow.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)

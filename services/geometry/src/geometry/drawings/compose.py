@@ -23,8 +23,17 @@ restart. Coordinates are emitted through a fixed-decimal formatter (the STEP /
 canonical-edge byte-determinism posture).
 """
 
+# reportlab ships py.typed but its canvas/colour APIs are only partially annotated,
+# so pyright reports Unknown types for `Canvas` method calls + `HexColor` results in
+# the PDF serializer below (the repo idiom for an untyped boundary — see
+# kernel/edges.py, kernel/faces.py). Scoped to the two reports reportlab triggers;
+# the placement math above uses only typed py-kit models + stdlib, so its strict
+# checking (reportArgumentType / reportCallIssue / …) is unaffected.
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false
+
 from __future__ import annotations
 
+import io
 import math
 from collections.abc import Callable, Sequence
 from decimal import ROUND_HALF_UP, Decimal
@@ -63,6 +72,10 @@ from py_kit.schemas.drawings import (
     ViewScale,
 )
 from py_kit.schemas.features import EdgeSignature
+from reportlab.lib.colors import Color, HexColor
+from reportlab.lib.units import mm as _MM
+from reportlab.pdfbase.pdfmetrics import getAscent, getDescent
+from reportlab.pdfgen.canvas import Canvas
 
 # ---------------------------------------------------------------------------------
 # Layout constants — mirror apps/web/src/drawing/layout.ts + @loft/design `drawing`
@@ -1308,3 +1321,230 @@ def serialize_svg(composed: ComposedSheet) -> str:
     _emit_title_block(composed.title_block, out)
     out.append("</svg>")
     return "\n".join(out) + "\n"
+
+
+# ---------------------------------------------------------------------------------
+# serialize_pdf — reportlab PDF, deterministic + byte-stable (drawing-export.md DE-2).
+# ---------------------------------------------------------------------------------
+# The shop deliverable: draw the SAME ComposedSheet primitives onto a reportlab
+# canvas (BSD-3, no font embedding — base-14 Courier). The ONE y-flip lives in the
+# canvas: `bottomup=0` makes the origin top-left, y-DOWN — matching ComposedSheet
+# exactly — so every coordinate is drawn verbatim (x mm) and the placement math is
+# untouched (reportlab auto-compensates text to stay upright). Determinism is the
+# STEP-timestamp lesson generalized: `invariant=1` pins /CreationDate, /ModDate,
+# /ID, and the /Producer (no version stamp); `pageCompression=0` avoids any
+# zlib-version-dependent bytes. Colours are the SAME `drawing` tokens as the SVG.
+
+#: PDF base-14 font — deterministic, no embedding. Dimensionally correct; a
+#: real-font subset embed is a later fidelity pass (drawing-export.md).
+_PDF_FONT = "Courier"
+
+
+def _hex(value: str) -> Color:
+    return HexColor(value)
+
+
+def _central_dy(size_pt: float) -> float:
+    """Baseline offset (pt) to vertically CENTRE text on its anchor — the PDF
+    analogue of SVG ``dominant-baseline="central"``. The central axis sits
+    ``(ascent+descent)/2`` above the baseline; shifting the baseline down (─ +y in
+    the top-left y-down canvas) by that amount lands the axis on the anchor."""
+    return (getAscent(_PDF_FONT, size_pt) + getDescent(_PDF_FONT, size_pt)) / 2
+
+
+def _pdf_text(
+    c: Canvas,
+    x_mm: float,
+    y_mm: float,
+    text: str,
+    size_mm: float,
+    fill: str,
+    *,
+    centred: bool,
+    central: bool,
+    angle: float = 0.0,
+) -> None:
+    """Stamp one text run. ``centred`` → horizontally centred on the anchor (SVG
+    ``text-anchor="middle"``); ``central`` → vertically centred (SVG
+    ``dominant-baseline="central"``). ``angle`` matches the SVG clockwise rotation
+    (the ``bottomup=0`` flip makes ``c.rotate(angle)`` visually clockwise, so the
+    SVG angle transfers directly). (Letter-spacing is a later glyph-fidelity pass —
+    base-14 Courier is dimensionally correct without it.)"""
+    size_pt = size_mm * _MM
+    c.saveState()
+    c.translate(x_mm * _MM, y_mm * _MM)
+    if angle:
+        c.rotate(angle)
+    c.setFont(_PDF_FONT, size_pt)
+    c.setFillColor(_hex(fill))
+    dy = _central_dy(size_pt) if central else 0.0
+    if centred:
+        c.drawCentredString(0.0, dy, text)
+    else:
+        c.drawString(0.0, dy, text)
+    c.restoreState()
+
+
+def _pdf_polyline(c: Canvas, points: Sequence[ComposedPoint], *, fill: bool) -> None:
+    path = c.beginPath()
+    path.moveTo(points[0].x_mm * _MM, points[0].y_mm * _MM)
+    for p in points[1:]:
+        path.lineTo(p.x_mm * _MM, p.y_mm * _MM)
+    if fill:
+        path.close()
+    c.drawPath(path, stroke=0 if fill else 1, fill=1 if fill else 0)
+
+
+def _pdf_edge(c: Canvas, edge: ComposedEdge) -> None:
+    if edge.visible:
+        c.setStrokeColor(_hex(_EDGE_VISIBLE))
+        c.setLineWidth(_VISIBLE_W * _MM)
+        c.setDash([])
+    else:
+        c.setStrokeColor(_hex(_EDGE_HIDDEN))
+        c.setLineWidth(_HIDDEN_W * _MM)
+        c.setDash([2.0 * _MM, 1.4 * _MM])
+    if isinstance(edge, ComposedLineEdge):
+        c.line(edge.x1 * _MM, edge.y1 * _MM, edge.x2 * _MM, edge.y2 * _MM)
+    elif isinstance(edge, ComposedCircleEdge):
+        c.circle(edge.cx * _MM, edge.cy * _MM, edge.r * _MM, stroke=1, fill=0)
+    else:
+        _pdf_polyline(c, edge.points, fill=False)
+
+
+def _pdf_dimension(c: Canvas, dim: ComposedDimension) -> None:
+    if isinstance(dim, ComposedDimensionError):
+        c.setStrokeColor(_hex(_DIM_FLAG))
+        c.setLineWidth(_DIM_W * _MM)
+        c.setDash([1.0 * _MM, 1.0 * _MM])
+        c.circle(dim.at.x_mm * _MM, dim.at.y_mm * _MM, 2.6 * _MM, stroke=1, fill=0)
+        _pdf_text(
+            c, dim.at.x_mm, dim.at.y_mm, "!", 3.0, _DIM_FLAG,
+            centred=True, central=True,
+        )
+        return
+
+    c.setDash([])
+    for line in dim.lines:
+        c.setStrokeColor(_hex(_DIM_INK))
+        c.setLineWidth((_EXT_W if line.role == "extension" else _DIM_W) * _MM)
+        c.line(line.x1 * _MM, line.y1 * _MM, line.x2 * _MM, line.y2 * _MM)
+    c.setFillColor(_hex(_DIM_INK))
+    for arrow in dim.arrows:
+        _pdf_polyline(c, arrow.points, fill=True)
+
+    # A paper halo behind the value (matches the SVG opacity-0.92 rect), rotated
+    # with the text so lines never cross the digits.
+    label = dim.text.value
+    halo_w = (len(label) * _TXT * 0.62 + 1.8) * _MM
+    halo_h = (_TXT + 1.4) * _MM
+    fill = _DIM_FLAG if dim.foreshortened else _DIM_TEXT
+    c.saveState()
+    c.translate(dim.text.x * _MM, dim.text.y * _MM)
+    if dim.text.angle:
+        c.rotate(dim.text.angle)
+    c.setFillColor(_hex(_PAPER))
+    c.setFillAlpha(0.92)
+    c.rect(-halo_w / 2, -halo_h / 2, halo_w, halo_h, stroke=0, fill=1)
+    c.setFillAlpha(1.0)
+    size_pt = _TXT * _MM
+    c.setFont(_PDF_FONT, size_pt)
+    c.setFillColor(_hex(fill))
+    c.drawCentredString(0.0, _central_dy(size_pt), label)
+    c.restoreState()
+
+
+def _pdf_view(c: Canvas, view: ComposedView) -> None:
+    if view.failed:
+        ax = view.anchor.x_mm
+        ay = view.anchor.y_mm
+        c.setStrokeColor(_hex(_EDGE_HIDDEN))
+        c.setLineWidth(_HIDDEN_W * _MM)
+        c.setDash([2.0 * _MM, 1.4 * _MM])
+        c.rect((ax - 26) * _MM, (ay - 14) * _MM, 52 * _MM, 28 * _MM, stroke=1, fill=0)
+        _pdf_text(
+            c, ax, ay + 1, "VIEW FAILED", 3.0, _LABEL,
+            centred=True, central=False,
+        )
+    else:
+        for edge in view.edges:
+            _pdf_edge(c, edge)
+        for dim in view.dimensions:
+            _pdf_dimension(c, dim)
+    _pdf_text(
+        c, view.label_pos.x_mm, view.label_pos.y_mm, view.label, 3.4, _LABEL,
+        centred=True, central=False,
+    )
+
+
+def _pdf_title_block(c: Canvas, tb: ComposedTitleBlock) -> None:
+    x, y, w, h = tb.x, tb.y, tb.width, tb.height
+    c.setDash([])
+    c.setStrokeColor(_hex(_INK))
+    c.setLineWidth(_BORDER_W * _MM)
+    c.rect(x * _MM, y * _MM, w * _MM, h * _MM, stroke=1, fill=0)
+    c.setLineWidth(_HIDDEN_W * _MM)
+    c.line(tb.split_x * _MM, y * _MM, tb.split_x * _MM, (y + h) * _MM)
+    c.line(tb.split_x * _MM, tb.mid_y * _MM, (x + w) * _MM, tb.mid_y * _MM)
+
+    def caption(cx: float, cy: float, text: str) -> None:
+        _pdf_text(c, cx, cy, text, 2.3, _LABEL, centred=False, central=False)
+
+    def value(cx: float, cy: float, text: str) -> None:
+        _pdf_text(c, cx, cy, text, 3.4, _INK, centred=False, central=False)
+
+    caption(x + 4, y + 8, "TITLE")
+    value(x + 4, y + 18, tb.title)
+    caption(x + 4, y + h - 4, "LOFT · PART DRAWING")
+    caption(tb.split_x + 4, y + 8, "SCALE")
+    value(tb.split_x + 4, tb.mid_y - 3, tb.scale)
+    caption(tb.split_x + 4, tb.mid_y + 8, "SIZE")
+    value(tb.split_x + 4, y + h - 4, tb.size)
+
+
+def serialize_pdf(composed: ComposedSheet) -> bytes:
+    """Render a :class:`ComposedSheet` to a deterministic, byte-stable PDF (DE-2).
+
+    reportlab (BSD-3) draws the SAME placed primitives the SVG serializer emits, so
+    the PDF and the on-screen sheet share ONE placement source. The single y-flip is
+    the canvas mode ``bottomup=0`` (origin top-left, y-DOWN — matching ComposedSheet
+    exactly), so coordinates are drawn verbatim and the placement math is untouched.
+    Byte-identical for the same ComposedSheet (§8.3), in-process and across an
+    interpreter restart: ``invariant=1`` pins /CreationDate, /ModDate, /ID and the
+    /Producer (no version stamp), and ``pageCompression=0`` avoids any zlib-version-
+    dependent bytes. Text is PDF base-14 Courier (deterministic, no embedding —
+    dimensionally correct; glyph-fidelity embedding is a later pass).
+    """
+    buf = io.BytesIO()
+    w_pt = composed.width_mm * _MM
+    h_pt = composed.height_mm * _MM
+    c = Canvas(
+        buf, pagesize=(w_pt, h_pt), bottomup=0, invariant=1, pageCompression=0
+    )
+    c.setLineCap(1)  # round caps (SVG stroke-linecap="round")
+    c.setLineJoin(1)  # round joins
+
+    # Paper — the sheet on the bench.
+    c.setFillColor(_hex(_PAPER))
+    c.setStrokeColor(_hex(_PAPER_EDGE))
+    c.setLineWidth(_PAPER_EDGE_W * _MM)
+    c.setDash([])
+    c.rect(0.0, 0.0, w_pt, h_pt, stroke=1, fill=1)
+    # Drawn border frame.
+    margin = composed.margin_mm
+    c.setStrokeColor(_hex(_INK))
+    c.setLineWidth(_BORDER_W * _MM)
+    c.rect(
+        margin * _MM,
+        margin * _MM,
+        (composed.width_mm - 2 * margin) * _MM,
+        (composed.height_mm - 2 * margin) * _MM,
+        stroke=1,
+        fill=0,
+    )
+    for view in composed.views:
+        _pdf_view(c, view)
+    _pdf_title_block(c, composed.title_block)
+    c.showPage()
+    c.save()
+    return buf.getvalue()

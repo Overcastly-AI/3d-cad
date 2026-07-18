@@ -26,7 +26,12 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_svg
+from geometry.drawings import (
+    evaluate_drawing_views,
+    place_sheet,
+    serialize_pdf,
+    serialize_svg,
+)
 from geometry.drawings.compose import (
     SvgRect,
     Vec2,
@@ -570,6 +575,69 @@ def test_golden_svg_is_deterministic_across_interpreter_restart() -> None:
     )
 
 
+# --- byte-stability golden: PDF (reportlab, §8.3) ------------------------------
+def _compose_golden_pdf() -> bytes:
+    request = _golden_request()
+    evaluation = evaluate_drawing_views(request)
+    composed = place_sheet(evaluation, request.dimensions, request.layout)
+    return serialize_pdf(composed)
+
+
+def test_golden_pdf_is_byte_identical_to_committed() -> None:
+    """The composed PDF for the plate golden matches the committed golden
+    byte-for-byte — the shop deliverable's §8.3 gate. `invariant=1` pins the dates/
+    ID/producer and `pageCompression=0` avoids zlib-version bytes, so any drift is
+    placement or serializer, never a timestamp."""
+    expected = (_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert _compose_golden_pdf() == expected
+
+
+def test_golden_pdf_is_structurally_valid() -> None:
+    """The PDF is a real A4-landscape document carrying the dimension values — not
+    an opaque blob (dimensional correctness, base-14 Courier)."""
+    pdf = _compose_golden_pdf()
+    assert pdf.startswith(b"%PDF-")
+    assert pdf.rstrip().endswith(b"%%EOF")
+    # A4 landscape MediaBox: 297mm x 210mm in points (72/25.4 per mm).
+    assert b"/MediaBox [ 0 0 841.8898 595.2756 ]" in pdf
+    # The measured values render (pageCompression=0 → plain text ops); Ø is the
+    # WinAnsi octal \330.
+    for token in (b"40.000", b"90.0", b"R5.000", rb"\33010.000", b"FRONT", b"1:1"):
+        assert token in pdf, f"missing {token!r}"
+
+
+_RESTART_PROBE_PDF = """\
+import sys
+from pathlib import Path
+
+from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_pdf
+from py_kit.schemas.drawings import ComposeDrawingRequest
+
+golden = Path(sys.argv[1])
+request = ComposeDrawingRequest.model_validate_json(
+    (golden / "request.json").read_text(encoding="utf-8")
+)
+evaluation = evaluate_drawing_views(request)
+composed = place_sheet(evaluation, request.dimensions, request.layout)
+sys.stdout.buffer.write(serialize_pdf(composed))
+"""
+
+
+def test_golden_pdf_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose reproduces the SAME PDF bytes (worker-restart
+    emulation, §8.3) — the STEP-determinism posture applied to reportlab, no HTTP."""
+    local = _compose_golden_pdf()
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE_PDF, str(_GOLDEN_DIR)],
+        capture_output=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr.decode()}"
+    assert result.stdout == local, (
+        "composed PDF bytes differ across interpreter restart"
+    )
+
+
 # --- endpoint (mirrors /export wiring) -----------------------------------------
 def test_endpoint_returns_svg_with_content_disposition() -> None:
     request = _golden_request()
@@ -584,6 +652,18 @@ def test_endpoint_returns_svg_with_content_disposition() -> None:
     assert response.text == (_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
 
 
+def test_endpoint_returns_pdf_with_content_disposition() -> None:
+    request = _golden_request()
+    payload = request.model_dump(mode="json")
+    payload["format"] = "pdf"
+    response = client.post("/api/v1/drawing/compose", json=payload)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/pdf")
+    assert response.headers["content-disposition"].endswith('.pdf"')
+    # The wire bytes ARE the composed golden PDF.
+    assert response.content == (_GOLDEN_DIR / "sheet.pdf").read_bytes()
+
+
 def test_endpoint_is_deterministic() -> None:
     payload = _golden_request().model_dump(mode="json")
     first = client.post("/api/v1/drawing/compose", json=payload)
@@ -592,11 +672,10 @@ def test_endpoint_is_deterministic() -> None:
     assert first.content == second.content
 
 
-@pytest.mark.parametrize("fmt", ["pdf", "dxf"])
-def test_endpoint_unimplemented_format_is_not_implemented(fmt: str) -> None:
-    """PDF/DXF are a clean typed 422 until DE-2/DE-3 — never a 500."""
+def test_endpoint_dxf_is_not_implemented() -> None:
+    """DXF is a clean typed 422 until DE-3 — never a 500."""
     payload = _golden_request().model_dump(mode="json")
-    payload["format"] = fmt
+    payload["format"] = "dxf"
     response = client.post("/api/v1/drawing/compose", json=payload)
     assert response.status_code == 422, response.text
     assert response.json()["error"]["code"] == "not_implemented"

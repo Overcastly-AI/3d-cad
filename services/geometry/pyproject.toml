@@ -21,6 +21,13 @@ dependencies = [
     # workers/replicas. Only pulled in when S3_URL is set; the in-process LRU
     # fallback needs none of it.
     "boto3>=1.35",
+    # PDF drawing export (drawing-export.md DE-2). BSD-3-Clause (reportlab 5.0.0),
+    # transitive Pillow is MIT-CMU — both permissive, NO GPL/LGPL/AGPL. Draws the
+    # composed drawing sheet to a deterministic PDF (base-14 Courier, no embedding;
+    # `invariant=1` pins dates/ID/producer — the STEP-timestamp determinism posture,
+    # RESEARCH §9). Exact bytes are lock-pinned like STEP; a bump regenerates the
+    # PDF golden.
+    "reportlab>=5.0,<6",
 ]
 
 [tool.uv.sources]

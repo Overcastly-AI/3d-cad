@@ -103,8 +103,11 @@ reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
 - [ ] (P1, S) Drawing export DE-1c — client cutover (apps/web). `DrawingSheet`
       renders from `ComposedSheet`; DELETE client placement math; gated by
       `drawings.spec.ts` visual parity + the SVG golden. One placement source.
-- [ ] (P1, M) Drawing export DE-2 — PDF (reportlab). Serializer + geometry/gateway
-      routes + "Export PDF" control + byte-stability golden. [src: drawing-export.md]
+- [ ] (P1, M) Drawing export DE-2 — PDF (reportlab). **DE-2a serializer + geometry
+      route + byte-stability golden SHIPPED 2026-07-18** (`serialize_pdf`,
+      `bottomup=0` single flip, `invariant=1`+`pageCompression=0` determinism,
+      reportlab 5.0.0 BSD pinned; `format=pdf` wired). **Remaining: DE-2b gateway
+      export route + DE-2c frontend "Export PDF" control.** [src: drawing-export.md]
 - [ ] (P2, M) Drawing export DE-3 — DXF (ezdxf, real entities) + "Export DXF" +
       golden + reopens-in-CAD smoke. [src: drawing-export.md]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
@@ -946,6 +949,12 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Drawing export DE-2a done (geometry):** reportlab PDF serializer —
+  `serialize_pdf(ComposedSheet)` draws the placed primitives (single `bottomup=0`
+  y-flip, placement untouched); `invariant=1`+`pageCompression=0` → byte-identical
+  in-proc + fresh interpreter. `format=pdf` wired on `/drawing/compose`; reportlab
+  5.0.0 (BSD) pinned. PDF byte-golden + endpoint gates green. DE-2b gateway + DE-2c
+  frontend follow.
 - 2026-07-18 — **Drawing export DE-0/1a done (geometry + contract):** server owns
   drafting placement (Approach C). `ComposeDrawingRequest`/`SheetLayout`/
   `ComposedSheet`/`ArtifactFormat` DTOs; `geometry.drawings.compose.place_sheet`

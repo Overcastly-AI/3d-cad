@@ -56,7 +56,12 @@ from py_kit.schemas.sketch import (
 )
 
 from geometry.assembly import evaluate_assembly
-from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_svg
+from geometry.drawings import (
+    evaluate_drawing_views,
+    place_sheet,
+    serialize_pdf,
+    serialize_svg,
+)
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
@@ -195,20 +200,23 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
     ``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values
     (no re-projection), places the sheet (``place_sheet`` — bounds-aware view
     anchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),
-    then serializes to the requested ``format``. v1 wires ``svg`` (dependency-free,
-    byte-stable); ``pdf`` (reportlab, DE-2) / ``dxf`` (ezdxf, DE-3) are not yet
+    then serializes to the requested ``format``. Wires ``svg`` (dependency-free) and
+    ``pdf`` (reportlab base-14, deterministic); ``dxf`` (ezdxf, DE-3) is not yet
     implemented. Identity-free — the gateway owns auth (same posture as
     ``/export``). Deterministic (RESEARCH §9): same request ⇒ identical bytes.
     """
-    if request.format != "svg":
+    if request.format == "dxf":
         raise ValidationApiError(
-            f"Artifact format {request.format!r} is not yet implemented "
-            "(SVG only in DE-1a; PDF/DXF land in DE-2/DE-3).",
+            "Artifact format 'dxf' is not yet implemented (lands in DE-3).",
             code="not_implemented",
         )
     evaluation = evaluate_drawing_views(request)
     composed = place_sheet(evaluation, request.dimensions, request.layout)
-    body = serialize_svg(composed).encode("utf-8")
+    body = (
+        serialize_pdf(composed)
+        if request.format == "pdf"
+        else serialize_svg(composed).encode("utf-8")
+    )
     filename = artifact_filename(request.layout.title, request.format)
     return Response(
         content=body,
