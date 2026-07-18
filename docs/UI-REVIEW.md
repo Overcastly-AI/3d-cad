@@ -1144,6 +1144,45 @@ multi-pick flow (hint pill + gated backdrop) in `DrawingPage`, the action-driven
 
 - `DimensionAuthorMenu` (action-driven) ✅ — type-gated, keyboard-first, honest hints, AA
 - `DrawingSheet` staged multi-pick flow ✅ — non-modal, `role=status` hint, Esc cancels
-- `DrawingSheet` `VertexHandle` 🔴 — P2 focus==hover==selected + P2 persistent clutter/tab-stops
+- `DrawingSheet` `VertexHandle` ✅ — distinct focus ring + contextual reveal (fixed 2026-07-18)
 - `dimensions.ts` angular + point-to-point placement ✅ — shared primitives, tight `°`, `~` parity (render CI-deferred)
-- `vertexHandle*` tokens 🟡 — P3 hex dup of `edgeHidden` + mislabeled comment
+- `vertexHandle*` tokens ✅ — aliases `edgeHidden` via `graphiteMuted`, comment fixed (2026-07-18)
+
+### Resolution — fix pass (2026-07-18)
+
+Frontend-builder pass closing all three filed `VertexHandle` findings (and the
+code-review 🟡 cross-boundary duplication) on commit `981c42f`:
+
+- **P2 focus not distinct from hover** — `VertexHandle` no longer collapses
+  `hover||focus||selected`. Focus now draws a distinct deep-blue RING around the
+  square (`drawing.pickFocusRingMm`, opacity 0.5 — `data-testid=
+  "drawing-vertex-focus-ring"`), the exact seam `EdgeShape` uses; hover/selected
+  recolor the fill, focus adds the shape cue. Keyboard focus reads differently
+  from mouse hover (WCAG 2.4.7).
+- **P2 persistent handles / tab-stop-per-corner** — the drawn square + its tab
+  stop now appear only when **revealed**: on the owning edge's hover/focus (a
+  reveal keyed on the edge in `SheetView`), on the handle's own hover (mouse
+  proximity), or when a point-to-point pick is armed (`endpointPickActive`, which
+  reveals every handle so the second vertex is reachable on any edge). Until
+  revealed the handle is `tabIndex=-1` + `aria-hidden` — out of tab order and off
+  the a11y tree — so a dense multi-view sheet no longer carries dozens of
+  non-geometry squares or a tab stop at every corner. The transparent hit target
+  stays attached at all times, so the pick (and the forced e2e click) still fires
+  the moment the vertex is approached; the staged point-to-point flow is
+  unchanged.
+- **P3 token dedup** — `vertexHandleRest` now aliases `edgeHidden` through a
+  shared module-level `graphiteMuted` constant (no repeated `#6E7A88`); the
+  misleading "gauge graphite" comment is corrected (gauge is `#9DAABA`).
+- **Code-review 🟡 (cross-boundary duplication)** — deleted `projectModelPoint`,
+  the `VIEW_AXES`/iso-frame table, and the vec3 helpers from `layout.ts` (a twin
+  of the geometry service's view frames). `endpointHandlesForEdge` /
+  `endpointProjected` now derive the model↔projected endpoint correspondence from
+  the wire's `start_is_end_a` bool alone; the point-to-point pick is gated on
+  `source_edge != null && start_is_end_a != null`, so a straight edge missing the
+  correspondence (silhouette/ambiguous) offers no vertex pick.
+
+Gates: `@loft/web` unit (669) + `@loft/design` (31) + both typechecks + eslint/
+prettier on touched files green. Drawings e2e is behaviourally unchanged (the
+authored dimension is identical — only the internal correspondence source moved
+from re-projection to the wire bool) and runs in CI; founder before/after shots
+CI-deferred (sandbox Docker-registry 403 per CLAUDE.md).

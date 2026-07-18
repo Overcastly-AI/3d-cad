@@ -27,7 +27,6 @@ import type {
   SheetResponse,
   ViewProjection,
   ViewResponse,
-  ViewScale,
 } from "../api/drawings";
 import {
   buildDimensionAnnotation,
@@ -113,6 +112,9 @@ export interface DrawingSheetProps {
   armedEdgeKeys?: readonly string[];
   /** Keys (`vertexKey`) of endpoint handles selected in a point-to-point pick. */
   selectedVertexKeys?: readonly string[];
+  /** A point-to-point pick is armed — reveal ALL endpoint handles (and make them
+   * tabbable) so the second vertex is reachable even on an un-hovered edge. */
+  endpointPickActive?: boolean;
   /** Fired when a dimensionable edge is picked (click or keyboard). */
   onPickEdge?: (event: EdgePickEvent) => void;
   /** Fired when a straight edge's endpoint handle is picked (point-to-point). */
@@ -250,18 +252,24 @@ function HitShape({ edge }: { edge: SvgEdge }) {
   );
 }
 
-/** One projected edge — solid/dashed, and interactive when dimensionable. */
+/** One projected edge — solid/dashed, and interactive when dimensionable.
+ * Hover/focus of a dimensionable straight edge REVEALS its endpoint handles
+ * (via `onReveal`, keyed on the edge) — the Fusion/Plasticity proximity idiom,
+ * so the sheet stays uncluttered until the vertex snap is actually wanted. */
 function PickableEdge({
   edge,
   projection,
   viewId,
   selected,
+  onReveal,
   onPickEdge,
 }: {
   edge: SvgEdge;
   projection: ViewProjection;
   viewId: string | null;
   selected: boolean;
+  /** Report this edge as the reveal target on hover/focus (null clears on leave). */
+  onReveal?: (key: string | null) => void;
   onPickEdge?: (event: EdgePickEvent) => void;
 }) {
   const [hover, setHover] = useState(false);
@@ -277,6 +285,8 @@ function PickableEdge({
       <EdgeShape edge={edge} hover={false} focus={false} selected={selected} />
     );
 
+  const revealKey =
+    edge.sourceEdge !== null ? edgeKey(projection, edge.sourceEdge) : null;
   const fire = (clientX: number, clientY: number) => {
     if (edge.sourceEdge === null || viewId === null) return;
     onPickEdge?.({
@@ -304,9 +314,20 @@ function PickableEdge({
         // A custom SVG focus ring (in `EdgeShape`) is the visible focus
         // affordance, so the default box outline on this hit-group is suppressed.
         style={{ cursor: "pointer", outline: "none" }}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-        onFocus={() => setFocus(true)}
+        onMouseEnter={() => {
+          setHover(true);
+          onReveal?.(revealKey);
+        }}
+        onMouseLeave={() => {
+          setHover(false);
+          onReveal?.(null);
+        }}
+        onFocus={() => {
+          setFocus(true);
+          // Focus latches the reveal (no clear on blur) so a keyboard user can
+          // tab onward and still reach the now-revealed endpoint handles.
+          onReveal?.(revealKey);
+        }}
         onBlur={() => setFocus(false)}
         onClick={(event) => fire(event.clientX, event.clientY)}
         onKeyDown={(event) => {
@@ -323,7 +344,11 @@ function PickableEdge({
   );
 }
 
-/** One endpoint handle on a straight edge — the vertex pick for point-to-point. */
+/** One endpoint handle on a straight edge — the vertex pick for point-to-point.
+ * It is NOT a persistent stamp: the drawn square + its tab stop only appear once
+ * `revealed` (the edge is hovered/focused, the pick is armed, or the handle
+ * itself is engaged). The transparent hit target is always present so a mouse
+ * (or a forced e2e click) can pick the vertex the moment it is approached. */
 function VertexHandle({
   at,
   projection,
@@ -331,6 +356,7 @@ function VertexHandle({
   sourceEdge,
   endpoint,
   selected,
+  revealed,
   onPickEndpoint,
 }: {
   at: Point2D;
@@ -339,12 +365,23 @@ function VertexHandle({
   sourceEdge: EdgeSignature;
   endpoint: "end_a" | "end_b";
   selected: boolean;
+  /** Reveal the drawn handle + admit it to the tab order (edge hover/focus or
+   * an armed point-to-point pick) — otherwise it stays out of both. */
+  revealed: boolean;
   onPickEndpoint: (event: EndpointPickEvent) => void;
 }) {
   const [hover, setHover] = useState(false);
   const [focus, setFocus] = useState(false);
-  const active = hover || focus || selected;
   const half = drawing.vertexHandleMm;
+  // Hover recolors the square; focus adds a distinct deep-blue RING (a shape
+  // cue, not a colour-only change) so keyboard focus reads differently from
+  // mouse hover (WCAG 2.4.7) — the same seam `EdgeShape` uses (`pickFocusRingMm`).
+  const emphasized = hover || focus || selected;
+  // Drawn (and tabbable) when revealed by context or engaged directly. Its own
+  // hover reveals it (mouse proximity) but adds no tab stop; keyboard reach is
+  // gated on the contextual reveal / selection only.
+  const drawn = revealed || hover || focus || selected;
+  const tabbable = revealed || selected;
   const fire = (clientX: number, clientY: number) =>
     onPickEndpoint({
       projection,
@@ -357,12 +394,14 @@ function VertexHandle({
   return (
     <g
       role="button"
-      tabIndex={0}
+      tabIndex={tabbable ? 0 : -1}
+      aria-hidden={tabbable ? undefined : true}
       aria-label={`Dimension from this vertex in the ${VIEW_LABEL[projection]} view`}
       data-testid="drawing-pick-vertex"
       data-view={projection}
       data-endpoint={endpoint}
       data-selected={selected ? "true" : "false"}
+      data-revealed={drawn ? "true" : "false"}
       style={{ cursor: "pointer", outline: "none" }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -377,7 +416,8 @@ function VertexHandle({
         }
       }}
     >
-      {/* Generous transparent hit target over the small drawn square. */}
+      {/* Generous transparent hit target — always present so the vertex stays
+          pickable (and force-clickable in tests) even before it is revealed. */}
       <rect
         x={at.x - drawing.pickHitMm}
         y={at.y - drawing.pickHitMm}
@@ -385,15 +425,34 @@ function VertexHandle({
         height={drawing.pickHitMm * 2}
         fill="transparent"
       />
-      <rect
-        x={at.x - half}
-        y={at.y - half}
-        width={half * 2}
-        height={half * 2}
-        fill={active ? drawing.pickSelected : drawing.paper}
-        stroke={active ? drawing.pickSelected : drawing.vertexHandleRest}
-        strokeWidth={active ? 0.6 : 0.4}
-      />
+      {drawn ? (
+        <>
+          {focus ? (
+            <rect
+              data-testid="drawing-vertex-focus-ring"
+              x={at.x - half}
+              y={at.y - half}
+              width={half * 2}
+              height={half * 2}
+              fill="none"
+              stroke={drawing.pickSelected}
+              strokeWidth={drawing.pickFocusRingMm}
+              opacity={0.5}
+            />
+          ) : null}
+          <rect
+            x={at.x - half}
+            y={at.y - half}
+            width={half * 2}
+            height={half * 2}
+            fill={emphasized ? drawing.pickSelected : drawing.paper}
+            stroke={
+              emphasized ? drawing.pickSelected : drawing.vertexHandleRest
+            }
+            strokeWidth={emphasized ? 0.6 : 0.4}
+          />
+        </>
+      ) : null}
     </g>
   );
 }
@@ -514,12 +573,12 @@ function SheetView({
   sheetHeight,
   result,
   viewId,
-  scale,
   dimensions,
   measuredById,
   selectedEdgeKey,
   armedEdgeKeys,
   selectedVertexKeys,
+  endpointPickActive,
   obstacles,
   onPickEdge,
   onPickEndpoint,
@@ -530,24 +589,28 @@ function SheetView({
   sheetHeight: number;
   result: DrawingViewResult | undefined;
   viewId: string | null;
-  scale: ViewScale;
   dimensions: readonly DimensionResponse[];
   measuredById: Map<string, MeasuredDimension> | undefined;
   selectedEdgeKey: string | null | undefined;
   armedEdgeKeys: readonly string[];
   selectedVertexKeys: readonly string[];
+  /** A point-to-point pick is armed — reveal all endpoint handles. */
+  endpointPickActive: boolean;
   /** Sibling views' SVG bounds a dimension on THIS view must not overlap. */
   obstacles: readonly SvgRect[];
   onPickEdge?: (event: EdgePickEvent) => void;
   onPickEndpoint?: (event: EndpointPickEvent) => void;
 }) {
+  // Which straight edge (by `edgeKey`) currently reveals its endpoint handles —
+  // set on that edge's hover/focus, so handles appear on proximity/intent rather
+  // than as a persistent stamp on every corner (frontend-QA P2).
+  const [revealKey, setRevealKey] = useState<string | null>(null);
   const anchorSvgX = anchor.x;
   const anchorSvgY = sheetHeight - anchor.y;
   const edges = result?.edges ?? [];
   const failed = Boolean(result?.error) || result === undefined;
   const bounds = viewBounds(edges);
   const svgEdges = viewToSvgEdges(edges, anchor, sheetHeight);
-  const scaleFactor = scale.numerator / scale.denominator;
   // Caption sits below the view's drawn extent (or a fixed drop when empty).
   const belowMm = bounds ? bounds.center.y - bounds.min.y : 0;
   const labelY = anchorSvgY + belowMm + 8;
@@ -567,8 +630,6 @@ function SheetView({
       dimension: dim.dimension,
       measured,
       edges,
-      view: projection,
-      scale,
       viewCenter,
       toSvg,
       obstacles,
@@ -580,29 +641,47 @@ function SheetView({
 
   // Endpoint handles for every dimensionable straight edge (deduped by position
   // so a shared corner is one handle, not a stack) — the point-to-point pick.
+  const posKeyOf = (p: Point2D): string =>
+    `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
   const vertexHandles: {
     key: string;
     at: Point2D;
+    posKey: string;
     sourceEdge: EdgeSignature;
     endpoint: "end_a" | "end_b";
   }[] = [];
   if (onPickEndpoint && viewId !== null && !failed) {
     const seen = new Set<string>();
     for (const edge of edges) {
-      const handles = endpointHandlesForEdge(edge, projection, scaleFactor);
+      const handles = endpointHandlesForEdge(edge);
       if (!handles || !edge.source_edge) continue;
       for (const h of handles) {
         const at = toSvg(h.projected);
-        const posKey = `${at.x.toFixed(2)},${at.y.toFixed(2)}`;
+        const posKey = posKeyOf(at);
         if (seen.has(posKey)) continue;
         seen.add(posKey);
         vertexHandles.push({
           key: vertexKey(projection, edge.source_edge, h.endpoint),
           at,
+          posKey,
           sourceEdge: edge.source_edge,
           endpoint: h.endpoint,
         });
       }
+    }
+  }
+
+  // The endpoint positions of the currently reveal-keyed edge (its hover/focus
+  // reveals its own two corners); an armed pick reveals every handle instead.
+  const revealedPosKeys = new Set<string>();
+  if (revealKey !== null) {
+    for (const edge of edges) {
+      if (!edge.source_edge) continue;
+      if (edgeKey(projection, edge.source_edge) !== revealKey) continue;
+      const handles = endpointHandlesForEdge(edge);
+      if (!handles) continue;
+      for (const h of handles)
+        revealedPosKeys.add(posKeyOf(toSvg(h.projected)));
     }
   }
 
@@ -655,6 +734,7 @@ function SheetView({
                   key !== null &&
                   (key === selectedEdgeKey || armedEdgeKeys.includes(key))
                 }
+                onReveal={onPickEndpoint ? setRevealKey : undefined}
                 onPickEdge={onPickEdge}
               />
             );
@@ -677,6 +757,7 @@ function SheetView({
                   sourceEdge={h.sourceEdge}
                   endpoint={h.endpoint}
                   selected={selectedVertexKeys.includes(h.key)}
+                  revealed={endpointPickActive || revealedPosKeys.has(h.posKey)}
                   onPickEndpoint={onPickEndpoint}
                 />
               ))
@@ -784,14 +865,11 @@ export function DrawingSheet({
   selectedEdgeKey,
   armedEdgeKeys,
   selectedVertexKeys,
+  endpointPickActive,
   onPickEdge,
   onPickEndpoint,
   svgRef,
 }: DrawingSheetProps) {
-  const sheetScale: ViewScale = views[0]?.scale ?? {
-    numerator: 1,
-    denominator: 1,
-  };
   const dims = sheetDimensions(sheet.size, sheet.orientation);
   // Space the views by their own projected extents so they never overlap for a
   // part larger than the demo plate (fixed sheet fractions did — code review).
@@ -872,12 +950,12 @@ export function DrawingSheet({
           sheetHeight={dims.height}
           result={resultByProjection.get(projection)}
           viewId={viewIdByProjection.get(projection) ?? null}
-          scale={sheetScale}
           dimensions={dimensionsByView?.get(projection) ?? []}
           measuredById={measuredById}
           selectedEdgeKey={selectedEdgeKey}
           armedEdgeKeys={armedEdgeKeys ?? []}
           selectedVertexKeys={selectedVertexKeys ?? []}
+          endpointPickActive={endpointPickActive ?? false}
           obstacles={[...svgRectByProjection]
             .filter(([p]) => p !== projection)
             .map(([, rect]) => rect)}

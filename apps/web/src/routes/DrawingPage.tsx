@@ -311,6 +311,11 @@ export function DrawingPage() {
   const selectedVertexKeys = selectedEndpoints(authoring).map((e) =>
     vertexKey(e.projection, e.sourceEdge, e.endpoint),
   );
+  // A point-to-point pick is in progress — reveal every endpoint handle (and put
+  // it in the tab order) so the second vertex is reachable on any edge; at rest
+  // handles only appear on their edge's hover/focus (frontend-QA P2).
+  const endpointPickActive =
+    authoring.kind === "one-endpoint" || authoring.kind === "p2p-ready";
   const menuActionList = menuActions(authoring);
   const anchor = menuAnchor(authoring);
   const hint = pickHint(authoring);
@@ -502,6 +507,7 @@ export function DrawingPage() {
               selectedEdgeKey={selectedEdgeKey}
               armedEdgeKeys={armedEdgeKeys}
               selectedVertexKeys={selectedVertexKeys}
+              endpointPickActive={endpointPickActive}
               onPickEdge={handlePickEdge}
               onPickEndpoint={handlePickEndpoint}
             />

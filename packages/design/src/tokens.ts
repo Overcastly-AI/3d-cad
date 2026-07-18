@@ -233,6 +233,11 @@ export const assembly = {
  * so the print is scale-correct. Consumed by the SVG sheet renderer directly (no
  * hex duplicated in app code — one palette, N renderers).
  */
+/** Muted graphite — the receding, secondary line ink on the vellum. The single
+ * source both a hidden (dashed) projected edge and an at-rest vertex handle
+ * share, so the "no hex duplicated" DRY rule holds inside the token source too. */
+const graphiteMuted = "#6E7A88";
+
 export const drawing = {
   /** The sheet — cool drafting white (deliberately not warm cream). */
   paper: "#ECEFF2",
@@ -243,7 +248,7 @@ export const drawing = {
   /** Visible projected edge — solid graphite (the print's primary lines). */
   edgeVisible: "#1B222B",
   /** Hidden (occluded) projected edge — lighter graphite, drawn dashed (≥3:1 on paper). */
-  edgeHidden: "#6E7A88",
+  edgeHidden: graphiteMuted,
   /** View labels + secondary title-block captions — mid graphite. */
   label: "#48525E",
   /** Stroke weights on the sheet, in millimetres (drawn at the sheet's mm scale). */
@@ -290,8 +295,9 @@ export const drawing = {
   // CAD idiom, in the same blueprint-blue pick ink as an edge.
   /** Half-side (mm) of a vertex handle square on the sheet. */
   vertexHandleMm: 1.5,
-  /** Vertex handle ink at rest — the quiet gauge graphite (recedes until used). */
-  vertexHandleRest: "#6E7A88",
+  /** Vertex handle ink at rest — the same muted graphite a hidden edge uses
+   * (aliases `edgeHidden` via `graphiteMuted`; recedes until the handle is used). */
+  vertexHandleRest: graphiteMuted,
 
   // --- Pick affordance — dimensionable edges are interactive. ---
   // A blueprint blue: the one accent on the graphite sheet, grounded in the

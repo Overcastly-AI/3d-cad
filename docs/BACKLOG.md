@@ -322,6 +322,21 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       + `vertexHandle*` tokens; +23 unit tests; e2e authors a 90.0° angular + a
       point-to-point linear against the real stack. [src: design/drawings.md
       §3.1/§3.3; closes the named residual]
+- [x] (P2, S) Drawings v1 #6c — review + frontend-QA fix pass (apps/web +
+      packages/design) — **DONE 2026-07-18.** Code-review 🟡: DELETED the
+      frontend's projection re-derivation (`projectModelPoint` / `VIEW_AXES` /
+      iso-frame table in `layout.ts`, a twin of `geometry/.../project.py`) — the
+      model↔projected endpoint correspondence now comes from the wire's
+      `start_is_end_a` bool; the point-to-point pick is gated on
+      `source_edge != null && start_is_end_a != null`. frontend-QA: P2 `VertexHandle`
+      focus now a distinct `pickFocusRingMm` ring (split from hover, WCAG 2.4.7);
+      P2 handles no longer stamped on every corner — revealed on edge hover/focus
+      or an armed pick, and kept out of the tab order until revealed (drawn hit
+      target stays attached so the pick still works); P3 `vertexHandleRest` aliased
+      to `edgeHidden` via a shared `graphiteMuted` (no dup hex; comment fixed).
+      web unit (669) + `@loft/design` (31) + both typechecks + eslint/prettier
+      green; drawings e2e unchanged (authored result identical), runs in CI.
+      [src: docs/UI-REVIEW.md 2026-07-18]
 - [ ] (P3, S) Drawings — manual drag-to-place of the dimension line (v1
       auto-places at a fixed offset, flipping off occupied sides). [src:
       design/drawings.md §3.1, deferred from #6c]
@@ -866,6 +881,13 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Drawings #6c review + frontend-QA fix pass done:** frontend now
+  reads `start_is_end_a` and DELETES its `projectModelPoint`/`VIEW_AXES` twin of
+  `project.py` (point-to-point pick gated on `source_edge` + `start_is_end_a`);
+  `VertexHandle` gets a distinct focus ring (WCAG 2.4.7), reveals contextually
+  (edge hover/focus or armed pick) instead of stamping every corner + tab stop,
+  and `vertexHandleRest` aliases `edgeHidden` (no dup hex). web unit 669 + design
+  31 + typechecks + lint green; e2e unchanged, CI-deferred.
 - 2026-07-18 — **Drawings review-fix (endpoint correspondence) done:** projected
   straight-edge DTO gains `start_is_end_a` (captured pre-canonicalisation in
   `project.py`), so point-to-point authoring no longer replicates the geometry

@@ -5,8 +5,6 @@ import type {
   EdgeSignature,
   MeasuredDimension,
   ProjectedViewEdge,
-  ViewProjection,
-  ViewScale,
 } from "../api/drawings";
 import {
   buildDimensionAnnotation,
@@ -58,6 +56,8 @@ const projectedLine = (): ProjectedViewEdge => ({
   midpoint: { x_mm: 20, y_mm: 0 },
   dimensionable: true,
   source_edge: lineSig(),
+  // Projected `start` (0,0) is the model edge's `end_a` (0,0,0).
+  start_is_end_a: true,
 });
 
 const projectedVert = (): ProjectedViewEdge => ({
@@ -68,6 +68,8 @@ const projectedVert = (): ProjectedViewEdge => ({
   midpoint: { x_mm: 0, y_mm: 12.5 },
   dimensionable: true,
   source_edge: vertSig(),
+  // Projected `start` (0,0) is the model edge's `end_a` (0,0,0).
+  start_is_end_a: true,
 });
 
 const projectedCircle = (): ProjectedViewEdge => ({
@@ -85,20 +87,17 @@ const projectedCircle = (): ProjectedViewEdge => ({
 /** Identity transform — tests annotation geometry in projected mm directly. */
 const identity = (p: Point2D): Point2D => p;
 
-const ONE_TO_ONE: ViewScale = { numerator: 1, denominator: 1 };
-
 const ok = (
   value: number,
   unit: "mm" | "deg",
   foreshortened = false,
 ): MeasuredDimension => ({ value, unit, foreshortened });
 
-/** Call the builder with the shared defaults (top view, 1:1, identity map). */
+/** Call the builder with the shared defaults (identity map, plate centre). */
 function build(args: {
   dimension: DimensionParams;
   measured: MeasuredDimension;
   edges: ProjectedViewEdge[];
-  view?: ViewProjection;
   viewCenter?: Point2D;
   obstacles?: { minX: number; minY: number; maxX: number; maxY: number }[];
 }) {
@@ -106,8 +105,6 @@ function build(args: {
     dimension: args.dimension,
     measured: args.measured,
     edges: args.edges,
-    view: args.view ?? "top",
-    scale: ONE_TO_ONE,
     viewCenter: args.viewCenter ?? { x: 20, y: 12.5 },
     toSvg: identity,
     obstacles: args.obstacles,

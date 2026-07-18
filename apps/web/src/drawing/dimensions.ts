@@ -25,8 +25,6 @@ import type {
   MeasuredDimension,
   ProjectedPoint,
   ProjectedViewEdge,
-  ViewProjection,
-  ViewScale,
 } from "../api/drawings";
 import { endpointProjected, type Point2D, type SvgRect } from "./layout";
 
@@ -461,8 +459,9 @@ function placeAngular(
  * the view's projected `edges` and mapped through `toSvg`. `viewCenter`
  * (projected mm) picks the conventional outboard side; `obstacles` (sibling
  * views' SVG bounds) let a placement FLIP away from a neighbour in the third-
- * angle gutter (frontend-QA P1), and `sheet` keeps it on paper. `view`/`scale`
- * locate a point-to-point dimension's named model vertices (design §3.3).
+ * angle gutter (frontend-QA P1), and `sheet` keeps it on paper. A point-to-point
+ * dimension's named model vertices come from each straight edge's
+ * `start_is_end_a` correspondence (design §3.3).
  * Returns null when the dimension cannot be placed (an unmatched/mismatched
  * edge, parallel angular edges) — the caller lists it, never mis-draws.
  */
@@ -470,8 +469,6 @@ export function buildDimensionAnnotation(args: {
   dimension: DimensionParams;
   measured: MeasuredDimension;
   edges: readonly ProjectedViewEdge[];
-  view: ViewProjection;
-  scale: ViewScale;
   viewCenter: Point2D;
   toSvg: (p: Point2D) => Point2D;
   /** Sibling views' SVG bounds a callout must not overlap (default none). */
@@ -479,11 +476,10 @@ export function buildDimensionAnnotation(args: {
   /** The sheet's mm extent, so a placement is nudged to stay on paper. */
   sheet?: { width: number; height: number };
 }): DimensionAnnotation | null {
-  const { dimension, measured, edges, view, scale, viewCenter, toSvg } = args;
+  const { dimension, measured, edges, viewCenter, toSvg } = args;
   const type = dimension.type;
   const obstacles = args.obstacles ?? [];
   const sheet = args.sheet;
-  const scaleFactor = scale.numerator / scale.denominator;
 
   // A representative sheet point for an error marker / mismatch fallback.
   const primarySig = dimensionEdgeSignature(dimension);
@@ -511,8 +507,8 @@ export function buildDimensionAnnotation(args: {
       const edgeA = findMatchingEdge(edges, ref.a.signature);
       const edgeB = findMatchingEdge(edges, ref.b.signature);
       if (!edgeA || !edgeB) return null;
-      const p = endpointProjected(edgeA, view, scaleFactor, ref.a.endpoint);
-      const q = endpointProjected(edgeB, view, scaleFactor, ref.b.endpoint);
+      const p = endpointProjected(edgeA, ref.a.endpoint);
+      const q = endpointProjected(edgeB, ref.b.endpoint);
       if (!p || !q) return null;
       return placeLinearBetween(
         p,
