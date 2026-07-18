@@ -378,6 +378,84 @@
         "title": "CoincidentMate",
         "type": "object"
       },
+      "ComposeDrawingRequest": {
+        "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nExtends :class:`EvaluateDrawingViewsRequest` (the evaluate INPUTS \u2014 ``part_id``\n/ ``tree_version`` / ``features`` / ``views`` / ``scale`` / ``dimensions`` are\ninherited VERBATIM, so composition reuses ``evaluate_drawing_views`` as its\nsole geometry source, no re-projection) with the ``layout`` (sheet + placed\nviews) and the requested ``format``. The geometry service evaluates the part\nONCE, places the sheet (``place_sheet``), and serializes to the requested\nartifact \u2014 deterministic (RESEARCH \u00a79): same request \u21d2 byte-identical artifact.",
+        "properties": {
+          "dimensions": {
+            "description": "Dimensions to measure against the evaluated body, each tagged with its view (design \u00a73/\u00a75). Empty (the default) \u2192 no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).",
+            "items": {
+              "$ref": "#/components/schemas/DrawingDimensionInput"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "features": {
+            "description": "The part's ordered feature prefix (feature-tree \u00a74 contract)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedFeatureInput"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "format": {
+            "default": "svg",
+            "description": "Artifact format to serialize (svg | pdf | dxf)",
+            "enum": [
+              "svg",
+              "pdf",
+              "dxf"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/SheetLayout",
+            "description": "Sheet layout (size + title block + views)"
+          },
+          "part_id": {
+            "description": "The referenced part's identity (echoed)",
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "scale": {
+            "$ref": "#/components/schemas/ViewScale",
+            "default": {
+              "denominator": 1,
+              "numerator": 1
+            },
+            "description": "Drawing scale (rational; 1:1 default) applied to every view"
+          },
+          "tree_version": {
+            "description": "Echoed back; cache/correlation key",
+            "title": "Tree Version",
+            "type": "integer"
+          },
+          "views": {
+            "description": "The standard views to project (subset of front/top/right/iso); processed and returned in request order",
+            "items": {
+              "enum": [
+                "front",
+                "top",
+                "right",
+                "iso"
+              ],
+              "type": "string"
+            },
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "features",
+          "views",
+          "layout"
+        ],
+        "title": "ComposeDrawingRequest",
+        "type": "object"
+      },
       "ConcentricConstraint": {
         "description": "Two circles/arcs share a center point.\n\nRelates two whole circle/arc entities by id (order immaterial); the solver\nties their centers together (there is no separate radius relation \u2014 use\n:class:`EqualConstraint` for that). Removes two degrees of freedom. Both\nentities must be a circle or an arc; a line has no center and is rejected.",
         "properties": {
@@ -3615,6 +3693,80 @@
         "title": "ShapeProperties",
         "type": "object"
       },
+      "SheetLayout": {
+        "description": "A sheet's layout for composition \u2014 size, orientation, title block, views.\n\nThe sheet-side half of a :class:`ComposeDrawingRequest` (drawing-export.md\n\u00a74.2): the physical sheet (``size``/``orientation``/``projection``), the\ntitle-block content, and the placed ``views``. ``title`` is the drawing name\nstamped in the title block (the on-screen sheet stamps the drawing NAME, not\nthe free-text :class:`TitleBlock` fields, in v1). Kept general so a future\nmulti-part / multi-scale sheet composes through the SAME model.",
+        "properties": {
+          "orientation": {
+            "default": "landscape",
+            "description": "Sheet orientation",
+            "enum": [
+              "landscape",
+              "portrait"
+            ],
+            "title": "Orientation",
+            "type": "string"
+          },
+          "projection": {
+            "default": "third_angle",
+            "description": "Projection convention (third-angle default, design \u00a71.2)",
+            "enum": [
+              "third_angle",
+              "first_angle"
+            ],
+            "title": "Projection",
+            "type": "string"
+          },
+          "size": {
+            "default": "A4",
+            "description": "Sheet size (ISO / ANSI)",
+            "enum": [
+              "A4",
+              "A3",
+              "A2",
+              "A1",
+              "A0",
+              "ANSI_A",
+              "ANSI_B",
+              "ANSI_C",
+              "ANSI_D"
+            ],
+            "title": "Size",
+            "type": "string"
+          },
+          "title": {
+            "description": "Drawing name stamped in the title block (design \u00a74.2)",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "title_block": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TitleBlock"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text title block (design \u00a79 q6; v1 unused)"
+          },
+          "views": {
+            "description": "The placed views (which projections to compose + their order)",
+            "items": {
+              "$ref": "#/components/schemas/SheetViewPlacement"
+            },
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "views"
+        ],
+        "title": "SheetLayout",
+        "type": "object"
+      },
       "SheetPoint": {
         "description": "A 2D point in SHEET space (mm), origin at the title-block corner (\u00a79 q4).\n\nSheet space is millimetres at 1:1; a view's scale maps model-mm \u2192 sheet-mm\n(design \u00a79 open-q 4). Used for view placement, dimension text, and note\npositions. Full precision; a non-finite coordinate is a request-validation\n422 (``allow_inf_nan=False``), never a silently-defaulted position.",
         "properties": {
@@ -3634,6 +3786,40 @@
           "y_mm"
         ],
         "title": "SheetPoint",
+        "type": "object"
+      },
+      "SheetViewPlacement": {
+        "description": "One view's placement on the sheet (drawing-export.md \u00a74.2 SheetLayout).\n\nGENERAL per-view intent (multi-part/assembly ready): each placed view names\nits ``projection`` direction, its authored sheet ``position``, and its\n``scale``. NB \u2014 the composer re-derives view ANCHORS from the projected bounds\n(``boundsAwareLayout``, the on-screen renderer's behaviour), so ``position`` is\ncarried for generality/persistence but does not drive v1 anchoring; the field\nthat IS load-bearing here is ``projection`` (WHICH views to place and in what\norder) and ``scale`` (the title-block stamp). v1 ships the 4 standard views at\none shared scale.",
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/SheetPoint",
+            "description": "Authored sheet position (mm)"
+          },
+          "projection": {
+            "description": "Projection direction of the view",
+            "enum": [
+              "front",
+              "top",
+              "right",
+              "iso"
+            ],
+            "title": "Projection",
+            "type": "string"
+          },
+          "scale": {
+            "$ref": "#/components/schemas/ViewScale",
+            "default": {
+              "denominator": 1,
+              "numerator": 1
+            },
+            "description": "View scale (rational; 1:1 default)"
+          }
+        },
+        "required": [
+          "projection",
+          "position"
+        ],
+        "title": "SheetViewPlacement",
         "type": "object"
       },
       "ShellFeature": {
@@ -4930,6 +5116,65 @@
         "title": "TessellationMetadata",
         "type": "object"
       },
+      "TitleBlock": {
+        "description": "Free-text title-block fields (design \u00a79 open-q 6 \u2014 v1 holds free text).\n\nEvery field is optional; a structured/field-mapped title block auto-filled\nfrom the referenced part is a fast-follow. The composed artifact stamps these\ngeometry-side (design \u00a74.2).",
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Author / drafter",
+            "title": "Author"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text date",
+            "title": "Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text notes",
+            "title": "Notes"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Drawing title",
+            "title": "Title"
+          }
+        },
+        "title": "TitleBlock",
+        "type": "object"
+      },
       "TopologyCounts": {
         "description": "B-rep entity counts \u2014 asserted exactly by the golden-model suite.",
         "properties": {
@@ -5108,6 +5353,61 @@
           }
         },
         "summary": "Evaluate Assembly Route",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/drawing/compose": {
+      "post": {
+        "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nApproach C's server-composed export: geometry OWNS drafting placement. Reuses\n``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values\n(no re-projection), places the sheet (``place_sheet`` \u2014 bounds-aware view\nanchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),\nthen serializes to the requested ``format``. v1 wires ``svg`` (dependency-free,\nbyte-stable); ``pdf`` (reportlab, DE-2) / ``dxf`` (ezdxf, DE-3) are not yet\nimplemented. Identity-free \u2014 the gateway owns auth (same posture as\n``/export``). Deterministic (RESEARCH \u00a79): same request \u21d2 identical bytes.",
+        "operationId": "compose_drawing_route_api_v1_drawing_compose_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComposeDrawingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/svg+xml": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/vnd.dxf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The composed drawing artifact bytes (v1: `image/svg+xml`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compose Drawing Route",
         "tags": [
           "geometry"
         ]

@@ -35,6 +35,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawing/compose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose Drawing Route
+         * @description Compose a drawing into a placed sheet + serialized artifact (design §4.2).
+         *
+         *     Approach C's server-composed export: geometry OWNS drafting placement. Reuses
+         *     ``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values
+         *     (no re-projection), places the sheet (``place_sheet`` — bounds-aware view
+         *     anchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),
+         *     then serializes to the requested ``format``. v1 wires ``svg`` (dependency-free,
+         *     byte-stable); ``pdf`` (reportlab, DE-2) / ``dxf`` (ezdxf, DE-3) are not yet
+         *     implemented. Identity-free — the gateway owns auth (same posture as
+         *     ``/export``). Deterministic (RESEARCH §9): same request ⇒ identical bytes.
+         */
+        post: operations["compose_drawing_route_api_v1_drawing_compose_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawing/evaluate": {
         parameters: {
             query?: never;
@@ -752,6 +781,63 @@ export interface components {
              * @enum {string}
              */
             type: "coincident";
+        };
+        /**
+         * ComposeDrawingRequest
+         * @description Compose a drawing into a placed sheet + serialized artifact (design §4.2).
+         *
+         *     Extends :class:`EvaluateDrawingViewsRequest` (the evaluate INPUTS — ``part_id``
+         *     / ``tree_version`` / ``features`` / ``views`` / ``scale`` / ``dimensions`` are
+         *     inherited VERBATIM, so composition reuses ``evaluate_drawing_views`` as its
+         *     sole geometry source, no re-projection) with the ``layout`` (sheet + placed
+         *     views) and the requested ``format``. The geometry service evaluates the part
+         *     ONCE, places the sheet (``place_sheet``), and serializes to the requested
+         *     artifact — deterministic (RESEARCH §9): same request ⇒ byte-identical artifact.
+         */
+        ComposeDrawingRequest: {
+            /**
+             * Dimensions
+             * @description Dimensions to measure against the evaluated body, each tagged with its view (design §3/§5). Empty (the default) → no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).
+             */
+            dimensions?: components["schemas"]["DrawingDimensionInput"][];
+            /**
+             * Features
+             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Format
+             * @description Artifact format to serialize (svg | pdf | dxf)
+             * @default svg
+             * @enum {string}
+             */
+            format: "svg" | "pdf" | "dxf";
+            /** @description Sheet layout (size + title block + views) */
+            layout: components["schemas"]["SheetLayout"];
+            /**
+             * Part Id
+             * Format: uuid
+             * @description The referenced part's identity (echoed)
+             */
+            part_id: string;
+            /**
+             * @description Drawing scale (rational; 1:1 default) applied to every view
+             * @default {
+             *       "denominator": 1,
+             *       "numerator": 1
+             *     }
+             */
+            scale: components["schemas"]["ViewScale"];
+            /**
+             * Tree Version
+             * @description Echoed back; cache/correlation key
+             */
+            tree_version: number;
+            /**
+             * Views
+             * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order
+             */
+            views: ("front" | "top" | "right" | "iso")[];
         };
         /**
          * ConcentricConstraint
@@ -3219,6 +3305,52 @@ export interface components {
             volume: number;
         };
         /**
+         * SheetLayout
+         * @description A sheet's layout for composition — size, orientation, title block, views.
+         *
+         *     The sheet-side half of a :class:`ComposeDrawingRequest` (drawing-export.md
+         *     §4.2): the physical sheet (``size``/``orientation``/``projection``), the
+         *     title-block content, and the placed ``views``. ``title`` is the drawing name
+         *     stamped in the title block (the on-screen sheet stamps the drawing NAME, not
+         *     the free-text :class:`TitleBlock` fields, in v1). Kept general so a future
+         *     multi-part / multi-scale sheet composes through the SAME model.
+         */
+        SheetLayout: {
+            /**
+             * Orientation
+             * @description Sheet orientation
+             * @default landscape
+             * @enum {string}
+             */
+            orientation: "landscape" | "portrait";
+            /**
+             * Projection
+             * @description Projection convention (third-angle default, design §1.2)
+             * @default third_angle
+             * @enum {string}
+             */
+            projection: "third_angle" | "first_angle";
+            /**
+             * Size
+             * @description Sheet size (ISO / ANSI)
+             * @default A4
+             * @enum {string}
+             */
+            size: "A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D";
+            /**
+             * Title
+             * @description Drawing name stamped in the title block (design §4.2)
+             */
+            title: string;
+            /** @description Free-text title block (design §9 q6; v1 unused) */
+            title_block?: components["schemas"]["TitleBlock"] | null;
+            /**
+             * Views
+             * @description The placed views (which projections to compose + their order)
+             */
+            views: components["schemas"]["SheetViewPlacement"][];
+        };
+        /**
          * SheetPoint
          * @description A 2D point in SHEET space (mm), origin at the title-block corner (§9 q4).
          *
@@ -3238,6 +3370,37 @@ export interface components {
              * @description Y on the sheet, mm from the origin corner
              */
             y_mm: number;
+        };
+        /**
+         * SheetViewPlacement
+         * @description One view's placement on the sheet (drawing-export.md §4.2 SheetLayout).
+         *
+         *     GENERAL per-view intent (multi-part/assembly ready): each placed view names
+         *     its ``projection`` direction, its authored sheet ``position``, and its
+         *     ``scale``. NB — the composer re-derives view ANCHORS from the projected bounds
+         *     (``boundsAwareLayout``, the on-screen renderer's behaviour), so ``position`` is
+         *     carried for generality/persistence but does not drive v1 anchoring; the field
+         *     that IS load-bearing here is ``projection`` (WHICH views to place and in what
+         *     order) and ``scale`` (the title-block stamp). v1 ships the 4 standard views at
+         *     one shared scale.
+         */
+        SheetViewPlacement: {
+            /** @description Authored sheet position (mm) */
+            position: components["schemas"]["SheetPoint"];
+            /**
+             * Projection
+             * @description Projection direction of the view
+             * @enum {string}
+             */
+            projection: "front" | "top" | "right" | "iso";
+            /**
+             * @description View scale (rational; 1:1 default)
+             * @default {
+             *       "denominator": 1,
+             *       "numerator": 1
+             *     }
+             */
+            scale: components["schemas"]["ViewScale"];
         };
         /**
          * ShellFeature
@@ -4087,6 +4250,36 @@ export interface components {
             properties: components["schemas"]["ShapeProperties"];
         };
         /**
+         * TitleBlock
+         * @description Free-text title-block fields (design §9 open-q 6 — v1 holds free text).
+         *
+         *     Every field is optional; a structured/field-mapped title block auto-filled
+         *     from the referenced part is a fast-follow. The composed artifact stamps these
+         *     geometry-side (design §4.2).
+         */
+        TitleBlock: {
+            /**
+             * Author
+             * @description Author / drafter
+             */
+            author?: string | null;
+            /**
+             * Date
+             * @description Free-text date
+             */
+            date?: string | null;
+            /**
+             * Notes
+             * @description Free-text notes
+             */
+            notes?: string | null;
+            /**
+             * Title
+             * @description Drawing title
+             */
+            title?: string | null;
+        };
+        /**
          * TopologyCounts
          * @description B-rep entity counts — asserted exactly by the golden-model suite.
          */
@@ -4188,6 +4381,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluateAssemblyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compose_drawing_route_api_v1_drawing_compose_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposeDrawingRequest"];
+            };
+        };
+        responses: {
+            /** @description The composed drawing artifact bytes (v1: `image/svg+xml`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "image/svg+xml": string;
+                    "image/vnd.dxf": string;
                 };
             };
             /** @description Validation Error */

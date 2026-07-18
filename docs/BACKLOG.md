@@ -92,12 +92,14 @@ Python `ComposedSheet` composer), the frontend consumes it, SVG/PDF/DXF are thre
 serializers of one model (the `start_is_end_a` unification applied to placement).
 reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
 
-- [ ] (P1, M) Drawing export DE-0/1a — server placement composer + SVG + golden
-      (geometry + contract). `ComposeDrawingRequest`/`SheetLayout`/`ComposedSheet`
-      DTOs; port bounds-aware layout + dimension placement (linear/p2p/angular,
-      arrowheads, collision-flip) to `geometry.drawings.compose`; deterministic
-      server SVG serializer; byte-stable SVG golden. Server authoritative; client
-      still renders its own placement until DE-1c (time-boxed). [src: drawing-export.md]
+- [x] (P1, M) Drawing export DE-0/1a — server placement composer + SVG + golden
+      (geometry + contract). SHIPPED 2026-07-18: `ComposeDrawingRequest`/
+      `SheetLayout`/`ComposedSheet`/`ArtifactFormat` DTOs; `geometry.drawings.
+      compose.place_sheet` ports `layout.ts`/`dimensions.ts` placement VERBATIM
+      (bounds-aware anchoring, linear/p2p/diameter/radius/angular, arrowheads,
+      `chooseByPenalty` flip); `serialize_svg` deterministic byte-stable SVG;
+      `POST /api/v1/drawing/compose`. Port-parity + byte-stability goldens green;
+      `gen-check` clean. Client keeps its placement until DE-1c. [src: drawing-export.md]
 - [ ] (P1, S) Drawing export DE-1c — client cutover (apps/web). `DrawingSheet`
       renders from `ComposedSheet`; DELETE client placement math; gated by
       `drawings.spec.ts` visual parity + the SVG golden. One placement source.
@@ -944,6 +946,12 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Drawing export DE-0/1a done (geometry + contract):** server owns
+  drafting placement (Approach C). `ComposeDrawingRequest`/`SheetLayout`/
+  `ComposedSheet`/`ArtifactFormat` DTOs; `geometry.drawings.compose.place_sheet`
+  ports `layout.ts`/`dimensions.ts` VERBATIM; `serialize_svg` byte-stable;
+  `POST /api/v1/drawing/compose`. Port-parity + byte-stability goldens, gen-check
+  green. Client keeps its own placement until DE-1c (time-boxed two-engine window).
 - 2026-07-18 — **Assembly BOM panel done (apps/web):** SOLVE/PARTS toggle on the
   right instrument; PARTS is a title-block parts-list schedule (item · name +
   kind badge · qty + brass TOTAL) off `GET .../bom` via TanStack Query.

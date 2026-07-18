@@ -574,6 +574,23 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       and asserts the sheet root, the hole `<circle>`, and the `10.000` value;
       `just lint` green. **Drawings v1 export loop closed.** Remaining in the
       pillar: section/detail/assembly views + server-composed PDF/DXF.
+      **Drawing export DE-0/1a — server placement composer + SVG (geometry +
+      contract) SHIPPED** (2026-07-18): Approach C's load-bearing slice — the
+      geometry service now OWNS drafting placement. `ComposeDrawingRequest` /
+      `SheetLayout` / `ComposedSheet` / `ArtifactFormat` DTOs (py-kit, `just gen`
+      clean); `geometry.drawings.compose.place_sheet` PORTS the shipped
+      `layout.ts`/`dimensions.ts` placement VERBATIM (bounds-aware view anchoring,
+      linear/p2p/diameter/radius/angular dimension geometry, arrowheads, the
+      `chooseByPenalty` sibling-collision flip) into a `ComposedSheet` of sheet-mm
+      primitives; `serialize_svg` emits a deterministic, byte-stable SVG (same
+      `drawing` token colours). `POST /api/v1/drawing/compose` returns the SVG bytes
+      + `Content-Disposition` (mirrors `/export`; PDF/DXF → typed `not_implemented`
+      until DE-2/3). Gates: a **port-parity** suite (the TS `dimensions`/`layout`
+      test expected values as the Python oracle — catches a drifted constant here,
+      not at DE-1c), a **byte-stability golden** (fresh-interpreter reproducible),
+      the drawings HLR goldens unchanged, `just lint`/pyright/`gen-check` green.
+      **Client still renders its own placement until DE-1c (time-boxed two-engine
+      window, by design).**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)

@@ -19,8 +19,11 @@ from py_kit.schemas.assemblies import (
     EvaluateAssemblyResult,
 )
 from py_kit.schemas.drawings import (
+    ARTIFACT_MEDIA_TYPES,
+    ComposeDrawingRequest,
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
+    artifact_filename,
 )
 from py_kit.schemas.features import (
     EvaluateTreeRequest,
@@ -53,7 +56,7 @@ from py_kit.schemas.sketch import (
 )
 
 from geometry.assembly import evaluate_assembly
-from geometry.drawings import evaluate_drawing_views
+from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_svg
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
@@ -167,6 +170,51 @@ def evaluate_drawing_route(
     export are later slices (design §7).
     """
     return evaluate_drawing_views(request)
+
+
+_COMPOSE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {
+        "description": (
+            "The composed drawing artifact bytes (v1: `image/svg+xml`). "
+            "`Content-Disposition` carries the suggested download filename. "
+            "Byte-deterministic: identical requests produce identical bytes."
+        ),
+        "content": {
+            media: {"schema": {"type": "string", "format": "binary"}}
+            for media in ARTIFACT_MEDIA_TYPES.values()
+        },
+    }
+}
+
+
+@router.post("/drawing/compose", response_class=Response, responses=_COMPOSE_RESPONSES)
+def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
+    """Compose a drawing into a placed sheet + serialized artifact (design §4.2).
+
+    Approach C's server-composed export: geometry OWNS drafting placement. Reuses
+    ``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values
+    (no re-projection), places the sheet (``place_sheet`` — bounds-aware view
+    anchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),
+    then serializes to the requested ``format``. v1 wires ``svg`` (dependency-free,
+    byte-stable); ``pdf`` (reportlab, DE-2) / ``dxf`` (ezdxf, DE-3) are not yet
+    implemented. Identity-free — the gateway owns auth (same posture as
+    ``/export``). Deterministic (RESEARCH §9): same request ⇒ identical bytes.
+    """
+    if request.format != "svg":
+        raise ValidationApiError(
+            f"Artifact format {request.format!r} is not yet implemented "
+            "(SVG only in DE-1a; PDF/DXF land in DE-2/DE-3).",
+            code="not_implemented",
+        )
+    evaluation = evaluate_drawing_views(request)
+    composed = place_sheet(evaluation, request.dimensions, request.layout)
+    body = serialize_svg(composed).encode("utf-8")
+    filename = artifact_filename(request.layout.title, request.format)
+    return Response(
+        content=body,
+        media_type=ARTIFACT_MEDIA_TYPES[request.format],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 _MESH_RESPONSES: dict[int | str, dict[str, Any]] = {
