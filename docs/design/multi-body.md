@@ -131,8 +131,59 @@ is a pure OCCT function; byte-identical GLB+STEP across interpreter restarts;
   ghost of it can tie a false `subshape_ambiguous`. Documented in the
   `BooleanParamsV1` v1-limits docstring. **This closes the multi-body pillar v1
   through MB-3.**
-- **MB-4 (deferred)** — explicit per-feature target-body ref, per-body pick/highlight,
-  disjoint multi-lump compound bodies.
+- **MB-4 — ACCEPTED 2026-07-18 (design).** Multi-lump bodies + multi-solid STEP
+  import. **Headline: the READ side already works** — MB-0 widened every resolver/
+  measurer/exporter/mate path to `BodyShape`, and `faces()`/`edges()` traverse all
+  lumps of a Compound; signatures are absolute-world-coordinate so lump 2's edge has
+  a distinct signature and resolves to exactly one edge. The genuine work is the
+  WRITE side + relaxing two guards.
+  - **Body model:** a multi-lump body is ONE `bodies` entry whose value is a
+    `Compound` of disjoint solids — widen `EvaluationState.bodies: dict[UUID,
+    BodyShape]` (the MB-1a code-review 🟢). NOT N entries (identity = base-feature
+    id; a disjoint union / a multi-solid import each have ONE surviving id, and must
+    read as ONE Bodies-panel row).
+  - **Modifying kernel ops** (fillet/chamfer/shell/draft/pattern, `combine_body`'s
+    active side): relax the `.solids() == 1` assertion to **lump-count-preserving
+    `== k`** (`k = len(input.solids())`) — a fillet on one lump of a k-lump body
+    keeps k lumps; a merge/sever is still a typed failure. **k=1 is byte-identical
+    to today** (every single-body golden unchanged). Widen their `Solid` params to
+    `BodyShape`. `combine_body`'s in-chain merge stays one-lump (the `merge=False`
+    seam is how you start a second body).
+  - **Disjoint union is OPT-IN:** `allow_disjoint: bool = False` on `BooleanParamsV1`
+    (reads `False` for legacy → NO `param_version` bump). Default keeps
+    `boolean_disjoint` as an error (a disjoint union is usually a positioning bug —
+    safety). When set, `boolean_bodies` returns a lump-sorted `Compound` on `>1`
+    solids instead of raising. Empty results stay `boolean_empty`/`BooleanError`.
+    **All existing boolean goldens stay byte-identical** — they union/subtract
+    TOUCHING bodies (→ 1 solid), never reaching the relaxed branch, and none sets
+    the flag (assert in the slice).
+  - **Multi-solid STEP import → ONE multi-lump body** (a `Compound`), not N bodies
+    (one import-feature id). `import_step_solid` returns `BodyShape`: a bare `Solid`
+    when `solids == 1` (existing `import-step-box-10x20x30` golden byte-identical —
+    do NOT wrap a lone solid), else a lump-sorted `Compound`. Retire
+    `ImportNotSingleSolidError`'s "not single" meaning → reject only 0 solids (rename
+    → `import_no_solid`; ripples py-kit → ts-client → `featureErrors.ts`). Widen
+    `step_cache` (`solid_to/from_brep_bytes`). Splitting a multi-lump body into
+    independent bodies is a later "split bodies" feature.
+  - **Determinism — the one new knob:** an EXPLICIT lump sort (centroid x,y,z then
+    volume) when assembling ANY multi-lump `Compound` (boolean result + import) —
+    don't trust OCCT traversal order. Flatten the part roll-up
+    (`Compound([s for b in bodies for s in b.solids()])`) to avoid nested Compounds.
+  - **Goldens (same commit):** `boolean-union-two-disjoint-cubes` (two non-touching
+    20mm cubes, `allow_disjoint` → ONE multi-lump body, 16000 mm³, shells=2 — same
+    analytic numbers as the MB-0 `multibody-two-disjoint-boxes`, but ONE body via a
+    boolean); a fillet-on-lump-2 golden (cross-lump naming proof); a 2-solid STEP
+    import round-trip (`test_step_roundtrip` already handles multi-solid re-import).
+  - **Sequence:** MB-4a (multi-lump body support + relaxed guards + disjoint-union
+    golden, backend) → MB-4b (multi-solid STEP import) → MB-4c (frontend
+    `allow_disjoint` checkbox + error-code map). Per-lump pick/highlight is the
+    deferred tail.
+  - **Risks:** the lump-count guard (capture `k` from the INPUT body — a wrong guard
+    crashes legit ops or silently accepts a merge; shell especially); nested
+    Compounds if the roll-up isn't flattened; lump-order determinism (the explicit
+    sort); the import error-code rename ripple; a mate-against-a-multi-lump-face
+    regression check (the historically silent path); coincident-lump
+    `subshape_ambiguous` (honest — document in the v1-limits docstring).
 
 ## Risks (flagged)
 
