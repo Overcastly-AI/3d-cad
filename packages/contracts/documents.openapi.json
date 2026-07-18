@@ -146,6 +146,37 @@
         "title": "AnnotationResponse",
         "type": "object"
       },
+      "AssemblyBomResponse": {
+        "description": "An assembly's flat bill of materials (design: assemblies.md residual).\n\nA pure documents-side READ MODEL \u2014 no writes, no migration: it aggregates\nthe assembly's DIRECT instances into one :class:`BomLine` per referenced\ndocument (quantity = shared-reference count), resolving each document's\ncurrent name from the ``parts`` / ``assemblies`` tables. Deterministically\nordered (resolved name, then ``ref_document_id``) so the list is stable\nacross reads. ``total_instances`` is the sum of every line's quantity (the\nassembly's direct-instance count), so an empty assembly is\n``{lines: [], total_instances: 0}``.",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "lines": {
+            "description": "One line per referenced document, deterministically ordered",
+            "items": {
+              "$ref": "#/components/schemas/BomLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "total_instances": {
+            "description": "Sum of all line quantities (direct instance count)",
+            "minimum": 0.0,
+            "title": "Total Instances",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assembly_id",
+          "lines",
+          "total_instances"
+        ],
+        "title": "AssemblyBomResponse",
+        "type": "object"
+      },
       "AssemblyCreate": {
         "description": "Create an assembly owned by the calling user (design \u00a71.2).",
         "properties": {
@@ -386,6 +417,58 @@
           "axis"
         ],
         "title": "AxisParallelEdgesSelector",
+        "type": "object"
+      },
+      "BomLine": {
+        "description": "One line of an assembly's bill of materials (a flat, direct-instance BOM).\n\nA BOM line GROUPS the assembly's DIRECT instances by the document they\nreference: ``quantity`` is the count of instances sharing this\n``ref_document_id``, ``name`` is the referenced document's CURRENT name, and\n``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 \u2014\ndirect instances only, NOT recursive into rigid sub-assemblies (an explicit\nfollow-up; a sub-assembly instance appears as a single ``kind: \"assembly\"``\nline, never expanded).\n\nA referenced document that was DELETED while still instanced surfaces\nhonestly, not silently: the line stays (its instances still exist and still\ncount), with ``name`` null and ``missing`` true, so a client can flag the\ndangling reference rather than the read 500-ing or the quantity vanishing.",
+        "properties": {
+          "missing": {
+            "default": false,
+            "description": "True when the referenced document no longer exists (deleted while still instanced) \u2014 the line and its quantity are still reported so the dangling reference is visible, never silently dropped",
+            "title": "Missing",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)",
+            "title": "Name"
+          },
+          "quantity": {
+            "description": "Count of direct instances referencing this document",
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "ref_document_id": {
+            "description": "The referenced part / sub-assembly document (the group key)",
+            "format": "uuid",
+            "title": "Ref Document Id",
+            "type": "string"
+          },
+          "ref_document_kind": {
+            "description": "'part' or 'assembly' (a rigid sub-assembly, not expanded)",
+            "enum": [
+              "part",
+              "assembly"
+            ],
+            "title": "Ref Document Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref_document_id",
+          "ref_document_kind",
+          "name",
+          "quantity"
+        ],
+        "title": "BomLine",
         "type": "object"
       },
       "ChamferFeature": {
@@ -5098,6 +5181,68 @@
           }
         },
         "summary": "Update Assembly",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/bom": {
+      "get": {
+        "description": "The assembly's flat bill of materials (direct instances only; uniform 404).\n\nA pure read model (assemblies.md residual): groups the assembly's DIRECT\ninstances by referenced document, resolving each to its current name and\nkind. NOT recursive into rigid sub-assemblies \u2014 a sub-assembly instance is a\nsingle ``kind: \"assembly\"`` line (recursive/indented BOM is a tracked\nfollow-up). A referenced document deleted while still instanced is reported\nas a ``missing`` line with a null name, never a 500.",
+        "operationId": "get_assembly_bom_api_v1_assemblies__assembly_id__bom_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyBomResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Assembly Bom",
         "tags": [
           "assemblies"
         ]

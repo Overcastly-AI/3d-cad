@@ -485,6 +485,66 @@ class AssemblyUndoRedoRequest(BaseModel):
     )
 
 
+class BomLine(BaseModel):
+    """One line of an assembly's bill of materials (a flat, direct-instance BOM).
+
+    A BOM line GROUPS the assembly's DIRECT instances by the document they
+    reference: ``quantity`` is the count of instances sharing this
+    ``ref_document_id``, ``name`` is the referenced document's CURRENT name, and
+    ``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 —
+    direct instances only, NOT recursive into rigid sub-assemblies (an explicit
+    follow-up; a sub-assembly instance appears as a single ``kind: "assembly"``
+    line, never expanded).
+
+    A referenced document that was DELETED while still instanced surfaces
+    honestly, not silently: the line stays (its instances still exist and still
+    count), with ``name`` null and ``missing`` true, so a client can flag the
+    dangling reference rather than the read 500-ing or the quantity vanishing.
+    """
+
+    ref_document_id: uuid.UUID = Field(
+        description="The referenced part / sub-assembly document (the group key)"
+    )
+    ref_document_kind: RefDocumentKind = Field(
+        description="'part' or 'assembly' (a rigid sub-assembly, not expanded)"
+    )
+    name: str | None = Field(
+        description="The referenced document's CURRENT name, or null when it has "
+        "been deleted while still instanced (see `missing`)"
+    )
+    missing: bool = Field(
+        default=False,
+        description="True when the referenced document no longer exists (deleted "
+        "while still instanced) — the line and its quantity are still reported so "
+        "the dangling reference is visible, never silently dropped",
+    )
+    quantity: int = Field(
+        ge=1, description="Count of direct instances referencing this document"
+    )
+
+
+class AssemblyBomResponse(BaseModel):
+    """An assembly's flat bill of materials (design: assemblies.md residual).
+
+    A pure documents-side READ MODEL — no writes, no migration: it aggregates
+    the assembly's DIRECT instances into one :class:`BomLine` per referenced
+    document (quantity = shared-reference count), resolving each document's
+    current name from the ``parts`` / ``assemblies`` tables. Deterministically
+    ordered (resolved name, then ``ref_document_id``) so the list is stable
+    across reads. ``total_instances`` is the sum of every line's quantity (the
+    assembly's direct-instance count), so an empty assembly is
+    ``{lines: [], total_instances: 0}``.
+    """
+
+    assembly_id: uuid.UUID
+    lines: list[BomLine] = Field(
+        description="One line per referenced document, deterministically ordered"
+    )
+    total_instances: int = Field(
+        ge=0, description="Sum of all line quantities (direct instance count)"
+    )
+
+
 class InstanceMutationResponse(BaseModel):
     """Result of a single-instance mutation: the instance + the new version."""
 

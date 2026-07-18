@@ -29,10 +29,14 @@ duplication:
   geometry-QA'd, e2e green live. **Distance + angle mates landed 2026-07-17**
   (fast-follow, conventions pinned + goldens); **distance/angle authoring UI
   shipped 2026-07-17** (command-band tools + `NumberField` value entry in the
-  mate HUD — pick two faces, set mm/deg, commit). Honest residuals, not gating
-  the ➖: no collision detection, no exploded views, no BOM, no assembly-level STEP
-  IO, instances track a part's live tip not a pinned version, sub-assemblies
-  rigid-only. See VISION.md row for full evidence chain.
+  mate HUD — pick two faces, set mm/deg, commit). **Flat BOM read-model shipped
+  2026-07-18** (`GET /api/v1/assemblies/{id}/bom` + gateway proxy — direct
+  instances grouped by referenced document, quantity + current name + kind,
+  deleted-ref lines flagged `missing`; frontend panel a separate follow-up).
+  Honest residuals, not gating the ➖: no collision detection, no exploded views,
+  no RECURSIVE/indented BOM (flat direct-instance only — filed below), no
+  assembly-level STEP IO, instances track a part's live tip not a pinned version,
+  sub-assemblies rigid-only. See VISION.md row for full evidence chain.
 - **Drawings — flipped ❌→➖ (2026-07-17).** v1 shipped end-to-end (document
   model → HLR projection → evaluate endpoint → gateway proxy → dimension
   measurement/provenance → frontend sheet editor → dimension authoring → SVG
@@ -547,6 +551,21 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       (distance mm / angle deg) → `MateCreate` → re-evaluate, reusing the v1 #6
       mate-authoring overlays. Solver + contract already ship both. [src:
       design/assemblies.md §2.3/§5]
+- [x] (P1, S) Assemblies — BOM read-model (documents + gateway) — **DONE
+      2026-07-18** (the assemblies.md residual). `GET /api/v1/assemblies/{id}/bom`:
+      a pure documents-side aggregation (`_bom_response`, no migration/no writes)
+      grouping the assembly's DIRECT instances by `ref_document_id` into `BomLine`s
+      (`py_kit.schemas.assemblies` — `quantity` = shared-reference count, referenced
+      doc's CURRENT `name` + `ref_document_kind`), deterministically ordered
+      (resolved name, then id). Deleted-ref decision: a doc deleted while still
+      instanced surfaces as a `missing` line with a null `name` (quantity kept) —
+      honest, never a 500 or silent drop. Gateway proxy mirrors the assembly-GET
+      posture (auth-gated `CurrentUser`, `X-Loft-User`, envelopes resurfaced).
+      FLAT v1 — direct instances only (recursive/indented BOM filed below).
+      documents + gateway pytest green (group/qty/order, sub-assembly kind, empty,
+      deleted-ref missing, owner-404, proxy auth-gate + passthrough); lint clean;
+      contracts + ts-client regenerated (gen-check clean). [src: design/
+      assemblies.md; ROADMAP Assemblies ➖ residual]
 - [x] (P2, M) Mesh store: MinIO-backed object-storage swap (engineering audit
       **F1/F6**) — **DONE 2026-07-15.** `configure_mesh_store` (wired in
       `build_app`) selects a shared content-addressed `S3MeshStore`
@@ -600,6 +619,20 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
 
 ## Next (P2)
 
+- [ ] (P2, M) Assemblies — RECURSIVE / indented BOM (documents) — the follow-up
+      to the flat v1 BOM read-model (shipped 2026-07-18). Expand rigid
+      sub-assembly instances into their own lines, rolling quantities through the
+      nesting (a part appearing N× in a sub-assembly instanced M× rolls up to
+      N·M), with an indent/level or parent-ref shape so the client can render an
+      indented tree. The flat aggregation + `BomLine` DTO + acyclicity guarantee
+      already exist; this walks the (acyclic) sub-assembly graph and merges lines.
+      Decide the rolled-up vs. per-level presentation with the frontend BOM panel.
+      [src: design/assemblies.md; ROADMAP Assemblies residual]
+- [ ] (P2, S) Assemblies — BOM panel (apps/web) — surface the shipped
+      `GET /api/v1/assemblies/{id}/bom` read-model in the assembly workspace: a
+      quantity/name/kind table (design-system primitives), `missing`-ref lines
+      flagged, deterministic order preserved. Consumes the regenerated ts-client
+      `AssemblyBomResponse`/`BomLine` types. [src: design/assemblies.md]
 - [x] (P2, S) ToolButton gate reasons never reach screen readers (packages/design)
       — **DONE 2026-07-17.** While gated, ToolButton's `aria-describedby` points
       at the (always-mounted) tooltip caption node, so `aria-disabled` announces
@@ -881,6 +914,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Assembly BOM read-model done:** `GET /api/v1/assemblies/{id}/bom`
+  — flat documents-side aggregation (direct instances grouped by referenced doc:
+  quantity + current name + kind, deterministic order; deleted-ref → `missing`
+  line, no 500) + gateway proxy. documents + gateway pytest + lint + gen-check
+  green; recursive BOM + frontend panel filed (Next). Contracts regenerated.
 - 2026-07-18 — **Drawings #6c review + frontend-QA fix pass done:** frontend now
   reads `start_is_end_a` and DELETES its `projectModelPoint`/`VIEW_AXES` twin of
   `project.py` (point-to-point pick gated on `source_edge` + `start_is_end_a`);

@@ -53,6 +53,31 @@ export interface paths {
         patch: operations["update_assembly_api_v1_assemblies__assembly_id__patch"];
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/bom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Bom
+         * @description The assembly's flat bill of materials (direct instances only; uniform 404).
+         *
+         *     Documents aggregates the read model (one line per referenced document,
+         *     quantity = shared-reference count, current name + kind, deleted-ref lines
+         *     flagged ``missing``); the gateway proxies faithfully under the same
+         *     auth/ownership posture as :func:`get_assembly`.
+         */
+        get: operations["get_assembly_bom_api_v1_assemblies__assembly_id__bom_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/instances": {
         parameters: {
             query?: never;
@@ -1225,6 +1250,36 @@ export interface components {
             sheet_id: string;
         };
         /**
+         * AssemblyBomResponse
+         * @description An assembly's flat bill of materials (design: assemblies.md residual).
+         *
+         *     A pure documents-side READ MODEL — no writes, no migration: it aggregates
+         *     the assembly's DIRECT instances into one :class:`BomLine` per referenced
+         *     document (quantity = shared-reference count), resolving each document's
+         *     current name from the ``parts`` / ``assemblies`` tables. Deterministically
+         *     ordered (resolved name, then ``ref_document_id``) so the list is stable
+         *     across reads. ``total_instances`` is the sum of every line's quantity (the
+         *     assembly's direct-instance count), so an empty assembly is
+         *     ``{lines: [], total_instances: 0}``.
+         */
+        AssemblyBomResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Lines
+             * @description One line per referenced document, deterministically ordered
+             */
+            lines: components["schemas"]["BomLine"][];
+            /**
+             * Total Instances
+             * @description Sum of all line quantities (direct instance count)
+             */
+            total_instances: number;
+        };
+        /**
          * AssemblyCreate
          * @description Create an assembly owned by the calling user (design §1.2).
          */
@@ -1460,6 +1515,53 @@ export interface components {
              * @enum {string}
              */
             kind: "axis_parallel";
+        };
+        /**
+         * BomLine
+         * @description One line of an assembly's bill of materials (a flat, direct-instance BOM).
+         *
+         *     A BOM line GROUPS the assembly's DIRECT instances by the document they
+         *     reference: ``quantity`` is the count of instances sharing this
+         *     ``ref_document_id``, ``name`` is the referenced document's CURRENT name, and
+         *     ``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 —
+         *     direct instances only, NOT recursive into rigid sub-assemblies (an explicit
+         *     follow-up; a sub-assembly instance appears as a single ``kind: "assembly"``
+         *     line, never expanded).
+         *
+         *     A referenced document that was DELETED while still instanced surfaces
+         *     honestly, not silently: the line stays (its instances still exist and still
+         *     count), with ``name`` null and ``missing`` true, so a client can flag the
+         *     dangling reference rather than the read 500-ing or the quantity vanishing.
+         */
+        BomLine: {
+            /**
+             * Missing
+             * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
+             * @default false
+             */
+            missing: boolean;
+            /**
+             * Name
+             * @description The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)
+             */
+            name: string | null;
+            /**
+             * Quantity
+             * @description Count of direct instances referencing this document
+             */
+            quantity: number;
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The referenced part / sub-assembly document (the group key)
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
         };
         /**
          * BoundingBox
@@ -6061,6 +6163,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_bom_api_v1_assemblies__assembly_id__bom_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyBomResponse"];
                 };
             };
             /** @description Validation Error */

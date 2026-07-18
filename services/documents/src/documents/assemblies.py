@@ -23,12 +23,14 @@ from fastapi import APIRouter, Query, status
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from py_kit.schemas.assemblies import (
+    AssemblyBomResponse,
     AssemblyCreate,
     AssemblyGraphResponse,
     AssemblyListResponse,
     AssemblyResponse,
     AssemblyUndoRedoRequest,
     AssemblyUpdate,
+    BomLine,
     InstanceCreate,
     InstanceMutationResponse,
     InstanceResponse,
@@ -37,6 +39,7 @@ from py_kit.schemas.assemblies import (
     MateCreate,
     MateMutationResponse,
     MateResponse,
+    RefDocumentKind,
     mate_instance_ids,
 )
 from pydantic import TypeAdapter
@@ -292,6 +295,104 @@ async def get_assembly(
     """One owned assembly with its full instance + mate graph (uniform 404)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id)
     return await _graph_response(session, assembly)
+
+
+async def _resolve_document_names(
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    refs: set[tuple[uuid.UUID, RefDocumentKind]],
+) -> dict[tuple[uuid.UUID, RefDocumentKind], str]:
+    """Current names of the referenced parts / assemblies, keyed by (id, kind).
+
+    Owner-scoped (defense-in-depth — references are same-owner enforced at write
+    time): a referenced document DELETED since it was instanced is simply absent
+    from the map, and the BOM reports that line ``missing`` rather than 500-ing.
+    One query per kind over only the ids actually referenced.
+    """
+    part_ids = {ref_id for ref_id, kind in refs if kind == "part"}
+    assembly_ids = {ref_id for ref_id, kind in refs if kind == "assembly"}
+    names: dict[tuple[uuid.UUID, RefDocumentKind], str] = {}
+    if part_ids:
+        result = await session.execute(
+            select(db.Part.id, db.Part.name).where(
+                db.Part.id.in_(part_ids), db.Part.owner_id == owner_id
+            )
+        )
+        for ref_id, name in result.all():
+            names[(ref_id, "part")] = name
+    if assembly_ids:
+        result = await session.execute(
+            select(db.Assembly.id, db.Assembly.name).where(
+                db.Assembly.id.in_(assembly_ids), db.Assembly.owner_id == owner_id
+            )
+        )
+        for ref_id, name in result.all():
+            names[(ref_id, "assembly")] = name
+    return names
+
+
+async def _bom_response(
+    session: AsyncSession, assembly: db.Assembly
+) -> AssemblyBomResponse:
+    """Aggregate the assembly's DIRECT instances into a flat BOM (read model).
+
+    One line per referenced document (``ref_document_id`` + kind), quantity =
+    the count of instances sharing it, name resolved to the referenced
+    document's CURRENT name (null + ``missing`` when deleted-but-still-instanced).
+    Deterministically ordered by resolved name then ``ref_document_id`` (missing
+    lines sort last, then by id) so the list is stable across reads.
+    """
+    result = await session.execute(
+        select(
+            db.Instance.ref_document_id,
+            db.Instance.ref_document_kind,
+            func.count(),
+        )
+        .where(db.Instance.assembly_id == assembly.id)
+        .group_by(db.Instance.ref_document_id, db.Instance.ref_document_kind)
+    )
+    groups: list[tuple[uuid.UUID, RefDocumentKind, int]] = [
+        (ref_id, kind, int(count)) for ref_id, kind, count in result.all()
+    ]
+    names = await _resolve_document_names(
+        session, assembly.owner_id, {(ref_id, kind) for ref_id, kind, _ in groups}
+    )
+    lines = [
+        BomLine(
+            ref_document_id=ref_id,
+            ref_document_kind=kind,
+            name=names.get((ref_id, kind)),
+            missing=(ref_id, kind) not in names,
+            quantity=count,
+        )
+        for ref_id, kind, count in groups
+    ]
+    # Stable order: resolved name, then id; deleted-ref (null name) lines last.
+    lines.sort(
+        key=lambda line: (line.name is None, line.name or "", str(line.ref_document_id))
+    )
+    return AssemblyBomResponse(
+        assembly_id=assembly.id,
+        lines=lines,
+        total_instances=sum(line.quantity for line in lines),
+    )
+
+
+@router.get("/{assembly_id}/bom")
+async def get_assembly_bom(
+    assembly_id: uuid.UUID, owner_id: Principal, session: SessionDep
+) -> AssemblyBomResponse:
+    """The assembly's flat bill of materials (direct instances only; uniform 404).
+
+    A pure read model (assemblies.md residual): groups the assembly's DIRECT
+    instances by referenced document, resolving each to its current name and
+    kind. NOT recursive into rigid sub-assemblies — a sub-assembly instance is a
+    single ``kind: "assembly"`` line (recursive/indented BOM is a tracked
+    follow-up). A referenced document deleted while still instanced is reported
+    as a ``missing`` line with a null name, never a 500.
+    """
+    assembly = await get_owned_assembly(session, owner_id, assembly_id)
+    return await _bom_response(session, assembly)
 
 
 @router.patch("/{assembly_id}")

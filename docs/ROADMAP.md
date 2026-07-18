@@ -180,8 +180,9 @@ export, flexible sub-assemblies, part-version pinning-as-default.
 
 - 🚧 Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
       items, backend→gateway→frontend); "bolt two parts together and see it" is
-      real end-to-end.** BOM deferred to a trivial documents-side read model
-      once instances exist. **v1 #1 landed**:
+      real end-to-end.** BOM shipped as a flat documents-side read model
+      (see the BOM-landed note below); recursive/indented BOM is a tracked
+      residual. **v1 #1 landed**:
       the documents foundation — `py_kit.schemas.assemblies` (Placement/Quat,
       the discriminated 5-mate union, MateFace/AxisRef reusing the feature
       signatures), `assemblies`/`instances`/`mates` tables (migration `0003`),
@@ -259,6 +260,20 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `distance`/`angle` mate from the generated client union; unit tests +
       `assembly.spec.ts` distance-mate e2e cover it. Both mates are now
       user-authorable end-to-end.
+      **BOM read-model landed 2026-07-18 (the assemblies residual):**
+      `GET /api/v1/assemblies/{id}/bom` — a pure documents-side aggregation
+      (`documents.assemblies._bom_response`, no migration/no writes) grouping the
+      assembly's DIRECT instances by `ref_document_id` into `BomLine`s
+      (`py_kit.schemas.assemblies`: `quantity` = shared-reference count, the
+      referenced document's CURRENT `name` + `ref_document_kind`), deterministically
+      ordered (resolved name, then id). A referenced document deleted while still
+      instanced is reported honestly — a `missing` line with a null `name`, never a
+      500 or a silently-dropped quantity. Gateway proxy mirrors the assembly-GET
+      posture (auth-gated `CurrentUser`, `X-Loft-User` principal, envelopes
+      resurfaced). **FLAT v1 — direct instances only; recursive/indented BOM into
+      rigid sub-assemblies is a tracked follow-up (a sub-assembly instance is one
+      `kind: "assembly"` line).** documents + gateway pytest green; contracts +
+      ts-client regenerated (frontend BOM panel is a separate follow-up).
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

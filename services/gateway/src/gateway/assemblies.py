@@ -22,6 +22,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, status
 from py_kit.schemas.assemblies import (
+    AssemblyBomResponse,
     AssemblyCreate,
     AssemblyGraphResponse,
     AssemblyListResponse,
@@ -83,6 +84,25 @@ async def get_assembly(
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     return AssemblyGraphResponse.model_validate_json(upstream.content)
+
+
+@router.get("/{assembly_id}/bom")
+async def get_assembly_bom(
+    assembly_id: uuid.UUID, user: CurrentUser, http_request: Request
+) -> AssemblyBomResponse:
+    """The assembly's flat bill of materials (direct instances only; uniform 404).
+
+    Documents aggregates the read model (one line per referenced document,
+    quantity = shared-reference count, current name + kind, deleted-ref lines
+    flagged ``missing``); the gateway proxies faithfully under the same
+    auth/ownership posture as :func:`get_assembly`.
+    """
+    upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/assemblies/{assembly_id}/bom"
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return AssemblyBomResponse.model_validate_json(upstream.content)
 
 
 @router.patch("/{assembly_id}")
