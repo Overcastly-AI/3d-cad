@@ -602,8 +602,19 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `POST /api/v1/drawing/compose?format=pdf` wired (`application/pdf` +
       `Content-Disposition`); `dxf` stays typed `not_implemented` until DE-3.
       Byte-stability PDF golden + structural + endpoint gates green; reportlab
-      pinned in the geometry deps. **Gateway export route (DE-2b) + frontend
-      "Export PDF" (DE-2c) follow.**
+      pinned in the geometry deps.
+      **Drawing export DE-2b — gateway export proxy SHIPPED** (2026-07-18):
+      `POST /api/v1/drawings/{id}/export?format=pdf|svg` (`services/gateway/
+      drawings.py`) — auth-gated + `COMPUTE_RATE_LIMIT`, the drawing twin of the
+      parts `/{id}/export` two-hop aggregation. Documents serves the drawing tree
+      + the referenced part's evaluation-request (principal attached; uniform 404
+      re-surfaced); the gateway assembles the `ComposeDrawingRequest` (part prefix
+      + views + dimensions + `SheetLayout` from the persisted sheet) and forwards
+      to the identity-free geometry compose hop, streaming the artifact bytes +
+      `Content-Disposition` back. Geometry's `not_implemented` (dxf) / per-format
+      envelopes re-surface verbatim; unknown `format` → gateway 422. Gateway
+      pytest + contracts regenerated green. **Frontend "Export PDF" (DE-2c)
+      follows.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)

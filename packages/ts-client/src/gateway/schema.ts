@@ -367,6 +367,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawings/{drawing_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Drawing
+         * @description Compose the drawing into a downloadable SVG/PDF/DXF artifact (design §4.2).
+         *
+         *     Auth-gated and rate-limited (an OCCT-CPU compose route, same posture as the
+         *     parts export and the drawing-evaluate proxy — engineering audit F7). The
+         *     two-hop aggregation: documents serves the drawing tree AND the referenced
+         *     part's evaluation-ready feature prefix (principal attached, uniform 404 for an
+         *     unknown/foreign drawing re-surfaced verbatim), the gateway assembles the
+         *     :class:`ComposeDrawingRequest` from that persisted state, and the stateless
+         *     geometry service (identity-free upstream) evaluates + places + serializes it.
+         *     The artifact bytes stream back with geometry's ``Content-Type`` +
+         *     ``Content-Disposition``; its per-format envelopes (e.g. ``not_implemented`` for
+         *     ``dxf``) re-surface verbatim.
+         */
+        post: operations["export_drawing_api_v1_drawings__drawing_id__export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawings/{drawing_id}/sheets": {
         parameters: {
             query?: never;
@@ -6744,6 +6775,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_drawing_api_v1_drawings__drawing_id__export_post: {
+        parameters: {
+            query?: {
+                /** @description Artifact format to compose: svg | pdf | dxf */
+                format?: "svg" | "pdf" | "dxf";
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The server-composed drawing artifact, proxied byte-exact from the geometry service: SVG (`image/svg+xml`), PDF (`application/pdf`), or DXF (`image/vnd.dxf`). `Content-Disposition` carries the suggested download filename. Composition is deterministic — identical drawing state produces an identical artifact (drawing-export.md §determinism). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "image/svg+xml": string;
+                    "image/vnd.dxf": string;
                 };
             };
             /** @description Validation Error */

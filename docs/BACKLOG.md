@@ -106,8 +106,11 @@ reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
 - [ ] (P1, M) Drawing export DE-2 — PDF (reportlab). **DE-2a serializer + geometry
       route + byte-stability golden SHIPPED 2026-07-18** (`serialize_pdf`,
       `bottomup=0` single flip, `invariant=1`+`pageCompression=0` determinism,
-      reportlab 5.0.0 BSD pinned; `format=pdf` wired). **Remaining: DE-2b gateway
-      export route + DE-2c frontend "Export PDF" control.** [src: drawing-export.md]
+      reportlab 5.0.0 BSD pinned; `format=pdf` wired). **DE-2b gateway export proxy
+      SHIPPED 2026-07-18** (`POST /api/v1/drawings/{id}/export?format=`, auth-gated
+      + rate-limited two-hop aggregation → geometry `drawing/compose`, streams
+      bytes; unknown format → 422, upstream envelopes verbatim). **Remaining: DE-2c
+      frontend "Export PDF" control.** [src: drawing-export.md]
 - [ ] (P2, M) Drawing export DE-3 — DXF (ezdxf, real entities) + "Export DXF" +
       golden + reopens-in-CAD smoke. [src: drawing-export.md]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
@@ -949,6 +952,9 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Drawing export DE-2b done (gateway):** `POST /api/v1/drawings/{id}/
+  export?format=` — auth-gated + rate-limited two-hop aggregation (drawing tree + part
+  eval-request → `ComposeDrawingRequest` → geometry `drawing/compose`), streams bytes.
 - 2026-07-18 — **Drawing export DE-2a done (geometry):** reportlab PDF serializer —
   `serialize_pdf(ComposedSheet)` draws the placed primitives (single `bottomup=0`
   y-flip, placement untouched); `invariant=1`+`pageCompression=0` → byte-identical

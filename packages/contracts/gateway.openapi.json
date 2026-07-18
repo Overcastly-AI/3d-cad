@@ -8469,6 +8469,85 @@
         ]
       }
     },
+    "/api/v1/drawings/{drawing_id}/export": {
+      "post": {
+        "description": "Compose the drawing into a downloadable SVG/PDF/DXF artifact (design \u00a74.2).\n\nAuth-gated and rate-limited (an OCCT-CPU compose route, same posture as the\nparts export and the drawing-evaluate proxy \u2014 engineering audit F7). The\ntwo-hop aggregation: documents serves the drawing tree AND the referenced\npart's evaluation-ready feature prefix (principal attached, uniform 404 for an\nunknown/foreign drawing re-surfaced verbatim), the gateway assembles the\n:class:`ComposeDrawingRequest` from that persisted state, and the stateless\ngeometry service (identity-free upstream) evaluates + places + serializes it.\nThe artifact bytes stream back with geometry's ``Content-Type`` +\n``Content-Disposition``; its per-format envelopes (e.g. ``not_implemented`` for\n``dxf``) re-surface verbatim.",
+        "operationId": "export_drawing_api_v1_drawings__drawing_id__export_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Artifact format to compose: svg | pdf | dxf",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "svg",
+              "description": "Artifact format to compose: svg | pdf | dxf",
+              "enum": [
+                "svg",
+                "pdf",
+                "dxf"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/svg+xml": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/vnd.dxf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The server-composed drawing artifact, proxied byte-exact from the geometry service: SVG (`image/svg+xml`), PDF (`application/pdf`), or DXF (`image/vnd.dxf`). `Content-Disposition` carries the suggested download filename. Composition is deterministic \u2014 identical drawing state produces an identical artifact (drawing-export.md \u00a7determinism)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Drawing",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
     "/api/v1/drawings/{drawing_id}/sheets": {
       "post": {
         "description": "Add a sheet to a drawing (append at the tip; 422 on a stale version).",
