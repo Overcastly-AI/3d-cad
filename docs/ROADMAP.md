@@ -310,8 +310,7 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       fuses two independently-built bodies named by their base-feature
       `FeatureRef`s (OCCT `fuse` + clean), REPLACING both operands (result takes
       the target's identity slot, tool consumed) with a `boolean_disjoint` guard
-      (union must stay one connected solid). `subtract`/`intersect` are defined in
-      the schema but return `boolean_not_implemented` until MB-2. Golden
+      (union must stay one connected solid). Golden
       `boolean-union-two-cubes-overlap` (12000 mm³, shells=1). **MB-1b landed
       2026-07-18 — the frontend:** a design-system `Checkbox` primitive drives a
       "Merge result" toggle on the extrude/revolve/sweep/loft ADD editors
@@ -323,8 +322,16 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       MB-0 `merge` field through the param builders/editors/fixtures (un-redding
       `apps/web typecheck`). E2e `multibody-union.spec.ts`: two `merge=false`
       cubes → Combine → one fused 12000 mm³ solid (founder shot
-      `docs/screenshots/multibody-union-desktop.png`). **Next: MB-2 —
-      subtract/intersect + the documents `_reject_import_with_prior_body` relax.**
+      `docs/screenshots/multibody-union-desktop.png`). **MB-2a landed 2026-07-18 —
+      subtract + intersect BACKEND:** `boolean_bodies` wires `subtract` (OCCT
+      `cut`) + `intersect` (`common`), same operand-replacement + single-connected
+      -solid guard; new `boolean_empty` (an empty subtract/intersect) and widened
+      `boolean_disjoint` (a severing subtract) taxonomy. Analytic goldens
+      `boolean-{subtract,intersect}-two-cubes-overlap` (both a clean 4000 mm³ box,
+      shells=1). No schema change (the `operation` Literal already carried all
+      three). **Next: MB-2b — the frontend operation selector (union/subtract/
+      intersect in the CombineEditor) + the documents `_reject_import_with_prior_
+      body` relax.**
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

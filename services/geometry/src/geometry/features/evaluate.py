@@ -28,9 +28,10 @@ through the SAME stage-1 planar-face signature the ``on_face`` datum uses) and
 ``draft`` (tapers picked faces by an angle about a principal-datum neutral plane
 — the molding/casting release, reusing that SAME picked-face resolver) and
 ``import`` (brings an external STEP part in as the part's BASE body — the first
-non-modeled body source, docs/design/step-import.md) and ``boolean`` (fuses two
+non-modeled body source, docs/design/step-import.md) and ``boolean`` (combines two
 independently-built bodies named by their base features — the headline
-multi-body feature; MB-1a wires ``union``, docs/design/multi-body.md §MB-1).
+multi-body feature; union/subtract/intersect all wired, docs/design/multi-body.md
+§MB-1/§MB-2).
 A feature that
 validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
@@ -100,6 +101,7 @@ from geometry.kernel import (
     DATUM_PLANES,
     AxisIntersectsProfileError,
     BooleanDisjointError,
+    BooleanEmptyError,
     BooleanError,
     ChamferError,
     DraftError,
@@ -1374,44 +1376,37 @@ def _evaluate_boolean(
 ) -> FeatureError | None:
     """Boolean two independently-built bodies (body-affecting, §Decisions-3).
 
-    The headline multi-body feature (docs/design/multi-body.md §MB-1): it
+    The headline multi-body feature (docs/design/multi-body.md §MB-1/§MB-2): it
     resolves ``target`` and ``tool`` to two CURRENT bodies of the part
     (:func:`_resolve_operand_body` — each keyed by its base feature id, §MB-0),
-    fuses them (:func:`boolean_bodies`), and REPLACES both operands with the
-    result — which takes over the target's identity slot and drops the tool body
-    (:meth:`EvaluationState.combine_bodies`), becoming the active body.
+    booleans them (:func:`boolean_bodies` — ``union`` fuses, ``subtract`` cuts the
+    tool out of the target, ``intersect`` keeps their common volume), and REPLACES
+    both operands with the result — which takes over the target's identity slot
+    and drops the tool body (:meth:`EvaluationState.combine_bodies`), becoming the
+    active body.
 
-    MB-1a wires ``union`` only; ``subtract``/``intersect`` are defined in the
-    schema (stable wire/client type) but return an honest
-    ``boolean_not_implemented`` until MB-2. Errors pin the failing operand where
-    relevant: ``reference_unresolved`` (an operand is not a current body — incl.
-    one consumed by an earlier boolean), ``boolean_same_body`` (target and tool
-    name the SAME body — a degenerate self-fuse), ``boolean_disjoint`` (the union
-    is >1 solid: the bodies do not touch — the single-connected-solid-per-body
-    invariant, §Decisions-3), or ``boolean_failed`` (a kernel failure). The body
-    set is mutated only on success (last-good semantics, §4.3).
+    All three operations are wired (MB-1a union, MB-2 subtract/intersect). Errors
+    pin the failing operand where relevant: ``reference_unresolved`` (an operand
+    is not a current body — incl. one consumed by an earlier boolean),
+    ``boolean_same_body`` (target and tool name the SAME body — a degenerate
+    self-op), ``boolean_disjoint`` (the result is >1 solid: a union of
+    non-touching bodies, or a subtract/intersect that leaves ≥2 pieces — the
+    single-connected-solid-per-body invariant, §Decisions-3), ``boolean_empty``
+    (a subtract that removes the whole target, or an intersect with no overlap),
+    or ``boolean_failed`` (a kernel failure). The body set is mutated only on
+    success (last-good semantics, §4.3).
     """
     feature = item.feature
     assert isinstance(feature, BooleanFeature), "registry dispatches on type='boolean'"
     params = feature.params
-
-    if params.operation != "union":
-        # union is the only MB-1a operation; subtract/intersect are defined in the
-        # schema so the wire/client type is stable, but they are wired in MB-2.
-        return FeatureError(
-            code="boolean_not_implemented",
-            message=(
-                f"Boolean '{params.operation}' is not wired yet (MB-1a ships "
-                "union; subtract and intersect land in MB-2)."
-            ),
-        )
 
     if params.target.feature_id == params.tool.feature_id:
         return FeatureError(
             code="boolean_same_body",
             message=(
                 "A boolean's target and tool must name two DIFFERENT bodies, but "
-                "both reference the same base feature; pick two distinct bodies."
+                "both reference the same base feature; pick two distinct bodies. "
+                "(A body unioned/subtracted/intersected with itself is degenerate.)"
             ),
             upstream_feature_id=params.tool.feature_id,
         )
@@ -1427,6 +1422,8 @@ def _evaluate_boolean(
         combined = boolean_bodies(target, tool, params.operation)
     except BooleanDisjointError as exc:
         return FeatureError(code="boolean_disjoint", message=str(exc))
+    except BooleanEmptyError as exc:
+        return FeatureError(code="boolean_empty", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
 

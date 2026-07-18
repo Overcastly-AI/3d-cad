@@ -10,7 +10,11 @@ service boundary.
 
 from build123d import Solid
 
-from geometry.kernel.boolean import BooleanDisjointError, boolean_bodies
+from geometry.kernel.boolean import (
+    BooleanDisjointError,
+    BooleanEmptyError,
+    boolean_bodies,
+)
 from geometry.kernel.chamfer import ChamferError, chamfer_body
 from geometry.kernel.datum import (
     DATUM_PLANES,
@@ -106,6 +110,7 @@ __all__ = [
     "DATUM_PLANES",
     "AxisIntersectsProfileError",
     "BooleanDisjointError",
+    "BooleanEmptyError",
     "BooleanError",
     "ChamferError",
     "DraftError",

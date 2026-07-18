@@ -1,21 +1,26 @@
-"""MB-1a: the `boolean` feature — `union` between independently-built bodies
-(docs/design/multi-body.md §Decisions-3 / §MB-1).
+"""The `boolean` feature — union/subtract/intersect between independently-built
+bodies (docs/design/multi-body.md §Decisions-3 / §MB-1 / §MB-2).
 
-The golden ``boolean-union-two-cubes-overlap`` locks the analytic numbers
-(12000 mm^3, shells=1) + byte-identical GLB/STEP determinism; this module gates
-the BEHAVIOURS a single golden number cannot express:
+The goldens ``boolean-{union,subtract,intersect}-two-cubes-overlap`` lock the
+analytic numbers (12000 / 4000 / 4000 mm^3, shells=1) + byte-identical GLB/STEP
+determinism; this module gates the BEHAVIOURS a single golden number cannot
+express:
 
-1. **The union path** — two overlapping bodies fuse to ONE connected solid.
+1. **The three operation paths** — two overlapping bodies fuse (union), the tool
+   is cut out of the target (subtract), or their common volume is kept
+   (intersect), each to ONE connected solid.
 2. **The single-connected-solid-per-body invariant** — a union of DISJOINT
-   bodies is a deterministic ``boolean_disjoint`` error (the reason ``bodies``
-   values stay a ``Solid``, never a ``Compound``, in v1).
-3. **Operand replacement** — the result takes over the target's identity slot
+   bodies, or a subtract that SEVERS the target into ≥2 pieces, is a
+   deterministic ``boolean_disjoint`` error (the reason ``bodies`` values stay a
+   ``Solid``, never a ``Compound``, in v1).
+3. **The empty result** — a subtract that removes the whole target, or an
+   intersect with no overlap, is an honest ``boolean_empty`` error (MB-2), never
+   a crash or a null body.
+4. **Operand replacement** — the result takes over the target's identity slot
    and the tool body is removed, so the part ends with one body AND a downstream
    ref to the target keeps resolving; a later boolean naming the CONSUMED tool is
    an honest eval-time ``reference_unresolved`` (documents cannot catch it
    statically).
-4. **The MB-1a operation gate** — ``subtract``/``intersect`` are defined in the
-   schema but return ``boolean_not_implemented`` until MB-2.
 """
 
 from typing import Any
@@ -270,22 +275,129 @@ def test_boolean_target_equals_tool_is_boolean_same_body() -> None:
     assert last.error.code == "boolean_same_body"
 
 
-# --- The MB-1a operation gate (subtract/intersect are MB-2) ----------------------
+# --- MB-2: subtract + intersect (the two new operation paths) --------------------
 
 
-@pytest.mark.parametrize("operation", ["subtract", "intersect"])
-def test_subtract_and_intersect_are_not_implemented_in_mb1a(operation: str) -> None:
-    """`subtract`/`intersect` are defined in the schema (stable wire/client type)
-    but return an honest `boolean_not_implemented` until MB-2 — never a silent
-    wrong body."""
+def test_subtract_removes_the_tool_from_the_target() -> None:
+    """A[0,20] - B[10,30] (overlap x[10,20], same y,z) -> the slab x[0,10]: a
+    clean 4000 mm^3 box, ONE connected solid (the golden's behavioural half)."""
     s1, e1, s2, e2, b = _iid("81"), _iid("82"), _iid("83"), _iid("84"), _iid("85")
     evaluation = evaluate_tree(
         _scene(
             _two_bodies((0, 20), (10, 30), (s1, e1, s2, e2)),
-            _boolean(b, operation, e1, e2),
+            _boolean(b, "subtract", e1, e2),
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 5
+    props = evaluation.result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(4000.0, abs=1e-9)
+    assert props.topology.shells == 1
+    assert isinstance(evaluation.body, Solid)
+
+
+def test_intersect_keeps_only_the_common_volume() -> None:
+    """A[0,20] ∩ B[10,30] -> the overlap slab x[10,20]: a clean 4000 mm^3 box,
+    ONE connected solid (the intersect golden's behavioural half)."""
+    s1, e1, s2, e2, b = _iid("91"), _iid("92"), _iid("93"), _iid("94"), _iid("95")
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (10, 30), (s1, e1, s2, e2)),
+            _boolean(b, "intersect", e1, e2),
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 5
+    props = evaluation.result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(4000.0, abs=1e-9)
+    assert props.topology.shells == 1
+    assert isinstance(evaluation.body, Solid)
+
+
+def test_subtract_order_matters_target_is_the_minuend() -> None:
+    """subtract is NOT commutative: target-tool vs tool-target differ. B[10,30] -
+    A[0,20] keeps the slab x[20,30] (also 4000 mm^3 but a DIFFERENT body), proving
+    the operand roles (target=minuend, tool=subtrahend) are honoured."""
+    s1, e1, s2, e2, b = _iid("a1"), _iid("a2"), _iid("a3"), _iid("a4"), _iid("a5")
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (10, 30), (s1, e1, s2, e2)),
+            _boolean(b, "subtract", e2, e1),  # B - A (roles swapped vs above)
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 5
+    props = evaluation.result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(4000.0, abs=1e-9)
+    # B - A = the slab x[20,30]; its centroid sits at x=25, distinguishing it from
+    # A - B (x=5). The surviving body is keyed by the TARGET (e2 = B's base).
+    assert props.centroid.x == pytest.approx(25.0, abs=1e-9)
+    assert props.topology.shells == 1
+
+
+# --- MB-2: the empty result (boolean_empty) --------------------------------------
+
+
+def test_intersect_with_no_overlap_is_boolean_empty() -> None:
+    """A[0,20] ∩ B[30,50] (10 mm gap) -> the common volume is empty: an honest
+    `boolean_empty` error (build123d returns None for an empty common), never a
+    crash or a null body. Last-good = the two disjoint cubes, untouched."""
+    s1, e1, s2, e2, b = _iid("b1"), _iid("b2"), _iid("b3"), _iid("b4"), _iid("b5")
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (30, 50), (s1, e1, s2, e2)),
+            _boolean(b, "intersect", e1, e2),
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 4 + [("error", "boolean_empty")]
+    props = evaluation.result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(16000.0, abs=1e-9)  # both cubes intact
+    assert props.topology.shells == 2
+
+
+def test_subtract_that_removes_the_whole_target_is_boolean_empty() -> None:
+    """A tool that fully CONTAINS the target removes everything -> `boolean_empty`
+    (0 solids), never a silent null body. A[5,15]³ inside B[0,20]³: A - B = ∅."""
+    s1, e1, s2, e2, b = _iid("c1"), _iid("c2"), _iid("c3"), _iid("c4"), _iid("c5")
+    evaluation = evaluate_tree(
+        _scene(
+            [
+                _sketch(s1, _square(5, 5, 15, 15)),
+                _extrude(e1, s1),  # body A: 10x10 at [5,15], extrude 20 -> inside B
+                _sketch(s2, _square(0, 0, 20, 20)),
+                _extrude(e2, s2, merge=False),  # body B: 20x20x20, contains A
+            ],
+            _boolean(b, "subtract", e1, e2),  # A - B: B swallows A -> empty
         )
     )
     last = evaluation.result.features[-1]
     assert last.status == "error"
     assert last.error is not None
-    assert last.error.code == "boolean_not_implemented"
+    assert last.error.code == "boolean_empty"
+
+
+# --- MB-2: a severing subtract violates the single-connected-solid invariant -----
+
+
+def test_subtract_that_severs_the_target_is_boolean_disjoint() -> None:
+    """A subtract whose tool SPLITS the target into two disconnected pieces is a
+    `boolean_disjoint` error (>1 solid — multi-lump bodies are MB-4). Bar A spans
+    x[0,30], y[0,10], z[0,20]; tool B is the middle slab x[10,20] over the bar's
+    full y,z -> A - B = x[0,10] and x[20,30], two lumps."""
+    s1, e1, s2, e2, b = _iid("d1"), _iid("d2"), _iid("d3"), _iid("d4"), _iid("d5")
+    evaluation = evaluate_tree(
+        _scene(
+            [
+                _sketch(s1, _square(0, 0, 30, 10)),
+                _extrude(e1, s1),  # bar A: x[0,30], y[0,10], z[0,20]
+                _sketch(s2, _square(10, 0, 20, 10)),
+                _extrude(e2, s2, merge=False),  # tool B: middle slab x[10,20]
+            ],
+            _boolean(b, "subtract", e1, e2),  # severs A into two pieces
+        )
+    )
+    last = evaluation.result.features[-1]
+    assert last.status == "error"
+    assert last.error is not None
+    assert last.error.code == "boolean_disjoint"

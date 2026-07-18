@@ -823,8 +823,21 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
         *Still open (documents territory, MB-2):* relax
         `_reject_import_with_prior_body` (`services/documents/features.py`) so an
         imported body can coexist with a modelled one end-to-end.
-  - [ ] (P2, M) **MB-2** — `subtract` + `intersect` + analytic goldens +
-        the `boolean_empty` error taxonomy.
+  - [x] **MB-2a (P2, M) subtract + intersect BACKEND done (2026-07-18)** —
+        `boolean_bodies` wires `subtract` (OCCT `cut`) + `intersect` (`common`);
+        the `boolean_not_implemented` stubs are gone (all three ops live). Error
+        taxonomy extended: `boolean_empty` (subtract removes the whole target /
+        intersect with no overlap — build123d returns None) + `boolean_disjoint`
+        widened (a subtract that SEVERS the target into ≥2 pieces). Analytic
+        goldens `boolean-subtract-two-cubes-overlap` + `boolean-intersect-two-
+        cubes-overlap` (both a clean 4000 mm³ box, shells=1, byte-identical
+        GLB+STEP across restart) + `test_boolean.py` (subtract/intersect success,
+        non-commutativity, empty, severing-disjoint). No schema change (Literal
+        already had all three). [kernel-architect]
+  - [ ] (P2, S) **MB-2b** — frontend operation selector (union/subtract/intersect
+        in the `CombineEditor`). **Next.** *Still open (documents territory):*
+        relax `_reject_import_with_prior_body` (`services/documents/features.py`)
+        so an imported body can coexist with a modelled one end-to-end.
   - [ ] (P3, M) **MB-3** — downstream feature (fillet/chamfer) on a boolean
         face/edge; body-scoped resolution test; degrade-under-edit limit doc.
   - [ ] (P3, L) **MB-4 (deferred)** — explicit per-feature target-body ref,
@@ -999,6 +1012,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-18 — **MB-2a subtract + intersect backend done:** `boolean_bodies`
+  wires `subtract` (OCCT cut) + `intersect` (common); `boolean_empty` (empty
+  subtract/intersect) + `boolean_disjoint` (severing subtract) taxonomy. Goldens
+  `boolean-{subtract,intersect}-two-cubes-overlap` (4000 mm³ box, shells=1). No
+  schema change. Frontend operation selector is MB-2b. [kernel-architect]
 - 2026-07-18 — **MB-1a union boolean backend done:** the headline `boolean`
   feature — `BooleanParamsV1` (union wired; subtract/intersect defined, honest
   `boolean_not_implemented` until MB-2), `boolean_bodies` kernel (fuse + clean),
