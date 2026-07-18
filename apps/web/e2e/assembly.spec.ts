@@ -118,6 +118,13 @@ test.describe("Assemblies v1 — parametric mates (distance / angle)", () => {
     await expect
       .poll(() => distinctCanvasColors(page), { timeout: 20_000 })
       .toBeGreaterThan(24);
+
+    // Founder shot: the authored distance mate (value 20) in the tree, both
+    // plates re-solved. Park the cursor clear of the reference cube.
+    await page.mouse.move(1400, 900);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/assembly-distance-mate-desktop.png`,
+    });
   });
 });
 

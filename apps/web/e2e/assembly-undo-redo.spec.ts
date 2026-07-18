@@ -53,6 +53,14 @@ test.describe("Assembly undo/redo (UR3)", () => {
       );
     expect(boltedMateIds).toHaveLength(2);
 
+    // authorBoltMates leaves the concentric tool ARMED (value-free mates chain
+    // — AssemblyPage keeps the tool live to author another), and an armed tool
+    // deliberately locks History ("Finish the Concentric mate first"). Disarm
+    // it first (Escape), the same hygiene the armed-lock sub-test uses above,
+    // so the band's undo lights up.
+    await page.keyboard.press("Escape");
+    await expectHistoryGates(page, { undo: true, redo: false });
+
     // Undo #1 (button): the concentric mate leaves the tree AND the solve
     // reverts — the free plate returns to its seed (the remaining coincident
     // only holds the faces flush; x is free again).
