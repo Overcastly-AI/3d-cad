@@ -1595,6 +1595,59 @@ export interface components {
             ref_document_kind: "part" | "assembly";
         };
         /**
+         * BooleanFeature
+         * @description ``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-affecting feature that fuses two independently-built bodies
+         *     (docs/design/multi-body.md §Decisions-3 / §MB-1): unlike extrude/revolve/…
+         *     it consumes no sketch and produces no new primitive — it combines two
+         *     existing bodies named by their base features. ``params`` is
+         *     :class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``
+         *     defined, wired in MB-2).
+         */
+        BooleanFeature: {
+            params: components["schemas"]["BooleanParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "boolean";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * BooleanParamsV1
+         * @description A boolean between two independently-built bodies (design §Decisions-3).
+         *
+         *     ``target`` and ``tool`` are :class:`FeatureRef`s to the BASE feature of each
+         *     operand body (an ``extrude``/``revolve``/``sweep``/``loft``/``import`` — the
+         *     body-CREATING features, NOT a modifier like fillet). ``target`` is the
+         *     SURVIVING body (for a future ``subtract``, the minuend); ``tool`` is the
+         *     CONSUMED body (the subtrahend). The boolean result takes over the target's
+         *     identity slot and the tool body is removed from the part.
+         *
+         *     v1 (MB-1a) wires ``union`` only — a union whose operands do not touch is a
+         *     ``boolean_disjoint`` rebuild error (the single-connected-solid-per-body
+         *     invariant); ``subtract``/``intersect`` are defined in the ``operation``
+         *     Literal (so the wire/client type is stable) but return an honest
+         *     ``boolean_not_implemented`` until MB-2.
+         */
+        BooleanParamsV1: {
+            /**
+             * Operation
+             * @description Boolean operation: union (fuse — wired in MB-1a), subtract (target minus tool) or intersect (common) — both defined now, wired in MB-2 (until then an honest `boolean_not_implemented` rebuild error).
+             * @enum {string}
+             */
+            operation: "union" | "subtract" | "intersect";
+            /** @description Base feature of the SURVIVING body; the result takes over its identity slot so downstream refs keep resolving (design §Decisions-3) */
+            target: components["schemas"]["FeatureRef"];
+            /** @description Base feature of the CONSUMED body; removed from the part once the boolean succeeds (design §Decisions-3) */
+            tool: components["schemas"]["FeatureRef"];
+        };
+        /**
          * BoundingBox
          * @description Axis-aligned bounding box (mm), exact (not mesh-inflated).
          */
@@ -2875,7 +2928,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -3094,7 +3147,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -3177,7 +3230,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -3266,7 +3319,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["BooleanFeature"]) | null;
             /** Name */
             name?: string | null;
         };

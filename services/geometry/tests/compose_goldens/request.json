@@ -107,12 +107,7 @@
       }
     }
   ],
-  "views": [
-    "front",
-    "top",
-    "right",
-    "iso"
-  ],
+  "views": ["front", "top", "right", "iso"],
   "scale": {
     "numerator": 1,
     "denominator": 1

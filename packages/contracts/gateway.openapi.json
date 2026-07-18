@@ -576,6 +576,61 @@
         "title": "BomLine",
         "type": "object"
       },
+      "BooleanFeature": {
+        "description": "``{\"type\": \"boolean\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature that fuses two independently-built bodies\n(docs/design/multi-body.md \u00a7Decisions-3 / \u00a7MB-1): unlike extrude/revolve/\u2026\nit consumes no sketch and produces no new primitive \u2014 it combines two\nexisting bodies named by their base features. ``params`` is\n:class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``\ndefined, wired in MB-2).",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/BooleanParamsV1"
+          },
+          "type": {
+            "const": "boolean",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "BooleanFeature",
+        "type": "object"
+      },
+      "BooleanParamsV1": {
+        "description": "A boolean between two independently-built bodies (design \u00a7Decisions-3).\n\n``target`` and ``tool`` are :class:`FeatureRef`s to the BASE feature of each\noperand body (an ``extrude``/``revolve``/``sweep``/``loft``/``import`` \u2014 the\nbody-CREATING features, NOT a modifier like fillet). ``target`` is the\nSURVIVING body (for a future ``subtract``, the minuend); ``tool`` is the\nCONSUMED body (the subtrahend). The boolean result takes over the target's\nidentity slot and the tool body is removed from the part.\n\nv1 (MB-1a) wires ``union`` only \u2014 a union whose operands do not touch is a\n``boolean_disjoint`` rebuild error (the single-connected-solid-per-body\ninvariant); ``subtract``/``intersect`` are defined in the ``operation``\nLiteral (so the wire/client type is stable) but return an honest\n``boolean_not_implemented`` until MB-2.",
+        "properties": {
+          "operation": {
+            "description": "Boolean operation: union (fuse \u2014 wired in MB-1a), subtract (target minus tool) or intersect (common) \u2014 both defined now, wired in MB-2 (until then an honest `boolean_not_implemented` rebuild error).",
+            "enum": [
+              "union",
+              "subtract",
+              "intersect"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "Base feature of the SURVIVING body; the result takes over its identity slot so downstream refs keep resolving (design \u00a7Decisions-3)"
+          },
+          "tool": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "Base feature of the CONSUMED body; removed from the part once the boolean succeeds (design \u00a7Decisions-3)"
+          }
+        },
+        "required": [
+          "operation",
+          "target",
+          "tool"
+        ],
+        "title": "BooleanParamsV1",
+        "type": "object"
+      },
       "BoundingBox": {
         "description": "Axis-aligned bounding box (mm), exact (not mesh-inflated).",
         "properties": {
@@ -2267,6 +2322,7 @@
           "feature": {
             "discriminator": {
               "mapping": {
+                "boolean": "#/components/schemas/BooleanFeature",
                 "chamfer": "#/components/schemas/ChamferFeature",
                 "datum": "#/components/schemas/DatumFeature",
                 "draft": "#/components/schemas/DraftFeature",
@@ -2318,6 +2374,9 @@
               },
               {
                 "$ref": "#/components/schemas/ImportFeature"
+              },
+              {
+                "$ref": "#/components/schemas/BooleanFeature"
               }
             ],
             "title": "Feature"
@@ -2606,6 +2665,7 @@
           "feature": {
             "discriminator": {
               "mapping": {
+                "boolean": "#/components/schemas/BooleanFeature",
                 "chamfer": "#/components/schemas/ChamferFeature",
                 "datum": "#/components/schemas/DatumFeature",
                 "draft": "#/components/schemas/DraftFeature",
@@ -2657,6 +2717,9 @@
               },
               {
                 "$ref": "#/components/schemas/ImportFeature"
+              },
+              {
+                "$ref": "#/components/schemas/BooleanFeature"
               }
             ],
             "title": "Feature"
@@ -2797,6 +2860,7 @@
           "feature": {
             "discriminator": {
               "mapping": {
+                "boolean": "#/components/schemas/BooleanFeature",
                 "chamfer": "#/components/schemas/ChamferFeature",
                 "datum": "#/components/schemas/DatumFeature",
                 "draft": "#/components/schemas/DraftFeature",
@@ -2848,6 +2912,9 @@
               },
               {
                 "$ref": "#/components/schemas/ImportFeature"
+              },
+              {
+                "$ref": "#/components/schemas/BooleanFeature"
               }
             ],
             "title": "Feature"
@@ -3008,6 +3075,7 @@
               {
                 "discriminator": {
                   "mapping": {
+                    "boolean": "#/components/schemas/BooleanFeature",
                     "chamfer": "#/components/schemas/ChamferFeature",
                     "datum": "#/components/schemas/DatumFeature",
                     "draft": "#/components/schemas/DraftFeature",
@@ -3059,6 +3127,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/ImportFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/BooleanFeature"
                   }
                 ]
               },

@@ -28,7 +28,9 @@ through the SAME stage-1 planar-face signature the ``on_face`` datum uses) and
 ``draft`` (tapers picked faces by an angle about a principal-datum neutral plane
 — the molding/casting release, reusing that SAME picked-face resolver) and
 ``import`` (brings an external STEP part in as the part's BASE body — the first
-non-modeled body source, docs/design/step-import.md).
+non-modeled body source, docs/design/step-import.md) and ``boolean`` (fuses two
+independently-built bodies named by their base features — the headline
+multi-body feature; MB-1a wires ``union``, docs/design/multi-body.md §MB-1).
 A feature that
 validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
@@ -58,6 +60,7 @@ from dataclasses import dataclass, field
 from build123d import Compound, Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
+    BooleanFeature,
     ChamferFeature,
     CircularPatternParamsV1,
     DatumFeature,
@@ -96,6 +99,7 @@ from py_kit.schemas.sketch import classify_overconstraint
 from geometry.kernel import (
     DATUM_PLANES,
     AxisIntersectsProfileError,
+    BooleanDisjointError,
     BooleanError,
     ChamferError,
     DraftError,
@@ -124,6 +128,7 @@ from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
     SweepError,
+    boolean_bodies,
     build_datum_plane,
     build_loft_section,
     build_path_wire,
@@ -257,6 +262,22 @@ class EvaluationState:
         """
         self.bodies[base_id] = solid
         self.active_body_id = base_id
+
+    def combine_bodies(
+        self, target_id: uuid.UUID, tool_id: uuid.UUID, solid: Solid
+    ) -> None:
+        """Replace two operand bodies with a boolean result (multi-body §MB-1).
+
+        The operand-replacement mechanism of the ``boolean`` feature: the result
+        TAKES OVER the target's identity slot — reusing ``bodies[target_id]``
+        keeps target's base-feature id AND its tree-ordered insertion position, so
+        every downstream ref to the surviving body keeps resolving — and the TOOL
+        body is REMOVED from the set (consumed). The combined body becomes active.
+        Callers verify both ids name distinct current bodies first.
+        """
+        self.bodies[target_id] = solid
+        del self.bodies[tool_id]
+        self.active_body_id = target_id
 
 
 #: One feature handler: evaluate the item, record outputs on ``state``, and
@@ -1318,6 +1339,101 @@ def _evaluate_import(
     return None
 
 
+def _resolve_operand_body(
+    ref: FeatureRef, state: EvaluationState, *, slot: str
+) -> Solid | FeatureError:
+    """Resolve a boolean operand FeatureRef to its CURRENT body solid (§MB-1).
+
+    An operand names a body by its BASE feature id — the key of
+    ``state.bodies`` (§MB-0 Decision 1) — so resolution is a single dict lookup
+    of the operand's CURRENT geometry (every modifier already applied). A miss is
+    an honest eval-time ``reference_unresolved`` pinned to the referenced feature:
+    the base feature is later/rolled-back/non-body-creating, was MERGED into
+    another body (``merge=True`` — it never keyed a standalone body), or was
+    CONSUMED as the tool of an EARLIER boolean (removed from the set). Documents
+    cannot catch that last case statically — a body's consumption is an eval-time
+    fact — so geometry re-checks (design §Decisions-3, §MB-1 error taxonomy).
+    """
+    solid = state.bodies.get(ref.feature_id)
+    if solid is None:
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                f"Boolean {slot} must reference an earlier body-creating feature "
+                "that still holds a distinct body of this part; the referenced "
+                "feature is not a current body (it may have been merged into "
+                "another body or consumed by an earlier boolean)."
+            ),
+            upstream_feature_id=ref.feature_id,
+        )
+    return solid
+
+
+def _evaluate_boolean(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Boolean two independently-built bodies (body-affecting, §Decisions-3).
+
+    The headline multi-body feature (docs/design/multi-body.md §MB-1): it
+    resolves ``target`` and ``tool`` to two CURRENT bodies of the part
+    (:func:`_resolve_operand_body` — each keyed by its base feature id, §MB-0),
+    fuses them (:func:`boolean_bodies`), and REPLACES both operands with the
+    result — which takes over the target's identity slot and drops the tool body
+    (:meth:`EvaluationState.combine_bodies`), becoming the active body.
+
+    MB-1a wires ``union`` only; ``subtract``/``intersect`` are defined in the
+    schema (stable wire/client type) but return an honest
+    ``boolean_not_implemented`` until MB-2. Errors pin the failing operand where
+    relevant: ``reference_unresolved`` (an operand is not a current body — incl.
+    one consumed by an earlier boolean), ``boolean_same_body`` (target and tool
+    name the SAME body — a degenerate self-fuse), ``boolean_disjoint`` (the union
+    is >1 solid: the bodies do not touch — the single-connected-solid-per-body
+    invariant, §Decisions-3), or ``boolean_failed`` (a kernel failure). The body
+    set is mutated only on success (last-good semantics, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, BooleanFeature), "registry dispatches on type='boolean'"
+    params = feature.params
+
+    if params.operation != "union":
+        # union is the only MB-1a operation; subtract/intersect are defined in the
+        # schema so the wire/client type is stable, but they are wired in MB-2.
+        return FeatureError(
+            code="boolean_not_implemented",
+            message=(
+                f"Boolean '{params.operation}' is not wired yet (MB-1a ships "
+                "union; subtract and intersect land in MB-2)."
+            ),
+        )
+
+    if params.target.feature_id == params.tool.feature_id:
+        return FeatureError(
+            code="boolean_same_body",
+            message=(
+                "A boolean's target and tool must name two DIFFERENT bodies, but "
+                "both reference the same base feature; pick two distinct bodies."
+            ),
+            upstream_feature_id=params.tool.feature_id,
+        )
+
+    target = _resolve_operand_body(params.target, state, slot="target")
+    if isinstance(target, FeatureError):
+        return target
+    tool = _resolve_operand_body(params.tool, state, slot="tool")
+    if isinstance(tool, FeatureError):
+        return tool
+
+    try:
+        combined = boolean_bodies(target, tool, params.operation)
+    except BooleanDisjointError as exc:
+        return FeatureError(code="boolean_disjoint", message=str(exc))
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+
+    state.combine_bodies(params.target.feature_id, params.tool.feature_id, combined)
+    return None
+
+
 #: Feature types whose ok evaluation mutates the body set (§MB-0). The
 #: main loop records the last such feature as ``state.prev_body_feature`` so a
 #: pattern can infer its combine mode from the immediately-preceding
@@ -1335,6 +1451,7 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "draft",
         "pattern",
         "import",
+        "boolean",
     }
 )
 
@@ -1355,6 +1472,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "draft": _evaluate_draft,
     "pattern": _evaluate_pattern,
     "import": _evaluate_import,
+    "boolean": _evaluate_boolean,
 }
 
 

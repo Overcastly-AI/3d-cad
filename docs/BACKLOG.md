@@ -794,16 +794,31 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
         **assembly-mate** resolvers widened Solid→`BodyShape`; body-scoped
         resolution (active body only). Golden `multibody-two-disjoint-boxes`
         (16000 mm³, shells=2). NO user-visible boolean. [kernel-architect]
-  - [ ] (P2, M) **MB-1** — the headline `union` boolean feature (operands =
-        `FeatureRef`s to two bodies' base features), `boolean_disjoint`
-        taxonomy, overlapping-cubes golden (12000 mm³); frontend boolean
-        authoring UI + Bodies panel + `merge` checkbox. **Next.**
+  - [x] **MB-1a (P2, M) union boolean BACKEND done (2026-07-18)** — the headline
+        `boolean` feature: `BooleanParamsV1` (`operation` Literal union/subtract/
+        intersect — full Literal defined now so the wire/ts-client type is stable
+        across MB-2; MB-1a WIRES `union` only, subtract/intersect return an honest
+        `boolean_not_implemented`), `target`+`tool` `FeatureRef`s to two bodies'
+        base features (slot rule `{extrude,revolve,sweep,loft,import}` → each
+        materializes a `feature_dependencies` edge, no documents change). Kernel
+        `boolean_bodies` (OCCT fuse + clean); eval handler resolves both bodies by
+        base id, fuses, and REPLACES both operands (result takes over target's
+        identity slot, tool body removed, becomes active). `boolean_disjoint` guard
+        (union >1 solid → the single-connected-solid-per-body invariant, why bodies
+        stay `Solid`); consumed-tool / missing / same-body reference errors. Golden
+        `boolean-union-two-cubes-overlap` (12000 mm³, shells=1, byte-identical
+        GLB+STEP across restart) + `test_boolean.py`. [kernel-architect]
+  - [ ] (P2, S) **MB-1b** — frontend boolean authoring UI + Bodies panel + `merge`
+        checkbox. **Next.** *Also picks up the MB-0 frontend debt:* MB-0 made
+        `merge` a required field in the generated ts-client (extrude/revolve/sweep/
+        loft) but never updated `apps/web` (editors + `*.test.ts`), so
+        `apps/web typecheck` is red — thread `merge` through there.
         *Cross-territory note (documents):* MB-0 made the geometry evaluator
         permit a second `import` (starts a new body), but documents still
         rejects it at write time via `_reject_import_with_prior_body`
-        (`services/documents/features.py`) — relax that guard here so an
-        imported body can coexist with a modelled one end-to-end (the
-        `merge=False` extrude second-body path already works today).
+        (`services/documents/features.py`) — relax that guard so an imported body
+        can coexist with a modelled one end-to-end (the `merge=False` extrude
+        second-body path already works today).
   - [ ] (P2, M) **MB-2** — `subtract` + `intersect` + analytic goldens +
         the `boolean_empty` error taxonomy.
   - [ ] (P3, M) **MB-3** — downstream feature (fillet/chamfer) on a boolean
@@ -980,6 +995,12 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-18 — **MB-1a union boolean backend done:** the headline `boolean`
+  feature — `BooleanParamsV1` (union wired; subtract/intersect defined, honest
+  `boolean_not_implemented` until MB-2), `boolean_bodies` kernel (fuse + clean),
+  operand replacement (result takes target's identity slot, tool consumed),
+  `boolean_disjoint` guard. Golden `boolean-union-two-cubes-overlap` (12000 mm³,
+  shells=1). Frontend authoring is MB-1b. [kernel-architect]
 - 2026-07-18 — **MB-0 multi-body plumbing done:** a part can now end with >1
   body. `EvaluationState.bodies`/`active_body_id` (base-feature-keyed, tree-
   ordered) + additive `merge` flag (`merge=False` / `import` start a new body) +

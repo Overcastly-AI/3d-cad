@@ -304,9 +304,17 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       (never a union — no false `subshape_ambiguous` across congruent bodies).
       Golden `multibody-two-disjoint-boxes` (two 20 mm cubes, `merge=False` on
       the second → 16000 mm³, shells=2, byte-identical GLB+STEP across restart).
-      **NO user-visible boolean yet — that's MB-1 (`union`), next.** Existing
-      single-body goldens stay byte-identical (a single body is `bodies` with one
-      entry, measured/tessellated as the bare solid).
+      Existing single-body goldens stay byte-identical (a single body is `bodies`
+      with one entry, measured/tessellated as the bare solid). **MB-1a landed
+      2026-07-18 — the headline `union` boolean BACKEND:** a `boolean` feature
+      fuses two independently-built bodies named by their base-feature
+      `FeatureRef`s (OCCT `fuse` + clean), REPLACING both operands (result takes
+      the target's identity slot, tool consumed) with a `boolean_disjoint` guard
+      (union must stay one connected solid). `subtract`/`intersect` are defined in
+      the schema but return `boolean_not_implemented` until MB-2. Golden
+      `boolean-union-two-cubes-overlap` (12000 mm³, shells=1). **Next: MB-1b —
+      frontend boolean authoring UI + Bodies panel + `merge` checkbox (also picks
+      up the MB-0 `apps/web` `merge` typecheck debt); MB-2 — subtract/intersect.**
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

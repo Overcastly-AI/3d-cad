@@ -217,6 +217,9 @@ def _extrude_envelope(sketch_id: str) -> dict[str, Any]:
             "distance_mm": 10.0,
             "operation": "add",
             "direction": "normal",
+            # Additive multi-body "Merge result" flag (design multi-body.md §MB-0),
+            # defaults True — a round-tripped envelope carries it verbatim.
+            "merge": True,
         },
     }
 

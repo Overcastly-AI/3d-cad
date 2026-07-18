@@ -1166,6 +1166,64 @@ class ImportParamsV1(BaseModel):
     )
 
 
+# --- Boolean params — a boolean between two independently-built bodies -----------
+#
+# The headline multi-body feature (docs/design/multi-body.md §Decisions-3 / §MB-1):
+# a boolean between two bodies built independently (each with its own base
+# feature), where MB-0's `merge=False` seam let a part hold more than one lump.
+# The operands are `FeatureRef`s to each body's BASE feature — the id that keys a
+# body in `EvaluationState.bodies` (§MB-0 Decision 1: a body's identity IS its
+# base-feature id) — so each materializes a `feature_dependencies` edge exactly
+# like any other FeatureRef (generic documents validation then handles delete/
+# reorder safety, no documents code change). The result REPLACES both operands,
+# taking over the target's identity slot (keeps target's base id so downstream
+# refs resolve) and removing the tool body; it becomes the active body.
+#
+# OPERATION SCOPE (MB-1a decision, recorded here): the `operation` Literal names
+# all three OCCT booleans (`union` = BRepAlgoAPI_Fuse, `subtract` =
+# BRepAlgoAPI_Cut, `intersect` = BRepAlgoAPI_Common) so the schema — and the
+# generated ts-client type — is STABLE across the MB-2 slice that wires subtract/
+# intersect (no `param_version` bump, no client type churn then). This slice
+# (MB-1a) WIRES `union` only; the geometry evaluator returns an honest per-feature
+# `boolean_not_implemented` for `subtract`/`intersect` until MB-2, never a silent
+# wrong body. v1 keeps the single-connected-solid-per-body invariant (§Decisions-3):
+# a union of DISJOINT (non-touching) bodies is a `boolean_disjoint` rebuild error
+# (multi-lump compound bodies are deferred to MB-4), which is exactly why the
+# body set stays a `Solid` per body, never a `Compound`.
+
+
+class BooleanParamsV1(BaseModel):
+    """A boolean between two independently-built bodies (design §Decisions-3).
+
+    ``target`` and ``tool`` are :class:`FeatureRef`s to the BASE feature of each
+    operand body (an ``extrude``/``revolve``/``sweep``/``loft``/``import`` — the
+    body-CREATING features, NOT a modifier like fillet). ``target`` is the
+    SURVIVING body (for a future ``subtract``, the minuend); ``tool`` is the
+    CONSUMED body (the subtrahend). The boolean result takes over the target's
+    identity slot and the tool body is removed from the part.
+
+    v1 (MB-1a) wires ``union`` only — a union whose operands do not touch is a
+    ``boolean_disjoint`` rebuild error (the single-connected-solid-per-body
+    invariant); ``subtract``/``intersect`` are defined in the ``operation``
+    Literal (so the wire/client type is stable) but return an honest
+    ``boolean_not_implemented`` until MB-2.
+    """
+
+    operation: Literal["union", "subtract", "intersect"] = Field(
+        description="Boolean operation: union (fuse — wired in MB-1a), subtract "
+        "(target minus tool) or intersect (common) — both defined now, wired in "
+        "MB-2 (until then an honest `boolean_not_implemented` rebuild error)."
+    )
+    target: FeatureRef = Field(
+        description="Base feature of the SURVIVING body; the result takes over "
+        "its identity slot so downstream refs keep resolving (design §Decisions-3)"
+    )
+    tool: FeatureRef = Field(
+        description="Base feature of the CONSUMED body; removed from the part "
+        "once the boolean succeeds (design §Decisions-3)"
+    )
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -1308,6 +1366,22 @@ class ImportFeature(BaseModel):
     params: ImportParamsV1
 
 
+class BooleanFeature(BaseModel):
+    """``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
+
+    A body-affecting feature that fuses two independently-built bodies
+    (docs/design/multi-body.md §Decisions-3 / §MB-1): unlike extrude/revolve/…
+    it consumes no sketch and produces no new primitive — it combines two
+    existing bodies named by their base features. ``params`` is
+    :class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``
+    defined, wired in MB-2).
+    """
+
+    type: Literal["boolean"]
+    version: Literal[1]
+    params: BooleanParamsV1
+
+
 #: Discriminated union of the CURRENT version of every feature type — this is
 #: what the OpenAPI contract exports (design §1.4). Older stored versions are
 #: upcast on read via :data:`FEATURE_REGISTRY`.
@@ -1323,7 +1397,8 @@ Feature = Annotated[
     | ShellFeature
     | DraftFeature
     | PatternFeature
-    | ImportFeature,
+    | ImportFeature
+    | BooleanFeature,
     Field(discriminator="type"),
 ]
 
@@ -1341,6 +1416,7 @@ FeatureEnvelope = (
     | DraftFeature
     | PatternFeature
     | ImportFeature
+    | BooleanFeature
 )
 
 
@@ -1495,6 +1571,7 @@ FEATURE_REGISTRY.register(ShellFeature)
 FEATURE_REGISTRY.register(DraftFeature)
 FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.register(ImportFeature)
+FEATURE_REGISTRY.register(BooleanFeature)
 FEATURE_REGISTRY.validate_chains()
 
 
@@ -1518,7 +1595,24 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         # `import` produces the base body (step-import.md §1), so its faces/edges
         # are nameable by a later SubshapeRef — "sketch on an imported part's face".
         "import",
+        # `boolean` produces a combined body (multi-body §Decisions-3), so its
+        # result faces/edges are nameable by a later SubshapeRef (a fillet on a
+        # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
+        "boolean",
     }
+)
+
+
+#: The body-CREATING (base) feature types — the acceptable target/tool of a
+#: `boolean` operand ref (multi-body §Decisions-3: a boolean combines two bodies
+#: named by their BASE features). A body's identity is its base-feature id
+#: (§MB-0 Decision 1), and only these features CREATE a body (extrude/revolve/
+#: sweep/loft build a primitive, import brings one in). The MODIFIERS (fillet/
+#: chamfer/shell/draft/pattern) mutate the active body in place and never key a
+#: body, so they are NOT valid boolean operands; `boolean` itself is excluded too
+#: (it takes over its target's base id, not its own — boolean-on-boolean is MB-4).
+BASE_BODY_AFFECTING_FEATURE_TYPES = frozenset(
+    {"extrude", "revolve", "sweep", "loft", "import"}
 )
 
 
@@ -1727,6 +1821,27 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             # materializes no feature_dependencies edge (like an offset datum /
             # a pattern). Its body is a pure function of `data`.
             pass
+        case BooleanFeature():
+            # A boolean combines two independently-built bodies named by their
+            # BASE features (multi-body §Decisions-3): TARGET (surviving) + TOOL
+            # (consumed). Each FeatureRef.feature_id materializes into
+            # feature_dependencies exactly like an extrude's profile, so deleting
+            # either operand's base feature is a 409-with-dependents and a reorder
+            # re-checks strict-backward. Both slots accept only the body-CREATING
+            # base features (a boolean operand IS a body — a modifier or another
+            # boolean is not a valid operand base here; boolean-on-boolean is MB-4).
+            references.append(
+                FeatureReference(
+                    "target",
+                    feature.params.target,
+                    BASE_BODY_AFFECTING_FEATURE_TYPES,
+                )
+            )
+            references.append(
+                FeatureReference(
+                    "tool", feature.params.tool, BASE_BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
         case _:
             assert_never(feature)  # exhaustive: new types must map their slots
 
