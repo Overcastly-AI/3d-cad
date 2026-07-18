@@ -194,16 +194,6 @@ export function endpointHandlesForEdge(
   ];
 }
 
-/** The projected sheet point of one named endpoint of a straight edge, or null. */
-export function endpointProjected(
-  edge: ProjectedViewEdge,
-  endpoint: "end_a" | "end_b",
-): Point2D | null {
-  const handles = endpointHandlesForEdge(edge);
-  if (!handles) return null;
-  return handles.find((h) => h.endpoint === endpoint)?.projected ?? null;
-}
-
 /** The scale options the picker offers, smallest reduction first. */
 export const SCALE_OPTIONS: readonly {
   value: string;

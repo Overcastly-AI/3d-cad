@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
   endpointHandlesForEdge,
-  endpointProjected,
   sheetDimensions,
   standardLayout,
 } from "./layout";
@@ -83,11 +82,6 @@ describe("endpoint handles (start_is_end_a correspondence)", () => {
     );
     expect(byEnd.end_b).toEqual({ x: 0, y: 0 });
     expect(byEnd.end_a).toEqual({ x: 40, y: 0 });
-  });
-
-  it("resolves a named endpoint back to its projected sheet point", () => {
-    expect(endpointProjected(edge, "end_b")).toEqual({ x: 40, y: 0 });
-    expect(endpointProjected(edge, "end_a")).toEqual({ x: 0, y: 0 });
   });
 
   it("returns null for a non-line / un-dimensionable edge", () => {
