@@ -336,9 +336,18 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `boolean_disjoint` codes get friendly per-feature copy via
       `friendlyFeatureError`. e2e proves subtract → 4000 mm³ and intersect →
       4000 mm³ (one body each) against the real stack; founder shot
-      `docs/screenshots/multibody-boolean-ops-desktop.png`. **MB-2 complete — all
-      three boolean ops authorable. Next: MB-3 — a downstream feature (fillet/
-      chamfer) on a boolean result face.**
+      `docs/screenshots/multibody-boolean-ops-desktop.png`. **MB-3 landed
+      2026-07-18 (backend) — a downstream fillet on a boolean-CREATED edge:** the
+      fused body's edges get stage-1 `EdgeSignature`s like any primitive's, so a
+      fillet naming a boolean-result edge resolves to exactly one edge on a clean
+      rebuild (golden `boolean-union-then-fillet` — union → fused 30×20×20 box →
+      fillet r=2 a picked corner = 11920 + 20π mm³, 7/15/1, byte-identical
+      GLB+STEP). The honest limit, proven + tested: a topology-changing upstream
+      edit that removes the referenced edge degrades to a clean typed
+      `subshape_unresolved` (never wrong-edge/crash), the same best-effort stage-1
+      posture as every feature — stage-2 provenance is the structural fix (MB-4/
+      deferred). **Multi-body pillar v1 COMPLETE through MB-3;** MB-4 (per-feature
+      target-body ref, per-body pick, disjoint multi-lump bodies) deferred.
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

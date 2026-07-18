@@ -846,10 +846,22 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
         *Still open (documents territory):* relax `_reject_import_with_prior_body`
         (`services/documents/features.py`) so an imported body can coexist with a
         modelled one end-to-end. [frontend-builder]
-  - [ ] (P3, M) **MB-3** — downstream feature (fillet/chamfer) on a boolean
-        face/edge; body-scoped resolution test; degrade-under-edit limit doc.
+  - [x] **MB-3 (P3, M) fillet on a boolean edge done (2026-07-18)** — a downstream
+        fillet resolves an edge CREATED by a boolean via its stage-1 `EdgeSignature`
+        (the fused body's edges get signatures like any primitive's). Golden
+        `boolean-union-then-fillet` (union → fused 30×20×20 box → fillet r=2 a
+        picked vertical corner edge = 11920 + 20π mm³, 7/15/1, byte-identical
+        GLB+STEP across restart). Honest degrade-under-edit limit PROVEN + tested:
+        a topology-changing edit that removes the picked edge (move B to swallow
+        the corner) → clean typed `subshape_unresolved`, never wrong-edge/crash; an
+        edit not touching it still resolves. Body-scoped: the consumed tool's ghost
+        can't tie a false `subshape_ambiguous`. Documented in `BooleanParamsV1`
+        docstring + design §MB-3. **Multi-body pillar v1 complete through MB-3.**
+        [kernel-architect]
   - [ ] (P3, L) **MB-4 (deferred)** — explicit per-feature target-body ref,
-        per-body pick/highlight, disjoint multi-lump compound bodies.
+        per-body pick/highlight, disjoint multi-lump compound bodies. The stage-2
+        provenance naming that makes boolean-edge refs structurally
+        non-retargeting (topological-naming.md §10) is the standing unblock.
   [src: product-auditor Pass 2, competitive, roadmap, docs/design/multi-body.md]
 - [ ] (P2, S) Geometry QA: boolean-cut + revolve/sweep-on-offset-plane
       determinism goldens (engineering audit **F4**, remaining slice — cut
@@ -1020,6 +1032,12 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-18 — **MB-3 fillet on a boolean edge done → multi-body pillar v1
+  complete:** a downstream fillet resolves a boolean-CREATED edge via stage-1
+  `EdgeSignature` on a clean rebuild (golden `boolean-union-then-fillet`, 11920 +
+  20π mm³, 7/15/1); degrades to a clean typed `subshape_unresolved` under a
+  topology-changing edit (proven + tested), never wrong-edge/crash. Limit
+  documented (`BooleanParamsV1` + design §MB-3). [kernel-architect]
 - 2026-07-18 — **MB-2b boolean operation selector done:** `CombineEditor` gains a
   union/subtract/intersect `SegmentedControl` (`+ / − / ∩`); op-aware Target/Tool
   labels + friendly `boolean_empty`/`boolean_disjoint` copy. e2e: subtract +

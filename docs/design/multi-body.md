@@ -108,8 +108,29 @@ is a pure OCCT function; byte-identical GLB+STEP across interpreter restarts;
 - **MB-1** — the headline `union` feature + overlapping-cubes golden + `boolean_disjoint`;
   frontend boolean authoring UI + Bodies panel + `merge` checkbox.
 - **MB-2** — `subtract` + `intersect` + analytic goldens + the error taxonomy.
-- **MB-3** — downstream feature (fillet/chamfer) on a boolean face/edge; body-scoped
-  resolution test; document the degrade-under-edit limit. (Highest naming risk, last.)
+- **MB-3 — SHIPPED 2026-07-18 (backend).** Downstream fillet/chamfer on a
+  boolean-CREATED edge. **The claim, proven:** the fused body's edges get stage-1
+  `EdgeSignature`s exactly like a primitive's, so a fillet naming a boolean-result
+  edge (a picked-edge `SubshapeRef`) resolves to EXACTLY ONE edge on a clean
+  rebuild — golden `boolean-union-then-fillet` (union two 20mm cubes → the fused
+  30×20×20 box → fillet r=2 a picked vertical corner edge = 11920 + 20π mm³,
+  7 faces / 15 edges / 1 shell, byte-identical GLB+STEP across an interpreter
+  restart). **The honest degrade-under-edit limit (observed 2026-07-18):** a
+  topology-CHANGING upstream edit that moves/removes the referenced edge degrades
+  to a CLEAN typed `subshape_unresolved` (verified: moving cube B to x[-5,15] so
+  it swallows the picked x=0,y=0 corner → the corner becomes interior → the
+  picked outer edge no longer exists → `subshape_unresolved`), never a wrong-edge
+  fillet or a crash. An edit that does NOT touch the picked edge (e.g. moving B to
+  x[5,25]) still resolves `ok` — the signature is not brittle to every change,
+  only to ones that move/remove the edge. This is the SAME best-effort stage-1
+  posture as every feature (topological-naming.md §7.3), booleans being its
+  weakest case (a boolean seam is the documented `subshape_ambiguous` source); the
+  structural fix is stage-2 provenance naming (§10 there), NOT this slice.
+  **Body-scoped (§MB-0 Decision 1):** the fillet resolves against the SINGLE
+  post-boolean active body — the consumed tool body is gone from `bodies`, so no
+  ghost of it can tie a false `subshape_ambiguous`. Documented in the
+  `BooleanParamsV1` v1-limits docstring. **This closes the multi-body pillar v1
+  through MB-3.**
 - **MB-4 (deferred)** — explicit per-feature target-body ref, per-body pick/highlight,
   disjoint multi-lump compound bodies.
 

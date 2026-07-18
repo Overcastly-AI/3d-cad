@@ -23,6 +23,7 @@ express:
    statically).
 """
 
+import math
 from typing import Any
 
 import pytest
@@ -97,6 +98,48 @@ def _boolean(fid: str, operation: str, target: str, tool: str) -> dict[str, Any]
                 "operation": operation,
                 "target": {"kind": "feature", "feature_id": target},
                 "tool": {"kind": "feature", "feature_id": tool},
+            },
+        },
+    }
+
+
+def _fillet_edge(
+    fid: str,
+    anchor: str,
+    end_a: tuple[float, float, float],
+    end_b: tuple[float, float, float],
+    radius_mm: float,
+) -> dict[str, Any]:
+    """A fillet naming ONE picked edge by its stage-1 EdgeSignature (a straight
+    line between *end_a* and *end_b*), anchored to feature *anchor*."""
+    ax, ay, az = end_a
+    bx, by, bz = end_b
+    signature = {
+        "subshape_type": "edge",
+        "curve": "line",
+        "end_a": {"x": ax, "y": ay, "z": az},
+        "end_b": {"x": bx, "y": by, "z": bz},
+        "midpoint": {"x": (ax + bx) / 2, "y": (ay + by) / 2, "z": (az + bz) / 2},
+        "length_mm": ((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2) ** 0.5,
+    }
+    return {
+        "id": fid,
+        "feature": {
+            "type": "fillet",
+            "version": 1,
+            "params": {
+                "edges": {
+                    "kind": "edges",
+                    "refs": [
+                        {
+                            "kind": "subshape",
+                            "feature_id": anchor,
+                            "subshape_type": "edge",
+                            "selector": {"selector_version": 1, "signature": signature},
+                        }
+                    ],
+                },
+                "radius_mm": radius_mm,
             },
         },
     }
@@ -401,3 +444,116 @@ def test_subtract_that_severs_the_target_is_boolean_disjoint() -> None:
     assert last.status == "error"
     assert last.error is not None
     assert last.error.code == "boolean_disjoint"
+
+
+# --- MB-3: a downstream fillet on a boolean-CREATED edge --------------------------
+#
+# The golden ``boolean-union-then-fillet`` locks the analytic numbers (11920 +
+# 20*pi mm^3, 7/15/1) + byte-identical determinism; these tests gate the
+# topological-naming BEHAVIOURS a single golden number cannot express (design
+# §MB-3 / §Decisions-4): the fillet resolves a boolean-created edge on a clean
+# rebuild, and degrades to a TYPED error (never a wrong edge / crash) under a
+# topology-changing upstream edit. The picked edge is the fused 30x20x20 box's
+# vertical corner at x=0,y=0,z[0,20] — an edge of body A that survives the union
+# as an OUTER corner of the fused result.
+
+#: The x=0,y=0 vertical corner edge of the fused A[0,20]+B box (z runs [0,20]).
+_CORNER = ((0.0, 0.0, 0.0), (0.0, 0.0, 20.0))
+
+
+def test_fillet_resolves_a_boolean_created_edge() -> None:
+    """THE MB-3 proof: a fillet on an edge of the fused result resolves via the
+    stage-1 EdgeSignature to EXACTLY ONE edge on a clean rebuild, and rounds it —
+    the fused body's edges get signatures like any primitive's. The result is one
+    connected solid (shells=1) with the analytic filleted volume."""
+    s1, e1, s2, e2 = _iid("e1"), _iid("e2"), _iid("e3"), _iid("e4")
+    b, fil = _iid("e5"), _iid("e6")
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (10, 30), (s1, e1, s2, e2)),
+            _boolean(b, "union", e1, e2),  # -> fused 30x20x20 box, keyed by e1
+            _fillet_edge(fil, b, _CORNER[0], _CORNER[1], radius_mm=2.0),
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 6
+    props = evaluation.result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(11920 + 20 * math.pi, abs=1e-9)
+    assert props.topology.shells == 1  # still one connected solid
+    assert props.topology.faces == 7  # 6 box faces + 1 fillet face
+    assert isinstance(evaluation.body, Solid)
+
+
+def test_fillet_on_boolean_edge_is_body_scoped_no_consumed_operand_ghost() -> None:
+    """Body-scoped confirm (design §MB-3 / §MB-0 Decision 1): after the union the
+    tool body B is CONSUMED (removed from the set), so the fillet resolves against
+    the SINGLE post-boolean active body — the picked corner resolves to exactly
+    one edge with NO false `subshape_ambiguous` from a ghost of B. (Both A and B
+    had an x=0,y=0-family corner before the union; only the fused body's single
+    outer corner survives.)"""
+    s1, e1, s2, e2 = _iid("f1"), _iid("f2"), _iid("f3"), _iid("f4")
+    b, fil = _iid("f5"), _iid("f6")
+    evaluation = evaluate_tree(
+        _scene(
+            # B coincident-in-x-range with A so both share the x=0-plane face
+            # region; the union still yields ONE fused body with ONE x=0,y=0 edge.
+            _two_bodies((0, 20), (10, 30), (s1, e1, s2, e2)),
+            _boolean(b, "union", e1, e2),
+            _fillet_edge(fil, b, _CORNER[0], _CORNER[1], radius_mm=2.0),
+        )
+    )
+    # Resolves cleanly (exactly one edge) — no subshape_ambiguous, no ghost.
+    assert _codes(evaluation) == [("ok", None)] * 6
+    props = evaluation.result.properties
+    assert props is not None
+    # ONE body remains (the fused+filleted solid); B's ghost is gone.
+    assert props.topology.shells == 1
+
+
+def test_fillet_on_boolean_edge_degrades_to_typed_error_under_topology_edit() -> None:
+    """The honest degrade-under-edit limit (design §MB-3): a topology-CHANGING
+    upstream edit that removes the picked edge surfaces a CLEAN typed
+    `subshape_unresolved` — never a wrong-edge fillet or a crash. Here cube B is
+    moved to x[-5,15] so it SWALLOWS the x=0,y=0 corner of A (the corner becomes
+    interior to the union, so the picked outer edge no longer exists). Observed
+    2026-07-18: stage-1 absolute-coordinate signature -> `subshape_unresolved`."""
+    s1, e1, s2, e2 = _iid("1a1"), _iid("1a2"), _iid("1a3"), _iid("1a4")
+    b, fil = _iid("1a5"), _iid("1a6")
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (-5, 15), (s1, e1, s2, e2)),  # B swallows the corner
+            _boolean(b, "union", e1, e2),
+            _fillet_edge(fil, b, _CORNER[0], _CORNER[1], radius_mm=2.0),
+        )
+    )
+    codes = _codes(evaluation)
+    # The boolean itself still succeeds (A and B overlap -> one fused body); the
+    # FILLET is the honest failure: the picked corner edge is gone.
+    assert codes[:-1] == [("ok", None)] * 5
+    last = evaluation.result.features[-1]
+    assert last.status == "error"
+    assert last.error is not None
+    assert last.error.code == "subshape_unresolved"
+
+
+def test_fillet_on_boolean_edge_survives_a_non_topology_changing_edit() -> None:
+    """The other half of the honest bound (design §MB-3): an upstream edit that
+    does NOT touch the picked edge leaves it resolvable — the signature is not
+    brittle to every change, only to ones that move/remove the edge. Moving B to
+    x[5,25] (still overlapping A, the x=0,y=0 corner untouched) -> the fillet
+    still resolves `ok`."""
+    s1, e1, s2, e2 = _iid("1b1"), _iid("1b2"), _iid("1b3"), _iid("1b4")
+    b, fil = _iid("1b5"), _iid("1b6")
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (5, 25), (s1, e1, s2, e2)),  # union spans x[0,25]
+            _boolean(b, "union", e1, e2),
+            _fillet_edge(fil, b, _CORNER[0], _CORNER[1], radius_mm=2.0),
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 6
+    props = evaluation.result.properties
+    assert props is not None
+    # Fused body is a 25x20x20 box (volume 10000) minus the same corner round.
+    assert props.volume == pytest.approx(25 * 20 * 20 - 20 * (4 - math.pi), abs=1e-9)
+    assert props.topology.shells == 1

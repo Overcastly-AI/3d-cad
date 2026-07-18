@@ -668,20 +668,34 @@ export interface components {
          *     ``target`` and ``tool`` are :class:`FeatureRef`s to the BASE feature of each
          *     operand body (an ``extrude``/``revolve``/``sweep``/``loft``/``import`` — the
          *     body-CREATING features, NOT a modifier like fillet). ``target`` is the
-         *     SURVIVING body (for a future ``subtract``, the minuend); ``tool`` is the
-         *     CONSUMED body (the subtrahend). The boolean result takes over the target's
-         *     identity slot and the tool body is removed from the part.
+         *     SURVIVING body (for ``subtract``, the minuend); ``tool`` is the CONSUMED body
+         *     (the subtrahend). The boolean result takes over the target's identity slot and
+         *     the tool body is removed from the part.
          *
-         *     v1 (MB-1a) wires ``union`` only — a union whose operands do not touch is a
-         *     ``boolean_disjoint`` rebuild error (the single-connected-solid-per-body
-         *     invariant); ``subtract``/``intersect`` are defined in the ``operation``
-         *     Literal (so the wire/client type is stable) but return an honest
-         *     ``boolean_not_implemented`` until MB-2.
+         *     All three operations are wired (union MB-1a; subtract/intersect MB-2). The v1
+         *     single-connected-solid-per-body invariant (§Decisions-3) governs the result:
+         *     a union of non-touching bodies, or a subtract that SEVERS the target into ≥2
+         *     pieces, is a ``boolean_disjoint`` rebuild error; a subtract that removes the
+         *     whole target, or an intersect with no overlap, is ``boolean_empty``. Disjoint
+         *     multi-lump bodies are deferred to MB-4.
+         *
+         *     v1 TOPOLOGICAL-NAMING LIMIT (MB-3 / design §Decisions-4 — stated plainly, not
+         *     oversold): a downstream feature (fillet/chamfer) CAN name an edge/face CREATED
+         *     by a boolean — the fused body's subshapes get stage-1 signatures like any
+         *     primitive's, so a fillet on a boolean-result edge resolves to exactly one edge
+         *     on a CLEAN rebuild. But that reference is a best-effort stage-1 signature (see
+         *     :class:`SubshapeRef` / :class:`EdgeSubshapeRef`), NOT structurally
+         *     non-retargeting: a topology-CHANGING upstream edit that moves or removes the
+         *     referenced subshape degrades to an honest ``subshape_unresolved`` /
+         *     ``subshape_ambiguous`` — the SAME best-effort posture as every feature,
+         *     booleans being its weakest case (a boolean seam is the documented
+         *     ``subshape_ambiguous`` source). Never a wrong-edge modification or a crash;
+         *     the structural fix is stage-2 provenance naming (topological-naming.md §10).
          */
         BooleanParamsV1: {
             /**
              * Operation
-             * @description Boolean operation: union (fuse — wired in MB-1a), subtract (target minus tool) or intersect (common) — both defined now, wired in MB-2 (until then an honest `boolean_not_implemented` rebuild error).
+             * @description Boolean operation: union (fuse), subtract (target minus tool) or intersect (common). All three wired (union MB-1a; subtract/intersect MB-2).
              * @enum {string}
              */
             operation: "union" | "subtract" | "intersect";
