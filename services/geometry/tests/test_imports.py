@@ -242,8 +242,20 @@ def test_import_parse_failed_is_per_feature_not_500() -> None:
     assert result.properties is None
 
 
-def test_import_with_prior_body_is_rejected() -> None:
-    """A second import (with a body already present) is import_with_prior_body."""
+def test_second_import_starts_a_new_body() -> None:
+    """MB-0 (docs/design/multi-body.md §MB-0): a second import with a body
+    already present NO LONGER errors (the retired ``import_with_prior_body``) —
+    it STARTS a second body, so the part ends with two bodies. Two imports of
+    the SAME box coexist as two solids (shells=2) with the volume summed over
+    the body set (no boolean, no dedup — MB-0 keeps them disjoint bodies)."""
+    single = _evaluate(
+        _request(
+            [{"id": str(IMPORT_ID), "feature": _import_feature(_box_step_text())}]
+        )
+    )
+    assert single.properties is not None
+    one_volume = single.properties.volume
+
     result = _evaluate(
         _request(
             [
@@ -254,9 +266,11 @@ def test_import_with_prior_body_is_rejected() -> None:
     )
     first, second = result.features
     assert first.status == "ok"
-    assert second.status == "error"
-    assert second.error is not None
-    assert second.error.code == "import_with_prior_body"
+    assert second.status == "ok"
+    assert result.properties is not None
+    # Two coexisting bodies: two closed shells, volume summed over the body set.
+    assert result.properties.topology.shells == 2
+    assert result.properties.volume == pytest.approx(2.0 * one_volume, rel=1e-9)
 
 
 def test_import_size_bound_is_a_422_not_a_rebuild_error() -> None:

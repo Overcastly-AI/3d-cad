@@ -3038,6 +3038,12 @@ export interface components {
              */
             distance_mm: number;
             /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /**
              * Operation
              * @enum {string}
              */
@@ -3710,6 +3716,12 @@ export interface components {
          *       ``loft_failed`` rebuild error, never a silently bad body.
          */
         LoftParamsV1: {
+            /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
             /**
              * Operation
              * @enum {string}
@@ -4722,6 +4734,12 @@ export interface components {
              */
             direction: "normal" | "reverse";
             /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /**
              * Operation
              * @enum {string}
              */
@@ -5686,6 +5704,12 @@ export interface components {
          *       error, never a silently bad body.
          */
         SweepParamsV1: {
+            /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
             /**
              * Operation
              * @enum {string}

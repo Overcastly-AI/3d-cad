@@ -49,6 +49,7 @@ import pytest
 # Upstream signatures carry Shape[Unknown]/PathLike[Unknown] type params
 # (same gap tessellate.py documents for export_gltf) — scoped ignores only.
 from build123d import (
+    Compound,
     import_step,  # pyright: ignore[reportUnknownVariableType]
     import_stl,  # pyright: ignore[reportUnknownVariableType]
 )
@@ -485,8 +486,12 @@ def test_tree_step_export_endpoint_roundtrip(
     step_path.write_bytes(response.content)
     imported = import_step(step_path)
     solids = imported.solids()
-    assert len(solids) == 1, f"{name}: expected 1 solid after import, got {len(solids)}"
-    reimported = measure_shape(solids[0])
+    # A multi-body golden (§MB-0) exports as a multi-solid STEP; re-measure the
+    # whole imported body set (one Solid, or a Compound of the solids) so the
+    # round-trip covers multi-body parts too.
+    assert solids, f"{name}: expected at least 1 solid after import, got 0"
+    reimported_shape = solids[0] if len(solids) == 1 else Compound(list(solids))
+    reimported = measure_shape(reimported_shape)
 
     original = measure_shape(
         build_model_solid(load_model_request(model_path.read_text(encoding="utf-8")))

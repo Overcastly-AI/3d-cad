@@ -782,15 +782,35 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       `store_mesh_glb` (test asserts cache occupancy unchanged after N
       calls); evaluate-for-viewport path unaffected. [src: engineering-
       auditor F2]
-- [ ] (P2, M) Multi-body + boolean intersect (product audit Pass 2 — "a
-      cheaper adjacent win than assemblies") — allow a disjoint additive
-      solid in one part (today: `boolean_failed`) and add
-      `operation:"intersect"` alongside add/cut. **Tension note:** VISION.md
-      frames this as a non-blocking scope boundary now that Part modeling is
-      ✅; the fresh product audit rates it P1 ("unlocks tooling/mold/split
-      workflows"). Bumped P3→P2 this pass to reflect that reweighing, but
-      kept behind assemblies (the founder's explicit #1) rather than in
-      Ready. [src: product-auditor Pass 2, competitive, roadmap]
+- Multi-body modeling + booleans between independently-built bodies
+      (`docs/design/multi-body.md`, Option A — base-feature-keyed eval-time body
+      set). Sliced MB-0..MB-4:
+  - [x] **MB-0 (P2, L) multi-body plumbing done (2026-07-18)** — `EvaluationState.
+        bodies`+`active_body_id` (base-feature-keyed, tree-ordered); additive
+        `merge: bool = True` on extrude/revolve/sweep/loft ADD (`merge=False`
+        starts a new body; import starts a second body, retiring
+        `import_with_prior_body`); analytic compound roll-up (`combine_properties`)
+        + Compound tessellation/export (STEP multi-solid); face/edge/tess/export/
+        **assembly-mate** resolvers widened Solid→`BodyShape`; body-scoped
+        resolution (active body only). Golden `multibody-two-disjoint-boxes`
+        (16000 mm³, shells=2). NO user-visible boolean. [kernel-architect]
+  - [ ] (P2, M) **MB-1** — the headline `union` boolean feature (operands =
+        `FeatureRef`s to two bodies' base features), `boolean_disjoint`
+        taxonomy, overlapping-cubes golden (12000 mm³); frontend boolean
+        authoring UI + Bodies panel + `merge` checkbox. **Next.**
+        *Cross-territory note (documents):* MB-0 made the geometry evaluator
+        permit a second `import` (starts a new body), but documents still
+        rejects it at write time via `_reject_import_with_prior_body`
+        (`services/documents/features.py`) — relax that guard here so an
+        imported body can coexist with a modelled one end-to-end (the
+        `merge=False` extrude second-body path already works today).
+  - [ ] (P2, M) **MB-2** — `subtract` + `intersect` + analytic goldens +
+        the `boolean_empty` error taxonomy.
+  - [ ] (P3, M) **MB-3** — downstream feature (fillet/chamfer) on a boolean
+        face/edge; body-scoped resolution test; degrade-under-edit limit doc.
+  - [ ] (P3, L) **MB-4 (deferred)** — explicit per-feature target-body ref,
+        per-body pick/highlight, disjoint multi-lump compound bodies.
+  [src: product-auditor Pass 2, competitive, roadmap, docs/design/multi-body.md]
 - [ ] (P2, S) Geometry QA: boolean-cut + revolve/sweep-on-offset-plane
       determinism goldens (engineering audit **F4**, remaining slice — cut
       goldens shipped, circular-pattern golden shipped) — no offset-plane
@@ -959,6 +979,15 @@ security, `36dc3d9`); assemblies architecture decision endorsed (`b378633`);
 both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
+
+- 2026-07-18 — **MB-0 multi-body plumbing done:** a part can now end with >1
+  body. `EvaluationState.bodies`/`active_body_id` (base-feature-keyed, tree-
+  ordered) + additive `merge` flag (`merge=False` / `import` start a new body) +
+  analytic compound roll-up + Compound tess/export + widened resolvers (incl.
+  the assembly mate path) + body-scoped resolution. Golden `multibody-two-
+  disjoint-boxes` (16000 mm³, shells=2). No user-visible boolean (that's MB-1).
+  [kernel-architect]
+
 
 Older entries live in `CHANGELOG.md`.
 

@@ -24,7 +24,6 @@ in shape and error posture (a single part rather than an instance graph).
 
 from __future__ import annotations
 
-from build123d import Solid
 from py_kit.schemas.drawings import (
     DrawingViewResult,
     EvaluateDrawingViewsRequest,
@@ -43,6 +42,7 @@ from geometry.drawings.project import (
     project_view,
 )
 from geometry.features import TreeEvaluation, evaluate_tree
+from geometry.kernel.types import BodyShape
 
 
 def _part_no_body_error(evaluation: TreeEvaluation) -> FeatureError:
@@ -102,7 +102,7 @@ def _to_edge(edge: ProjectedEdge) -> ProjectedViewEdge:
 
 
 def _measure_dimensions(
-    body: Solid, request: EvaluateDrawingViewsRequest
+    body: BodyShape, request: EvaluateDrawingViewsRequest
 ) -> list[MeasuredDimensionResult]:
     """Measure every requested dimension off the SAME exact body (design §3/§5).
 

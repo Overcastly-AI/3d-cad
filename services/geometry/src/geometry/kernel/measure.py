@@ -25,7 +25,7 @@ fully-typed :class:`MeasureResult` DTO keeps the boundary honest.
 import math
 from typing import Literal
 
-from build123d import GeomType, Solid, Vector
+from build123d import GeomType, Vector
 from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
 from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.gp import gp_Pnt
@@ -38,6 +38,8 @@ from py_kit.schemas.measure import (
     PointTarget,
 )
 
+from geometry.kernel.types import BodyShape
+
 
 class MeasureError(ValueError):
     """A measurement could not be evaluated (surfaces as a 422, never a 500)."""
@@ -48,7 +50,7 @@ class EdgeIndexError(MeasureError):
 
 
 def _resolve_target(
-    target: MeasureTarget, body: Solid | None
+    target: MeasureTarget, body: BodyShape | None
 ) -> tuple[TopoDS_Shape, Vector | None]:
     """Resolve a target to its ``(TopoDS shape, line direction | None)``.
 
@@ -104,7 +106,7 @@ def _measure_kind(
 
 
 def measure_targets(
-    target_a: MeasureTarget, target_b: MeasureTarget, body: Solid | None
+    target_a: MeasureTarget, target_b: MeasureTarget, body: BodyShape | None
 ) -> MeasureResult:
     """Exact nearest distance (+ delta, witnesses, line-line angle) A→B.
 

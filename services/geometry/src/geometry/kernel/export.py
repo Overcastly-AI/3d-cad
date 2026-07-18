@@ -28,11 +28,12 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from build123d import Solid
 from build123d.exporters3d import (
     export_step,  # pyright: ignore[reportUnknownVariableType]  (Shape[Unknown] param upstream)
     export_stl,  # pyright: ignore[reportUnknownVariableType]
 )
+
+from geometry.kernel.types import BodyShape
 
 #: Pinned STEP creation timestamp (determinism decision, GEOMETRY-QA gap #4).
 #: STEP consumers treat ``FILE_NAME``'s timestamp as provenance metadata, not
@@ -48,10 +49,13 @@ STL_HEADER_BYTES = 84
 STL_TRIANGLE_RECORD_BYTES = 50
 
 
-def export_step_bytes(shape: Solid) -> bytes:
+def export_step_bytes(shape: BodyShape) -> bytes:
     """Export *shape* as a STEP AP214 part 21 file (exact B-rep, mm units).
 
-    Deterministic: the creation timestamp is pinned (module docstring).
+    *shape* is any B-rep :class:`~build123d.Shape` — a single :class:`Solid` or a
+    :class:`~build123d.Compound` of a multi-body part's solids (multi-body §MB-0);
+    a STEP file holds multiple solids natively (valid AP214). Deterministic: the
+    creation timestamp is pinned (module docstring).
     """
     buffer = io.BytesIO()
     if not export_step(shape, buffer, timestamp=STEP_EXPORT_TIMESTAMP):
@@ -63,11 +67,14 @@ def export_step_bytes(shape: Solid) -> bytes:
 
 
 def export_stl_bytes(
-    shape: Solid, linear_deflection: float, angular_deflection: float
+    shape: BodyShape, linear_deflection: float, angular_deflection: float
 ) -> bytes:
     """Export *shape* as a binary STL (faceted, mm units).
 
-    Deflection semantics match the GLB tessellation path (module docstring).
+    *shape* is any B-rep :class:`~build123d.Shape` — a single :class:`Solid` or a
+    multi-body :class:`~build123d.Compound` (multi-body §MB-0); STL emits every
+    triangle of every solid. Deflection semantics match the GLB tessellation path
+    (module docstring).
 
     Raises:
         ValueError: if a deflection is not strictly positive (the API layer

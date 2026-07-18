@@ -131,8 +131,10 @@ item:
       (incl. pattern-arrays-a-cut), offset/datum planes, multi-loop closed
       profiles → holes (incl. multi-disjoint-loop cut), shell, draft.
       **Part modeling row flips ❌→➖→✅** (`3c23c73`), held under a
-      4-part showcase stress test (`d8d3b87`); multi-body boolean is the
-      one remaining scope boundary (BACKLOG Later).
+      4-part showcase stress test (`d8d3b87`); multi-body boolean was the
+      one remaining scope boundary — now **in progress** (`docs/design/
+      multi-body.md`, MB-0 plumbing landed 2026-07-18; a part can end with >1
+      body via `merge=False`, the `union` boolean is MB-1).
 - ✅ STEP import v1 — kernel (`4964fab`) → gateway upload → UI file-picker,
       with a P1 security wall-clock bound on the untrusted parse.
       **Interop row flips ❌→➖.**
@@ -284,6 +286,27 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       "(deleted)" with a ⚠ affordance (quantity preserved). `assembly-bom.spec.ts`
       drives A×3 + B×1 → PARTS → 2 lines (qty 3 / 1, total 4) against the real
       stack; founder shot `docs/screenshots/assembly-bom-desktop.png`.
+- 🚧 **Multi-body modeling + booleans — `docs/design/multi-body.md` (Option A,
+      base-feature-keyed eval-time body set). MB-0 plumbing landed 2026-07-18:**
+      a part can now END WITH MORE THAN ONE BODY. `EvaluationState` swaps its
+      single `body` slot for a tree-ordered `bodies` set keyed by each body's
+      base feature id + an `active_body_id`; an additive `merge: bool = True`
+      (extrude/revolve/sweep/loft ADD; `merge=False` starts a new active body,
+      `import` starts a second body) is the authoring seam, additive so NO
+      `param_version` bump. Part mass properties roll up ANALYTICALLY over the
+      body set (`combine_properties` — Σ volume, volume-weighted centroid,
+      unioned AABB, summed faces/edges/shells; the assembly-roll-up pattern, no
+      re-mesh/boolean); tessellation + STEP/STL export widen to a `Compound` of
+      all bodies (valid AP214 multi-solid). The face/edge/tessellate/export AND
+      **assembly-mate** resolvers widen `Solid`→`BodyShape` (the sneaky ripple:
+      a mate on a multi-body part resolves across every subshape solid), and
+      body-modifying features resolve topo-naming against the ACTIVE body only
+      (never a union — no false `subshape_ambiguous` across congruent bodies).
+      Golden `multibody-two-disjoint-boxes` (two 20 mm cubes, `merge=False` on
+      the second → 16000 mm³, shells=2, byte-identical GLB+STEP across restart).
+      **NO user-visible boolean yet — that's MB-1 (`union`), next.** Existing
+      single-body goldens stay byte-identical (a single body is `bodies` with one
+      entry, measured/tessellated as the bare solid).
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

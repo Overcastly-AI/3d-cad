@@ -76,7 +76,7 @@ def _plate_body() -> Solid:
     body = evaluate_tree(
         EvaluateTreeRequest(part_id=iid(1), tree_version=1, features=_plate_features())
     ).body
-    assert body is not None
+    assert isinstance(body, Solid)  # single-body plate (§MB-0: bodies has 1 entry)
     return body
 
 

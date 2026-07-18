@@ -9,13 +9,13 @@ anything (CLAUDE.md: the geometry service is stateless); the response is a plain
 value DTO, no artifact and no kernel type crosses the boundary.
 """
 
-from build123d import Solid
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.measure import EdgeTarget, MeasureRequest, MeasureResult
 
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import EdgeIndexError, MeasureError, measure_targets
+from geometry.kernel.types import BodyShape
 
 
 def _needs_body(request: MeasureRequest) -> bool:
@@ -33,7 +33,7 @@ def evaluate_measure(request: MeasureRequest) -> MeasureResult:
     tree evaluation and the nearest-distance solve are both pure functions of
     the request.
     """
-    body: Solid | None = None
+    body: BodyShape | None = None
     if _needs_body(request):
         # Guaranteed present by MeasureRequest validation, but re-asserted so a
         # future caller can never smuggle an edge target past without a tree.

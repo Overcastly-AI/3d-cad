@@ -43,7 +43,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from build123d import Edge, GeomType, Solid
+from build123d import Edge, GeomType
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
@@ -64,6 +64,7 @@ from py_kit.schemas.geometry import Vec3
 from geometry.drawings.project import ViewDirection, view_normal
 from geometry.kernel.edges import edge_signature_dto, resolve_edge
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
+from geometry.kernel.types import BodyShape
 
 #: How parallel to the view plane a feature must be to read TRUE-size (design
 #: §3.2). A LINEAR feature is true-size when its direction is perpendicular to the
@@ -168,7 +169,7 @@ def _require_line(edge: Edge, which: str) -> None:
         )
 
 
-def _endpoint(ref: DimensionEndpointRef, body: Solid) -> Vec3:
+def _endpoint(ref: DimensionEndpointRef, body: BodyShape) -> Vec3:
     """Resolve a point-to-point endpoint ref to a world point (design §3.3).
 
     Names a vertex THROUGH an edge (no unshipped bare-vertex signature): resolve
@@ -181,7 +182,7 @@ def _endpoint(ref: DimensionEndpointRef, body: Solid) -> Vec3:
 
 
 def _measure_linear(
-    params: LinearDimensionParams, body: Solid, normal: tuple[float, float, float]
+    params: LinearDimensionParams, body: BodyShape, normal: tuple[float, float, float]
 ) -> DimensionValue:
     source = params.measurement
     if isinstance(source, EdgeLengthMeasurement):
@@ -207,7 +208,7 @@ def _measure_linear(
 
 
 def _measure_diameter(
-    params: DiameterDimensionParams, body: Solid, normal: tuple[float, float, float]
+    params: DiameterDimensionParams, body: BodyShape, normal: tuple[float, float, float]
 ) -> DimensionValue:
     edge = resolve_edge(body, params.edge)
     _require_circle(edge, "diameter")
@@ -219,7 +220,7 @@ def _measure_diameter(
 
 
 def _measure_radius(
-    params: RadiusDimensionParams, body: Solid, normal: tuple[float, float, float]
+    params: RadiusDimensionParams, body: BodyShape, normal: tuple[float, float, float]
 ) -> DimensionValue:
     edge = resolve_edge(body, params.edge)
     _require_circle(edge, "radius")
@@ -231,7 +232,7 @@ def _measure_radius(
 
 
 def _measure_angular(
-    params: AngularDimensionParams, body: Solid, normal: tuple[float, float, float]
+    params: AngularDimensionParams, body: BodyShape, normal: tuple[float, float, float]
 ) -> DimensionValue:
     edge_a = resolve_edge(body, params.edge_a)
     edge_b = resolve_edge(body, params.edge_b)
@@ -278,7 +279,7 @@ def _oriented_directions(
 
 
 def measure_dimension(
-    body: Solid, dimension: DimensionParams, view: ViewProjection
+    body: BodyShape, dimension: DimensionParams, view: ViewProjection
 ) -> DimensionValue:
     """Measure *dimension* against *body* in *view* — model-true (design §3.1).
 
@@ -309,7 +310,7 @@ def _as_direction(view: ViewProjection) -> ViewDirection:
 
 
 def measure_dimension_dto(
-    body: Solid, dimension: DimensionParams, view: ViewProjection
+    body: BodyShape, dimension: DimensionParams, view: ViewProjection
 ) -> MeasuredDimension:
     """:func:`measure_dimension` with the typed errors folded onto the neutral
     :class:`MeasuredDimension` error channel (design §3.3/§5) — never a raise for a

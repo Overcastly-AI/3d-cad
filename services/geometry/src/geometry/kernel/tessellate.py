@@ -15,11 +15,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from build123d import Solid, Unit
+from build123d import Unit
 from build123d.exporters3d import (
     export_gltf,  # pyright: ignore[reportUnknownVariableType]  (Shape[Unknown] param upstream)
 )
 
+from geometry.kernel.types import BodyShape
 from geometry.schemas import DEFAULT_ANGULAR_DEFLECTION, MeshStats
 
 #: Max angle (rad) between adjacent tessellation segments. Fixed service-wide
@@ -33,11 +34,16 @@ _GLB_HEADER = struct.Struct("<4sII")  # magic, version, total length
 _GLB_CHUNK_HEADER = struct.Struct("<I4s")  # chunk length, chunk type
 
 
-def tessellate_glb(shape: Solid, linear_deflection: float) -> tuple[bytes, MeshStats]:
+def tessellate_glb(
+    shape: BodyShape, linear_deflection: float
+) -> tuple[bytes, MeshStats]:
     """Tessellate *shape* and return ``(glb_bytes, mesh_stats)``.
 
-    The GLB scene is Y-up in metres per the glTF spec (build123d converts
-    from OCCT's Z-up millimetres).
+    *shape* is any B-rep :class:`~build123d.Shape` — a single :class:`Solid`, or
+    a :class:`~build123d.Compound` of a multi-body part's disjoint solids
+    (docs/design/multi-body.md §MB-0), which ``RWGltf_CafWriter`` writes as a
+    multi-mesh scene :func:`glb_stats` sums over. The GLB scene is Y-up in metres
+    per the glTF spec (build123d converts from OCCT's Z-up millimetres).
     """
     if linear_deflection <= 0:
         raise ValueError(f"linear_deflection must be > 0, got {linear_deflection}")

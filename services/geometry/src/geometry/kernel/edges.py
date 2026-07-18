@@ -59,7 +59,7 @@ function, so the selected set and its order are a pure function of the body.
 import math
 from dataclasses import dataclass
 
-from build123d import Edge, GeomType, Solid, Vector
+from build123d import Edge, GeomType, Vector
 from py_kit.schemas.features import (
     AllEdgesSelector,
     AxisParallelEdgesSelector,
@@ -69,9 +69,11 @@ from py_kit.schemas.features import (
 )
 from py_kit.schemas.geometry import Vec3
 
+from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
+
 # The two subshape-resolution errors are generic (defined alongside the face
 # resolver); edge resolution reuses them rather than minting a parallel taxonomy.
-from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
+from geometry.kernel.types import BodyShape
 
 #: OCCT ``GeomType`` → :class:`EdgeSignature` curve family. Anything not a
 #: straight line or a circle is ``other`` (ellipse, spline, …) — still fully
@@ -166,7 +168,7 @@ def edge_signature_dto(edge: Edge) -> EdgeSignature:
     )
 
 
-def enumerate_edges(body: Solid) -> list[EdgeRecord]:
+def enumerate_edges(body: BodyShape) -> list[EdgeRecord]:
     """Every edge of *body* in ``body.edges()`` order (deterministic).
 
     THE shared enumeration (CLAUDE.md DRY rule): the selection overlay builds its
@@ -175,6 +177,11 @@ def enumerate_edges(body: Solid) -> list[EdgeRecord]:
     overlay hands a client resolves back to the SAME edge (order-equality gate) —
     byte-for-byte the ``body.edges()`` order measurement resolves ``EdgeTarget``
     against.
+
+    *body* is any :class:`~build123d.Shape` — a single :class:`~build123d.Solid`
+    or a multi-body :class:`~build123d.Compound` (multi-body §MB-0), whose
+    ``.edges()`` iterates every subshape solid's edges. Modifying features resolve
+    against their ACTIVE body only (design §MB-0 Decision 1).
     """
     return [
         EdgeRecord(index=index, signature=edge_signature_dto(edge), edge=edge)
@@ -207,7 +214,7 @@ def _edge_signatures_match(candidate: EdgeSignature, target: EdgeSignature) -> b
     return length_delta / length_ref <= _EDGE_LENGTH_REL_TOL
 
 
-def resolve_edge(body: Solid, target: EdgeSignature) -> Edge:
+def resolve_edge(body: BodyShape, target: EdgeSignature) -> Edge:
     """Resolve a stage-1 edge signature to its edge (exactly one or an error).
 
     Matches *target* against the edges of *body* (:func:`enumerate_edges`) and
@@ -240,7 +247,7 @@ def resolve_edge(body: Solid, target: EdgeSignature) -> Edge:
     return matches[0].edge
 
 
-def _resolve_picked_edges(body: Solid, selector: PickedEdgesSelector) -> list[Edge]:
+def _resolve_picked_edges(body: BodyShape, selector: PickedEdgesSelector) -> list[Edge]:
     """Resolve each picked edge ref to its edge; dedupe; return in body order.
 
     Every ref must resolve to exactly one edge (:func:`resolve_edge`). Two refs
@@ -285,7 +292,7 @@ def _is_axis_parallel(edge: Edge, axis: Vector) -> bool:
     return tangent.cross(axis).length <= _EDGE_DIRECTION_TOLERANCE
 
 
-def select_edges(body: Solid, selector: EdgeSelector) -> list[Edge]:
+def select_edges(body: BodyShape, selector: EdgeSelector) -> list[Edge]:
     """Resolve an edge selector against *body* (design §2.4/§10).
 
     Deterministic: a PREDICATE selector filters ``body.edges()`` (OCCT's

@@ -51,7 +51,6 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
-from build123d import Solid
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Line
 from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
@@ -64,6 +63,7 @@ from py_kit.schemas.features import EdgeSignature
 from py_kit.schemas.geometry import Vec3
 
 from geometry.kernel.edges import EdgeRecord, enumerate_edges
+from geometry.kernel.types import BodyShape
 
 #: The standard orthographic + isometric directions v1 supports (design §1.2).
 #: Section / detail / auxiliary / custom views are deferred (§1.5/§7).
@@ -550,7 +550,7 @@ def _project_model_edge(
 
 
 def _model_edge_index(
-    shape: Solid,
+    shape: BodyShape,
     normal: tuple[float, float, float],
     x_dir: tuple[float, float, float],
     y_dir: tuple[float, float, float],
@@ -614,7 +614,7 @@ def _attach_provenance(
 
 
 def project_view(
-    shape: Solid,
+    shape: BodyShape,
     view: ViewDirection,
     scale: float = 1.0,
 ) -> ViewProjection:

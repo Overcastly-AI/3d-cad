@@ -2544,6 +2544,12 @@
             "title": "Distance Mm",
             "type": "number"
           },
+          "merge": {
+            "default": true,
+            "description": "Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md \u00a7MB-0). Ignored for a CUT. Additive \u2014 absent reads True, no param_version bump.",
+            "title": "Merge",
+            "type": "boolean"
+          },
           "operation": {
             "enum": [
               "add",
@@ -3664,6 +3670,12 @@
       "LoftParamsV1": {
         "description": "Blend a solid THROUGH two or more ordered section sketches (design \u00a74.3).\n\nThe loft sibling of :class:`SweepParamsV1` and the second non-prismatic\nbody-affecting feature: where sweep drives ONE profile along a path, a loft\nskins a solid through an ORDERED list of cross-section sketches (the\ntransitional-solid / cone / adapter primitive named in the Part-modeling\nscorecard notes). It shares the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve/sweep; the new ingredient is ``profiles``, a list\nof ``FeatureRef``s (min 2) to earlier sketch features, blended in list order.\n\nSection representation (v1 DESIGN DECISION \u2014 docs/GEOMETRY-QA.md\n2026-07-12): each ``profiles`` entry is a whole earlier SKETCH feature\nreferenced by id \u2014 the same stable-feature-id mechanism the extrude/revolve\n``profile`` and sweep ``profile``/``path`` slots use. This is NOT topological\nnaming (#1): it references a whole feature's evaluated wire, never a picked\nsub-edge. A section's non-construction entities form either a single CLOSED\nprofile wire (built by the shared ``build_profile_face``) OR a single POINT,\ninterpreted as an APEX vertex (the standard loft-to-a-point tip); an apex may\nappear only as the FIRST or LAST section.\n\nWhy apex support in v1 (honest limit, not gold-plating): datum planes are\norigin-only and mutually perpendicular (never parallel), so two parallel\noffset circular sections \u2014 a cylinder/frustum \u2014 are not authorable until\noffset datum planes land. A closed section lofted to an apex point IS\nauthorable and gives an analytic solid (a pyramid/cone), which is the loft\ngolden's mass-property anchor.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* a RULED (straight) loft through the sections in list order \u2014 NO guide\n  rails, NO tangency/normal end conditions, NO periodic (closed) loft, NO\n  per-section twist/alignment control (all later, additive params \u2014 no\n  ``param_version`` bump);\n* sections are coplanar-or-parallel profiles as authored (each sketch\n  carries its own plane); an open/non-closed section is a\n  ``profile_not_closed`` rebuild error, a multi-loop section is\n  ``profile_unsupported``, and a section ref that is not an earlier ok\n  sketch is ``reference_unresolved`` (exactly like extrude/sweep);\n* incompatible sections (crossed rails), an apex wedged between two wire\n  sections, or a skin OCCT cannot reduce to exactly one solid is a kernel\n  ``loft_failed`` rebuild error, never a silently bad body.",
         "properties": {
+          "merge": {
+            "default": true,
+            "description": "Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md \u00a7MB-0). Ignored for a CUT. Additive \u2014 absent reads True, no param_version bump.",
+            "title": "Merge",
+            "type": "boolean"
+          },
           "operation": {
             "enum": [
               "add",
@@ -5095,6 +5107,12 @@
             ],
             "title": "Direction",
             "type": "string"
+          },
+          "merge": {
+            "default": true,
+            "description": "Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md \u00a7MB-0). Ignored for a CUT. Additive \u2014 absent reads True, no param_version bump.",
+            "title": "Merge",
+            "type": "boolean"
           },
           "operation": {
             "enum": [
@@ -6681,6 +6699,12 @@
       "SweepParamsV1": {
         "description": "Sweep an earlier sketch's closed profile along an earlier sketch's open path.\n\nThe first NON-PRISMATIC body-affecting feature (design \u00a74.3): where extrude\nsweeps a profile along the plane normal and revolve about an axis, sweep\nfollows an arbitrary open PATH wire \u2014 the shaft / pipe / rib primitive named\nin the Part-modeling scorecard notes. It consumes the SAME ``profile``\nFeatureRef to an earlier sketch (a single closed wire, built by the shared\n``build_profile_face``) and the SAME ``add``/``cut`` boolean against the body\nchain as extrude/revolve; the new ingredient is ``path``, a SECOND\nFeatureRef to an earlier sketch whose entities form a single OPEN wire.\n\nPath representation (v1 DESIGN DECISION \u2014 docs/design/feature-tree.md\n\u00a72.1/\u00a72.2, docs/GEOMETRY-QA.md 2026-07-12): the path is a whole earlier\nSKETCH feature referenced by id (option A \u2014 the most general model, matching\nhow production CAD names a sweep path, and reusing the tree's stable feature\nids exactly as the ``profile`` slot does). This is NOT topological naming\n(#1): it references a whole feature's evaluated wire, never a picked\nsub-edge \u2014 the same mechanism extrude/revolve already use for their profile.\n\nv1 limits (stated plainly \u2014 documented scope, not bugs):\n\n* the path must resolve to a single **open** wire; a closed path is a\n  ``sweep_path_closed`` rebuild error, disjoint path loops are\n  ``sweep_path_not_connected``, and a path with no curve entities is\n  ``sweep_path_empty`` (construction geometry is excluded from the path\n  exactly as it is from the profile);\n* the sweep is **anchored at the profile** \u2014 build123d applies the path as a\n  relative trajectory from the profile's own location, so the path's\n  absolute position is not used. Author the path starting at the profile\n  origin, with its first segment perpendicular to the profile plane, for a\n  predictable result (as the golden's vertical path over an XY circle is);\n* NO twist, NO scale-along-path, NO multi-section, NO guide rails, NO\n  per-segment transition control \u2014 one profile rigidly swept along one path\n  (all later, additive params \u2014 no ``param_version`` bump);\n* a self-intersecting path, or a corner tighter than the profile can turn\n  without sweeping through itself, is a kernel ``sweep_failed`` rebuild\n  error, never a silently bad body.",
         "properties": {
+          "merge": {
+            "default": true,
+            "description": "Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md \u00a7MB-0). Ignored for a CUT. Additive \u2014 absent reads True, no param_version bump.",
+            "title": "Merge",
+            "type": "boolean"
+          },
           "operation": {
             "enum": [
               "add",

@@ -588,6 +588,27 @@ class SketchParamsV1(SketchDefinition):
     plane: GeomRef
 
 
+#: The multi-body "Merge result" flag (docs/design/multi-body.md §MB-0,
+#: Decision 2), shared by every ADDITIVE body-affecting feature
+#: (extrude/revolve/sweep/loft) — CLAUDE.md DRY rule, one definition. It applies
+#: to the ADD operation only: ``True`` fuses the new solid into the ACTIVE body
+#: (the historical single-body behaviour, and the "create the first body if none
+#: exists yet" case); ``False`` STARTS a new active body — the second-body path
+#: that lets a part end with more than one lump. Ignored for a CUT (which always
+#: modifies the active body). Additive-optional and defaulting ``True``, so
+#: legacy rows (persisted with no ``merge`` key) read ``True`` and behave exactly
+#: as before — the ``flip``/``direction`` idiom, NO ``param_version`` bump.
+MERGE_FIELD = Field(
+    default=True,
+    description=(
+        "Merge result (ADD only): True fuses the new solid into the active body "
+        "(default, historical single-body behaviour / starts the first body); "
+        "False starts a NEW body (multi-body, design multi-body.md §MB-0). "
+        "Ignored for a CUT. Additive — absent reads True, no param_version bump."
+    ),
+)
+
+
 class ExtrudeParamsV1(BaseModel):
     """Linear extrusion of an earlier sketch feature's profile."""
 
@@ -597,6 +618,7 @@ class ExtrudeParamsV1(BaseModel):
     distance_mm: float = Field(gt=0, description="Extrusion depth (mm)")
     operation: Literal["add", "cut"]
     direction: Literal["normal", "reverse"] = "normal"
+    merge: bool = MERGE_FIELD
 
 
 class RevolveAxis(BaseModel):
@@ -656,6 +678,7 @@ class RevolveParamsV1(BaseModel):
         description="Sweep sense about the axis for a partial revolution "
         "(irrelevant at a full 360°): 'reverse' sweeps the opposite way",
     )
+    merge: bool = MERGE_FIELD
 
 
 class SweepParamsV1(BaseModel):
@@ -707,6 +730,7 @@ class SweepParamsV1(BaseModel):
         "form a single OPEN wire — the sweep trajectory (design §2.2)"
     )
     operation: Literal["add", "cut"]
+    merge: bool = MERGE_FIELD
 
 
 class LoftParamsV1(BaseModel):
@@ -760,6 +784,7 @@ class LoftParamsV1(BaseModel):
         "(design §2.2). Fewer than 2 is a request-validation 422.",
     )
     operation: Literal["add", "cut"]
+    merge: bool = MERGE_FIELD
 
 
 class FilletParamsV1(BaseModel):

@@ -92,9 +92,19 @@ is a pure OCCT function; byte-identical GLB+STEP across interpreter restarts;
 
 ## Slice sequence
 
-- **MB-0** — multi-body plumbing, no user-visible boolean: `state.bodies`+active, the
-  `merge` flag, compound roll-up/tessellation/export, widen resolvers/export to
-  Compound (incl. the assembly mate path). Golden: two disjoint boxes.
+- **MB-0 — SHIPPED 2026-07-18.** Multi-body plumbing, no user-visible boolean:
+  `EvaluationState.bodies` (base-feature-keyed, tree-ordered) + `active_body_id`;
+  the additive `merge: bool = True` flag on extrude/revolve/sweep/loft ADD
+  (`merge=False` starts a new active body; `import` starts a second body,
+  retiring `import_with_prior_body`); analytic compound roll-up
+  (`geometry.kernel.properties.combine_properties`) + `Compound` tessellation/
+  export (STEP multi-solid); the face/edge/tessellate/export AND assembly-mate
+  resolvers widened `Solid`→`BodyShape` (`geometry.kernel.types.BodyShape =
+  Solid | Compound`, incl. the assembly mate path — the flagged sneaky ripple);
+  body-scoped resolution (a modifying feature resolves against `bodies[
+  active_body_id]` only). Golden `multibody-two-disjoint-boxes` (16000 mm³,
+  shells=2, byte-identical GLB+STEP across restart). Single-body goldens stay
+  byte-identical (one-entry `bodies` measured/tessellated as the bare solid).
 - **MB-1** — the headline `union` feature + overlapping-cubes golden + `boolean_disjoint`;
   frontend boolean authoring UI + Bodies panel + `merge` checkbox.
 - **MB-2** — `subtract` + `intersect` + analytic goldens + the error taxonomy.
