@@ -549,7 +549,5 @@ async def export_drawing(
     else:
         filename = artifact_filename(tree.drawing.name, format)
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    media_type = composed.headers.get(
-        "content-type", ARTIFACT_MEDIA_TYPES[format]
-    )
+    media_type = composed.headers.get("content-type", ARTIFACT_MEDIA_TYPES[format])
     return Response(content=composed.content, media_type=media_type, headers=headers)

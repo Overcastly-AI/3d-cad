@@ -380,9 +380,7 @@ def test_parity_radius_leader() -> None:
     leader = a.lines[0]
     assert leader.role == "dimension"
     assert (leader.x1, leader.y1) == pytest.approx((20.0, 12.5), abs=_ARC_TOL)
-    assert (leader.x2, leader.y2) == pytest.approx(
-        (23.535534, 16.035534), abs=_ARC_TOL
-    )
+    assert (leader.x2, leader.y2) == pytest.approx((23.535534, 16.035534), abs=_ARC_TOL)
     # Value stamped past the arc along the 45° leader (not on the circle).
     assert (a.text.x, a.text.y) == pytest.approx((30.077686, 22.577686), abs=_ARC_TOL)
 
@@ -672,9 +670,7 @@ def test_golden_dxf_reopens_as_real_entities() -> None:
 
     msp = doc.modelspace()
     # The two Ø10 holes are REAL circles of radius 5 on the VISIBLE layer.
-    holes = [
-        e for e in msp if e.dxftype() == "CIRCLE" and e.dxf.layer == "VISIBLE"
-    ]
+    holes = [e for e in msp if e.dxftype() == "CIRCLE" and e.dxf.layer == "VISIBLE"]
     assert len(holes) == 2
     assert {round(h.dxf.radius, 3) for h in holes} == {5.0}
     # The dimension values are TEXT entities carrying the model-true strings.

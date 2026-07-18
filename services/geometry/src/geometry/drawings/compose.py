@@ -346,9 +346,7 @@ def view_content_svg_rect(
     to_svg = view_transform(edges, anchor, sheet_height)
     a = to_svg(Vec2(bounds.min.x, bounds.min.y))
     b = to_svg(Vec2(bounds.max.x, bounds.max.y))
-    return SvgRect(
-        min(a.x, b.x), min(a.y, b.y), max(a.x, b.x), max(a.y, b.y)
-    )
+    return SvgRect(min(a.x, b.x), min(a.y, b.y), max(a.x, b.x), max(a.y, b.y))
 
 
 def _norm(a: float) -> float:
@@ -393,9 +391,7 @@ def view_to_svg_edges(
             a = to_svg(_p2(edge.start))
             b = to_svg(_p2(edge.end))
             out.append(
-                ComposedLineEdge(
-                    visible=edge.visible, x1=a.x, y1=a.y, x2=b.x, y2=b.y
-                )
+                ComposedLineEdge(visible=edge.visible, x1=a.x, y1=a.y, x2=b.x, y2=b.y)
             )
         elif (
             edge.primitive == "circle"
@@ -404,9 +400,7 @@ def view_to_svg_edges(
         ):
             c = to_svg(_p2(edge.center))
             out.append(
-                ComposedCircleEdge(
-                    visible=edge.visible, cx=c.x, cy=c.y, r=edge.radius
-                )
+                ComposedCircleEdge(visible=edge.visible, cx=c.x, cy=c.y, r=edge.radius)
             )
         elif (
             edge.primitive == "arc"
@@ -487,9 +481,7 @@ def dimension_edge_signature(params: DimensionParams) -> EdgeSignature | None:
     return None
 
 
-def _endpoint_projected(
-    edge: ProjectedViewEdge, endpoint: str
-) -> Vec2 | None:
+def _endpoint_projected(edge: ProjectedViewEdge, endpoint: str) -> Vec2 | None:
     """The projected point of a named endpoint of a straight edge (layout.ts)."""
     if (
         edge.primitive != "line"
@@ -528,9 +520,7 @@ def _number_text(value: float, unit: str | None) -> str:
     return str(Decimal(value).quantize(exp, rounding=ROUND_HALF_UP))
 
 
-def format_dimension_label(
-    dim_type: str, value: float, unit: str | None
-) -> str:
+def format_dimension_label(dim_type: str, value: float, unit: str | None) -> str:
     """The stamped label with its drafting prefix/suffix (dimensions.ts)."""
     n = _number_text(value, unit)
     if dim_type == "diameter":
@@ -836,15 +826,31 @@ def build_dimension_annotation(
             if p is None or q is None:
                 return None
             return _place_linear_between(
-                p, q, label, measured.foreshortened, view_center, to_svg,
-                obstacles, sheet, dim_type, dim_id,
+                p,
+                q,
+                label,
+                measured.foreshortened,
+                view_center,
+                to_svg,
+                obstacles,
+                sheet,
+                dim_type,
+                dim_id,
             )
         edge = primary_edge
         if edge is None or edge.primitive != "line":
             return None
         return _place_linear_between(
-            _p2(edge.start), _p2(edge.end), label, measured.foreshortened,
-            view_center, to_svg, obstacles, sheet, dim_type, dim_id,
+            _p2(edge.start),
+            _p2(edge.end),
+            label,
+            measured.foreshortened,
+            view_center,
+            to_svg,
+            obstacles,
+            sheet,
+            dim_type,
+            dim_id,
         )
 
     if isinstance(dimension, AngularDimensionParams):
@@ -930,8 +936,14 @@ def _compose_view(
         sheet = Vec2(sheet_w, sheet_h)
         for inp, measured in view_dims:
             anno = build_dimension_annotation(
-                inp.dimension, measured, edges, view_center, to_svg,
-                obstacles, sheet, inp.id,
+                inp.dimension,
+                measured,
+                edges,
+                view_center,
+                to_svg,
+                obstacles,
+                sheet,
+                inp.id,
             )
             if anno is None:
                 continue
@@ -1050,9 +1062,7 @@ def place_sheet(
             )
         )
 
-    scale_label = (
-        format_scale(layout.views[0].scale) if layout.views else "1:1"
-    )
+    scale_label = format_scale(layout.views[0].scale) if layout.views else "1:1"
     return ComposedSheet(
         width_mm=sheet_w,
         height_mm=sheet_h,
@@ -1424,8 +1434,14 @@ def _pdf_dimension(c: Canvas, dim: ComposedDimension) -> None:
         c.setDash([1.0 * _MM, 1.0 * _MM])
         c.circle(dim.at.x_mm * _MM, dim.at.y_mm * _MM, 2.6 * _MM, stroke=1, fill=0)
         _pdf_text(
-            c, dim.at.x_mm, dim.at.y_mm, "!", 3.0, _DIM_FLAG,
-            centred=True, central=True,
+            c,
+            dim.at.x_mm,
+            dim.at.y_mm,
+            "!",
+            3.0,
+            _DIM_FLAG,
+            centred=True,
+            central=True,
         )
         return
 
@@ -1468,8 +1484,14 @@ def _pdf_view(c: Canvas, view: ComposedView) -> None:
         c.setDash([2.0 * _MM, 1.4 * _MM])
         c.rect((ax - 26) * _MM, (ay - 14) * _MM, 52 * _MM, 28 * _MM, stroke=1, fill=0)
         _pdf_text(
-            c, ax, ay + 1, "VIEW FAILED", 3.0, _LABEL,
-            centred=True, central=False,
+            c,
+            ax,
+            ay + 1,
+            "VIEW FAILED",
+            3.0,
+            _LABEL,
+            centred=True,
+            central=False,
         )
     else:
         for edge in view.edges:
@@ -1477,8 +1499,14 @@ def _pdf_view(c: Canvas, view: ComposedView) -> None:
         for dim in view.dimensions:
             _pdf_dimension(c, dim)
     _pdf_text(
-        c, view.label_pos.x_mm, view.label_pos.y_mm, view.label, 3.4, _LABEL,
-        centred=True, central=False,
+        c,
+        view.label_pos.x_mm,
+        view.label_pos.y_mm,
+        view.label,
+        3.4,
+        _LABEL,
+        centred=True,
+        central=False,
     )
 
 
@@ -1523,9 +1551,7 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
     buf = io.BytesIO()
     w_pt = composed.width_mm * _MM
     h_pt = composed.height_mm * _MM
-    c = Canvas(
-        buf, pagesize=(w_pt, h_pt), bottomup=0, invariant=1, pageCompression=0
-    )
+    c = Canvas(buf, pagesize=(w_pt, h_pt), bottomup=0, invariant=1, pageCompression=0)
     c.setLineCap(1)  # round caps (SVG stroke-linecap="round")
     c.setLineJoin(1)  # round joins
 
@@ -1643,7 +1669,13 @@ def _dxf_dimension(
             (dim.at.x_mm, fy(dim.at.y_mm)), 2.6, dxfattribs={"layer": _LYR_DIMENSION}
         )
         _dxf_text_entity(
-            msp, "!", dim.at.x_mm, fy(dim.at.y_mm), 3.0, 0.0, _LYR_DIMENSION,
+            msp,
+            "!",
+            dim.at.x_mm,
+            fy(dim.at.y_mm),
+            3.0,
+            0.0,
+            _LYR_DIMENSION,
             centred=True,
         )
         return
@@ -1656,8 +1688,14 @@ def _dxf_dimension(
         msp.add_solid(pts, dxfattribs={"layer": _LYR_DIMENSION})
     # The SVG text angle is clockwise in y-down; the y-flip negates it in model space.
     _dxf_text_entity(
-        msp, dim.text.value, dim.text.x, fy(dim.text.y), _TXT, -dim.text.angle,
-        _LYR_DIMENSION, centred=True,
+        msp,
+        dim.text.value,
+        dim.text.x,
+        fy(dim.text.y),
+        _TXT,
+        -dim.text.angle,
+        _LYR_DIMENSION,
+        centred=True,
     )
 
 
@@ -1683,8 +1721,14 @@ def _dxf_view(
         for dim in view.dimensions:
             _dxf_dimension(msp, dim, fy)
     _dxf_text_entity(
-        msp, view.label, view.label_pos.x_mm, fy(view.label_pos.y_mm), 3.4, 0.0,
-        _LYR_TITLE, centred=True,
+        msp,
+        view.label,
+        view.label_pos.x_mm,
+        fy(view.label_pos.y_mm),
+        3.4,
+        0.0,
+        _LYR_TITLE,
+        centred=True,
     )
 
 

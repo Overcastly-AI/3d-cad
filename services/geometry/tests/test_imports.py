@@ -249,9 +249,7 @@ def test_second_import_starts_a_new_body() -> None:
     the SAME box coexist as two solids (shells=2) with the volume summed over
     the body set (no boolean, no dedup — MB-0 keeps them disjoint bodies)."""
     single = _evaluate(
-        _request(
-            [{"id": str(IMPORT_ID), "feature": _import_feature(_box_step_text())}]
-        )
+        _request([{"id": str(IMPORT_ID), "feature": _import_feature(_box_step_text())}])
     )
     assert single.properties is not None
     one_volume = single.properties.volume
