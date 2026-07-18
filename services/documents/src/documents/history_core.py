@@ -33,8 +33,6 @@ from sqlalchemy import SQLColumnExpression, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped
 
-_logger = get_logger("documents.history")
-
 #: Bounded ring size (design §"Model"): at most this many snapshots per
 #: document. You can undo within the window, not before it.
 HISTORY_MAX = 50
@@ -166,7 +164,9 @@ class DocumentHistory[DocT: HistoryDocument]:
         )
         dropped = len(pruned.all())
         if dropped:
-            _logger.info(
+            # Per-kind logger name (documents.history.part / .assembly) so a
+            # log query can tell the two rings apart (review 🟢 2026-07-18).
+            get_logger(f"documents.history.{self.kind}").info(
                 "history_ring_pruned",
                 dropped=dropped,
                 floor_seq=floor,

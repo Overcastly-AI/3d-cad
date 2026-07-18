@@ -670,6 +670,73 @@ async def delete_mate(
 # --- undo / redo (docs/design/undo-redo.md UR3) -----------------------------------
 
 
+async def _reject_restore_integrity_violations(
+    session: AsyncSession, owner_id: uuid.UUID, assembly_id: uuid.UUID
+) -> None:
+    """Post-restore cross-document integrity pass (UR3 review fix).
+
+    A restore re-enters the assembly graph, so it must uphold the SAME
+    write-time invariants every other write path enforces (§1.2) — the world
+    may have legally moved since the snapshot was taken:
+
+    - a restored instance's referenced document may have been DELETED since
+      (``reject_if_instanced`` only guards live instance rows, deliberately —
+      snapshots never block a delete), which would leave a dangling
+      ``ref_document_id``;
+    - a restored sub-assembly edge may CLOSE A CYCLE with edges added since
+      (the reviewer's repro: record A→B, delete it, add B→A, undo → A→B→A),
+      violating the load-bearing write-time acyclicity invariant.
+
+    Runs over the restored-but-uncommitted state, under the same per-owner
+    advisory lock as :func:`create_instance` when any sub-assembly edge is
+    involved (so a restore can't race a concurrent reciprocal add past the
+    walk). On violation: roll back — cursor, ring and ``doc_version`` all
+    unmoved, the snapshot stays restorable once the conflict is resolved —
+    and raise a single typed 409 ``assembly_restore_conflict`` whose
+    ``details.reason`` names the failed check (``ref_document_not_found`` /
+    ``assembly_cycle``, the live write paths' codes) plus the offending ids.
+    One code (not the write paths' 422s) because this is a conflict between
+    HISTORY and the current world, not a bad request — the client's move is
+    to resolve the named conflict, not to fix its payload.
+    """
+    instances = await ordered_instances(session, assembly_id)
+    if any(row.ref_document_kind == "assembly" for row in instances):
+        await _serialize_owner_cycle_writes(session, owner_id)
+    for row in instances:
+        if not await referenced_document_exists(
+            session, owner_id, row.ref_document_id, row.ref_document_kind
+        ):
+            details = {
+                "reason": "ref_document_not_found",
+                "instance_id": str(row.id),
+                "ref_document_id": str(row.ref_document_id),
+                "ref_document_kind": row.ref_document_kind,
+            }
+            await session.rollback()
+            raise ConflictError(
+                "Restoring this history step would reference a document that "
+                "no longer exists.",
+                code="assembly_restore_conflict",
+                details=details,
+            )
+    for row in instances:
+        if row.ref_document_kind == "assembly" and await _reaches(
+            session, row.ref_document_id, assembly_id
+        ):
+            details = {
+                "reason": "assembly_cycle",
+                "instance_id": str(row.id),
+                "ref_document_id": str(row.ref_document_id),
+            }
+            await session.rollback()
+            raise ConflictError(
+                "Restoring this history step would make the assembly contain "
+                "itself (directly or through a sub-assembly chain).",
+                code="assembly_restore_conflict",
+                details=details,
+            )
+
+
 async def _restore_history_step(
     assembly_id: uuid.UUID,
     request: AssemblyUndoRedoRequest,
@@ -692,16 +759,28 @@ async def _restore_history_step(
     Restoring a snapshotted assembly ``name`` (the header rides in UR3
     snapshots — see :mod:`documents.assembly_history`) can collide with a
     name taken since; that surfaces as the same friendly
-    ``assembly_name_taken`` 409 the PATCH itself uses.
+    ``assembly_name_taken`` 409 the PATCH itself uses. Cross-document
+    integrity (dangling refs / cycles) is re-checked post-restore —
+    :func:`_reject_restore_integrity_violations` (409
+    ``assembly_restore_conflict``).
     """
     assembly = await get_owned_assembly(session, owner_id, assembly_id, for_update=True)
     _ensure_fresh(assembly, request.expected_version)
     if await ASSEMBLY_HISTORY.restore_adjacent(session, assembly, direction):
-        assembly.doc_version += 1
         try:
+            # Inside the try: the pass's first SELECT autoflushes the restored
+            # header, so a name collision can surface HERE, not just at commit.
+            await _reject_restore_integrity_violations(session, owner_id, assembly_id)
+            assembly.doc_version += 1
             await session.commit()
         except IntegrityError:
             await session.rollback()
+            # Assumption (reviewed 2026-07-18): the only constraint a restore
+            # can violate at flush/commit is uq_assemblies_owner_name —
+            # instances/mates were bulk-replaced with internally-consistent
+            # snapshot rows and cross-document refs are checked by the
+            # integrity pass above. Revisit if the snapshot state ever grows
+            # a new constrained surface.
             raise ConflictError(
                 "Restoring this history step would collide with an existing "
                 "assembly name.",

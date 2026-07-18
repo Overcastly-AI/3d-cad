@@ -77,13 +77,14 @@ def _add_instance(
     expected_version: int,
     *,
     name: str,
+    ref_document_kind: str = "part",
     grounded: bool = False,
     placement: dict[str, Any] | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "expected_version": expected_version,
         "ref_document_id": ref_document_id,
-        "ref_document_kind": "part",
+        "ref_document_kind": ref_document_kind,
         "name": name,
         "grounded": grounded,
     }
@@ -521,6 +522,130 @@ def test_undo_rename_collision_is_409(client: TestClient) -> None:
     graph = _graph(client, assembly_id)
     assert graph["assembly"]["name"] == "renamed"
     assert graph["doc_version"] == 1
+
+
+# --- post-restore cross-document integrity (UR3 review fix) -----------------------
+
+
+def test_undo_restoring_cycle_is_409(client: TestClient, any_db_url: str) -> None:
+    """The reviewer's repro: record A→B, delete it, add B→A (legal then),
+    undo on A would re-insert A→B and close the cycle A→B→A. The restore
+    must be refused 409 with the cursor/ring/doc_version unmoved — and once
+    the conflict is resolved, the SAME undo (same target seq) succeeds."""
+    a_id = _create_assembly(client, "asm-a")
+    b_id = _create_assembly(client, "asm-b")
+    edge_id = _add_instance(
+        client, a_id, b_id, 0, name="B <1>", ref_document_kind="assembly"
+    )
+    deleted = client.delete(
+        f"/api/v1/assemblies/{a_id}/instances/{edge_id}",
+        params={"expected_version": 1},
+        headers=_headers(),
+    )
+    assert deleted.status_code == 200, deleted.text
+    # The reciprocal edge is legal NOW (A no longer references B).
+    reverse_id = _add_instance(
+        client, b_id, a_id, 0, name="A <1>", ref_document_kind="assembly"
+    )
+    before = _graph(client, a_id)
+    stats = _snapshot_stats(any_db_url)
+
+    response = client.post(
+        f"/api/v1/assemblies/{a_id}/undo",
+        json={"expected_version": 2},
+        headers=_headers(),
+    )
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "assembly_restore_conflict"
+    assert error["details"]["reason"] == "assembly_cycle"
+    assert error["details"]["instance_id"] == edge_id
+    assert error["details"]["ref_document_id"] == b_id
+
+    # Nothing moved: graph, doc_version, flags and the ring all unchanged.
+    after = _graph(client, a_id)
+    assert after == before
+    assert after["doc_version"] == 2
+    assert after["instances"] == []
+    assert (after["can_undo"], after["can_redo"]) == (True, False)
+    assert _snapshot_stats(any_db_url) == stats
+
+    # Resolve the conflict (drop B→A): the cursor never moved, so the same
+    # undo still targets the same snapshot and now restores it verbatim.
+    removed = client.delete(
+        f"/api/v1/assemblies/{b_id}/instances/{reverse_id}",
+        params={"expected_version": 1},
+        headers=_headers(),
+    )
+    assert removed.status_code == 200, removed.text
+    restored = _undo(client, a_id, 2)
+    assert [i["id"] for i in restored["instances"]] == [edge_id]  # original id
+    assert restored["instances"][0]["ref_document_id"] == b_id
+    assert restored["instances"][0]["ref_document_kind"] == "assembly"
+
+
+def test_undo_restoring_dangling_ref_is_409(
+    client: TestClient, any_db_url: str
+) -> None:
+    """An instance's referenced part can be deleted once the instance is
+    (``reject_if_instanced`` guards LIVE rows only — snapshots deliberately
+    never block a delete). Undoing the instance delete afterwards would
+    resurrect a dangling ``ref_document_id`` — refused 409, nothing moved."""
+    part_id = _create_part(client, "doomed-part")
+    assembly_id = _create_assembly(client)
+    instance_id = _add_instance(client, assembly_id, part_id, 0, name="Doomed <1>")
+    deleted = client.delete(
+        f"/api/v1/assemblies/{assembly_id}/instances/{instance_id}",
+        params={"expected_version": 1},
+        headers=_headers(),
+    )
+    assert deleted.status_code == 200, deleted.text
+    gone = client.delete(f"/api/v1/parts/{part_id}", headers=_headers())
+    assert gone.status_code == 204, gone.text
+    before = _graph(client, assembly_id)
+    stats = _snapshot_stats(any_db_url)
+
+    response = client.post(
+        f"/api/v1/assemblies/{assembly_id}/undo",
+        json={"expected_version": 2},
+        headers=_headers(),
+    )
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "assembly_restore_conflict"
+    assert error["details"]["reason"] == "ref_document_not_found"
+    assert error["details"]["instance_id"] == instance_id
+    assert error["details"]["ref_document_id"] == part_id
+
+    after = _graph(client, assembly_id)
+    assert after == before
+    assert after["doc_version"] == 2
+    assert after["instances"] == []
+    assert (after["can_undo"], after["can_redo"]) == (True, False)
+    assert _snapshot_stats(any_db_url) == stats
+
+
+def test_undo_restoring_valid_subassembly_edge_succeeds(client: TestClient) -> None:
+    """The positive case: a restored sub-assembly edge whose referenced
+    assembly still exists and closes no cycle passes the integrity pass and
+    restores verbatim."""
+    a_id = _create_assembly(client, "asm-a")
+    b_id = _create_assembly(client, "asm-b")
+    edge_id = _add_instance(
+        client, a_id, b_id, 0, name="B <1>", ref_document_kind="assembly"
+    )
+    before = _stripped(_graph(client, a_id))
+    deleted = client.delete(
+        f"/api/v1/assemblies/{a_id}/instances/{edge_id}",
+        params={"expected_version": 1},
+        headers=_headers(),
+    )
+    assert deleted.status_code == 200, deleted.text
+
+    restored = _undo(client, a_id, 2)
+    assert _stripped(restored) == before
+    assert [i["id"] for i in restored["instances"]] == [edge_id]
+    assert restored["instances"][0]["ref_document_kind"] == "assembly"
 
 
 # --- bounded ring -----------------------------------------------------------------
