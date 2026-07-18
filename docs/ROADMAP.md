@@ -720,7 +720,8 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       the real stack — lay out + dimension, click Export DXF, catch the download,
       assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
       **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
-      pillar: DE-1c client-placement cutover + section/detail/assembly views.
+      pillar: section/detail/assembly views (DE-1c client-placement cutover DONE —
+      see below).
       **Drawing export DE-1b — JSON compose endpoint (`ComposedSheet` model) SHIPPED**
       (2026-07-18): the backend prerequisite for the DE-1c client cutover — the
       frontend must RENDER from the server's placement, so it needs the placed model
@@ -737,9 +738,27 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       returned only bytes). Gates: geometry route returns a well-formed `ComposedSheet`
       for the compose golden (placed views/edges/dims/title block asserted; equals the
       in-process `place_sheet`); gateway proxy aggregates + 401-gates + returns the
-      model; `just lint`/pyright/`gen-check` green. **DE-1c (frontend renders from this
-      + deletes `apps/web/src/drawing/{dimensions,layout}.ts` placement) is next —
-      closes the two-engine window.**
+      model; `just lint`/pyright/`gen-check` green.
+      **Drawing export DE-1c — client render cutover SHIPPED** (2026-07-18): the
+      frontend now renders the server-composed `ComposedSheet` VERBATIM (`DrawingSheet`
+      draws the placed edges/dimensions/title block, coordinates already in final
+      sheet-mm SVG space; TanStack-keyed off the DE-1b `/drawings/{id}/sheet` proxy like
+      the evaluate query). The browser's DUPLICATE placement engine is DELETED —
+      `apps/web/src/drawing/layout.ts` lost `boundsAwareLayout`/`viewTransform`/
+      `viewBounds`/`viewContentSvgRect`/`sampleArc`/`viewToSvgEdges`/`formatScale` +
+      margin/title-block constants; `dimensions.ts` lost `buildDimensionAnnotation` +
+      every place/arrow/penalty/edge-match helper (kept only `edgeSignatureKey` for
+      React/selection keys + `formatDimensionLabel` for the Dimensions side-panel);
+      the placement unit tests moved server-side (compose golden + parity). Picks,
+      hover, and endpoint handles stay client-side on the neutral `ProjectedViewEdge`
+      list, ALIGNED to the composed geometry by canonical edge order (compose +
+      evaluate share it per view) — the pick geometry reads composed coordinates while
+      provenance (source edge / dimensionable / `start_is_end_a`) comes from evaluate.
+      Gates: full `drawings.spec.ts` green (author linear/diameter/radius/angular/p2p +
+      SVG/PDF/DXF export, 7/7); founder screenshots visually IDENTICAL to the committed
+      baselines (sheet region pixel-identical; only transient interaction chrome
+      differs); `just lint` green. **ONE placement source; the time-boxed two-engine
+      window is CLOSED — the drawing-export initiative (DE-0…DE-3) is complete.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)

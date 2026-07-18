@@ -8,6 +8,7 @@ import {
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
   type ViewProjection,
+  composeDrawingSheet,
   createDimension,
   createSheet,
   createView,
@@ -100,17 +101,6 @@ export function DrawingPage() {
     for (const view of views) map.set(view.id, view.projection);
     return map;
   }, [views]);
-  const dimensionsByView = useMemo(() => {
-    const map = new Map<ViewProjection, DimensionResponse[]>();
-    for (const dim of dimensions) {
-      const projection = projectionByViewId.get(dim.view_id);
-      if (!projection) continue;
-      const list = map.get(projection) ?? [];
-      list.push(dim);
-      map.set(projection, list);
-    }
-    return map;
-  }, [dimensions, projectionByViewId]);
   // The evaluate-request twin of the stored dimensions (each tagged with its
   // view) — geometry measures these against the SAME body it projects (§3.1).
   const dimensionInputs = useMemo<DrawingDimensionInput[]>(() => {
@@ -201,6 +191,25 @@ export function DrawingPage() {
     return map;
   }, [evaluation]);
 
+  // The server-composed sheet (DE-1c): the SINGLE placement source the sheet
+  // renders from. The gateway `/sheet` route reads the drawing's persisted state
+  // and composes it — the browser computes no layout. Keyed identically to the
+  // evaluate query so the VISUAL (composed) and the PICK provenance (evaluate)
+  // move in lockstep: a reproject / new dimension refetches both together.
+  const sheetQuery = useQuery({
+    queryKey: [
+      "drawing-sheet",
+      effectivePartId,
+      partTree?.tree_version,
+      effectiveScaleValue,
+      docVersion,
+    ],
+    enabled: hasLayout && partTree !== undefined,
+    queryFn: () => composeDrawingSheet(drawingId),
+    staleTime: Infinity,
+  });
+  const composed = sheetQuery.data;
+
   // ---------------------------------------------------------------------
   // The auto-layout action: create the sheet (if needed) + the four views,
   // threading the optimistic-concurrency version through each write.
@@ -271,6 +280,8 @@ export function DrawingPage() {
       queryKey: ["drawing-part-tree", effectivePartId],
     });
     void queryClient.invalidateQueries({ queryKey: ["drawing-eval"] });
+    // Re-compose the placed sheet too (the VISUAL source) so a reproject repaints.
+    void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
   }, [queryClient, effectivePartId]);
 
   // ---------------------------------------------------------------------
@@ -496,7 +507,8 @@ export function DrawingPage() {
   const draftedPartName =
     parts.find((part) => part.id === draftedPartId)?.name ?? null;
 
-  const projecting = evalQuery.isFetching || partTreeQuery.isFetching;
+  const projecting =
+    evalQuery.isFetching || partTreeQuery.isFetching || sheetQuery.isFetching;
 
   return (
     <div className="flex h-full flex-col">
@@ -556,18 +568,15 @@ export function DrawingPage() {
             title="Loading drawing…"
             body="Fetching the sheet."
           />
-        ) : hasLayout && sheet ? (
+        ) : hasLayout && sheet && composed ? (
           // Reserve the right gutter for the Views panel so the paper never
           // slides under it (the panel would clip the sheet's framed corner).
           <div className="absolute inset-0 flex items-center justify-center p-6 sm:p-10 lg:pr-[22rem]">
             <DrawingSheet
               svgRef={sheetSvgRef}
-              sheet={sheet}
+              composed={composed}
               views={views}
               resultByProjection={resultByProjection}
-              title={tree.drawing.name}
-              dimensionsByView={dimensionsByView}
-              measuredById={measuredById}
               selectedEdgeKey={selectedEdgeKey}
               armedEdgeKeys={armedEdgeKeys}
               selectedVertexKeys={selectedVertexKeys}
@@ -576,6 +585,24 @@ export function DrawingPage() {
               onPickEndpoint={handlePickEndpoint}
             />
           </div>
+        ) : hasLayout && sheet && sheetQuery.isError ? (
+          <CenterNote
+            testId="drawing-compose-error"
+            tone="error"
+            title="Sheet could not be composed"
+            body={
+              sheetQuery.error instanceof Error
+                ? sheetQuery.error.message
+                : "Reload and try again."
+            }
+          />
+        ) : hasLayout && sheet ? (
+          <CenterNote
+            testId="drawing-composing"
+            tone="quiet"
+            title="Composing sheet…"
+            body="Placing the standard views."
+          />
         ) : (
           <SetupHint hasParts={parts.length > 0} />
         )}

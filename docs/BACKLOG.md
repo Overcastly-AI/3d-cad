@@ -108,10 +108,21 @@ reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
       `COMPUTE_RATE_LIMIT`, shared `_aggregate_compose_request` reused from `/export`).
       `ComposedSheet` now in the ts-client; geometry + gateway tests + `gen-check`
       green. The DE-1c prerequisite. [src: drawing-export.md]
-- [ ] (P1, S) Drawing export DE-1c — client cutover (apps/web). `DrawingSheet`
-      renders from `ComposedSheet` (via the DE-1b `/drawings/{id}/sheet` proxy);
-      DELETE client placement math (`apps/web/src/drawing/{dimensions,layout}.ts`);
-      gated by `drawings.spec.ts` visual parity + the SVG golden. One placement source.
+- [x] (P1, S) Drawing export DE-1c — client cutover (apps/web) **DONE 2026-07-18**.
+      `DrawingSheet` renders the server-composed `ComposedSheet` verbatim (via the
+      DE-1b `/drawings/{id}/sheet` proxy, TanStack-keyed like evaluate); DELETED the
+      client placement engine — `layout.ts` lost `boundsAwareLayout`/`viewTransform`/
+      `viewBounds`/`viewContentSvgRect`/`sampleArc`/`viewToSvgEdges`/`formatScale` +
+      margin/title-block constants, `dimensions.ts` lost `buildDimensionAnnotation` +
+      every place/arrow/penalty/match helper (kept only `edgeSignatureKey` +
+      `formatDimensionLabel` for the side-panel). Picks/hover/endpoint-handles stay
+      client-side on the neutral `ProjectedViewEdge` list, aligned to the composed
+      geometry by canonical edge order. Full `drawings.spec.ts` green (author
+      linear/diameter/radius/angular/p2p + SVG/PDF/DXF export); founder screenshots
+      visually IDENTICAL to the committed baselines (sheet region pixel-identical;
+      only transient chrome — a command-band tooltip, a hover-revealed vertex handle
+      — differs). **ONE placement source; the two-engine window is CLOSED — the
+      drawing-export initiative is complete.** [src: drawing-export.md]
 - [x] (P1, M) Drawing export DE-2 — PDF (reportlab) **DONE 2026-07-18**. DE-2a
       serializer + geometry route + byte-stability golden (`serialize_pdf`,
       `bottomup=0`, `invariant=1`+`pageCompression=0`, reportlab 5.0.0 BSD); DE-2b
@@ -131,7 +142,7 @@ reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
       reusing the typed `exportDrawing`; unified the PDF+DXF server-export
       in-flight/error path into one `runServerExport(format)` (DRY). Drawings export
       loop SVG/PDF/DXF now complete end-to-end; e2e downloads a real `0\nSECTION`
-      R2000 DXF. **Remaining: DE-1c client cutover.** [src: drawing-export.md]
+      R2000 DXF. **DE-1c client cutover now done — one placement source.** [src: drawing-export.md]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
       mesh_store/S3 seam (§8.3). [src: drawing-export.md]
 
