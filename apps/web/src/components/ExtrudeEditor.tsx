@@ -9,6 +9,7 @@
  */
 import {
   AddIcon,
+  Checkbox,
   CutIcon,
   NormalIcon,
   NumberField,
@@ -105,6 +106,9 @@ export function ExtrudeEditor({
       distance_mm: distance,
       operation: form.operation,
       direction: form.direction,
+      // Merge is an ADD choice only; a cut always removes from the active body,
+      // so it sends the neutral `true` regardless of a stale toggle.
+      merge: form.operation === "add" ? form.merge : true,
     });
   }, [form, onSubmit, unit]);
 
@@ -186,6 +190,20 @@ export function ExtrudeEditor({
               options={DIRECTIONS}
               onChange={(direction) => setForm((f) => ({ ...f, direction }))}
             />
+
+            {form.operation === "add" ? (
+              <Checkbox
+                label="Merge result"
+                data-testid="extrude-merge"
+                checked={form.merge}
+                onChange={(merge) => setForm((f) => ({ ...f, merge }))}
+                description={
+                  form.merge
+                    ? "Fuse into the touching body."
+                    : "Start a new body."
+                }
+              />
+            ) : null}
           </div>
         </div>
 

@@ -9,6 +9,7 @@
  */
 import {
   AddIcon,
+  Checkbox,
   CutIcon,
   NormalIcon,
   NumberField,
@@ -116,6 +117,8 @@ export function RevolveEditor({
       angle_deg: angle,
       operation: form.operation,
       direction: form.direction,
+      // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
+      merge: form.operation === "add" ? form.merge : true,
     });
   }, [form, onSubmit]);
 
@@ -227,6 +230,20 @@ export function RevolveEditor({
               options={DIRECTIONS}
               onChange={(direction) => setForm((f) => ({ ...f, direction }))}
             />
+
+            {form.operation === "add" ? (
+              <Checkbox
+                label="Merge result"
+                data-testid="revolve-merge"
+                checked={form.merge}
+                onChange={(merge) => setForm((f) => ({ ...f, merge }))}
+                description={
+                  form.merge
+                    ? "Fuse into the touching body."
+                    : "Start a new body."
+                }
+              />
+            ) : null}
           </div>
         </div>
 

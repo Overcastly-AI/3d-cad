@@ -15,6 +15,7 @@
  */
 import {
   ChamferIcon,
+  CombineIcon,
   DatumIcon,
   DraftIcon,
   ExtrudeIcon,
@@ -107,6 +108,13 @@ export interface CreateStripProps {
   onShell?: () => void;
   /** Taper picked faces for mold release about a neutral plane (D). */
   onDraft?: () => void;
+  /**
+   * Two or more bodies exist to fuse (a `merge: false` add / an import started a
+   * second body). Below two bodies the Combine tool disables with its reason.
+   */
+  canCombine?: boolean;
+  /** Fuse two bodies into one via a boolean union (multi-body §MB-1). */
+  onCombine?: () => void;
   /** A solid body exists to inspect — the Measure tool lights up. */
   canMeasure?: boolean;
   /** The Measure tool is armed (picking targets in the viewport). */
@@ -156,6 +164,8 @@ export function CreateStrip({
   onPattern,
   onShell,
   onDraft,
+  canCombine = false,
+  onCombine,
   canMeasure = false,
   measuring = false,
   onToggleMeasure,
@@ -175,6 +185,7 @@ export function CreateStrip({
   const patternReady = canModify && treeReady && onPattern !== undefined;
   const shellReady = canModify && treeReady && onShell !== undefined;
   const draftReady = canModify && treeReady && onDraft !== undefined;
+  const combineReady = canCombine && treeReady && onCombine !== undefined;
 
   // An open command scopes the whole band: every tool locks with one honest
   // reason, so no click can discard the open command's picks (Track C P1).
@@ -471,6 +482,20 @@ export function CreateStrip({
             caption={captionFor(draftReady, "Create a body first")}
             disabled={locked || !draftReady}
             onClick={onDraft}
+          />
+          <ToolButton
+            icon={<CombineIcon />}
+            showLabel
+            label="Combine"
+            data-testid="new-combine"
+            aria-label={
+              combineReady
+                ? "Combine — fuse two bodies into one (boolean union)"
+                : "Combine — needs two or more bodies"
+            }
+            caption={captionFor(combineReady, "Needs two bodies")}
+            disabled={locked || !combineReady}
+            onClick={onCombine}
           />
         </ToolGroup>
 

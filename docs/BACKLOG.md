@@ -808,17 +808,21 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
         stay `Solid`); consumed-tool / missing / same-body reference errors. Golden
         `boolean-union-two-cubes-overlap` (12000 mm³, shells=1, byte-identical
         GLB+STEP across restart) + `test_boolean.py`. [kernel-architect]
-  - [ ] (P2, S) **MB-1b** — frontend boolean authoring UI + Bodies panel + `merge`
-        checkbox. **Next.** *Also picks up the MB-0 frontend debt:* MB-0 made
-        `merge` a required field in the generated ts-client (extrude/revolve/sweep/
-        loft) but never updated `apps/web` (editors + `*.test.ts`), so
-        `apps/web typecheck` is red — thread `merge` through there.
-        *Cross-territory note (documents):* MB-0 made the geometry evaluator
-        permit a second `import` (starts a new body), but documents still
-        rejects it at write time via `_reject_import_with_prior_body`
-        (`services/documents/features.py`) — relax that guard so an imported body
-        can coexist with a modelled one end-to-end (the `merge=False` extrude
-        second-body path already works today).
+  - [x] **MB-1b (P2, S) frontend done (2026-07-18)** — a design-system `Checkbox`
+        primitive drives a "Merge result" toggle on the extrude/revolve/sweep/loft
+        ADD editors (default on = fuse into active body; off = new body); a
+        **Combine** tool (Modify strip, `CombineEditor` + `features/boolean.ts`)
+        authors a `boolean` union by picking a target + tool body; a **Bodies
+        panel** (`BodiesPanel` + `features/bodies.ts` tree-derived partition) lists
+        + selects bodies. Threaded MB-0's required `merge` field through the param
+        builders/editors/`*.test.ts` (un-redded `apps/web typecheck`).
+        `boolean_disjoint`/reference errors surface via the tree per-feature error.
+        E2e `multibody-union.spec.ts` (two `merge=false` cubes → Combine → one
+        12000 mm³ solid) + founder shot `multibody-union-desktop.png`.
+        [frontend-builder]
+        *Still open (documents territory, MB-2):* relax
+        `_reject_import_with_prior_body` (`services/documents/features.py`) so an
+        imported body can coexist with a modelled one end-to-end.
   - [ ] (P2, M) **MB-2** — `subtract` + `intersect` + analytic goldens +
         the `boolean_empty` error taxonomy.
   - [ ] (P3, M) **MB-3** — downstream feature (fillet/chamfer) on a boolean

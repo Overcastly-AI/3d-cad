@@ -44,6 +44,7 @@ function extrude(id: string, profileId: string): FeatureResponse {
         distance_mm: 12,
         operation: "add",
         direction: "normal",
+        merge: true,
       },
     },
   };
@@ -61,6 +62,7 @@ describe("defaultSweepForm", () => {
       profileFeatureId: "s1",
       pathFeatureId: "s2",
       operation: "add",
+      merge: true,
     });
   });
 });
@@ -71,11 +73,13 @@ describe("formFromSweepParams", () => {
       profile: { kind: "feature", feature_id: "s1" },
       path: { kind: "feature", feature_id: "s2" },
       operation: "cut",
+      merge: true,
     };
     expect(formFromSweepParams(params)).toEqual({
       profileFeatureId: "s1",
       pathFeatureId: "s2",
       operation: "cut",
+      merge: true,
     });
   });
 });
@@ -133,6 +137,7 @@ describe("buildSweepParams", () => {
       profile: { kind: "feature", feature_id: "s1" },
       path: { kind: "feature", feature_id: "s2" },
       operation: "add",
+      merge: true,
     });
   });
 

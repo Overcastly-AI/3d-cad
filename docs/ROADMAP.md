@@ -312,9 +312,19 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       the target's identity slot, tool consumed) with a `boolean_disjoint` guard
       (union must stay one connected solid). `subtract`/`intersect` are defined in
       the schema but return `boolean_not_implemented` until MB-2. Golden
-      `boolean-union-two-cubes-overlap` (12000 mm³, shells=1). **Next: MB-1b —
-      frontend boolean authoring UI + Bodies panel + `merge` checkbox (also picks
-      up the MB-0 `apps/web` `merge` typecheck debt); MB-2 — subtract/intersect.**
+      `boolean-union-two-cubes-overlap` (12000 mm³, shells=1). **MB-1b landed
+      2026-07-18 — the frontend:** a design-system `Checkbox` primitive drives a
+      "Merge result" toggle on the extrude/revolve/sweep/loft ADD editors
+      (default on = fuse; off = new body); a **Combine** tool (Modify strip)
+      authors a `boolean` union by picking a target + tool body → the union fuses
+      them (`boolean_disjoint`/reference errors surface via the tree's per-feature
+      error affordance); a **Bodies panel** lists the part's bodies (tree-derived
+      partition, `apps/web/src/features/bodies.ts`), each selectable. Threaded the
+      MB-0 `merge` field through the param builders/editors/fixtures (un-redding
+      `apps/web typecheck`). E2e `multibody-union.spec.ts`: two `merge=false`
+      cubes → Combine → one fused 12000 mm³ solid (founder shot
+      `docs/screenshots/multibody-union-desktop.png`). **Next: MB-2 —
+      subtract/intersect + the documents `_reject_import_with_prior_body` relax.**
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

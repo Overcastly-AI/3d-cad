@@ -70,6 +70,7 @@ const revolveParams: RevolveParams = {
   angle_deg: 360,
   operation: "add",
   direction: "normal",
+  merge: true,
 };
 
 describe("parseAngleDeg", () => {
@@ -102,6 +103,7 @@ describe("defaultRevolveForm", () => {
       angleInput: "360",
       operation: "add",
       direction: "normal",
+      merge: true,
     });
   });
 });
@@ -120,6 +122,7 @@ describe("formFromRevolveParams", () => {
       angleInput: "180",
       operation: "cut",
       direction: "reverse",
+      merge: true,
     });
   });
 });

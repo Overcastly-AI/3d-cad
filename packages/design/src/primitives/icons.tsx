@@ -453,6 +453,19 @@ export const CircularPatternIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Combine = a boolean between two independently-built bodies (union). Two
+ * overlapping solids scribed as offset squares — the Venn-of-boxes gesture in
+ * the title-block square vocabulary the extrude/pattern glyphs speak, so it
+ * reads as "fuse these two bodies into one", not a generic group/merge icon.
+ */
+export const CombineIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={4} y={9} width={10} height={10} />
+    <rect x={10} y={5} width={10} height={10} />
+  </Icon>
+);
+
 // --- Feature operations (add / cut, direction) ------------------------------
 
 /** Add = material joined onto the body. */

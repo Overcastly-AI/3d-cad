@@ -18,6 +18,7 @@
 import {
   AddIcon,
   CaretDownIcon,
+  Checkbox,
   CloseIcon,
   CutIcon,
   Panel,
@@ -216,6 +217,20 @@ export function LoftEditor({
               options={OPERATIONS}
               onChange={(operation) => setForm((f) => ({ ...f, operation }))}
             />
+
+            {form.operation === "add" ? (
+              <Checkbox
+                label="Merge result"
+                data-testid="loft-merge"
+                checked={form.merge}
+                onChange={(merge) => setForm((f) => ({ ...f, merge }))}
+                description={
+                  form.merge
+                    ? "Fuse into the touching body."
+                    : "Start a new body."
+                }
+              />
+            ) : null}
 
             <p
               className="-mt-0.5 font-body text-xs text-gauge"

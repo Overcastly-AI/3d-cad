@@ -48,6 +48,7 @@ export {
   type ExpressionFieldProps,
 } from "./primitives/ExpressionField";
 export { TextField, type TextFieldProps } from "./primitives/TextField";
+export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
 export {
   SelectField,
   type SelectFieldProps,

@@ -16,6 +16,8 @@ import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
 import { MeasureOverlay } from "../viewport/MeasureOverlay";
 import {
+  type BooleanParams,
+  booleanFeatureCreate,
   type ChamferParams,
   chamferFeatureCreate,
   chamferFeatureUpdate,
@@ -74,7 +76,9 @@ import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
 import { DocumentUnitProvider } from "../units/documentUnit";
+import { BodiesPanel } from "../components/BodiesPanel";
 import { ChamferEditor } from "../components/ChamferEditor";
+import { CombineEditor } from "../components/CombineEditor";
 import { CreateStrip } from "../components/CreateStrip";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
@@ -129,6 +133,8 @@ import {
   formFromLoftParams,
   type LoftForm,
 } from "../features/loft";
+import { computeBodies } from "../features/bodies";
+import { type CombineForm, defaultCombineForm } from "../features/boolean";
 import {
   type ChamferForm,
   defaultChamferForm,
@@ -259,6 +265,12 @@ type OpenEditor =
       mode: "create" | "edit";
       initial: DatumForm;
       featureId?: string;
+    }
+  | {
+      kind: "combine";
+      mode: "create";
+      initial: CombineForm;
+      featureId?: string;
     };
 
 /** Editor kind → the command name shown in the breadcrumb + band lock reason. */
@@ -273,6 +285,7 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   shell: "Shell",
   draft: "Draft",
   datum: "Datum plane",
+  combine: "Combine",
 };
 
 /**
@@ -998,6 +1011,10 @@ export function PartPage() {
   // ---------------------------------------------------------------------
   const features = tree.data?.features ?? [];
   const sketchProfiles = useMemo(() => profileOptions(features), [features]);
+  // The part's body set, replayed from the tree (multi-body §MB-1) — drives the
+  // Bodies panel and the Combine tool's target/tool pickers. One body is the
+  // common case; a `merge: false` add (or an import) starts a second.
+  const bodies = useMemo(() => computeBodies(features), [features]);
   // Datum features already in the tree, offered as reusable sketch planes in
   // the plane picker (a standalone datum seats many sketches — DRY).
   const datumPlaneOptions = useMemo(
@@ -1464,6 +1481,20 @@ export function PartPage() {
     setEditor({ kind: "datum", mode: "create", initial: defaultDatumForm() });
   }, []);
 
+  // Combine needs ≥2 bodies to fuse (a boolean union names two of them). It
+  // seeds the first two bodies in tree order; the user retargets either.
+  const openCreateCombine = useCallback(() => {
+    if (bodies.length < 2) return;
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "combine",
+      mode: "create",
+      initial: defaultCombineForm(bodies),
+    });
+  }, [bodies]);
+
   const selectFeature = useCallback(
     (feature: FeatureResponse) => {
       useMeasureStore.getState().deactivate();
@@ -1818,6 +1849,40 @@ export function PartPage() {
       );
     },
     [editor, features, runFeatureSave],
+  );
+
+  const submitCombine = useCallback(
+    (params: BooleanParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "combine") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "boolean").length + 1;
+      runFeatureSave(
+        (version) =>
+          booleanFeatureCreate(`Combine${nextIndex}`, params, version),
+        // A boolean is create-only in MB-1 (its operands are fixed at authoring);
+        // the update arm is never taken but keeps runFeatureSave's shape.
+        (version) => ({
+          expected_tree_version: version,
+          feature: { type: "boolean", version: 1, params },
+        }),
+        true,
+        undefined,
+        "The bodies could not be combined.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  // Select a body from the Bodies panel: select its base feature — lights the
+  // brass rule in both panels and opens that feature's editor (the same select
+  // a tree row does). Per-body viewport highlight is MB-4.
+  const selectBody = useCallback(
+    (baseFeatureId: string) => {
+      const feature = features.find((f) => f.id === baseFeatureId);
+      if (feature !== undefined) selectFeature(feature);
+    },
+    [features, selectFeature],
   );
 
   // The inline "sketch at a height" path: author a datum feature, then enter
@@ -2230,6 +2295,8 @@ export function PartPage() {
               onPattern={openCreatePattern}
               onShell={openCreateShell}
               onDraft={openCreateDraft}
+              canCombine={bodies.length >= 2}
+              onCombine={openCreateCombine}
               canMeasure={hasBody}
               measuring={measureActive}
               onToggleMeasure={toggleMeasure}
@@ -2388,12 +2455,21 @@ export function PartPage() {
                       saving={editorSaving}
                       error={editorError}
                     />
-                  ) : (
+                  ) : editor.kind === "datum" ? (
                     <DatumEditor
                       mode={editor.mode}
                       initial={editor.initial}
                       datumRefs={datumEditorRefs}
                       onSubmit={submitDatum}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : (
+                    <CombineEditor
+                      bodies={bodies}
+                      initial={editor.initial}
+                      onSubmit={submitCombine}
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}
@@ -2495,18 +2571,27 @@ export function PartPage() {
             ) : null}
           </Viewport>
           <FloatingPanel side="left" title="Feature tree" id="tree">
-            <FeatureTreePanel
-              tree={tree.data}
-              treeError={tree.error}
-              evaluation={evaluation.data}
-              evaluating={evaluation.isFetching}
-              selectedFeatureId={selectedFeatureId}
-              onSelectFeature={selectFeature}
-              onMoveRollback={moveRollback}
-              // The bar also holds while a history step is restoring (the
-              // mutual exclusion's visible half — runHistoryStep guards it).
-              rollbackBusy={rollbackBusy || historyStep !== null}
-            />
+            <div className="flex flex-col gap-3">
+              <FeatureTreePanel
+                tree={tree.data}
+                treeError={tree.error}
+                evaluation={evaluation.data}
+                evaluating={evaluation.isFetching}
+                selectedFeatureId={selectedFeatureId}
+                onSelectFeature={selectFeature}
+                onMoveRollback={moveRollback}
+                // The bar also holds while a history step is restoring (the
+                // mutual exclusion's visible half — runHistoryStep guards it).
+                rollbackBusy={rollbackBusy || historyStep !== null}
+              />
+              {bodies.length > 0 ? (
+                <BodiesPanel
+                  bodies={bodies}
+                  selectedFeatureId={selectedFeatureId}
+                  onSelectBody={selectBody}
+                />
+              ) : null}
+            </div>
           </FloatingPanel>
           {showInspector ? (
             <FloatingPanel side="right" title="Inspector" id="inspector">

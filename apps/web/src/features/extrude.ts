@@ -18,6 +18,13 @@ export interface ExtrudeForm {
   distanceInput: string;
   operation: ExtrudeOperation;
   direction: ExtrudeDirection;
+  /**
+   * "Merge result" (multi-body §MB-1): an ADD that fuses into the active body
+   * (`true`, today's behavior) or starts a NEW body (`false`). Meaningless for
+   * a cut (a cut always removes from the active body) — carried at `true` there
+   * and never shown, but always sent (the wire field is required, MB-0).
+   */
+  merge: boolean;
 }
 
 /** A sketch the extrude may consume, as offered in the profile picker. */
@@ -33,6 +40,7 @@ export function defaultExtrudeForm(profileFeatureId: string): ExtrudeForm {
     distanceInput: "10",
     operation: "add",
     direction: "normal",
+    merge: true,
   };
 }
 
@@ -46,6 +54,7 @@ export function formFromParams(
     distanceInput: lengthInputValue(params.distance_mm, unit),
     operation: params.operation,
     direction: params.direction,
+    merge: params.merge,
   };
 }
 

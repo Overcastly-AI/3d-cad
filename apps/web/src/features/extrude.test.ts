@@ -43,6 +43,7 @@ function extrude(id: string, profileId: string): FeatureResponse {
         distance_mm: 12,
         operation: "cut",
         direction: "reverse",
+        merge: true,
       },
     },
   };
@@ -79,12 +80,13 @@ describe("distanceError", () => {
 });
 
 describe("defaultExtrudeForm", () => {
-  it("is 10 mm / add / normal against the given profile", () => {
+  it("is 10 mm / add / normal / merge against the given profile", () => {
     expect(defaultExtrudeForm("sk")).toEqual({
       profileFeatureId: "sk",
       distanceInput: "10",
       operation: "add",
       direction: "normal",
+      merge: true,
     });
   });
 });
@@ -96,13 +98,26 @@ describe("formFromParams", () => {
       distance_mm: 6.5,
       operation: "cut",
       direction: "reverse",
+      merge: true,
     };
     expect(formFromParams(params, "mm")).toEqual({
       profileFeatureId: "sk",
       distanceInput: "6.5",
       operation: "cut",
       direction: "reverse",
+      merge: true,
     });
+  });
+
+  it("carries a merge:false (new-body) add through the round-trip", () => {
+    const params: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk" },
+      distance_mm: 6.5,
+      operation: "add",
+      direction: "normal",
+      merge: false,
+    };
+    expect(formFromParams(params, "mm").merge).toBe(false);
   });
 
   it("seeds the edit form in the document unit (mm → in)", () => {
@@ -111,6 +126,7 @@ describe("formFromParams", () => {
       distance_mm: 50.8,
       operation: "add",
       direction: "normal",
+      merge: true,
     };
     expect(formFromParams(params, "in").distanceInput).toBe("2");
   });

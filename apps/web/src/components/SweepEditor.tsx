@@ -15,6 +15,7 @@
  */
 import {
   AddIcon,
+  Checkbox,
   CutIcon,
   Panel,
   PanelActionCell,
@@ -168,6 +169,20 @@ export function SweepEditor({
               options={OPERATIONS}
               onChange={(operation) => setForm((f) => ({ ...f, operation }))}
             />
+
+            {form.operation === "add" ? (
+              <Checkbox
+                label="Merge result"
+                data-testid="sweep-merge"
+                checked={form.merge}
+                onChange={(merge) => setForm((f) => ({ ...f, merge }))}
+                description={
+                  form.merge
+                    ? "Fuse into the touching body."
+                    : "Start a new body."
+                }
+              />
+            ) : null}
 
             <p
               className="-mt-0.5 font-body text-xs text-gauge"
