@@ -32,7 +32,8 @@ duplication:
   mate HUD — pick two faces, set mm/deg, commit). **Flat BOM read-model shipped
   2026-07-18** (`GET /api/v1/assemblies/{id}/bom` + gateway proxy — direct
   instances grouped by referenced document, quantity + current name + kind,
-  deleted-ref lines flagged `missing`; frontend panel a separate follow-up).
+  deleted-ref lines flagged `missing`); **BOM panel shipped 2026-07-18**
+  (SOLVE/PARTS toggle → title-block parts-list schedule in the workspace).
   Honest residuals, not gating the ➖: no collision detection, no exploded views,
   no RECURSIVE/indented BOM (flat direct-instance only — filed below), no
   assembly-level STEP IO, instances track a part's live tip not a pinned version,
@@ -628,11 +629,16 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       already exist; this walks the (acyclic) sub-assembly graph and merges lines.
       Decide the rolled-up vs. per-level presentation with the frontend BOM panel.
       [src: design/assemblies.md; ROADMAP Assemblies residual]
-- [ ] (P2, S) Assemblies — BOM panel (apps/web) — surface the shipped
-      `GET /api/v1/assemblies/{id}/bom` read-model in the assembly workspace: a
-      quantity/name/kind table (design-system primitives), `missing`-ref lines
-      flagged, deterministic order preserved. Consumes the regenerated ts-client
-      `AssemblyBomResponse`/`BomLine` types. [src: design/assemblies.md]
+- [x] (P2, S) Assemblies — BOM panel (apps/web) — **DONE 2026-07-18.** The
+      shipped `GET /api/v1/assemblies/{id}/bom` read model now surfaces in the
+      workspace: the right instrument gains a SOLVE / PARTS toggle
+      (`AssemblyInspectorPanel`), PARTS renders a title-block parts-list schedule
+      (`AssemblyBomPanel`: item # · name + kind badge · qty + brass TOTAL foot)
+      off the regenerated `AssemblyBomResponse`/`BomLine` types via TanStack
+      Query. Deterministic order preserved; loading/empty/`missing`-ref
+      ("(deleted)" + ⚠) states handled. `assembly-bom.spec.ts` (A×3 + B×1 →
+      2 lines, qty 3/1, total 4) green on the real stack; founder shot
+      `docs/screenshots/assembly-bom-desktop.png`. [src: design/assemblies.md]
 - [x] (P2, S) ToolButton gate reasons never reach screen readers (packages/design)
       — **DONE 2026-07-17.** While gated, ToolButton's `aria-describedby` points
       at the (always-mounted) tooltip caption node, so `aria-disabled` announces
@@ -914,6 +920,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Assembly BOM panel done (apps/web):** SOLVE/PARTS toggle on the
+  right instrument; PARTS is a title-block parts-list schedule (item · name +
+  kind badge · qty + brass TOTAL) off `GET .../bom` via TanStack Query.
+  Loading/empty/`missing`-ref states honest. `assembly-bom.spec.ts` green on the
+  real stack (A×3 + B×1 → 2 lines, total 4); founder shot captured.
 - 2026-07-18 — **Assembly BOM read-model done:** `GET /api/v1/assemblies/{id}/bom`
   — flat documents-side aggregation (direct instances grouped by referenced doc:
   quantity + current name + kind, deterministic order; deleted-ref → `missing`

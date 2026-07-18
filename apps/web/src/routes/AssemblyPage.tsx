@@ -22,6 +22,7 @@ import {
   updateAssemblyUnit,
   updateInstance,
 } from "../api/assemblies";
+import { fetchAssemblyBom } from "../api/bom";
 import { MeshNotFoundError, fetchBodyMesh } from "../api/mesh";
 import { fetchOverlay, type OverlayResult } from "../api/measure";
 import {
@@ -31,7 +32,10 @@ import {
 } from "../api/parts";
 import { AddInstancePanel } from "../components/AddInstancePanel";
 import { AssemblyCommandBand } from "../components/AssemblyCommandBand";
-import { AssemblyInspector } from "../components/AssemblyInspector";
+import {
+  AssemblyInspectorPanel,
+  type InspectorView,
+} from "../components/AssemblyInspectorPanel";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { AssemblyTreePanel } from "../components/AssemblyTreePanel";
 import {
@@ -91,6 +95,17 @@ export function AssemblyPage() {
   const docVersion = graph?.doc_version ?? 0;
   const lengthUnit = graph?.assembly.length_unit ?? "mm";
   const instances = useMemo(() => graph?.instances ?? [], [graph]);
+
+  // The bill of materials — the flat, direct-instance read model (one line per
+  // referenced document, quantity = shared count). Keyed on doc_version so it
+  // refetches when instances are added/removed (which is what changes the
+  // aggregate); switching the right panel to PARTS never refetches.
+  const bomQuery = useQuery({
+    queryKey: ["assembly-bom", assemblyId, docVersion],
+    enabled: graph !== undefined,
+    queryFn: () => fetchAssemblyBom(assemblyId),
+  });
+  const [inspectorView, setInspectorView] = useState<InspectorView>("solve");
 
   const partDocIds = useMemo(
     () => (graph ? uniquePartDocumentIds(graph) : []),
@@ -737,10 +752,15 @@ export function AssemblyPage() {
               busy={busy || historyStep !== null}
             />
           </FloatingPanel>
-          <FloatingPanel side="right" title="Solve" id="inspector">
-            <AssemblyInspector
+          <FloatingPanel side="right" title="Inspect" id="inspector">
+            <AssemblyInspectorPanel
+              view={inspectorView}
+              onViewChange={setInspectorView}
               evaluation={evaluation}
               evaluating={evalQuery.isFetching}
+              bom={bomQuery.data}
+              bomLoading={bomQuery.isLoading}
+              bomError={bomQuery.error}
             />
           </FloatingPanel>
         </main>

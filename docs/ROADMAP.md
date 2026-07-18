@@ -273,7 +273,17 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       resurfaced). **FLAT v1 — direct instances only; recursive/indented BOM into
       rigid sub-assemblies is a tracked follow-up (a sub-assembly instance is one
       `kind: "assembly"` line).** documents + gateway pytest green; contracts +
-      ts-client regenerated (frontend BOM panel is a separate follow-up).
+      ts-client regenerated.
+      **BOM panel landed 2026-07-18 (apps/web):** the read model now has a UI —
+      the assembly's right instrument gains a SOLVE / PARTS toggle
+      (`AssemblyInspectorPanel` + `SegmentedControl`); PARTS renders a title-block
+      parts-list schedule (`AssemblyBomPanel`: ITEM · PART + kind badge · QTY, a
+      brass TOTAL foot) off `GET .../bom` via TanStack Query, deterministic order
+      preserved, quantities/total in the shared number face. Honest states:
+      loading, empty ("No components yet"), and a `missing` line flagged italic
+      "(deleted)" with a ⚠ affordance (quantity preserved). `assembly-bom.spec.ts`
+      drives A×3 + B×1 → PARTS → 2 lines (qty 3 / 1, total 4) against the real
+      stack; founder shot `docs/screenshots/assembly-bom-desktop.png`.
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.
