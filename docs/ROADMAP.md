@@ -647,7 +647,16 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       a **reopens-cleanly** gate (`ezdxf.read` → audit, entity counts by layer, the
       Ø10 holes are real `CIRCLE`s, dim values are `TEXT`) proves it's CAD geometry.
       Byte-stability DXF golden + reopen + endpoint gates green; ezdxf pinned.
-      **Frontend "Export DXF" button (DE-3b) follows.**
+      **Drawing export DE-3b — frontend "Export DXF" control (apps/web) SHIPPED**
+      (2026-07-18): an **Export DXF** action beside Export SVG/PDF in the command
+      band (shortcut D, honest disabled-before-layout + "Composing…" in-flight
+      states), reusing the typed `exportDrawing` client. The PDF + DXF server-export
+      in-flight/error path is unified into one `runServerExport(format)` (DRY; the
+      client-side SVG serialize stays separate). E2e drives it end-to-end against
+      the real stack — lay out + dimension, click Export DXF, catch the download,
+      assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
+      **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
+      pillar: DE-1c client-placement cutover + section/detail/assembly views.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)

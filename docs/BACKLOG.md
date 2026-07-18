@@ -112,13 +112,17 @@ reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
       `downloadBlob`), Export PDF action in the command band (shortcut P, honest
       disabled/in-flight states), e2e downloads a real `%PDF-` file. Shop
       deliverable ships end-to-end — flips the #1 Drawings residual. [src: drawing-export.md]
-- [ ] (P2, M) Drawing export DE-3 — DXF (ezdxf, real entities). **DE-3a serializer
-      + geometry route + byte-stability golden + reopens-cleanly smoke SHIPPED
-      2026-07-18** (`serialize_dxf`: real LINE/CIRCLE/LWPOLYLINE/SOLID/TEXT on
-      VISIBLE/HIDDEN/DIMENSION/TITLE layers; `write_fixed_meta_data_for_testing` +
-      R2000 pin → hash-seed-independent byte determinism; `ezdxf.read`→audit gate;
-      ezdxf 1.4.4 MIT pinned; `format=dxf` wired). **Remaining: DE-3b frontend
-      "Export DXF" button.** [src: drawing-export.md]
+- [x] (P2, M) Drawing export DE-3 — DXF (ezdxf, real entities) **DONE 2026-07-18**.
+      DE-3a serializer + geometry route + byte-stability golden + reopens-cleanly
+      smoke (`serialize_dxf`: real LINE/CIRCLE/LWPOLYLINE/SOLID/TEXT on
+      VISIBLE/HIDDEN/DIMENSION/TITLE layers; R2000 pin → hash-seed-independent byte
+      determinism; `ezdxf.read`→audit gate; ezdxf 1.4.4 MIT pinned; `format=dxf`
+      wired). **DE-3b frontend "Export DXF" control (apps/web)** — Export DXF action
+      beside Export SVG/PDF (shortcut D, honest disabled/"Composing…" states),
+      reusing the typed `exportDrawing`; unified the PDF+DXF server-export
+      in-flight/error path into one `runServerExport(format)` (DRY). Drawings export
+      loop SVG/PDF/DXF now complete end-to-end; e2e downloads a real `0\nSECTION`
+      R2000 DXF. **Remaining: DE-1c client cutover.** [src: drawing-export.md]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
       mesh_store/S3 seam (§8.3). [src: drawing-export.md]
 
@@ -958,6 +962,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Drawing export DE-3b done (frontend) — DE-3 complete:** Export DXF
+  control beside Export SVG/PDF (shortcut D, honest disabled/"Composing…" states);
+  unified the PDF+DXF server-export in-flight/error path into one `runServerExport`
+  (DRY). E2e downloads a real `0\nSECTION` R2000 DXF (7/7 drawings specs green). The
+  drawings export loop SVG/PDF/DXF is now complete end-to-end.
 - 2026-07-18 — **Drawing export DE-3a done (geometry):** ezdxf DXF serializer —
   `serialize_dxf(ComposedSheet)` emits REAL model-space entities (LINE/CIRCLE/
   LWPOLYLINE/SOLID/TEXT) on VISIBLE/HIDDEN/DIMENSION/TITLE layers; single y-flip at

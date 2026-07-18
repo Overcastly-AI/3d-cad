@@ -43,7 +43,7 @@ import {
   pickHint,
   selectedEndpoints,
 } from "../drawing/authoring";
-import { exportDrawing } from "../api/exportDrawing";
+import { type DrawingExportFormat, exportDrawing } from "../api/exportDrawing";
 import { downloadBlob } from "../api/exportPart";
 import { formatDimensionLabel } from "../drawing/dimensions";
 import { exportSheetSvg } from "../drawing/exportSvg";
@@ -295,31 +295,44 @@ export function DrawingPage() {
   }, [tree]);
 
   // ---------------------------------------------------------------------
-  // Export PDF (DE-2): the shop deliverable. Unlike Export SVG (which
-  // serializes the on-screen <svg>), the gateway server-composes the sheet
-  // from the SAME persisted placement — byte-deterministic — and streams the
-  // PDF bytes back, which we hand to the browser as a named download.
+  // Server-composed export (DE-2 PDF, DE-3 DXF): the shop deliverables. Unlike
+  // Export SVG (which serializes the on-screen <svg>), the gateway composes the
+  // sheet from the SAME persisted placement — byte-deterministic — and streams
+  // the artifact bytes back, which we hand to the browser as a named download.
+  // ONE in-flight + error path drives every server format (DRY); the SVG path
+  // stays separate because it is a synchronous client-side serialize.
   // ---------------------------------------------------------------------
   const [exporting, setExporting] = useState(false);
-  const handleExportPdf = useCallback(() => {
-    if (!hasLayout || exporting) return;
-    setExporting(true);
-    setActionError(null);
-    void (async () => {
-      try {
-        const { blob, filename } = await exportDrawing(drawingId, "pdf");
-        downloadBlob(blob, filename);
-      } catch (error) {
-        setActionError(
-          error instanceof Error
-            ? error.message
-            : "The drawing could not be exported to PDF.",
-        );
-      } finally {
-        setExporting(false);
-      }
-    })();
-  }, [hasLayout, exporting, drawingId]);
+  const runServerExport = useCallback(
+    (format: DrawingExportFormat) => {
+      if (!hasLayout || exporting) return;
+      setExporting(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          const { blob, filename } = await exportDrawing(drawingId, format);
+          downloadBlob(blob, filename);
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : `The drawing could not be exported to ${format.toUpperCase()}.`,
+          );
+        } finally {
+          setExporting(false);
+        }
+      })();
+    },
+    [hasLayout, exporting, drawingId],
+  );
+  const handleExportPdf = useCallback(
+    () => runServerExport("pdf"),
+    [runServerExport],
+  );
+  const handleExportDxf = useCallback(
+    () => runServerExport("dxf"),
+    [runServerExport],
+  );
 
   // ---------------------------------------------------------------------
   // Dimension authoring: pick sheet geometry → choose a valid type → persist it
@@ -462,6 +475,12 @@ export function DrawingPage() {
         event.preventDefault();
         handleExportPdf();
       }
+      // D server-composes the laid-out sheet to a .dxf (the interchange
+      // deliverable), mirroring the command band's Export DXF action.
+      if (event.key.toLowerCase() === "d" && hasLayout) {
+        event.preventDefault();
+        handleExportDxf();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -471,6 +490,7 @@ export function DrawingPage() {
     handleReproject,
     handleExportSvg,
     handleExportPdf,
+    handleExportDxf,
   ]);
 
   const draftedPartName =
@@ -504,6 +524,7 @@ export function DrawingPage() {
             onReproject={handleReproject}
             onExportSvg={handleExportSvg}
             onExportPdf={handleExportPdf}
+            onExportDxf={handleExportDxf}
             exporting={exporting}
             busy={busy || projecting}
           />

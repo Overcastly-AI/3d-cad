@@ -34,7 +34,9 @@ export interface DrawingCommandBandProps {
   onExportSvg: () => void;
   /** Server-compose the laid-out sheet to a downloadable `.pdf` (DE-2). */
   onExportPdf: () => void;
-  /** True while a server-composed export (PDF) is in flight. */
+  /** Server-compose the laid-out sheet to a downloadable `.dxf` (DE-3). */
+  onExportDxf: () => void;
+  /** True while a server-composed export (PDF or DXF) is in flight. */
   exporting: boolean;
   busy: boolean;
 }
@@ -51,6 +53,7 @@ export function DrawingCommandBand({
   onReproject,
   onExportSvg,
   onExportPdf,
+  onExportDxf,
   exporting,
   busy,
 }: DrawingCommandBandProps) {
@@ -176,6 +179,27 @@ export function DrawingCommandBand({
           }
           data-testid="drawing-export-pdf"
           onClick={onExportPdf}
+        />
+        <ToolButton
+          icon={<SheetExportIcon />}
+          label="Export DXF"
+          showLabel
+          shortcut="D"
+          // The interchange deliverable — real CAD entities the shop's tools
+          // reopen. Server-composed like PDF: enabled only once the sheet has
+          // views, and honestly disabled while a compose is in flight.
+          disabled={!hasLayout || busy || exporting}
+          caption={
+            !hasLayout
+              ? "Lay out the views first"
+              : exporting
+                ? "Composing…"
+                : busy
+                  ? "Projecting…"
+                  : "Download the sheet as .dxf"
+          }
+          data-testid="drawing-export-dxf"
+          onClick={onExportDxf}
         />
       </ToolGroup>
     </div>

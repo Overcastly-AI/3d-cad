@@ -45,6 +45,23 @@ describe("exportDrawing", () => {
     expect(file.blob.size).toBe(PDF_BYTES.byteLength);
   });
 
+  it("streams the composed DXF bytes and reads the server filename", async () => {
+    const dxf = new TextEncoder().encode("0\nSECTION\n2\nHEADER\n");
+    const client = clientReturning(
+      new Response(dxf, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/vnd.dxf",
+          "Content-Disposition": 'attachment; filename="Plate - sheet 1.dxf"',
+        },
+      }),
+    );
+    const file = await exportDrawing(DRAWING_ID, "dxf", client);
+    expect(file.filename).toBe("Plate - sheet 1.dxf");
+    const text = await file.blob.text();
+    expect(text).toContain("SECTION");
+  });
+
   it("throws a labelled error when the gateway rejects the export", async () => {
     const client = clientReturning(
       new Response(JSON.stringify({ error: { code: "compose_failed" } }), {
