@@ -613,8 +613,24 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       to the identity-free geometry compose hop, streaming the artifact bytes +
       `Content-Disposition` back. Geometry's `not_implemented` (dxf) / per-format
       envelopes re-surface verbatim; unknown `format` → gateway 422. Gateway
-      pytest + contracts regenerated green. **Frontend "Export PDF" (DE-2c)
-      follows.**
+      pytest + contracts regenerated green.
+      **Drawing export DE-2c — frontend "Export PDF" control (apps/web) SHIPPED**
+      (2026-07-18): the shop deliverable now ships end-to-end in an engineer's
+      hands. An **Export PDF** action sits beside Export SVG in the drawing
+      command band's Export group (shortcut **P**, `data-testid=drawing-export-pdf`,
+      enabled only once `hasLayout`, honest disabled reason + "Composing…"
+      in-flight state); clicking it POSTs the gateway export route via a new
+      `api/exportDrawing.ts` (typed off the generated client, reuses the shared
+      `parseContentDispositionFilename` + `downloadBlob` — DRY), receives the
+      server-composed PDF **bytes** (`parseAs:"blob"`), and hands them to the
+      browser as `<name>.pdf`. Unlike client-side Export SVG, the placement is
+      the server's byte-deterministic compose. 3 `exportDrawing` unit tests;
+      e2e lays out a sheet, authors a Ø10, clicks Export PDF, and asserts the
+      download is a real `.pdf` (`%PDF-` magic, >1 KB) — green against the native
+      stack (6/6 drawings specs). Founder shot: `docs/screenshots/drawings-export-pdf-desktop.png`;
+      artifact saved to `docs/screenshots/drawing-export.pdf`. **This flips the
+      #1 Drawings residual — server-composed PDF export now ships end-to-end.**
+      Remaining: DE-1c client-placement cutover + DE-3 DXF.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)

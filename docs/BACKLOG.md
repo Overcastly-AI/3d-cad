@@ -103,14 +103,15 @@ reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
 - [ ] (P1, S) Drawing export DE-1c — client cutover (apps/web). `DrawingSheet`
       renders from `ComposedSheet`; DELETE client placement math; gated by
       `drawings.spec.ts` visual parity + the SVG golden. One placement source.
-- [ ] (P1, M) Drawing export DE-2 — PDF (reportlab). **DE-2a serializer + geometry
-      route + byte-stability golden SHIPPED 2026-07-18** (`serialize_pdf`,
-      `bottomup=0` single flip, `invariant=1`+`pageCompression=0` determinism,
-      reportlab 5.0.0 BSD pinned; `format=pdf` wired). **DE-2b gateway export proxy
-      SHIPPED 2026-07-18** (`POST /api/v1/drawings/{id}/export?format=`, auth-gated
-      + rate-limited two-hop aggregation → geometry `drawing/compose`, streams
-      bytes; unknown format → 422, upstream envelopes verbatim). **Remaining: DE-2c
-      frontend "Export PDF" control.** [src: drawing-export.md]
+- [x] (P1, M) Drawing export DE-2 — PDF (reportlab) **DONE 2026-07-18**. DE-2a
+      serializer + geometry route + byte-stability golden (`serialize_pdf`,
+      `bottomup=0`, `invariant=1`+`pageCompression=0`, reportlab 5.0.0 BSD); DE-2b
+      gateway export proxy (`POST /api/v1/drawings/{id}/export?format=`, auth-gated
+      + rate-limited two-hop → geometry `drawing/compose`); **DE-2c frontend Export
+      PDF control (apps/web)** — `api/exportDrawing.ts` (typed off client, DRY
+      `downloadBlob`), Export PDF action in the command band (shortcut P, honest
+      disabled/in-flight states), e2e downloads a real `%PDF-` file. Shop
+      deliverable ships end-to-end — flips the #1 Drawings residual. [src: drawing-export.md]
 - [ ] (P2, M) Drawing export DE-3 — DXF (ezdxf, real entities) + "Export DXF" +
       golden + reopens-in-CAD smoke. [src: drawing-export.md]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
@@ -952,6 +953,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Drawing export DE-2c done (frontend) — DE-2 complete:** Export PDF
+  control beside Export SVG (shortcut P, honest disabled/"Composing…" states);
+  `api/exportDrawing.ts` POSTs the gateway export route, receives PDF bytes, downloads
+  `<name>.pdf`. E2e downloads a real `%PDF-` file (6/6 drawings specs green). Server-
+  composed PDF export ships end-to-end — flips the #1 Drawings residual.
 - 2026-07-18 — **Drawing export DE-2b done (gateway):** `POST /api/v1/drawings/{id}/
   export?format=` — auth-gated + rate-limited two-hop aggregation (drawing tree + part
   eval-request → `ComposeDrawingRequest` → geometry `drawing/compose`), streams bytes.

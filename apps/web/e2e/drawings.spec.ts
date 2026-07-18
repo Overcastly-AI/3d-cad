@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile } from "node:fs/promises";
 
 import { expect, test, type Page } from "./fixtures";
 
@@ -434,4 +434,69 @@ test("export the laid-out sheet as a standalone .svg", async ({ page }) => {
   // is written so the file opens/prints scale-correct.
   expect(svg).toContain('width="297mm"');
   expect(svg).toContain('height="210mm"');
+});
+
+/**
+ * DE-2 — server-composed PDF export, the shop deliverable. Unlike Export SVG
+ * (which serializes the on-screen `<svg>`), Export PDF POSTs the gateway export
+ * route; the gateway server-composes the sheet from the SAME persisted placement
+ * (byte-deterministic) and streams the PDF bytes back. This drives it end to end
+ * against the real stack — lay out the plate, author a Ø10 diameter, click
+ * Export PDF, catch the download, and assert it is a real, non-trivial `.pdf`
+ * (magic `%PDF-` prefix). Saves the artifact so the founder can open it.
+ */
+test("export the laid-out sheet as a server-composed .pdf", async ({
+  page,
+}, testInfo) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // Disabled before there is anything to export is covered by the Export-SVG
+  // spec's shared gate; here the sheet already has views, so PDF is enabled.
+  const exportButton = page.getByTestId("drawing-export-pdf");
+  await expect(exportButton).toBeEnabled();
+
+  // Author a Ø10 diameter so the composed PDF carries a real dimension stamp.
+  const topCircle = page
+    .locator(
+      '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
+    )
+    .first();
+  await topCircle.click({ force: true });
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-diameter").click();
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
+    ),
+  ).toHaveCount(1, { timeout: 30_000 });
+
+  // Founder frame — the drawing sheet with the Export PDF control visible.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(exportButton).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-export-pdf-desktop.png`,
+  });
+
+  // Click Export PDF and catch the download the anchor fires.
+  const downloadPromise = page.waitForEvent("download");
+  await exportButton.click();
+  const download = await downloadPromise;
+
+  // Filename is the sanitized drawing name ("Plate — dimensions"), .pdf.
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+
+  const path = await download.path();
+  const bytes = await readFile(path);
+  // A real, non-trivial PDF: the `%PDF-` magic prefix and a meaningful size.
+  expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  expect(bytes.byteLength).toBeGreaterThan(1000);
+
+  // Persist the artifact so the orchestrator/founder can open + verify it.
+  await testInfo.attach("drawing-export.pdf", {
+    path,
+    contentType: "application/pdf",
+  });
+  await mkdir(SCREENSHOT_DIR, { recursive: true });
+  await copyFile(path, `${SCREENSHOT_DIR}/drawing-export.pdf`);
 });

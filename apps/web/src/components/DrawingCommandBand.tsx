@@ -32,6 +32,10 @@ export interface DrawingCommandBandProps {
   onReproject: () => void;
   /** Serialize the laid-out sheet to a downloadable `.svg` (#5). */
   onExportSvg: () => void;
+  /** Server-compose the laid-out sheet to a downloadable `.pdf` (DE-2). */
+  onExportPdf: () => void;
+  /** True while a server-composed export (PDF) is in flight. */
+  exporting: boolean;
   busy: boolean;
 }
 
@@ -46,6 +50,8 @@ export function DrawingCommandBand({
   onLayout,
   onReproject,
   onExportSvg,
+  onExportPdf,
+  exporting,
   busy,
 }: DrawingCommandBandProps) {
   const noParts = parts.length === 0;
@@ -150,6 +156,26 @@ export function DrawingCommandBand({
           }
           data-testid="drawing-export-svg"
           onClick={onExportSvg}
+        />
+        <ToolButton
+          icon={<SheetExportIcon />}
+          label="Export PDF"
+          showLabel
+          shortcut="P"
+          // The server-composed shop deliverable: enabled only once the sheet
+          // has views, and while a compose is in flight (honest disabled state).
+          disabled={!hasLayout || busy || exporting}
+          caption={
+            !hasLayout
+              ? "Lay out the views first"
+              : exporting
+                ? "Composing…"
+                : busy
+                  ? "Projecting…"
+                  : "Download the sheet as .pdf"
+          }
+          data-testid="drawing-export-pdf"
+          onClick={onExportPdf}
         />
       </ToolGroup>
     </div>

@@ -43,6 +43,8 @@ import {
   pickHint,
   selectedEndpoints,
 } from "../drawing/authoring";
+import { exportDrawing } from "../api/exportDrawing";
+import { downloadBlob } from "../api/exportPart";
 import { formatDimensionLabel } from "../drawing/dimensions";
 import { exportSheetSvg } from "../drawing/exportSvg";
 import {
@@ -293,6 +295,33 @@ export function DrawingPage() {
   }, [tree]);
 
   // ---------------------------------------------------------------------
+  // Export PDF (DE-2): the shop deliverable. Unlike Export SVG (which
+  // serializes the on-screen <svg>), the gateway server-composes the sheet
+  // from the SAME persisted placement — byte-deterministic — and streams the
+  // PDF bytes back, which we hand to the browser as a named download.
+  // ---------------------------------------------------------------------
+  const [exporting, setExporting] = useState(false);
+  const handleExportPdf = useCallback(() => {
+    if (!hasLayout || exporting) return;
+    setExporting(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        const { blob, filename } = await exportDrawing(drawingId, "pdf");
+        downloadBlob(blob, filename);
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The drawing could not be exported to PDF.",
+        );
+      } finally {
+        setExporting(false);
+      }
+    })();
+  }, [hasLayout, exporting, drawingId]);
+
+  // ---------------------------------------------------------------------
   // Dimension authoring: pick sheet geometry → choose a valid type → persist it
   // (CRUD) → the re-evaluate measures + renders it model-true. Most types take
   // one pick; angular takes two straight edges and point-to-point two endpoints,
@@ -427,10 +456,22 @@ export function DrawingPage() {
         event.preventDefault();
         handleExportSvg();
       }
+      // P server-composes the laid-out sheet to a .pdf (the shop deliverable),
+      // mirroring the command band's Export PDF action. No-op before layout.
+      if (event.key.toLowerCase() === "p" && hasLayout) {
+        event.preventDefault();
+        handleExportPdf();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hasLayout, handleLayout, handleReproject, handleExportSvg]);
+  }, [
+    hasLayout,
+    handleLayout,
+    handleReproject,
+    handleExportSvg,
+    handleExportPdf,
+  ]);
 
   const draftedPartName =
     parts.find((part) => part.id === draftedPartId)?.name ?? null;
@@ -462,6 +503,8 @@ export function DrawingPage() {
             onLayout={handleLayout}
             onReproject={handleReproject}
             onExportSvg={handleExportSvg}
+            onExportPdf={handleExportPdf}
+            exporting={exporting}
             busy={busy || projecting}
           />
         ) : null}
