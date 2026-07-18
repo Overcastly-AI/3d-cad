@@ -50,6 +50,81 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-18 — INDEPENDENT geometry-QA of MB-3 fillet-on-boolean-edge + multi-body boolean pillar v1 (`7ed2dd8`) — VERDICT: PASS
+
+Independent verification (re-ran every suite myself; no self-report trusted; no
+Docker — native `uv run pytest`). MB-3 shipped the highest topological-naming
+risk in the multi-body design: a fillet on an edge CREATED by a boolean. The
+load-bearing question was not "green?" but "is the honest degrade limit TRULY
+bounded — a clean typed error, never a wrong-edge modification or crash?"
+
+### 1. Golden `boolean-union-then-fillet` — re-derived from scratch (PASS)
+Union of two 20mm cubes (A[0,20], B[10,30], overlap x[10,20]) → fused 30×20×20
+box → fillet r=2 on the boolean-created vertical corner edge at x=0,y=0,z[0,20].
+Analytic re-derivation done independently (removed corner = h·(r²−πr²/4) =
+20·(4−π)):
+
+| quantity | my derivation | golden `expected.json` | measured (`evaluate_model`) | dev |
+|---|---|---|---|---|
+| volume | 11920+20π = **11982.831853071795** | 11982.831853071795 | 11982.831853071795 | **0.0** |
+| surface_area | 3112+22π = **3181.1150383789754** | 3181.1150383789754 | 3181.1150383789754 | **0.0** |
+| centroid | (15.020850878973928, 10.013687235546936, 10.0) | idem | idem | **0.0** |
+| bbox min | (0,0,0) | (0,0,0) | (−4.44e-16, −4.44e-16, 0) | 4.4e-16 (fillet tangent at machine-ε, documented) |
+| topology | 6 box + 1 fillet = **7 F / 15 E / 1 S** | 7/15/1 | 7/15/1 | exact |
+| mesh | (curved face — GLB-gated) | 154 V / 140 T | 154 V / 140 T, glb=7732 | exact |
+
+7 faces = 6 box + 1 fillet face confirms the fillet resolved the INTENDED single
+boolean-created edge (not a fan of edges, not the wrong corner). Golden expected
+values match my hand-derivation to the last digit. `test_goldens.py`: 110 passed.
+
+### 2. Degrade-under-edit matrix — the honesty check (PASS, TRULY BOUNDED)
+Independently reproduced (`test_boolean.py`: 17 passed) AND re-ran the matrix
+standalone, inspecting the last-good body to rule out a silently-wrong fillet:
+
+| upstream edit (move cube B) | fillet feature status | last-good body |
+|---|---|---|
+| baseline overlap [10,30] | `ok` | filleted Solid, vol **11982.83** |
+| **SWALLOW corner** [-5,15] (picked edge becomes interior) | **`subshape_unresolved`** (typed) | Solid, vol **9999.99…** = the UN-filleted 25×20×20 fused box |
+| non-topology edit [5,25] (edge untouched) | `ok` | filleted Solid, vol **9982.83** (=25·20·20−20(4−π)) |
+| disjoint [30,50] | boolean_disjoint fires FIRST, fillet `skipped` | two-cube Compound, vol 16000 |
+
+The critical evidence: when the edit swallows the picked corner, the fillet fails
+CLEANLY (`subshape_unresolved`) and the last-good body volume is exactly the
+**un-filleted** fused box (10000 mm³) — the fillet did NOT round a different edge,
+did NOT crash, did NOT 500. Stage-1 absolute-coordinate EdgeSignature is
+exact-match-or-unresolved. Disjoint is caught before the fillet is reached. This
+is a genuinely bounded honest degrade.
+
+### 3. Determinism (PASS — byte-identical GLB + STEP across a fresh interpreter)
+- GLB + metadata byte-identical in-process and across interpreter restart
+  (`test_goldens.py` restart gate, fillet goldens: 12 passed).
+- STEP + STL byte-identical across a fresh interpreter under a DIFFERENT
+  PYTHONHASHSEED (`test_export.py` tree-export restart gate, boolean-union-then-
+  fillet: passed; fillet export-determinism subset: 9 passed).
+
+### 4. No regression across the pillar (PASS)
+Full golden suite **110 passed**; assembly goldens **12 passed** (BodyShape
+widening from MB-0 still solves). Sibling boolean/multibody goldens byte-identical
+to committed expectations: union 12000 (6/12/1), subtract 4000 (6/12/1), intersect
+4000 (6/12/1), disjoint 16000 (12/24/2).
+
+### 5. STEP round-trip of the filleted boolean result (PASS)
+`test_step_roundtrip.py` fillet subset: 3 passed. Independent re-measure: export →
+re-import volume **11982.831853071813** (dev **1.8e-11** mm³ vs. original), SA dev
+4.1e-12, topology preserved 7/15/1. Well inside the golden's 1e-9 ceiling for the
+in-memory assertion; round-trip dev is kernel STEP re-read noise, not a defect.
+
+### VERDICT: PASS — MB-3 and multi-body boolean pillar v1 are geometrically sound
+Every measured number matches independent analytic derivation to machine
+precision; the fillet resolves exactly one boolean-created edge; determinism is
+byte-stable across GLB/STEP and interpreter restarts; no golden regressed.
+**Honest documented stage-1 limit:** the picked edge is named by an absolute-
+coordinate EdgeSignature, so a topology-changing upstream edit that moves/removes
+that edge degrades to a clean typed `subshape_unresolved` (never a wrong-edge
+fillet or crash) — robust name-tracking through booleans is a later stage, and the
+limit is bounded and honest as shipped. No red findings; no coverage gap (the new
+capability ships with its own headline golden).
+
 ## 2026-07-18 — INDEPENDENT geometry-QA of MB-0 multi-body plumbing (`396dbcd`) — VERDICT: PASS
 
 Independent gate on the commit that swapped the eval loop's single `body` slot
