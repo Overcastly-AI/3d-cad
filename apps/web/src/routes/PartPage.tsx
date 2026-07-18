@@ -173,6 +173,7 @@ import {
 } from "../sketch/plane";
 import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { executeHistoryStep } from "../lib/historyStep";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
@@ -1958,41 +1959,36 @@ export function PartPage() {
       setHistoryError(null);
       void (async () => {
         try {
-          const version = await freshTreeVersion();
-          const restored =
-            step === "undo"
-              ? await undoPart(partId, version)
-              : await redoPart(partId, version);
-          if (restored.tree_version === version) {
+          // The shared engine (lib/historyStep, also driving the assembly
+          // workspace) runs the sequence; only the part-tree seams live here.
+          const outcome = await executeHistoryStep(step, {
+            version: freshTreeVersion,
+            run: (s, expected) =>
+              s === "undo"
+                ? undoPart(partId, expected)
+                : redoPart(partId, expected),
+            versionOf: (tree) => tree.tree_version,
             // Boundary no-op (clean 200): nothing changed — adopt the echoed
             // tree (fresh can_undo/can_redo) without a re-evaluate cycle.
-            queryClient.setQueryData(["features", partId], restored);
-          } else {
-            // A REAL restore happened: only now disarm measure and drop the
-            // selection (the tree is known to have changed under them), then
-            // resync through the shared invalidation path.
-            useMeasureStore.getState().deactivate();
-            setSelectedFeatureId(null);
-            await refreshTreeAndBody();
-          }
-        } catch (error) {
-          if (error instanceof StaleTreeVersionError) {
+            adoptNoOp: (restored) =>
+              queryClient.setQueryData(["features", partId], restored),
+            onRestored: async () => {
+              // A REAL restore happened: only now disarm measure and drop the
+              // selection (the tree is known to have changed under them),
+              // then resync through the shared invalidation path.
+              useMeasureStore.getState().deactivate();
+              setSelectedFeatureId(null);
+              await refreshTreeAndBody();
+            },
+            isStale: (error) => error instanceof StaleTreeVersionError,
             // Someone else moved the tree: the design doc's soft reload —
             // resync quietly; the user re-issues against what they now see.
-            await refreshTreeAndBody();
-          } else {
-            // A transient network/server failure: the tree is unchanged
-            // server-side — say so through the HUD (the import-error
-            // affordance), never a silent busy flash.
-            setHistoryError({
-              step,
-              message:
-                error instanceof Error && error.message !== ""
-                  ? error.message
-                  : step === "undo"
-                    ? "The last edit could not be undone."
-                    : "The edit could not be redone.",
-            });
+            resync: () => refreshTreeAndBody(),
+          });
+          if (outcome.kind === "failed") {
+            // The tree is unchanged server-side — say so through the HUD (the
+            // import-error affordance), never a silent busy flash.
+            setHistoryError({ step, message: outcome.message });
           }
         } finally {
           historyInFlight.current = false;

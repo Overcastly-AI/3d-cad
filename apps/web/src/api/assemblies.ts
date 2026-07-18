@@ -57,6 +57,20 @@ export class AssemblyNameTakenError extends Error {
   }
 }
 
+/**
+ * The write raced another edit: the sent `expected_version` no longer matches
+ * the assembly (422 `stale_assembly_version`). Typed so undo/redo can resync
+ * quietly (the design doc's "soft reload", docs/design/undo-redo.md) instead
+ * of surfacing a scary error — the assembly twin of `StaleTreeVersionError`,
+ * a narrowing the OpenAPI schema can't express.
+ */
+export class StaleAssemblyVersionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StaleAssemblyVersionError";
+  }
+}
+
 /** The caller's assemblies, oldest first (register order). */
 export async function fetchAssemblies(
   client: GatewayClient = gatewayClient,
@@ -257,6 +271,59 @@ export async function deleteMate(
     throw new Error(envelopeMessage(error, "The mate could not be removed."));
   }
   return data;
+}
+
+/**
+ * Undo one assembly-graph history step (docs/design/undo-redo.md §UR3):
+ * restore the previous snapshot, instance/mate ids verbatim. Undo IS a
+ * document edit — it takes the client's `expected_version` and returns the
+ * restored graph + the new token; at the ring's floor it's a clean 200 no-op
+ * echoing the current graph (version unchanged). A stale version throws the
+ * typed `StaleAssemblyVersionError` so the caller can soft-reload quietly.
+ */
+export async function undoAssembly(
+  assemblyId: string,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyGraphResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/assemblies/{assembly_id}/undo",
+    {
+      params: { path: { assembly_id: assemblyId } },
+      body: { expected_version: expectedVersion },
+    },
+  );
+  if (error !== undefined) {
+    throw historyStepError(error, "The last edit could not be undone.");
+  }
+  return data;
+}
+
+/** Redo one assembly-graph history step — `undoAssembly`'s mirror. */
+export async function redoAssembly(
+  assemblyId: string,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyGraphResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/assemblies/{assembly_id}/redo",
+    {
+      params: { path: { assembly_id: assemblyId } },
+      body: { expected_version: expectedVersion },
+    },
+  );
+  if (error !== undefined) {
+    throw historyStepError(error, "The edit could not be redone.");
+  }
+  return data;
+}
+
+/** Shared undo/redo failure mapping: stale → typed, everything else verbatim. */
+function historyStepError(error: unknown, fallback: string): Error {
+  const message = envelopeMessage(error, fallback);
+  return envelopeCode(error) === "stale_assembly_version"
+    ? new StaleAssemblyVersionError(message)
+    : new Error(message);
 }
 
 /**

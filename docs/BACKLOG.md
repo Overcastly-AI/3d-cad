@@ -155,12 +155,31 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       header name/length_unit ride in the state so a rename undoes; collision
       on restore → `assembly_name_taken` 409); `undo`/`redo` endpoints restore
       VERBATIM (ids/placements/params byte-preserved) under `expected_version`
-      OCC (stale 422); graph GET gains `can_undo`/`can_redo`; gateway proxies;
-      contracts + ts-client regenerated. Proof: 7-deep byte-identical walk,
+      OCC (stale 422); a post-restore integrity pass re-checks the §1.2
+      cross-document invariants (existence + acyclicity, under the owner
+      advisory lock) → 409 `assembly_restore_conflict`, cursor/ring unmoved
+      (review fix 2026-07-18); graph GET gains `can_undo`/`can_redo`; gateway
+      proxies; contracts + ts-client regenerated. Proof: 7-deep byte-identical
+      walk, cycle-undo + dangling-ref-undo refused 409 with history intact,
       delete-mate→undo keeps ORIGINAL mate/instance ids, instance-delete's
       mate-cascade reversed exactly, ring at 50, boundary no-ops — documents
       247 + gateway 209 pytest, SQLite + real PG. Frontend wiring = follow-up.
       [src: docs/design/undo-redo.md §"Out of v1" UR3]
+- [x] (P1, M) Undo/redo UR3-frontend — assembly controls + shortcuts (apps/web)
+      — **DONE 2026-07-18.** UR2 lifted, not copied: shared `HistoryGroup`
+      renders in BOTH command bands (CreateStrip refactored over it; assembly
+      band leads with it) and one node-tested `executeHistoryStep` engine
+      (`lib/historyStep`) drives both pages via ports (boundary-no-op adopt /
+      real-restore hygiene+resync / typed-stale quiet resync / honest failure
+      → history-error HUD). AssemblyPage: `undoAssembly`/`redoAssembly` +
+      `StaleAssemblyVersionError`, chords at idle only (armed mate tool / open
+      picker lock buttons with named reasons; mutations ⊕ history mutually
+      hold), mate picks + selection cleared only after a confirmed restore,
+      resync via the shared refreshGraph cascade. Vitest 652 web (11 new) + 31
+      design, typechecks + eslint/prettier green; `e2e/assembly-undo-redo.
+      spec.ts` (original-mate-id redo, solve revert/re-snap, delete-cascade
+      undo, button+chord parity, bounds/lock gating) + shared `assemblyFlow.ts`
+      committed, runs in CI. [src: docs/design/undo-redo.md §UR3]
 
 - [x] (P0, L) Viewport makeover Batch 1 — "the scene is a place" (apps/web +
       packages/design) — **DONE 2026-07-16** (founder recalibration, mandate
@@ -836,6 +855,9 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 Older entries live in `CHANGELOG.md`.
 
+- 2026-07-18 — **Undo/redo UR3-frontend (assembly controls) done:** shared
+  `HistoryGroup` in both bands + one `executeHistoryStep` engine; assembly
+  chords at idle, typed stale → quiet resync; undo/redo closes ✅ in ROADMAP.
 - 2026-07-17 — **Undo/redo UR3 (assembly backend + contract) done:** shared
   `history_core` ring reused by part + assembly; `assembly_snapshots` (0007);
   verbatim graph restore + `can_undo`/`can_redo`; gateway proxy; regen clean.

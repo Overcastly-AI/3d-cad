@@ -282,7 +282,7 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       measure readout + mate gap echo format via the core. e2e proves inch entry
       stores 50.8 mm canonical. Sketch dimensions + mass/area roll-ups stay mm
       (deferred to a later slice — see BACKLOG).
-- 🚧 **Undo/redo (docs/design/undo-redo.md — server-side bounded state
+- ✅ **Undo/redo (docs/design/undo-redo.md — server-side bounded state
       snapshots, NOT client command-inversion; accepted 2026-07-17).**
       **UR1 ✅ 2026-07-17 (backend + contract):** a per-part `part_snapshots`
       ring (alembic `0006`: `(part_id, seq)` PK + `parts.history_cursor`;
@@ -328,7 +328,11 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `assembly_name_taken` 409); `POST /api/v1/assemblies/{id}/undo|redo`
       restore VERBATIM (instance/mate ids, placements, mate params, order,
       timestamps byte-preserved) under the `expected_version` OCC guard
-      (stale → 422); graph GET gains `can_undo`/`can_redo`; gateway proxies
+      (stale → 422), with a post-restore integrity pass re-enforcing the
+      write-time cross-document invariants (referenced-document existence +
+      acyclicity, under the per-owner advisory lock) — violation → 409
+      `assembly_restore_conflict`, cursor/ring/doc_version unmoved (review
+      fix 2026-07-18); graph GET gains `can_undo`/`can_redo`; gateway proxies
       auth-gated; contracts + ts-client regenerated. Proof: byte-identical
       graph equality at every step of a 7-deep walk (2 placed instances +
       distance mate with face signatures + lock mate + re-place + header
@@ -336,8 +340,28 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       with refs to the ORIGINAL instance ids; instance-delete's documented
       mate-cascade reversed exactly; fresh-edit truncates redo; 50-cap ring;
       boundary no-ops; stale 422 — documents 247 + gateway 209 pytest green
-      on SQLite AND the real migrated scratch PG. Frontend wiring is the
-      UR3-frontend follow-up.
+      on SQLite AND the real migrated scratch PG.
+      **UR3-frontend ✅ 2026-07-18 (assembly controls + shortcuts):** the
+      UR2 pattern lifted into shared homes and reused, not copy-pasted —
+      one `HistoryGroup` component (icon-only Undo/Redo, platform chord
+      chips, honest captions) now renders in BOTH command bands (part band
+      refactored over it; assembly band leads with it, same position), and
+      the call sequence is one node-tested `executeHistoryStep` engine
+      (`lib/historyStep`: fresh token → POST → boundary-no-op adopt vs.
+      real-restore hygiene+resync vs. typed-stale quiet resync vs. honest
+      failure) with per-page ports — PartPage rewired over it, AssemblyPage
+      plugs in `doc_version`/`undoAssembly`/`redoAssembly` + the typed
+      `StaleAssemblyVersionError` and resyncs through the SAME refreshGraph
+      cascade every mutation uses (mate picks/pending value + selection
+      cleared only after a confirmed real restore); chords fire at assembly
+      idle only (armed mate tool / open picker own the keys AND lock the
+      buttons with named reasons; mutations hold history and vice versa).
+      Vitest 652 web (11 new: engine matrix + assembly undo/redo builders/
+      typed stale) + 31 design, typechecks + eslint/prettier green;
+      `e2e/assembly-undo-redo.spec.ts` (bolt-mate undo/redo with ORIGINAL
+      mate ids + solve revert/re-snap, instance-delete mate-cascade undo,
+      button+chord parity, bounds + armed-tool gating; shared
+      `assemblyFlow.ts` extracted from assembly.spec) committed, runs in CI.
 - 🚧 **Viewport makeover (founder recalibration 2026-07-16, design mandate
       3a; spec = `docs/UI-REVIEW.md` full audit).** **Batch 1 "the scene is a
       place" ✅ 2026-07-16:** full-bleed canvas + floating collapsible

@@ -17,6 +17,22 @@ export function uniqueEmail(): string {
 }
 
 /**
+ * Both History buttons settled at the given server gates (`can_undo` /
+ * `can_redo` → aria-disabled). Shared by the part and assembly undo/redo
+ * specs — the two workspaces render the SAME HistoryGroup, so the assertion
+ * is identical.
+ */
+export async function expectHistoryGates(
+  page: Page,
+  gates: { undo: boolean; redo: boolean },
+): Promise<void> {
+  const undo = page.getByTestId("undo-button");
+  const redo = page.getByTestId("redo-button");
+  await (gates.undo ? expect(undo).toBeEnabled() : expect(undo).toBeDisabled());
+  await (gates.redo ? expect(redo).toBeEnabled() : expect(redo).toBeDisabled());
+}
+
+/**
  * A fixed, fixed-length display email substituted into the header ONLY while a
  * founder screenshot is captured (see `fixtures.ts`). The registration email is
  * still per-run unique for DB isolation; this just stabilises the pixels so

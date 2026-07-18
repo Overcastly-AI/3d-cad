@@ -16,6 +16,9 @@ import {
   type LengthUnit,
   type Mate,
   type MateResponse,
+  redoAssembly,
+  StaleAssemblyVersionError,
+  undoAssembly,
   updateAssemblyUnit,
   updateInstance,
 } from "../api/assemblies";
@@ -49,7 +52,9 @@ import {
 import { placementToScene } from "../assembly/placement";
 import { buildEvaluateTree } from "../measure/geometry";
 import { FloatingPanel } from "../components/FloatingPanel";
+import { executeHistoryStep } from "../lib/historyStep";
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { useReducedMotion } from "../lib/useReducedMotion";
 import { assemblyRoute } from "../router";
 import {
@@ -420,6 +425,95 @@ export function AssemblyPage() {
     submitMate(mate);
   }, [tool, picks, mateValue, submitMate]);
 
+  // ---------------------------------------------------------------------
+  // Undo/redo (docs/design/undo-redo.md §UR3). History is SERVER-side snapshot
+  // state: the graph GET's can_undo/can_redo gate the controls, and a step is
+  // a document edit under the same doc_version OCC as every other write. A
+  // restored graph re-renders through the SAME refreshGraph invalidation every
+  // mutation uses (new doc_version cascades to part-trees → evaluate → meshes,
+  // so the solved placements re-render) — never a second pipeline.
+  // ---------------------------------------------------------------------
+  const canUndo = graph?.can_undo ?? false;
+  const canRedo = graph?.can_redo ?? false;
+  /** Any graph mutation in flight — history must never race its version. */
+  const mutationInFlight =
+    busy || submitting || unitBusy || addingPartId !== null;
+  /** Which step is in flight (drives the honest hold caption), or null. */
+  const [historyStep, setHistoryStep] = useState<HistoryStep | null>(null);
+  const historyInFlight = useRef(false);
+  /** A non-stale undo/redo failure, surfaced in the viewport HUD. */
+  const [historyError, setHistoryError] = useState<{
+    step: HistoryStep;
+    message: string;
+  } | null>(null);
+
+  const runHistoryStep = useCallback(
+    (step: HistoryStep) => {
+      // One graph rewrite at a time: repeats (held chord / double click) AND
+      // any in-flight mutation are ignored until the write settles.
+      if (historyInFlight.current || mutationInFlight || graph === undefined) {
+        return;
+      }
+      historyInFlight.current = true;
+      setHistoryStep(step);
+      setHistoryError(null);
+      void (async () => {
+        try {
+          const outcome = await executeHistoryStep(step, {
+            // Mirror every other assembly mutation: echo the cached graph's
+            // token as the expected version.
+            version: () => docVersion,
+            run: (s, expected) =>
+              s === "undo"
+                ? undoAssembly(assemblyId, expected)
+                : redoAssembly(assemblyId, expected),
+            versionOf: (g) => g.doc_version,
+            // Boundary no-op (clean 200): adopt the echoed graph (fresh
+            // can_undo/can_redo) — doc_version is unchanged, so no downstream
+            // query refetches and no re-solve fires.
+            adoptNoOp: (g) =>
+              queryClient.setQueryData(["assembly", assemblyId], g),
+            onRestored: async () => {
+              // A REAL restore: the graph changed under the session — drop
+              // the mate-authoring picks/pending value and the selection (the
+              // assembly analog of the part page's measure-disarm hygiene,
+              // only after the version-changed discriminator confirms it),
+              // then resync through the shared invalidation path.
+              useMateAuthoringStore.getState().clear();
+              setSelectedInstanceId(null);
+              await refreshGraph();
+            },
+            isStale: (error) => error instanceof StaleAssemblyVersionError,
+            // Someone else moved the graph: the design doc's soft reload —
+            // resync quietly; the user re-issues against what they now see.
+            resync: () => refreshGraph(),
+          });
+          if (outcome.kind === "failed") {
+            setHistoryError({ step, message: outcome.message });
+          }
+        } finally {
+          historyInFlight.current = false;
+          setHistoryStep(null);
+        }
+      })();
+    },
+    [
+      mutationInFlight,
+      graph,
+      docVersion,
+      assemblyId,
+      queryClient,
+      refreshGraph,
+    ],
+  );
+
+  const triggerUndo = useCallback(() => {
+    if (canUndo) runHistoryStep("undo");
+  }, [canUndo, runHistoryStep]);
+  const triggerRedo = useCallback(() => {
+    if (canRedo) runHistoryStep("redo");
+  }, [canRedo, runHistoryStep]);
+
   // Keyboard-first: A opens the picker; F/N/K arm the mate tools; Escape
   // disarms the tool / closes the picker.
   const canMate = instances.length >= 2;
@@ -460,6 +554,27 @@ export function AssemblyPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canMate, addOpen, setTool, toggleTool]);
+
+  // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — assembly
+  // idle only. An armed mate tool owns the session (a mid-pick Ctrl+Z must
+  // never yank the graph out from under the picks) and the open part picker
+  // owns the keys the same way, matching the band's History lock. A focused
+  // text field (the mate value input, the picker's filter) keeps its NATIVE
+  // undo — the typing-target guard is resolved inside the pure grammar helper.
+  useEffect(() => {
+    if (tool !== null || addOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const step = undoRedoStep(event, isTypingTarget(event.target));
+      if (step === null) return;
+      // The chord is ours in the workspace even at a history bound — swallow
+      // it so the browser never runs its own undo behind the tool.
+      event.preventDefault();
+      if (step === "undo") triggerUndo();
+      else triggerRedo();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [tool, addOpen, triggerUndo, triggerRedo]);
 
   const selectInstance = useCallback((id: string) => {
     setSelectedInstanceId((current) => (current === id ? null : id));
@@ -504,6 +619,22 @@ export function AssemblyPage() {
         </TopBar>
         <TopToolbar>
           <AssemblyCommandBand
+            historyReady={graph !== undefined}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            historyHold={historyStep}
+            historyHoldReason={
+              mutationInFlight ? "Waiting for the current edit…" : null
+            }
+            historyLockReason={
+              tool !== null
+                ? `Finish the ${mateToolLabel(tool)} mate first`
+                : addOpen
+                  ? "Close the part picker first"
+                  : undefined
+            }
+            onUndo={triggerUndo}
+            onRedo={triggerRedo}
             canAddPart={graph !== undefined}
             onAddPart={() => setAddOpen((open) => !open)}
             canMate={canMate}
@@ -530,6 +661,30 @@ export function AssemblyPage() {
                     onAdd={handleAddPart}
                     onClose={() => setAddOpen(false)}
                   />
+                ) : null}
+                {historyError !== null ? (
+                  <div
+                    role="alert"
+                    data-testid="history-error"
+                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      {historyError.step === "undo"
+                        ? "Undo failed"
+                        : "Redo failed"}
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {historyError.message}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryError(null)}
+                      data-testid="history-error-dismiss"
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 ) : null}
                 {actionError ? (
                   <div
@@ -588,7 +743,10 @@ export function AssemblyPage() {
               onToggleGrounded={handleToggleGrounded}
               onDeleteInstance={handleDeleteInstance}
               onDeleteMate={handleDeleteMate}
-              busy={busy}
+              // The panel's writes also hold while a history step restores
+              // (the mutual exclusion's visible half — runHistoryStep guards
+              // the other direction).
+              busy={busy || historyStep !== null}
             />
           </FloatingPanel>
           <FloatingPanel side="right" title="Solve" id="inspector">

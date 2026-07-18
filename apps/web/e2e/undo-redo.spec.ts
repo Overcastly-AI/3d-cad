@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  expectHistoryGates,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * Undo/redo UR2 (docs/design/undo-redo.md) — the frontend controls, driven
@@ -118,17 +123,6 @@ async function bodyVolume(page: Page): Promise<number> {
   const text = await page.getByTestId("prop-volume").innerText();
   const nums = text.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/g) ?? [];
   return Number.parseFloat(nums[0] ?? "NaN");
-}
-
-/** Both history buttons settled (re-enabled per the server's gates). */
-async function expectHistoryGates(
-  page: Page,
-  gates: { undo: boolean; redo: boolean },
-): Promise<void> {
-  const undo = page.getByTestId("undo-button");
-  const redo = page.getByTestId("redo-button");
-  await (gates.undo ? expect(undo).toBeEnabled() : expect(undo).toBeDisabled());
-  await (gates.redo ? expect(redo).toBeEnabled() : expect(redo).toBeDisabled());
 }
 
 test.describe("undo/redo", () => {

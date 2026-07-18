@@ -19,23 +19,21 @@ import {
   DraftIcon,
   ExtrudeIcon,
   FilletIcon,
-  formatChord,
   ImportStepIcon,
   LoftIcon,
   MeasureIcon,
   PatternIcon,
-  RedoIcon,
   RevolveIcon,
   ShellIcon,
   SketchIcon,
   SweepIcon,
   ToolButton,
   ToolGroup,
-  UndoIcon,
 } from "@loft/design";
 import { useRef } from "react";
 
 import { useCommandActionStore } from "../features/commandActions";
+import { HistoryGroup } from "./HistoryGroup";
 
 export interface CreateStripProps {
   /** The feature tree has loaded (buttons stay disabled until it has). */
@@ -172,21 +170,6 @@ export function CreateStrip({
   // (disabled) state on an invalid form instead of looking actionable but no-op.
   const okReady = useCommandActionStore((s) => s.okReady);
 
-  const historyBusy = historyHold !== null;
-  const undoReady =
-    treeReady && canUndo && !historyBusy && onUndo !== undefined;
-  const redoReady =
-    treeReady && canRedo && !historyBusy && onRedo !== undefined;
-  /** The one true reason both History buttons are holding, or undefined. */
-  const holdCaption =
-    historyHold === "undo"
-      ? "Undoing…"
-      : historyHold === "redo"
-        ? "Redoing…"
-        : historyHold === "rollback"
-          ? "Moving the rollback bar…"
-          : undefined;
-
   const filletReady = canModify && treeReady && onFillet !== undefined;
   const chamferReady = canModify && treeReady && onChamfer !== undefined;
   const patternReady = canModify && treeReady && onPattern !== undefined;
@@ -279,41 +262,28 @@ export function CreateStrip({
           locked ? "sr-only" : "flex items-stretch divide-x divide-hairline"
         }
       >
-        {/* History leads the band (the Fusion position): every modeling edit is
-            reversible from here, gated honestly by the server's can_undo /
-            can_redo — the buttons are wired state, never decoration. Icon-only
-            at every width (Fusion ships undo/redo unlabeled; the two most
-            self-evident glyphs in software) — the tooltip title + platform-
-            aware chord chip still teach the names and the keys, and it keeps
-            the no-wrap band inside the 1280×800 floor (frontend-qa 07-17 P2). */}
-        <ToolGroup eyebrow="History">
-          <ToolButton
-            icon={<UndoIcon />}
-            label="Undo"
-            shortcut={formatChord("Ctrl+Z")}
-            data-testid="undo-button"
-            aria-label="Undo"
-            caption={captionFor(
-              undoReady,
-              holdCaption ?? (canUndo ? "One moment…" : "Nothing to undo"),
-            )}
-            disabled={locked || !undoReady}
-            onClick={onUndo}
-          />
-          <ToolButton
-            icon={<RedoIcon />}
-            label="Redo"
-            shortcut={formatChord("Ctrl+Shift+Z")}
-            data-testid="redo-button"
-            aria-label="Redo"
-            caption={captionFor(
-              redoReady,
-              holdCaption ?? (canRedo ? "One moment…" : "Nothing to redo"),
-            )}
-            disabled={locked || !redoReady}
-            onClick={onRedo}
-          />
-        </ToolGroup>
+        {/* History leads the band (the Fusion position): every modeling edit
+            is reversible from here. The group itself is the SHARED
+            HistoryGroup (identical in the assembly band); this band's truths
+            ride in as captions — the rollback-bar hold and the open-command
+            lock. Icon-only keeps the no-wrap band inside the 1280×800 floor
+            (frontend-qa 07-17 P2). */}
+        <HistoryGroup
+          ready={treeReady}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          hold={
+            historyHold === "undo" || historyHold === "redo"
+              ? historyHold
+              : null
+          }
+          holdReason={
+            historyHold === "rollback" ? "Moving the rollback bar…" : null
+          }
+          lockReason={lockReason}
+          onUndo={onUndo}
+          onRedo={onRedo}
+        />
 
         <ToolGroup eyebrow="Create">
           <ToolButton

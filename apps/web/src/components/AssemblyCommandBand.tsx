@@ -1,10 +1,11 @@
 /**
  * The assembly command band — the full-width surface under the brand bar (the
- * sibling of the part editor's CreateStrip). One Component action (add a part
- * instance) and the three v1 mate tools (Coincident / Concentric / Lock),
- * icon-forward and keyboard-hinted. A mate tool is a TOGGLE (the brass scribe
- * marks the armed one) and stays honestly disabled until two instances exist —
- * you cannot mate one part to itself. Chrome recedes; the viewport is the hero.
+ * sibling of the part editor's CreateStrip). History leads (the same shared
+ * group, same position as the part band — muscle memory transfers), then one
+ * Component action (add a part instance) and the v1 mate tools, icon-forward
+ * and keyboard-hinted. A mate tool is a TOGGLE (the brass scribe marks the
+ * armed one) and stays honestly disabled until two instances exist — you
+ * cannot mate one part to itself. Chrome recedes; the viewport is the hero.
  */
 import {
   AddIcon,
@@ -18,8 +19,26 @@ import {
 } from "@loft/design";
 
 import type { MateTool } from "../assembly/mateStore";
+import type { HistoryStep } from "../lib/undoRedoShortcut";
+import { HistoryGroup } from "./HistoryGroup";
 
 export interface AssemblyCommandBandProps {
+  /** The graph has loaded (History stays disabled until it has). */
+  historyReady: boolean;
+  /** An earlier graph snapshot exists (the graph GET's `can_undo`, UR3). */
+  canUndo: boolean;
+  /** A later graph snapshot exists (`can_redo` — the mirror gate). */
+  canRedo: boolean;
+  /** The history step in flight (drives the honest hold caption), or null. */
+  historyHold: HistoryStep | null;
+  /** A graph mutation is in flight — History holds with this caption. */
+  historyHoldReason?: string | null;
+  /** The workspace state that owns Ctrl+Z (armed mate tool / open picker). */
+  historyLockReason?: string;
+  /** Undo one assembly edit (Ctrl/⌘+Z). */
+  onUndo: () => void;
+  /** Redo one assembly edit (Ctrl/⌘+Shift+Z, Ctrl+Y). */
+  onRedo: () => void;
   canAddPart: boolean;
   onAddPart: () => void;
   /** A mate needs two instances; the tools stay disabled until then. */
@@ -29,6 +48,14 @@ export interface AssemblyCommandBandProps {
 }
 
 export function AssemblyCommandBand({
+  historyReady,
+  canUndo,
+  canRedo,
+  historyHold,
+  historyHoldReason = null,
+  historyLockReason,
+  onUndo,
+  onRedo,
   canAddPart,
   onAddPart,
   canMate,
@@ -38,6 +65,16 @@ export function AssemblyCommandBand({
   const mateReason = canMate ? undefined : "Add two parts first";
   return (
     <div className="flex items-stretch divide-x divide-hairline">
+      <HistoryGroup
+        ready={historyReady}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        hold={historyHold}
+        holdReason={historyHoldReason}
+        lockReason={historyLockReason}
+        onUndo={onUndo}
+        onRedo={onRedo}
+      />
       <ToolGroup eyebrow="Component">
         <ToolButton
           icon={<AddIcon />}
