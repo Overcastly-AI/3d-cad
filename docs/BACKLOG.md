@@ -84,6 +84,30 @@ the gateway's OCCT-CPU routes); audit F7 now fully closed.
 real but low severity/likelihood, stays Next) and F5 (spline epsilon — P3
 nit, no user impact, stays Later).
 
+**Active initiative 2026-07-18 (founder "drive to the end goal") — server-composed
+drawing export (PDF/DXF).** The #1 Drawings ➖ residual: the shop deliverable.
+Architecture accepted in `docs/design/drawing-export.md` — **Approach C**: the
+server owns drafting placement (port `layout.ts`/`dimensions.ts` placement to a
+Python `ComposedSheet` composer), the frontend consumes it, SVG/PDF/DXF are three
+serializers of one model (the `start_is_end_a` unification applied to placement).
+reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
+
+- [ ] (P1, M) Drawing export DE-0/1a — server placement composer + SVG + golden
+      (geometry + contract). `ComposeDrawingRequest`/`SheetLayout`/`ComposedSheet`
+      DTOs; port bounds-aware layout + dimension placement (linear/p2p/angular,
+      arrowheads, collision-flip) to `geometry.drawings.compose`; deterministic
+      server SVG serializer; byte-stable SVG golden. Server authoritative; client
+      still renders its own placement until DE-1c (time-boxed). [src: drawing-export.md]
+- [ ] (P1, S) Drawing export DE-1c — client cutover (apps/web). `DrawingSheet`
+      renders from `ComposedSheet`; DELETE client placement math; gated by
+      `drawings.spec.ts` visual parity + the SVG golden. One placement source.
+- [ ] (P1, M) Drawing export DE-2 — PDF (reportlab). Serializer + geometry/gateway
+      routes + "Export PDF" control + byte-stability golden. [src: drawing-export.md]
+- [ ] (P2, M) Drawing export DE-3 — DXF (ezdxf, real entities) + "Export DXF" +
+      golden + reopens-in-CAD smoke. [src: drawing-export.md]
+- [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
+      mesh_store/S3 seam (§8.3). [src: drawing-export.md]
+
 **Active pick 2026-07-17 (founder "keep going" → units):** Assemblies v1 +
 distance/angle mates closed; the next daily-driver ❌→✅ flip is a document
 **length-unit** system (type/read `2 in`, set doc units) — cheapest flip that
