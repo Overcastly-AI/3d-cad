@@ -27,6 +27,8 @@ from py_kit.db import async_dsn
 from py_kit.schemas.drawings import (
     ARTIFACT_MEDIA_TYPES,
     ComposeDrawingRequest,
+    ComposedSheet,
+    ComposedTitleBlock,
     DimensionEndpointRef,
     DimensionResponse,
     DrawingResponse,
@@ -187,6 +189,29 @@ def _evaluation_request() -> EvaluateTreeRequest:
 
 
 PDF_BYTES = b"%PDF-1.4\n%stub composed pdf\n%%EOF\n"
+
+
+def _composed_sheet() -> ComposedSheet:
+    """A minimal, well-formed `ComposedSheet` the geometry sheet hop returns."""
+    return ComposedSheet(
+        width_mm=297.0,
+        height_mm=210.0,
+        margin_mm=10.0,
+        title="Bracket — Detail",
+        scale_label="1:2",
+        views=[],
+        title_block=ComposedTitleBlock(
+            x=200.0,
+            y=170.0,
+            width=87.0,
+            height=30.0,
+            split_x=250.0,
+            mid_y=185.0,
+            title="Bracket — Detail",
+            scale="1:2",
+            size="A4",
+        ),
+    )
 
 
 async def _create_schema(url: str) -> None:
@@ -454,6 +479,122 @@ def test_drawing_without_views_is_422(db_url: str) -> None:
         response = client.post(
             f"/api/v1/drawings/{DRAWING}/export?format=pdf", headers=bearer
         )
+
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == "drawing_not_composable"
+    assert geometry_seen == []
+
+
+# --- JSON sheet proxy (DE-1b — the model the DE-1c client renders from) ---------
+def _geometry_sheet(seen: list[httpx.Request]) -> Handler:
+    """Geometry's identity-free `/drawing/compose/sheet` hop, returning the model."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            content=_composed_sheet().model_dump_json(),
+            headers={"content-type": "application/json"},
+        )
+
+    return handler
+
+
+def test_sheet_unauthenticated_401_and_nothing_forwarded(db_url: str) -> None:
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet")
+
+    assert response.status_code == 401
+    assert _envelope(response.json())["code"] == "unauthorized"
+    assert documents_seen == []
+    assert geometry_seen == []
+
+
+def test_sheet_aggregates_and_returns_composed_sheet_model(db_url: str) -> None:
+    """The sheet proxy runs the SAME two-hop aggregation as `/export` (drawing tree
+    + part evaluation-request, principal attached), relays a well-formed
+    `ComposeDrawingRequest` to geometry's identity-free `/drawing/compose/sheet`, and
+    returns the typed `ComposedSheet` JSON (not bytes)."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        user_id, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/json")
+    sheet = ComposedSheet.model_validate_json(response.content)
+    assert sheet == _composed_sheet()
+
+    # Documents was hit twice (drawing tree, then part evaluation-request), each with
+    # the principal; geometry never sees it (RESEARCH §3).
+    drawing_req, part_req = documents_seen
+    assert drawing_req.url.path == f"/api/v1/drawings/{DRAWING}"
+    assert drawing_req.headers[PRINCIPAL_HEADER] == user_id
+    assert part_req.url.path == f"/api/v1/parts/{PART}/evaluation-request"
+    assert part_req.headers[PRINCIPAL_HEADER] == user_id
+
+    [geometry_req] = geometry_seen
+    assert geometry_req.method == "POST"
+    assert geometry_req.url.path == "/api/v1/drawing/compose/sheet"
+    assert PRINCIPAL_HEADER not in geometry_req.headers
+
+    # The relayed request mirrors the persisted sheet — the SAME aggregation the
+    # bytes `/export` route builds (views + tagged dimensions + layout).
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.part_id == PART
+    assert relayed.tree_version == 4
+    assert relayed.views == ["front", "top"]
+    assert [d.view for d in relayed.dimensions] == ["front"]
+    assert relayed.layout.title == "Bracket — Detail"
+
+
+def test_sheet_missing_or_foreign_drawing_is_404(db_url: str) -> None:
+    """Documents' uniform 404 re-surfaces verbatim; the part hop + geometry are never
+    reached (owner isolation), same as `/export`."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_404(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        return httpx.Response(
+            404,
+            json={
+                "error": {
+                    "code": "drawing_not_found",
+                    "message": "Drawing not found.",
+                    "details": None,
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(db_url, documents_404, _geometry_sheet(geometry_seen)) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 404
+    assert _envelope(response.json())["code"] == "drawing_not_found"
+    assert [r.url.path for r in documents_seen] == [f"/api/v1/drawings/{DRAWING}"]
+    assert geometry_seen == []
+
+
+def test_sheet_drawing_without_views_is_422(db_url: str) -> None:
+    """A drawing with no laid-out views is a gateway-side 422 (no part/compose hop)."""
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_empty(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_empty_drawing_tree().model_dump_json())
+
+    with make_client(db_url, documents_empty, _geometry_sheet(geometry_seen)) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
 
     assert response.status_code == 422
     assert _envelope(response.json())["code"] == "drawing_not_composable"

@@ -21,6 +21,7 @@ from py_kit.schemas.assemblies import (
 from py_kit.schemas.drawings import (
     ARTIFACT_MEDIA_TYPES,
     ComposeDrawingRequest,
+    ComposedSheet,
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
     artifact_filename,
@@ -221,6 +222,26 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
         media_type=ARTIFACT_MEDIA_TYPES[request.format],
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/drawing/compose/sheet")
+def compose_sheet_route(request: ComposeDrawingRequest) -> ComposedSheet:
+    """Compose a drawing into the placed ``ComposedSheet`` MODEL (design §4.2, DE-1b).
+
+    The JSON-model sibling of ``/drawing/compose``: it runs the SAME pipeline
+    (``evaluate_drawing_views`` VERBATIM → ``place_sheet``) but returns the placed
+    :class:`ComposedSheet` as typed JSON instead of serializing it to
+    ``svg``/``pdf``/``dxf`` bytes. This is the one placement source the DE-1c client
+    cutover renders from, deleting the frontend's duplicate placement engine
+    (``apps/web/src/drawing/{dimensions,layout}.ts``). A DEDICATED route (rather than
+    a ``format=json`` branch on ``/compose``) keeps the bytes formats and the JSON
+    model as separate OpenAPI operations with distinct response TYPES — codegen emits
+    ``ComposedSheet`` + its nested unions cleanly instead of a bytes/JSON union. The
+    request's ``format`` field is inert here (no serialization). Identity-free — the
+    gateway owns auth. Deterministic (RESEARCH §9): same request ⇒ identical sheet.
+    """
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(evaluation, request.dimensions, request.layout)
 
 
 _MESH_RESPONSES: dict[int | str, dict[str, Any]] = {

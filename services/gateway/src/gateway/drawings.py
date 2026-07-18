@@ -30,6 +30,7 @@ from py_kit.schemas.drawings import (
     AnnotationMutationResponse,
     ArtifactFormat,
     ComposeDrawingRequest,
+    ComposedSheet,
     DimensionCreate,
     DimensionMutationResponse,
     DrawingCreate,
@@ -460,6 +461,48 @@ def _compose_request(
     )
 
 
+async def _aggregate_compose_request(
+    drawing_id: uuid.UUID,
+    user: CurrentUser,
+    http_request: Request,
+    artifact_format: ArtifactFormat,
+) -> ComposeDrawingRequest:
+    """The shared two-hop aggregation behind both the export and the sheet route.
+
+    Fetches the drawing tree AND the referenced part's evaluation-request from
+    documents (principal attached, uniform 404 re-surfaced verbatim), then assembles
+    the geometry :class:`ComposeDrawingRequest` from that persisted state. A drawing
+    with no laid-out views is a gateway-side ``drawing_not_composable`` 422 (no part
+    hop, no compose). ``artifact_format`` rides along for the bytes ``/export`` route;
+    the JSON ``/sheet`` route passes the default and the composer ignores it.
+    """
+    drawing_upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/drawings/{drawing_id}"
+    )
+    if drawing_upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(drawing_upstream, service=_SERVICE)
+    tree = DrawingTreeResponse.model_validate_json(drawing_upstream.content)
+
+    if not tree.sheets or not tree.sheets[0].views:
+        raise ValidationApiError(
+            "The drawing has no views to export; lay out its standard views first.",
+            code="drawing_not_composable",
+        )
+    referenced_part_id = tree.sheets[0].views[0].ref_document_id
+
+    part_upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/parts/{referenced_part_id}/evaluation-request",
+    )
+    if part_upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(part_upstream, service=_SERVICE)
+    evaluation_request = EvaluateTreeRequest.model_validate_json(part_upstream.content)
+
+    return _compose_request(tree, evaluation_request, artifact_format)
+
+
 _EXPORT_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {
         "content": {
@@ -505,31 +548,9 @@ async def export_drawing(
     ``Content-Disposition``; its per-format envelopes (e.g. ``not_implemented`` for
     ``dxf``) re-surface verbatim.
     """
-    drawing_upstream = await forward_documents(
-        http_request, user, "GET", f"/api/v1/drawings/{drawing_id}"
+    compose_request = await _aggregate_compose_request(
+        drawing_id, user, http_request, format
     )
-    if drawing_upstream.status_code != status.HTTP_200_OK:
-        raise_upstream_error(drawing_upstream, service=_SERVICE)
-    tree = DrawingTreeResponse.model_validate_json(drawing_upstream.content)
-
-    if not tree.sheets or not tree.sheets[0].views:
-        raise ValidationApiError(
-            "The drawing has no views to export; lay out its standard views first.",
-            code="drawing_not_composable",
-        )
-    referenced_part_id = tree.sheets[0].views[0].ref_document_id
-
-    part_upstream = await forward_documents(
-        http_request,
-        user,
-        "GET",
-        f"/api/v1/parts/{referenced_part_id}/evaluation-request",
-    )
-    if part_upstream.status_code != status.HTTP_200_OK:
-        raise_upstream_error(part_upstream, service=_SERVICE)
-    evaluation_request = EvaluateTreeRequest.model_validate_json(part_upstream.content)
-
-    compose_request = _compose_request(tree, evaluation_request, format)
 
     geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
     composed = await forward(
@@ -547,7 +568,45 @@ async def export_drawing(
     if "content-disposition" in composed.headers:
         headers["Content-Disposition"] = composed.headers["content-disposition"]
     else:
-        filename = artifact_filename(tree.drawing.name, format)
+        filename = artifact_filename(compose_request.layout.title, format)
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     media_type = composed.headers.get("content-type", ARTIFACT_MEDIA_TYPES[format])
     return Response(content=composed.content, media_type=media_type, headers=headers)
+
+
+@router.post(
+    "/{drawing_id}/sheet",
+    dependencies=[COMPUTE_RATE_LIMIT],
+)
+async def compose_drawing_sheet(
+    drawing_id: uuid.UUID,
+    user: CurrentUser,
+    http_request: Request,
+) -> ComposedSheet:
+    """Compose the drawing into the placed ``ComposedSheet`` MODEL (design §4.2, DE-1b).
+
+    The JSON-model twin of ``/{drawing_id}/export``: the SAME auth-gated,
+    rate-limited two-hop aggregation (drawing tree + referenced part's
+    evaluation-ready feature prefix from documents, principal attached; the compose
+    hop is identity-free), but it calls geometry's ``/drawing/compose/sheet`` and
+    returns the typed :class:`ComposedSheet` (placed views/edges/dimensions/title
+    block in sheet-mm) instead of serialized bytes. This is the single placement
+    source the DE-1c frontend cutover renders from — deleting the browser's
+    duplicate placement engine. Deterministic (RESEARCH §9); the gateway just relays.
+    """
+    compose_request = await _aggregate_compose_request(
+        drawing_id, user, http_request, "svg"
+    )
+
+    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
+    composed = await forward(
+        geometry_client,
+        http_request,
+        "POST",
+        "/api/v1/drawing/compose/sheet",
+        service=_GEOMETRY,
+        json_content=compose_request.model_dump_json(),
+    )
+    if composed.status_code != status.HTTP_200_OK:
+        raise_upstream_error(composed, service=_GEOMETRY)
+    return ComposedSheet.model_validate_json(composed.content)

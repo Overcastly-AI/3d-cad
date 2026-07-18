@@ -721,6 +721,25 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
       **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
       pillar: DE-1c client-placement cutover + section/detail/assembly views.
+      **Drawing export DE-1b — JSON compose endpoint (`ComposedSheet` model) SHIPPED**
+      (2026-07-18): the backend prerequisite for the DE-1c client cutover — the
+      frontend must RENDER from the server's placement, so it needs the placed model
+      as JSON. A DEDICATED geometry route `POST /api/v1/drawing/compose/sheet` returns
+      the `ComposedSheet` MODEL as typed JSON (reusing `place_sheet` VERBATIM — no new
+      placement logic) rather than a `format=json` branch on `/compose` (a route whose
+      response TYPE flips by query is awkward for codegen; separate operations emit
+      `ComposedSheet` + its nested `ComposedView`/`ComposedEdge`/`ComposedDimension`/
+      `ComposedTitleBlock` unions cleanly into the ts-client). Gateway proxy
+      `POST /api/v1/drawings/{id}/sheet` — auth-gated + `COMPUTE_RATE_LIMIT`, reusing
+      the EXACT two-hop aggregation the `/export` proxy uses (factored into a shared
+      `_aggregate_compose_request` helper — DRY), returns the model JSON. `just gen`
+      surfaces `ComposedSheet` in the ts-client for the first time (compose previously
+      returned only bytes). Gates: geometry route returns a well-formed `ComposedSheet`
+      for the compose golden (placed views/edges/dims/title block asserted; equals the
+      in-process `place_sheet`); gateway proxy aggregates + 401-gates + returns the
+      model; `just lint`/pyright/`gen-check` green. **DE-1c (frontend renders from this
+      + deletes `apps/web/src/drawing/{dimensions,layout}.ts` placement) is next —
+      closes the two-engine window.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)

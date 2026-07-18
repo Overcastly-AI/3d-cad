@@ -100,9 +100,18 @@ reportlab (BSD) + ezdxf (MIT). Sequenced DE-0→DE-4.
       `chooseByPenalty` flip); `serialize_svg` deterministic byte-stable SVG;
       `POST /api/v1/drawing/compose`. Port-parity + byte-stability goldens green;
       `gen-check` clean. Client keeps its placement until DE-1c. [src: drawing-export.md]
+- [x] (P1, S) Drawing export DE-1b — JSON compose endpoint (`ComposedSheet` model).
+      SHIPPED 2026-07-18: dedicated geometry route `POST /api/v1/drawing/compose/sheet`
+      returns the placed `ComposedSheet` MODEL as JSON (reuses `place_sheet`, no new
+      placement) — dedicated over a `format=json` branch so codegen emits the model +
+      nested unions cleanly; gateway proxy `POST /api/v1/drawings/{id}/sheet` (auth +
+      `COMPUTE_RATE_LIMIT`, shared `_aggregate_compose_request` reused from `/export`).
+      `ComposedSheet` now in the ts-client; geometry + gateway tests + `gen-check`
+      green. The DE-1c prerequisite. [src: drawing-export.md]
 - [ ] (P1, S) Drawing export DE-1c — client cutover (apps/web). `DrawingSheet`
-      renders from `ComposedSheet`; DELETE client placement math; gated by
-      `drawings.spec.ts` visual parity + the SVG golden. One placement source.
+      renders from `ComposedSheet` (via the DE-1b `/drawings/{id}/sheet` proxy);
+      DELETE client placement math (`apps/web/src/drawing/{dimensions,layout}.ts`);
+      gated by `drawings.spec.ts` visual parity + the SVG golden. One placement source.
 - [x] (P1, M) Drawing export DE-2 — PDF (reportlab) **DONE 2026-07-18**. DE-2a
       serializer + geometry route + byte-stability golden (`serialize_pdf`,
       `bottomup=0`, `invariant=1`+`pageCompression=0`, reportlab 5.0.0 BSD); DE-2b

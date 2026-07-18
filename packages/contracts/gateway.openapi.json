@@ -834,6 +834,544 @@
         "title": "CoincidentMate",
         "type": "object"
       },
+      "ComposedArrow": {
+        "description": "A filled arrowhead triangle \u2014 tip + two barb wings, in order (SVG space).",
+        "properties": {
+          "points": {
+            "description": "The three triangle vertices",
+            "items": {
+              "$ref": "#/components/schemas/ComposedPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "points"
+        ],
+        "title": "ComposedArrow",
+        "type": "object"
+      },
+      "ComposedCircleEdge": {
+        "description": "A placed projected circle \u2014 exact (a \u00d8/radius dimension reads its radius).",
+        "properties": {
+          "cx": {
+            "title": "Cx",
+            "type": "number"
+          },
+          "cy": {
+            "title": "Cy",
+            "type": "number"
+          },
+          "kind": {
+            "const": "circle",
+            "default": "circle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "r": {
+            "title": "R",
+            "type": "number"
+          },
+          "visible": {
+            "description": "True = solid; False = hidden (dashed)",
+            "title": "Visible",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "visible",
+          "cx",
+          "cy",
+          "r"
+        ],
+        "title": "ComposedCircleEdge",
+        "type": "object"
+      },
+      "ComposedDimLine": {
+        "description": "One straight rule of a placed dimension (extension or dimension line).",
+        "properties": {
+          "role": {
+            "description": "`extension` = thin witness line; `dimension` = arrowed measure",
+            "enum": [
+              "extension",
+              "dimension"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "x1": {
+            "title": "X1",
+            "type": "number"
+          },
+          "x2": {
+            "title": "X2",
+            "type": "number"
+          },
+          "y1": {
+            "title": "Y1",
+            "type": "number"
+          },
+          "y2": {
+            "title": "Y2",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2",
+          "role"
+        ],
+        "title": "ComposedDimLine",
+        "type": "object"
+      },
+      "ComposedDimText": {
+        "description": "A placed dimension's stamped value \u2014 position, upright angle, label string.",
+        "properties": {
+          "angle": {
+            "description": "Upright text angle (degrees)",
+            "title": "Angle",
+            "type": "number"
+          },
+          "value": {
+            "description": "Stamped label ('\u00d810.000' / '~40.000' / '90.0\u00b0')",
+            "title": "Value",
+            "type": "string"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "angle",
+          "value"
+        ],
+        "title": "ComposedDimText",
+        "type": "object"
+      },
+      "ComposedDimensionError": {
+        "description": "A placed dimension the model could not measure \u2014 an honest marker (\u00a73.3).",
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/ComposedPoint",
+            "description": "Marker position (SVG space)"
+          },
+          "code": {
+            "description": "Typed measurement-failure code (never a value)",
+            "title": "Code",
+            "type": "string"
+          },
+          "dimension_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Correlation id (echoes the request), or null",
+            "title": "Dimension Id"
+          },
+          "dimension_type": {
+            "description": "linear/diameter/radius/angular",
+            "enum": [
+              "linear",
+              "diameter",
+              "radius",
+              "angular"
+            ],
+            "title": "Dimension Type",
+            "type": "string"
+          },
+          "kind": {
+            "const": "error",
+            "default": "error",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension_type",
+          "at",
+          "code"
+        ],
+        "title": "ComposedDimensionError",
+        "type": "object"
+      },
+      "ComposedLineEdge": {
+        "description": "A placed straight projected edge (sheet-mm SVG space).",
+        "properties": {
+          "kind": {
+            "const": "line",
+            "default": "line",
+            "title": "Kind",
+            "type": "string"
+          },
+          "visible": {
+            "description": "True = solid; False = hidden (dashed)",
+            "title": "Visible",
+            "type": "boolean"
+          },
+          "x1": {
+            "title": "X1",
+            "type": "number"
+          },
+          "x2": {
+            "title": "X2",
+            "type": "number"
+          },
+          "y1": {
+            "title": "Y1",
+            "type": "number"
+          },
+          "y2": {
+            "title": "Y2",
+            "type": "number"
+          }
+        },
+        "required": [
+          "visible",
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ],
+        "title": "ComposedLineEdge",
+        "type": "object"
+      },
+      "ComposedMeasuredDimension": {
+        "description": "A placed, measured dimension: rules + arrowheads + the stamped value.",
+        "properties": {
+          "arrows": {
+            "description": "Filled arrowhead triangles",
+            "items": {
+              "$ref": "#/components/schemas/ComposedArrow"
+            },
+            "title": "Arrows",
+            "type": "array"
+          },
+          "dimension_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Correlation id (echoes the request), or null",
+            "title": "Dimension Id"
+          },
+          "dimension_type": {
+            "description": "linear/diameter/radius/angular",
+            "enum": [
+              "linear",
+              "diameter",
+              "radius",
+              "angular"
+            ],
+            "title": "Dimension Type",
+            "type": "string"
+          },
+          "foreshortened": {
+            "default": false,
+            "description": "True: model-true value, foreshortened drawn length (\u00a73.2)",
+            "title": "Foreshortened",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "measured",
+            "default": "measured",
+            "title": "Kind",
+            "type": "string"
+          },
+          "lines": {
+            "description": "Extension + dimension lines",
+            "items": {
+              "$ref": "#/components/schemas/ComposedDimLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "text": {
+            "$ref": "#/components/schemas/ComposedDimText",
+            "description": "The stamped value"
+          }
+        },
+        "required": [
+          "dimension_type",
+          "lines",
+          "arrows",
+          "text"
+        ],
+        "title": "ComposedMeasuredDimension",
+        "type": "object"
+      },
+      "ComposedPoint": {
+        "description": "A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin).",
+        "properties": {
+          "x_mm": {
+            "description": "X on the sheet (mm, SVG space)",
+            "title": "X Mm",
+            "type": "number"
+          },
+          "y_mm": {
+            "description": "Y on the sheet (mm, SVG space, y-down)",
+            "title": "Y Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x_mm",
+          "y_mm"
+        ],
+        "title": "ComposedPoint",
+        "type": "object"
+      },
+      "ComposedPolylineEdge": {
+        "description": "A placed sampled edge (arc / free-form) as a polyline (sheet-mm SVG space).",
+        "properties": {
+          "kind": {
+            "const": "polyline",
+            "default": "polyline",
+            "title": "Kind",
+            "type": "string"
+          },
+          "points": {
+            "description": "Ordered vertices (SVG space)",
+            "items": {
+              "$ref": "#/components/schemas/ComposedPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "visible": {
+            "description": "True = solid; False = hidden (dashed)",
+            "title": "Visible",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "visible",
+          "points"
+        ],
+        "title": "ComposedPolylineEdge",
+        "type": "object"
+      },
+      "ComposedSheet": {
+        "description": "A fully placed drawing sheet \u2014 the model the three serializers render (\u00a74.2).\n\nEvery coordinate is sheet-mm in final SVG space (y-down, top-left origin). The\nproduct of ``geometry.drawings.compose.place_sheet`` \u2014 a pure function of the\nevaluated geometry + the :class:`SheetLayout` (deterministic, RESEARCH \u00a79). The\npaper + border rectangles are pure functions of ``width_mm``/``height_mm``/\n``margin_mm`` (the serializer derives them), keeping this model lean.",
+        "properties": {
+          "height_mm": {
+            "description": "Sheet height (mm) \u2014 the SVG viewBox height",
+            "title": "Height Mm",
+            "type": "number"
+          },
+          "margin_mm": {
+            "description": "Border inset from the sheet edge (mm)",
+            "title": "Margin Mm",
+            "type": "number"
+          },
+          "scale_label": {
+            "description": "The sheet scale label ('1:1')",
+            "title": "Scale Label",
+            "type": "string"
+          },
+          "title": {
+            "description": "Drawing name (metadata / accessible label)",
+            "title": "Title",
+            "type": "string"
+          },
+          "title_block": {
+            "$ref": "#/components/schemas/ComposedTitleBlock",
+            "description": "The placed title block"
+          },
+          "views": {
+            "description": "Placed views in canonical (front/top/right/iso) order",
+            "items": {
+              "$ref": "#/components/schemas/ComposedView"
+            },
+            "title": "Views",
+            "type": "array"
+          },
+          "width_mm": {
+            "description": "Sheet width (mm) \u2014 the SVG viewBox width",
+            "title": "Width Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "width_mm",
+          "height_mm",
+          "margin_mm",
+          "title",
+          "scale_label",
+          "title_block"
+        ],
+        "title": "ComposedSheet",
+        "type": "object"
+      },
+      "ComposedTitleBlock": {
+        "description": "The placed bottom-right title block (drawing-export.md \u00a74.2).\n\nGeometry (box + the two internal rules) plus the three stamped values (drawing\n``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed\ncaptions (\"TITLE\" / \"SCALE\" / \"SIZE\" / \"LOFT \u00b7 PART DRAWING\") are the\nserializer's rendering constants (matching the on-screen title block).",
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "mid_y": {
+            "description": "Y of the horizontal rule in the right cell",
+            "title": "Mid Y",
+            "type": "number"
+          },
+          "scale": {
+            "description": "Scale label ('1:1')",
+            "title": "Scale",
+            "type": "string"
+          },
+          "size": {
+            "description": "Sheet size, display form ('A4', 'ANSI A')",
+            "title": "Size",
+            "type": "string"
+          },
+          "split_x": {
+            "description": "X of the vertical rule (left | right cells)",
+            "title": "Split X",
+            "type": "number"
+          },
+          "title": {
+            "description": "Drawing title, truncated to fit the cell",
+            "title": "Title",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height",
+          "split_x",
+          "mid_y",
+          "title",
+          "scale",
+          "size"
+        ],
+        "title": "ComposedTitleBlock",
+        "type": "object"
+      },
+      "ComposedView": {
+        "description": "One placed view on the sheet \u2014 its edges, dimensions, caption (design \u00a74.2).\n\n``failed`` marks a view with no projection (an HLR failure or an absent\nresult): the serializer stamps a \"VIEW FAILED\" placeholder at ``anchor`` and\n``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space\n(the placeholder + caption reference it); ``label``/``label_pos`` are the\nstamped caption (\"FRONT\") and its position.",
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/ComposedPoint",
+            "description": "View-centre in SVG space"
+          },
+          "dimensions": {
+            "description": "Placed dimensions",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "error": "#/components/schemas/ComposedDimensionError",
+                  "measured": "#/components/schemas/ComposedMeasuredDimension"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ComposedMeasuredDimension"
+                },
+                {
+                  "$ref": "#/components/schemas/ComposedDimensionError"
+                }
+              ]
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "edges": {
+            "description": "Placed projected edges",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "circle": "#/components/schemas/ComposedCircleEdge",
+                  "line": "#/components/schemas/ComposedLineEdge",
+                  "polyline": "#/components/schemas/ComposedPolylineEdge"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ComposedLineEdge"
+                },
+                {
+                  "$ref": "#/components/schemas/ComposedCircleEdge"
+                },
+                {
+                  "$ref": "#/components/schemas/ComposedPolylineEdge"
+                }
+              ]
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "failed": {
+            "description": "True when the view has no projected geometry",
+            "title": "Failed",
+            "type": "boolean"
+          },
+          "label": {
+            "description": "Caption text (e.g. 'FRONT')",
+            "title": "Label",
+            "type": "string"
+          },
+          "label_pos": {
+            "$ref": "#/components/schemas/ComposedPoint",
+            "description": "Caption position (SVG space)"
+          },
+          "projection": {
+            "description": "Projection direction",
+            "enum": [
+              "front",
+              "top",
+              "right",
+              "iso"
+            ],
+            "title": "Projection",
+            "type": "string"
+          }
+        },
+        "required": [
+          "projection",
+          "failed",
+          "anchor",
+          "label",
+          "label_pos"
+        ],
+        "title": "ComposedView",
+        "type": "object"
+      },
       "ConcentricConstraint": {
         "description": "Two circles/arcs share a center point.\n\nRelates two whole circle/arc entities by id (order immaterial); the solver\nties their centers together (there is no separate radius relation \u2014 use\n:class:`EqualConstraint` for that). Removes two degrees of freedom. Both\nentities must be a circle or an arc; a line has no center and is rejected.",
         "properties": {
@@ -8638,6 +9176,55 @@
           }
         ],
         "summary": "Export Drawing",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/sheet": {
+      "post": {
+        "description": "Compose the drawing into the placed ``ComposedSheet`` MODEL (design \u00a74.2, DE-1b).\n\nThe JSON-model twin of ``/{drawing_id}/export``: the SAME auth-gated,\nrate-limited two-hop aggregation (drawing tree + referenced part's\nevaluation-ready feature prefix from documents, principal attached; the compose\nhop is identity-free), but it calls geometry's ``/drawing/compose/sheet`` and\nreturns the typed :class:`ComposedSheet` (placed views/edges/dimensions/title\nblock in sheet-mm) instead of serialized bytes. This is the single placement\nsource the DE-1c frontend cutover renders from \u2014 deleting the browser's\nduplicate placement engine. Deterministic (RESEARCH \u00a79); the gateway just relays.",
+        "operationId": "compose_drawing_sheet_api_v1_drawings__drawing_id__sheet_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComposedSheet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Compose Drawing Sheet",
         "tags": [
           "drawings"
         ]

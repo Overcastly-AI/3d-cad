@@ -64,6 +64,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawing/compose/sheet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose Sheet Route
+         * @description Compose a drawing into the placed ``ComposedSheet`` MODEL (design §4.2, DE-1b).
+         *
+         *     The JSON-model sibling of ``/drawing/compose``: it runs the SAME pipeline
+         *     (``evaluate_drawing_views`` VERBATIM → ``place_sheet``) but returns the placed
+         *     :class:`ComposedSheet` as typed JSON instead of serializing it to
+         *     ``svg``/``pdf``/``dxf`` bytes. This is the one placement source the DE-1c client
+         *     cutover renders from, deleting the frontend's duplicate placement engine
+         *     (``apps/web/src/drawing/{dimensions,layout}.ts``). A DEDICATED route (rather than
+         *     a ``format=json`` branch on ``/compose``) keeps the bytes formats and the JSON
+         *     model as separate OpenAPI operations with distinct response TYPES — codegen emits
+         *     ``ComposedSheet`` + its nested unions cleanly instead of a bytes/JSON union. The
+         *     request's ``format`` field is inert here (no serialization). Identity-free — the
+         *     gateway owns auth. Deterministic (RESEARCH §9): same request ⇒ identical sheet.
+         */
+        post: operations["compose_sheet_route_api_v1_drawing_compose_sheet_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawing/evaluate": {
         parameters: {
             query?: never;
@@ -905,6 +937,339 @@ export interface components {
              * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order
              */
             views: ("front" | "top" | "right" | "iso")[];
+        };
+        /**
+         * ComposedArrow
+         * @description A filled arrowhead triangle — tip + two barb wings, in order (SVG space).
+         */
+        ComposedArrow: {
+            /**
+             * Points
+             * @description The three triangle vertices
+             */
+            points: components["schemas"]["ComposedPoint"][];
+        };
+        /**
+         * ComposedCircleEdge
+         * @description A placed projected circle — exact (a Ø/radius dimension reads its radius).
+         */
+        ComposedCircleEdge: {
+            /** Cx */
+            cx: number;
+            /** Cy */
+            cy: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "circle";
+            /** R */
+            r: number;
+            /**
+             * Visible
+             * @description True = solid; False = hidden (dashed)
+             */
+            visible: boolean;
+        };
+        /**
+         * ComposedDimLine
+         * @description One straight rule of a placed dimension (extension or dimension line).
+         */
+        ComposedDimLine: {
+            /**
+             * Role
+             * @description `extension` = thin witness line; `dimension` = arrowed measure
+             * @enum {string}
+             */
+            role: "extension" | "dimension";
+            /** X1 */
+            x1: number;
+            /** X2 */
+            x2: number;
+            /** Y1 */
+            y1: number;
+            /** Y2 */
+            y2: number;
+        };
+        /**
+         * ComposedDimText
+         * @description A placed dimension's stamped value — position, upright angle, label string.
+         */
+        ComposedDimText: {
+            /**
+             * Angle
+             * @description Upright text angle (degrees)
+             */
+            angle: number;
+            /**
+             * Value
+             * @description Stamped label ('Ø10.000' / '~40.000' / '90.0°')
+             */
+            value: string;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
+         * ComposedDimensionError
+         * @description A placed dimension the model could not measure — an honest marker (§3.3).
+         */
+        ComposedDimensionError: {
+            /** @description Marker position (SVG space) */
+            at: components["schemas"]["ComposedPoint"];
+            /**
+             * Code
+             * @description Typed measurement-failure code (never a value)
+             */
+            code: string;
+            /**
+             * Dimension Id
+             * @description Correlation id (echoes the request), or null
+             */
+            dimension_id?: string | null;
+            /**
+             * Dimension Type
+             * @description linear/diameter/radius/angular
+             * @enum {string}
+             */
+            dimension_type: "linear" | "diameter" | "radius" | "angular";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "error";
+        };
+        /**
+         * ComposedLineEdge
+         * @description A placed straight projected edge (sheet-mm SVG space).
+         */
+        ComposedLineEdge: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line";
+            /**
+             * Visible
+             * @description True = solid; False = hidden (dashed)
+             */
+            visible: boolean;
+            /** X1 */
+            x1: number;
+            /** X2 */
+            x2: number;
+            /** Y1 */
+            y1: number;
+            /** Y2 */
+            y2: number;
+        };
+        /**
+         * ComposedMeasuredDimension
+         * @description A placed, measured dimension: rules + arrowheads + the stamped value.
+         */
+        ComposedMeasuredDimension: {
+            /**
+             * Arrows
+             * @description Filled arrowhead triangles
+             */
+            arrows: components["schemas"]["ComposedArrow"][];
+            /**
+             * Dimension Id
+             * @description Correlation id (echoes the request), or null
+             */
+            dimension_id?: string | null;
+            /**
+             * Dimension Type
+             * @description linear/diameter/radius/angular
+             * @enum {string}
+             */
+            dimension_type: "linear" | "diameter" | "radius" | "angular";
+            /**
+             * Foreshortened
+             * @description True: model-true value, foreshortened drawn length (§3.2)
+             * @default false
+             */
+            foreshortened: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "measured";
+            /**
+             * Lines
+             * @description Extension + dimension lines
+             */
+            lines: components["schemas"]["ComposedDimLine"][];
+            /** @description The stamped value */
+            text: components["schemas"]["ComposedDimText"];
+        };
+        /**
+         * ComposedPoint
+         * @description A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin).
+         */
+        ComposedPoint: {
+            /**
+             * X Mm
+             * @description X on the sheet (mm, SVG space)
+             */
+            x_mm: number;
+            /**
+             * Y Mm
+             * @description Y on the sheet (mm, SVG space, y-down)
+             */
+            y_mm: number;
+        };
+        /**
+         * ComposedPolylineEdge
+         * @description A placed sampled edge (arc / free-form) as a polyline (sheet-mm SVG space).
+         */
+        ComposedPolylineEdge: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "polyline";
+            /**
+             * Points
+             * @description Ordered vertices (SVG space)
+             */
+            points: components["schemas"]["ComposedPoint"][];
+            /**
+             * Visible
+             * @description True = solid; False = hidden (dashed)
+             */
+            visible: boolean;
+        };
+        /**
+         * ComposedSheet
+         * @description A fully placed drawing sheet — the model the three serializers render (§4.2).
+         *
+         *     Every coordinate is sheet-mm in final SVG space (y-down, top-left origin). The
+         *     product of ``geometry.drawings.compose.place_sheet`` — a pure function of the
+         *     evaluated geometry + the :class:`SheetLayout` (deterministic, RESEARCH §9). The
+         *     paper + border rectangles are pure functions of ``width_mm``/``height_mm``/
+         *     ``margin_mm`` (the serializer derives them), keeping this model lean.
+         */
+        ComposedSheet: {
+            /**
+             * Height Mm
+             * @description Sheet height (mm) — the SVG viewBox height
+             */
+            height_mm: number;
+            /**
+             * Margin Mm
+             * @description Border inset from the sheet edge (mm)
+             */
+            margin_mm: number;
+            /**
+             * Scale Label
+             * @description The sheet scale label ('1:1')
+             */
+            scale_label: string;
+            /**
+             * Title
+             * @description Drawing name (metadata / accessible label)
+             */
+            title: string;
+            /** @description The placed title block */
+            title_block: components["schemas"]["ComposedTitleBlock"];
+            /**
+             * Views
+             * @description Placed views in canonical (front/top/right/iso) order
+             */
+            views?: components["schemas"]["ComposedView"][];
+            /**
+             * Width Mm
+             * @description Sheet width (mm) — the SVG viewBox width
+             */
+            width_mm: number;
+        };
+        /**
+         * ComposedTitleBlock
+         * @description The placed bottom-right title block (drawing-export.md §4.2).
+         *
+         *     Geometry (box + the two internal rules) plus the three stamped values (drawing
+         *     ``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed
+         *     captions ("TITLE" / "SCALE" / "SIZE" / "LOFT · PART DRAWING") are the
+         *     serializer's rendering constants (matching the on-screen title block).
+         */
+        ComposedTitleBlock: {
+            /** Height */
+            height: number;
+            /**
+             * Mid Y
+             * @description Y of the horizontal rule in the right cell
+             */
+            mid_y: number;
+            /**
+             * Scale
+             * @description Scale label ('1:1')
+             */
+            scale: string;
+            /**
+             * Size
+             * @description Sheet size, display form ('A4', 'ANSI A')
+             */
+            size: string;
+            /**
+             * Split X
+             * @description X of the vertical rule (left | right cells)
+             */
+            split_x: number;
+            /**
+             * Title
+             * @description Drawing title, truncated to fit the cell
+             */
+            title: string;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
+         * ComposedView
+         * @description One placed view on the sheet — its edges, dimensions, caption (design §4.2).
+         *
+         *     ``failed`` marks a view with no projection (an HLR failure or an absent
+         *     result): the serializer stamps a "VIEW FAILED" placeholder at ``anchor`` and
+         *     ``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space
+         *     (the placeholder + caption reference it); ``label``/``label_pos`` are the
+         *     stamped caption ("FRONT") and its position.
+         */
+        ComposedView: {
+            /** @description View-centre in SVG space */
+            anchor: components["schemas"]["ComposedPoint"];
+            /**
+             * Dimensions
+             * @description Placed dimensions
+             */
+            dimensions?: (components["schemas"]["ComposedMeasuredDimension"] | components["schemas"]["ComposedDimensionError"])[];
+            /**
+             * Edges
+             * @description Placed projected edges
+             */
+            edges?: (components["schemas"]["ComposedLineEdge"] | components["schemas"]["ComposedCircleEdge"] | components["schemas"]["ComposedPolylineEdge"])[];
+            /**
+             * Failed
+             * @description True when the view has no projected geometry
+             */
+            failed: boolean;
+            /**
+             * Label
+             * @description Caption text (e.g. 'FRONT')
+             */
+            label: string;
+            /** @description Caption position (SVG space) */
+            label_pos: components["schemas"]["ComposedPoint"];
+            /**
+             * Projection
+             * @description Projection direction
+             * @enum {string}
+             */
+            projection: "front" | "top" | "right" | "iso";
         };
         /**
          * ConcentricConstraint
@@ -4507,6 +4872,39 @@ export interface operations {
                     "application/pdf": string;
                     "image/svg+xml": string;
                     "image/vnd.dxf": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compose_sheet_route_api_v1_drawing_compose_sheet_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposeDrawingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposedSheet"];
                 };
             };
             /** @description Validation Error */

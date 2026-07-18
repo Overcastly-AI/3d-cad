@@ -766,6 +766,54 @@ def test_endpoint_returns_dxf_with_content_disposition() -> None:
     assert response.content == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
 
 
+# --- JSON sheet endpoint (DE-1b — the model the DE-1c client renders from) ------
+def test_sheet_endpoint_returns_composed_sheet_model() -> None:
+    """`POST /api/v1/drawing/compose/sheet` returns the placed `ComposedSheet` as
+    typed JSON (NOT serialized bytes) — the one placement source DE-1c renders from.
+    It runs the SAME pipeline as `place_sheet`, so the wire model equals it exactly."""
+    from py_kit.schemas.drawings import ComposedSheet
+
+    request = _golden_request()
+    response = client.post(
+        "/api/v1/drawing/compose/sheet", json=request.model_dump(mode="json")
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/json")
+    sheet = ComposedSheet.model_validate_json(response.content)
+
+    # The placed views arrive in canonical order with the title block + scale.
+    assert [v.projection for v in sheet.views] == ["front", "top", "right", "iso"]
+    assert sheet.scale_label == "1:1"
+    assert sheet.title_block.title  # a stamped title block, not empty
+    assert sheet.width_mm == 297 and sheet.height_mm == 210  # A4 landscape
+
+    # The composed edges + dimensions are present (the front/top carry the dims the
+    # place_sheet structure test asserts).
+    front = next(v for v in sheet.views if v.projection == "front")
+    assert not front.failed
+    assert front.edges
+    dim_types = {
+        v.projection: sorted(d.dimension_type for d in v.dimensions)
+        for v in sheet.views
+    }
+    assert dim_types["front"] == ["angular", "linear"]
+    assert dim_types["top"] == ["diameter", "radius"]
+
+    # The wire model is byte-for-byte the in-process `place_sheet` output (the route
+    # adds no placement logic — same JSON both ways).
+    evaluation = evaluate_drawing_views(request)
+    expected = place_sheet(evaluation, request.dimensions, request.layout)
+    assert sheet == expected
+
+
+def test_sheet_endpoint_is_deterministic() -> None:
+    payload = _golden_request().model_dump(mode="json")
+    first = client.post("/api/v1/drawing/compose/sheet", json=payload)
+    second = client.post("/api/v1/drawing/compose/sheet", json=payload)
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
+
+
 # --- place_sheet structure (failed view + placement wiring) --------------------
 def test_place_sheet_marks_absent_view_as_failed() -> None:
     """A view requested in the layout but absent from the evaluation projects as a
