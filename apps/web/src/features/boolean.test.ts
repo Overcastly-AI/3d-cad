@@ -5,6 +5,8 @@ import {
   buildCombineParams,
   canSubmitCombine,
   defaultCombineForm,
+  isOrderedOperation,
+  operationCopy,
   toolOptionsFor,
 } from "./boolean";
 
@@ -15,8 +17,9 @@ const bodies: BodyInfo[] = [
 ];
 
 describe("defaultCombineForm", () => {
-  it("seeds the first two bodies as target + tool", () => {
+  it("seeds a union of the first two bodies as target + tool", () => {
     expect(defaultCombineForm(bodies)).toEqual({
+      operation: "union",
       targetFeatureId: "x1",
       toolFeatureId: "x2",
     });
@@ -24,9 +27,33 @@ describe("defaultCombineForm", () => {
 
   it("leaves slots empty when fewer than two bodies exist", () => {
     expect(defaultCombineForm([bodies[0] as BodyInfo])).toEqual({
+      operation: "union",
       targetFeatureId: "x1",
       toolFeatureId: "",
     });
+  });
+});
+
+describe("isOrderedOperation", () => {
+  it("is true only for subtract (Target − Tool)", () => {
+    expect(isOrderedOperation("subtract")).toBe(true);
+    expect(isOrderedOperation("union")).toBe(false);
+    expect(isOrderedOperation("intersect")).toBe(false);
+  });
+});
+
+describe("operationCopy", () => {
+  it("gives subtract asymmetric role labels and an ordered note", () => {
+    const copy = operationCopy("subtract");
+    expect(copy.glyph).toBe("−");
+    expect(copy.targetLabel).toMatch(/kept/i);
+    expect(copy.toolLabel).toMatch(/subtract/i);
+    expect(copy.note).toMatch(/Target − Tool/);
+  });
+
+  it("gives union/intersect their glyphs", () => {
+    expect(operationCopy("union").glyph).toBe("+");
+    expect(operationCopy("intersect").glyph).toBe("∩");
   });
 });
 
@@ -42,16 +69,32 @@ describe("toolOptionsFor", () => {
 describe("canSubmitCombine", () => {
   it("needs a target, a tool, and the two to differ", () => {
     expect(
-      canSubmitCombine({ targetFeatureId: "x1", toolFeatureId: "x2" }),
+      canSubmitCombine({
+        operation: "union",
+        targetFeatureId: "x1",
+        toolFeatureId: "x2",
+      }),
     ).toBe(true);
-    expect(canSubmitCombine({ targetFeatureId: "", toolFeatureId: "x2" })).toBe(
-      false,
-    );
-    expect(canSubmitCombine({ targetFeatureId: "x1", toolFeatureId: "" })).toBe(
-      false,
-    );
     expect(
-      canSubmitCombine({ targetFeatureId: "x1", toolFeatureId: "x1" }),
+      canSubmitCombine({
+        operation: "union",
+        targetFeatureId: "",
+        toolFeatureId: "x2",
+      }),
+    ).toBe(false);
+    expect(
+      canSubmitCombine({
+        operation: "union",
+        targetFeatureId: "x1",
+        toolFeatureId: "",
+      }),
+    ).toBe(false);
+    expect(
+      canSubmitCombine({
+        operation: "union",
+        targetFeatureId: "x1",
+        toolFeatureId: "x1",
+      }),
     ).toBe(false);
   });
 });
@@ -59,7 +102,11 @@ describe("canSubmitCombine", () => {
 describe("buildCombineParams", () => {
   it("builds a union between the two named bodies", () => {
     expect(
-      buildCombineParams({ targetFeatureId: "x1", toolFeatureId: "x2" }),
+      buildCombineParams({
+        operation: "union",
+        targetFeatureId: "x1",
+        toolFeatureId: "x2",
+      }),
     ).toEqual({
       operation: "union",
       target: { kind: "feature", feature_id: "x1" },
@@ -67,12 +114,41 @@ describe("buildCombineParams", () => {
     });
   });
 
+  it("carries the chosen operation (subtract keeps Target − Tool order)", () => {
+    expect(
+      buildCombineParams({
+        operation: "subtract",
+        targetFeatureId: "x1",
+        toolFeatureId: "x2",
+      }),
+    ).toEqual({
+      operation: "subtract",
+      target: { kind: "feature", feature_id: "x1" },
+      tool: { kind: "feature", feature_id: "x2" },
+    });
+    expect(
+      buildCombineParams({
+        operation: "intersect",
+        targetFeatureId: "x1",
+        toolFeatureId: "x2",
+      })?.operation,
+    ).toBe("intersect");
+  });
+
   it("is null for an incomplete or self-referential form", () => {
     expect(
-      buildCombineParams({ targetFeatureId: "x1", toolFeatureId: "" }),
+      buildCombineParams({
+        operation: "union",
+        targetFeatureId: "x1",
+        toolFeatureId: "",
+      }),
     ).toBeNull();
     expect(
-      buildCombineParams({ targetFeatureId: "x1", toolFeatureId: "x1" }),
+      buildCombineParams({
+        operation: "subtract",
+        targetFeatureId: "x1",
+        toolFeatureId: "x1",
+      }),
     ).toBeNull();
   });
 });

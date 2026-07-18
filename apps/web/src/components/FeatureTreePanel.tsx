@@ -17,6 +17,7 @@ import type {
   FeatureResult,
   FeatureTreeResponse,
 } from "../api/parts";
+import { friendlyFeatureError } from "../features/featureErrors";
 import { barSlotIndex, rollbackIdForSlot } from "../features/rollback";
 
 export interface FeatureTreePanelProps {
@@ -187,7 +188,10 @@ export function FeatureTreePanel({
                           {result.error.code}
                         </span>
                         <span className="mt-0.5 block font-body text-xs text-mist">
-                          {result.error.message}
+                          {friendlyFeatureError(
+                            result.error.code,
+                            result.error.message,
+                          )}
                         </span>
                       </li>
                     ) : null}

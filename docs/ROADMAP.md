@@ -329,9 +329,16 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `boolean_disjoint` (a severing subtract) taxonomy. Analytic goldens
       `boolean-{subtract,intersect}-two-cubes-overlap` (both a clean 4000 mm³ box,
       shells=1). No schema change (the `operation` Literal already carried all
-      three). **Next: MB-2b — the frontend operation selector (union/subtract/
-      intersect in the CombineEditor) + the documents `_reject_import_with_prior_
-      body` relax.**
+      three). **MB-2b landed 2026-07-18 — the frontend operation selector:** the
+      CombineEditor gains a union/subtract/intersect `SegmentedControl`
+      (`+ / − / ∩`), and the Target/Tool role labels + note track the operation so
+      subtract's `Target − Tool` asymmetry is explicit; the new `boolean_empty` /
+      `boolean_disjoint` codes get friendly per-feature copy via
+      `friendlyFeatureError`. e2e proves subtract → 4000 mm³ and intersect →
+      4000 mm³ (one body each) against the real stack; founder shot
+      `docs/screenshots/multibody-boolean-ops-desktop.png`. **MB-2 complete — all
+      three boolean ops authorable. Next: MB-3 — a downstream feature (fillet/
+      chamfer) on a boolean result face.**
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

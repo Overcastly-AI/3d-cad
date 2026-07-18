@@ -1,27 +1,36 @@
 /**
- * The combine editor — a boolean UNION between two independently-built bodies
- * (multi-body §MB-1), in the same title-block seat top-left of the viewport the
+ * The combine editor — a boolean between two independently-built bodies
+ * (multi-body §MB-2), in the same title-block seat top-left of the viewport the
  * other feature editors use. Unlike extrude/revolve it consumes no sketch: it
- * names two BODIES — a TARGET that survives (keeping its identity) and a TOOL
- * that is consumed. Both are ruled selects over the part's body set (the sweep
- * two-slot idiom, promoted from sketches to bodies): keyboard-first,
- * deterministically testable, no viewport selection layer. The tool list
- * excludes whatever the target names — a body can't fuse with itself.
+ * names an OPERATION (union / subtract / intersect) and two BODIES — a TARGET
+ * that survives (keeping its identity) and a TOOL. Both are ruled selects over
+ * the part's body set (the sweep two-slot idiom, promoted from sketches to
+ * bodies): keyboard-first, deterministically testable, no viewport selection
+ * layer. The tool list excludes whatever the target names — a body can't
+ * combine with itself.
  *
- * A union whose bodies don't touch is a `boolean_disjoint` REBUILD error — the
- * create succeeds, then the tree panel surfaces the per-feature error honestly;
- * the scope note names that limit up front.
+ * Union and intersect are order-independent; SUBTRACT is not (Target − Tool),
+ * so the role labels + note track the operation. A boolean whose result would
+ * be >1 lump is a `boolean_disjoint` REBUILD error and an empty result is
+ * `boolean_empty` — the create succeeds, then the tree panel surfaces the
+ * per-feature error honestly; the scope note names those limits up front.
  */
-import { Panel, PanelActionCell, SelectField } from "@loft/design";
+import {
+  Panel,
+  PanelActionCell,
+  SegmentedControl,
+  SelectField,
+} from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
-import type { BooleanParams } from "../api/parts";
+import type { BooleanOperation, BooleanParams } from "../api/parts";
 import type { BodyInfo } from "../features/bodies";
 import {
   buildCombineParams,
   canSubmitCombine,
   type CombineForm,
+  operationCopy,
   toolOptionsFor,
 } from "../features/boolean";
 
@@ -46,6 +55,33 @@ function bodyOption(body: BodyInfo): { value: string; label: string } {
     label: `Body ${body.ordinal} · ${body.name}`,
   };
 }
+
+/** The three boolean operations, each with its arithmetic glyph (− / ∩ / +). */
+const OPERATION_OPTIONS: readonly {
+  value: BooleanOperation;
+  label: string;
+  glyph: string;
+  "data-testid": string;
+}[] = [
+  {
+    value: "union",
+    label: "Union",
+    glyph: "+",
+    "data-testid": "combine-op-union",
+  },
+  {
+    value: "subtract",
+    label: "Subtract",
+    glyph: "−",
+    "data-testid": "combine-op-subtract",
+  },
+  {
+    value: "intersect",
+    label: "Intersect",
+    glyph: "∩",
+    "data-testid": "combine-op-intersect",
+  },
+];
 
 export function CombineEditor({
   bodies,
@@ -97,8 +133,15 @@ export function CombineEditor({
     [bodies],
   );
 
+  const setOperation = useCallback(
+    (operation: BooleanOperation) => setForm((f) => ({ ...f, operation })),
+    [],
+  );
+
   const canSubmit = canSubmitCombine(form) && !saving;
   useCommandBridge(submit, canSubmit);
+
+  const copy = operationCopy(form.operation);
 
   return (
     <div
@@ -111,8 +154,21 @@ export function CombineEditor({
             Combine bodies
           </h2>
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
+            <SegmentedControl<BooleanOperation>
+              label="Operation"
+              value={form.operation}
+              onChange={setOperation}
+              options={OPERATION_OPTIONS.map((op) => ({
+                value: op.value,
+                label: op.label,
+                icon: op.glyph,
+                "data-testid": op["data-testid"],
+                "aria-label": op.label,
+              }))}
+            />
+
             <SelectField
-              label="Target (keeps)"
+              label={copy.targetLabel}
               data-testid="combine-target"
               autoFocus
               value={form.targetFeatureId}
@@ -122,7 +178,7 @@ export function CombineEditor({
 
             {tools.length > 0 ? (
               <SelectField
-                label="Tool (consumed)"
+                label={copy.toolLabel}
                 data-testid="combine-tool"
                 value={form.toolFeatureId}
                 options={tools.map(bodyOption)}
@@ -144,8 +200,7 @@ export function CombineEditor({
               className="-mt-0.5 font-body text-xs text-gauge"
               data-testid="combine-note"
             >
-              Union fuses the two bodies into one. They must touch — bodies that
-              don&apos;t overlap can&apos;t be unioned yet.
+              {copy.note}
             </p>
           </div>
         </div>

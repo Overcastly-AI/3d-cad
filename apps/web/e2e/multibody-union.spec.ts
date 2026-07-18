@@ -206,6 +206,69 @@ test.describe("multi-body union", () => {
     await expectRenderedBody(page);
   });
 
+  test("subtract removes the tool from the target (Target − Tool)", async ({
+    page,
+  }) => {
+    const part = await seedTwoBodies(page);
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("body-row")).toHaveCount(2, {
+      timeout: 30_000,
+    });
+
+    await page.getByTestId("new-combine").click();
+    await expect(page.getByTestId("combine-editor")).toBeVisible();
+    // Pick Subtract — the role labels flip to the asymmetric Target − Tool.
+    await page.getByTestId("combine-op-subtract").click();
+    await expect(page.getByTestId("combine-op-subtract")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await page.getByTestId("combine-submit").click();
+
+    // Target (8000) − overlap (4000) = 4000 mm³, one connected solid remains.
+    await expect(page.getByTestId("combine-editor")).toBeHidden();
+    await expect(page.getByTestId("body-row")).toHaveCount(1, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("prop-volume")).toContainText("4,000", {
+      timeout: 30_000,
+    });
+    await expectRenderedBody(page);
+  });
+
+  test("intersect keeps only the shared volume", async ({ page }) => {
+    const part = await seedTwoBodies(page);
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("body-row")).toHaveCount(2, {
+      timeout: 30_000,
+    });
+
+    await page.getByTestId("new-combine").click();
+    await expect(page.getByTestId("combine-editor")).toBeVisible();
+    await page.getByTestId("combine-op-intersect").click();
+    await expect(page.getByTestId("combine-op-intersect")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await page.getByTestId("combine-submit").click();
+
+    // The common volume of the two cubes is the 10×20×20 overlap = 4000 mm³.
+    await expect(page.getByTestId("combine-editor")).toBeHidden();
+    await expect(page.getByTestId("body-row")).toHaveCount(1, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("prop-volume")).toContainText("4,000", {
+      timeout: 30_000,
+    });
+    await expectRenderedBody(page);
+  });
+
   test("founder screenshot: fused multi-body union (desktop)", async ({
     page,
   }) => {
@@ -227,6 +290,32 @@ test.describe("multi-body union", () => {
 
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/multibody-union-desktop.png`,
+    });
+  });
+
+  test("founder screenshot: boolean operation selector + subtract result (desktop)", async ({
+    page,
+  }) => {
+    const part = await seedTwoBodies(page);
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("body-row")).toHaveCount(2, {
+      timeout: 30_000,
+    });
+    await expectRenderedBody(page);
+
+    // Open the editor and choose Subtract — the shot captures the union /
+    // subtract / intersect selector with subtract's Target − Tool labelling
+    // over the two-body scene.
+    await page.getByTestId("new-combine").click();
+    await expect(page.getByTestId("combine-editor")).toBeVisible();
+    await page.getByTestId("combine-op-subtract").click();
+    await expect(page.getByTestId("combine-op-subtract")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/multibody-boolean-ops-desktop.png`,
     });
   });
 });

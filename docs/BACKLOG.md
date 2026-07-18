@@ -834,10 +834,18 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
         GLB+STEP across restart) + `test_boolean.py` (subtract/intersect success,
         non-commutativity, empty, severing-disjoint). No schema change (Literal
         already had all three). [kernel-architect]
-  - [ ] (P2, S) **MB-2b** — frontend operation selector (union/subtract/intersect
-        in the `CombineEditor`). **Next.** *Still open (documents territory):*
-        relax `_reject_import_with_prior_body` (`services/documents/features.py`)
-        so an imported body can coexist with a modelled one end-to-end.
+  - [x] **MB-2b (P2, S) frontend operation selector done (2026-07-18)** — the
+        `CombineEditor` gains a union/subtract/intersect `SegmentedControl`
+        (`+ / − / ∩`, default union — unchanged behaviour); Target/Tool role
+        labels + note track the op (`operationCopy`) so subtract's `Target − Tool`
+        asymmetry reads plainly, and `boolean_empty` / `boolean_disjoint` get
+        friendly per-feature copy (`friendlyFeatureError`, surfaced in the tree
+        panel). e2e (`multibody-union.spec.ts`) drives subtract → 4000 mm³ and
+        intersect → 4000 mm³ (one body each) on the real stack; founder shot
+        `docs/screenshots/multibody-boolean-ops-desktop.png`. **MB-2 complete.**
+        *Still open (documents territory):* relax `_reject_import_with_prior_body`
+        (`services/documents/features.py`) so an imported body can coexist with a
+        modelled one end-to-end. [frontend-builder]
   - [ ] (P3, M) **MB-3** — downstream feature (fillet/chamfer) on a boolean
         face/edge; body-scoped resolution test; degrade-under-edit limit doc.
   - [ ] (P3, L) **MB-4 (deferred)** — explicit per-feature target-body ref,
@@ -1012,6 +1020,10 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-18 — **MB-2b boolean operation selector done:** `CombineEditor` gains a
+  union/subtract/intersect `SegmentedControl` (`+ / − / ∩`); op-aware Target/Tool
+  labels + friendly `boolean_empty`/`boolean_disjoint` copy. e2e: subtract +
+  intersect → 4000 mm³. MB-2 complete. [frontend-builder]
 - 2026-07-18 — **MB-2a subtract + intersect backend done:** `boolean_bodies`
   wires `subtract` (OCCT cut) + `intersect` (common); `boolean_empty` (empty
   subtract/intersect) + `boolean_disjoint` (severing subtract) taxonomy. Goldens
