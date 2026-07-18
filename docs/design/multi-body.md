@@ -1,0 +1,112 @@
+# Design — Multi-body modeling + booleans between independently-built bodies
+
+Status: **accepted** (2026-07-18). Closes the one named Part-modeling gap
+(VISION scorecard: "no booleans between independently-built bodies — a part
+that is genuinely multiple lumps combined can't be built"). Grounded in the
+current single-connected-solid pipeline (`services/geometry/.../features/
+evaluate.py` `EvaluationState.body`, `kernel/extrude.py` `combine_body`).
+
+## What exists today (grounded)
+
+- **One running solid.** `EvaluationState.body: Solid | None` — a single slot;
+  every body-affecting handler reads/writes it. The tree is *implicitly one body*.
+- **Booleans already ship + are license-clean.** `combine_body` uses `body.fuse`/
+  `body.cut` (build123d → OCCT `BRepAlgoAPI_Fuse`/`Cut`; OCCT is LGPL, already
+  the kernel) and **raises `BooleanError` on a ≠1-solid result** — the exact guard
+  multi-body relaxes *per body*.
+- **Tessellation/stats/roll-up already multi-mesh.** `glb_stats` sums over meshes;
+  the assembly path has an analytic `_combine_properties` roll-up to reuse.
+- **Stage-1 topo-naming is geometry-only, best-effort.** `PlanarFaceSignature`/
+  `EdgeSignature` from whatever body exists; stage-2 provenance (`Modified/
+  Generated/IsDeleted`) is designed but unbuilt. A boolean seam/merge is the
+  documented `subshape_ambiguous` source (`topological-naming.md` §2c).
+
+## Decisions
+
+**1. Body model — Option A: an eval-time partition keyed by the base feature's id.**
+No Body table, no per-feature `body_id` column (reject Option B's migration + CRUD +
+snapshot/undo blast radius). No pure connectivity partition (reject Option C —
+non-deterministic "which body does fillet target", no stable naming anchor). A
+body's identity *is* its base-feature id — the concept `SubshapeRef` already uses.
+Internal eval-state change only:
+```
+bodies: dict[uuid.UUID, Solid]   # base-feature-id -> current solid, tree-ordered
+active_body_id: uuid.UUID | None
+```
+Body-creating features (base extrude/revolve/sweep/loft/import) insert + activate;
+modifying features (fillet/chamfer/shell/draft/pattern, add/cut) act on the ACTIVE
+body. **Load-bearing correctness rule:** a modifying feature's topo-naming resolves
+against `state.bodies[active_body_id]`, NEVER a union of all bodies — else a
+congruent face on two bodies falsely ties `subshape_ambiguous`. Assert in a test.
+
+**2. Starting a second body — an additive `merge: bool = True` flag** on add
+extrude/revolve/sweep/loft (SolidWorks/Fusion "Merge result"). `True` = fuse into
+active (today's behavior); `False` = start a new active body. Reads `True` for legacy
+rows → **no `param_version` bump** (same idiom as `flip`/`direction`). `import` starts
+a new body instead of erroring `import_with_prior_body`.
+
+**3. The `boolean` feature.**
+```python
+class BooleanParamsV1(BaseModel):
+    operation: Literal["union", "subtract", "intersect"]
+    target: FeatureRef   # base feature of the SURVIVING body (subtract: minuend)
+    tool:   FeatureRef   # base feature of the CONSUMED body   (subtract: subtrahend)
+```
+Operands are `FeatureRef`s to each body's base feature (→ `feature_dependencies`
+edges → delete/reorder safety, generic documents validation, no documents code
+change). OCCT `fuse`/`cut`/`intersect` (add `.intersect()` = `BRepAlgoAPI_Common`).
+The result **replaces both operands, taking over the target's identity slot** (keeps
+target's base-feature id so downstream refs resolve) and removes the tool body; the
+boolean becomes active. v1 keeps the single-connected-solid-per-body invariant:
+disjoint union / severing subtract → `boolean_disjoint`; empty intersect →
+`boolean_empty` (multi-lump compound bodies deferred).
+
+**4. Topo-naming across a boolean — ships stage-1, honest limit.** Boolean-result
+faces/edges get signatures like any primitive; a downstream fillet on a boolean edge
+resolves to one edge on a **clean rebuild**. Under a topology-changing upstream edit
+it degrades to `subshape_unresolved`/`subshape_ambiguous` — the SAME documented
+best-effort posture as every feature, booleans being its weakest case. Do NOT block
+booleans on stage-2; document the degrade-under-edit limit; that's why
+downstream-feature-on-a-boolean-face is the LAST slice.
+
+## Blast radius (real touch-points)
+
+`evaluate.py` state + every handler (mechanical swap to active body); new kernel
+`boolean_bodies(target, tool, op)` + `boolean_disjoint/empty` taxonomy; part
+mass-props = analytic combine over the body set (reuse assembly `_combine_properties`,
+no re-mesh); tessellation/export widen `Solid → Shape/Compound` (deterministic
+base-`order_index` order; STEP multi-solid is valid AP214); **the assembly evaluator's
+mate resolvers must accept a Compound** (the sneaky ripple — miss it and mate
+resolution breaks silently); frontend adds a Bodies panel + boolean authoring UI +
+the `merge` checkbox (basic multi-body render is nearly free through the existing
+combined-GLB path).
+
+## Golden gate + determinism
+
+Same-commit goldens (geometry-gates rule): **union two 20mm cubes overlapping 10mm =
+12000 mm³** (8000+8000−4000), `shells=1`; subtract analytic; **intersect = 4000 mm³**;
+Slice-0 **two disjoint boxes = 16000 mm³, shells=2** (de-risks roll-up/tess/export
+before any boolean). Bodies tree-ordered; compound assembled in fixed order; boolean
+is a pure OCCT function; byte-identical GLB+STEP across interpreter restarts;
+`subshape_ambiguous` deterministic (not a coin flip) on a seam.
+
+## Slice sequence
+
+- **MB-0** — multi-body plumbing, no user-visible boolean: `state.bodies`+active, the
+  `merge` flag, compound roll-up/tessellation/export, widen resolvers/export to
+  Compound (incl. the assembly mate path). Golden: two disjoint boxes.
+- **MB-1** — the headline `union` feature + overlapping-cubes golden + `boolean_disjoint`;
+  frontend boolean authoring UI + Bodies panel + `merge` checkbox.
+- **MB-2** — `subtract` + `intersect` + analytic goldens + the error taxonomy.
+- **MB-3** — downstream feature (fillet/chamfer) on a boolean face/edge; body-scoped
+  resolution test; document the degrade-under-edit limit. (Highest naming risk, last.)
+- **MB-4 (deferred)** — explicit per-feature target-body ref, per-body pick/highlight,
+  disjoint multi-lump compound bodies.
+
+## Risks (flagged)
+
+`TreeEvaluation.body` type change rippling to the assembly mate resolvers (silent break
+if missed); cross-body ambiguity if any resolver runs against a merged all-bodies shape
+(must assert body-scoped); stage-1 naming degradation on boolean seams (honest,
+stage-2 territory); disjoint-union deferral is a real authoring limit (name it in the
+feature's v1-limits docstring).
