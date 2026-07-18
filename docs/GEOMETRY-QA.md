@@ -50,6 +50,88 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-18 — INDEPENDENT geometry-QA of MB-0 multi-body plumbing (`396dbcd`) — VERDICT: PASS
+
+Independent gate on the commit that swapped the eval loop's single `body` slot
+for a tree-ordered `bodies` dict (a part can now end with >1 body) and widened
+the mass-props / tessellation / export / assembly-mate path to a `Compound`.
+Ran the suites myself; did not trust the builder's self-report. All five checks
+PASS.
+
+### Check 1 — single-body regression (the critical one): PASS, byte-identical
+- `git show --stat 396dbcd` touches only the NEW golden's two files
+  (`multibody-two-disjoint-boxes/{model,expected}.json`). **No pre-existing
+  golden's `expected.json` or `model.json` was modified** — the byte-identical
+  claim is structurally confirmed, not just asserted.
+- Full golden harness green: **94 passed** (`test_goldens.py`, 23 goldens × 4
+  gates + inventory). Every pre-existing single-body golden — extrude, revolve
+  (`revolve-annulus-r10-20-h15`), sweep (`sweep-circle-r8-h30`), loft
+  (`loft-cylinder-offset`, `loft-pyramid-sq20-h30`), fillet
+  (`fillet-plate-r5`, `fillet-top-edge`), chamfer (`chamfer-plate-d5`), shell
+  (`shell-open-top-box`), draft (`draft-frustum-box`), pattern
+  (linear/circular/cut), hole (`plate-2holes`, `6hole-ring-cut`), boss-on-face,
+  import (`import-step-box`) — passes its committed `expected.json` unchanged.
+- Code confirms the mechanism: `evaluate.py:1517-1520` — `body_list =
+  list(state.bodies.values())`; `if len(body_list) == 1:` measures/tessellates
+  the **bare Solid** (no Compound path). One body → pre-MB path exactly.
+
+### Check 2 — `multibody-two-disjoint-boxes`, re-derived from scratch: PASS
+Rebuilt from `model.json` (NOT from expected.json) and measured:
+- body type = **Compound**, 2 disjoint solids: A bbox (0,0,0)→(20,20,20) vol
+  8000.0, B bbox (30,0,0)→(50,20,20) vol 8000.0 — the 10 mm x-gap is real.
+- volume **15999.999999999996** (dev vs analytic 16000 = **3.64e-12**)
+- surface_area **4799.999999999999** (dev vs 4800 = 9.1e-13)
+- centroid (**25.0, 9.999999999999998, 10.0**) — dev x=0, y=1.8e-15, z=0
+- bbox (0,0,0)→(**50,20,20**) exact
+- topology **faces=12, edges=24, shells=2** (shells=2 is the load-bearing
+  multi-body assertion); mesh **vertices=48, triangles=24**
+All match `expected.json` within its documented tolerance **1e-9** (worst case
+3.64e-12 is ~250× inside the ceiling). Golden's expected values are analytically
+correct — not enshrined buggy output.
+
+### Check 3 — determinism (fresh interpreter, base-order compound): PASS
+- Golden restart gate (`test_goldens.py`, subprocess `sys.executable -c`, genuinely
+  fresh interpreter) — GLB + metadata byte-identical for the multibody golden.
+- Went further than the shipped suite: exported STEP + GLB in **three fresh
+  interpreters under PYTHONHASHSEED ∈ {1, 424242, unset/random}** →
+  STEP sha256 `30835e1f…9483` and GLB sha256 `703b0cba…d51d8` identical across
+  all three. The base-order Compound (`list(state.bodies.values())` over an
+  insertion-ordered dict inserted in tree/base order) is genuinely
+  hash-independent, not accidentally stable within one seed.
+
+### Check 4 — assembly goldens intact (the flagged ripple): PASS
+`test_assembly_goldens.py` **10 passed** — `assembly-two-plates-bolted` and
+`assembly-two-plates-gap` still solve to the same poses / combined roll-up /
+shared-mesh dedup / restart-determinism after `TreeEvaluation.body` widened
+`Solid → BodyShape`. Mate resolution over a single-body part did NOT silently
+break. `test_multibody.py` **4 passed** (body-scoped resolution: coincident-twin
+fillet resolves to exactly one edge on the active body — no false
+`subshape_ambiguous`; widened resolvers accept Solid AND Compound).
+
+### Check 5 — STEP multi-solid round-trip: PASS
+- `test_step_roundtrip.py` **22 passed**; the multibody golden IS covered.
+  Independent re-measure: STEP export is AP214 (`AUTOMOTIVE_DESIGN`), **2×
+  `MANIFOLD_SOLID_BREP`** (valid multi-solid), re-import → 2 solids, total
+  volume dev vs original **0.0**, topology **shells=2 faces=12 edges=24**
+  preserved.
+
+### Test-suite gap found + closed (test code only, no app code)
+`test_export.py::test_export_is_byte_deterministic_across_interpreter_restart`
+is `@each_model` = **shape goldens only**; tree/compound goldens (incl.
+multibody) got STEP/STL determinism **in-process only** — which shares one hash
+seed and therefore CANNOT catch a hash-seed-dependent Compound ordering. Added
+`test_tree_export_is_byte_deterministic_across_interpreter_restart` (`@each_tree_model`,
+subprocess forced to a DIFFERENT `PYTHONHASHSEED=0`, reproduces the endpoint's
+`evaluate_tree → export_solid` path). **21 passed** (all tree goldens, incl.
+multibody). Full `test_export.py` green: **149 passed**. Ruff clean.
+
+### Evidence tail
+`test_goldens.py` 94 passed (103s) · `test_multibody.py`+`test_assembly_goldens.py`+
+`test_step_roundtrip.py` 40 passed · `test_export.py` 149 passed (108s) · three-seed
+STEP/GLB digest probe identical. No golden regressed; no tolerance touched.
+**VERDICT: PASS — MB-0 multi-body plumbing is geometrically correct and
+deterministic; single-body path is byte-identical.**
+
 ## 2026-07-17 — Distance + angle mates shipped: conventions PINNED with analytic goldens
 
 The assembly solver's fast-follow (`distance` + `angle` mates, design §2.3/§5)

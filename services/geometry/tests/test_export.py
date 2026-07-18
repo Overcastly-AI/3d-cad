@@ -36,6 +36,7 @@ docs/GEOMETRY-QA.md gap #8):
 import hashlib
 import json
 import math
+import os
 import struct
 import subprocess
 import sys
@@ -516,6 +517,77 @@ def test_tree_export_is_byte_deterministic_in_process(
     assert first.content == second.content, (
         f"{model_path.parent.name}: {fmt} tree-export bytes differ between runs"
     )
+
+
+#: Re-evaluates a feature-tree golden (EvaluateTreeRequest JSON on stdin) in a
+#: pristine interpreter and reports both formats' digests through the SAME
+#: evaluate-tree → export_solid path the endpoint uses, emulating a worker
+#: restart. Multi-body goldens (§MB-0) export as a Compound assembled in fixed
+#: base (tree) order; the parent runs this subprocess under a DIFFERENT
+#: PYTHONHASHSEED so any accidental dict/set-iteration dependence in that
+#: ordering — invisible to the in-process gate, which shares one hash seed —
+#: reorders the compound and breaks the digest match.
+_TREE_RESTART_PROBE = """\
+import hashlib
+import sys
+
+from geometry.features import evaluate_tree
+from geometry.kernel import export_solid
+from py_kit.schemas.features import EvaluateTreeRequest, ExportTreeRequest
+
+request = ExportTreeRequest.model_validate_json(sys.stdin.read())
+body = evaluate_tree(EvaluateTreeRequest.model_validate(request.model_dump())).body
+assert body is not None, "tree evaluated to no body"
+for fmt in ("step", "stl"):
+    data = export_solid(
+        body, fmt, request.linear_deflection, request.angular_deflection
+    )
+    print(fmt, hashlib.sha256(data).hexdigest())
+"""
+
+
+@each_tree_model
+def test_tree_export_is_byte_deterministic_across_interpreter_restart(
+    model_path: Path,
+) -> None:
+    """Fresh-interpreter tree export (worker-restart emulation, RESEARCH §9) →
+    same STEP and STL bytes as this process, under a DIFFERENT hash seed.
+
+    Closes the multi-body determinism gap the shape-golden restart gate cannot
+    reach: a part with >1 body tessellates/exports a ``Compound`` assembled in
+    fixed base order (``list(state.bodies.values())`` over an insertion-ordered
+    dict). The in-process gate shares one PYTHONHASHSEED, so a latent dict/set
+    ordering dependence would pass it; forcing a different seed in the child is
+    what actually proves the base-order compound is hash-independent.
+    """
+    name = model_path.parent.name
+    request = _tree_export_request(model_path, "step")  # deflections carry over
+    digests = {
+        fmt: hashlib.sha256(
+            _post_tree_export(_tree_export_request(model_path, fmt)).content
+        ).hexdigest()
+        for fmt in ("step", "stl")
+    }
+
+    env = {**os.environ, "PYTHONHASHSEED": "0"}
+    result = subprocess.run(
+        [sys.executable, "-c", _TREE_RESTART_PROBE],
+        input=request.model_dump_json(),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+    assert result.returncode == 0, (
+        f"{name}: tree restart probe failed:\n{result.stderr}"
+    )
+
+    remote = dict(line.split() for line in result.stdout.splitlines())
+    for fmt, digest in digests.items():
+        assert remote[fmt] == digest, (
+            f"{name}: {fmt} tree-export bytes differ across interpreter restart "
+            f"(base-order compound assembly is not hash-independent)"
+        )
 
 
 def test_tree_export_no_body_feature_returns_envelope(
