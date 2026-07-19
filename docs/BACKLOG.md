@@ -708,11 +708,25 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       at the (always-mounted) tooltip caption node, so `aria-disabled` announces
       with its why, band-wide; visuals/testids/gating untouched; 5 new vitest
       (design 31, web 641) + typecheck + lint green. [src: UI-REVIEW UR2 pass]
-- [ ] (P2, S) Sheet metal — design-doc endorsement (`code-reviewer` review of
-      `docs/design/sheet-metal.md` before any implementation, CLAUDE.md's
-      hard-problem-gets-a-design-doc-first rule). Gates the four slices below
-      the same way `assemblies.md`/`drawings.md` were reviewed before their
-      Ready items were queued. Not code; a review gate. [src: founder]
+- [x] **Sheet metal — design doc corrected (2026-07-19)** — 5 technical
+      corrections before the first build slice (new additive
+      `CylindricalFaceSignature`, real `ProjectedViewEdge` 2D vocab + minimal
+      additive `edge_role`, depth-1-bend-star scope, exact area-conservation
+      invariant + pinned K=0.44, `gp_Trsf`/`pattern.py` citation).
+      [vision-steward]
+- [x] **Sheet metal — Spike 0 (L-bracket unfold tractability proof) done
+      (2026-07-19) — VERDICT: TRACTABLE.** Isolated spike proving the flat-pattern
+      unfold end-to-end on the simplest depth-1 case (`leg1 + BA + leg2`,
+      `BA = angle × (r + K·t)`, K=0.44) BEFORE committing the feature schema.
+      Bend-allowance residual 1.78e-15 (ceiling 1e-9); flat length + area residual
+      0.0; area conservation verified two ways; byte-deterministic across
+      fresh-process restarts (golden `sheet-metal-l-bracket-unfold`). New additive
+      `services/geometry/src/geometry/sheet_metal/` (in-module `FlatPattern`, no
+      py-kit/contract change). The geometric bend resolver already extracts every
+      `CylindricalFaceSignature` field → slice #3 is a persistence wrapper, not new
+      geometry. Deferred to feature slices: `MakeFace` on a non-rectangular blank +
+      up/down bend inference. No OCCT wall; 13 tests, ruff + pyright clean.
+      [kernel-architect, spike]
 - [ ] (P2, M) Sheet metal v1 #1 — base flange feature (documents + geometry)
       — `SheetMetalBaseFlangeParamsV1` (gauge `thickness_mm` + default
       `k_factor`/`bend_radius_mm`), kernel-side reusing `extrude.py`'s

@@ -2,7 +2,13 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 3 — Assemblies.** Phase 2 (parametric core)
+**Current focus: Phase 4b — Sheet metal** (founder green-lit 2026-07-19;
+Spike 0 unfold tractability proof landed — see §Phase 4b). The intervening
+pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
+the **Multi-body** pillar through MB-4a (multi-lump bodies + opt-in disjoint
+union). The historical convergence notes below are retained as-is.
+
+Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
 last gaps to ✅ (sketch dimension expressions + driving/driven,
 constrainable spline fit points, and typed over-constraint diagnosis closed
@@ -780,11 +786,30 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       window is CLOSED — the drawing-export initiative (DE-0…DE-3) is complete.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
-## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)
+## Phase 4b — Sheet metal 🔨 (founder green-lit; Spike 0 tractability proof landed)
 
-**Not started, not yet green-lit** — a candidate pillar the vision-steward
+**In progress — founder green-lit 2026-07-19.** A pillar the vision-steward
 scoped 2026-07-17 in response to a founder ask ("anything for sheet metal?").
-Architecture decision: `docs/design/sheet-metal.md`. Named after Drawings
+Architecture decision: `docs/design/sheet-metal.md` (design doc corrected
+2026-07-19 before the first build slice — new additive `CylindricalFaceSignature`,
+real `ProjectedViewEdge` 2D vocab, depth-1-bend-star scope, exact area-conservation
+invariant + pinned K-factor, `gp_Trsf`/`pattern.py` citation).
+
+**Spike 0 (L-bracket unfold tractability proof) landed 2026-07-19 — VERDICT:
+TRACTABLE.** Before committing the feature schema, an isolated spike proved the
+flat-pattern unfold end-to-end on the simplest depth-1 case: `leg1 + BA + leg2`
+with `BA = angle × (r + K·t)`, K=0.44. Bend-allowance residual 1.78e-15 (ceiling
+1e-9); flat length (86.09 mm) + flat area (1721.89 mm²) residual 0.0; area
+conservation verified two independent ways; **byte-deterministic across
+fresh-process restarts** (golden `sheet-metal-l-bracket-unfold`). New additive
+`services/geometry/src/geometry/sheet_metal/` module (in-module `FlatPattern`
+dataclass — no py-kit/contract change yet). The geometric bend resolver already
+extracts every field the future `CylindricalFaceSignature` must carry (axis /
+radius / centroid off OCCT's cylinder adaptor), proving slice #3 is a
+persistence-and-matching wrapper, not new geometry. Two items honestly deferred to
+the feature slices: `MakeFace` robustness on a non-rectangular blank (hole/notch
+through a bend), and up/down bend-direction inference. No OCCT wall. 13 tests,
+ruff + pyright clean. [kernel-architect, spike] Named after Drawings
 (not before Phase 5) because it composes directly with the shipped
 Drawings pipeline — the flat pattern rides the same `ProjectedViewEdge`/
 HLR-view machinery as a part drawing (design doc §7) — and because Drawings

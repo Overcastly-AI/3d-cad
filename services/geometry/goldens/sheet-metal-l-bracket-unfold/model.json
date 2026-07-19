@@ -1,0 +1,9 @@
+{
+  "description": "SPIKE 0 L-bracket (docs/design/sheet-metal.md §9 golden #1): a constant-thickness sheet folded once, 90 deg. Base flange developed leg = 50 mm, edge flange developed leg = 30 mm (BOTH measured to the bend tangent line, NOT the theoretical sharp corner), gauge thickness = 2 mm, INNER bend radius = 3 mm, bend width (along the bend axis) = 20 mm, K-factor = 0.44 (the v1 default, §1). The test-local builder (tests/_l_bracket_builder.py) constructs the folded body directly (two flat flanges + a quarter-cylinder bend, swept along the width) so the unfold math is proven before the base-flange/edge-flange feature schema exists.",
+  "leg1_mm": 50.0,
+  "leg2_mm": 30.0,
+  "thickness_mm": 2.0,
+  "bend_radius_mm": 3.0,
+  "bend_width_mm": 20.0,
+  "k_factor": 0.44
+}
