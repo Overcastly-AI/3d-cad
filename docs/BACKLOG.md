@@ -50,10 +50,12 @@ duplication:
 - **Sheet metal — new ❌ row this pass (founder ask 2026-07-17: "anything for
   sheet metal?").** Scoped, not built: `docs/design/sheet-metal.md` names
   the flat-pattern unfold as the pillar's genuine kernel risk (OCCT has no
-  turnkey unfold — verified) and proposes a v1 cut (one provenance-tracked
-  bend, reusing the shipped extrude/sweep kernel primitives + the Drawings
-  view pipeline). **Not yet endorsed for build** — the design doc needs a
-  `code-reviewer` pass before its slices (filed below, Next) move to Ready.
+  turnkey unfold — verified) and proposes a v1 cut (a **depth-1 bend star**
+  — one base flange plus N edge flanges directly off it, provenance-tracked
+  via a new additive `CylindricalFaceSignature`, reusing the shipped
+  extrude/sweep kernel primitives + the Drawings view pipeline). **Not yet
+  endorsed for build** — the design doc needs a `code-reviewer` pass before
+  its slices (filed below, Next) move to Ready.
 - **Unfiled-but-named product-audit follow-ups** (history-tree drag-reorder/
   suppress, feature-mirror + 2-direction pattern, a friendlier
   `boolean_failed` message) — next groom pass, once assemblies v1 has room.
@@ -726,28 +728,34 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       (`BRepAdaptor_Surface.GetType()`) + rigid-transform + bend-allowance
       (`BA = angle × (radius + K·thickness)`) reconstruction via
       `BRepBuilderAPI`; ships with the analytic unfolded-length +
-      area-conservation goldens (design doc §9 items 1–2) in the same
-      commit — DoD. Depends on #1 (needs a real sheet body/thickness to
-      classify against, even if the bend face is hand-built for this
-      slice). [src: founder, design/sheet-metal.md §2/§6/§10]
+      area-conservation goldens (design doc §9 items 1–2, precise invariant
+      + pinned K=0.44 default) in the same commit — DoD. Depends on #1
+      (needs a real sheet body/thickness to classify against, even if the
+      bend face is hand-built for this slice). [src: founder, design/
+      sheet-metal.md §2/§6/§10]
 - [ ] (P2, M) Sheet metal v1 #3 — edge-flange (bend) feature (geometry +
       documents) — `SheetMetalEdgeFlangeParamsV1` (`flange_length_mm`/
       `bend_angle_deg`/`bend_radius_mm`/`k_factor`, parameter-driven arc+line
       path reusing `sweep.py`'s profile-along-path primitives internally);
-      tags the bend region's faces via the shipped `SubshapeRef`/
-      `EdgeSignature` machinery so #2's unfold never has to blind-detect a
-      bend. Wires #2 to real authored geometry — the "does the algorithm
-      that passed on a hand-built body also unfold something a user actually
-      modeled" proof. [src: founder, design/sheet-metal.md §4.2/§5/§10]
+      tags the bend region's faces via a NEW additive `CylindricalFaceSignature`
+      (a bend face is cylindrical — the existing `PlanarFaceSignature` cannot
+      name it) plus the shipped `SubshapeRef`/`EdgeSignature` machinery so
+      #2's unfold never has to blind-detect a bend. Wires #2 to real authored
+      geometry — the "does the algorithm that passed on a hand-built body
+      also unfold something a user actually modeled" proof, and covers a
+      depth-1 bend star (N edge flanges off one base — an L-bracket or
+      U-channel), not just one bend. [src: founder, design/sheet-metal.md
+      §4.2/§4.3/§5/§10]
 - [ ] (P2, M) Sheet metal v1 #4 — flat pattern as a drawing view + bend
       table (geometry + documents + web) — the v1 DoD, "one bracket → a
       dimensionally-correct flat blank a shop can cut." `views.projection =
       "flat_pattern"` feeds the `FlatPattern` output directly into the
-      shipped `ViewGeometry` DTO (no HLR needed — already flat) so the sheet
-      editor/dimension UI/SVG export work with ZERO new frontend renderer
-      code; `annotations.type = "table"` carries the per-bend rows (angle,
-      radius, direction, allowance) the unfold already computed. [src:
-      founder, design/sheet-metal.md §7/§10]
+      shipped `ProjectedViewEdge` shape (no HLR needed — already flat) so the
+      sheet editor/dimension UI/SVG export work with MINIMAL additive
+      frontend, not zero — one new `edge_role: "body" | "bend"` field/render
+      branch, not a new renderer; `annotations.type = "table"` carries the
+      per-bend rows (angle, radius, direction, allowance) the unfold already
+      computed. [src: founder, design/sheet-metal.md §6/§7/§10]
 
 - [ ] (P2, M) Datum-plane completeness (founder ask 2026-07-16: "do we have
       planes, offset planes, midpoint planes etc") — **backend slice ✅
