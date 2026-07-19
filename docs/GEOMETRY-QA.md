@@ -96,6 +96,38 @@ image of the flat notch. Evidence (build123d 0.11.1 / OCCT 7.9, tol 1e-9, vol to
 - **Regression gate:** ALL existing depth-1/depth-2 goldens BYTE-UNCHANGED — the
   relieved path runs ONLY when `reliefs=...` is supplied. Full `pytest tests/` green.
 
+## 2026-07-19 — Corner relief WIRED as an authorable feature (kernel-architect self-report)
+
+**Closed the dead-capability gap:** the relief geometry above was reachable only
+from tests. Now `SheetMetalCornerReliefParamsV1` (`type="sheet_metal_corner_relief"`,
+two edge-flange `FeatureRef`s + `relief_ratio`/`size_mm`, EXPLICIT per §4.4.2) is a
+real feature registered in all six arms; its evaluator cuts the 3D notch and records
+the relief so the flat-pattern unfold + the drawing `flat_pattern` view develop the
+matching relieved blank. Fold-back invariant now proven at the **pipeline** level.
+
+- **New golden `corner-tray-relieved-feature`** — the relieved-tray tree + an authored
+  `sheet_metal_corner_relief` feature (`relief_ratio 1.5` → size 3.0 at gauge 2.0).
+  Evaluating it: 5/5 features ok; the evaluated body is the RELIEVED body (vol
+  **6350.247719318986**, topology faces=20/edges=54/shells=1); the pre-relief snapshot
+  (`unfold_body`) has the base vol **6479.645943005143**; the pipeline flat pattern's
+  content_hash is **`c1671448…`** — BYTE-IDENTICAL to the unit `corner-tray-relieved-unfold`
+  golden (same relief, same computation), proving the feature drives the SAME two halves.
+- **Pipeline fold-back gate (`test_sheet_metal_corner_relief_feature.py`, 12 tests):**
+  reproduces both witnesses reached entirely through `evaluate_tree` — the evaluated
+  relieved body's inner bend cylindrical-face widths == flat `bend_widths_mm` [27.0,
+  37.0], and removed 3D volume (snapshot − relieved) == removed flat area×t + bend term
+  to ~1e-11. Also asserts the drawing `flat_pattern` view develops the relieved outline
+  (10 body + 2 bend edges, 2 bend-table rows).
+- **Pipeline finding (recorded):** the unfold must resolve bends on the un-notched body
+  — the notch shifts the bend cylindrical-face centroid past the `_CENTROID_TOL_MM`
+  (1e-6) match tolerance — so the evaluator snapshots the pre-relief body once, and the
+  unfold resolves against that while applying the relief analytically (§4.4.4).
+- **Honest degradation, typed at the pipeline:** a bend ref to a non-edge-flange feature
+  → `reference_unresolved`; parallel/same bends → `corner_relief_failed`; no prior body
+  → `no_prior_body` — all inside the strict-prefix partial result, never a crash.
+- **Regression gate:** existing goldens byte-unchanged; contracts + ts-client regenerated
+  (`just gen-check` clean); full `pytest tests/` green.
+
 ## 2026-07-19 — Sheet-metal depth-≥2 bend-TREE unfold FEATURE (kernel-architect self-report)
 
 **SHIPPED — the spike graduated into `unfold_sheet_metal`.** Depth-2 is no longer

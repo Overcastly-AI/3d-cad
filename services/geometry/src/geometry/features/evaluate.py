@@ -90,6 +90,7 @@ from py_kit.schemas.features import (
     PatternGeometry,
     RevolveFeature,
     SheetMetalBaseFlangeFeature,
+    SheetMetalCornerReliefFeature,
     SheetMetalEdgeFlangeFeature,
     SheetMetalHemFeature,
     ShellFeature,
@@ -169,9 +170,12 @@ from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
 from geometry.sheet_metal import (
     BendProvenance,
+    CornerRelief,
+    CornerReliefError,
     EdgeFlangeEdgeError,
     EdgeFlangeError,
     SheetMetalDefaults,
+    apply_corner_relief,
     build_edge_flange,
 )
 from geometry.sketch import (
@@ -262,6 +266,20 @@ class EvaluationState:
     bend_provenance: dict[uuid.UUID, BendProvenance] = field(
         default_factory=dict[uuid.UUID, BendProvenance]
     )
+    #: The explicit corner reliefs (§4.4) authored by each ok corner-relief feature,
+    #: keyed by that feature id and insertion-ordered by evaluation order
+    #: (deterministic). The flat-pattern unfold reads them to develop the relieved
+    #: blank; the 3D notch is already cut into the active body. Service-internal.
+    corner_reliefs: dict[uuid.UUID, CornerRelief] = field(
+        default_factory=dict[uuid.UUID, CornerRelief]
+    )
+    #: The sheet body snapshot the flat-pattern unfold resolves its bends against —
+    #: captured just BEFORE the FIRST corner-relief cut (§4.4.4). A relief notch
+    #: shortens the bend cylindrical face, shifting its centroid past the signature
+    #: match tolerance, so the unfold must resolve bends on the un-notched body while
+    #: applying the reliefs ANALYTICALLY. ``None`` until a relief runs (then the
+    #: unfold uses the last-good body directly). Service-internal, like ``bodies``.
+    sheet_metal_unfold_body: BodyShape | None = None
     active_body_id: uuid.UUID | None = None
     #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
     #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern
@@ -953,6 +971,126 @@ def _evaluate_sheet_metal_hem(
         override_k_factor=params.k_factor,
         subject="A hem",
     )
+
+
+def _resolve_relief_bend(
+    ref: FeatureRef, state: EvaluationState, *, slot: str
+) -> BendProvenance | FeatureError:
+    """Resolve a corner-relief bend FeatureRef to its recorded bend provenance (§5).
+
+    A corner relief names each bend by the earlier edge-flange feature that CREATED
+    it (documents enforces the ``sheet_metal_edge_flange`` slot rule at write time;
+    geometry re-checks because it must not trust callers). The provenance dict holds
+    only edge flanges evaluated ``ok`` in this prefix, so a self / forward / rolled-
+    back / non-edge-flange ref all MISS the same way — one honest
+    ``reference_unresolved`` pinned to the referenced id (§4.3). *slot* names the
+    failing bend in the message.
+    """
+    prov = state.bend_provenance.get(ref.feature_id)
+    if prov is None:
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                f"Corner-relief {slot} must reference an earlier edge-flange feature "
+                "of this tree whose bend was built successfully; the referenced "
+                "feature is not a resolved sheet-metal bend."
+            ),
+            upstream_feature_id=ref.feature_id,
+        )
+    return prov
+
+
+def _evaluate_sheet_metal_corner_relief(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Cut a rectangular corner relief at two adjacent flanges' corner (§4.4).
+
+    Body-modifying (design §7.6): it needs a prior sheet body with recorded
+    sheet-metal defaults (gauge, for the ratio sizing) and the two named bends'
+    provenance. Resolves each bend FeatureRef to its recorded
+    :class:`CylindricalFaceSignature` (:func:`_resolve_relief_bend`), sizes the notch
+    (``size_mm`` override, else ``relief_ratio * thickness`` — §4.4.3), builds the
+    geometry-side :class:`CornerRelief`, and cuts the 3D notch
+    (:func:`apply_corner_relief`). The SAME spec is recorded on ``state`` so the
+    flat-pattern unfold develops the matching relieved blank — the fold-back
+    guarantee (§4.4.4) holds through the real pipeline, not just the unit test.
+
+    Because the notch shortens the bend cylindrical face (shifting its centroid past
+    the signature match tolerance), the flat pattern must resolve its bends on the
+    PRE-relief body; this handler snapshots that body once, before the first cut
+    (:attr:`EvaluationState.sheet_metal_unfold_body`).
+
+    Every failure is a TYPED per-feature error (never a raw kernel exception or a
+    wrong body — §4.4/§5): no prior body (``no_prior_body``), no sheet-metal defaults
+    (``no_base_flange``), a bend ref that no longer resolves
+    (``reference_unresolved``), a bend signature that no longer matches the body
+    (``subshape_unresolved`` / ``subshape_ambiguous``), or a relief that cannot apply
+    — parallel/non-perpendicular bends, an axis-unaligned corner, or a cut that
+    severs the sheet (``corner_relief_failed``). The active body + the recorded
+    relief set are mutated only on success (last-good semantics, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalCornerReliefFeature), (
+        "registry dispatches on type='sheet_metal_corner_relief'"
+    )
+    params = feature.params
+
+    active = state.active_body
+    if active is None or state.active_body_id is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "A corner relief requires an existing sheet body, but no "
+                "body-affecting feature precedes it; add a base flange and edge "
+                "flanges first."
+            ),
+        )
+    defaults = state.sheet_metal_defaults.get(state.active_body_id)
+    if defaults is None:
+        return FeatureError(
+            code="no_base_flange",
+            message=(
+                "A corner relief needs the part's sheet-metal gauge (from a base "
+                "flange) to size its notch, but the active body is not a sheet-metal "
+                "base flange."
+            ),
+        )
+
+    prov_a = _resolve_relief_bend(params.bend_a, state, slot="bend_a")
+    if isinstance(prov_a, FeatureError):
+        return prov_a
+    prov_b = _resolve_relief_bend(params.bend_b, state, slot="bend_b")
+    if isinstance(prov_b, FeatureError):
+        return prov_b
+
+    size = (
+        params.size_mm
+        if params.size_mm is not None
+        else params.relief_ratio * defaults.thickness_mm
+    )
+    relief = CornerRelief(
+        bend_a=prov_a.cyl_signature,
+        bend_b=prov_b.cyl_signature,
+        size_mm=size,
+        relief_type=params.relief_type,
+    )
+
+    try:
+        relieved = apply_corner_relief(active, relief)
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(code="subshape_unresolved", message=str(exc))
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(code="subshape_ambiguous", message=str(exc))
+    except CornerReliefError as exc:
+        return FeatureError(code="corner_relief_failed", message=str(exc))
+
+    # Snapshot the un-notched sheet body for the unfold BEFORE mutating (only the
+    # first relief captures it — later reliefs cut the already-snapshotted body).
+    if state.sheet_metal_unfold_body is None:
+        state.sheet_metal_unfold_body = active
+    state.set_active_body(relieved)
+    state.corner_reliefs[item.id] = relief
+    return None
 
 
 def _evaluate_revolve(
@@ -1691,6 +1829,7 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "sheet_metal_base_flange",
         "sheet_metal_edge_flange",
         "sheet_metal_hem",
+        "sheet_metal_corner_relief",
         "boolean",
     }
 )
@@ -1715,6 +1854,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "sheet_metal_base_flange": _evaluate_sheet_metal_base_flange,
     "sheet_metal_edge_flange": _evaluate_sheet_metal_edge_flange,
     "sheet_metal_hem": _evaluate_sheet_metal_hem,
+    "sheet_metal_corner_relief": _evaluate_sheet_metal_corner_relief,
     "boolean": _evaluate_boolean,
 }
 
@@ -1791,6 +1931,14 @@ class TreeEvaluation:
     #: provenance against ``body``. Empty / ``None`` for a non-sheet-metal part.
     bend_provenance: list[BendProvenance] = field(default_factory=list[BendProvenance])
     sheet_metal_defaults: SheetMetalDefaults | None = None
+    #: Explicit corner reliefs (§4.4) authored in the tree, evaluation order — passed
+    #: to :func:`unfold_sheet_metal` so the flat pattern develops the relieved blank.
+    #: Empty for a part with no corner-relief feature.
+    corner_reliefs: list[CornerRelief] = field(default_factory=list[CornerRelief])
+    #: The pre-relief sheet body the flat-pattern unfold resolves its bends against
+    #: (§4.4.4) — the un-notched body snapshotted before the first relief cut, or
+    #: ``None`` when no relief was applied (the unfold then uses ``body`` directly).
+    unfold_body: BodyShape | None = None
 
 
 def tree_no_body_error(
@@ -1916,4 +2064,6 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         mesh=mesh,
         bend_provenance=list(state.bend_provenance.values()),
         sheet_metal_defaults=next(iter(state.sheet_metal_defaults.values()), None),
+        corner_reliefs=list(state.corner_reliefs.values()),
+        unfold_body=state.sheet_metal_unfold_body,
     )

@@ -462,6 +462,40 @@ it is a clean follow-on, and shipping the explicit primitive first keeps the
 determinism/golden story tight (the relief set is an explicit input, not a
 graph-walk output that could drift).
 
+**Implementation note — EXPLICIT feature WIRED end-to-end (2026-07-19,
+kernel-architect).** The relief geometry (`apply_corner_relief` +
+`unfold_sheet_metal(reliefs=...)`) shipped earlier but was dead capability — called
+only from tests, with no feature schema and no evaluate-pipeline entry, so a user
+could not author it. It is now an authorable feature `SheetMetalCornerReliefParamsV1`
+(`type="sheet_metal_corner_relief"`): two `FeatureRef`s (`bend_a`/`bend_b`) at the
+edge-flange features whose bends meet at the corner, plus `relief_ratio` (default
+1.0) and an optional absolute `size_mm` override (§4.4.3), `relief_type="rectangular"`.
+Registered in all six feature arms (the `Feature`/`FeatureEnvelope` unions, the
+registry, `BODY_AFFECTING_FEATURE_TYPES`, `feature_references` — both bend slots
+accept `sheet_metal_edge_flange` only — and geometry's `_BODY_AFFECTING_TYPES` +
+`FEATURE_HANDLERS`). Its evaluator (`_evaluate_sheet_metal_corner_relief`) maps each
+`FeatureRef` to that edge flange's recorded `CylindricalFaceSignature` (§5, held in
+`EvaluationState.bend_provenance`), sizes the notch (`size_mm` else
+`relief_ratio × thickness`), builds the geometry-side `CornerRelief`, cuts the 3D
+notch, and RECORDS the relief so the flat-pattern unfold + the drawing `flat_pattern`
+view develop the matching relieved blank. **One pipeline finding, recorded not
+hidden:** the flat pattern must resolve its bends on the sheet body *before* the
+relief cut — the notch shortens the bend cylindrical face, shifting its centroid past
+the `_CENTROID_TOL_MM` (1e-6) signature match tolerance — so the evaluator snapshots
+the un-notched body (`EvaluationState.sheet_metal_unfold_body`) once before the first
+relief, and the unfold resolves against that while applying the reliefs analytically
+(consistent with §4.4.4's "decoupled from the 3D boolean" posture). The fold-back
+invariant is now proven at the **pipeline** level (golden `corner-tray-relieved-feature`
++ `test_sheet_metal_corner_relief_feature.py`): evaluating a real tray tree with a
+corner-relief feature yields a body with the 3D notch AND a flat pattern whose
+content hash is byte-identical to the unit `corner-tray-relieved-unfold` golden.
+Honest degradation is typed at the pipeline: a bend ref to a non-edge-flange feature
+→ `reference_unresolved`, parallel/same bends → `corner_relief_failed`, no body →
+`no_prior_body`. **The AUTHORING UI is a separate frontend slice** — the wire shape
+it consumes is exactly this schema (two edge-flange FeatureRefs the user picks in the
+tree/viewport + a relief-ratio/size field); auto-relief (a part-level default that
+synthesises these specs by walking the bend graph) is the now-unblocked fast-follow.
+
 ### 4.4.3 Sizing — a multiple of thickness, defaulted, overridable
 
 The relief size is `size_mm = relief_ratio × thickness_mm`, default

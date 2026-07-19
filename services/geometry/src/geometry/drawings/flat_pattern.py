@@ -122,12 +122,18 @@ def flat_pattern_view_result(
                 ),
             ),
         )
+    # A relieved part unfolds the PRE-relief (un-notched) body — a relief notch
+    # shifts the bend-face centroid past the signature match tolerance, so bends
+    # resolve on the snapshot while the reliefs are applied analytically (§4.4.4).
+    # An unrelieved part has no snapshot, so this is the ordinary evaluated body.
+    unfold_body = evaluation.unfold_body or evaluation.body
     try:
         pattern = unfold_sheet_metal(
-            evaluation.body,
+            unfold_body,
             evaluation.bend_provenance,
             defaults.thickness_mm,
             defaults.k_factor,
+            reliefs=evaluation.corner_reliefs or None,
         )
     except (SubshapeUnresolvedError, SubshapeAmbiguousError) as exc:
         code = (

@@ -17,9 +17,11 @@ gap to be *measured*, not asserted: `docs/design/sheet-metal-parity.md`
 status, re-checked as each feature lands. **Do not flip the scorecard row
 until that matrix says so.**
 
-**In flight right now:** authoring UI ✅, corner relief ✅, and closed hem ✅
-all landed (2026-07-19). Next down the corrected sequence: a Hem authoring UI
-slice + open/teardrop/rolled hems, then jogs.
+**In flight right now:** authoring UI ✅, corner relief ✅ (geometry **and**
+now WIRED as an authorable `sheet_metal_corner_relief` feature end-to-end,
+2026-07-19), and closed hem ✅ all landed (2026-07-19). Next down the corrected
+sequence: the auto-relief policy layer (now unblocked) + a Corner-Relief/Hem
+authoring UI slice + open/teardrop/rolled hems, then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner
@@ -48,9 +50,20 @@ convert-to-sheet-metal → forming tools; full rationale in
    neutral-vs-mean-radius term. Golden `corner-tray-relieved-unfold` (valid
    `size=3=bend_radius`) + 13 tests; the fully-welded depth-2 box corner stays a
    TYPED reject (needs miter/closed-corner geometry, next). All depth-1/2 goldens
-   byte-unchanged (empty relief set → verbatim pre-existing paths). Follow-ons:
-   obround/tear relief variants, auto-relief policy layer, relieved flat-pattern
-   DRAWING view (threads reliefs through the composer).
+   byte-unchanged (empty relief set → verbatim pre-existing paths).
+   **WIRED as an authorable feature ✅ 2026-07-19** (kernel-architect): the shipped
+   geometry was dead capability (relief called only from tests, no feature schema).
+   Now a `SheetMetalCornerReliefParamsV1` feature (`type="sheet_metal_corner_relief"`,
+   `bend_a`/`bend_b` FeatureRefs at the two edge flanges + `relief_ratio`/`size_mm`,
+   EXPLICIT per §4.4.2) registered in all 6 arms; its evaluator cuts the 3D notch
+   AND records the relief so the flat-pattern unfold (and the drawing flat_pattern
+   view) develop the matching relieved blank — the fold-back invariant now proven
+   at the **pipeline** level (new golden `corner-tray-relieved-feature` + 12 tests,
+   flat pattern byte-identical to the unit golden). The unfold resolves bends on a
+   PRE-relief snapshot (the notch shifts the bend-face centroid past match
+   tolerance). Follow-ons: obround/tear relief variants, **auto-relief policy layer**
+   (walk the bend graph, synthesise an explicit relief per colliding corner — now
+   unblocked), and a Corner-Relief authoring UI (API-only today, like the flanges).
 3. **Hems** — **closed hem ✅ SHIPPED 2026-07-19** (kernel-architect). A
    first-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge +
    `length_mm` + optional radius/K, `hem_type="closed"`): a fixed 180° fold of

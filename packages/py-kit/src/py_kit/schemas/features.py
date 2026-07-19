@@ -1573,6 +1573,98 @@ class SheetMetalHemParamsV1(BaseModel):
     )
 
 
+# --- Sheet-metal corner relief — a RECTANGULAR notch at a bend intersection -------
+#
+# A CORNER RELIEF cuts a small material notch at the shared corner of two adjacent
+# edge flanges so the folded sheet does not tear/interfere and — the point for the
+# flat pattern — so the corner develops into a single non-overlapping blank
+# (docs/design/sheet-metal.md §4.4). The 3D notch geometry + the relieved flat-
+# pattern unfold already ship (`geometry.sheet_metal.apply_corner_relief` /
+# `unfold_sheet_metal(reliefs=...)`); this is the FEATURE that lets a user AUTHOR
+# one so both halves fire end-to-end.
+#
+# AUTO vs EXPLICIT — v1 is EXPLICIT (sheet-metal.md §4.4.2). A relief is an explicit
+# per-corner feature: the user names the two bends whose intersection it relieves
+# and a size. Auto relief (a part-level default applied at every corner that needs
+# it) is the incumbent default and the natural follow-on, but it is a POLICY LAYER
+# over this primitive (walk the bend graph, synthesise an explicit relief per
+# colliding corner) — no new geometry, so it is a clean fast-follow. Shipping the
+# explicit primitive first keeps the determinism/golden story tight (the relief set
+# is an explicit input, not a graph-walk output that could drift, §4.4.2).
+#
+# The two bends are named by `FeatureRef` — each points at the earlier
+# `sheet_metal_edge_flange` feature that CREATED that bend. The evaluator maps each
+# ref to that feature's recorded bend provenance (its `CylindricalFaceSignature`,
+# §5) and builds the geometry-side `CornerRelief` from the two signatures, so the
+# feature never has to persist a kernel cylindrical signature on the wire — the
+# provenance lives where it is computed (the edge flange), exactly like a fillet's
+# picked edge materialises the base-flange dependency. This is why corner relief is
+# a BODY-AFFECTING feature that MODIFIES the sheet body (it cuts the notch) yet its
+# only whole-feature dependencies are the two edge-flange features + tree order.
+
+
+class SheetMetalCornerReliefParamsV1(BaseModel):
+    """An explicit RECTANGULAR corner relief at two adjacent flanges' corner (§4.4).
+
+    Names the two bends whose shared corner it relieves — ``bend_a`` / ``bend_b``,
+    each a :class:`FeatureRef` at the earlier ``sheet_metal_edge_flange`` feature
+    that created that bend. The evaluator resolves each ref to that feature's
+    recorded :class:`CylindricalFaceSignature` (§5) and drives BOTH halves of the
+    relief from the two signatures: the 3D notch boolean
+    (:func:`geometry.sheet_metal.apply_corner_relief`) and the relieved flat-pattern
+    unfold (:func:`unfold_sheet_metal` with ``reliefs=...``) — consistent by
+    construction (the fold-back guarantee, §4.4.4).
+
+    SIZING (§4.4.3): the notch is ``size = relief_ratio * thickness`` by default
+    (``relief_ratio = 1.0`` — one gauge thickness, the tear-safe SolidWorks Relief
+    Ratio default), with the part's gauge taken from the base flange. An absolute
+    ``size_mm`` OVERRIDES the ratio when set (the authoring/UI convenience the golden
+    pins to an exact number). The manufacturing floor ``size >= bend_radius`` (the
+    notch should clear the bend arc) is a recommendation, not a hard bound — an
+    undersized relief is a manufacturing warning, still a fold-back-consistent body.
+
+    v1 ships ``relief_type = "rectangular"`` only (the sole purely-rectilinear
+    developable notch; obround / round / tear are §4.4.1 follow-ons). It MODIFIES the
+    implicit single sheet body chain (design §7.6) — it carries no ``merge`` — so its
+    only whole-feature dependencies are the two edge-flange refs + tree order.
+    """
+
+    bend_a: FeatureRef = Field(
+        description="The FIRST bend of the relieved corner — a FeatureRef at the "
+        "earlier sheet_metal_edge_flange feature that created it. Resolved to that "
+        "feature's recorded CylindricalFaceSignature (§5)."
+    )
+    bend_b: FeatureRef = Field(
+        description="The SECOND bend of the relieved corner — a FeatureRef at the "
+        "other sheet_metal_edge_flange feature. Its shared corner with bend_a is the "
+        "corner the notch relieves; the two bends must be PERPENDICULAR (a real "
+        "tray corner) or the relief is a typed error (§4.4)."
+    )
+    relief_type: Literal["rectangular"] = Field(
+        default="rectangular",
+        description="Relief geometry. v1 ships 'rectangular' only (the sole purely-"
+        "rectilinear developable notch — §4.4.1). Obround / round / tear each need a "
+        "curved / degenerate cut and are deferred (additive Literal members, no "
+        "param_version bump). Absent reads 'rectangular'.",
+    )
+    relief_ratio: float = Field(
+        default=1.0,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Notch size as a multiple of gauge thickness (size = "
+        "relief_ratio * thickness) — the SolidWorks Relief Ratio family. Default 1.0 "
+        "(one thickness, tear-safe). IGNORED when size_mm is set.",
+    )
+    size_mm: float | None = Field(
+        default=None,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Absolute notch size (mm). When set, OVERRIDES relief_ratio (the "
+        "authoring/UI convenience that resolves the ratio to an exact value the "
+        "golden pins). Omitted (None) uses relief_ratio * the part's gauge thickness.",
+    )
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -1758,6 +1850,23 @@ class SheetMetalHemFeature(BaseModel):
     params: SheetMetalHemParamsV1
 
 
+class SheetMetalCornerReliefFeature(BaseModel):
+    """``{"type": "sheet_metal_corner_relief", "version": 1, "params": {...}}``.
+
+    A body-affecting feature (sheet-metal.md §4.4) that cuts a rectangular notch at
+    the shared corner of two adjacent edge flanges and — via the analytic relieved
+    unfold — makes that corner develop into a single non-overlapping flat blank. It
+    names the two bends by :class:`FeatureRef` (the edge-flange features that created
+    them); the evaluator resolves each to its recorded
+    :class:`CylindricalFaceSignature` (§5) to drive both relief halves. ``params`` is
+    :class:`SheetMetalCornerReliefParamsV1`.
+    """
+
+    type: Literal["sheet_metal_corner_relief"]
+    version: Literal[1]
+    params: SheetMetalCornerReliefParamsV1
+
+
 class BooleanFeature(BaseModel):
     """``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
 
@@ -1793,6 +1902,7 @@ Feature = Annotated[
     | SheetMetalBaseFlangeFeature
     | SheetMetalEdgeFlangeFeature
     | SheetMetalHemFeature
+    | SheetMetalCornerReliefFeature
     | BooleanFeature,
     Field(discriminator="type"),
 ]
@@ -1814,6 +1924,7 @@ FeatureEnvelope = (
     | SheetMetalBaseFlangeFeature
     | SheetMetalEdgeFlangeFeature
     | SheetMetalHemFeature
+    | SheetMetalCornerReliefFeature
     | BooleanFeature
 )
 
@@ -1972,6 +2083,7 @@ FEATURE_REGISTRY.register(ImportFeature)
 FEATURE_REGISTRY.register(SheetMetalBaseFlangeFeature)
 FEATURE_REGISTRY.register(SheetMetalEdgeFlangeFeature)
 FEATURE_REGISTRY.register(SheetMetalHemFeature)
+FEATURE_REGISTRY.register(SheetMetalCornerReliefFeature)
 FEATURE_REGISTRY.register(BooleanFeature)
 FEATURE_REGISTRY.validate_chains()
 
@@ -2011,6 +2123,11 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         # `build_edge_flange`), so its faces/edges are nameable by a later
         # SubshapeRef (a hole on the hemmed return, a bend off a new edge).
         "sheet_metal_hem",
+        # `sheet_metal_corner_relief` cuts a notch into the sheet body (sheet-metal
+        # §4.4) — a body-affecting modifier like fillet/shell — so its result
+        # faces/edges are nameable by a later SubshapeRef (a hole near a relieved
+        # corner). It never keys a standalone body (no `merge`).
+        "sheet_metal_corner_relief",
         # `boolean` produces a combined body (multi-body §Decisions-3), so its
         # result faces/edges are nameable by a later SubshapeRef (a fillet on a
         # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
@@ -2271,6 +2388,29 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             references.append(
                 FeatureReference(
                     "edge", feature.params.edge, BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
+        case SheetMetalCornerReliefFeature():
+            # A corner relief names the TWO edge-flange features whose bends meet at
+            # the relieved corner (sheet-metal.md §4.4) — each a FeatureRef the
+            # evaluator maps to that flange's recorded CylindricalFaceSignature (§5).
+            # Both slots accept `sheet_metal_edge_flange` ONLY (a hem is a 180 deg
+            # fold-back, not a corner-forming bend; base/other features have no bend
+            # provenance). Each feature_id materialises into feature_dependencies, so
+            # deleting a referenced edge flange is a 409-with-dependents and a reorder
+            # re-checks strict-backward. relief_type/relief_ratio/size_mm are scalars.
+            references.append(
+                FeatureReference(
+                    "bend_a",
+                    feature.params.bend_a,
+                    frozenset({"sheet_metal_edge_flange"}),
+                )
+            )
+            references.append(
+                FeatureReference(
+                    "bend_b",
+                    feature.params.bend_b,
+                    frozenset({"sheet_metal_edge_flange"}),
                 )
             )
         case BooleanFeature():

@@ -3015,6 +3015,7 @@
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
+                "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
                 "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
                 "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
@@ -3068,6 +3069,9 @@
               },
               {
                 "$ref": "#/components/schemas/SheetMetalHemFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalCornerReliefFeature"
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
@@ -3370,6 +3374,7 @@
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
+                "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
                 "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
                 "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
@@ -3423,6 +3428,9 @@
               },
               {
                 "$ref": "#/components/schemas/SheetMetalHemFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalCornerReliefFeature"
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
@@ -3577,6 +3585,7 @@
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
+                "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
                 "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
                 "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
@@ -3630,6 +3639,9 @@
               },
               {
                 "$ref": "#/components/schemas/SheetMetalHemFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalCornerReliefFeature"
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
@@ -3804,6 +3816,7 @@
                     "pattern": "#/components/schemas/PatternFeature",
                     "revolve": "#/components/schemas/RevolveFeature",
                     "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
+                    "sheet_metal_corner_relief": "#/components/schemas/SheetMetalCornerReliefFeature",
                     "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
                     "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                     "shell": "#/components/schemas/ShellFeature",
@@ -3857,6 +3870,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/SheetMetalHemFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SheetMetalCornerReliefFeature"
                   },
                   {
                     "$ref": "#/components/schemas/BooleanFeature"
@@ -6212,6 +6228,77 @@
           "bend_radius_mm"
         ],
         "title": "SheetMetalBaseFlangeParamsV1",
+        "type": "object"
+      },
+      "SheetMetalCornerReliefFeature": {
+        "description": "``{\"type\": \"sheet_metal_corner_relief\", \"version\": 1, \"params\": {...}}``.\n\nA body-affecting feature (sheet-metal.md \u00a74.4) that cuts a rectangular notch at\nthe shared corner of two adjacent edge flanges and \u2014 via the analytic relieved\nunfold \u2014 makes that corner develop into a single non-overlapping flat blank. It\nnames the two bends by :class:`FeatureRef` (the edge-flange features that created\nthem); the evaluator resolves each to its recorded\n:class:`CylindricalFaceSignature` (\u00a75) to drive both relief halves. ``params`` is\n:class:`SheetMetalCornerReliefParamsV1`.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/SheetMetalCornerReliefParamsV1"
+          },
+          "type": {
+            "const": "sheet_metal_corner_relief",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "SheetMetalCornerReliefFeature",
+        "type": "object"
+      },
+      "SheetMetalCornerReliefParamsV1": {
+        "description": "An explicit RECTANGULAR corner relief at two adjacent flanges' corner (\u00a74.4).\n\nNames the two bends whose shared corner it relieves \u2014 ``bend_a`` / ``bend_b``,\neach a :class:`FeatureRef` at the earlier ``sheet_metal_edge_flange`` feature\nthat created that bend. The evaluator resolves each ref to that feature's\nrecorded :class:`CylindricalFaceSignature` (\u00a75) and drives BOTH halves of the\nrelief from the two signatures: the 3D notch boolean\n(:func:`geometry.sheet_metal.apply_corner_relief`) and the relieved flat-pattern\nunfold (:func:`unfold_sheet_metal` with ``reliefs=...``) \u2014 consistent by\nconstruction (the fold-back guarantee, \u00a74.4.4).\n\nSIZING (\u00a74.4.3): the notch is ``size = relief_ratio * thickness`` by default\n(``relief_ratio = 1.0`` \u2014 one gauge thickness, the tear-safe SolidWorks Relief\nRatio default), with the part's gauge taken from the base flange. An absolute\n``size_mm`` OVERRIDES the ratio when set (the authoring/UI convenience the golden\npins to an exact number). The manufacturing floor ``size >= bend_radius`` (the\nnotch should clear the bend arc) is a recommendation, not a hard bound \u2014 an\nundersized relief is a manufacturing warning, still a fold-back-consistent body.\n\nv1 ships ``relief_type = \"rectangular\"`` only (the sole purely-rectilinear\ndevelopable notch; obround / round / tear are \u00a74.4.1 follow-ons). It MODIFIES the\nimplicit single sheet body chain (design \u00a77.6) \u2014 it carries no ``merge`` \u2014 so its\nonly whole-feature dependencies are the two edge-flange refs + tree order.",
+        "properties": {
+          "bend_a": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "The FIRST bend of the relieved corner \u2014 a FeatureRef at the earlier sheet_metal_edge_flange feature that created it. Resolved to that feature's recorded CylindricalFaceSignature (\u00a75)."
+          },
+          "bend_b": {
+            "$ref": "#/components/schemas/FeatureRef",
+            "description": "The SECOND bend of the relieved corner \u2014 a FeatureRef at the other sheet_metal_edge_flange feature. Its shared corner with bend_a is the corner the notch relieves; the two bends must be PERPENDICULAR (a real tray corner) or the relief is a typed error (\u00a74.4)."
+          },
+          "relief_ratio": {
+            "default": 1.0,
+            "description": "Notch size as a multiple of gauge thickness (size = relief_ratio * thickness) \u2014 the SolidWorks Relief Ratio family. Default 1.0 (one thickness, tear-safe). IGNORED when size_mm is set.",
+            "exclusiveMinimum": 0.0,
+            "title": "Relief Ratio",
+            "type": "number"
+          },
+          "relief_type": {
+            "const": "rectangular",
+            "default": "rectangular",
+            "description": "Relief geometry. v1 ships 'rectangular' only (the sole purely-rectilinear developable notch \u2014 \u00a74.4.1). Obround / round / tear each need a curved / degenerate cut and are deferred (additive Literal members, no param_version bump). Absent reads 'rectangular'.",
+            "title": "Relief Type",
+            "type": "string"
+          },
+          "size_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absolute notch size (mm). When set, OVERRIDES relief_ratio (the authoring/UI convenience that resolves the ratio to an exact value the golden pins). Omitted (None) uses relief_ratio * the part's gauge thickness.",
+            "title": "Size Mm"
+          }
+        },
+        "required": [
+          "bend_a",
+          "bend_b"
+        ],
+        "title": "SheetMetalCornerReliefParamsV1",
         "type": "object"
       },
       "SheetMetalEdgeFlangeFeature": {

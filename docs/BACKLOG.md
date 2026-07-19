@@ -312,6 +312,22 @@ Full evidence for every line below lives in `CHANGELOG.md`.
       relief, parallel/unresolvable/non-axis-aligned relief → typed error, never a
       wrong blank or raw crash. Deferred: obround/tear variants, auto-relief policy,
       the relieved-flat-pattern DRAWING view. [src: design/sheet-metal.md §4.4]
+- [x] (P2, M) Sheet metal — CORNER RELIEF as an AUTHORABLE FEATURE (geometry,
+      kernel-architect). **SHIPPED 2026-07-19.** The shipped relief geometry was
+      DEAD capability (called only from tests). Now a `SheetMetalCornerReliefParamsV1`
+      feature (`type="sheet_metal_corner_relief"`, `bend_a`/`bend_b` FeatureRefs at
+      the two edge flanges + `relief_ratio`/`size_mm`; EXPLICIT per §4.4.2, auto is
+      the now-unblocked follow-on) registered in all 6 arms; its evaluator cuts the
+      3D notch AND records the relief so the flat-pattern unfold + the drawing
+      `flat_pattern` view develop the matching relieved blank. The unfold resolves
+      bends on a PRE-relief snapshot (the notch shifts the bend-face centroid past
+      match tolerance). Fold-back invariant now proven at the **pipeline** level: new
+      golden `corner-tray-relieved-feature` (flat pattern byte-identical to the unit
+      golden's pinned hash) + 12 end-to-end tests; existing goldens byte-unchanged;
+      contracts/ts-client regenerated. Honest degradation: non-bend ref →
+      `reference_unresolved`, parallel bends → `corner_relief_failed`, no body →
+      `no_prior_body`. Deferred: auto-relief policy layer, Corner-Relief authoring UI.
+      [src: design/sheet-metal.md §4.4]
 - [x] (P2, M) Sheet metal v2 #2 — depth-≥2 bend-TREE unfold FEATURE (geometry,
       kernel-architect). **SHIPPED** — the spike graduated into the real
       `unfold_sheet_metal`: the uniform depth-2 rejection is LIFTED for cases that
