@@ -478,23 +478,56 @@ accept `sheet_metal_edge_flange` only — and geometry's `_BODY_AFFECTING_TYPES`
 `EvaluationState.bend_provenance`), sizes the notch (`size_mm` else
 `relief_ratio × thickness`), builds the geometry-side `CornerRelief`, cuts the 3D
 notch, and RECORDS the relief so the flat-pattern unfold + the drawing `flat_pattern`
-view develop the matching relieved blank. **One pipeline finding, recorded not
-hidden:** the flat pattern must resolve its bends on the sheet body *before* the
-relief cut — the notch shortens the bend cylindrical face, shifting its centroid past
-the `_CENTROID_TOL_MM` (1e-6) signature match tolerance — so the evaluator snapshots
-the un-notched body (`EvaluationState.sheet_metal_unfold_body`) once before the first
-relief, and the unfold resolves against that while applying the reliefs analytically
-(consistent with §4.4.4's "decoupled from the 3D boolean" posture). The fold-back
-invariant is now proven at the **pipeline** level (golden `corner-tray-relieved-feature`
-+ `test_sheet_metal_corner_relief_feature.py`): evaluating a real tray tree with a
-corner-relief feature yields a body with the 3D notch AND a flat pattern whose
-content hash is byte-identical to the unit `corner-tray-relieved-unfold` golden.
-Honest degradation is typed at the pipeline: a bend ref to a non-edge-flange feature
-→ `reference_unresolved`, parallel/same bends → `corner_relief_failed`, no body →
-`no_prior_body`. **The AUTHORING UI is a separate frontend slice** — the wire shape
-it consumes is exactly this schema (two edge-flange FeatureRefs the user picks in the
-tree/viewport + a relief-ratio/size field); auto-relief (a part-level default that
-synthesises these specs by walking the bend graph) is the now-unblocked fast-follow.
+view develop the matching relieved blank. Honest degradation is typed at the
+pipeline: a bend ref to a non-edge-flange feature → `reference_unresolved`,
+parallel/same bends → `corner_relief_failed`, no body → `no_prior_body`.
+
+**FULL 4-CORNER PAN — shared-flange resolution + flange-after-relief fixed
+(2026-07-19, kernel-architect).** The first cut of this feature had two usability
+gaps that blocked the canonical use case — relieving ALL FOUR corners of a pan/box —
+both now closed. The root cause of both: resolution and cut were coupled, and the
+"un-notched body" reference was a single snapshot captured lazily at the first relief.
+
+- **A relief resolves its bends against a CLEAN reference, not the live body.** A
+  second relief that SHARES a flange with an earlier relief (every adjacent corner of
+  a pan does — the north flange is shared by the NE and NW corners) used to fail
+  `subshape_unresolved`: the earlier notch shortens the shared flange's bend cylinder
+  and shifts its area centroid past the `_CENTROID_TOL_MM` (1e-6) signature match
+  tolerance, so the bend no longer resolved against the LIVE (already-notched) body.
+  Fix: `_evaluate_sheet_metal_corner_relief` splits resolution from the cut —
+  `corner_relief_tools(reference, relief)` resolves both bends + builds the notch
+  tools against the clean un-notched reference (`EvaluationState.sheet_metal_unfold_body`,
+  all bends / no notches), then `cut_relief_tools(active, tools)` subtracts them from
+  the LIVE body. Every relief resolves against the same un-notched geometry; the cuts
+  stack on the live body as disjoint corner bites at opposite ends of the shared
+  flange, staying one shell.
+- **The clean reference is maintained by the FOLDS, not snapshotted at the first
+  relief** — so a flange authored AFTER a relief still unfolds. `_fold_flange_off_edge`
+  keeps `sheet_metal_unfold_body` current (all bends, no notches): until the first
+  relief it tracks the live body verbatim; once a relief has notched the live body the
+  two have diverged, so the next fold re-folds that flange off the clean body (identical
+  edge + params → an identical bend, so the recorded provenance resolves). The old
+  snapshot-at-first-relief silently assumed all bend-creating features precede all
+  reliefs → a later flange's bend was in `bend_provenance` but not the snapshot → a
+  valid 3D body with a broken (`subshape_unresolved`) flat pattern, every feature
+  showing `ok`. That silent-green-body-broken-flat is gone: the flat pattern develops
+  correctly regardless of feature order (option (a), the reviewer's preferred fix).
+
+The fold-back invariant is proven at the **pipeline** level across two goldens: the
+single-relief `corner-tray-relieved-feature` (byte-identical content hash to the unit
+`corner-tray-relieved-unfold`), and the flagship `pan-four-corner-relieved`
+(`test_sheet_metal_four_corner_pan.py`) — base + 4 edge flanges + 4 corner reliefs, all
+ten features ok, ONE shell, a flat pattern with the four reentrant notches, `bend_widths_mm
+= [24, 24, 34, 34]` (each of the four flanges notched at BOTH ends), and removed volume
+== removed flat area × thickness + the per-notch bend term over all EIGHT flange notches.
+`test_flange_after_relief_develops_a_correct_flat_pattern` gates the ordering fix.
+
+**The AUTHORING UI is a separate frontend slice** — the wire shape it consumes is
+exactly this schema (two edge-flange FeatureRefs the user picks in the tree/viewport +
+a relief-ratio/size field). **Auto-relief is now a genuine fast-follow:** it synthesises
+a relief per colliding corner = adjacent corners that share flanges, which is precisely
+the shared-flange resolution this fix unblocked (a part-level default walking the bend
+graph — a pure function of the graph + a default size, no new kernel risk).
 
 ### 4.4.3 Sizing — a multiple of thickness, defaulted, overridable
 

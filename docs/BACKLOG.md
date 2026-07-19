@@ -272,6 +272,21 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P1, M) Sheet metal — FULL 4-CORNER PAN corner relief (geometry,
+      kernel-architect). **SHIPPED 2026-07-19.** Closed two blocker gaps (code
+      review) that stopped the canonical pan/box use case. (1) A relief SHARING a
+      flange with an earlier relief failed `subshape_unresolved` — the earlier notch
+      shifts the shared bend's centroid past match tolerance on the LIVE body; now
+      resolution is split from the cut (`corner_relief_tools` resolves against a CLEAN
+      un-notched reference, `cut_relief_tools` cuts accumulated notches from the live
+      body). (2) A flange authored AFTER a relief gave a silently-ok body with a broken
+      flat pattern — the un-notched reference was snapshotted at the first relief; now
+      it's maintained by the FOLDS regardless of order (`_fold_flange_off_edge`), so the
+      late flange develops correctly (option (a)). Flagship golden
+      `pan-four-corner-relieved` (4 flanges + 4 reliefs, one shell, fold-back over 8
+      flange notches) + `test_sheet_metal_four_corner_pan.py` (10 tests); all existing
+      goldens BYTE-UNCHANGED. Unblocks auto-relief as a genuine fast-follow.
+      [src: design/sheet-metal.md §4.4.4]
 - [x] (P2, S) Sheet metal — CLOSED HEM (geometry, kernel-architect). **SHIPPED**
       2026-07-19. First-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`,
       edge ref + `length_mm` + optional `bend_radius_mm`/`k_factor`,

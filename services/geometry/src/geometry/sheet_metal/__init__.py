@@ -10,6 +10,8 @@ from geometry.sheet_metal.base_flange import SheetMetalDefaults
 from geometry.sheet_metal.corner_relief import (
     CornerReliefError,
     apply_corner_relief,
+    corner_relief_tools,
+    cut_relief_tools,
 )
 from geometry.sheet_metal.edge_flange import (
     EdgeFlangeEdgeError,
@@ -70,6 +72,8 @@ __all__ = [
     "apply_corner_relief",
     "bend_allowance",
     "build_edge_flange",
+    "corner_relief_tools",
+    "cut_relief_tools",
     "cylindrical_face_signature",
     "resolve_bend_faces",
     "resolve_bends",

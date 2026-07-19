@@ -1,0 +1,33 @@
+{
+  "description": "The FLAGSHIP 4-corner pan golden (docs/design/sheet-metal.md §4.4): a 40x30x2 sheet-metal base flange, an edge flange folded off EACH of the four edges (lengths 20/15/25/10), and a rectangular corner relief AUTHORED at EACH of the four corners (relief_ratio 1.5 -> size 3.0 at gauge 2.0). Every adjacent flange pair SHARES a flange, so each of the four flanges is notched at BOTH ends. This is the canonical pan/box use case and it now relieves cleanly: all ten features ok, one connected shell, a flat pattern with the four reentrant corner notches, and the fold-back invariant holds (3D bend-face widths == flat bend widths; removed volume == removed flat area x thickness + the per-notch neutral-vs-mean-radius bend term over all EIGHT flange notches). Each relief resolves its two bends against the CLEAN un-notched reference body (all bends, no notches), NOT the live notched body, so a second relief that shares a flange with an earlier one still resolves (the fix for the shared-flange subshape_unresolved gap, §4.4.4).",
+  "derivation": [
+    "Base 40x30, thickness 2, bend_radius 3, k_factor 0.44. Four edge flanges off x=40 / x=0 / y=30 / y=0 (spans 30/30/40/40). Four corner reliefs at (40,30)/(0,30)/(0,0)/(40,0), each relief_ratio 1.5 -> size 3.0. BA = (pi/2)*(3 + 0.44*2) = 6.094689747964188.",
+    "Flat pattern (analytic, §4.4.4): flat_area = 4248.9840107638465 mm^2. removed_area = unrelieved 4503.256564714987 - relieved 4248.9840107638465 = 254.27255395114025 = 4 corners x (base corner square 9 + 2 flange notches size*(BA+size) = 27.284069243892567).",
+    "bend_widths_mm = [24, 24, 34, 34]: the two 30-wide flanges (off x=40/x=0) lose size at BOTH ends -> 24; the two 40-wide flanges (off y=30/y=0) -> 34. Fold lines shortened by size at each relieved end.",
+    "3D relieved body: relieved volume 8541.698991265663 vs un-notched 9059.291886010284, removed 517.5928947446209 mm^3, ONE shell, topology {'faces': 46, 'edges': 132, 'shells': 1}. FOLD-BACK CROSS-CONSISTENCY: removed_volume == removed_area*t (508.5451079022805) + bias (8 notches * size*(pi/2)*t^2*(0.5-K) = 9.047786842338605) = 517.5928947446191 to ~1e-9, and the relieved body inner bend cylindrical-face widths == bend_widths_mm."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "build123d 0.11.1 / OCCT 7.9; flat-pattern residuals ~1e-12 (area); volume tolerance 1e-6 absorbs arc-fit noise, the fold-back identity holds to ~1e-9.",
+  "relief_size_mm": 3.0,
+  "bend_allowance_mm": 6.094689747964188,
+  "unrelieved_flat_area_mm2": 4503.256564714987,
+  "removed_area_mm2": 254.27255395114025,
+  "flat_area_mm2": 4248.9840107638465,
+  "bend_count": 4,
+  "notch_count": 8,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 3.0,
+  "bend_widths_mm": [24.0, 24.0, 34.0, 34.0],
+  "body_edge_count": 28,
+  "bend_edge_count": 4,
+  "base_volume_mm3": 9059.291886010284,
+  "relieved_volume_mm3": 8541.698991265663,
+  "removed_volume_mm3": 517.5928947446209,
+  "volume_tolerance": 1e-6,
+  "relieved_topology": {
+    "faces": 46,
+    "edges": 132,
+    "shells": 1
+  },
+  "content_hash": "e56065b5a1650a9f99403805f84af2757e1e5f689d53c3b6e72e30a3002c68c2"
+}

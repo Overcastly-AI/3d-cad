@@ -122,10 +122,11 @@ def flat_pattern_view_result(
                 ),
             ),
         )
-    # A relieved part unfolds the PRE-relief (un-notched) body — a relief notch
-    # shifts the bend-face centroid past the signature match tolerance, so bends
-    # resolve on the snapshot while the reliefs are applied analytically (§4.4.4).
-    # An unrelieved part has no snapshot, so this is the ordinary evaluated body.
+    # Resolve bends on the CLEAN un-notched body (all bends, no relief notches —
+    # maintained by the folds regardless of feature order, §4.4.4) while the reliefs
+    # are applied ANALYTICALLY: a relief notch shifts the bend-face centroid past the
+    # signature match tolerance, so the live (notched) body would miss a bend. For an
+    # unrelieved part ``unfold_body`` equals the evaluated body (no notches).
     unfold_body = evaluation.unfold_body or evaluation.body
     try:
         pattern = unfold_sheet_metal(

@@ -18,10 +18,11 @@ status, re-checked as each feature lands. **Do not flip the scorecard row
 until that matrix says so.**
 
 **In flight right now:** authoring UI ✅, corner relief ✅ (geometry **and**
-now WIRED as an authorable `sheet_metal_corner_relief` feature end-to-end,
-2026-07-19), and closed hem ✅ all landed (2026-07-19). Next down the corrected
-sequence: the auto-relief policy layer (now unblocked) + a Corner-Relief/Hem
-authoring UI slice + open/teardrop/rolled hems, then jogs.
+WIRED as an authorable `sheet_metal_corner_relief` feature end-to-end **and** the
+full 4-corner pan relieving cleanly, 2026-07-19), and closed hem ✅ all landed
+(2026-07-19). Next down the corrected sequence: the auto-relief policy layer (now
+genuinely unblocked) + a Corner-Relief/Hem authoring UI slice + open/teardrop/rolled
+hems, then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner
@@ -59,11 +60,22 @@ convert-to-sheet-metal → forming tools; full rationale in
    AND records the relief so the flat-pattern unfold (and the drawing flat_pattern
    view) develop the matching relieved blank — the fold-back invariant now proven
    at the **pipeline** level (new golden `corner-tray-relieved-feature` + 12 tests,
-   flat pattern byte-identical to the unit golden). The unfold resolves bends on a
-   PRE-relief snapshot (the notch shifts the bend-face centroid past match
-   tolerance). Follow-ons: obround/tear relief variants, **auto-relief policy layer**
-   (walk the bend graph, synthesise an explicit relief per colliding corner — now
-   unblocked), and a Corner-Relief authoring UI (API-only today, like the flanges).
+   flat pattern byte-identical to the unit golden).
+   **FULL 4-CORNER PAN ✅ 2026-07-19** (kernel-architect): the canonical pan/box —
+   ALL FOUR corners relieved — now relieves cleanly, closing two blocker gaps found
+   in code review. (1) A relief that SHARES a flange with an earlier relief used to
+   fail `subshape_unresolved` (the earlier notch shifts the shared bend's centroid
+   past match tolerance on the LIVE body); now each relief resolves its bends against
+   a CLEAN un-notched reference (`corner_relief_tools`) and cuts the accumulated
+   notches from the live body (`cut_relief_tools`). (2) The un-notched reference is
+   maintained by the FOLDS (not snapshotted at the first relief), so a flange authored
+   AFTER a relief develops a correct flat pattern instead of a silently-ok body with a
+   broken flat. New flagship golden `pan-four-corner-relieved` (4 flanges + 4 reliefs,
+   one shell, fold-back over all 8 flange notches) + `test_sheet_metal_four_corner_pan.py`;
+   all existing goldens byte-unchanged. Follow-ons: obround/tear relief variants,
+   **auto-relief policy layer** (walk the bend graph, synthesise a relief per shared-
+   flange corner — now GENUINELY unblocked, it's exactly this resolution), and a
+   Corner-Relief authoring UI (API-only today, like the flanges).
 3. **Hems** — **closed hem ✅ SHIPPED 2026-07-19** (kernel-architect). A
    first-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge +
    `length_mm` + optional radius/K, `hem_type="closed"`): a fixed 180° fold of

@@ -7,6 +7,42 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-19 — Sheet-metal FULL 4-CORNER PAN corner relief (kernel-architect self-report)
+
+**SHIPPED.** The canonical sheet-metal use case — a pan/box with ALL FOUR corners
+relieved (every adjacent flange pair shares a flange) — now relieves cleanly. Two
+usability gaps from code review, both root-caused to resolution being coupled to the
+cut and the un-notched reference being a lazy first-relief snapshot:
+
+- **Shared-flange gap (the blocker).** A second relief SHARING a flange with an earlier
+  relief failed `subshape_unresolved`: the earlier notch shortens the shared flange's
+  bend cylinder and shifts its area centroid past the 1e-6 signature match tolerance,
+  so it no longer resolved against the LIVE (already-notched) body. Fix: resolve every
+  relief against a CLEAN un-notched reference (`corner_relief_tools`) and cut the
+  accumulated notches from the live body (`cut_relief_tools`).
+- **Flange-after-relief gap.** The reference was snapshotted at the first relief, so a
+  bend from a LATER flange was in `bend_provenance` but not the snapshot → a valid 3D
+  body with a broken (`subshape_unresolved`) flat pattern, every feature `ok`. Fix: the
+  reference is maintained by the FOLDS (option (a)) — a flange after a relief develops a
+  correct flat pattern.
+
+**Flagship golden `pan-four-corner-relieved`** (base 40×30×2, 4 edge flanges off all
+four edges lengths 20/15/25/10, 4 corner reliefs `relief_ratio 1.5` → size 3.0):
+- All 10 features `ok`; body is ONE shell, topology `{faces:46, edges:132, shells:1}`.
+- `bend_widths_mm = [24, 24, 34, 34]` — each of the four flanges notched at BOTH ends
+  (30-wide → 24, 40-wide → 34). The relieved body's 3D inner bend cylindrical-face
+  widths equal these to ~1e-14.
+- **Fold-back over all EIGHT flange notches:** removed volume **517.5928947446** ==
+  removed flat area × t (**508.5451079023**) + 8-notch bend bias
+  (`8·size·(π/2)·t²·(0.5−K)` = **9.0477868423**), residual ~1e-9.
+- flat_area **4248.9840107638**, content_hash **e56065b5…c68c2** (byte-deterministic).
+- All existing sheet-metal goldens BYTE-UNCHANGED (single/opposite-corner relief and
+  the unrelieved pan take the identical paths — the clean reference equals the live body
+  when no notch precedes).
+
+`test_sheet_metal_four_corner_pan.py` (10 tests) + `test_flange_after_relief_*` gate
+both fixes end-to-end through `evaluate_tree`. Auto-relief is now a genuine fast-follow.
+
 ## 2026-07-19 — Sheet-metal CLOSED HEM (kernel-architect self-report)
 
 **SHIPPED.** First-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`): a

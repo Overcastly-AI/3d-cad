@@ -175,8 +175,9 @@ from geometry.sheet_metal import (
     EdgeFlangeEdgeError,
     EdgeFlangeError,
     SheetMetalDefaults,
-    apply_corner_relief,
     build_edge_flange,
+    corner_relief_tools,
+    cut_relief_tools,
 )
 from geometry.sketch import (
     PlanegcsSketchSolver,
@@ -273,12 +274,16 @@ class EvaluationState:
     corner_reliefs: dict[uuid.UUID, CornerRelief] = field(
         default_factory=dict[uuid.UUID, CornerRelief]
     )
-    #: The sheet body snapshot the flat-pattern unfold resolves its bends against —
-    #: captured just BEFORE the FIRST corner-relief cut (§4.4.4). A relief notch
-    #: shortens the bend cylindrical face, shifting its centroid past the signature
-    #: match tolerance, so the unfold must resolve bends on the un-notched body while
-    #: applying the reliefs ANALYTICALLY. ``None`` until a relief runs (then the
-    #: unfold uses the last-good body directly). Service-internal, like ``bodies``.
+    #: The CLEAN sheet body the flat-pattern unfold AND every corner relief resolve
+    #: their bend signatures against (§4.4.4): every bend applied, NO relief notches,
+    #: maintained by each fold (:func:`_fold_flange_off_edge`) and NEVER mutated by a
+    #: relief cut. A relief notch shortens a bend cylindrical face, shifting its
+    #: centroid past the signature match tolerance, so resolving against the live
+    #: (notched) body would miss a shared/earlier bend — resolving against this
+    #: un-notched body sidesteps that regardless of feature order (a relief that
+    #: shares a flange with an earlier relief, or a flange authored AFTER a relief,
+    #: both resolve). ``None`` until the first fold sets it; for an unrelieved part it
+    #: equals the live body (same bends, no notches). Service-internal, like ``bodies``.
     sheet_metal_unfold_body: BodyShape | None = None
     active_body_id: uuid.UUID | None = None
     #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
@@ -904,9 +909,47 @@ def _fold_flange_off_edge(
         return FeatureError(code="edge_flange_failed", message=str(exc))
 
     state.set_active_body(result.body)
+
+    # Maintain the CLEAN (un-notched) sheet body — every bend applied, NO relief
+    # notches (§4.4.4). Both the flat-pattern unfold AND each corner relief resolve
+    # their bend signatures against THIS body, never the live (possibly notched) one:
+    # a relief notch shortens a bend cylinder and shifts its centroid past the
+    # signature match tolerance, so resolving against the live body would miss a
+    # shared/earlier bend. Until the first relief the clean body tracks the live body
+    # verbatim (same object). AFTER a relief has notched the live body the two have
+    # diverged, so re-fold THIS same flange off the clean body (identical edge + fold
+    # params → an identical bend, so the provenance recorded below still resolves
+    # against it). The provenance is taken from whichever build the clean body carries.
+    clean_result = result
+    prior_clean = state.sheet_metal_unfold_body
+    if prior_clean is None or prior_clean is active:
+        state.sheet_metal_unfold_body = result.body
+    else:
+        try:
+            clean_edge = resolve_edge(prior_clean, edge_ref.selector.signature)
+            clean_result = build_edge_flange(
+                prior_clean,
+                clean_edge,
+                flange_length_mm=flange_length_mm,
+                bend_angle_deg=bend_angle_deg,
+                bend_radius_mm=radius,
+                thickness_mm=defaults.thickness_mm,
+            )
+            state.sheet_metal_unfold_body = clean_result.body
+        except (
+            SubshapeUnresolvedError,
+            SubshapeAmbiguousError,
+            EdgeFlangeError,
+        ):
+            # The live fold succeeded, so this re-fold on a strictly-simpler
+            # (un-notched) body is essentially unreachable; if it ever fails we leave
+            # the clean reference WITHOUT this bend (provenance from the live build)
+            # rather than crash — the unfold then reports an honest
+            # ``subshape_unresolved`` for this bend, never a 500 (§5 degradation).
+            clean_result = result
     state.bend_provenance[item.id] = BendProvenance(
-        cyl_signature=result.cyl_signature,
-        base_face_signature=result.base_face_signature,
+        cyl_signature=clean_result.cyl_signature,
+        base_face_signature=clean_result.base_face_signature,
         k_factor=k_factor,
     )
     return None
@@ -1010,20 +1053,29 @@ def _evaluate_sheet_metal_corner_relief(
     provenance. Resolves each bend FeatureRef to its recorded
     :class:`CylindricalFaceSignature` (:func:`_resolve_relief_bend`), sizes the notch
     (``size_mm`` override, else ``relief_ratio * thickness`` — §4.4.3), builds the
-    geometry-side :class:`CornerRelief`, and cuts the 3D notch
-    (:func:`apply_corner_relief`). The SAME spec is recorded on ``state`` so the
-    flat-pattern unfold develops the matching relieved blank — the fold-back
-    guarantee (§4.4.4) holds through the real pipeline, not just the unit test.
+    geometry-side :class:`CornerRelief`, and cuts the 3D notch.
 
-    Because the notch shortens the bend cylindrical face (shifting its centroid past
-    the signature match tolerance), the flat pattern must resolve its bends on the
-    PRE-relief body; this handler snapshots that body once, before the first cut
-    (:attr:`EvaluationState.sheet_metal_unfold_body`).
+    **Resolution vs. cut are decoupled (§4.4.4) — this is what lets ALL FOUR corners
+    of a pan relieve.** Every bend signature is resolved against the CLEAN,
+    un-notched reference body (:attr:`EvaluationState.sheet_metal_unfold_body`,
+    maintained by the folds — all bends, no notches) via
+    :func:`corner_relief_tools`, then the notch tool is cut from the LIVE active body
+    via :func:`cut_relief_tools`. A relief that SHARES a flange with an earlier relief
+    therefore still resolves: an earlier notch shortens the shared flange's bend
+    cylinder and shifts its centroid past the signature match tolerance, so resolving
+    against the live (already-notched) body would miss that shared bend — resolving
+    against the un-notched reference sidesteps it, and the cuts stack on the live
+    body (disjoint corner bites at opposite ends of the shared flange). The SAME relief
+    spec is recorded on ``state`` so the flat-pattern unfold — which also resolves
+    against that clean reference — develops the matching relieved blank; the fold-back
+    guarantee (§4.4.4) holds through the real pipeline, not just the unit test. The
+    clean reference is NOT mutated here (the relief cuts only the live body), so it
+    keeps serving every later relief and the unfold regardless of feature ordering.
 
     Every failure is a TYPED per-feature error (never a raw kernel exception or a
     wrong body — §4.4/§5): no prior body (``no_prior_body``), no sheet-metal defaults
     (``no_base_flange``), a bend ref that no longer resolves
-    (``reference_unresolved``), a bend signature that no longer matches the body
+    (``reference_unresolved``), a bend signature that no longer matches the reference
     (``subshape_unresolved`` / ``subshape_ambiguous``), or a relief that cannot apply
     — parallel/non-perpendicular bends, an axis-unaligned corner, or a cut that
     severs the sheet (``corner_relief_failed``). The active body + the recorded
@@ -1075,8 +1127,23 @@ def _evaluate_sheet_metal_corner_relief(
         relief_type=params.relief_type,
     )
 
+    # Resolve the notch tools against the CLEAN un-notched reference (all bends, no
+    # notches — maintained by the folds), then cut them from the LIVE body. A resolved
+    # bend implies a fold ran, which set the clean reference, so it is non-None here;
+    # guard it as a typed error rather than assume (never a crash).
+    reference = state.sheet_metal_unfold_body
+    if reference is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "A corner relief needs the sheet body's bends (from edge flanges) to "
+                "resolve its named corner, but no bend has been folded yet; add edge "
+                "flanges first."
+            ),
+        )
     try:
-        relieved = apply_corner_relief(active, relief)
+        tools = corner_relief_tools(reference, relief)
+        relieved = cut_relief_tools(active, [tools])
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
     except SubshapeAmbiguousError as exc:
@@ -1084,10 +1151,8 @@ def _evaluate_sheet_metal_corner_relief(
     except CornerReliefError as exc:
         return FeatureError(code="corner_relief_failed", message=str(exc))
 
-    # Snapshot the un-notched sheet body for the unfold BEFORE mutating (only the
-    # first relief captures it — later reliefs cut the already-snapshotted body).
-    if state.sheet_metal_unfold_body is None:
-        state.sheet_metal_unfold_body = active
+    # The clean reference is NOT mutated — the relief cuts only the LIVE body, so the
+    # reference keeps ALL bends and NO notches for every later relief + the unfold.
     state.set_active_body(relieved)
     state.corner_reliefs[item.id] = relief
     return None
@@ -1935,9 +2000,11 @@ class TreeEvaluation:
     #: to :func:`unfold_sheet_metal` so the flat pattern develops the relieved blank.
     #: Empty for a part with no corner-relief feature.
     corner_reliefs: list[CornerRelief] = field(default_factory=list[CornerRelief])
-    #: The pre-relief sheet body the flat-pattern unfold resolves its bends against
-    #: (§4.4.4) — the un-notched body snapshotted before the first relief cut, or
-    #: ``None`` when no relief was applied (the unfold then uses ``body`` directly).
+    #: The CLEAN sheet body the flat-pattern unfold resolves its bends against
+    #: (§4.4.4) — every bend applied, NO relief notches, maintained by the folds
+    #: regardless of feature order (so a flange authored AFTER a relief still unfolds).
+    #: ``None`` for a non-sheet-metal part; for an unrelieved sheet part it equals
+    #: ``body`` (same bends, no notches), so the unfold uses ``unfold_body or body``.
     unfold_body: BodyShape | None = None
 
 

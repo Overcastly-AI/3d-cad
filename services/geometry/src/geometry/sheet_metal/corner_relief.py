@@ -172,19 +172,106 @@ def _flange_notch_box(
     )
 
 
-def apply_corner_relief(body: BodyShape, relief: CornerRelief) -> Solid:
-    """Cut *relief*'s rectangular notch at the two named bends' shared corner.
+def corner_relief_tools(
+    reference: BodyShape, relief: CornerRelief
+) -> tuple[Part, Part]:
+    """Resolve *relief*'s two bends against *reference* and build the two notch tools.
+
+    Split out from :func:`apply_corner_relief` (the cut) so a relief can resolve its
+    bends against a body OTHER than the one it cuts — specifically a **clean,
+    un-notched** reference with ALL bends. This is what lets a SECOND relief that
+    shares a flange with an earlier relief still resolve (§4.4.4): an earlier notch
+    shortens the shared flange's bend cylinder and shifts its area centroid past the
+    signature match tolerance, so resolving against the LIVE (already-notched) body
+    would miss the shared bend (``subshape_unresolved``). Resolving every relief
+    against the same un-notched geometry sidesteps that entirely; the accumulated
+    tools are then cut from the live body by :func:`cut_relief_tools`.
 
     Resolves both bends by provenance (§5), locates their shared corner (the closest
     point between the two bend axes) and the base normal (their cross product, the
-    fold-up axis), then subtracts ONE slot per flange (:func:`_flange_notch_box`):
-    each is ``size`` wide along its bend axis and cuts from the base corner through
-    the full bend arc and ``size`` up the folded wall. This is the folded image of
-    the analytic flat notch — the removed material, unfolded, IS the flat pattern's
-    near-corner notch — so the two halves model the SAME removal (§4.4.4): the
-    relieved body's bend-face width equals the flat ``bend_widths_mm`` and the
-    removed volume equals removed flat area x thickness up to the bend's
-    neutral-vs-mean-radius term.
+    fold-up axis), then builds ONE slot per flange (:func:`_flange_notch_box`): each
+    is ``size`` wide along its bend axis and cuts from the base corner through the
+    full bend arc and ``size`` up the folded wall (the folded image of the analytic
+    flat notch, §4.4.4). Every value is a closed-form function of the resolved axes +
+    the relief size (deterministic, RESEARCH §9).
+
+    Raises:
+        SubshapeUnresolvedError / SubshapeAmbiguousError: a bend signature no longer
+            resolves against *reference* (§5 honest degradation).
+        CornerReliefError: the two bend axes are parallel (no isolated corner) or the
+            corner is not axis-aligned (out of v1 rectangular-notch scope).
+    """
+    inner_a = resolve_cylindrical_face(reference, relief.bend_a)
+    inner_b = resolve_cylindrical_face(reference, relief.bend_b)
+    d_a = inner_a.axis_dir.normalized()
+    d_b = inner_b.axis_dir.normalized()
+    if abs(d_a.dot(d_b)) > _PERP_TOL:
+        raise CornerReliefError(
+            "A corner relief's two bends are not perpendicular; v1 rectangular relief "
+            "applies at the intersection of two PERPENDICULAR edge flanges (§4.4)."
+        )
+    corner = _closest_point_between_lines(
+        inner_a.axis_origin, d_a, inner_b.axis_origin, d_b
+    )
+    normal = d_a.cross(d_b).normalized()  # base normal = the fold-up axis
+    bbox = reference.bounding_box()
+    size = relief.size_mm
+    tool_a = _flange_notch_box(
+        inner_a.axis_origin, inner_a.centroid, d_a, corner, normal, bbox, size
+    )
+    tool_b = _flange_notch_box(
+        inner_b.axis_origin, inner_b.centroid, d_b, corner, normal, bbox, size
+    )
+    return tool_a, tool_b
+
+
+def cut_relief_tools(body: BodyShape, tools: list[tuple[Part, Part]]) -> Solid:
+    """Cut the accumulated per-relief notch *tools* from *body*, returning one solid.
+
+    The tools are built by :func:`corner_relief_tools` against a clean reference; this
+    subtracts every relief's two slots from the LIVE body and requires the result to
+    stay ONE connected shell (a sheet-metal part is one body — a notch must not sever
+    it, §4.4). Multiple reliefs on the SAME flange cut disjoint corner bites at
+    opposite ends of that flange, so they stack without severing (the canonical
+    all-four-corners pan). Deterministic: the tools arrive in the reliefs' evaluation
+    order and the subtraction is order-independent up to floating point.
+
+    Raises:
+        CornerReliefError: the boolean failed in the kernel, or the cut produced
+            other than exactly one solid (an out-of-scope / severing geometry).
+    """
+    try:
+        cut: BodyShape = body
+        for tool_a, tool_b in tools:
+            cut = cut - tool_a - tool_b
+        cut = cut.clean()
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        raise CornerReliefError(
+            f"Corner-relief boolean failed in the kernel ({type(exc).__name__})."
+        ) from exc
+    solids = cut.solids()
+    if len(solids) != 1:
+        raise CornerReliefError(
+            f"Corner relief produced {len(solids)} solids; a sheet-metal part stays "
+            "one connected body (the notch must not sever the sheet, §4.4)."
+        )
+    return solids[0]
+
+
+def apply_corner_relief(body: BodyShape, relief: CornerRelief) -> Solid:
+    """Cut *relief*'s rectangular notch at the two named bends' shared corner.
+
+    The single-relief composition of :func:`corner_relief_tools` +
+    :func:`cut_relief_tools`, resolving AND cutting against the same *body* — the
+    unit-level entry point (the feature pipeline instead resolves against a clean
+    reference and accumulates, §4.4.4). Subtracts ONE slot per flange
+    (:func:`_flange_notch_box`): each is ``size`` wide along its bend axis and cuts
+    from the base corner through the full bend arc and ``size`` up the folded wall.
+    This is the folded image of the analytic flat notch — the removed material,
+    unfolded, IS the flat pattern's near-corner notch — so the two halves model the
+    SAME removal (§4.4.4): the relieved body's bend-face width equals the flat
+    ``bend_widths_mm`` and the removed volume equals removed flat area x thickness up
+    to the bend's neutral-vs-mean-radius term.
 
     Deterministic (RESEARCH §9): every value is a closed-form function of the
     resolved axes + the relief size — no unordered iteration, no RNG. Returns the
@@ -197,37 +284,5 @@ def apply_corner_relief(body: BodyShape, relief: CornerRelief) -> Solid:
             corner is not axis-aligned (out of v1 rectangular-notch scope), or the
             cut did not produce exactly one solid (an out-of-scope geometry).
     """
-    inner_a = resolve_cylindrical_face(body, relief.bend_a)
-    inner_b = resolve_cylindrical_face(body, relief.bend_b)
-    d_a = inner_a.axis_dir.normalized()
-    d_b = inner_b.axis_dir.normalized()
-    if abs(d_a.dot(d_b)) > _PERP_TOL:
-        raise CornerReliefError(
-            "A corner relief's two bends are not perpendicular; v1 rectangular relief "
-            "applies at the intersection of two PERPENDICULAR edge flanges (§4.4)."
-        )
-    corner = _closest_point_between_lines(
-        inner_a.axis_origin, d_a, inner_b.axis_origin, d_b
-    )
-    normal = d_a.cross(d_b).normalized()  # base normal = the fold-up axis
-    bbox = body.bounding_box()
-    size = relief.size_mm
-    tool_a = _flange_notch_box(
-        inner_a.axis_origin, inner_a.centroid, d_a, corner, normal, bbox, size
-    )
-    tool_b = _flange_notch_box(
-        inner_b.axis_origin, inner_b.centroid, d_b, corner, normal, bbox, size
-    )
-    try:
-        cut = (body - tool_a - tool_b).clean()
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise CornerReliefError(
-            f"Corner-relief boolean failed in the kernel ({type(exc).__name__})."
-        ) from exc
-    solids = cut.solids()
-    if len(solids) != 1:
-        raise CornerReliefError(
-            f"Corner relief produced {len(solids)} solids; a sheet-metal part stays "
-            "one connected body (the notch must not sever the sheet, §4.4)."
-        )
-    return solids[0]
+    tools = corner_relief_tools(body, relief)
+    return cut_relief_tools(body, [tools])

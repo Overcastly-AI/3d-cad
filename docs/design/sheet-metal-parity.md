@@ -129,11 +129,17 @@ research, called out inline.
    flange) is API-only, with zero `apps/web/src` surface to create one
    (verified by grep, §"Verified against the repo at HEAD" above). No
    correction — this is correctly first.
-2. **Corner relief** (🟡 rectangular SHIPPED + WIRED 2026-07-19). The explicit
-   `sheet_metal_corner_relief` feature is authorable end-to-end (3D notch + relieved
-   flat pattern, fold-back-proven at the pipeline level). Remaining: obround/tear
-   relief variants, the welded-depth-2 corner (miter/closed-corner geometry), and
-   the now-unblocked **auto-relief policy layer** (next slice).
+2. **Corner relief** (🟡 rectangular SHIPPED + WIRED + FULL-PAN 2026-07-19). The
+   explicit `sheet_metal_corner_relief` feature is authorable end-to-end (3D notch +
+   relieved flat pattern, fold-back-proven at the pipeline level), and the canonical
+   case — a pan/box with ALL FOUR corners relieved (adjacent pairs share a flange) —
+   now relieves cleanly (golden `pan-four-corner-relieved`): each relief resolves its
+   bends against the clean un-notched reference, not the live notched body, so a
+   shared flange no longer fails `subshape_unresolved`, and a flange authored AFTER a
+   relief still develops a correct flat pattern. Remaining: obround/tear relief
+   variants, the welded-depth-2 corner (miter/closed-corner geometry), and the
+   now-genuinely-unblocked **auto-relief policy layer** (next slice — it synthesises a
+   relief per shared-flange corner, exactly the resolution this fix cleared).
 3. **Hems** (🟡, §2). Research correction CONFIRMED and **closed hem SHIPPED**
    (2026-07-19): the closed hem is exactly the near-trivial specialization of
    the shipped edge-flange it was predicted to be — a fixed 180° fold at a small
