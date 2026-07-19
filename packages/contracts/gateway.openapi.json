@@ -901,6 +901,48 @@
         "title": "ComposedArrow",
         "type": "object"
       },
+      "ComposedBendTable": {
+        "description": "A flat-pattern sheet's placed bend-table annotation block (sheet-metal.md \u00a76/\u00a77).\n\nThe shop's fold instructions for the placed flat blank, laid out as a quiet-corner\nblock: the rectangle it occupies (``x``/``y``/``width``/``height`` in FINAL sheet-\nSVG space \u2014 y-down, top-left origin, the same space every other placed primitive\nuses) plus the per-bend ``rows`` (the :class:`BendTableRow` data the flat-pattern\n:class:`DrawingViewResult` already carries, passed through unchanged). The block is\nplaced clear of the flat blank's drawn extent so it never overlaps the geometry.\n\nCorrelation to the placed fold strokes is POSITIONAL (sheet-metal.md \u00a76), never an\nid linkage: the i-th ``rows`` entry pairs with the i-th ``edge_role=\"bend\"``\n:class:`ComposedEdge` of the flat-pattern view, both in the unfold's deterministic\nfold-position order. A consumer zips the ``\"bend\"`` edges with ``rows`` in order.",
+        "properties": {
+          "height": {
+            "description": "Block height (mm)",
+            "title": "Height",
+            "type": "number"
+          },
+          "rows": {
+            "description": "Per-bend fold rows, in fold-position order (positionally paired with the flat-pattern view's `edge_role='bend'` edges, \u00a76)",
+            "items": {
+              "$ref": "#/components/schemas/BendTableRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "width": {
+            "description": "Block width (mm)",
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "description": "Block left edge (mm, SVG space)",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Block top edge (mm, SVG space, y-down)",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height",
+          "rows"
+        ],
+        "title": "ComposedBendTable",
+        "type": "object"
+      },
       "ComposedCircleEdge": {
         "description": "A placed projected circle \u2014 exact (a \u00d8/radius dimension reads its radius).",
         "properties": {
@@ -911,6 +953,16 @@
           "cy": {
             "title": "Cy",
             "type": "number"
+          },
+          "edge_role": {
+            "default": "body",
+            "description": "Outline role carried through composition (sheet-metal.md \u00a76): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.",
+            "enum": [
+              "body",
+              "bend"
+            ],
+            "title": "Edge Role",
+            "type": "string"
           },
           "kind": {
             "const": "circle",
@@ -1061,6 +1113,16 @@
       "ComposedLineEdge": {
         "description": "A placed straight projected edge (sheet-mm SVG space).",
         "properties": {
+          "edge_role": {
+            "default": "body",
+            "description": "Outline role carried through composition (sheet-metal.md \u00a76): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.",
+            "enum": [
+              "body",
+              "bend"
+            ],
+            "title": "Edge Role",
+            "type": "string"
+          },
           "kind": {
             "const": "line",
             "default": "line",
@@ -1192,6 +1254,16 @@
       "ComposedPolylineEdge": {
         "description": "A placed sampled edge (arc / free-form) as a polyline (sheet-mm SVG space).",
         "properties": {
+          "edge_role": {
+            "default": "body",
+            "description": "Outline role carried through composition (sheet-metal.md \u00a76): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.",
+            "enum": [
+              "body",
+              "bend"
+            ],
+            "title": "Edge Role",
+            "type": "string"
+          },
           "kind": {
             "const": "polyline",
             "default": "polyline",
@@ -1222,6 +1294,17 @@
       "ComposedSheet": {
         "description": "A fully placed drawing sheet \u2014 the model the three serializers render (\u00a74.2).\n\nEvery coordinate is sheet-mm in final SVG space (y-down, top-left origin). The\nproduct of ``geometry.drawings.compose.place_sheet`` \u2014 a pure function of the\nevaluated geometry + the :class:`SheetLayout` (deterministic, RESEARCH \u00a79). The\npaper + border rectangles are pure functions of ``width_mm``/``height_mm``/\n``margin_mm`` (the serializer derives them), keeping this model lean.",
         "properties": {
+          "bend_table": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComposedBendTable"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A flat-pattern sheet's placed bend-table block (rows + anchor rect, sheet-metal.md \u00a77); null for every standard (HLR) sheet \u2014 additive, so a standard sheet composes byte-identically."
+          },
           "height_mm": {
             "description": "Sheet height (mm) \u2014 the SVG viewBox height",
             "title": "Height Mm",

@@ -32,12 +32,12 @@ from typing import cast
 
 import pytest
 from geometry.features.evaluate import TreeEvaluation, evaluate_tree
+from geometry.kernel.faces import SubshapeUnresolvedError
 from geometry.sheet_metal import (
     FlatPattern,
     SheetMetalDefaults,
     unfold_sheet_metal,
 )
-from geometry.kernel.faces import SubshapeUnresolvedError
 from py_kit.schemas.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
@@ -356,14 +356,30 @@ def _rect(length: float, width: float) -> dict[str, object]:
         "params": {
             "plane": {"kind": "datum_plane", "plane": "XY"},
             "entities": [
-                {"id": "e1", "kind": "line",
-                 "start": {"x": 0.0, "y": 0.0}, "end": {"x": length, "y": 0.0}},
-                {"id": "e2", "kind": "line",
-                 "start": {"x": length, "y": 0.0}, "end": {"x": length, "y": width}},
-                {"id": "e3", "kind": "line",
-                 "start": {"x": length, "y": width}, "end": {"x": 0.0, "y": width}},
-                {"id": "e4", "kind": "line",
-                 "start": {"x": 0.0, "y": width}, "end": {"x": 0.0, "y": 0.0}},
+                {
+                    "id": "e1",
+                    "kind": "line",
+                    "start": {"x": 0.0, "y": 0.0},
+                    "end": {"x": length, "y": 0.0},
+                },
+                {
+                    "id": "e2",
+                    "kind": "line",
+                    "start": {"x": length, "y": 0.0},
+                    "end": {"x": length, "y": width},
+                },
+                {
+                    "id": "e3",
+                    "kind": "line",
+                    "start": {"x": length, "y": width},
+                    "end": {"x": 0.0, "y": width},
+                },
+                {
+                    "id": "e4",
+                    "kind": "line",
+                    "start": {"x": 0.0, "y": width},
+                    "end": {"x": 0.0, "y": 0.0},
+                },
             ],
             "constraints": [],
         },

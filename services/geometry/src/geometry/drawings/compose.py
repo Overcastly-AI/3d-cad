@@ -46,7 +46,9 @@ from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
+    BendTableRow,
     ComposedArrow,
+    ComposedBendTable,
     ComposedCircleEdge,
     ComposedDimension,
     ComposedDimensionError,
@@ -93,10 +95,9 @@ from reportlab.pdfgen.canvas import Canvas
 #: The four standard views in canonical creation + render order (layout.ts).
 STANDARD_VIEWS: tuple[ViewProjection, ...] = ("front", "top", "right", "iso")
 
-#: Human caption per projection (layout.ts VIEW_LABEL). ``flat_pattern`` is present
-#: for totality (a flat-pattern view is NOT placed by :func:`place_sheet`'s standard-
-#: 4 auto-layout — its sheet placement + bend-table annotation pair with the frontend
-#: render slice, sheet-metal.md §7; it rides the evaluate path, not this composer).
+#: Human caption per projection (layout.ts VIEW_LABEL). ``flat_pattern`` is placed by
+#: :func:`place_sheet`'s ADDITIVE flat-pattern branch (a single centred blank + a
+#: quiet-corner bend table, sheet-metal.md §7) — never by the standard-4 auto-layout.
 VIEW_LABEL: dict[ViewProjection, str] = {
     "front": "Front",
     "top": "Top",
@@ -125,6 +126,21 @@ _TITLE_BLOCK_W = 96.0
 _TITLE_BLOCK_H = 34.0
 #: Clear space (mm) between adjacent views (layout.ts VIEW_GUTTER_MM).
 VIEW_GUTTER_MM = 24.0
+
+#: The flat-pattern view projection kind (sheet-metal.md §7). Placed by the ADDITIVE
+#: flat-pattern branch of :func:`place_sheet` — a single flat blank centred on the
+#: sheet + a quiet-corner bend table — NEVER by the standard-4 `bounds_aware_layout`
+#: (which is front/top/right/iso specific). Kept distinct so a standard sheet composes
+#: byte-identically; only a layout that names a `flat_pattern` view takes the branch.
+FLAT_PATTERN_PROJECTION: ViewProjection = "flat_pattern"
+
+#: Bend-table block layout (mm) — the quiet top-left annotation block on a flat-pattern
+#: sheet (sheet-metal.md §7): a header row plus one row per bend. Anchored at the sheet
+#: margin corner (mirroring the bottom-right title block) so it stays clear of the
+#: centred blank for v1 sheet-metal parts.
+_BEND_TABLE_W = 92.0
+_BEND_TABLE_HEADER_H = 7.0
+_BEND_TABLE_ROW_H = 6.0
 
 # --- @loft/design `drawing` dimension tokens (tokens.ts) — ported values ---------
 _O = 11.0  # dimensionOffsetMm
@@ -395,7 +411,14 @@ def view_to_svg_edges(
             a = to_svg(_p2(edge.start))
             b = to_svg(_p2(edge.end))
             out.append(
-                ComposedLineEdge(visible=edge.visible, x1=a.x, y1=a.y, x2=b.x, y2=b.y)
+                ComposedLineEdge(
+                    visible=edge.visible,
+                    x1=a.x,
+                    y1=a.y,
+                    x2=b.x,
+                    y2=b.y,
+                    edge_role=edge.edge_role,
+                )
             )
         elif (
             edge.primitive == "circle"
@@ -404,7 +427,13 @@ def view_to_svg_edges(
         ):
             c = to_svg(_p2(edge.center))
             out.append(
-                ComposedCircleEdge(visible=edge.visible, cx=c.x, cy=c.y, r=edge.radius)
+                ComposedCircleEdge(
+                    visible=edge.visible,
+                    cx=c.x,
+                    cy=c.y,
+                    r=edge.radius,
+                    edge_role=edge.edge_role,
+                )
             )
         elif (
             edge.primitive == "arc"
@@ -425,6 +454,7 @@ def view_to_svg_edges(
                 ComposedPolylineEdge(
                     visible=edge.visible,
                     points=[ComposedPoint(x_mm=p.x, y_mm=p.y) for p in pts],
+                    edge_role=edge.edge_role,
                 )
             )
         else:
@@ -438,6 +468,7 @@ def view_to_svg_edges(
                 ComposedPolylineEdge(
                     visible=edge.visible,
                     points=[ComposedPoint(x_mm=p.x, y_mm=p.y) for p in mapped],
+                    edge_role=edge.edge_role,
                 )
             )
     return out
@@ -989,6 +1020,29 @@ def _title_block(
     )
 
 
+def _bend_table_block(
+    rows: Sequence[BendTableRow], margin: float
+) -> ComposedBendTable | None:
+    """The placed bend-table annotation block for a flat-pattern sheet (§7).
+
+    A header row + one row per bend, anchored at the top-left margin corner (the
+    mirror of the bottom-right title block) — a quiet corner clear of the centred
+    blank. Rows are passed through verbatim in the unfold's deterministic fold-position
+    order, so a row correlates POSITIONALLY to its ``edge_role="bend"`` fold stroke
+    (§6). Returns None when there are no bends (nothing to annotate).
+    """
+    if not rows:
+        return None
+    height = _BEND_TABLE_HEADER_H + len(rows) * _BEND_TABLE_ROW_H
+    return ComposedBendTable(
+        x=margin,
+        y=margin,
+        width=_BEND_TABLE_W,
+        height=height,
+        rows=list(rows),
+    )
+
+
 def place_sheet(
     evaluation: EvaluateDrawingViewsResult,
     dimensions: Sequence[DrawingDimensionInput],
@@ -1066,6 +1120,35 @@ def place_sheet(
             )
         )
 
+    # Flat-pattern branch (sheet-metal.md §7) — ADDITIVE to the standard-4 layout
+    # above. A flat-pattern sheet holds a single flat blank (already 2D, no HLR): it is
+    # placed CENTRED on the sheet from its projected extents through the SAME extent-
+    # driven `_compose_view`/`view_to_svg_edges`/`view_bounds` machinery every standard
+    # view uses (the edge machinery is generic over ProjectedViewEdge — never a fork),
+    # and its bend table rides along as a quiet-corner annotation block. Standard sheets
+    # (no flat_pattern in the layout) skip this entirely and compose byte-identically.
+    bend_table_block: ComposedBendTable | None = None
+    flat_center = Vec2(sheet_w / 2, sheet_h / 2)
+    for vp in layout.views:
+        if vp.projection != FLAT_PATTERN_PROJECTION:
+            continue
+        flat_result = result_by_proj.get(FLAT_PATTERN_PROJECTION)
+        composed_views.append(
+            _compose_view(
+                FLAT_PATTERN_PROJECTION,
+                flat_center,
+                sheet_w,
+                sheet_h,
+                flat_result,
+                [],
+                [],
+            )
+        )
+        if flat_result is not None and flat_result.error is None:
+            bend_table_block = _bend_table_block(
+                flat_result.bend_table, SHEET_MARGIN_MM
+            )
+
     scale_label = format_scale(layout.views[0].scale) if layout.views else "1:1"
     return ComposedSheet(
         width_mm=sheet_w,
@@ -1075,6 +1158,7 @@ def place_sheet(
         scale_label=scale_label,
         views=composed_views,
         title_block=_title_block(layout, dims, scale_label),
+        bend_table=bend_table_block,
     )
 
 
@@ -1092,6 +1176,11 @@ _PAPER_EDGE = "#C9CFD7"
 _INK = "#1B222B"
 _EDGE_VISIBLE = "#1B222B"
 _EDGE_HIDDEN = "#6E7A88"
+#: Flat-pattern fold-line stroke (sheet-metal.md §6/§7) — a distinct dashed-blue, NOT
+#: the visible/hidden body-edge styling. Kept in sync with the frontend `drawing` bend
+#: token the render slice adds (the cross-renderer token duplication the module header
+#: notes) so the artifact reads a fold line the way the on-screen sheet will.
+_EDGE_BEND = "#2F6FEB"
 _LABEL = "#48525E"
 _DIM_INK = "#2A3542"
 _DIM_TEXT = "#1B222B"
@@ -1105,6 +1194,8 @@ _DIM_W = 0.3
 _EXT_W = 0.25
 _PAPER_EDGE_W = 0.6
 _HIDDEN_DASH = "2 1.4"  # hiddenDashMm + hiddenGapMm
+_BEND_W = 0.4  # flat-pattern fold-line weight (sheet-metal.md §7)
+_BEND_DASH = "3 1.6"  # bend fold-line dash (distinct from the hidden-edge dash)
 
 #: Monospace stack (font.data) — the drafting vernacular. Emitted with escaped
 #: quotes so the attribute stays valid standalone XML.
@@ -1137,12 +1228,34 @@ def _stroke_attrs(visible: bool) -> str:
     )
 
 
+def _bend_row_text(row: BendTableRow) -> str:
+    """One bend-table row as a single deterministic, monospace-friendly line.
+
+    ``bend_id  <angle>°  R<radius>  <DIR>  BA<allowance>`` — the shop's fold line. The
+    angle is 1-dp (degrees), radius/allowance 3-dp (mm), matching the drafting precision
+    the on-screen dimensions use. Fixed-decimal formatting is byte-stable across an
+    interpreter restart (the §8.3 posture); there is no JS oracle to match here (the
+    bend table is server-composed), so plain fixed formatting is correct.
+    """
+    return (
+        f"{row.bend_id}  {row.angle_deg + 0.0:.1f}°  "
+        f"R{row.radius_mm + 0.0:.3f}  {row.direction.upper()}  "
+        f"BA{row.bend_allowance_mm + 0.0:.3f}"
+    )
+
+
 def _points_attr(points: Sequence[ComposedPoint]) -> str:
     return " ".join(f"{_fmt(p.x_mm)},{_fmt(p.y_mm)}" for p in points)
 
 
 def _emit_edge(edge: ComposedEdge, out: list[str]) -> None:
-    stroke = _stroke_attrs(edge.visible)
+    if edge.edge_role == "bend":
+        stroke = (
+            f'stroke="{_EDGE_BEND}" stroke-width="{_fmt(_BEND_W)}" '
+            f'stroke-dasharray="{_BEND_DASH}"'
+        )
+    else:
+        stroke = _stroke_attrs(edge.visible)
     common = 'fill="none" stroke-linecap="round" stroke-linejoin="round"'
     if isinstance(edge, ComposedLineEdge):
         out.append(
@@ -1305,6 +1418,35 @@ def _emit_title_block(tb: ComposedTitleBlock, out: list[str]) -> None:
     out.append("    </g>")
 
 
+def _emit_bend_table(bt: ComposedBendTable, out: list[str]) -> None:
+    """Render the flat-pattern bend-table block (sheet-metal.md §7) — box + rows."""
+    x, y, w, h = bt.x, bt.y, bt.width, bt.height
+    out.append('    <g data-testid="drawing-bend-table">')
+    out.append(
+        f'      <rect x="{_fmt(x)}" y="{_fmt(y)}" width="{_fmt(w)}" '
+        f'height="{_fmt(h)}" fill="{_PAPER}" stroke="{_INK}" '
+        f'stroke-width="{_fmt(_BORDER_W)}"/>'
+    )
+    out.append(
+        f'      <line x1="{_fmt(x)}" y1="{_fmt(y + _BEND_TABLE_HEADER_H)}" '
+        f'x2="{_fmt(x + w)}" y2="{_fmt(y + _BEND_TABLE_HEADER_H)}" '
+        f'stroke="{_INK}" stroke-width="{_fmt(_HIDDEN_W)}"/>'
+    )
+    out.append(
+        f'      <text x="{_fmt(x + 3)}" y="{_fmt(y + _BEND_TABLE_HEADER_H - 2)}" '
+        f'fill="{_LABEL}" font-family="{_FONT}" font-size="2.6" '
+        f'letter-spacing="0.5">BEND TABLE</text>'
+    )
+    for i, row in enumerate(bt.rows):
+        ry = y + _BEND_TABLE_HEADER_H + (i + 1) * _BEND_TABLE_ROW_H - 2
+        out.append(
+            f'      <text data-testid="drawing-bend-row" x="{_fmt(x + 3)}" '
+            f'y="{_fmt(ry)}" fill="{_INK}" font-family="{_FONT}" '
+            f'font-size="2.8">{_esc(_bend_row_text(row))}</text>'
+        )
+    out.append("    </g>")
+
+
 def serialize_svg(composed: ComposedSheet) -> str:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable SVG string.
 
@@ -1338,6 +1480,8 @@ def serialize_svg(composed: ComposedSheet) -> str:
     for view in composed.views:
         _emit_view(view, out)
     _emit_title_block(composed.title_block, out)
+    if composed.bend_table is not None:
+        _emit_bend_table(composed.bend_table, out)
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -1415,7 +1559,11 @@ def _pdf_polyline(c: Canvas, points: Sequence[ComposedPoint], *, fill: bool) -> 
 
 
 def _pdf_edge(c: Canvas, edge: ComposedEdge) -> None:
-    if edge.visible:
+    if edge.edge_role == "bend":
+        c.setStrokeColor(_hex(_EDGE_BEND))
+        c.setLineWidth(_BEND_W * _MM)
+        c.setDash([3.0 * _MM, 1.6 * _MM])
+    elif edge.visible:
         c.setStrokeColor(_hex(_EDGE_VISIBLE))
         c.setLineWidth(_VISIBLE_W * _MM)
         c.setDash([])
@@ -1539,6 +1687,41 @@ def _pdf_title_block(c: Canvas, tb: ComposedTitleBlock) -> None:
     value(tb.split_x + 4, y + h - 4, tb.size)
 
 
+def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
+    """Draw the flat-pattern bend-table block onto the PDF canvas (§7)."""
+    x, y, w, h = bt.x, bt.y, bt.width, bt.height
+    c.setDash([])
+    c.setFillColor(_hex(_PAPER))
+    c.setStrokeColor(_hex(_INK))
+    c.setLineWidth(_BORDER_W * _MM)
+    c.rect(x * _MM, y * _MM, w * _MM, h * _MM, stroke=1, fill=1)
+    c.setLineWidth(_HIDDEN_W * _MM)
+    hy = (y + _BEND_TABLE_HEADER_H) * _MM
+    c.line(x * _MM, hy, (x + w) * _MM, hy)
+    _pdf_text(
+        c,
+        x + 3,
+        y + _BEND_TABLE_HEADER_H - 2,
+        "BEND TABLE",
+        2.6,
+        _LABEL,
+        centred=False,
+        central=False,
+    )
+    for i, row in enumerate(bt.rows):
+        ry = y + _BEND_TABLE_HEADER_H + (i + 1) * _BEND_TABLE_ROW_H - 2
+        _pdf_text(
+            c,
+            x + 3,
+            ry,
+            _bend_row_text(row),
+            2.8,
+            _INK,
+            centred=False,
+            central=False,
+        )
+
+
 def serialize_pdf(composed: ComposedSheet) -> bytes:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable PDF (DE-2).
 
@@ -1580,6 +1763,8 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
     for view in composed.views:
         _pdf_view(c, view)
     _pdf_title_block(c, composed.title_block)
+    if composed.bend_table is not None:
+        _pdf_bend_table(c, composed.bend_table)
     c.showPage()
     c.save()
     return buf.getvalue()
@@ -1615,6 +1800,9 @@ _LYR_VISIBLE = "VISIBLE"
 _LYR_HIDDEN = "HIDDEN"
 _LYR_DIMENSION = "DIMENSION"
 _LYR_TITLE = "TITLE"
+#: Flat-pattern fold lines (sheet-metal.md §7) — added ONLY for a flat-pattern sheet,
+#: so a standard sheet's TABLES section (and thus its DXF bytes) is byte-unchanged.
+_LYR_BEND = "BEND"
 
 #: Mono text style — the consuming CAD supplies the Courier face (no embed).
 _DXF_STYLE = "LOFT_MONO"
@@ -1655,7 +1843,10 @@ def _dxf_text_entity(
 def _dxf_edge(
     msp: Modelspace, edge: ComposedEdge, fy: Callable[[float], float]
 ) -> None:
-    layer = _LYR_VISIBLE if edge.visible else _LYR_HIDDEN
+    if edge.edge_role == "bend":
+        layer = _LYR_BEND
+    else:
+        layer = _LYR_VISIBLE if edge.visible else _LYR_HIDDEN
     if isinstance(edge, ComposedLineEdge):
         _dxf_line(msp, edge.x1, fy(edge.y1), edge.x2, fy(edge.y2), layer)
     elif isinstance(edge, ComposedCircleEdge):
@@ -1765,6 +1956,39 @@ def _dxf_title_block(
     value(tb.split_x + 4, y + h - 4, tb.size)
 
 
+def _dxf_bend_table(
+    msp: Modelspace, bt: ComposedBendTable, fy: Callable[[float], float]
+) -> None:
+    """Emit the flat-pattern bend-table block as DXF entities (§7)."""
+    x, y, w, h = bt.x, bt.y, bt.width, bt.height
+    box = [(x, fy(y)), (x + w, fy(y)), (x + w, fy(y + h)), (x, fy(y + h))]
+    msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
+    hy = y + _BEND_TABLE_HEADER_H
+    _dxf_line(msp, x, fy(hy), x + w, fy(hy), _LYR_TITLE)
+    _dxf_text_entity(
+        msp,
+        "BEND TABLE",
+        x + 3,
+        fy(y + _BEND_TABLE_HEADER_H - 2),
+        2.6,
+        0.0,
+        _LYR_TITLE,
+        centred=False,
+    )
+    for i, row in enumerate(bt.rows):
+        ry = y + _BEND_TABLE_HEADER_H + (i + 1) * _BEND_TABLE_ROW_H - 2
+        _dxf_text_entity(
+            msp,
+            _bend_row_text(row),
+            x + 3,
+            fy(ry),
+            2.8,
+            0.0,
+            _LYR_BEND,
+            centred=False,
+        )
+
+
 def serialize_dxf(composed: ComposedSheet) -> bytes:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable DXF (DE-3).
 
@@ -1794,6 +2018,10 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         doc.layers.add(_LYR_HIDDEN, color=8, linetype="DASHED")
         doc.layers.add(_LYR_DIMENSION, color=1)
         doc.layers.add(_LYR_TITLE, color=5)
+        # The BEND layer is added ONLY for a flat-pattern sheet, so a standard sheet's
+        # TABLES section (and its DXF bytes) is byte-unchanged (sheet-metal.md §7).
+        if composed.bend_table is not None:
+            doc.layers.add(_LYR_BEND, color=5, linetype="DASHED")
         doc.styles.add(_DXF_STYLE, font="cour.ttf")
         msp = doc.modelspace()
 
@@ -1815,6 +2043,8 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         for view in composed.views:
             _dxf_view(msp, view, fy)
         _dxf_title_block(msp, composed.title_block, fy)
+        if composed.bend_table is not None:
+            _dxf_bend_table(msp, composed.bend_table, fy)
 
         stream = io.StringIO()
         doc.write(stream)

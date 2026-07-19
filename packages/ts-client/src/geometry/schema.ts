@@ -1021,6 +1021,49 @@ export interface components {
             points: components["schemas"]["ComposedPoint"][];
         };
         /**
+         * ComposedBendTable
+         * @description A flat-pattern sheet's placed bend-table annotation block (sheet-metal.md §6/§7).
+         *
+         *     The shop's fold instructions for the placed flat blank, laid out as a quiet-corner
+         *     block: the rectangle it occupies (``x``/``y``/``width``/``height`` in FINAL sheet-
+         *     SVG space — y-down, top-left origin, the same space every other placed primitive
+         *     uses) plus the per-bend ``rows`` (the :class:`BendTableRow` data the flat-pattern
+         *     :class:`DrawingViewResult` already carries, passed through unchanged). The block is
+         *     placed clear of the flat blank's drawn extent so it never overlaps the geometry.
+         *
+         *     Correlation to the placed fold strokes is POSITIONAL (sheet-metal.md §6), never an
+         *     id linkage: the i-th ``rows`` entry pairs with the i-th ``edge_role="bend"``
+         *     :class:`ComposedEdge` of the flat-pattern view, both in the unfold's deterministic
+         *     fold-position order. A consumer zips the ``"bend"`` edges with ``rows`` in order.
+         */
+        ComposedBendTable: {
+            /**
+             * Height
+             * @description Block height (mm)
+             */
+            height: number;
+            /**
+             * Rows
+             * @description Per-bend fold rows, in fold-position order (positionally paired with the flat-pattern view's `edge_role='bend'` edges, §6)
+             */
+            rows: components["schemas"]["BendTableRow"][];
+            /**
+             * Width
+             * @description Block width (mm)
+             */
+            width: number;
+            /**
+             * X
+             * @description Block left edge (mm, SVG space)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Block top edge (mm, SVG space, y-down)
+             */
+            y: number;
+        };
+        /**
          * ComposedCircleEdge
          * @description A placed projected circle — exact (a Ø/radius dimension reads its radius).
          */
@@ -1029,6 +1072,13 @@ export interface components {
             cx: number;
             /** Cy */
             cy: number;
+            /**
+             * Edge Role
+             * @description Outline role carried through composition (sheet-metal.md §6): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.
+             * @default body
+             * @enum {string}
+             */
+            edge_role: "body" | "bend";
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1117,6 +1167,13 @@ export interface components {
          */
         ComposedLineEdge: {
             /**
+             * Edge Role
+             * @description Outline role carried through composition (sheet-metal.md §6): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.
+             * @default body
+             * @enum {string}
+             */
+            edge_role: "body" | "bend";
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -1197,6 +1254,13 @@ export interface components {
          */
         ComposedPolylineEdge: {
             /**
+             * Edge Role
+             * @description Outline role carried through composition (sheet-metal.md §6): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.
+             * @default body
+             * @enum {string}
+             */
+            edge_role: "body" | "bend";
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -1223,6 +1287,8 @@ export interface components {
          *     ``margin_mm`` (the serializer derives them), keeping this model lean.
          */
         ComposedSheet: {
+            /** @description A flat-pattern sheet's placed bend-table block (rows + anchor rect, sheet-metal.md §7); null for every standard (HLR) sheet — additive, so a standard sheet composes byte-identically. */
+            bend_table?: components["schemas"]["ComposedBendTable"] | null;
             /**
              * Height Mm
              * @description Sheet height (mm) — the SVG viewBox height

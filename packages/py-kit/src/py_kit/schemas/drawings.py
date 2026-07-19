@@ -1086,6 +1086,18 @@ class ComposedPoint(BaseModel):
     y_mm: float = Field(description="Y on the sheet (mm, SVG space, y-down)")
 
 
+#: Shared help text for the placed-edge ``edge_role`` field — carried THROUGH
+#: composition from the source :class:`ProjectedViewEdge` (sheet-metal.md §6/§7) so a
+#: serializer / the frontend can style a flat-pattern ``bend`` fold line as its own
+#: dashed-blue stroke rather than the visible/hidden BODY-edge styling. ``body`` (the
+#: default) on every HLR view edge — additive, so a standard sheet composes identically.
+_EDGE_ROLE_DESC = (
+    "Outline role carried through composition (sheet-metal.md §6): 'body' (default, "
+    "every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct "
+    "dashed-blue stroke). Orthogonal to `visible`."
+)
+
+
 class ComposedLineEdge(BaseModel):
     """A placed straight projected edge (sheet-mm SVG space)."""
 
@@ -1095,6 +1107,7 @@ class ComposedLineEdge(BaseModel):
     y1: float
     x2: float
     y2: float
+    edge_role: EdgeRole = Field(default="body", description=_EDGE_ROLE_DESC)
 
 
 class ComposedCircleEdge(BaseModel):
@@ -1105,6 +1118,7 @@ class ComposedCircleEdge(BaseModel):
     cx: float
     cy: float
     r: float
+    edge_role: EdgeRole = Field(default="body", description=_EDGE_ROLE_DESC)
 
 
 class ComposedPolylineEdge(BaseModel):
@@ -1113,6 +1127,7 @@ class ComposedPolylineEdge(BaseModel):
     kind: Literal["polyline"] = "polyline"
     visible: bool = Field(description="True = solid; False = hidden (dashed)")
     points: list[ComposedPoint] = Field(description="Ordered vertices (SVG space)")
+    edge_role: EdgeRole = Field(default="body", description=_EDGE_ROLE_DESC)
 
 
 #: A placed view edge — the boundary twin of the frontend ``SvgEdge`` union.
@@ -1228,6 +1243,32 @@ class ComposedTitleBlock(BaseModel):
     size: str = Field(description="Sheet size, display form ('A4', 'ANSI A')")
 
 
+class ComposedBendTable(BaseModel):
+    """A flat-pattern sheet's placed bend-table annotation block (sheet-metal.md §6/§7).
+
+    The shop's fold instructions for the placed flat blank, laid out as a quiet-corner
+    block: the rectangle it occupies (``x``/``y``/``width``/``height`` in FINAL sheet-
+    SVG space — y-down, top-left origin, the same space every other placed primitive
+    uses) plus the per-bend ``rows`` (the :class:`BendTableRow` data the flat-pattern
+    :class:`DrawingViewResult` already carries, passed through unchanged). The block is
+    placed clear of the flat blank's drawn extent so it never overlaps the geometry.
+
+    Correlation to the placed fold strokes is POSITIONAL (sheet-metal.md §6), never an
+    id linkage: the i-th ``rows`` entry pairs with the i-th ``edge_role="bend"``
+    :class:`ComposedEdge` of the flat-pattern view, both in the unfold's deterministic
+    fold-position order. A consumer zips the ``"bend"`` edges with ``rows`` in order.
+    """
+
+    x: float = Field(description="Block left edge (mm, SVG space)")
+    y: float = Field(description="Block top edge (mm, SVG space, y-down)")
+    width: float = Field(description="Block width (mm)")
+    height: float = Field(description="Block height (mm)")
+    rows: list[BendTableRow] = Field(
+        description="Per-bend fold rows, in fold-position order (positionally paired "
+        "with the flat-pattern view's `edge_role='bend'` edges, §6)"
+    )
+
+
 class ComposedSheet(BaseModel):
     """A fully placed drawing sheet — the model the three serializers render (§4.2).
 
@@ -1248,3 +1289,9 @@ class ComposedSheet(BaseModel):
         description="Placed views in canonical (front/top/right/iso) order",
     )
     title_block: ComposedTitleBlock = Field(description="The placed title block")
+    bend_table: ComposedBendTable | None = Field(
+        default=None,
+        description="A flat-pattern sheet's placed bend-table block (rows + anchor "
+        "rect, sheet-metal.md §7); null for every standard (HLR) sheet — additive, so "
+        "a standard sheet composes byte-identically.",
+    )

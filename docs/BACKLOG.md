@@ -804,12 +804,23 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       the planar-signature matcher promoted to the importable kernel
       `planar_signatures_match` (unfold dedup), the two deferred unfold-scope
       boundaries locked with real assertions. gen-check clean; full geometry
-      suite + ruff + pyright + web typecheck/test green. **PENDING (next
-      slice):** the frontend flat-pattern render (the `edge_role="bend"`
-      dashed-blue stroke + bend-table annotation) and `place_sheet` full-sheet
-      composition of a flat-pattern view (NOT auto-laid-out by the standard-4
-      layout — pairs with the render). [src: founder, design/sheet-metal.md
-      §6/§7/§10]
+      suite + ruff + pyright + web typecheck/test green. **COMPOSED-SHEET slice
+      SHIPPED 2026-07-19:** the additive flat-pattern branch of
+      `place_sheet` now composes a flat-pattern sheet server-side — one flat
+      blank placed CENTRED from its projected extents (reusing
+      `view_to_svg_edges`/`view_bounds`, no forked edge machinery) + a
+      quiet-corner `ComposedBendTable` block (rows + anchor rect on
+      `ComposedSheet.bend_table`, positional bend-row↔bend-edge correlation);
+      `edge_role` carried THROUGH composition onto every `Composed*Edge` (all
+      three serializers style `bend` fold lines dashed-blue); a
+      non-sheet-metal flat_pattern composes as a failed view (no crash).
+      Goldens `l-bracket/u-channel-flat-pattern-sheet` (placement centred,
+      table non-overlapping, byte-deterministic in-proc + restart); standard
+      SVG/PDF/DXF byte goldens UNCHANGED (additive). Contracts + ts-client
+      regenerated; gen-check + web typecheck/test green. **PENDING (next
+      slice):** the frontend flat-pattern RENDER of the composed sheet (the
+      `edge_role="bend"` dashed-blue stroke + bend-table annotation block +
+      screenshots). [src: founder, design/sheet-metal.md §6/§7/§10]
 
 - [ ] (P2, M) Datum-plane completeness (founder ask 2026-07-16: "do we have
       planes, offset planes, midpoint planes etc") — **backend slice ✅

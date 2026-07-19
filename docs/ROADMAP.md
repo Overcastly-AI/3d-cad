@@ -4,9 +4,12 @@ Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
 **Current focus: Phase 4b — Sheet metal** (founder green-lit 2026-07-19;
 slices #1 base flange, #2 unfold algorithm, #3 edge-flange/authored-body
-unfold, and #4 flat-pattern-drawing-view BACKEND landed — the #4 FRONTEND
-render (edge_role bend-line stroke + bend-table annotation) is the remaining
-v1 slice; see §Phase 4b). The intervening
+unfold, and #4 flat-pattern-drawing-view BACKEND landed — including the
+composed flat-pattern SHEET (`place_sheet` centres the blank + emits a
+`ComposedBendTable`, `edge_role` preserved through composition). The #4
+FRONTEND render (the `edge_role="bend"` dashed-blue stroke + bend-table
+annotation block over the composed sheet) is the remaining v1 slice; see
+§Phase 4b). The intervening
 pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
 the **Multi-body** pillar through MB-4a (multi-lump bodies + opt-in disjoint
 union). The historical convergence notes below are retained as-is.
@@ -869,12 +872,20 @@ design/assemblies.md` v1 #2):
    table surfaced alongside, and an honest per-view `flat_pattern_not_sheet_metal`
    error for a non-sheet-metal body. Goldens `l-bracket-flat-pattern-view` (N=1)
    + `u-channel-flat-pattern-view` (N=2): edge counts by role, analytic bend
-   table, byte-deterministic view result (in-process + restart). **Still
-   pending (next slice):** the frontend flat-pattern sheet render (the
-   `edge_role="bend"` dashed-blue stroke + the bend-table annotation) and the
-   full-sheet `place_sheet` composition of a flat-pattern view (a flat-pattern
-   view is NOT placed by the standard-4 auto-layout — its placement pairs with
-   the render). This clears the v1 DoD's backend, "one bracket → a flat blank
+   table, byte-deterministic view result (in-process + restart). **Composed
+   flat-pattern SHEET SHIPPED 2026-07-19:** `place_sheet` gained an additive
+   flat-pattern branch — the single blank placed CENTRED from its projected
+   extents (reusing `view_to_svg_edges`/`view_bounds`, no forked machinery) +
+   a quiet-corner `ComposedBendTable` (rows + anchor rect on
+   `ComposedSheet.bend_table`; positional bend-row↔bend-edge correlation),
+   `edge_role` carried THROUGH composition onto every `Composed*Edge` (SVG/PDF/
+   DXF style `bend` dashed-blue). Goldens `l-bracket/u-channel-flat-pattern-sheet`
+   (centred, table non-overlapping, byte-deterministic in-proc + restart);
+   standard sheets compose byte-identically (additive). So a flat-pattern view
+   now renders through the standard server-composed-sheet path. **Still
+   pending (next slice):** the FRONTEND render of that composed sheet (the
+   `edge_role="bend"` dashed-blue stroke + the bend-table annotation block +
+   screenshots). This clears the v1 DoD's backend, "one bracket → a flat blank
    a shop can cut."
 
 Explicitly deferred past v1 (design doc §10): multi-bend/bend-graph
