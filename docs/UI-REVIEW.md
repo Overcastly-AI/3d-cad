@@ -1235,3 +1235,128 @@ Two P3 system-level follow-ups (neither blocks; both are repair-the-primitive):
   arbitrary tracking literals into a tracking scale token while there.
 
 Verdict: ship as-is; queue the two P3s for the design-system backlog. No P1/P2.
+
+---
+
+## 2026-07-19 — Sheet-metal flat-pattern drawing UI (spot-check, commit 645f236)
+
+**Scope.** The new flat-pattern surface: dashed-blue `bend` fold lines
+(`drawing.bend` token), the columnar `BendTable` (BEND/ANGLE/RADIUS/DIR/ALLOW),
+the Views-panel Cut-edge/Fold-line legend, the "Flat pattern" command-band
+action (shortcut F), and the `flat_pattern_not_sheet_metal` inline error.
+Source-audited against founder shots `docs/screenshots/sheet-metal-flat-pattern-
+{l,u}-{1440,1280}.png`; contrast recomputed; DOM vs server composer
+cross-referenced. Files: `apps/web/src/components/DrawingSheet.tsx`,
+`apps/web/src/routes/DrawingPage.tsx` (`ViewsPanel`),
+`apps/web/src/components/DrawingCommandBand.tsx`, `packages/design/src/tokens.ts`,
+`services/geometry/src/geometry/drawings/compose.py`.
+
+### Executive verdict
+
+**Ship it.** The on-screen surface meets the tool-grade bar: the fold line reads
+as a distinct dashed-blue phantom line (correct SolidWorks/Fusion flat-pattern
+vernacular, clearly not the blueprint-blue pick accent), the bend table is a
+dense quiet columnar instrument (not a card), every chrome element is wired to
+real state, and the token discipline is clean — `drawing.bend = #2F6FEB` is a
+genuine single-source token whose hex + weight + dash exactly match the server
+composer's `_EDGE_BEND`/`_BEND_W`/`_BEND_DASH`, so the on-screen fold line is
+byte-identical to the exported one. Contrast claims verified. The findings below
+are one real P2 (export/screen bend-table divergence) and polish nits; none
+block the founder's morning review.
+
+### Findings
+
+- **P2 — bend table — the three outputs of ONE sheet disagree; PDF/DXF (the shop
+  deliverables) don't match the screen.** The on-screen `BendTable`
+  (`DrawingSheet.tsx:1011`) renders a proper 5-column grid with per-column
+  captions (BEND/ANGLE/RADIUS/DIR/ALLOW mm), radius at 2dp (`R2.00`), allowance
+  bare at 2dp (`3.14`). **Export SVG** serializes this DOM `<svg>` (WYSIWYG, so
+  it matches). But **Export PDF** and **Export DXF** are server-composed
+  (`compose.py` `_emit_bend_table`/`_pdf_bend_table`/`_dxf_bend_table` via
+  `_bend_row_text`), which emits a *single "BEND TABLE" heading* + *run-together
+  single-line rows* `B1  90.0°  R2.000  UP  BA3.140` — radius 3dp, allowance
+  BA-prefixed 3dp, no column captions. So the same drawing's SVG vs PDF/DXF bend
+  tables differ in **layout, precision, and labels**, and the shop deliverable
+  doesn't look like the screen. This breaks WYSIWYG on the signature sheet-metal
+  surface. Root cause: the bend table is NOT "one composed model, N renderers" —
+  `ComposedBendTable.rows` carries numbers and each renderer re-formats + re-lays
+  out independently (a WET/DRY defect: two column/precision layouts that have
+  already diverged). System fix: make the server composer render the SAME
+  columnar layout + number formatting as the DOM `BendTable` (or lift the column
+  x-offsets + `toFixed`/prefix rules into the shared composed model so both
+  renderers consume them). Screenshot ref: on-screen vs a PDF/DXF export of the
+  same flat pattern. Screen + SVG are correct; PDF/DXF are the fix targets.
+
+- **P3 — bend-table values have no text-accessible equivalent (SVG is
+  `role="img"`).** The root sheet `<svg>` is `role="img"` with a single summary
+  `aria-label` (`DrawingSheet.tsx:1120-1124`), so AT treats the whole sheet as
+  one opaque image and never descends into the `BendTable`'s `aria-label="Bend
+  table, N bends"` or its per-row text — those hooks serve tests, not screen
+  readers. The `ViewsPanel` exposes only the bend *count* in the DOM; the
+  per-bend angle/radius/direction/allowance are unreachable to a screen-reader or
+  non-pointer user. (Same structural gap the dimension glyphs have, but there the
+  `DimensionsPanel` mirrors every value in the DOM — bends have no such panel.)
+  System fix: a DOM bend-schedule panel mirroring `DimensionsPanel` (also gives
+  keyboard users the fold data), reusing the same `data-bend-index` keying.
+
+- **P3 — `ViewsPanel` fold-line legend swatch dash/ink don't mirror the sheet.**
+  The legend fold swatch (`DrawingPage.tsx:948-957`) uses `drawing.bend` (good —
+  true token, 3.88:1 on `anvil`, passes 1.4.11) but hardcodes
+  `strokeDasharray="4 2"`, whereas the actual fold line is `3 1.6`
+  (`bendDashMm`/`bendGapMm`); and the Cut-edge/Visible/Hidden swatches use
+  `currentColor` chrome inks (`text-mist`/`text-gauge`) rather than the sheet's
+  graphite tokens (defensible — graphite is invisible on the dark panel — but it
+  makes the legend a loose approximation, not a true key). Low-stakes truthfulness
+  nit. System fix: drive the swatch dash from `drawing.bendDashMm`/`bendGapMm`
+  (a `<DashSwatch strokeDasharray>` derived from the tokens) so the key can't
+  drift from the stroke it documents.
+
+- **P3 — `BendTable` column x-offsets are hardcoded magic numbers coupled to a
+  92mm block.** `col.bend/angle/radius/dir/allow` (`DrawingSheet.tsx:1017-1023`)
+  are literal `x+3/26/43/62/77`, commented "Sized for the 92 mm block," but the
+  block `width` is read from the server (`_BEND_TABLE_W`). `headerH`/`rowH`
+  (7/6) are also re-declared here, duplicating `_BEND_TABLE_HEADER_H`/`_ROW_H`.
+  If the server ever changes the block width or row metrics, the DOM columns
+  silently misalign / overflow. Not a live defect (values agree today). System
+  fix: derive columns as fractions of `table.width` and carry `headerH`/`rowH`
+  in the composed model so the single source drives both renderers.
+
+### Verified PASS (no action)
+
+- **Token single-source (P1 lens):** `drawing.bend #2F6FEB` == server
+  `_EDGE_BEND`; `bendWeightMm 0.4` == `_BEND_W`; `bendDashMm/bendGapMm "3 1.6"`
+  == `_BEND_DASH`. Fold-line stroke, hidden/visible strokes, dimension inks,
+  title-block inks all read from `@loft/design`; no raw hex in the components.
+- **Contrast (builder's claims confirmed):** bend stroke #2F6FEB on paper
+  #ECEFF2 = **3.96:1** (≥3:1, WCAG 1.4.11 graphical); caption `drawing.label`
+  #48525E = **6.89:1**; value `drawing.dimensionText` #1B222B ≈ **13:1**. The
+  sheet is theme-independent (always the paper inversion — no light theme
+  exists; whole product is all-dark), so there is no dark-theme regression to
+  check on the sheet content. Fold-line legend swatch on `anvil` = 3.88:1, passes.
+- **Focus / disabled explainability:** the F "Flat pattern" `ToolButton` uses
+  `aria-disabled` (not native `disabled`), so it still hovers/focuses and its
+  reason `caption` reaches both mouse and keyboard (and SR via
+  `aria-describedby`) — no `pointer-events-none` tooltip trap. Brass
+  `focus-visible` outline. F is keyboard-reachable via the global handler AND the
+  focusable button; Escape clears authoring, doesn't destroy layout. Pickable
+  edges/vertex handles keep custom SVG focus rings (`pickFocusRingMm`) distinct
+  from hover recolor (WCAG 2.4.7).
+- **Responsive 1280×800:** the sheet is one `preserveAspectRatio="xMidYMid meet"`
+  SVG that scales uniformly, so the table anchor (top-left) / title block
+  (bottom-right) placement is width-independent — no DOM overflow between 1440
+  and 1280. `showLabel` command-band tools shed labels below 1360px, so the band
+  doesn't clip at the floor. (Table-vs-blank overlap, if any, is a server mm
+  placement concern, not a DOM responsive bug — not observed in the founder shots.)
+- **Missing states:** loading ("Projecting…"/"Unfolding…" captions +
+  `drawing-projecting`), empty (`SetupHint` naming the flat-pattern path), error
+  (`FailedView` renders `flat_pattern_not_sheet_metal` as forward-looking
+  guidance — "Add a base flange and an edge flange…" — never a silent blank).
+- **Test hooks intact:** `drawing-bend-table`, `drawing-bend-row`,
+  `data-bend-index`, `drawing-view-error` (+ `data-error-code`),
+  `drawing-flat-pattern`, `drawing-bend-count`, `drawing-edge-role="bend"` all
+  present and mirror the server SVG hooks.
+
+Running checklist: Flat-pattern sheet (screen) ✅ · Bend fold-line token ✅ ·
+Views legend ✅ · Flat-pattern action + F shortcut ✅ · flat_pattern_not_sheet_metal
+error ✅ · **Bend-table export fidelity (PDF/DXF) 🔴 (P2)** · Bend-table SR
+access 🔴 (P3).
