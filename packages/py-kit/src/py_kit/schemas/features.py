@@ -134,6 +134,53 @@ class PlanarFaceSignature(BaseModel):
     area_mm2: float = Field(gt=0, description="Face area (mm^2), full precision")
 
 
+class CylindricalFaceSignature(BaseModel):
+    """§5 stage-1 geometric fingerprint of a CYLINDRICAL face — typed, kernel-free.
+
+    The bend-provenance sibling of :class:`PlanarFaceSignature`
+    (docs/design/sheet-metal.md §5): a sheet-metal **bend region** is a cylindrical
+    face, and the planar signature cannot name one — an outward *normal* and an
+    in-plane *centroid* are meaningless for a curved surface, so reusing it would
+    be a type error, not a DRY win. This additive schema pins the bend's exact
+    B-rep geometry to full precision (§7.2 forbids quantizing the stored identity):
+    a point on the bend ``axis_origin`` + the unit ``axis_dir`` + the ``radius_mm``
+    + the area ``centroid`` (all world mm). The geometry service EMITS it off a
+    cylindrical face at edge-flange construction time
+    (:func:`geometry.sheet_metal.resolve.cylindrical_face_signature`) and MATCHES
+    it back to the bend face on a rebuilt body
+    (:func:`geometry.sheet_metal.resolve.resolve_cylindrical_face`,
+    nearest-within-tolerance, exactly one or an honest ``subshape_unresolved`` —
+    the same best-effort stage-1 posture as the planar/edge signatures) so the
+    unfold pass finds the bend by PROVENANCE, never blind geometric detection
+    (§2.2 recognition-vs-provenance).
+
+    ``surface`` is the ``"cylinder"`` discriminator mirroring
+    :class:`PlanarFaceSignature`'s structurally-inert ``surface: "plane"`` — the
+    seam §5 anticipates for a future ``SelectorV1.signature`` widening to a
+    ``Field(discriminator="surface")`` union. v1 keeps the shared planar
+    ``SubshapeRef``/``Selector`` machinery unchanged (no feature persists a
+    cylindrical SubshapeRef yet — the signature is geometry-internal unfold
+    provenance), so this schema is a pure additive sibling: it destabilises no
+    persisted planar face reference (DRY — extract the union member on the second
+    real consumer, not the first imagined one).
+    """
+
+    subshape_type: Literal["face"] = "face"
+    surface: Literal["cylinder"] = "cylinder"
+    axis_origin: Vec3 = Field(
+        description="A point on the bend axis line, world mm (full precision)"
+    )
+    axis_dir: Vec3 = Field(
+        description="Unit vector along the bend axis (full precision)"
+    )
+    radius_mm: float = Field(
+        gt=0, description="Cylinder radius (mm) — the bend's inner radius, full precision"
+    )
+    centroid: Vec3 = Field(
+        description="Area centroid of the cylindrical face, world mm (full precision)"
+    )
+
+
 class SelectorV1(BaseModel):
     """Stage-1 selector payload: the geometric signature alone (§3, §4).
 
@@ -1352,6 +1399,82 @@ class SheetMetalBaseFlangeParamsV1(BaseModel):
     merge: bool = MERGE_FIELD
 
 
+# --- Sheet-metal edge flange (bend) — a flange folded off a base-flange edge -----
+#
+# The headline sheet-metal feature (docs/design/sheet-metal.md §4.2): a new flange
+# added off a STRAIGHT EDGE of the base flange, at a chosen bend radius + angle,
+# connected to the base by a cylindrical BEND REGION. Geometrically it is a sweep
+# of the sheet's thickness cross-section along an arc (the bend) + a straight
+# segment (the flange length) — the geometry side reuses `sweep.py`'s
+# profile-along-path primitives, driven by named parameters rather than a sketch
+# (§4.2 decision: parameter-driven, the incumbent edge-flange gesture, not a raw
+# sweep authoring flow). It is a DISTINCT feature type for two reasons (§4.2):
+# named parameters instead of a sketch, and BEND PROVENANCE — the feature tags the
+# cylindrical bend face with a `CylindricalFaceSignature` (§5) at construction, so
+# the unfold pass finds the bend by provenance, never blind detection.
+#
+# v1 SCOPE (§4.3 depth-1 bend star): each edge flange folds DIRECTLY off the fixed
+# base flange (never off another edge flange — depth >= 2 is deferred). N edge
+# flanges radiating from one base cover the L-bracket (N=1) and U-channel (N=2)
+# without the graph-relaxation a flange-off-a-flange would need.
+
+
+class SheetMetalEdgeFlangeParamsV1(BaseModel):
+    """A flange folded off a straight edge of the base flange (§4.2).
+
+    ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to fold off
+    — the SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer pick uses
+    (topological-naming §10), resolved against the current sheet body; its
+    ``feature_id`` materialises the dependency on the base-flange feature exactly
+    like a picked fillet edge. The flange extends outward from that edge in the
+    plane of its adjacent flat (plate) face and folds by ``bend_angle_deg`` about a
+    bend of ``bend_radius_mm`` (inner radius), producing ONE fused sheet body (the
+    base + flange joined across the cylindrical bend region).
+
+    INHERITED DEFAULTS (§4.2): ``bend_radius_mm`` and ``k_factor`` default from the
+    part's base flange (:class:`SheetMetalBaseFlangeParamsV1` — the gauge/K/radius
+    anchored on the sheet body) when omitted (``None``), and may be OVERRIDDEN
+    per-bend. ``flange_length_mm`` is the developed flat length of the flange leg
+    (to the bend tangent line, §9 golden #1's convention); ``bend_angle_deg`` is
+    the fold angle (90 deg for a right-angle flange).
+
+    Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+    it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+    to) — so its only whole-feature dependency is the named-edge ref + tree order.
+    """
+
+    edge: EdgeSubshapeRef = Field(
+        description="The base-flange STRAIGHT edge to fold off (a stage-1 "
+        "EdgeSignature reference resolved against the current sheet body). The "
+        "flange extends from this edge's adjacent flat face and folds about it."
+    )
+    flange_length_mm: float = Field(
+        gt=0,
+        description="Developed flat length of the flange leg (mm), measured to the "
+        "bend tangent line (§9 golden #1 convention).",
+    )
+    bend_angle_deg: float = Field(
+        gt=0.0,
+        le=180.0,
+        allow_inf_nan=False,
+        description="Fold angle (degrees); 90 = a right-angle flange. In (0, 180].",
+    )
+    bend_radius_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description="INNER bend radius (mm). Omitted (None) inherits the part's "
+        "base-flange default `bend_radius_mm` (§4.2); a value overrides it per-bend.",
+    )
+    k_factor: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Neutral-axis fraction K in [0, 1] for this bend's allowance "
+        "(§1). Omitted (None) inherits the part's base-flange default `k_factor` "
+        "(0.44 v1 baseline); a value overrides it per-bend.",
+    )
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -1508,6 +1631,20 @@ class SheetMetalBaseFlangeFeature(BaseModel):
     params: SheetMetalBaseFlangeParamsV1
 
 
+class SheetMetalEdgeFlangeFeature(BaseModel):
+    """``{"type": "sheet_metal_edge_flange", "version": 1, "params": {...}}`` envelope.
+
+    A body-MODIFYING feature (docs/design/sheet-metal.md §4.2): it folds a flange
+    off a straight edge of the sheet body and fuses it across a cylindrical bend
+    region, tagging that bend face with a :class:`CylindricalFaceSignature` (§5)
+    for the unfold's provenance. ``params`` is :class:`SheetMetalEdgeFlangeParamsV1`.
+    """
+
+    type: Literal["sheet_metal_edge_flange"]
+    version: Literal[1]
+    params: SheetMetalEdgeFlangeParamsV1
+
+
 class BooleanFeature(BaseModel):
     """``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
 
@@ -1541,6 +1678,7 @@ Feature = Annotated[
     | PatternFeature
     | ImportFeature
     | SheetMetalBaseFlangeFeature
+    | SheetMetalEdgeFlangeFeature
     | BooleanFeature,
     Field(discriminator="type"),
 ]
@@ -1560,6 +1698,7 @@ FeatureEnvelope = (
     | PatternFeature
     | ImportFeature
     | SheetMetalBaseFlangeFeature
+    | SheetMetalEdgeFlangeFeature
     | BooleanFeature
 )
 
@@ -1716,6 +1855,7 @@ FEATURE_REGISTRY.register(DraftFeature)
 FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.register(ImportFeature)
 FEATURE_REGISTRY.register(SheetMetalBaseFlangeFeature)
+FEATURE_REGISTRY.register(SheetMetalEdgeFlangeFeature)
 FEATURE_REGISTRY.register(BooleanFeature)
 FEATURE_REGISTRY.validate_chains()
 
@@ -1745,6 +1885,11 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         # a flange face (§7), or (slice #3) the edge-flange bend attaches to a base
         # edge. A base flange IS a body-affecting result like any extrude.
         "sheet_metal_base_flange",
+        # `sheet_metal_edge_flange` folds a flange onto the sheet body (sheet-metal
+        # §4.2), so its result faces/edges are nameable by a later SubshapeRef — a
+        # hole on a formed flange face, or a second edge flange off a NEW edge the
+        # first created (still a depth-1 star off the base, §4.3).
+        "sheet_metal_edge_flange",
         # `boolean` produces a combined body (multi-body §Decisions-3), so its
         # result faces/edges are nameable by a later SubshapeRef (a fillet on a
         # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
@@ -1979,6 +2124,19 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             references.append(
                 FeatureReference(
                     "profile", feature.params.profile, frozenset({"sketch"})
+                )
+            )
+        case SheetMetalEdgeFlangeFeature():
+            # An edge flange names the base-flange EDGE it folds off (sheet-metal
+            # §4.2) — an EdgeSubshapeRef resolved against the current sheet body,
+            # exactly like a picked fillet/chamfer edge. Its feature_id materialises
+            # into feature_dependencies (the named base-flange feature), so deleting
+            # the base flange is a 409-with-dependents and a reorder re-checks
+            # strict-backward. flange_length/bend_angle/radius/K are scalars, not
+            # refs. The edge is named on a body-affecting feature's result.
+            references.append(
+                FeatureReference(
+                    "edge", feature.params.edge, BODY_AFFECTING_FEATURE_TYPES
                 )
             )
         case BooleanFeature():

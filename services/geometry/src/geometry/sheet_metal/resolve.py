@@ -34,7 +34,14 @@ from dataclasses import dataclass
 from build123d import CenterOf, Face, GeomType, Vector
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Cylinder
+from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
+from py_kit.schemas.geometry import Vec3
 
+from geometry.kernel.faces import (
+    SubshapeAmbiguousError,
+    SubshapeUnresolvedError,
+    face_signature_dto,
+)
 from geometry.kernel.types import BodyShape
 
 Vec3f = tuple[float, float, float]
@@ -259,3 +266,237 @@ def resolve_bends(body: BodyShape, thickness_mm: float) -> list[ResolvedBend]:
             f"({thickness_mm:.4g} mm). The body is not a folded sheet at this gauge."
         )
     return bends
+
+
+# --- Provenance side (slice #3): emit + match a CylindricalFaceSignature ----------
+#
+# The unfold of an AUTHORED body is driven by PROVENANCE, not blind detection
+# (docs/design/sheet-metal.md §2.2/§5): the edge-flange feature tags the bend's
+# INNER cylindrical face with a :class:`CylindricalFaceSignature` at construction,
+# and the unfold matches that signature back to the bend face on the rebuilt body.
+# The match degrades to a typed ``subshape_unresolved``/``subshape_ambiguous``
+# under a topology-changing edit, the SAME best-effort stage-1 posture the planar
+# (:mod:`geometry.kernel.faces`) and edge (:mod:`geometry.kernel.edges`) signatures
+# ship — no new mechanism beyond the one new signature type (§5).
+
+#: Cylindrical-signature match tolerances (documented, NOT ad-hoc — §9). A bend
+#: face is bit-identical on a clean rebuild, so residuals are ulp-scale; these are
+#: tight enough that two distinct cylinders never collide, loose enough for jitter.
+_RADIUS_REL_TOL = 1e-6  # relative radius difference
+_CENTROID_TOL_MM = 1e-6  # Euclidean centroid distance (mm)
+
+
+@dataclass(frozen=True)
+class FlangeFaceRecord:
+    """A resolved flanking flat face of a bend: its Face + signature + metrics.
+
+    Richer than :class:`ResolvedFlange` (which carries only scalars): the unfold
+    of a depth-1 bend STAR needs the actual planar :class:`Face` (to identify the
+    shared base face by its :class:`PlanarFaceSignature`) plus each face's world
+    ``centroid``/``normal`` (to lay flanges out on the correct side and infer the
+    fold direction up/down)."""
+
+    face: Face
+    signature: PlanarFaceSignature
+    developed_length_mm: float
+    width_mm: float
+    area_mm2: float
+    normal: Vec3f
+    centroid: Vec3f
+
+
+@dataclass(frozen=True)
+class ResolvedBendFaces:
+    """A bend resolved BY PROVENANCE: its geometry + both flanking face records.
+
+    The provenance sibling of :class:`ResolvedBend` — the unfold-of-authored-body
+    (slice #3) analogue that keeps the flanking :class:`Face`s so a depth-1 star
+    can separate the shared base from each moving flange and lay them out flat."""
+
+    radius_mm: float
+    angle_rad: float
+    bend_width_mm: float
+    axis_origin: Vec3f
+    axis_dir: Vec3f
+    centroid: Vec3f
+    flanges: tuple[FlangeFaceRecord, FlangeFaceRecord]
+
+
+def cylindrical_face_signature(face: Face) -> CylindricalFaceSignature:
+    """Emit the :class:`CylindricalFaceSignature` (§5) of a cylindrical *face*.
+
+    The EMIT side of bend provenance: reads the same ``BRepAdaptor_Surface``
+    axis/radius :func:`_cylindrical_faces` extracts, plus the face's area centroid,
+    into the kernel-free boundary DTO. Raises if *face* is not cylindrical (a
+    caller bug — the edge-flange feature only tags the bend faces it creates)."""
+    surf = BRepAdaptor_Surface(face.wrapped)
+    if surf.GetType() != GeomAbs_Cylinder:
+        raise NoBendFoundError(
+            "cylindrical_face_signature called on a non-cylindrical face; only a "
+            "bend region's cylindrical face carries this provenance signature."
+        )
+    cyl = surf.Cylinder()
+    axis = cyl.Axis()
+    loc = axis.Location()
+    direction = axis.Direction()
+    axis_dir = Vector(direction.X(), direction.Y(), direction.Z()).normalized()
+    centroid = face.center(CenterOf.MASS)
+    return CylindricalFaceSignature(
+        axis_origin=Vec3(x=loc.X(), y=loc.Y(), z=loc.Z()),
+        axis_dir=Vec3(x=axis_dir.X, y=axis_dir.Y, z=axis_dir.Z),
+        radius_mm=float(cyl.Radius()),
+        centroid=Vec3(x=centroid.X, y=centroid.Y, z=centroid.Z),
+    )
+
+
+def _cyl_matches(candidate: _CylFace, target: CylindricalFaceSignature) -> bool:
+    """Nearest-within-tolerance match of a cylindrical face to a stored signature.
+
+    Same axis LINE (parallel direction + coincident line), radius within a
+    relative tolerance, and centroid within the linear tolerance — field by field
+    so a lone in-tolerance candidate is unique and two are an honest ambiguity."""
+    target_dir = Vector(
+        target.axis_dir.x, target.axis_dir.y, target.axis_dir.z
+    ).normalized()
+    if 1.0 - abs(candidate.axis_dir.dot(target_dir)) > _PARALLEL_TOL:
+        return False
+    target_origin = Vector(
+        target.axis_origin.x, target.axis_origin.y, target.axis_origin.z
+    )
+    delta = target_origin - candidate.axis_origin
+    perp = delta - candidate.axis_dir * delta.dot(candidate.axis_dir)
+    if perp.length > _AXIS_COINCIDENT_TOL_MM:
+        return False
+    radius_ref = max(abs(target.radius_mm), 1.0)
+    if abs(candidate.radius - target.radius_mm) / radius_ref > _RADIUS_REL_TOL:
+        return False
+    centroid_dist = math.dist(
+        (candidate.centroid.X, candidate.centroid.Y, candidate.centroid.Z),
+        (target.centroid.x, target.centroid.y, target.centroid.z),
+    )
+    return centroid_dist <= _CENTROID_TOL_MM
+
+
+def resolve_cylindrical_face(
+    body: BodyShape, signature: CylindricalFaceSignature
+) -> _CylFace:
+    """Match a stored :class:`CylindricalFaceSignature` to ONE cylindrical face.
+
+    The MATCH side of bend provenance (§5): exactly one cylindrical face of *body*
+    within tolerance, or an honest error — the same refuse-to-guess rule the
+    planar/edge resolvers follow.
+
+    Raises:
+        SubshapeUnresolvedError: no cylindrical face matches (a topology-changing
+            edit moved/removed the bend face — a dangling bend, surfaced).
+        SubshapeAmbiguousError: two or more match (a congruent twin bend).
+    """
+    matches = [c for c in _cylindrical_faces(body) if _cyl_matches(c, signature)]
+    if not matches:
+        raise SubshapeUnresolvedError(
+            "No cylindrical face of the current body matches the stored bend "
+            "signature (axis / radius / centroid); the bend region no longer "
+            "exists after the rebuild. The flat pattern cannot resolve this bend."
+        )
+    if len(matches) > 1:
+        raise SubshapeAmbiguousError(
+            f"{len(matches)} cylindrical faces match the stored bend signature "
+            "within tolerance; the bend reference is ambiguous. Refusing to guess."
+        )
+    return matches[0]
+
+
+def _flanking_face_records(
+    body: BodyShape, inner: _CylFace
+) -> tuple[FlangeFaceRecord, FlangeFaceRecord]:
+    """The two flat flanges of a bend, as full :class:`FlangeFaceRecord`s.
+
+    The provenance-unfold sibling of :func:`_flanking_flanges`: same tangent-to-
+    inner-surface selection, but keeps each :class:`Face` + its
+    :class:`PlanarFaceSignature` + world centroid so the star unfold can identify
+    the shared base face and lay flanges out on the correct side."""
+    axis_dir = inner.axis_dir
+    origin = inner.axis_origin
+    records: list[FlangeFaceRecord] = []
+    for face in body.faces():
+        if face.geom_type != GeomType.PLANE:
+            continue
+        centroid = face.center(CenterOf.MASS)
+        normal = face.normal_at(centroid)
+        if abs(normal.dot(axis_dir)) > _PERP_TOL:
+            continue
+        point = Vector(centroid.X, centroid.Y, centroid.Z)
+        dist = abs((point - origin).dot(normal))
+        if abs(dist - inner.radius) > _TANGENT_DIST_TOL_MM:
+            continue
+        u = axis_dir.cross(normal).normalized()
+        verts = [Vector(v.X, v.Y, v.Z) for v in face.vertices()]
+        u_proj = [v.dot(u) for v in verts]
+        w_proj = [v.dot(axis_dir) for v in verts]
+        signature = face_signature_dto(face)
+        assert signature is not None, "a planar face always has a signature"
+        records.append(
+            FlangeFaceRecord(
+                face=face,
+                signature=signature,
+                developed_length_mm=max(u_proj) - min(u_proj),
+                width_mm=max(w_proj) - min(w_proj),
+                area_mm2=float(face.area),
+                normal=(normal.X, normal.Y, normal.Z),
+                centroid=(centroid.X, centroid.Y, centroid.Z),
+            )
+        )
+    if len(records) != 2:
+        raise BendFlankingFacesError(
+            f"Bend (radius {inner.radius:.4g} mm) is flanked by {len(records)} "
+            "planar faces tangent to its inner surface; a v1 edge flange has "
+            "exactly two flat flanges."
+        )
+    records.sort(key=lambda f: (-f.developed_length_mm, f.normal))
+    return records[0], records[1]
+
+
+def find_cylindrical_face(
+    body: BodyShape, axis_origin: Vec3f, axis_dir: Vec3f, radius_mm: float
+) -> Face:
+    """The one cylindrical face of *body* on a KNOWN axis line at a known radius.
+
+    Used at edge-flange construction time to locate the bend's inner cylindrical
+    face (whose axis + radius the feature computed exactly) so its
+    :class:`CylindricalFaceSignature` can be emitted. Exactly one or a raise (a
+    construction invariant — the feature just created this face)."""
+    want_dir = Vector(*axis_dir).normalized()
+    want_origin = Vector(*axis_origin)
+    radius_ref = max(abs(radius_mm), 1.0)
+    matches: list[Face] = []
+    for cand in _cylindrical_faces(body):
+        if 1.0 - abs(cand.axis_dir.dot(want_dir)) > _PARALLEL_TOL:
+            continue
+        delta = want_origin - cand.axis_origin
+        perp = delta - cand.axis_dir * delta.dot(cand.axis_dir)
+        if perp.length > _AXIS_COINCIDENT_TOL_MM:
+            continue
+        if abs(cand.radius - radius_mm) / radius_ref > _RADIUS_REL_TOL:
+            continue
+        matches.append(cand.face)
+    if len(matches) != 1:
+        raise NoBendFoundError(
+            f"Expected exactly one cylindrical face on the constructed bend axis "
+            f"at radius {radius_mm:.4g} mm, found {len(matches)}."
+        )
+    return matches[0]
+
+
+def resolve_bend_faces(body: BodyShape, inner: _CylFace) -> ResolvedBendFaces:
+    """Resolve a bend's full geometry + flanking face records from its inner face."""
+    flanges = _flanking_face_records(body, inner)
+    angle = _fold_angle(flanges[0].normal, flanges[1].normal)
+    return ResolvedBendFaces(
+        radius_mm=inner.radius,
+        angle_rad=angle,
+        bend_width_mm=flanges[0].width_mm,
+        axis_origin=(inner.axis_origin.X, inner.axis_origin.Y, inner.axis_origin.Z),
+        axis_dir=(inner.axis_dir.X, inner.axis_dir.Y, inner.axis_dir.Z),
+        centroid=(inner.centroid.X, inner.centroid.Y, inner.centroid.Z),
+        flanges=flanges,
+    )

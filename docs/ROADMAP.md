@@ -3,7 +3,9 @@
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
 **Current focus: Phase 4b — Sheet metal** (founder green-lit 2026-07-19;
-Spike 0 unfold tractability proof landed — see §Phase 4b). The intervening
+slices #1 base flange, #2 unfold algorithm, and #3 edge-flange/authored-body
+unfold landed — flat pattern as a drawing view + bend table (#4) is the
+remaining v1 slice; see §Phase 4b). The intervening
 pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
 the **Multi-body** pillar through MB-4a (multi-lump bodies + opt-in disjoint
 union). The historical convergence notes below are retained as-is.
@@ -836,19 +838,26 @@ design/assemblies.md` v1 #2):
    `goldens-sheet-metal/base-flange-plate-40x25x2` (own harness): volume =
    profile_area × gauge, exact topology, byte-deterministic. The minimal
    foundation the risk item (#2) needs a real (if trivial) sheet body to act on.
-2. **The flat-pattern unfold algorithm — THE flagged risk, proven early**
-   (`geometry.sheet_metal.unfold`: face classification + rigid-transform +
-   bend-allowance reconstruction, depth-1-bend-star v1 scope), proven against
-   a directly hand-built OCCT test body (a known cylindrical bend face
-   constructed without going through a real edge-flange feature yet) — the
-   same "prove the hard algorithm in isolation before wiring real authored
-   geometry to it" posture the mate solver took. Ships with the analytic
-   unfolded-length + area-conservation goldens in the same commit.
-3. Edge-flange (bend) feature (`SheetMetalEdgeFlangeParamsV1` — parameter-
-   driven arc+line path, reuses `sweep.py`'s profile-along-path primitives;
-   bend-region provenance tagged via a new additive `CylindricalFaceSignature`
-   plus the shipped `SubshapeRef`/`EdgeSignature` machinery, design doc §5) —
-   wires #2's proven algorithm to real, user-authored bend geometry.
+2. **The flat-pattern unfold algorithm — THE flagged risk** ✅ **PROVEN by
+   Spike 0 (2026-07-19), WIRED to authored geometry by #3.**
+   (`geometry.sheet_metal.unfold`: face classification + bend resolution +
+   bend-allowance reconstruction, depth-1-bend-star v1 scope). Spike 0 proved
+   it in isolation on a hand-built OCCT body; slice #3 generalised it to a
+   depth-1 PARALLEL bend star driven by provenance (`unfold_sheet_metal`).
+   Analytic unfolded-length + area-conservation goldens shipped.
+3. Edge-flange (bend) feature ✅ **SHIPPED 2026-07-19**
+   (`SheetMetalEdgeFlangeParamsV1` — edge selector via the shipped
+   `EdgeSignature` machinery + `flange_length`/`bend_angle`/inherited radius/K;
+   bend-region provenance tagged via the new additive `CylindricalFaceSignature`
+   sibling of `PlanarFaceSignature`, design doc §5). Builds the bend+flange by
+   extruding the exact developed cross-section along the bend axis (a clean
+   analytic cylinder the signature matches), fuses to ONE sheet body, and wires
+   #2's proven unfold to real authored geometry — PROVENANCE-driven, never blind
+   detection. Goldens `l-bracket-edge-flange` (N=1) + `u-channel-edge-flange`
+   (N=2, two flanges sharing the base) unfold from authored feature trees to
+   hand-derived flat length/area, byte-deterministic. Cleared both deferred
+   Spike-0 risks (MakeFace robustness; up/down inference). Deferred:
+   non-parallel depth-1 stars + depth ≥2.
 4. Flat pattern as a drawing view (`views.projection = "flat_pattern"`,
    reuses the shipped `ProjectedViewEdge` DTO + sheet editor + SVG export
    with minimal additive frontend — one new `edge_role` field/render branch,

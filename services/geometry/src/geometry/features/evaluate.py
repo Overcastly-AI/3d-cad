@@ -89,6 +89,7 @@ from py_kit.schemas.features import (
     PatternGeometry,
     RevolveFeature,
     SheetMetalBaseFlangeFeature,
+    SheetMetalEdgeFlangeFeature,
     ShellFeature,
     SketchFeature,
     SolvedSketchData,
@@ -153,6 +154,7 @@ from geometry.kernel import (
     midplane_between,
     offset_plane,
     resolve_axis_line,
+    resolve_edge,
     resolve_face_plane,
     resolve_faces,
     revolve_face,
@@ -163,7 +165,13 @@ from geometry.kernel import (
 )
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
-from geometry.sheet_metal import SheetMetalDefaults
+from geometry.sheet_metal import (
+    BendProvenance,
+    EdgeFlangeEdgeError,
+    EdgeFlangeError,
+    SheetMetalDefaults,
+    build_edge_flange,
+)
 from geometry.sketch import (
     PlanegcsSketchSolver,
     SketchDefinitionError,
@@ -238,6 +246,13 @@ class EvaluationState:
     #: service-internal record (never serialized), exactly like ``bodies``.
     sheet_metal_defaults: dict[uuid.UUID, SheetMetalDefaults] = field(
         default_factory=dict[uuid.UUID, SheetMetalDefaults]
+    )
+    #: The bend provenance (§5: cylindrical-face + base-face signatures + K-factor)
+    #: recorded by each ok edge-flange feature, keyed by that feature id and
+    #: insertion-ordered by evaluation order (deterministic). The unfold reads it to
+    #: find each bend by provenance, never blind detection. Service-internal.
+    bend_provenance: dict[uuid.UUID, BendProvenance] = field(
+        default_factory=dict[uuid.UUID, BendProvenance]
     )
     active_body_id: uuid.UUID | None = None
     #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
@@ -784,6 +799,84 @@ def _evaluate_sheet_metal_base_flange(
         thickness_mm=params.thickness_mm,
         k_factor=params.k_factor,
         bend_radius_mm=params.bend_radius_mm,
+    )
+    return None
+
+
+def _evaluate_sheet_metal_edge_flange(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Fold a flange off a base-flange edge and fuse it across a bend (§4.2).
+
+    Body-modifying (design §7.6): it needs a prior sheet body with recorded
+    sheet-metal defaults (``no_base_flange`` otherwise — a bend allowance needs the
+    part gauge/K). The base-flange edge is resolved by the picked
+    :class:`EdgeSignature` (:func:`resolve_edge` — the SAME stage-1 machinery a
+    fillet uses); a ref that no longer resolves is ``subshape_unresolved`` / a
+    congruent twin ``subshape_ambiguous``. ``bend_radius_mm`` / ``k_factor`` inherit
+    the part defaults when omitted (§4.2). The bend geometry is built + fused
+    (:func:`build_edge_flange`); on success the active body becomes the fused sheet
+    and the bend's provenance (§5) is recorded for the unfold. The active body is
+    only replaced on success (strict-prefix tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalEdgeFlangeFeature), (
+        "registry dispatches on type='sheet_metal_edge_flange'"
+    )
+    params = feature.params
+
+    active = state.active_body
+    if active is None or state.active_body_id is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "An edge flange requires an existing sheet body, but no "
+                "body-affecting feature precedes it; add a base flange first."
+            ),
+        )
+    defaults = state.sheet_metal_defaults.get(state.active_body_id)
+    if defaults is None:
+        return FeatureError(
+            code="no_base_flange",
+            message=(
+                "An edge flange needs the part's sheet-metal gauge/K (from a base "
+                "flange) to compute its bend allowance, but the active body is not "
+                "a sheet-metal base flange."
+            ),
+        )
+
+    try:
+        edge = resolve_edge(active, params.edge.selector.signature)
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(code="subshape_unresolved", message=str(exc))
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(code="subshape_ambiguous", message=str(exc))
+
+    radius = params.bend_radius_mm or defaults.bend_radius_mm
+    k_factor = params.k_factor if params.k_factor is not None else defaults.k_factor
+
+    try:
+        result = build_edge_flange(
+            active,
+            edge,
+            flange_length_mm=params.flange_length_mm,
+            bend_angle_deg=params.bend_angle_deg,
+            bend_radius_mm=radius,
+            thickness_mm=defaults.thickness_mm,
+        )
+    except EdgeFlangeEdgeError as exc:
+        return FeatureError(code="edge_flange_bad_edge", message=str(exc))
+    except EdgeFlangeError as exc:
+        return FeatureError(code="edge_flange_failed", message=str(exc))
+
+    # set_active_body keeps the body's identity (its base-flange id), so the
+    # sheet-metal defaults stay reachable for a SECOND edge flange (a depth-1
+    # star, §4.3 — the U-channel case) without re-keying.
+    state.set_active_body(result.body)
+    state.bend_provenance[item.id] = BendProvenance(
+        cyl_signature=result.cyl_signature,
+        base_face_signature=result.base_face_signature,
+        k_factor=k_factor,
     )
     return None
 
@@ -1514,6 +1607,7 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "pattern",
         "import",
         "sheet_metal_base_flange",
+        "sheet_metal_edge_flange",
         "boolean",
     }
 )
@@ -1536,6 +1630,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "pattern": _evaluate_pattern,
     "import": _evaluate_import,
     "sheet_metal_base_flange": _evaluate_sheet_metal_base_flange,
+    "sheet_metal_edge_flange": _evaluate_sheet_metal_edge_flange,
     "boolean": _evaluate_boolean,
 }
 
@@ -1605,6 +1700,13 @@ class TreeEvaluation:
     body: BodyShape | None = None
     glb: bytes | None = None
     mesh: MeshStats | None = None
+    #: Sheet-metal unfold inputs (§5/§6), service-internal like ``body``: the bend
+    #: provenance recorded by each ok edge flange (evaluation order) + the part's
+    #: sheet-metal defaults (gauge/K/radius) from its base flange, so a flat-pattern
+    #: query (:func:`geometry.sheet_metal.unfold_sheet_metal`) resolves each bend by
+    #: provenance against ``body``. Empty / ``None`` for a non-sheet-metal part.
+    bend_provenance: list[BendProvenance] = field(default_factory=list[BendProvenance])
+    sheet_metal_defaults: SheetMetalDefaults | None = None
 
 
 def tree_no_body_error(
@@ -1728,4 +1830,6 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         body=shape,
         glb=glb,
         mesh=mesh,
+        bend_provenance=list(state.bend_provenance.values()),
+        sheet_metal_defaults=next(iter(state.sheet_metal_defaults.values()), None),
     )

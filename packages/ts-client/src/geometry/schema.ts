@@ -2286,7 +2286,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -3907,6 +3907,76 @@ export interface components {
              * @description Gauge — the uniform sheet thickness (mm); the fixed distance the profile is thickened by. The part's one material thickness (§1).
              */
             thickness_mm: number;
+        };
+        /**
+         * SheetMetalEdgeFlangeFeature
+         * @description ``{"type": "sheet_metal_edge_flange", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-MODIFYING feature (docs/design/sheet-metal.md §4.2): it folds a flange
+         *     off a straight edge of the sheet body and fuses it across a cylindrical bend
+         *     region, tagging that bend face with a :class:`CylindricalFaceSignature` (§5)
+         *     for the unfold's provenance. ``params`` is :class:`SheetMetalEdgeFlangeParamsV1`.
+         */
+        SheetMetalEdgeFlangeFeature: {
+            params: components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_edge_flange";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalEdgeFlangeParamsV1
+         * @description A flange folded off a straight edge of the base flange (§4.2).
+         *
+         *     ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to fold off
+         *     — the SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer pick uses
+         *     (topological-naming §10), resolved against the current sheet body; its
+         *     ``feature_id`` materialises the dependency on the base-flange feature exactly
+         *     like a picked fillet edge. The flange extends outward from that edge in the
+         *     plane of its adjacent flat (plate) face and folds by ``bend_angle_deg`` about a
+         *     bend of ``bend_radius_mm`` (inner radius), producing ONE fused sheet body (the
+         *     base + flange joined across the cylindrical bend region).
+         *
+         *     INHERITED DEFAULTS (§4.2): ``bend_radius_mm`` and ``k_factor`` default from the
+         *     part's base flange (:class:`SheetMetalBaseFlangeParamsV1` — the gauge/K/radius
+         *     anchored on the sheet body) when omitted (``None``), and may be OVERRIDDEN
+         *     per-bend. ``flange_length_mm`` is the developed flat length of the flange leg
+         *     (to the bend tangent line, §9 golden #1's convention); ``bend_angle_deg`` is
+         *     the fold angle (90 deg for a right-angle flange).
+         *
+         *     Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+         *     it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+         *     to) — so its only whole-feature dependency is the named-edge ref + tree order.
+         */
+        SheetMetalEdgeFlangeParamsV1: {
+            /**
+             * Bend Angle Deg
+             * @description Fold angle (degrees); 90 = a right-angle flange. In (0, 180].
+             */
+            bend_angle_deg: number;
+            /**
+             * Bend Radius Mm
+             * @description INNER bend radius (mm). Omitted (None) inherits the part's base-flange default `bend_radius_mm` (§4.2); a value overrides it per-bend.
+             */
+            bend_radius_mm?: number | null;
+            /** @description The base-flange STRAIGHT edge to fold off (a stage-1 EdgeSignature reference resolved against the current sheet body). The flange extends from this edge's adjacent flat face and folds about it. */
+            edge: components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * Flange Length Mm
+             * @description Developed flat length of the flange leg (mm), measured to the bend tangent line (§9 golden #1 convention).
+             */
+            flange_length_mm: number;
+            /**
+             * K Factor
+             * @description Neutral-axis fraction K in [0, 1] for this bend's allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-bend.
+             */
+            k_factor?: number | null;
         };
         /**
          * SheetPoint

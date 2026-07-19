@@ -259,6 +259,22 @@ raw sweep authoring flow**, for two reasons:
    unfold pass never has to re-detect it from raw geometry (§2.2's stated
    uncertainty). A generic sweep gives you correct geometry but no such tag.
 
+**Implementation note (slice #3, 2026-07-19 — kernel decision recorded):** the
+built geometry uses the **exact developed cross-section** (a partial annulus for
+the bend + the flange rectangle, in the plane perpendicular to the picked edge)
+**extruded along the straight bend axis**, rather than sweeping a (thickness ×
+width) profile along a curved OCCT spine. Both are "profile-along-path"
+reuse of the shipped extrude/sweep primitives — no new swept-surface code — but
+the exact-cross-section route was chosen because (a) extruding an analytic arc
+along a straight line yields an **exact cylinder** the `CylindricalFaceSignature`
+matches to ulp scale (the bend provenance's whole premise), and (b) the
+cross-section is a **fixed simple polygon + two arcs**, never a reconstructed
+outline, so §2.2's flagged `BRepBuilderAPI_MakeFace` robustness risk is
+**sidestepped, not merely deferred** (`geometry.sheet_metal.edge_flange`). The
+picked edge's larger adjacent flat is the reference face the flange extends from;
+the fold-up direction and the extension direction are derived deterministically
+from that face's normal (no `flip` param needed in v1).
+
 ### 4.3 Why a depth-1 bend star is still genuinely useful
 
 v1 restricts each edge-flange feature to **one straight bend line**, and the
@@ -329,6 +345,18 @@ Field(discriminator="surface")]` — additive, no change to a persisted
 inside `selector.signature` grows, the same additive posture the module's
 own comments anticipate for a future selector member (`features.py:141-146`).
 
+**Implementation note (slice #3, 2026-07-19).** `CylindricalFaceSignature`
+shipped in `py_kit.schemas.features` as the additive **sibling** schema, with the
+emit (`cylindrical_face_signature`) and match (`resolve_cylindrical_face`) sides
+in `geometry.sheet_metal.resolve`. In v1 it is **geometry-internal unfold
+provenance** — no feature persists a cylindrical `SubshapeRef`, so the shared
+planar `Selector`/`SubshapeRef` union is left UNCHANGED (it is not yet widened to
+the `Field(discriminator="surface")` union sketched above). That widening lands
+additively the moment a user-facing feature needs to *name* a cylindrical face
+(DRY — extract the union member on the second real consumer, not the first
+imagined one); until then it stays out of the wire contract, keeping the
+gen-check surface to exactly the new `SheetMetalEdgeFlangeParamsV1`.
+
 When an edge flange feature creates its bend, it records:
 
 - the **cylindrical bend face's** `CylindricalFaceSignature` (so the unfold
@@ -372,6 +400,20 @@ FlatPattern`:
    `BRepBuilderAPI_MakeWire`/`MakeFace` (§2.2's flagged uncertainty — this
    step needs its own robustness golden before trusting non-rectangular
    profiles).
+
+**Implementation note (slice #3, 2026-07-19).** The shipped
+`unfold_sheet_metal` (`geometry.sheet_metal.unfold`) resolves each bend by its
+`CylindricalFaceSignature` (never blind detection), separates the SHARED base
+flange from each moving flange by the recorded base-face `PlanarFaceSignature`
+(so the base area is counted once, never per-bend), infers each fold's up/down
+direction from the moving flange's side of the base normal (clearing Spike 0's
+deferred inference), and lays the depth-1 star out flat. **v1 scopes the layout
+to a depth-1 PARALLEL bend star** — all bends share a parallel axis (the
+L-bracket N=1 and U-channel N=2, the two goldens). A depth-1 star with flanges
+off *perpendicular* edges (a non-parallel 2D outline) is an honest
+`UnfoldStarError` and a documented next increment; depth ≥2 stays deferred
+(§4.3). Bend faces still unresolvable after an edit degrade to
+`subshape_unresolved` (§5), never a wrong flat pattern.
 5. Tag the seam between each original planar segment and its neighbor as a
    **bend line** (a construction-style edge in the output, carrying the
    bend's id, angle, and direction up/down) — this is what feeds the bend

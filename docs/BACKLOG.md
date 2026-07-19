@@ -744,33 +744,44 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       additive, apps/web typecheck clean (no create-UI yet — slice #4). gen-check
       clean; full geometry suite + ruff + pyright green. [src: founder, design/
       sheet-metal.md §4.1/§10]
-- [ ] (P2, L) Sheet metal v1 #2 — the flat-pattern unfold algorithm
-      (geometry) — THE flagged risk (design doc §2), proven EARLY against a
-      directly hand-built OCCT test body (a known single cylindrical bend
-      face, constructed without a real edge-flange feature) — mirrors how
-      the `AssemblySolver` was proven on synthetic residuals before real
-      mate-geometry resolution existed. Face classification
-      (`BRepAdaptor_Surface.GetType()`) + rigid-transform + bend-allowance
-      (`BA = angle × (radius + K·thickness)`) reconstruction via
-      `BRepBuilderAPI`; ships with the analytic unfolded-length +
-      area-conservation goldens (design doc §9 items 1–2, precise invariant
-      + pinned K=0.44 default) in the same commit — DoD. Depends on #1
-      (needs a real sheet body/thickness to classify against, even if the
-      bend face is hand-built for this slice). [src: founder, design/
-      sheet-metal.md §2/§6/§10]
-- [ ] (P2, M) Sheet metal v1 #3 — edge-flange (bend) feature (geometry +
-      documents) — `SheetMetalEdgeFlangeParamsV1` (`flange_length_mm`/
-      `bend_angle_deg`/`bend_radius_mm`/`k_factor`, parameter-driven arc+line
-      path reusing `sweep.py`'s profile-along-path primitives internally);
-      tags the bend region's faces via a NEW additive `CylindricalFaceSignature`
-      (a bend face is cylindrical — the existing `PlanarFaceSignature` cannot
-      name it) plus the shipped `SubshapeRef`/`EdgeSignature` machinery so
-      #2's unfold never has to blind-detect a bend. Wires #2 to real authored
-      geometry — the "does the algorithm that passed on a hand-built body
-      also unfold something a user actually modeled" proof, and covers a
-      depth-1 bend star (N edge flanges off one base — an L-bracket or
-      U-channel), not just one bend. [src: founder, design/sheet-metal.md
-      §4.2/§4.3/§5/§10]
+- [x] (P2, L) Sheet metal v1 #2 — the flat-pattern unfold algorithm
+      (geometry) PROVEN by Spike 0 (2026-07-19) and WIRED to authored geometry
+      by #3. THE flagged risk (design doc §2): face classification
+      (`BRepAdaptor_Surface.GetType()`), bend resolution (axis/radius/centroid),
+      and bend-allowance (`BA = angle × (radius + K·thickness)`) reconstruction.
+      Spike 0 proved it end-to-end on a hand-built OCCT body (golden
+      `l-bracket-unfold`, byte-deterministic); slice #3 generalised it to a
+      depth-1 PARALLEL bend star driven by provenance
+      (`unfold_sheet_metal`) and gated it on REAL authored feature-tree bodies.
+      Analytic unfolded-length + area-conservation goldens shipped (§9 #1/#2).
+      [src: founder, design/sheet-metal.md §2/§6/§10]
+- [x] (P2, M) Sheet metal v1 #3 — edge-flange (bend) feature (geometry)
+      SHIPPED 2026-07-19. `SheetMetalEdgeFlangeParamsV1` in py-kit (edge
+      selector via the shipped `EdgeSubshapeRef`/`EdgeSignature` + `flange_
+      length_mm`/`bend_angle_deg`/inherited `bend_radius_mm`/`k_factor`),
+      registered in the Feature union / registry / body-affecting set /
+      `feature_references` (edge → base flange). NEW additive
+      `CylindricalFaceSignature` in py-kit (a bend face is cylindrical — the
+      planar signature cannot name it), a SIBLING to `PlanarFaceSignature`;
+      geometry emits it off the bend face at construction
+      (`cylindrical_face_signature`) and matches it back
+      (`resolve_cylindrical_face`, exactly-one-or-`subshape_unresolved`, the
+      stage-1 degrade posture). `_evaluate_sheet_metal_edge_flange` resolves the
+      base edge, builds the bend+flange (exact developed cross-section extruded
+      along the bend axis → clean analytic cylinder, reusing the extrude/sweep
+      primitives), fuses to ONE sheet body, and records bend provenance. The
+      unfold is now PROVENANCE-driven (finds each bend by its signature, never
+      blind detection) and covers the depth-1 star: goldens `l-bracket-edge-
+      flange` (N=1) + `u-channel-edge-flange` (N=2, two flanges sharing the
+      base) unfold from authored feature trees to hand-derived flat length/area
+      (residual <1e-12, tol 1e-9), byte-deterministic in-proc + fresh-restart.
+      Cleared BOTH deferred Spike-0 risks: MakeFace robustness (the exact
+      cross-section is a fixed simple polygon+arcs, never a reconstructed
+      outline) and up/down inference (from the moving-flange side of the base
+      normal). Documents needed NO change (generic JSONB CRUD); gen-check clean;
+      full geometry suite + ruff + pyright green. Deferred: non-parallel depth-1
+      stars (flanges off perpendicular edges) + depth ≥2 (§4.3). [src: founder,
+      design/sheet-metal.md §4.2/§4.3/§5/§10]
 - [ ] (P2, M) Sheet metal v1 #4 — flat pattern as a drawing view + bend
       table (geometry + documents + web) — the v1 DoD, "one bracket → a
       dimensionally-correct flat blank a shop can cut." `views.projection =

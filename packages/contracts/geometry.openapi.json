@@ -2302,6 +2302,7 @@
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
+                "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
                 "sweep": "#/components/schemas/SweepFeature"
@@ -2347,6 +2348,9 @@
               },
               {
                 "$ref": "#/components/schemas/SheetMetalBaseFlangeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalEdgeFlangeFeature"
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
@@ -4467,6 +4471,87 @@
           "bend_radius_mm"
         ],
         "title": "SheetMetalBaseFlangeParamsV1",
+        "type": "object"
+      },
+      "SheetMetalEdgeFlangeFeature": {
+        "description": "``{\"type\": \"sheet_metal_edge_flange\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-MODIFYING feature (docs/design/sheet-metal.md \u00a74.2): it folds a flange\noff a straight edge of the sheet body and fuses it across a cylindrical bend\nregion, tagging that bend face with a :class:`CylindricalFaceSignature` (\u00a75)\nfor the unfold's provenance. ``params`` is :class:`SheetMetalEdgeFlangeParamsV1`.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/SheetMetalEdgeFlangeParamsV1"
+          },
+          "type": {
+            "const": "sheet_metal_edge_flange",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "SheetMetalEdgeFlangeFeature",
+        "type": "object"
+      },
+      "SheetMetalEdgeFlangeParamsV1": {
+        "description": "A flange folded off a straight edge of the base flange (\u00a74.2).\n\n``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to fold off\n\u2014 the SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer pick uses\n(topological-naming \u00a710), resolved against the current sheet body; its\n``feature_id`` materialises the dependency on the base-flange feature exactly\nlike a picked fillet edge. The flange extends outward from that edge in the\nplane of its adjacent flat (plate) face and folds by ``bend_angle_deg`` about a\nbend of ``bend_radius_mm`` (inner radius), producing ONE fused sheet body (the\nbase + flange joined across the cylindrical bend region).\n\nINHERITED DEFAULTS (\u00a74.2): ``bend_radius_mm`` and ``k_factor`` default from the\npart's base flange (:class:`SheetMetalBaseFlangeParamsV1` \u2014 the gauge/K/radius\nanchored on the sheet body) when omitted (``None``), and may be OVERRIDDEN\nper-bend. ``flange_length_mm`` is the developed flat length of the flange leg\n(to the bend tangent line, \u00a79 golden #1's convention); ``bend_angle_deg`` is\nthe fold angle (90 deg for a right-angle flange).\n\nLike a fillet/shell it MODIFIES the implicit single body chain (design \u00a77.6) \u2014\nit carries no ``merge`` (it always fuses into the sheet body the edge belongs\nto) \u2014 so its only whole-feature dependency is the named-edge ref + tree order.",
+        "properties": {
+          "bend_angle_deg": {
+            "description": "Fold angle (degrees); 90 = a right-angle flange. In (0, 180].",
+            "exclusiveMinimum": 0.0,
+            "maximum": 180.0,
+            "title": "Bend Angle Deg",
+            "type": "number"
+          },
+          "bend_radius_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "INNER bend radius (mm). Omitted (None) inherits the part's base-flange default `bend_radius_mm` (\u00a74.2); a value overrides it per-bend.",
+            "title": "Bend Radius Mm"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSubshapeRef",
+            "description": "The base-flange STRAIGHT edge to fold off (a stage-1 EdgeSignature reference resolved against the current sheet body). The flange extends from this edge's adjacent flat face and folds about it."
+          },
+          "flange_length_mm": {
+            "description": "Developed flat length of the flange leg (mm), measured to the bend tangent line (\u00a79 golden #1 convention).",
+            "exclusiveMinimum": 0.0,
+            "title": "Flange Length Mm",
+            "type": "number"
+          },
+          "k_factor": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Neutral-axis fraction K in [0, 1] for this bend's allowance (\u00a71). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-bend.",
+            "title": "K Factor"
+          }
+        },
+        "required": [
+          "edge",
+          "flange_length_mm",
+          "bend_angle_deg"
+        ],
+        "title": "SheetMetalEdgeFlangeParamsV1",
         "type": "object"
       },
       "SheetPoint": {
