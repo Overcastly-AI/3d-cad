@@ -67,10 +67,11 @@ model, and flipping rows is the roadmap.
   Docker daemon, so `docker compose up` has not been runtime-verified yet
   (tracked in [`docs/ROADMAP.md`](./docs/ROADMAP.md)).
 
-**What does NOT exist yet** (no sugar-coating): sketching, any feature
-beyond the box, document persistence, auth, export endpoints (STEP/STL),
-assemblies, drawings, the async job-queue runtime (geometry currently
-evaluates in-request), and the MCP/scripting surface. See
+**What does NOT exist yet** (no sugar-coating): IGES import/export, assembly
+import/export, multi-solid STEP healing, the async job-queue runtime (geometry
+currently evaluates in-request), sub-assemblies (nested mate solve), versioned
+part references (assemblies pin to part TIP, not history), interference/collision
+detection, section/detail views, and the MCP/scripting surface. See
 [`docs/ROADMAP.md`](./docs/ROADMAP.md) for the order they land in.
 
 ## Quickstart

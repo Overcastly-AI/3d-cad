@@ -394,3 +394,58 @@ feature-tree.md`: features table vs JSONB tradeoff, versioned param
   `6553c04`) — product audit: "yes for a part, no for a project," calls
   **Assemblies #1**; engineering audit Pass 2: F7 closed, F6/F8/F2 open.
   [backlog-groomer]
+
+## [Phase 3 + 4a + 4b: Assemblies, Drawings enhancements, Multi-body, Sheet metal] — 2026-07-18 to 2026-07-19
+
+### Drawings enhancements — Phase 4a exports + multi-body drawing support (2026-07-18)
+
+- **feat(drawings): DXF serialization** (`6c82325`, `42af0d1`) — ezdxf real-CAD
+  entity serialization (polyline edges, arc/circle curves, datum points) +
+  SVG/PDF/DXF export control in the drawings panel; byte-deterministic.
+- **feat(geometry): MB-0 multi-body plumbing** (`396dbcd`, `02c65cd`) — a part
+  can end with >1 body (Compound), each queryable by index. Cross-interpreter
+  determinism golden `multi-body` suite baseline.
+
+### Multi-body (MB-1 through MB-3) — Phase 4 batch 1 (2026-07-18)
+
+- **feat(geometry+web): boolean union feature** (`d148f4d`, `c9729aa`) — MB-1a
+  wires `boolean` (union/subtract/intersect) feature between independently-built
+  bodies; MB-1b frontend boolean-op selector UI.
+- **feat(geometry): boolean subtract + intersect** (`fa8a147`, `bb8d990`) —
+  MB-2a backend wires subtract and intersect; MB-2b operation-selector UI.
+- **feat(geometry): downstream fillet on boolean-created edge** (`7ed2dd8`,
+  `10eac54`) — MB-3 proves topological-naming surviving boolean operations,
+  QA golden `boolean-union-then-fillet`.
+
+### Drawings server-composition (DE-1b, DE-1c) — Phase 4a completion (2026-07-18)
+
+- **feat(drawings): JSON compose endpoint** (`4644f49`) — DE-1b `POST
+/api/v1/sheets/{id}/compose` returns server-side `ComposedSheet` (dimedu
+  layout, scaled, ready for export).
+- **feat(drawings): server-rendered sheets + client cleanup** (`03f07e4`,
+  `7c078bb`) — DE-1c deletes client-side placement engine, renders from
+  `ComposedSheet`, closes orphaned endpoint calls.
+
+### Multi-body (MB-4a, MB-4b, MB-4c) + Sheet metal v1 — Phase 4b (2026-07-19)
+
+- **feat(geometry): MB-4a multi-lump bodies + opt-in disjoint union** (`e77da29`,
+  `0514117`) — `BooleanParamsV1.allow_disjoint` allows a feature to produce
+  disjoint lumps kept as one Compound body; QA-verified PASS on 6 gates.
+- **feat(geometry): MB-4b multi-solid STEP import** (`919ebcf`, `0cbdbf6`) —
+  `import_step_solid` accepts multi-solid STEP files, imports as one multi-lump
+  body; `ImportNoSolidError` replaces `ImportNotSingleSolidError`.
+- **feat(web): MB-4c disjoint-union opt-in UI** (`fa70eef`) — Combine editor
+  checkbox "Keep as one body" (boolean_disjoint toggle); guided recovery UI
+  on feature evaluate.
+- **feat(geometry): sheet-metal v1** (base flange `fb555cc`, edge flange
+  `46c05ae`, flat-pattern backend `94db476`, flat-pattern frontend
+  `645f236`, `2ba4df4`) — parametric unfold for laser-cut-and-bend brackets.
+  Implements base flange (extrusion from sketch on a datum plane) + edge flange
+  (bend via swept flange off a picked edge) + provenance-tracked flat-pattern
+  with bend table. Flat-pattern as a drawing view (orthographic projection of
+  unfolded blank + dashed fold lines + columnar `ComposedBendTable` annotation);
+  unfold length analytically exact, golden suite `goldens-sheet-metal/`
+  verifies STEP round-trip retention of bend metadata. v1 DoD: "one bracket →
+  a flat blank a shop can cut" (`67097ec` + `5ed73c0`).
+- **docs(design): AEC/BIM future vertical** (`afcb20b`) — scope Revit-class
+  assembly/details/interference/GD&T as a speculative Phase 5+ candidate.
