@@ -67,6 +67,22 @@
 
 ## Sheet metal
 
+**Full incumbent-parity checklist: `docs/design/sheet-metal-parity.md`**
+(added 2026-07-19, founder ask — "driven to full parity, kept on par").
+That doc is the authoritative, evidence-first tracker (32 rows across
+flanges/bends/corners/bend-allowance/manufacturing-features/flat-pattern/
+convert-recognize/drawings, each sourced to a SolidWorks/Fusion/Onshape doc
+URL and verified against the repo at HEAD) — the summary table below is
+kept as a coarse index only and is **not** re-derived each pass; treat the
+parity doc as the source of truth for anything sheet-metal and update THIS
+table's status column to match it, not vice versa. Headline from that pass:
+still ➖ (per VISION.md), not ✅ — corner relief + the authoring UI are 🔨
+in flight; closed hem, gauge/material bend tables, miters, and tabs are the
+named needle-movers, in that order. **The rest of this file (Sketching,
+Part modeling, Assemblies/Interop/Drawings sections above) is untouched
+this pass and remains stale from the last groom** — flagged, not fixed,
+out of this pass's scope.
+
 | Capability | Fusion 360 | SolidWorks | Loft status | Proposed phase / notes |
 |---|---|---|---|---|
 | Base flange (profile sketch → constant-gauge-thickness body) | Sheet Metal workspace's base feature, driven by a per-design gauge/rule — [Sheet metal rule reference](https://help.autodesk.com/view/fusion360/ENU/?guid=SM-RULES-REF) | Base-Flange/Tab — insert a sketch profile and extrude it to the part's material thickness — [Design a Sheet Metal Part from the Flattened State](https://help.solidworks.com/2022/english/SolidWorks/sldworks/t_design_sheet_metal_flattened.htm) | ⬜ | Scoped v1 #1, `docs/design/sheet-metal.md` §4.1 — reuses the shipped `extrude` kernel path |
@@ -222,3 +238,51 @@ the groomer._
   question, this is filed at P2 (not promoted to Ready) — it doesn't flip a
   ❌ row on its own until built, and the design doc is explicitly
   unendorsed.
+
+- **2026-07-19 (sheet-metal INCUMBENT-PARITY checklist, founder ask —
+  "driven to full parity, kept on par").** New standalone doc
+  `docs/design/sheet-metal-parity.md`: a 32-row evidence-first matrix
+  (flanges/walls, bends, corners, the bend-allowance model, manufacturing
+  features, flat pattern, convert/recognize, drawings), each row sourced to
+  a SolidWorks/Fusion/Onshape doc URL via `WebSearch` (`WebFetch` against
+  `help.solidworks.com`/`help.autodesk.com` still 403s at the egress proxy,
+  same policy denial as the 2026-07-12 pass — `WebSearch` snippets against
+  these domains remain reachable and sufficed, cited per-URL, no pasted
+  text) and independently re-verified against the repo at HEAD (`a1c6a21`)
+  rather than trusted from the design doc's own claims. **What was newly
+  enumerated beyond the 07-17 pass's placeholder row:** the four hem shapes
+  (closed/open/teardrop/rolled) and their distinct material/use-case
+  fit; miter flange as a corner-relief variant, not an independent
+  primitive; swept flange and lofted bend as two DISTINCT flange types with
+  different risk profiles (loft carries new developable-surface kernel
+  risk, swept flange reuses shipped `sweep.py` primitives); sketched
+  bend/Fold as the mechanism tabs and jogs both depend on; cross-breaks as
+  a purely cosmetic HVAC convention (no geometry change — a real
+  deprioritization candidate); gauge/material bend TABLES confirmed as
+  interpolated, per-material, multi-type (K-factor/allowance/deduction)
+  lookup tables, not a single value — the single most-repeated gap named in
+  `sheet-metal.md` itself; forming tools as a library-part-stamped-onto-a-
+  face paradigm distinct from countersink/counterbore (which is closer to a
+  hole-feature variant); nesting and native grain-direction confirmed
+  correctly OUT of near-term scope (SolidWorks nesting is a third-party
+  add-in, not core; Fusion has neither natively). **Verdict:** still ➖, not
+  ✅ (matches VISION.md) — corner relief + the authoring UI are 🔨 in
+  flight; closed hem, gauge/material bend tables, miters, and tabs are the
+  3-5 named needle-movers. **Where Loft is at/ahead of parity, stated
+  plainly:** flat-pattern DXF/PDF/SVG export (deterministic, byte-pinned,
+  three formats, one shared bend-table source vs. SolidWorks' separately-
+  drawn outputs) and the depth-≥2 bend-tree unfold's goldened correctness
+  bar (area conservation, byte-determinism) — both real, not aspirational.
+  **Campaign corrections filed for the next groom** (not filed as BACKLOG
+  entries directly, per this pass's scope — the parity doc's own
+  §"Parity roadmap" is the input): jogs got EASIER since `sheet-metal.md`
+  was written (the now-shipped depth-≥2 bend-tree unfold covers the
+  zero-length-strip case, previously assumed to need new kernel work);
+  tabs are near-free once sketched-bend ships (mechanically an edge flange
+  with `bend_angle_deg = 0`); gauge/material bend tables are pure
+  documents-service data modeling, not kernel risk, and could parallelize
+  earlier than the campaign's serial ordering implied. `docs/COMPETITIVE.md`
+  itself gained only a pointer + index-table note in the Sheet metal
+  section (above) — the rest of this file (Sketching/Part
+  modeling/Assemblies/Interop/Drawings) is untouched and remains stale from
+  the last groom, flagged not fixed, out of this pass's scope.
