@@ -362,3 +362,20 @@ recipe here in the same commit as the fix.**
   option in 1.56 (`use.contextOptions.reducedMotion`), and enabling it snaps the
   r3f camera, which shifts face-pick screen coords and flakes the pick specs —
   left off deliberately.
+- **`ruff check` + `pyright` is NOT the lint gate — `just lint` is.** CI
+  (`.github/workflows/ci.yml`) runs `uv run ruff format --check .` AND
+  `prettier --check .` (via `just lint`), and `ruff` is lock-pinned (uv.lock →
+  0.15.20; `pyproject` floor `>=0.12` is a red herring — `uv run ruff` uses the
+  locked version, the same one CI's `uv sync --locked` installs, so a local
+  `ruff format --check` failure is NEVER "version skew," it's a real red build).
+  A per-slice gate of only `ruff check`/`pyright`/`gen-check`/`web typecheck`
+  passes while `ruff format`- and prettier-dirty files accumulate — then the
+  batch-boundary `just lint` goes red (seen 2026-07-19: 4 `ruff format`-dirty
+  py files + **12 prettier-dirty `goldens-sheet-metal/*.json`** slipped through
+  ~10 green-looking slice commits). **Two rules: (1) every slice agent runs the
+  full `just lint` before committing, not just `ruff check`; (2) newly-committed
+  golden JSON (and any JSON/MD/YAML) must pass `prettier --check` — the test
+  harness parses goldens as JSON (whitespace-insensitive) so a stored content
+  hash is a string field unaffected by formatting, i.e. `prettier --write` on a
+  golden is behaviour-neutral and safe.** Always run the full `just lint` at the
+  batch boundary regardless.
