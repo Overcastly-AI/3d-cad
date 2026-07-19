@@ -78,6 +78,22 @@ scorecard impact → core capability → polish).
       SVG/PDF/DXF render identical cell text from the same server strings;
       byte goldens updated + the cross-serializer consistency test still
       passes. [src: docs/UI-REVIEW.md 2026-07-19 P2]
+- [ ] (P2, S) SM-relief-ui-1 — CornerReliefEditor: highlight the picked flange
+      in the viewport on Bend A/B select (frontend). frontend-qa spot-check
+      2026-07-19 verdict is SHIP IT on both new editors, with one real fast-follow:
+      with 3+ edge flanges the Bend A/Bend B `<select>`s are "blind" — nothing ties
+      option "Edge flange3" to a physical corner in the scene. The cheap interim
+      (NOT the full viewport corner-pick, which stays a validated roadmap follow-up):
+      on Bend A/B change, highlight that flange's bend in the r3f viewport reusing
+      the existing feature/edge highlight machinery. Bundle the 3× P3 nits from the
+      same pass: autofocus should land on Bend A not Relief ratio; edit-mode needs a
+      placeholder/guard for an unresolvable stored bend ref (native `<select>`
+      silently shows the wrong flange today); the notch preview needs `aria-live`
+      like its sibling readouts. Acceptance: selecting a bend highlights it in-scene;
+      autofocus lands on Bend A; a stale/unresolvable stored ref shows a guard, not a
+      silently-wrong flange; worked e2e + refresh the missing CornerReliefEditor
+      editor-open screenshot (`UPDATE_SCREENSHOTS=1`). [src: docs/UI-REVIEW.md
+      2026-07-19 frontend-qa]
 - [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
       trap, product audit #4) — marking the on-axis edge `construction: true`
       (the natural SolidWorks/Fusion idiom) excludes it from the profile wire

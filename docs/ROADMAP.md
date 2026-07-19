@@ -19,12 +19,14 @@ until that matrix says so.**
 
 **In flight right now:** authoring UI ✅ (base + edge flange, **and now closed
 hem + corner relief editors 2026-07-19** — all four shipped sheet-metal features
-are click-drivable in-app), corner relief ✅ (geometry **and** WIRED as an
+are click-drivable in-app, **hem + corner-relief editors frontend-qa spot-checked
+SHIP IT / tool-grade 2026-07-19**), corner relief ✅ (geometry **and** WIRED as an
 authorable `sheet_metal_corner_relief` feature end-to-end **and** the full
 4-corner pan relieving cleanly, 2026-07-19), and closed hem ✅ all landed
 (2026-07-19). Next down the corrected sequence: the auto-relief policy layer (now
 genuinely unblocked) + open/teardrop/rolled hems + a viewport bend-face pick for
-corner relief, then jogs.
+corner relief (P2 interim `SM-relief-ui-1` — highlight the picked flange in-scene
+on select — filed first), then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner

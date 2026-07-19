@@ -29,6 +29,13 @@ entries, `docs/VISION.md`'s Sheet metal scorecard row.
 base + edge flange (`47c88f4`), then closed hem + corner relief (this slice) —
 so `apps/web/src` now has a SHEET METAL toolbar group + editors and all four
 features are drivable in-app by clicking, not only via the documents/geometry API.
+The hem + corner-relief editors were **frontend-qa spot-checked 2026-07-19
+(verdict: SHIP IT, tool-grade)** — design-system adherence + WCAG-AA verified,
+the corner-relief two-select (Bend A/Bend B) affordance validated as an
+acceptable v1 (keyboard-reachable; a viewport bend-pick stays a roadmap
+follow-up); one P2 fast-follow (highlight the picked flange in-scene on select
+when 3+ flanges make the selects "blind") + P3 a11y nits filed to
+`docs/UI-REVIEW.md` + `docs/BACKLOG.md` (SM-relief-ui-1), none blocking.
 
 ---
 

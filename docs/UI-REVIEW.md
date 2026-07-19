@@ -1399,3 +1399,135 @@ Views legend ✅ (dash tokenized 2026-07-19) · Flat-pattern action + F shortcut
 flat_pattern_not_sheet_metal error ✅ · **Bend-table export fidelity (PDF/DXF) ✅
 (P2 fixed 2026-07-19)** · Bend-table SR access ✅ (P3 BendSchedulePanel 2026-07-19) ·
 BendTable column de-magic ✅ (P3 2026-07-19). All three P3 nits from this pass closed.
+
+---
+
+## 2026-07-19 — Spot-check: sheet-metal HemEditor + CornerReliefEditor — commit `0c10265`
+
+**Scope.** The two new sheet-metal authoring editors, judged as tool-grade
+modeling chrome against the shipped `BaseFlangeEditor`/`EdgeFlangeEditor` (the
+bar) and vs. how SolidWorks/Fusion author these. Read-only: source of both
+editors + the `sheetMetal.ts` view logic + the `@loft/design` primitives they
+compose + `CreateStrip` gating + the error-envelope path, plus founder shots
+`sheet-metal-hem-{body,flat,edit}-*` and `sheet-metal-corner-relief-{body,flat}-1440`.
+
+### Executive verdict — SHIP IT
+
+Both editors clear the tool-grade bar. They compose **only** `@loft/design`
+primitives (Panel / NumberField / SelectField / Checkbox / PanelActionCell) —
+zero restyled raw inputs, zero hex literals, the "180° (closed)" readout and
+the live notch preview both token-inked (`text-mist` / `text-gauge` /
+`font-data`). The `HemEditor` chrome is **byte-consistent** with
+`EdgeFlangeEditor` — identical title-block strip, eyebrow, single-select
+edge-pick block (reuses the shared overlay + store), brass length handle,
+inherited radius/K overrides revealed per-toggle, 2-col Cancel/Create action
+grid, flag-inked `role="alert"` error tail — it reads as the edge flange
+minus the fold-angle field, exactly as intended. Founder shot
+`sheet-metal-hem-edit-1280` confirms it: the brass/white edge diamonds, the
+"1 edge picked" readout, the "180° (closed)" caption, the two override rows
+all land clean. The corner-relief feature-select is an **acceptable v1** (see
+P2 below for the one real follow-up). A11y floor met in both. Findings are
+nits + one fast-follow; nothing blocks.
+
+### Findings
+
+- **P2 — CornerReliefEditor — the Bend A / Bend B selects are "blind": no
+  viewport feedback ties a dropdown option to a physical flange/corner.**
+  Feature-select is a legitimate tool-grade v1 — SolidWorks/Fusion do let you
+  pick the corner/edges in the 3D view, but they *also* expose corner
+  treatments off feature lists, and two ruled selects captioned "The two edge
+  flanges whose bends meet at the corner to relieve" are discoverable and —
+  critically — **fully keyboard-reachable, which a viewport pick is not yet**.
+  So the deferred direct-pick call is VALIDATED. The gap that bites *now*: with
+  3+ edge flanges the user must guess which two named "Edge flange3 / Edge
+  flange4" meet at the corner they want, with nothing highlighting the chosen
+  bend in the scene. The full viewport bend-face pick is the right long-term
+  fix (roadmap-tracked) — but the **cheap interim that closes most of the gap
+  without new pick infrastructure** is to flash/highlight the selected flange's
+  bend in the viewport when Bend A/B changes, reusing machinery that already
+  exists (selecting the feature already tints the body brass; the edge-pick
+  overlay already highlights edges). Suggested system-level fix: on
+  `bendAId`/`bendBId` change, drive the existing feature/edge highlight for that
+  flange. Ref: no editor-open corner-relief shot exists yet (see last P3).
+- **P3 — CornerReliefEditor — autofocus lands on "Relief ratio", not "Bend A".**
+  In create mode the two bends are seeded to the first two edge flanges in tree
+  order, which are frequently *not* the corner the user means; the first thing
+  a user typically retargets is the bend selection, yet keyboard focus starts
+  two fields below it (must shift-tab up). The hem/edge-flange autofocus-the-
+  handle idiom doesn't transfer cleanly here because the "handle" (ratio) has a
+  safe default while the *references* are the risky guess. Suggested fix:
+  autofocus Bend A. Ref: `CornerReliefEditor.tsx:143` (`autoFocus` on ratio).
+- **P3 — CornerReliefEditor — no placeholder option and no guard for an
+  unresolvable stored bend ref.** `edgeFlangeOptions` filters out rolled-back
+  flanges, so in *edit* mode a `bendAId`/`bendBId` pointing at a since-rolled-
+  back/deleted flange yields a `value` absent from `options`; the native
+  `<select>` then displays its FIRST option while form state holds the stale id
+  → the panel silently shows the *wrong* flange. The server catches the write
+  as `reference_unresolved` so no wrong model ships, but the editor is
+  misleading in the interim. Rare, but a placeholder "— select bend —" option
+  (or a resolved-ref guard) would make the mismatch legible. Ref:
+  `CornerReliefEditor.tsx:91,115-133`.
+- **P3 — CornerReliefEditor — the live notch preview updates silently (no
+  `aria-live`).** `corner-relief-size-preview` recomputes on every ratio
+  keystroke but is a plain `<p>`, whereas the sibling readout pattern
+  (`hem-pick-count` / `edge-flange-pick-count`) carries `aria-live="polite"`. A
+  screen-reader user typing the ratio never hears the resolved notch mm.
+  Suggested fix: add `aria-live="polite"` to the preview for parity. Ref:
+  `CornerReliefEditor.tsx:150-157`.
+- **P3 — corner-relief tool gate copy over-promises adjacency.**
+  `canAuthorCornerRelief` arms the tool at ≥2 edge flanges (`sheetMetal.ts:545`),
+  but the enabled aria-label promises "two edge flanges that **meet at a
+  corner**". Two flanges on parallel/non-touching edges arm the tool; the kernel
+  then rejects the pair as `corner_relief_failed`. The gate is honest about the
+  *count*; the copy describes a stricter *adjacency* condition the gate doesn't
+  check. Acceptable (kernel validates, typed error surfaces as guided text —
+  see PASS), purely cosmetic. Ref: `CreateStrip.tsx:612-617`.
+- **P3 — evidence gap (process, not product).** The hem set includes an
+  open-editor shot (`sheet-metal-hem-edit-1280`); corner relief has only
+  `body`/`flat`. The design-mandate surface should ship an **editor-open** shot
+  of the `CornerReliefEditor` panel (the two selects + ratio + notch preview)
+  too. Refresh with `UPDATE_SCREENSHOTS=1`.
+
+### Verified PASS (no action)
+
+- **Design-system adherence** — both editors compose only `@loft/design`
+  primitives; no restyled raw `<input>`/`<select>`; no hex literals; the
+  "180° (closed)" fold readout and the `≈ … mm (ratio × gauge)` notch preview
+  are token-inked, not hardcoded. `HemEditor` chrome is byte-identical to
+  `EdgeFlangeEditor` (strip, eyebrow, pick block, override-toggle reveal,
+  action grid, error tail).
+- **A11y floor (light + dark)** — on `bg-anvil`: mist 13.2:1, gauge 7.2:1,
+  flag 6.5:1 all clear AA (incl. the 10px `text-2xs` gauge notch preview +
+  checkbox descriptions). Visible brass focus on the pick-clear button, both
+  `SelectField`s (`focus-within` ring via the primitive), checkboxes, and the
+  action cells. The "180°" readout is real DOM text (exposed to AT, **not**
+  `aria-hidden`/decorative). Pick errors + the same-bend error carry
+  `role="alert"`; `hem-pick-count` carries `aria-live`. `SelectField` gives
+  proper `label htmlFor`, `aria-invalid` + `aria-describedby` on error.
+- **Disabled-affordance honesty** — the disabled submit `PanelActionCell` uses
+  `disabled:pointer-events-none` but carries **no** tooltip, so it is not a
+  pointer-events tooltip trap; the reason is reachable by mouse and keyboard via
+  the always-visible inline field errors / pick guidance, and the in-command
+  band's OK cell *does* self-explain (`caption="Finish the form"` when the
+  form's submit gate is false — `CreateStrip.tsx:322`).
+- **Consistency + states** — hem mirrors edge-flange interaction language
+  exactly (single-select pick, Enter commits / Escape cancels, per-toggle
+  override reveal). Disabled corner-relief reason "Needs two edge flanges" is
+  honest about the gate; the same-bend inline error guides
+  ("Pick two different edge flanges…"). Typed `corner_relief_failed` /
+  `reference_unresolved` surface as the server's **human** message via
+  `envelopeMessage` (not raw codes) in the flag-inked `role="alert"` panel —
+  guided inline state, never a silent wrong model.
+- **Test hooks** — `hem-*` (editor, pick-clear, pick-count, pick-error, length,
+  fold-readout, override-radius/k, bend-radius, k-factor, cancel, submit, error)
+  and `corner-relief-*` (editor, bend-a, bend-b, ratio, size-preview,
+  override-size, size, cancel, submit, error) are complete and mirror the
+  `edge-flange-*` conventions; `SelectField` forwards `data-testid` onto the
+  native `<select>`.
+
+Running checklist: `HemEditor` ✅ (edge-flange twin, byte-consistent) ·
+`CornerReliefEditor` ✅ ship — **P2 viewport-highlight-on-select fast-follow**
++ 3× P3 (autofocus Bend A · unresolvable-ref placeholder · notch-preview
+`aria-live`) + P3 gate copy + P3 editor-open screenshot · SHEET METAL group
+Hem/Corner-relief buttons ✅ (honest gating, engraved shortcuts) · full
+viewport corner/bend pick = validated deferred follow-up (roadmap).
