@@ -42,6 +42,7 @@ from geometry.sheet_metal import (
     build_edge_flange,
     unfold_sheet_metal,
 )
+from geometry.sheet_metal.resolve import cylindrical_face_widths
 from py_kit.schemas.features import (
     CylindricalFaceSignature,
     EvaluateTreeRequest,
@@ -164,17 +165,19 @@ def test_relieved_unfold_matches_hand_derivation() -> None:
 
 
 def test_area_conservation_with_removed_notch() -> None:
-    """§9 #2 with relief: flat_area = unrelieved_area - removed (base square + two
-    flange/strip insets); the closed outline encloses exactly that area."""
+    """§9 #2 with relief: flat_area = unrelieved_area - removed (base corner square +
+    each flange's LOCAL corner notch); the closed outline encloses exactly that area."""
     request, expected = _load()
     evaluation = _evaluate(request)
     pattern = _relieved_pattern(evaluation, expected.relief_size_mm)
     tol = expected.tolerance
 
-    # Hand-derived removed = base square + each flange's inset (size * (BA + leg)).
+    # Hand-derived removed = base corner square + each flange's LOCAL corner notch
+    # (size wide x developed depth BA + size) — leg-length-INDEPENDENT (both arms
+    # remove the same s*(BA+s), unlike the rejected full-length inset).
     s = expected.relief_size_mm
     ba = expected.bend_allowance_mm
-    removed = s * s + s * (ba + 20.0) + s * (ba + 25.0)
+    removed = s * s + 2.0 * s * (ba + s)
     assert removed == pytest.approx(expected.removed_area_mm2, abs=tol)
     assert (expected.unrelieved_flat_area_mm2 - removed) == pytest.approx(
         expected.flat_area_mm2, abs=tol
@@ -293,6 +296,57 @@ def test_apply_corner_relief_is_deterministic() -> None:
     v2 = measure_shape(apply_corner_relief(_body(evaluation), relief))
     assert v1.volume == v2.volume
     assert v1.topology.model_dump() == v2.topology.model_dump()
+
+
+def test_fold_back_cross_consistency_3d_matches_flat() -> None:
+    """THE fold-back gate (§4.4.4): the 3D relieved body and the analytic flat pattern
+    model the SAME physical removal — so folding the flat blank reproduces the modeled
+    body. Two independent witnesses tie the two code paths together:
+
+    (1) the relieved body's INNER bend cylindrical-face widths equal the flat
+        pattern's ``bend_widths_mm`` (the fold line is shortened identically), and
+    (2) the removed 3D volume equals removed_flat_area x thickness plus the bend's
+        derivable neutral-vs-mean-radius term (the developed material folds to the
+        cut material). A half that models a DIFFERENT relief (e.g. a 3D cut that
+        misses the walls, or a full-length flat inset) fails this by a wide margin."""
+    request, expected = _load()
+    evaluation = _evaluate(request)
+    defaults = evaluation.sheet_metal_defaults
+    assert defaults is not None
+    thickness = defaults.thickness_mm
+    k_factor = defaults.k_factor
+    relief = _relief_of(evaluation, expected.relief_size_mm)
+
+    pattern = _relieved_pattern(evaluation, expected.relief_size_mm)
+    relieved = apply_corner_relief(_body(evaluation), relief)
+    base_props = measure_shape(_body(evaluation))
+    props = measure_shape(relieved)
+    vtol = expected.volume_tolerance
+
+    # (1) 3D bend-face widths == flat bend widths — the fold line is shortened the
+    # same way in both halves.
+    flat_widths = sorted(b.width_mm for b in pattern.bends)
+    assert flat_widths == pytest.approx(expected.bend_widths_mm, abs=expected.tolerance)
+    assert cylindrical_face_widths(relieved, expected.bend_radius_mm) == pytest.approx(
+        flat_widths, abs=vtol
+    )
+
+    # (2) removed 3D volume == removed flat area x thickness + neutral-vs-mean-radius
+    # bend term. removed_area x t is the developed (neutral-axis, K) material; the 3D
+    # arc uses the mean radius (r + t/2), so each bend contributes a derivable
+    # size * angle * t^2 * (0.5 - K) volume difference.
+    removed_area = expected.unrelieved_flat_area_mm2 - pattern.flat_area_mm2
+    angle = math.radians(expected.bend_angle_deg)
+    bias = expected.bend_count * (
+        expected.relief_size_mm * angle * thickness * thickness * (0.5 - k_factor)
+    )
+    removed_volume = base_props.volume - props.volume
+    assert removed_volume == pytest.approx(removed_area * thickness + bias, abs=vtol)
+    # And both pinned golden numbers agree with the measured 3D removal.
+    assert removed_volume == pytest.approx(expected.removed_volume_mm3, abs=vtol)
+    assert removed_area == pytest.approx(
+        expected.removed_area_mm2, abs=expected.tolerance
+    )
 
 
 # --------------------------------------------------------------------------- #

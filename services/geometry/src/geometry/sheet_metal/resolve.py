@@ -136,6 +136,24 @@ def _cylindrical_faces(body: BodyShape) -> list[_CylFace]:
     return out
 
 
+def cylindrical_face_widths(body: BodyShape, radius_mm: float) -> list[float]:
+    """The along-axis extents (mm) of *body*'s cylindrical faces at ``radius_mm``,
+    sorted. A geometry query used to WITNESS a bend region's developed width straight
+    off the folded body — e.g. the fold-back cross-consistency check that a corner
+    relief shortened the 3D bend face by the same amount the flat pattern did. Radius
+    is matched within the relative tolerance the signature matchers use, so the inner
+    bend surface is selected and its concentric outer twin (``radius + thickness``)
+    is skipped."""
+    ref = max(abs(radius_mm), 1.0)
+    widths: list[float] = []
+    for cf in _cylindrical_faces(body):
+        if abs(cf.radius - radius_mm) / ref > _RADIUS_REL_TOL:
+            continue
+        proj = [Vector(v.X, v.Y, v.Z).dot(cf.axis_dir) for v in cf.face.vertices()]
+        widths.append(max(proj) - min(proj))
+    return sorted(widths)
+
+
 def _perp_distance(delta: Vector, axis_dir: Vector) -> float:
     """Distance from a point at offset *delta* to a line through the origin along
     *axis_dir* — ``|delta - (delta·dir) dir|``. The one place the axis-line

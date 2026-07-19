@@ -445,29 +445,43 @@ The relief size is `size_mm = relief_ratio × thickness_mm`, default
 the SolidWorks *Relief Ratio* family, which sizes rectangular/obround relief as a
 multiple of thickness). The explicit spec carries an absolute `size_mm` (the
 resolved value) so the golden pins an exact number; the ratio is the authoring
-convenience the auto/UI layer applies. A size must clear the bend region
-(`size ≥ bend_radius` is the sane floor so the notch actually reaches past the
-arc), but v1 does **not** hard-enforce it — an undersized relief is a manufacturing
-warning, not a geometry error, and the flat pattern is still developable.
+convenience the auto/UI layer applies. The sane manufacturing floor is
+`size ≥ bend_radius` (the notch should clear the bend arc), and the
+`corner-tray-relieved-unfold` golden honors it (`size = 3.0 = bend_radius`,
+`relief_ratio = 1.5` at `t = 2`). v1 does **not** hard-enforce the floor — an
+undersized relief is a manufacturing warning, not a geometry error: the flat
+pattern is still developable, and the 3D `_flange_notch_box` tool clears the arc
+for **any** size (each slot spans the full wall in the outboard direction, so it
+reaches the folded wall regardless of `size`), so an undersized relief still
+produces a fold-back-consistent body — it is simply below the tear-safe
+recommendation.
 
 ### 4.4.4 The unfold interaction — the crux, and the honest scope finding
 
-**What relief does to the flat pattern.** For a **depth-1 tray corner** — two
-adjacent flanges folded off perpendicular edges of one base, meeting at a shared
-base corner — the relief removes a `size × size` square of material at that
-corner: the base loses its corner square, and each of the two adjacent flanges
-(with its bend-allowance strip) is **inset** by `size` at that end. In the
-developed frame this is exactly a set of axis-aligned rectangles (base decomposed
-into the L that avoids the notched corner + the two inset flange rectangles + the
-two inset BA-strips), which `_rectilinear_union_loop` (§4.3) unions into ONE
-closed loop with a **reentrant right-angle notch** at the corner. Area is the §9
+**What relief does to the flat pattern — a LOCAL corner notch.** For a **depth-1
+tray corner** — two adjacent flanges folded off perpendicular edges of one base,
+meeting at a shared base corner — the relief cuts a **local** rectangular notch
+*at the corner*: (a) the base loses its `size × size` corner square, and (b) each
+adjacent flange loses a `size`-wide notch of **developed depth `BA + size`** at
+its corner root — through the bend-allowance strip and `size` into the leg. The
+flange leg **stays full width above the notch** — this is a corner bite, **NOT a
+full-length narrowing of the whole flange** (an earlier draft insetting the whole
+flange over its entire developed length was wrong: it removed material with no 3D
+counterpart, so the blank did not fold back to the modeled body — see §4.4.4's
+fold-back invariant). The fold line is shortened by `size` at the notched end, so
+`bend_widths_mm` is the reduced span (e.g. a 30 mm-wide flange → 27 for `size = 3`).
+In the developed frame this is a set of axis-aligned rectangles (base decomposed
+into the L that avoids the corner square + each arm's notched-near region + full-
+width far region), which `_rectilinear_union_loop` (§4.3) unions into ONE closed
+loop with a **reentrant L-shaped notch** reaching into both arms. Area is the §9
 invariant with the removed material subtracted:
-`flat_area = base + Σ(flange dev areas) + Σ(BA·width) − Σ(relief squares and the
-trimmed flange/strip slivers)`, and the outline stays a single closed loop — the
-notch is a genuine cut in the blank outline, not a separate hole. This is the
-shipped `_unfold_nonparallel_relieved` path; it only runs when a relief is
-supplied, so **every existing depth-1/depth-2 golden is byte-unchanged** (an
-empty relief set takes the verbatim pre-existing paths).
+`flat_area = base + Σ(full flange dev areas) − Σ(size² corner squares) −
+Σ(size·(BA+size) per flange notch)` — the per-flange notch is **leg-length-
+independent** (local depth `BA + size`, not the full leg). The outline stays a
+single closed loop — the notch is a genuine cut in the blank outline, not a
+separate hole. This is the shipped `_unfold_nonparallel_relieved` path; it only
+runs when a relief is supplied, so **every existing depth-1/depth-2 golden is
+byte-unchanged** (an empty relief set takes the verbatim pre-existing paths).
 
 **Why this is the right v1 target — and what the notch does NOT lift.** The
 brief's headline target was "turn the currently-rejected closed box corner into a
@@ -501,16 +515,34 @@ boundary:
   source of the notch), decoupled from the 3D boolean — so the notch is exact and
   byte-deterministic regardless of how the 3D cut's trimmed faces resolve.
 
+**Fold-back consistency — the real guarantee, asserted by test.** Both halves are
+driven by the SAME `CornerRelief` spec (same corner, same size), but "same spec"
+is not enough — the two halves must model the **same physical removal**, or
+folding the flat blank would not reproduce the modeled 3D body ("the model lies
+about the part", the failure sheet metal must never have). The guarantee is
+therefore concrete and testable: **the 3D cut is the folded image of the flat
+notch.** `apply_corner_relief` cuts, per flange, a slot of width `size` along that
+flange's bend axis running from the base corner THROUGH the full bend arc and
+`size` up the folded wall (`_flange_notch_box`) — the wall stays full width above
+it, matching the flat's local notch. Two witnesses tie the halves together (the
+`test_fold_back_cross_consistency_3d_matches_flat` gate): (1) the relieved body's
+inner **bend cylindrical-face widths equal the flat `bend_widths_mm`** (the fold
+line is shortened identically), and (2) the **removed 3D volume equals removed
+flat area × thickness** plus the bend's derivable neutral-vs-mean-radius term
+(`Σ size·angle·t²·(0.5−K)`) — the developed material folds to the cut material.
+An earlier version (a `2·size` box centred on the bend-axis crossing + a full-
+length flat inset) modeled two *different* reliefs and failed both witnesses; the
+gate now makes "consistent by construction" true and would catch any regression.
+
 **Net honest scope:** v1 corner relief ships (a) the **rectangular relief
-geometry** (`apply_corner_relief` — a provenance-located box boolean on the folded
-body, the manufacturable 3D notch) and (b) the **relieved flat-pattern unfold**
-(`_unfold_nonparallel_relieved` — the developable blank with the reentrant notch,
-area conservation, single closed loop, byte-deterministic), for the **depth-1
-adjacent-flange tray corner**. The **fully-welded depth-2 box corner remains a
-typed reject** pending miter/closed-corner geometry — a clear, evidence-backed
-boundary, not a silent gap. Both halves are driven by the SAME `CornerRelief`
-spec (same corner, same size), so the 3D body and the flat pattern are consistent
-by construction.
+geometry** (`apply_corner_relief` — provenance-located per-flange slot booleans on
+the folded body, the manufacturable 3D notch) and (b) the **relieved flat-pattern
+unfold** (`_unfold_nonparallel_relieved` — the developable blank with the reentrant
+notch, area conservation, single closed loop, byte-deterministic), for the
+**depth-1 adjacent-flange tray corner**, reconciled by the fold-back gate above.
+The **fully-welded depth-2 box corner remains a typed reject** pending
+miter/closed-corner geometry — a clear, evidence-backed boundary, not a silent
+gap.
 
 ## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
 

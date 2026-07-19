@@ -272,22 +272,24 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 ### Recently shipped
 
 - [x] (P2, M) Sheet metal — CORNER RELIEF v1 (geometry, kernel-architect).
-      **SHIPPED** — reconciled + finished from a container-restart-stranded agent
-      (broken mid-edit: `_Rect` alias defined after first use → import `NameError`;
-      12 ruff errors). Fix: hoisted the alias, cleared lint; the stranded geometry
-      was otherwise complete + correct. v1 = **rectangular** relief for a **depth-1
-      adjacent-flange tray corner**: `apply_corner_relief` cuts the 3D notch (one
-      connected shell, material removed, deterministic), `unfold_sheet_metal(...,
-      reliefs=...)` develops the relieved blank (reentrant right-angle notch, area
-      conservation with removed material subtracted, single closed outline,
-      byte-deterministic across an interpreter restart). Golden
-      `corner-tray-relieved-unfold` + 12 tests; all depth-1/2 goldens BYTE-UNCHANGED
-      (empty relief set → verbatim paths). Honest degradation: fully-welded depth-2
-      box corner stays a TYPED reject even WITH relief (needs miter/closed-corner
-      geometry, next), parallel-named or unresolvable relief → typed error, never a
-      wrong blank or raw kernel crash. Deferred: obround/tear variants, auto-relief
-      policy, the relieved-flat-pattern DRAWING view (threads reliefs through the
-      composer). [src: design/sheet-metal.md §4.4]
+      **SHIPPED** + **fold-back bug reconciled** (P0 code-review request-changes,
+      same day). v1 = **rectangular** relief for a **depth-1 adjacent-flange tray
+      corner**: `apply_corner_relief` cuts the 3D notch, `unfold_sheet_metal(...,
+      reliefs=...)` develops the relieved blank (single closed outline,
+      byte-deterministic across an interpreter restart). **Bug:** the 3D box and the
+      flat's full-length flange inset modeled DIFFERENT reliefs → the flat blank did
+      not fold back to the 3D body. **Fix:** both halves now model the SAME LOCAL
+      corner notch (width `size`, developed depth `BA+size`, wall full above); the 3D
+      cut is one per-flange slot reaching the folded wall (`_flange_notch_box`), and
+      a new **fold-back cross-consistency gate** asserts relieved-body bend-face
+      widths == flat `bend_widths_mm` AND removed volume == removed area×t + the
+      bend neutral-vs-mean-radius term. Golden `corner-tray-relieved-unfold` fixed to
+      a valid `size=3=bend_radius` (§4.4.3 floor) + corrected geometry; 13 tests; all
+      depth-1/2 goldens BYTE-UNCHANGED (empty relief set → verbatim paths). Honest
+      degradation preserved: welded depth-2 box corner stays a TYPED reject even WITH
+      relief, parallel/unresolvable/non-axis-aligned relief → typed error, never a
+      wrong blank or raw crash. Deferred: obround/tear variants, auto-relief policy,
+      the relieved-flat-pattern DRAWING view. [src: design/sheet-metal.md §4.4]
 - [x] (P2, M) Sheet metal v2 #2 — depth-≥2 bend-TREE unfold FEATURE (geometry,
       kernel-architect). **SHIPPED** — the spike graduated into the real
       `unfold_sheet_metal`: the uniform depth-2 rejection is LIFTED for cases that

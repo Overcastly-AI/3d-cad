@@ -977,11 +977,29 @@ def _base_minus_notches_rects(
 
 
 @dataclass
-class _ArmTrim:
-    """An arm's span endpoints after corner-relief trims (mutable accumulation)."""
+class _ArmNotch:
+    """One near-corner notch on an arm: the corner-end coordinate along the arm's
+    span (which width end the relief bites) and the relief size (mm)."""
 
-    lo: float
-    hi: float
+    corner_coord: float
+    size: float
+
+
+def _notched_span(span0: float, span1: float, notches: list[_ArmNotch]) -> Vec2:
+    """The arm's developed WIDTH after each corner notch shortens the nearer end.
+
+    A relief removes ``size`` of width at the arm end closest to its shared corner —
+    the bend line (fold) is shortened there, so ``bend_widths_mm`` is this reduced
+    span. The wall ABOVE the notch stays full width (the notch is LOCAL — see the
+    two-region emit below), which is what makes the folded wall and the developed
+    blank agree (fold-back consistency, §4.4)."""
+    lo, hi = span0, span1
+    for nt in notches:
+        if abs(nt.corner_coord - hi) <= abs(nt.corner_coord - lo):
+            hi -= nt.size
+        else:
+            lo += nt.size
+    return lo, hi
 
 
 def _unfold_nonparallel_relieved(
@@ -994,10 +1012,18 @@ def _unfold_nonparallel_relieved(
     """Lay out a RELIEVED depth-1 tray (§4.4): the plus-pattern with corner notches.
 
     Each relief removes a ``size x size`` square at the shared base corner of its two
-    named flanges and insets both flanges (+ their BA strips) there. The base
-    (minus notches) + inset legs + inset strips are unioned into ONE closed loop with
-    the reentrant notch. Byte-deterministic (§9 #4): every value is a deterministic
-    OCCT measurement + closed-form allowance + a coordinate-sorted assembly.
+    named flanges and cuts a LOCAL corner notch — width ``size``, developed depth
+    ``BA + size`` (through the bend region and ``size`` into the wall) — from each
+    flange's corner root. The flange wall ABOVE the notch stays FULL width, so the
+    developed blank folds back to the 3D relieved body: the fold line is shortened to
+    the notched span (``bend_widths_mm``), which equals the relieved body's bend
+    cylindrical-face width, and the removed area x thickness equals the removed 3D
+    volume up to the neutral-vs-mean-radius bend term (the fold-back cross-consistency
+    invariant, §4.4.4). NOT a full-length narrowing of the whole flange. The base
+    (minus notches) + each arm's two developed regions are unioned into ONE closed
+    loop with the reentrant notch. Byte-deterministic (§9 #4): every value is a
+    deterministic OCCT measurement + closed-form allowance + a coordinate-sorted
+    assembly.
 
     Raises:
         UnfoldStarError: a relief names a bend not on this tray, names two parallel
@@ -1006,7 +1032,7 @@ def _unfold_nonparallel_relieved(
     frame, arms = _build_arms(resolved, base_rec, thickness_mm)
     wx, wy = frame.wx, frame.wy
 
-    trims = [_ArmTrim(a.span0, a.span1) for a in arms]
+    arm_notches: list[list[_ArmNotch]] = [[] for _ in arms]
     notches: list[_Rect] = []
     for relief in reliefs:
         ca, cb = relief.bend_a.centroid, relief.bend_b.centroid
@@ -1033,33 +1059,42 @@ def _unfold_nonparallel_relieved(
                 corner_y if corner_y > 0.0 else size,
             )
         )
-        # Inset each flange's span by `size` at the corner end (the span end nearest
-        # the corner coordinate on that arm's span axis).
-        for ti, corner_coord in (
-            (trims[i if ai.axis == 0 else j], corner_y),  # arm_x spans Y
-            (trims[i if ai.axis == 1 else j], corner_x),  # arm_y spans X
-        ):
-            if abs(corner_coord - ti.hi) <= abs(corner_coord - ti.lo):
-                ti.hi -= size
-            else:
-                ti.lo += size
+        # Notch each flange's corner root: the span end nearest the shared corner on
+        # that arm's span axis (arm_x spans Y → corner_y; arm_y spans X → corner_x).
+        arm_notches[i if ai.axis == 0 else j].append(_ArmNotch(corner_y, size))
+        arm_notches[i if ai.axis == 1 else j].append(_ArmNotch(corner_x, size))
 
-    # Assemble every developed rectangle in frame coords: base cells (minus notches),
-    # then each arm's inset BA strip + leg.
+    # Assemble every developed rectangle in frame coords: base cells (minus corner
+    # notch squares), then each arm's developed regions. A RELIEVED arm splits into a
+    # near-corner region (notched width, developed depth BA + size) and a full-width
+    # far region — the two-region tiling that leaves the wall full width above the
+    # local notch; an unrelieved arm is the verbatim full-width BA-strip + leg.
     rects: list[_Rect] = _base_minus_notches_rects(wx, wy, notches)
-    for a, ti in zip(arms, trims, strict=True):
-        lo, hi = ti.lo, ti.hi
+    bend_spans: list[Vec2] = []
+    for a, nlist in zip(arms, arm_notches, strict=True):
+        lo, hi = a.span0, a.span1
         near = a.fold
-        strip_far = near + a.sign * a.allowance_mm
         leg_far = near + a.sign * (a.allowance_mm + a.leg_mm)
-        if a.axis == 0:  # spans Y in [lo, hi], extends along X
-            strip = _rect_from_ranges(near, strip_far, lo, hi)
-            leg = _rect_from_ranges(strip_far, leg_far, lo, hi)
-        else:  # spans X in [lo, hi], extends along Y
-            strip = _rect_from_ranges(lo, hi, near, strip_far)
-            leg = _rect_from_ranges(lo, hi, strip_far, leg_far)
-        rects.append(strip)
-        rects.append(leg)
+        if nlist:
+            n_lo, n_hi = _notched_span(lo, hi, nlist)
+            depth = a.allowance_mm + max(nt.size for nt in nlist)
+            notch_far = near + a.sign * depth
+            if a.axis == 0:  # spans Y, extends along X
+                rects.append(_rect_from_ranges(near, notch_far, n_lo, n_hi))
+                rects.append(_rect_from_ranges(notch_far, leg_far, lo, hi))
+            else:  # spans X, extends along Y
+                rects.append(_rect_from_ranges(n_lo, n_hi, near, notch_far))
+                rects.append(_rect_from_ranges(lo, hi, notch_far, leg_far))
+            bend_spans.append((n_lo, n_hi))
+        else:
+            strip_far = near + a.sign * a.allowance_mm
+            if a.axis == 0:
+                rects.append(_rect_from_ranges(near, strip_far, lo, hi))
+                rects.append(_rect_from_ranges(strip_far, leg_far, lo, hi))
+            else:
+                rects.append(_rect_from_ranges(lo, hi, near, strip_far))
+                rects.append(_rect_from_ranges(lo, hi, strip_far, leg_far))
+            bend_spans.append((lo, hi))
 
     snapped = _snap_rects(rects)
     loop = _rectilinear_union_loop(snapped)
@@ -1077,9 +1112,9 @@ def _unfold_nonparallel_relieved(
         outline.append(FlatEdge2D(kind="line", x1=x1, y1=y1, x2=x2, y2=y2, role="body"))
 
     bend_lines: list[BendLine] = []
-    for idx, (a, ti) in enumerate(zip(arms, trims, strict=True), start=1):
+    for idx, (a, span) in enumerate(zip(arms, bend_spans, strict=True), start=1):
         span_shift = dx if a.axis == 1 else dy
-        lo, hi = ti.lo - span_shift, ti.hi - span_shift
+        lo, hi = span[0] - span_shift, span[1] - span_shift
         near = a.fold
         fold_c = near + a.sign * (a.allowance_mm / 2.0)
         if a.axis == 0:  # vertical fold centerline at X=fold_c, over Y span
@@ -1099,7 +1134,7 @@ def _unfold_nonparallel_relieved(
                 radius_mm=a.radius_mm,
                 k_factor=a.k_factor,
                 allowance_mm=a.allowance_mm,
-                width_mm=abs(ti.hi - ti.lo),
+                width_mm=abs(hi - lo),
                 direction=a.direction,
                 flat_start_mm=0.0,
                 flat_end_mm=a.allowance_mm,
@@ -1109,10 +1144,14 @@ def _unfold_nonparallel_relieved(
     outline.sort(key=lambda e: (e.role, e.x1, e.y1, e.x2, e.y2))
     bend_lines.sort(key=lambda bl: bl.bend_id)
 
+    # Area (§9 #2): base (minus corner squares) + each arm's FULL developed area
+    # minus its local corner notch(es) — width `size` x developed depth (BA + size),
+    # the two-region tiling above removes exactly this from the full arm.
     base_area = wx * wy - sum((rr[2] - rr[0]) * (rr[3] - rr[1]) for rr in notches)
     flat_area = base_area + sum(
-        abs(t.hi - t.lo) * (a.leg_mm + a.allowance_mm)
-        for a, t in zip(arms, trims, strict=True)
+        (a.span1 - a.span0) * (a.leg_mm + a.allowance_mm)
+        - sum(nt.size * (a.allowance_mm + nt.size) for nt in nlist)
+        for a, nlist in zip(arms, arm_notches, strict=True)
     )
     return FlatPattern(
         thickness_mm=thickness_mm,
