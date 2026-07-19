@@ -71,6 +71,7 @@ from py_kit.schemas.features import (
     DatumOnFaceParams,
     DatumPlaneRef,
     DraftFeature,
+    EdgeSubshapeRef,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     EvaluateTreeResult,
@@ -90,6 +91,7 @@ from py_kit.schemas.features import (
     RevolveFeature,
     SheetMetalBaseFlangeFeature,
     SheetMetalEdgeFlangeFeature,
+    SheetMetalHemFeature,
     ShellFeature,
     SketchFeature,
     SolvedSketchData,
@@ -809,34 +811,42 @@ def _evaluate_sheet_metal_base_flange(
     return None
 
 
-def _evaluate_sheet_metal_edge_flange(
-    item: EvaluatedFeatureInput, state: EvaluationState
+def _fold_flange_off_edge(
+    item: EvaluatedFeatureInput,
+    state: EvaluationState,
+    edge_ref: EdgeSubshapeRef,
+    *,
+    flange_length_mm: float,
+    bend_angle_deg: float,
+    override_radius_mm: float | None,
+    override_k_factor: float | None,
+    subject: str,
 ) -> FeatureError | None:
-    """Fold a flange off a base-flange edge and fuse it across a bend (§4.2).
+    """Shared bend machinery for the edge-flange (§4.2) and hem (parity §2) folds.
 
-    Body-modifying (design §7.6): it needs a prior sheet body with recorded
-    sheet-metal defaults (``no_base_flange`` otherwise — a bend allowance needs the
-    part gauge/K). The base-flange edge is resolved by the picked
-    :class:`EdgeSignature` (:func:`resolve_edge` — the SAME stage-1 machinery a
-    fillet uses); a ref that no longer resolves is ``subshape_unresolved`` / a
-    congruent twin ``subshape_ambiguous``. ``bend_radius_mm`` / ``k_factor`` inherit
-    the part defaults when omitted (§4.2). The bend geometry is built + fused
-    (:func:`build_edge_flange`); on success the active body becomes the fused sheet
-    and the bend's provenance (§5) is recorded for the unfold. The active body is
-    only replaced on success (strict-prefix tessellates the last-good body, §4.3).
+    Both features fold a flange off a resolved base-flange edge via the SAME
+    :func:`build_edge_flange` (a hem is an edge flange at a fixed 180 deg fold —
+    parity §2 / DRY): resolve the picked edge (stage-1 :class:`EdgeSignature`,
+    :func:`resolve_edge`), inherit the part's gauge/K/radius defaults where the
+    per-feature value is omitted, build + fuse the bend, and record the bend
+    provenance (§5) keyed by this feature id. Every failure is a TYPED per-feature
+    error (never a raw kernel exception or an invalid solid — parity §3): no prior
+    body (``no_prior_body``), no recorded sheet-metal defaults (``no_base_flange``),
+    an unresolvable / ambiguous edge (``subshape_unresolved`` /
+    ``subshape_ambiguous``), an unsuitable edge (``edge_flange_bad_edge``), or a
+    degenerate/self-intersecting fold the kernel rejects (``edge_flange_failed`` —
+    :func:`build_edge_flange` validates the fused solid count). ``subject`` names
+    the feature in the no-body messages. The active body is only replaced on
+    success (strict-prefix tessellates the last-good body, §4.3); ``set_active_body``
+    keeps the body's identity (its base-flange id) so the defaults stay reachable
+    for a later fold (a depth-1 star, §4.3).
     """
-    feature = item.feature
-    assert isinstance(feature, SheetMetalEdgeFlangeFeature), (
-        "registry dispatches on type='sheet_metal_edge_flange'"
-    )
-    params = feature.params
-
     active = state.active_body
     if active is None or state.active_body_id is None:
         return FeatureError(
             code="no_prior_body",
             message=(
-                "An edge flange requires an existing sheet body, but no "
+                f"{subject} requires an existing sheet body, but no "
                 "body-affecting feature precedes it; add a base flange first."
             ),
         )
@@ -845,28 +855,28 @@ def _evaluate_sheet_metal_edge_flange(
         return FeatureError(
             code="no_base_flange",
             message=(
-                "An edge flange needs the part's sheet-metal gauge/K (from a base "
+                f"{subject} needs the part's sheet-metal gauge/K (from a base "
                 "flange) to compute its bend allowance, but the active body is not "
                 "a sheet-metal base flange."
             ),
         )
 
     try:
-        edge = resolve_edge(active, params.edge.selector.signature)
+        edge = resolve_edge(active, edge_ref.selector.signature)
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
-    radius = params.bend_radius_mm or defaults.bend_radius_mm
-    k_factor = params.k_factor if params.k_factor is not None else defaults.k_factor
+    radius = override_radius_mm or defaults.bend_radius_mm
+    k_factor = override_k_factor if override_k_factor is not None else defaults.k_factor
 
     try:
         result = build_edge_flange(
             active,
             edge,
-            flange_length_mm=params.flange_length_mm,
-            bend_angle_deg=params.bend_angle_deg,
+            flange_length_mm=flange_length_mm,
+            bend_angle_deg=bend_angle_deg,
             bend_radius_mm=radius,
             thickness_mm=defaults.thickness_mm,
         )
@@ -875,9 +885,6 @@ def _evaluate_sheet_metal_edge_flange(
     except EdgeFlangeError as exc:
         return FeatureError(code="edge_flange_failed", message=str(exc))
 
-    # set_active_body keeps the body's identity (its base-flange id), so the
-    # sheet-metal defaults stay reachable for a SECOND edge flange (a depth-1
-    # star, §4.3 — the U-channel case) without re-keying.
     state.set_active_body(result.body)
     state.bend_provenance[item.id] = BendProvenance(
         cyl_signature=result.cyl_signature,
@@ -885,6 +892,67 @@ def _evaluate_sheet_metal_edge_flange(
         k_factor=k_factor,
     )
     return None
+
+
+def _evaluate_sheet_metal_edge_flange(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Fold a flange off a base-flange edge and fuse it across a bend (§4.2).
+
+    Body-modifying (design §7.6): it needs a prior sheet body with recorded
+    sheet-metal defaults. Delegates the resolve/build/record steps to
+    :func:`_fold_flange_off_edge` (shared with the hem), passing the picked edge +
+    the per-feature ``flange_length_mm`` / ``bend_angle_deg`` and the inherited
+    radius/K overrides. See that helper for the typed error contract.
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalEdgeFlangeFeature), (
+        "registry dispatches on type='sheet_metal_edge_flange'"
+    )
+    params = feature.params
+    return _fold_flange_off_edge(
+        item,
+        state,
+        params.edge,
+        flange_length_mm=params.flange_length_mm,
+        bend_angle_deg=params.bend_angle_deg,
+        override_radius_mm=params.bend_radius_mm,
+        override_k_factor=params.k_factor,
+        subject="An edge flange",
+    )
+
+
+def _evaluate_sheet_metal_hem(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Fold a ~180 deg CLOSED hem off a base-flange edge (parity §2).
+
+    A closed hem is an edge flange at a FIXED 180 deg fold (parity §2 / §1): the
+    picked edge folds flat back onto the sheet with a small inner radius, forming a
+    doubled, safe edge. Delegates to :func:`_fold_flange_off_edge` with
+    ``bend_angle_deg = 180`` and the hem's ``length_mm`` as the developed return
+    length — no new kernel geometry code (the return sits ~2*radius above the base,
+    so the fold cannot self-intersect; verified down to radius 1e-6). The bend is
+    tagged with a :class:`CylindricalFaceSignature` (§5) so the unfold develops it
+    as any bend (BA = pi * (radius + K * thickness)); its bend-table row reads angle
+    180 deg. v1 handles ``hem_type = "closed"`` only (the schema forbids the rest);
+    open / teardrop / rolled are deferred (curved cross-section, parity §2).
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalHemFeature), (
+        "registry dispatches on type='sheet_metal_hem'"
+    )
+    params = feature.params
+    return _fold_flange_off_edge(
+        item,
+        state,
+        params.edge,
+        flange_length_mm=params.length_mm,
+        bend_angle_deg=180.0,
+        override_radius_mm=params.bend_radius_mm,
+        override_k_factor=params.k_factor,
+        subject="A hem",
+    )
 
 
 def _evaluate_revolve(
@@ -1622,6 +1690,7 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "import",
         "sheet_metal_base_flange",
         "sheet_metal_edge_flange",
+        "sheet_metal_hem",
         "boolean",
     }
 )
@@ -1645,6 +1714,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "import": _evaluate_import,
     "sheet_metal_base_flange": _evaluate_sheet_metal_base_flange,
     "sheet_metal_edge_flange": _evaluate_sheet_metal_edge_flange,
+    "sheet_metal_hem": _evaluate_sheet_metal_hem,
     "boolean": _evaluate_boolean,
 }
 

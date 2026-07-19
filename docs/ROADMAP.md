@@ -17,8 +17,9 @@ gap to be *measured*, not asserted: `docs/design/sheet-metal-parity.md`
 status, re-checked as each feature lands. **Do not flip the scorecard row
 until that matrix says so.**
 
-**In flight right now:** authoring UI ✅ and corner relief ✅ both landed
-(2026-07-19). Next down the corrected sequence: hems (closed-hem-first).
+**In flight right now:** authoring UI ✅, corner relief ✅, and closed hem ✅
+all landed (2026-07-19). Next down the corrected sequence: a Hem authoring UI
+slice + open/teardrop/rolled hems, then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner
@@ -50,10 +51,19 @@ convert-to-sheet-metal → forming tools; full rationale in
    byte-unchanged (empty relief set → verbatim pre-existing paths). Follow-ons:
    obround/tear relief variants, auto-relief policy layer, relieved flat-pattern
    DRAWING view (threads reliefs through the composer).
-3. **Hems** — sequence **closed hem first** (near-trivial edge-flange
-   specialization: angle=π, near-zero radius) as its own fast slice, THEN
-   open/teardrop/rolled (each a genuinely new curved cross-section, not one
-   monolithic "hems" item).
+3. **Hems** — **closed hem ✅ SHIPPED 2026-07-19** (kernel-architect). A
+   first-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge +
+   `length_mm` + optional radius/K, `hem_type="closed"`): a fixed 180° fold of
+   the return flat onto the parent, reusing `build_edge_flange` + the shipped
+   unfold verbatim (BA = π·(r+K·t)). **Kernel finding: even freer than
+   predicted** — the near-flat fold produces one clean valid solid and CANNOT
+   self-intersect (the return sits ~2·radius above the base with an air gap,
+   valid down to r=1e-6), so no guard/rescope was needed. Golden
+   `closed-hem-plate`; honest degradation (zero-radius → typed schema reject,
+   kernel fold failure → typed `edge_flange_failed`). All existing goldens
+   byte-unchanged. **Remaining:** a Hem authoring UI slice (closed hem is
+   API-only today) + open/teardrop/rolled (each a genuinely new curved
+   cross-section, separate fast-follows).
 4. **Jogs** — got EASIER since `sheet-metal.md` was written (it predates the
    now-shipped depth-≥2 bend-tree unfold); a jog is a degenerate zero-length
    two-bend chain. Verify the existing chain machinery handles that edge case

@@ -1481,6 +1481,98 @@ class SheetMetalEdgeFlangeParamsV1(BaseModel):
     )
 
 
+# --- Sheet-metal hem — a ~180 deg fold-back of an edge (v1: CLOSED) ---------------
+#
+# A HEM folds the sheet's edge ~180 deg back onto itself, forming a doubled, safe
+# edge (the incumbents' Hem tool — SolidWorks/Fusion). It is the near-trivial win
+# of the parity roadmap (docs/design/sheet-metal-parity.md §2 Hem row / Parity
+# roadmap #3): a CLOSED hem is mechanically a SPECIALIZATION of the shipped edge
+# flange — a fixed 180 deg fold with a small inner radius, folding the return flat
+# back over the parent face. Verified geometrically (kernel-architect, 2026-07-19):
+# `build_edge_flange` at `bend_angle_deg = 180` with a small radius produces ONE
+# clean valid solid (the return sits 2*radius above the base with an air gap, so
+# it CANNOT self-intersect — proven down to radius 1e-6), and the shipped
+# `unfold_sheet_metal` develops it correctly as a bend at pi (BA = pi * (radius +
+# K * thickness)). So a closed hem REUSES `build_edge_flange`'s bend machinery
+# verbatim (bend_angle fixed at 180) — no new kernel geometry code, no new unfold.
+#
+# It is a DISTINCT feature type (not a `hem_type` flag on the edge flange) for the
+# same reasons the edge flange is distinct from a raw sweep (§4.2), plus one more:
+# a hem's authoring gesture NEVER sets a fold angle (it is always ~180) — the user
+# picks an edge + a return length, exactly the incumbent Hem tool. `hem_type`
+# forward-declares the four incumbent hem shapes; v1 ships `"closed"` only (open /
+# teardrop / rolled each need a NEW curved cross-section profile the exact-
+# cross-section extrude does not build, so they are separate fast-follow slices —
+# parity §2). Additive: a new `hem_type` Literal member lands with NO param_version
+# bump.
+
+
+class SheetMetalHemParamsV1(BaseModel):
+    """A hem folded off a straight edge of the sheet — v1 CLOSED hem (parity §2).
+
+    A closed hem folds the picked edge ~180 deg back FLAT against the parent face,
+    with a small inner ``bend_radius_mm`` giving the doubled edge its tight,
+    near-zero air gap (the gap between the two layers is ~2 * bend_radius). It is a
+    specialization of the edge flange: the geometry side reuses ``build_edge_flange``
+    with the fold angle FIXED at 180 deg, so the fused body is one clean solid and
+    the flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,
+    §1) — its bend-table row reads angle 180 deg.
+
+    ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to hem — the
+    SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer or edge-flange
+    pick uses (topological-naming §10); its ``feature_id`` materialises the
+    dependency on the base-flange feature. ``length_mm`` is the developed flat
+    length of the folded-back return (to the bend tangent line, §9 golden #1's
+    convention). ``bend_radius_mm`` / ``k_factor`` default from the part's base
+    flange (:class:`SheetMetalBaseFlangeParamsV1`) when omitted (``None``) and may
+    be OVERRIDDEN per-hem — a tight closed hem sets a SMALL radius (e.g. ~0.5 *
+    thickness) rather than the part's general bend radius.
+
+    A ZERO ``bend_radius_mm`` (a truly zero-gap / zero-radius closed hem) is a
+    degenerate fold; the ``gt=0`` bound rejects it as a typed validation error
+    rather than admitting a degenerate solid (honest degradation — parity §3).
+
+    Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+    it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+    to) — so its only whole-feature dependency is the named-edge ref + tree order.
+    """
+
+    edge: EdgeSubshapeRef = Field(
+        description="The base-flange STRAIGHT edge to hem (a stage-1 EdgeSignature "
+        "reference resolved against the current sheet body). The return folds ~180 "
+        "deg back over this edge's adjacent flat face."
+    )
+    hem_type: Literal["closed"] = Field(
+        default="closed",
+        description="Hem shape. v1 ships 'closed' only (the return folds flat back "
+        "against the parent — parity §2). Open / teardrop / rolled hems each need a "
+        "curved cross-section profile and are deferred (additive Literal members, "
+        "no param_version bump). Absent reads 'closed'.",
+    )
+    length_mm: float = Field(
+        gt=0,
+        description="Developed flat length of the folded-back return (mm), measured "
+        "to the bend tangent line (§9 golden #1 convention).",
+    )
+    bend_radius_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description="INNER bend radius (mm) of the hem fold; the layers' air gap is "
+        "~2 * this. Omitted (None) inherits the part's base-flange default "
+        "`bend_radius_mm`; a value overrides it per-hem. A tight closed hem uses a "
+        "SMALL radius (~0.5 * thickness). A zero radius (zero-gap degenerate fold) "
+        "is rejected by the `gt=0` bound.",
+    )
+    k_factor: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Neutral-axis fraction K in [0, 1] for the hem's bend allowance "
+        "(§1). Omitted (None) inherits the part's base-flange default `k_factor` "
+        "(0.44 v1 baseline); a value overrides it per-hem.",
+    )
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -1651,6 +1743,21 @@ class SheetMetalEdgeFlangeFeature(BaseModel):
     params: SheetMetalEdgeFlangeParamsV1
 
 
+class SheetMetalHemFeature(BaseModel):
+    """``{"type": "sheet_metal_hem", "version": 1, "params": {...}}`` envelope.
+
+    A body-MODIFYING feature (parity §2, closed hem): it folds the picked edge ~180
+    deg back onto the sheet (reusing the edge flange's bend machinery at a fixed 180
+    deg fold), fusing one clean solid, and tags the bend face with a
+    :class:`CylindricalFaceSignature` (§5) for the unfold's provenance — exactly as
+    an edge flange does. ``params`` is :class:`SheetMetalHemParamsV1`.
+    """
+
+    type: Literal["sheet_metal_hem"]
+    version: Literal[1]
+    params: SheetMetalHemParamsV1
+
+
 class BooleanFeature(BaseModel):
     """``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
 
@@ -1685,6 +1792,7 @@ Feature = Annotated[
     | ImportFeature
     | SheetMetalBaseFlangeFeature
     | SheetMetalEdgeFlangeFeature
+    | SheetMetalHemFeature
     | BooleanFeature,
     Field(discriminator="type"),
 ]
@@ -1705,6 +1813,7 @@ FeatureEnvelope = (
     | ImportFeature
     | SheetMetalBaseFlangeFeature
     | SheetMetalEdgeFlangeFeature
+    | SheetMetalHemFeature
     | BooleanFeature
 )
 
@@ -1862,6 +1971,7 @@ FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.register(ImportFeature)
 FEATURE_REGISTRY.register(SheetMetalBaseFlangeFeature)
 FEATURE_REGISTRY.register(SheetMetalEdgeFlangeFeature)
+FEATURE_REGISTRY.register(SheetMetalHemFeature)
 FEATURE_REGISTRY.register(BooleanFeature)
 FEATURE_REGISTRY.validate_chains()
 
@@ -1896,6 +2006,11 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         # hole on a formed flange face, or a second edge flange off a NEW edge the
         # first created (still a depth-1 star off the base, §4.3).
         "sheet_metal_edge_flange",
+        # `sheet_metal_hem` folds a ~180 deg return onto the sheet body (parity §2,
+        # closed hem) — the SAME body-affecting result as an edge flange (it reuses
+        # `build_edge_flange`), so its faces/edges are nameable by a later
+        # SubshapeRef (a hole on the hemmed return, a bend off a new edge).
+        "sheet_metal_hem",
         # `boolean` produces a combined body (multi-body §Decisions-3), so its
         # result faces/edges are nameable by a later SubshapeRef (a fillet on a
         # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
@@ -2139,6 +2254,19 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             # into feature_dependencies (the named base-flange feature), so deleting
             # the base flange is a 409-with-dependents and a reorder re-checks
             # strict-backward. flange_length/bend_angle/radius/K are scalars, not
+            # refs. The edge is named on a body-affecting feature's result.
+            references.append(
+                FeatureReference(
+                    "edge", feature.params.edge, BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
+        case SheetMetalHemFeature():
+            # A hem names the base-flange EDGE it folds ~180 deg back over (parity
+            # §2) — an EdgeSubshapeRef resolved against the current sheet body,
+            # exactly like an edge flange / picked fillet edge. Its feature_id
+            # materialises into feature_dependencies (the named base-flange feature),
+            # so deleting the base flange is a 409-with-dependents and a reorder
+            # re-checks strict-backward. length/radius/K/hem_type are scalars, not
             # refs. The edge is named on a body-affecting feature's result.
             references.append(
                 FeatureReference(

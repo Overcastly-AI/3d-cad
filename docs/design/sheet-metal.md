@@ -96,6 +96,30 @@ below possible at all.
   **explicitly deferred past v1** (§7) — they are compositions of more bends
   and more corner-case geometry on top of the same primitive (a straight
   bend line + a bend allowance), not new kernel risk.
+
+  **Implementation note — CLOSED HEM SHIPPED (2026-07-19, kernel-architect,
+  parity §2).** The **closed hem** graduated from the deferred list as a
+  first-class feature `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`): edge
+  ref + `length_mm` (developed return) + optional `bend_radius_mm`/`k_factor`
+  (inherit the base flange) + `hem_type="closed"` (open/teardrop/rolled
+  forward-declared, additive). It is a fixed **180°** fold of the return flat
+  back onto the parent, and the kernel finding is that it is even freer than
+  §1/§10 predicted: `build_edge_flange` at `bend_angle_deg=180` with a small
+  radius produces **one clean valid solid** (BRepCheck-valid, one shell) and
+  the shipped `unfold_sheet_metal` develops it verbatim (`BA = π·(r + K·t)`,
+  bend-table row angle 180°). The feared near-flat degeneracy **does not
+  occur** — the return sits ~2·radius above the base with an air gap, so the
+  fold-back structurally cannot self-intersect (verified valid down to
+  r=1e-6). So the closed hem needed **no new kernel geometry, no unfold fork,
+  and no guard** — the edge-flange and hem evaluators DRY-share
+  `_fold_flange_off_edge` (the hem passing a fixed 180° angle). Honest
+  degradation (parity §3): a zero-radius/zero-gap hem is a typed schema
+  rejection (`bend_radius_mm > 0`); a kernel fold failure inherits
+  `build_edge_flange`'s typed `EdgeFlangeError` → `edge_flange_failed`. Golden
+  `closed-hem-plate`. **Open / teardrop / rolled hems stay deferred** — each is
+  a genuinely different *curved cross-section profile* at the fold tip, not a
+  180° fold; and the **Hem authoring UI** is the next frontend slice (closed
+  hem is API-only today, exactly as the base/edge flange were).
 - **The deliverable is the flat pattern.** A sheet-metal part's actual
   manufacturing artifact is not the 3D formed shape — it's the **flat
   blank**: the 2D outline a laser/punch cuts, annotated with **bend lines**

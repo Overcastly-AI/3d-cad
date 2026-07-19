@@ -19,8 +19,9 @@ duplication.
 - **➖ rows (usable, short of incumbent parity):** Assemblies (no
   collision/exploded views, recursive BOM, assembly-STEP, part-version
   pinning), Interop (no IGES/named-assembly-structure/healing), Drawings (no
-  assembly drawings/section+detail views/GD&T), Sheet metal (depth-1 bend
-  star only — no bend chains/hems/miters/tabs/gauge tables).
+  assembly drawings/section+detail views/GD&T), Sheet metal (bend chains +
+  corner relief + closed hem now shipped; still no open/teardrop/rolled hems,
+  miters, tabs, or gauge tables).
 - **❌ rows (untouched, no design doc yet):** Performance (no benchmark suite
   — the cheapest concrete next move, Ready #1), Collaboration & versioning
   (Phase 3, unstarted), Extensibility/scripting + MCP (Phase 5, unstarted).
@@ -271,6 +272,27 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P2, S) Sheet metal — CLOSED HEM (geometry, kernel-architect). **SHIPPED**
+      2026-07-19. First-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`,
+      edge ref + `length_mm` + optional `bend_radius_mm`/`k_factor`,
+      `hem_type="closed"`; open/teardrop/rolled forward-declared, deferred). A
+      closed hem is a fixed **180°** fold of the return flat onto the parent,
+      reusing `build_edge_flange` + the shipped `unfold_sheet_metal` verbatim
+      (BA = π·(r+K·t); the edge-flange and hem evaluators DRY-share
+      `_fold_flange_off_edge`). **Kernel finding: the near-flat fold is tractable
+      and even freer than predicted** — it produces ONE clean valid solid
+      (BRepCheck-valid, one shell) and CANNOT self-intersect (the return sits
+      ~2·radius above the base with an air gap, verified valid to r=1e-6), so no
+      guard/rescope was needed. Golden `closed-hem-plate` (valid solid + analytic
+      unfold + area conservation + byte-determinism across an interpreter
+      restart). Honest degradation (parity §3): zero-radius/zero-gap hem → typed
+      schema reject, kernel fold failure → typed `edge_flange_failed`. Registered
+      in all arms (Feature union / FeatureEnvelope / FEATURE_REGISTRY /
+      BODY_AFFECTING_FEATURE_TYPES / feature_references / geometry
+      `_BODY_AFFECTING_TYPES` + `FEATURE_HANDLERS`); contracts+ts-client regen;
+      all existing goldens BYTE-UNCHANGED. Deferred: a Hem authoring UI slice
+      (closed hem is API-only today) + open/teardrop/rolled (curved
+      cross-section). [src: design/sheet-metal-parity.md §2]
 - [x] (P2, M) Sheet metal — CORNER RELIEF v1 (geometry, kernel-architect).
       **SHIPPED** + **fold-back bug reconciled** (P0 code-review request-changes,
       same day). v1 = **rectangular** relief for a **depth-1 adjacent-flange tray
@@ -472,6 +494,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-19 — **Sheet-metal CLOSED HEM (kernel-architect):** first-class
+  `sheet_metal_hem` feature — a fixed 180° fold reusing `build_edge_flange` + the
+  shipped unfold verbatim. Finding: the near-flat fold cannot self-intersect
+  (return sits ~2·radius above base), so it's one clean valid solid, no guard.
+  Golden `closed-hem-plate`; existing goldens byte-unchanged. Open/teardrop/rolled
+  + a Hem UI deferred.
 - 2026-07-19 — **Sheet-metal CORNER RELIEF v1 (kernel-architect):** reconciled +
   finished container-restart-stranded work (`_Rect` defined after first use →
   import `NameError`; 12 ruff errors — cleared). `apply_corner_relief` cuts the

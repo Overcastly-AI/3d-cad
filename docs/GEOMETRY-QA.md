@@ -7,6 +7,48 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-19 — Sheet-metal CLOSED HEM (kernel-architect self-report)
+
+**SHIPPED.** First-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`): a
+closed hem folds the picked edge ~180° flat back onto the parent at a small inner
+radius — mechanically a specialization of the shipped edge flange, reusing
+`build_edge_flange` at `bend_angle_deg=180` + the shipped `unfold_sheet_metal`
+verbatim (the edge-flange and hem evaluators DRY-share `_fold_flange_off_edge`).
+
+**Tractability finding (the uncertain part) — VERDICT: TRACTABLE, no wall, no
+guard needed.** The feared near-flat degeneracy does NOT occur. Probed
+`build_edge_flange` at 180° across radii r ∈ {1.0, 0.5, 0.2, 0.1, 0.05, 0.01,
+5e-3, 1e-3, 1e-4, 1e-6} and legs {0.5 … 500}: **every case is ONE valid solid**
+(BRepCheck `IsValid()`=True, one shell), correct analytic volume. Reason: the
+folded return sits ~2·radius ABOVE the base with an air gap, so the two layers
+never share a coincident plane — the fold-back is structurally incapable of
+self-intersecting. The unfold develops it correctly as a bend at π
+(BA = π·(r + K·t)), angle exactly 180°.
+
+**Golden `closed-hem-plate`** (plate 50×20×2, closed hem r=1, return 15, K=0.44):
+- BA = π·(1 + 0.44·2) = π·1.88 = **5.9061941887488105** — measured == analytic,
+  residual **0.0** (the r=1 mm inner arc resolves EXACTLY, unlike the r=3 mm
+  L-bracket's 2.9999999999999933).
+- flat_length = 50 + BA + 15 = **70.90619418874881** (measured == analytic).
+- flat_area = 1000 + 300 + BA·20 = **1418.123883774976** = flat_length·20 (§9 #2
+  area conservation; the blank is a rectangle).
+- Fused body: **one valid solid**, volume **2851.327412287183** mm³ (analytic
+  2851.3274122871835, residual ~9e-13, within 1e-6), topology faces=10/edges=24/
+  shells=1. Outline = 4 body edges + 1 bend line, angle 180°, direction up.
+- Byte-deterministic in-process AND across a fresh interpreter restart
+  (content_hash `6e0b1657…2809`).
+
+**Honest degradation (parity §3):** a zero-radius/zero-gap (degenerate) hem is a
+typed schema rejection (`bend_radius_mm > 0`); a kernel fold failure inherits
+`build_edge_flange`'s typed `EdgeFlangeError` → `edge_flange_failed` (proven by a
+forced-failure test — the real geometry never fails, so this locks the
+error-mapping guard); unresolvable edge → `subshape_unresolved`; no prior body →
+`no_prior_body`. Never a raw kernel exception or an invalid solid.
+
+**Existing goldens byte-unchanged** (empty relief set / non-hem trees take the
+verbatim shipped paths). Full `tests/` suite green; 18 hem tests. Deferred:
+open/teardrop/rolled hems (curved cross-section) + a Hem authoring UI slice.
+
 ## 2026-07-19 — Sheet-metal CORNER RELIEF v1 (kernel-architect self-report)
 
 **SHIPPED + fold-back P0 reconciled (code-review request-changes).** v1 =

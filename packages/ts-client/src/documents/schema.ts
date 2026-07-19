@@ -2106,7 +2106,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -2204,7 +2204,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -2264,7 +2264,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -2333,7 +2333,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["BooleanFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -3600,6 +3600,85 @@ export interface components {
              * @description Neutral-axis fraction K in [0, 1] for this bend's allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-bend.
              */
             k_factor?: number | null;
+        };
+        /**
+         * SheetMetalHemFeature
+         * @description ``{"type": "sheet_metal_hem", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-MODIFYING feature (parity §2, closed hem): it folds the picked edge ~180
+         *     deg back onto the sheet (reusing the edge flange's bend machinery at a fixed 180
+         *     deg fold), fusing one clean solid, and tags the bend face with a
+         *     :class:`CylindricalFaceSignature` (§5) for the unfold's provenance — exactly as
+         *     an edge flange does. ``params`` is :class:`SheetMetalHemParamsV1`.
+         */
+        SheetMetalHemFeature: {
+            params: components["schemas"]["SheetMetalHemParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_hem";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalHemParamsV1
+         * @description A hem folded off a straight edge of the sheet — v1 CLOSED hem (parity §2).
+         *
+         *     A closed hem folds the picked edge ~180 deg back FLAT against the parent face,
+         *     with a small inner ``bend_radius_mm`` giving the doubled edge its tight,
+         *     near-zero air gap (the gap between the two layers is ~2 * bend_radius). It is a
+         *     specialization of the edge flange: the geometry side reuses ``build_edge_flange``
+         *     with the fold angle FIXED at 180 deg, so the fused body is one clean solid and
+         *     the flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,
+         *     §1) — its bend-table row reads angle 180 deg.
+         *
+         *     ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to hem — the
+         *     SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer or edge-flange
+         *     pick uses (topological-naming §10); its ``feature_id`` materialises the
+         *     dependency on the base-flange feature. ``length_mm`` is the developed flat
+         *     length of the folded-back return (to the bend tangent line, §9 golden #1's
+         *     convention). ``bend_radius_mm`` / ``k_factor`` default from the part's base
+         *     flange (:class:`SheetMetalBaseFlangeParamsV1`) when omitted (``None``) and may
+         *     be OVERRIDDEN per-hem — a tight closed hem sets a SMALL radius (e.g. ~0.5 *
+         *     thickness) rather than the part's general bend radius.
+         *
+         *     A ZERO ``bend_radius_mm`` (a truly zero-gap / zero-radius closed hem) is a
+         *     degenerate fold; the ``gt=0`` bound rejects it as a typed validation error
+         *     rather than admitting a degenerate solid (honest degradation — parity §3).
+         *
+         *     Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+         *     it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+         *     to) — so its only whole-feature dependency is the named-edge ref + tree order.
+         */
+        SheetMetalHemParamsV1: {
+            /**
+             * Bend Radius Mm
+             * @description INNER bend radius (mm) of the hem fold; the layers' air gap is ~2 * this. Omitted (None) inherits the part's base-flange default `bend_radius_mm`; a value overrides it per-hem. A tight closed hem uses a SMALL radius (~0.5 * thickness). A zero radius (zero-gap degenerate fold) is rejected by the `gt=0` bound.
+             */
+            bend_radius_mm?: number | null;
+            /** @description The base-flange STRAIGHT edge to hem (a stage-1 EdgeSignature reference resolved against the current sheet body). The return folds ~180 deg back over this edge's adjacent flat face. */
+            edge: components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * Hem Type
+             * @description Hem shape. v1 ships 'closed' only (the return folds flat back against the parent — parity §2). Open / teardrop / rolled hems each need a curved cross-section profile and are deferred (additive Literal members, no param_version bump). Absent reads 'closed'.
+             * @default closed
+             * @constant
+             */
+            hem_type: "closed";
+            /**
+             * K Factor
+             * @description Neutral-axis fraction K in [0, 1] for the hem's bend allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-hem.
+             */
+            k_factor?: number | null;
+            /**
+             * Length Mm
+             * @description Developed flat length of the folded-back return (mm), measured to the bend tangent line (§9 golden #1 convention).
+             */
+            length_mm: number;
         };
         /**
          * SheetMutationResponse

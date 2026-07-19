@@ -55,7 +55,7 @@ API today, the same way goldens author them.
 | **Fold** (fold a bent-line sketch on a flat face into a 3D bend — the authoring counterpart to Sketched Bend, §1) | Fusion ▸ Sheet Metal ▸ Create ▸ Fold — same doc as above | ❌ | Depends on Sketched Bend (§1) shipping first. | M (bundled with sketched bend) |
 | **Cross-breaks** (a cosmetic stiffening crease across a flat face — HVAC/duct convention; a graphical annotation, NOT a geometric bend) | Cross Break command inserts a graphical crease indicator; explicitly **does not alter part geometry** — [Cross Breaks](https://help.solidworks.com/2025/english/Solidworks/sldworks/c_cross_break.htm) | ❌ | No equivalent. Genuinely low-risk (it's cosmetic, not geometric — no unfold interaction) but also low-value outside HVAC/duct work; **candidate for explicit deprioritization**, see §Verdict. | S, low priority |
 | **Jog** (two bends with no length between — a stepped offset of a flat face) | Jog tool: sketch a single line, the tool inserts two bends (a "Z-step") to offset the face by a set distance while keeping it parallel — [Jogs](https://help.solidworks.com/2020/english/SolidWorks/sldworks/c_jogs.htm) | ❌ | Geometrically a **degenerate two-bend depth-1 chain with zero flange length between the bends** — since depth-≥2 bend-tree unfold now ships, a jog is much closer to reachable than it looked when `sheet-metal.md` was written (it predates depth-2). Needs: (a) a dedicated feature type (two coupled bend params, not two independent edge-flange authorings) or (b) confirmation the existing chain machinery composes correctly at zero intermediate length (an edge case worth a golden, not an assumption). | S–M — reassess priority now that depth-2 unfold exists |
-| **Hem** — open, closed, teardrop, rolled | Four hem types: **Closed** (bent 180° flat against the parent, zero inside radius, cheapest/most common), **Open** (curved outer edge, air gap — safe-to-touch edges/handles), **Teardrop** (rounded tear-shaped profile — brittle materials like aluminum), **Rolled** (full circular edge — eliminates raw edges, doors/furniture) — [SolidWorks hem tutorial summary](https://solidworkstutorialsforbeginners.com/solidworks-sheetmetal-hem/), [Approved Sheet Metal — hem types](https://www.approvedsheetmetal.com/blog/what-type-of-hem-does-your-custom-sheet-metal-part-need). Fusion's Hem tool: pick edge(s), flip fold direction, **Miter Corners** option, **Override Rules** per-feature — [Create hem](https://help.autodesk.com/view/fusion360/ENU/?contextId=SM-CREATE-HEM-FLANGE) | ❌ | No hem feature at all. `sheet-metal.md` §1/§10 names it correctly as "a ~180° bend with ~zero radius" — geometrically a **specialization of edge-flange** (a fixed 180° angle, near-zero radius, folded back onto the parent face) rather than new kernel risk; the unfold math (BA formula) is identical, just with `angle_rad = π` and small `bend_radius`. The four *shapes* (open/closed/teardrop/rolled) are the real new geometry — closed is a direct edge-flange specialization, but open/teardrop/rolled all need a **curved cross-section profile** at the fold tip, which the current edge-flange's exact-cross-section extrude does not build. | S (closed hem only) / M (all four shapes) — highest-value near-term flange addition per the founder's stated sequencing |
+| **Hem** — open, closed, teardrop, rolled | Four hem types: **Closed** (bent 180° flat against the parent, zero inside radius, cheapest/most common), **Open** (curved outer edge, air gap — safe-to-touch edges/handles), **Teardrop** (rounded tear-shaped profile — brittle materials like aluminum), **Rolled** (full circular edge — eliminates raw edges, doors/furniture) — [SolidWorks hem tutorial summary](https://solidworkstutorialsforbeginners.com/solidworks-sheetmetal-hem/), [Approved Sheet Metal — hem types](https://www.approvedsheetmetal.com/blog/what-type-of-hem-does-your-custom-sheet-metal-part-need). Fusion's Hem tool: pick edge(s), flip fold direction, **Miter Corners** option, **Override Rules** per-feature — [Create hem](https://help.autodesk.com/view/fusion360/ENU/?contextId=SM-CREATE-HEM-FLANGE) | 🟡 **closed shipped** (2026-07-19, kernel-architect) | **CLOSED hem SHIPPED** as a first-class feature `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge ref + `length_mm` + optional `bend_radius_mm`/`k_factor`, `hem_type="closed"`) — kernel finding: the closed hem is even freer than predicted. `build_edge_flange` at `bend_angle_deg=180` with a small radius produces **ONE clean valid solid** (BRepCheck-valid, one shell) and `unfold_sheet_metal` develops it correctly (BA = π·(r+K·t)); the near-flat fold **cannot self-intersect** — the return sits ~2·radius above the base with an air gap, verified valid down to r=1e-6 — so no guard or rescope was needed, the hem reuses the edge-flange bend + unfold machinery verbatim (a fixed 180° fold, DRY-shared `_fold_flange_off_edge`). Golden `closed-hem-plate` (valid solid + analytic unfold + area conservation + byte-determinism). Honest degradation (parity §3): a zero-radius/zero-gap hem is a typed schema rejection; a kernel fold failure is a typed `edge_flange_failed`. **Deferred (each a separate fast-follow slice):** open / teardrop / rolled — each a genuinely different **curved cross-section profile** at the fold tip the exact-cross-section extrude does not build; and a **Hem authoring UI** (the next frontend slice — closed hem is API-only today, like the base/edge flange were). | S ✅ (closed) / M (open/teardrop/rolled — curved cross-section) + UI slice |
 
 ## 3. Corners
 
@@ -132,13 +132,14 @@ research, called out inline.
 2. **Corner relief** (🔨 in flight). Directly named in `sheet-metal.md`
    §4.3 as the unlock for the self-overlap reject case (closed box
    corners) — the single highest-leverage kernel item left. No correction.
-3. **Hems** (❌, §2). Research correction: **closed hem is a near-trivial
-   specialization of the shipped edge-flange** (angle=π, near-zero radius,
-   fold-back direction) and should be the fastest win in the whole roadmap
-   once corner relief lands — sequence it as "closed hem first, open/
-   teardrop/rolled as a fast-follow" rather than one monolithic hem item,
-   since the four shapes have very different kernel cost (closed: reuse;
-   open/teardrop/rolled: new curved cross-section profile).
+3. **Hems** (🟡, §2). Research correction CONFIRMED and **closed hem SHIPPED**
+   (2026-07-19): the closed hem is exactly the near-trivial specialization of
+   the shipped edge-flange it was predicted to be — a fixed 180° fold at a small
+   radius through `build_edge_flange` + the shipped unfold, no new kernel
+   geometry, no guard needed (the fold-back cannot self-intersect). Remaining:
+   **open / teardrop / rolled** (each a new curved cross-section profile — a
+   genuinely different geometry) and a **Hem authoring UI** slice, sequenced as
+   the predicted fast-follows.
 4. **Jogs** (❌, §2). Research correction: **jogs got easier, not harder,
    since `sheet-metal.md` was written** — it predates the now-shipped
    depth-≥2 bend-tree unfold, and a jog is exactly a degenerate two-bend
@@ -220,10 +221,11 @@ day, not in an edge case.
    every other row's real-world value.
 2. **Corner relief** (🔨) — the direct unlock for closed-box/enclosure
    corners, the single most-named gap in `sheet-metal.md`'s own text.
-3. **Closed hem** (❌, cheap once corner relief lands) — hems appear on a
-   large fraction of real sheet-metal parts (safety edges, stiffening) and
-   this specific shape is nearly free given the shipped edge-flange
-   machinery — disproportionate parity gain for the cost.
+3. **Closed hem** (✅ SHIPPED 2026-07-19) — hems appear on a large fraction of
+   real sheet-metal parts (safety edges, stiffening) and this shape proved
+   nearly free given the shipped edge-flange machinery — a disproportionate
+   parity gain for the cost, now landed (open/teardrop/rolled + a Hem UI
+   remain as fast-follows).
 4. **Gauge/material bend tables** (❌) — not kernel risk, pure data
    modeling, and it's the gap `sheet-metal.md` calls out most consistently
    as the honest ceiling on "is this a real material" vs. "is this a demo

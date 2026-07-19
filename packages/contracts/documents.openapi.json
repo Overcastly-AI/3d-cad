@@ -1731,6 +1731,7 @@
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                 "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
+                "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
                 "sweep": "#/components/schemas/SweepFeature"
@@ -1779,6 +1780,9 @@
               },
               {
                 "$ref": "#/components/schemas/SheetMetalEdgeFlangeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalHemFeature"
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
@@ -1917,6 +1921,7 @@
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                 "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
+                "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
                 "sweep": "#/components/schemas/SweepFeature"
@@ -1965,6 +1970,9 @@
               },
               {
                 "$ref": "#/components/schemas/SheetMetalEdgeFlangeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalHemFeature"
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
@@ -2075,6 +2083,7 @@
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                 "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
+                "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                 "shell": "#/components/schemas/ShellFeature",
                 "sketch": "#/components/schemas/SketchFeature",
                 "sweep": "#/components/schemas/SweepFeature"
@@ -2123,6 +2132,9 @@
               },
               {
                 "$ref": "#/components/schemas/SheetMetalEdgeFlangeFeature"
+              },
+              {
+                "$ref": "#/components/schemas/SheetMetalHemFeature"
               },
               {
                 "$ref": "#/components/schemas/BooleanFeature"
@@ -2252,6 +2264,7 @@
                     "revolve": "#/components/schemas/RevolveFeature",
                     "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
                     "sheet_metal_edge_flange": "#/components/schemas/SheetMetalEdgeFlangeFeature",
+                    "sheet_metal_hem": "#/components/schemas/SheetMetalHemFeature",
                     "shell": "#/components/schemas/ShellFeature",
                     "sketch": "#/components/schemas/SketchFeature",
                     "sweep": "#/components/schemas/SweepFeature"
@@ -2300,6 +2313,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/SheetMetalEdgeFlangeFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SheetMetalHemFeature"
                   },
                   {
                     "$ref": "#/components/schemas/BooleanFeature"
@@ -4023,6 +4039,86 @@
           "bend_angle_deg"
         ],
         "title": "SheetMetalEdgeFlangeParamsV1",
+        "type": "object"
+      },
+      "SheetMetalHemFeature": {
+        "description": "``{\"type\": \"sheet_metal_hem\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-MODIFYING feature (parity \u00a72, closed hem): it folds the picked edge ~180\ndeg back onto the sheet (reusing the edge flange's bend machinery at a fixed 180\ndeg fold), fusing one clean solid, and tags the bend face with a\n:class:`CylindricalFaceSignature` (\u00a75) for the unfold's provenance \u2014 exactly as\nan edge flange does. ``params`` is :class:`SheetMetalHemParamsV1`.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/SheetMetalHemParamsV1"
+          },
+          "type": {
+            "const": "sheet_metal_hem",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "SheetMetalHemFeature",
+        "type": "object"
+      },
+      "SheetMetalHemParamsV1": {
+        "description": "A hem folded off a straight edge of the sheet \u2014 v1 CLOSED hem (parity \u00a72).\n\nA closed hem folds the picked edge ~180 deg back FLAT against the parent face,\nwith a small inner ``bend_radius_mm`` giving the doubled edge its tight,\nnear-zero air gap (the gap between the two layers is ~2 * bend_radius). It is a\nspecialization of the edge flange: the geometry side reuses ``build_edge_flange``\nwith the fold angle FIXED at 180 deg, so the fused body is one clean solid and\nthe flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,\n\u00a71) \u2014 its bend-table row reads angle 180 deg.\n\n``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to hem \u2014 the\nSAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer or edge-flange\npick uses (topological-naming \u00a710); its ``feature_id`` materialises the\ndependency on the base-flange feature. ``length_mm`` is the developed flat\nlength of the folded-back return (to the bend tangent line, \u00a79 golden #1's\nconvention). ``bend_radius_mm`` / ``k_factor`` default from the part's base\nflange (:class:`SheetMetalBaseFlangeParamsV1`) when omitted (``None``) and may\nbe OVERRIDDEN per-hem \u2014 a tight closed hem sets a SMALL radius (e.g. ~0.5 *\nthickness) rather than the part's general bend radius.\n\nA ZERO ``bend_radius_mm`` (a truly zero-gap / zero-radius closed hem) is a\ndegenerate fold; the ``gt=0`` bound rejects it as a typed validation error\nrather than admitting a degenerate solid (honest degradation \u2014 parity \u00a73).\n\nLike a fillet/shell it MODIFIES the implicit single body chain (design \u00a77.6) \u2014\nit carries no ``merge`` (it always fuses into the sheet body the edge belongs\nto) \u2014 so its only whole-feature dependency is the named-edge ref + tree order.",
+        "properties": {
+          "bend_radius_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "INNER bend radius (mm) of the hem fold; the layers' air gap is ~2 * this. Omitted (None) inherits the part's base-flange default `bend_radius_mm`; a value overrides it per-hem. A tight closed hem uses a SMALL radius (~0.5 * thickness). A zero radius (zero-gap degenerate fold) is rejected by the `gt=0` bound.",
+            "title": "Bend Radius Mm"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/EdgeSubshapeRef",
+            "description": "The base-flange STRAIGHT edge to hem (a stage-1 EdgeSignature reference resolved against the current sheet body). The return folds ~180 deg back over this edge's adjacent flat face."
+          },
+          "hem_type": {
+            "const": "closed",
+            "default": "closed",
+            "description": "Hem shape. v1 ships 'closed' only (the return folds flat back against the parent \u2014 parity \u00a72). Open / teardrop / rolled hems each need a curved cross-section profile and are deferred (additive Literal members, no param_version bump). Absent reads 'closed'.",
+            "title": "Hem Type",
+            "type": "string"
+          },
+          "k_factor": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Neutral-axis fraction K in [0, 1] for the hem's bend allowance (\u00a71). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-hem.",
+            "title": "K Factor"
+          },
+          "length_mm": {
+            "description": "Developed flat length of the folded-back return (mm), measured to the bend tangent line (\u00a79 golden #1 convention).",
+            "exclusiveMinimum": 0.0,
+            "title": "Length Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "edge",
+          "length_mm"
+        ],
+        "title": "SheetMetalHemParamsV1",
         "type": "object"
       },
       "SheetMutationResponse": {
