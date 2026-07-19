@@ -13,9 +13,12 @@ pattern" editor action + founder screenshots) all landed. **v1 DoD MET:
 P3 polish closed 2026-07-19 (text-accessible `BendSchedulePanel`, token-driven
 fold-line legend dash, de-magic'd bend-table columns — UI-REVIEW 2026-07-19). The intervening
 pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
-the **Multi-body** pillar through MB-4b (multi-lump bodies, opt-in disjoint
-union, and multi-solid STEP import → ONE multi-lump body). The historical
-convergence notes below are retained as-is.
+the **Multi-body** pillar **v1 COMPLETE through MB-4** (multi-lump bodies,
+opt-in disjoint union, multi-solid STEP import → ONE multi-lump body, and — as
+of MB-4c, 2026-07-19 — the frontend "Keep as one body" opt-in on the Combine
+editor + a guided `boolean_disjoint` recovery; the per-body multi-lump Bodies-
+panel row is deferred as an honest wire gap — per-body lump count isn't on the
+evaluate payload). The historical convergence notes below are retained as-is.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
@@ -390,7 +393,14 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       through contracts/ts-client/`featureErrors.ts`; golden
       `import-step-two-disjoint-boxes` (2-solid STEP authored reversed → 16000 mm³,
       shells=2, deterministic regardless of reader order). **Interop scorecard:
-      multi-solid STEP import ❌→✅.** MB-4c (frontend `allow_disjoint` checkbox) next.
+      multi-solid STEP import ❌→✅.** **MB-4c SHIPPED 2026-07-19 (frontend →
+      multi-body pillar v1 COMPLETE through MB-4):** "Keep as one body" opt-in
+      (design-system `Checkbox`) threads real `allow_disjoint` into
+      `buildCombineParams` for all three ops; `boolean_disjoint` is now a guided
+      recovery (copy names the fix + a one-click button PATCHes the failing
+      boolean with the flag on and re-evaluates). The multi-lump Bodies-panel row
+      is deferred — per-body lump count is an honest wire gap (not on
+      `EvaluateTreeResult`; `properties.topology.shells` is a whole-part aggregate).
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

@@ -11,11 +11,16 @@
  *
  * Union and intersect are order-independent; SUBTRACT is not (Target − Tool),
  * so the role labels + note track the operation. A boolean whose result would
- * be >1 lump is a `boolean_disjoint` REBUILD error and an empty result is
- * `boolean_empty` — the create succeeds, then the tree panel surfaces the
- * per-feature error honestly; the scope note names those limits up front.
+ * be >1 lump is normally a `boolean_disjoint` REBUILD error (empty result:
+ * `boolean_empty`) — the create succeeds, then the tree panel surfaces the
+ * per-feature error honestly. The "Keep as one body" opt-in (MB-4c) threads
+ * `allow_disjoint` so that >1-lump result is instead kept as ONE multi-lump
+ * body; off by default (the "operands must touch" safety). Meaningful for all
+ * three operations (a non-touching union, a severing subtract, a two-region
+ * intersect each split into lumps).
  */
 import {
+  Checkbox,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -30,6 +35,7 @@ import {
   buildCombineParams,
   canSubmitCombine,
   type CombineForm,
+  KEEP_AS_ONE_BODY_LABEL,
   operationCopy,
   toolOptionsFor,
 } from "../features/boolean";
@@ -138,6 +144,11 @@ export function CombineEditor({
     [],
   );
 
+  const setAllowDisjoint = useCallback(
+    (allowDisjoint: boolean) => setForm((f) => ({ ...f, allowDisjoint })),
+    [],
+  );
+
   const canSubmit = canSubmitCombine(form) && !saving;
   useCommandBridge(submit, canSubmit);
 
@@ -202,6 +213,16 @@ export function CombineEditor({
             >
               {copy.note}
             </p>
+
+            {tools.length > 0 ? (
+              <Checkbox
+                label={KEEP_AS_ONE_BODY_LABEL}
+                description={copy.disjointNote}
+                checked={form.allowDisjoint}
+                onChange={setAllowDisjoint}
+                data-testid="combine-allow-disjoint"
+              />
+            ) : null}
           </div>
         </div>
 

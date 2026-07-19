@@ -1874,6 +1874,45 @@ export function PartPage() {
     [editor, features, runFeatureSave],
   );
 
+  // Guided recovery for a `boolean_disjoint` rebuild error (MB-4c): re-run the
+  // failing boolean with `allow_disjoint` on, so its disconnected pieces become
+  // ONE multi-lump body instead of a dead-end error. An in-place PATCH of the
+  // existing boolean feature (never a second boolean) — freshest tree version,
+  // retry once on a stale-version race, then refresh the tree + body.
+  const [disjointRecovering, setDisjointRecovering] = useState(false);
+  const keepAsOneBody = useCallback(
+    (feature: FeatureResponse) => {
+      if (feature.feature.type !== "boolean") return;
+      const params: BooleanParams = {
+        ...feature.feature.params,
+        allow_disjoint: true,
+      };
+      setDisjointRecovering(true);
+      void (async () => {
+        try {
+          const attempt = (version: number) =>
+            updateFeature(partId, feature.id, {
+              expected_tree_version: version,
+              feature: { type: "boolean", version: 1, params },
+            });
+          try {
+            await attempt(await freshTreeVersion());
+          } catch {
+            await attempt((await fetchFeatureTree(partId)).tree_version);
+          }
+          setSelectedFeatureId(feature.id);
+          await refreshTreeAndBody();
+        } catch {
+          // A hard failure leaves the boolean_disjoint error row in place — the
+          // recovery button reappears so the user can retry. Nothing changed.
+        } finally {
+          setDisjointRecovering(false);
+        }
+      })();
+    },
+    [partId, freshTreeVersion, refreshTreeAndBody],
+  );
+
   // Select a body from the Bodies panel: select its base feature — lights the
   // brass rule in both panels and opens that feature's editor (the same select
   // a tree row does). Per-body viewport highlight is MB-4.
@@ -2583,6 +2622,8 @@ export function PartPage() {
                 // The bar also holds while a history step is restoring (the
                 // mutual exclusion's visible half — runHistoryStep guards it).
                 rollbackBusy={rollbackBusy || historyStep !== null}
+                onKeepAsOneBody={keepAsOneBody}
+                recoveringDisjoint={disjointRecovering}
               />
               {bodies.length > 0 ? (
                 <BodiesPanel

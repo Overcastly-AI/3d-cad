@@ -1021,9 +1021,36 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
         48/24, byte-identical GLB+STEP across restart — proves the sort makes import
         deterministic regardless of reader order). Flips VISION Interop scorecard
         "multi-solid STEP import" from ❌ (rejected) to ✅. [kernel-architect]
-  - [ ] (P3, S) **MB-4c** — frontend `allow_disjoint` checkbox on the Combine
-        editor + a multi-lump Bodies-panel row + `boolean_disjoint` error copy
-        that offers "keep as one body". [src: docs/design/multi-body.md §MB-4]
+  - [x] (P3, S) **MB-4c — SHIPPED 2026-07-19.** Frontend closes the multi-body
+        pillar: a "Keep as one body" opt-in (design-system `Checkbox`) on the
+        Combine editor threads real `allow_disjoint` into `buildCombineParams`
+        (was hardcoded `false`) for ALL THREE ops (a non-touching union, a
+        severing subtract, a two-region intersect each split into lumps — kernel
+        `boolean_bodies` honours the flag for any >1-solid result); the
+        `boolean_disjoint` tree-error is now a GUIDED recovery — copy names the
+        fix and a one-click "Keep as one body" button (`feature-recover-disjoint-N`)
+        PATCHes the failing boolean with `allow_disjoint` on and re-evaluates.
+        **Item 3 (multi-lump Bodies-panel row) is a WIRE GAP, not shipped:**
+        per-body lump count is NOT on the evaluate payload — `EvaluateTreeResult`
+        has no per-body list and its single aggregate `properties.topology.shells`
+        is a whole-part total that a sealed shell/hollow body also inflates, so it
+        can't attribute lumps to a Bodies-panel row without faking. Honest
+        determination — needs a backend field (e.g. per-body `lumps` in the
+        evaluate result); filed as the MB-4 tail below. boolean/featureErrors unit
+        tests updated; e2e `multibody-disjoint.spec.ts` (opt-in + guided recovery,
+        16000 mm³). [src: docs/design/multi-body.md §MB-4]
+  - [ ] (P3, S) **MB-4c tail — per-body lump count on the wire** so the Bodies
+        panel can mark a multi-lump body (a disjoint-union or multi-solid import
+        row). Needs a backend field: `EvaluateTreeResult` carries no per-body list
+        and `properties.topology.shells` is a whole-part aggregate (inflated by
+        sealed shells), so lumps can't be attributed to a row today. Acceptance:
+        evaluate result exposes per-body lump count; BodiesPanel row shows it.
+        [src: frontend-builder MB-4c honest wire gap]
+  - [ ] (P3, S) Geometry: the STEP-import subprocess parse-time bound
+        (`DEFAULT_STEP_IMPORT_TIMEOUT_S`, `services/geometry/.../imports.py`, 5s)
+        transiently flakes under CPU contention — raise it (or make it adaptive),
+        or bump it for the golden runner, so a loaded box doesn't fail a valid
+        import on wall-clock alone. [src: code-reviewer]
   - [ ] (P3, L) **MB-4 tail (deferred)** — per-lump pick/highlight, explicit
         per-feature target-body ref, a "split bodies" feature. The stage-2
         provenance naming that makes boolean-edge refs structurally
@@ -1209,6 +1236,11 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-19 — **MB-4c disjoint-union frontend done → multi-body pillar v1 COMPLETE
+  through MB-4 (frontend-builder):** "Keep as one body" opt-in (`Checkbox`) threads
+  real `allow_disjoint` (all 3 ops) + guided `boolean_disjoint` recovery button.
+  Item 3 (multi-lump Bodies-panel row) is an honest wire gap — per-body lump count
+  not on the evaluate payload; filed as MB-4c tail. STEP-import 5s timeout flake filed.
 - 2026-07-19 — **Sheet-metal bend-table export consistency (P2, UI-REVIEW) fixed +
   120° regression golden (kernel-architect):** server SVG/PDF/DXF now render the
   bend table in the SAME 5-column layout/precision/labels as the on-screen DOM

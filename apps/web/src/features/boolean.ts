@@ -20,6 +20,11 @@ export interface CombineForm {
   operation: BooleanOperation;
   targetFeatureId: string;
   toolFeatureId: string;
+  /** Opt in to a multi-lump result (MB-4c): when true, a boolean whose lumps
+   * don't form one connected solid is kept as ONE multi-lump body instead of
+   * failing `boolean_disjoint`. Off by default (a disjoint result is usually a
+   * positioning bug — the "operands must touch" safety). */
+  allowDisjoint: boolean;
 }
 
 /** True when the operation's operand order matters (subtract: Target − Tool). */
@@ -39,7 +44,14 @@ export interface OperationCopy {
   toolLabel: string;
   /** One-line explanation of what the operation does and its limit. */
   note: string;
+  /** Copy for the "keep as one body" opt-in (MB-4c) — names, per operation,
+   * WHEN the result would split into disconnected lumps, so the multi-lump
+   * choice reads specifically rather than generically. */
+  disjointNote: string;
 }
+
+/** The shared label for the multi-lump opt-in (all three operations). */
+export const KEEP_AS_ONE_BODY_LABEL = "Keep as one body";
 
 export function operationCopy(operation: BooleanOperation): OperationCopy {
   switch (operation) {
@@ -49,6 +61,8 @@ export function operationCopy(operation: BooleanOperation): OperationCopy {
         targetLabel: "Target (kept)",
         toolLabel: "Tool (subtracted)",
         note: "Subtract removes the Tool from the Target — order matters: Target − Tool. If the Tool covers the whole Target, nothing remains.",
+        disjointNote:
+          "If the cut severs the Target into disconnected pieces, keep them as one multi-lump body.",
       };
     case "intersect":
       return {
@@ -56,6 +70,8 @@ export function operationCopy(operation: BooleanOperation): OperationCopy {
         targetLabel: "Body A (kept)",
         toolLabel: "Body B",
         note: "Intersect keeps only the volume the two bodies share. They must overlap — no overlap leaves nothing.",
+        disjointNote:
+          "If the bodies meet in two separate regions, keep both as one multi-lump body.",
       };
     case "union":
     default:
@@ -63,17 +79,21 @@ export function operationCopy(operation: BooleanOperation): OperationCopy {
         glyph: "+",
         targetLabel: "Target (keeps)",
         toolLabel: "Tool (consumed)",
-        note: "Union fuses the two bodies into one. They must touch — bodies that don't overlap can't be unioned yet.",
+        note: "Union fuses the two bodies into one — normally they must touch.",
+        disjointNote:
+          "If the bodies don't touch, keep them as one multi-lump body instead of failing.",
       };
   }
 }
 
-/** The default form: fuse (union) the first two bodies in tree order. */
+/** The default form: fuse (union) the first two bodies in tree order, with the
+ * multi-lump opt-in OFF (the "operands must touch" safety default). */
 export function defaultCombineForm(bodies: readonly BodyInfo[]): CombineForm {
   return {
     operation: "union",
     targetFeatureId: bodies[0]?.baseFeatureId ?? "",
     toolFeatureId: bodies[1]?.baseFeatureId ?? "",
+    allowDisjoint: false,
   };
 }
 
@@ -97,17 +117,18 @@ export function canSubmitCombine(form: CombineForm): boolean {
 
 /** Build the persisted boolean params from valid form state, or null.
  *
- * `allow_disjoint` defaults to false (MB-4): a union whose operands don't touch
- * fails as `boolean_disjoint_result` rather than silently producing a multi-lump
- * body. Opting into a disjoint union is a deliberate multi-lump authoring choice
- * exposed by a later editor affordance (MB-4c); the default keeps today's
- * "operands must touch" contract. */
+ * `allow_disjoint` is threaded from the form's opt-in (MB-4c): off keeps today's
+ * "operands must touch" contract — a boolean whose result would be more than one
+ * disconnected lump fails as `boolean_disjoint`; on accepts that result as ONE
+ * multi-lump body (a `Compound`). Meaningful for all three operations — a
+ * non-touching union, a severing subtract, and a two-region intersect each
+ * produce >1 lump (docs/design/multi-body.md §MB-4). */
 export function buildCombineParams(form: CombineForm): BooleanParams | null {
   if (!canSubmitCombine(form)) return null;
   return {
     operation: form.operation,
     target: { kind: "feature", feature_id: form.targetFeatureId },
     tool: { kind: "feature", feature_id: form.toolFeatureId },
-    allow_disjoint: false,
+    allow_disjoint: form.allowDisjoint,
   };
 }

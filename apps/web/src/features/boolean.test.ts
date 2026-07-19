@@ -17,11 +17,12 @@ const bodies: BodyInfo[] = [
 ];
 
 describe("defaultCombineForm", () => {
-  it("seeds a union of the first two bodies as target + tool", () => {
+  it("seeds a union of the first two bodies with the multi-lump opt-in off", () => {
     expect(defaultCombineForm(bodies)).toEqual({
       operation: "union",
       targetFeatureId: "x1",
       toolFeatureId: "x2",
+      allowDisjoint: false,
     });
   });
 
@@ -30,6 +31,7 @@ describe("defaultCombineForm", () => {
       operation: "union",
       targetFeatureId: "x1",
       toolFeatureId: "",
+      allowDisjoint: false,
     });
   });
 });
@@ -55,6 +57,12 @@ describe("operationCopy", () => {
     expect(operationCopy("union").glyph).toBe("+");
     expect(operationCopy("intersect").glyph).toBe("∩");
   });
+
+  it("gives each operation a specific multi-lump opt-in note", () => {
+    expect(operationCopy("union").disjointNote).toMatch(/don't touch/i);
+    expect(operationCopy("subtract").disjointNote).toMatch(/sever/i);
+    expect(operationCopy("intersect").disjointNote).toMatch(/region/i);
+  });
 });
 
 describe("toolOptionsFor", () => {
@@ -73,6 +81,7 @@ describe("canSubmitCombine", () => {
         operation: "union",
         targetFeatureId: "x1",
         toolFeatureId: "x2",
+        allowDisjoint: false,
       }),
     ).toBe(true);
     expect(
@@ -80,6 +89,7 @@ describe("canSubmitCombine", () => {
         operation: "union",
         targetFeatureId: "",
         toolFeatureId: "x2",
+        allowDisjoint: false,
       }),
     ).toBe(false);
     expect(
@@ -87,6 +97,7 @@ describe("canSubmitCombine", () => {
         operation: "union",
         targetFeatureId: "x1",
         toolFeatureId: "",
+        allowDisjoint: false,
       }),
     ).toBe(false);
     expect(
@@ -94,6 +105,7 @@ describe("canSubmitCombine", () => {
         operation: "union",
         targetFeatureId: "x1",
         toolFeatureId: "x1",
+        allowDisjoint: false,
       }),
     ).toBe(false);
   });
@@ -106,6 +118,7 @@ describe("buildCombineParams", () => {
         operation: "union",
         targetFeatureId: "x1",
         toolFeatureId: "x2",
+        allowDisjoint: false,
       }),
     ).toEqual({
       operation: "union",
@@ -115,12 +128,33 @@ describe("buildCombineParams", () => {
     });
   });
 
+  it("threads the multi-lump opt-in into allow_disjoint", () => {
+    expect(
+      buildCombineParams({
+        operation: "union",
+        targetFeatureId: "x1",
+        toolFeatureId: "x2",
+        allowDisjoint: true,
+      })?.allow_disjoint,
+    ).toBe(true);
+    // The opt-in is meaningful for every operation, not just union.
+    expect(
+      buildCombineParams({
+        operation: "subtract",
+        targetFeatureId: "x1",
+        toolFeatureId: "x2",
+        allowDisjoint: true,
+      })?.allow_disjoint,
+    ).toBe(true);
+  });
+
   it("carries the chosen operation (subtract keeps Target − Tool order)", () => {
     expect(
       buildCombineParams({
         operation: "subtract",
         targetFeatureId: "x1",
         toolFeatureId: "x2",
+        allowDisjoint: false,
       }),
     ).toEqual({
       operation: "subtract",
@@ -133,6 +167,7 @@ describe("buildCombineParams", () => {
         operation: "intersect",
         targetFeatureId: "x1",
         toolFeatureId: "x2",
+        allowDisjoint: false,
       })?.operation,
     ).toBe("intersect");
   });
@@ -143,6 +178,7 @@ describe("buildCombineParams", () => {
         operation: "union",
         targetFeatureId: "x1",
         toolFeatureId: "",
+        allowDisjoint: false,
       }),
     ).toBeNull();
     expect(
@@ -150,6 +186,7 @@ describe("buildCombineParams", () => {
         operation: "subtract",
         targetFeatureId: "x1",
         toolFeatureId: "x1",
+        allowDisjoint: false,
       }),
     ).toBeNull();
   });
