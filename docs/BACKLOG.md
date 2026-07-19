@@ -271,6 +271,23 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P2, M) Sheet metal — CORNER RELIEF v1 (geometry, kernel-architect).
+      **SHIPPED** — reconciled + finished from a container-restart-stranded agent
+      (broken mid-edit: `_Rect` alias defined after first use → import `NameError`;
+      12 ruff errors). Fix: hoisted the alias, cleared lint; the stranded geometry
+      was otherwise complete + correct. v1 = **rectangular** relief for a **depth-1
+      adjacent-flange tray corner**: `apply_corner_relief` cuts the 3D notch (one
+      connected shell, material removed, deterministic), `unfold_sheet_metal(...,
+      reliefs=...)` develops the relieved blank (reentrant right-angle notch, area
+      conservation with removed material subtracted, single closed outline,
+      byte-deterministic across an interpreter restart). Golden
+      `corner-tray-relieved-unfold` + 12 tests; all depth-1/2 goldens BYTE-UNCHANGED
+      (empty relief set → verbatim paths). Honest degradation: fully-welded depth-2
+      box corner stays a TYPED reject even WITH relief (needs miter/closed-corner
+      geometry, next), parallel-named or unresolvable relief → typed error, never a
+      wrong blank or raw kernel crash. Deferred: obround/tear variants, auto-relief
+      policy, the relieved-flat-pattern DRAWING view (threads reliefs through the
+      composer). [src: design/sheet-metal.md §4.4]
 - [x] (P2, M) Sheet metal v2 #2 — depth-≥2 bend-TREE unfold FEATURE (geometry,
       kernel-architect). **SHIPPED** — the spike graduated into the real
       `unfold_sheet_metal`: the uniform depth-2 rejection is LIFTED for cases that
@@ -453,6 +470,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-19 — **Sheet-metal CORNER RELIEF v1 (kernel-architect):** reconciled +
+  finished container-restart-stranded work (`_Rect` defined after first use →
+  import `NameError`; 12 ruff errors — cleared). `apply_corner_relief` cuts the
+  rectangular 3D notch; `unfold_sheet_metal(reliefs=...)` develops the relieved
+  depth-1 tray (reentrant notch, area conservation, byte-deterministic). Golden
+  `corner-tray-relieved-unfold` + 12 tests; all depth-1/2 goldens byte-unchanged.
 - 2026-07-19 — **Sheet-metal depth-≥2 bend-TREE unfold FEATURE (kernel-architect):**
   spike graduated into `unfold_sheet_metal`; depth-2 (box corner / return / Z) now
   unfolds to ONE union outline, self-overlap → typed `UnfoldOverlapError`. Depth-1

@@ -17,10 +17,8 @@ gap to be *measured*, not asserted: `docs/design/sheet-metal-parity.md`
 status, re-checked as each feature lands. **Do not flip the scorecard row
 until that matrix says so.**
 
-**In flight right now:** (1) feature-authoring UI (frontend-builder — Base
-Flange + Edge Flange toolbar actions, click-to-model), (2) corner relief
-(kernel-architect — design-note-first, the unlock for closed-box corners).
-Both territory-disjoint from the parity doc and each other.
+**In flight right now:** authoring UI ✅ and corner relief ✅ both landed
+(2026-07-19). Next down the corrected sequence: hems (closed-hem-first).
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner
@@ -33,9 +31,21 @@ convert-to-sheet-metal → forming tools; full rationale in
    captured). Base Flange + Edge Flange toolbar actions in a dedicated SHEET
    METAL create group; a user clicks to model a bracket → the flat pattern is
    reachable. Independent code-review still owed (dead-agent work).
-   2. Corner relief 🔨 (highest-leverage kernel item; the agent's work was
-   BROKEN mid-edit by the restart — an undefined `_Rect` in unfold.py — being
-   relaunched to finish).
+2. Corner relief ✅ **SHIPPED 2026-07-19** (kernel-architect; reconciled +
+   finished from the agent's stranded-but-near-complete work after the restart
+   broke it mid-edit — the `_Rect` alias was defined AFTER its first use in
+   unfold.py, a module-import `NameError`; hoisted it + cleared 12 ruff errors,
+   then gated the already-correct geometry). v1 ships the **rectangular** relief
+   for a **depth-1 adjacent-flange tray corner**: `apply_corner_relief` cuts the
+   manufacturable 3D notch, and `unfold_sheet_metal(..., reliefs=...)` develops
+   the relieved blank (reentrant right-angle notch, area conservation with the
+   removed material subtracted, single closed outline, byte-deterministic across
+   an interpreter restart). Golden `corner-tray-relieved-unfold` + 12 tests; the
+   fully-welded depth-2 box corner stays a TYPED reject (needs miter/closed-corner
+   geometry, next). All depth-1/2 goldens byte-unchanged (empty relief set → the
+   verbatim pre-existing paths). Independent code-review still owed (dead-agent
+   work). Follow-ons: obround/tear relief variants, auto-relief policy layer,
+   relieved flat-pattern DRAWING view (threads reliefs through the composer).
 3. **Hems** — sequence **closed hem first** (near-trivial edge-flange
    specialization: angle=π, near-zero radius) as its own fast slice, THEN
    open/teardrop/rolled (each a genuinely new curved cross-section, not one

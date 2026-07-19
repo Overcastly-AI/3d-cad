@@ -7,6 +7,47 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-19 — Sheet-metal CORNER RELIEF v1 (kernel-architect self-report)
+
+**SHIPPED — reconciled + finished container-restart-stranded work.** The stranded
+code was near-complete but did not import: `_Rect` (the `tuple[float,float,float,
+float]` rect alias) was defined in the depth-2 tree section, AFTER the corner-relief
+functions that annotate with it — a module-import `NameError` (no `from __future__
+import annotations`, so return annotations evaluate at import). Hoisted the alias
+above its first use + cleared 12 ruff errors; the geometry itself was correct.
+
+v1 = **rectangular** relief for a **depth-1 adjacent-flange tray corner**, driven by
+one `CornerRelief` spec (names the two bends by their `CylindricalFaceSignature` +
+`size_mm`). Golden `corner-tray-relieved-unfold` reuses the `corner-tray-perp-unfold`
+tree (40×30 base + two ⟂ edge flanges) with a size 2.0 relief. Evidence (build123d
+0.11.1 / OCCT 7.9, tol 1e-9, vol tol 1e-6):
+
+- **Area conservation with the notch subtracted (§9 #2), hand-derived + independently
+  recomputed in-test:** relieved `flat_area` 3108.2495233656364 = unrelieved
+  3226.628282357494 − removed 118.3787589918568, where removed = base corner square
+  (2×2=4) + flange-B inset (2·(BA+20)=52.189…) + flange-A inset (2·(BA+25)=62.189…),
+  BA=6.094689747964199. The outline body loop's **shoelace-enclosed area equals
+  flat_area exactly** (independent witness the layout tiles the relieved blank).
+- **Outline = ONE closed loop with a reentrant right-angle notch** (6 body edges + 2
+  fold lines), verified non-convex (a genuine cut, not a separate hole). Envelope
+  unchanged (insets reduce arm SPAN, not EXTENT); bend widths inset 30→28, 40→38.
+- **3D notch (`apply_corner_relief`):** removes 24.826775361114414 mm³ (relieved vol
+  6454.819167644028 vs base 6479.645943005143), stays ONE connected shell (notch does
+  not sever the sheet), topology faces=20/edges=54/shells=1, deterministic (identical
+  volume + topology across repeated runs). The flat pattern, computed ANALYTICALLY
+  from the relief spec, is the gated deliverable — decoupled from the 3D boolean.
+- **Determinism (§9 #4):** relieved `FlatPattern` content_hash `ed3e2a04…`
+  byte-identical in-process AND across a fresh interpreter restart.
+- **Honest degradation (never a wrong blank / raw crash):** fully-welded depth-2 box
+  corner stays a TYPED `UnfoldStarError` even WITH a relief supplied (a rectangular
+  notch does not lift the cyclic/coplanar rejection — needs miter/closed-corner
+  geometry, deferred); parallel-named relief → typed (`CornerReliefError` on the 3D
+  side, `UnfoldStarError` on unfold); relief naming an unresolvable bend →
+  `subshape_unresolved` (§5).
+- **Regression gate:** ALL existing depth-1/depth-2 goldens BYTE-UNCHANGED — the
+  relieved path runs ONLY when `reliefs=...` is supplied; empty relief set takes the
+  verbatim pre-existing paths. Full `pytest tests/` green.
+
 ## 2026-07-19 — Sheet-metal depth-≥2 bend-TREE unfold FEATURE (kernel-architect self-report)
 
 **SHIPPED — the spike graduated into `unfold_sheet_metal`.** Depth-2 is no longer

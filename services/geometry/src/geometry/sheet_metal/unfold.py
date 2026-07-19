@@ -56,6 +56,14 @@ from geometry.sheet_metal.resolve import (
 #: sheet are axis-aligned, so residuals are ulp-scale. Cylinder-axis-specific
 #: (not in faces.py); the planar-face match tolerances live once in
 #: :mod:`geometry.kernel.faces` and are applied via :func:`planar_signatures_match`.
+Vec3f = tuple[float, float, float]  #: A world-mm 3-tuple (kernel-free).
+Vec2 = tuple[float, float]  #: A developed 2D point (mm).
+#: A developed axis-aligned rectangle: (min_x, min_y, max_x, max_y). Defined here
+#: (not beside the depth-2 tree code that first introduced it) so BOTH the
+#: corner-relief path (§4.4) and the depth-2 tree path can annotate with it —
+#: module-level annotations evaluate at import, so the alias must precede its first
+#: use (`_rect_from_ranges`), not just its textually-first use.
+_Rect = tuple[float, float, float, float]
 _PARALLEL_TOL = 1e-9  # 1 - |dot| between unit axis directions
 #: Axis-alignment tolerance for the non-parallel (2D) layout: a bend axis or a
 #: base edge must be parallel/perpendicular to the base rectangle frame to within
@@ -210,6 +218,25 @@ class BendProvenance:
 
 
 @dataclass(frozen=True)
+class CornerRelief:
+    """An explicit RECTANGULAR corner relief at a bend INTERSECTION (§4.4).
+
+    Names the two bends whose shared corner it relieves (by their construction-time
+    :class:`CylindricalFaceSignature`, §5) + the absolute notch ``size_mm``
+    (``relief_ratio x thickness``, default ratio 1.0, resolved by the authoring
+    layer, §4.4.3). ``relief_type`` is ``"rectangular"`` in v1 (the only purely-
+    rectilinear developable notch — obround/round/tear are §4.4.1 follow-ons). The
+    SAME spec drives the 3D boolean (:func:`geometry.sheet_metal.corner_relief.
+    apply_corner_relief`) and the flat-pattern notch (:func:`unfold_sheet_metal`),
+    so the manufacturable body and the blank are consistent by construction."""
+
+    bend_a: CylindricalFaceSignature
+    bend_b: CylindricalFaceSignature
+    size_mm: float
+    relief_type: Literal["rectangular"] = "rectangular"
+
+
+@dataclass(frozen=True)
 class _StarBend:
     """A resolved star bend, ready to lay out flat."""
 
@@ -230,6 +257,7 @@ def unfold_sheet_metal(
     bends: list[BendProvenance],
     thickness_mm: float,
     default_k_factor: float,
+    reliefs: list[CornerRelief] | None = None,
 ) -> FlatPattern:
     """Unfold an authored depth-1 bend star into its :class:`FlatPattern`.
 
@@ -290,7 +318,28 @@ def unfold_sheet_metal(
         for other_base, _m, _axis, _a, _p in resolved[1:]
     )
     if not is_depth1:
+        if reliefs:
+            # v1 corner relief scopes to the depth-1 adjacent-flange tray corner
+            # (§4.4.4). A depth-≥2 (welded / returns) box corner is a cyclic /
+            # coplanar degeneracy a rectangular notch does NOT lift — that needs
+            # miter / closed-corner geometry (deferred) — so it stays a typed
+            # reject rather than a silently-wrong relieved blank.
+            raise UnfoldStarError(
+                "Corner relief v1 applies to a depth-1 adjacent-flange tray corner; "
+                "the body is depth >= 2 (a flange folded off another flange). A "
+                "rectangular notch does not make a fully-welded box corner "
+                "developable — that needs miter / closed-corner geometry (§4.4.4)."
+            )
         return _unfold_bend_tree(body, bends, thickness_mm, default_k_factor)
+
+    if reliefs:
+        # A relieved depth-1 tray develops through the corner-relief path (§4.4):
+        # each named corner loses a size x size square, the two adjacent flanges are
+        # inset, and the outline gains the reentrant notch. Only runs when a relief
+        # is supplied, so every non-relieved golden takes the verbatim paths below.
+        return _unfold_nonparallel_relieved(
+            resolved, base_rec, thickness_mm, default_k_factor, reliefs
+        )
 
     # A depth-1 star is PARALLEL (all bend axes share one direction → a 1D strip,
     # the L-bracket / U-channel) or NON-PARALLEL (flanges off perpendicular edges
@@ -571,7 +620,11 @@ class _Arm:
 
     ``axis`` 0 = the arm extends along the frame X axis, 1 = along Y; ``sign`` is
     its outward direction. ``span`` is the arm's extent along the fold edge (the
-    base-edge direction). ``fold`` is the fold-edge coordinate (0 or wx/wy)."""
+    base-edge direction). ``fold`` is the fold-edge coordinate (0 or wx/wy).
+    ``bend_centroid`` is the resolved bend's cylindrical-face centroid — the key
+    the corner-relief path (§4.4) matches a :class:`CornerRelief`'s named bends
+    back onto the arm they trim; it is unused by the non-relieved emit + the arm
+    sort key, so it never perturbs the byte-identical plus-pattern output."""
 
     axis: int
     sign: int
@@ -586,23 +639,20 @@ class _Arm:
     angle_rad: float
     k_factor: float
     direction: Literal["up", "down"]
+    bend_centroid: Vec3f = (0.0, 0.0, 0.0)
 
 
-def _unfold_nonparallel(
+def _build_arms(
     resolved: list[_Resolved],
     base_rec: FlangeFaceRecord,
-    base_normal: Vector,
     thickness_mm: float,
-    default_k_factor: float,
-) -> FlatPattern:
-    """Lay out a NON-PARALLEL depth-1 star (a tray / pan) as a 2D plus/cross.
+) -> tuple[_BaseFrame, list[_Arm]]:
+    """Place each depth-1 non-parallel flange as an axis-aligned arm off the base.
 
-    Each flange is placed as an axis-aligned arm off its base-rectangle side, the
-    cylindrical bend replaced by a ``BA``-length strip (§1). Area is the §9
-    invariant (base counted once + Σ flange areas + Σ bend-strip areas); the
-    outline is the union boundary (base free edges + each arm's three outer edges +
-    one fold line per bend). Byte-deterministic: arms are sorted by a canonical
-    (axis, sign, span) key, independent of the input bend order."""
+    The shared arm-construction step of the non-parallel tray unfold (§6) and its
+    corner-relief sibling (§4.4) — one source of the fold-direction / axis-alignment
+    guards + the per-arm span math, so both paths agree. Returns the deterministic
+    base frame + the arms in INPUT order (each caller sorts as it emits)."""
     frame = _base_frame(base_rec)
     base_c = Vector(*base_rec.centroid)
 
@@ -664,8 +714,32 @@ def _unfold_nonparallel(
                 angle_rad=angle_rad,
                 k_factor=prov.k_factor,
                 direction="up" if along_n >= 0.0 else "down",
+                bend_centroid=(
+                    prov.cyl_signature.centroid.x,
+                    prov.cyl_signature.centroid.y,
+                    prov.cyl_signature.centroid.z,
+                ),
             )
         )
+    return frame, arms
+
+
+def _unfold_nonparallel(
+    resolved: list[_Resolved],
+    base_rec: FlangeFaceRecord,
+    base_normal: Vector,
+    thickness_mm: float,
+    default_k_factor: float,
+) -> FlatPattern:
+    """Lay out a NON-PARALLEL depth-1 star (a tray / pan) as a 2D plus/cross.
+
+    Each flange is placed as an axis-aligned arm off its base-rectangle side, the
+    cylindrical bend replaced by a ``BA``-length strip (§1). Area is the §9
+    invariant (base counted once + Σ flange areas + Σ bend-strip areas); the
+    outline is the union boundary (base free edges + each arm's three outer edges +
+    one fold line per bend). Byte-deterministic: arms are sorted by a canonical
+    (axis, sign, span) key, independent of the input bend order."""
+    frame, arms = _build_arms(resolved, base_rec, thickness_mm)
 
     # Deterministic order: by (axis, outward sign, position along the fold edge).
     arms.sort(key=lambda a: (a.axis, a.sign, a.span0, a.span1))
@@ -837,6 +911,220 @@ def _emit_plus_pattern(
     )
 
 
+# --- Corner relief (§4.4): the relieved depth-1 tray flat pattern ------------------
+#
+# A relieved tray corner loses a size x size square of material at the shared base
+# corner of two adjacent perpendicular flanges; each flange (+ its BA strip) is
+# inset by `size` at that end. In the developed frame this is a set of axis-aligned
+# rectangles — the base decomposed to avoid every notched corner + the inset flange
+# legs + the inset BA strips — which the shipped `_rectilinear_union_loop` (§4.3)
+# unions into ONE closed loop with a reentrant right-angle notch. Only runs when a
+# relief is supplied (`unfold_sheet_metal(..., reliefs=...)`), so every non-relieved
+# golden takes the verbatim plus-pattern / strip / tree paths above (byte-identical).
+
+#: Bend-centroid match tolerance (mm) — a CornerRelief's named bend signature is the
+#: SAME construction-time centroid the arm carries, so residuals are ulp-scale.
+_RELIEF_MATCH_TOL_MM = 1e-6
+
+
+def _arm_index_for_bend(arms: list[_Arm], centroid: Vec3f) -> int:
+    """The index of the arm whose bend cylindrical-face centroid matches *centroid*.
+
+    Matches a :class:`CornerRelief`'s named bend back to the arm it trims. Exactly
+    one within tolerance, or a typed error — the same refuse-to-guess rule (§5)."""
+    hits = [
+        i
+        for i, a in enumerate(arms)
+        if math.dist(a.bend_centroid, centroid) <= _RELIEF_MATCH_TOL_MM
+    ]
+    if len(hits) != 1:
+        raise UnfoldStarError(
+            f"A corner relief names a bend that matches {len(hits)} of the body's "
+            "edge flanges by centroid; the relieved corner is unresolved (§4.4). "
+            "Each relief must name two distinct depth-1 flanges of THIS tray."
+        )
+    return hits[0]
+
+
+def _rect_from_ranges(x0: float, x1: float, y0: float, y1: float) -> _Rect:
+    """An axis-aligned rectangle from two (unordered) coordinate ranges."""
+    return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
+def _base_minus_notches_rects(
+    wx: float, wy: float, notches: list[_Rect]
+) -> list[_Rect]:
+    """Decompose ``[0,wx]x[0,wy]`` minus the corner *notches* into a grid of rects.
+
+    Each notch is a corner square of the base; the base coordinate grid (0, wx, wy
+    + every notch inner edge) tiles the base into cells, and a cell is kept iff its
+    centre is inside the base and outside every notch. The kept cells feed the same
+    rectilinear union the arms do (§4.3) — the union re-merges them into the L /
+    stepped outline, so this never emits a spurious internal seam."""
+    xs = sorted({0.0, wx} | {c for n in notches for c in (n[0], n[2])})
+    ys = sorted({0.0, wy} | {c for n in notches for c in (n[1], n[3])})
+    cells: list[_Rect] = []
+    for i in range(len(xs) - 1):
+        cx = (xs[i] + xs[i + 1]) / 2.0
+        for j in range(len(ys) - 1):
+            cy = (ys[j] + ys[j + 1]) / 2.0
+            if not (0.0 <= cx <= wx and 0.0 <= cy <= wy):
+                continue
+            if any(n[0] < cx < n[2] and n[1] < cy < n[3] for n in notches):
+                continue
+            cells.append((xs[i], ys[j], xs[i + 1], ys[j + 1]))
+    return cells
+
+
+@dataclass
+class _ArmTrim:
+    """An arm's span endpoints after corner-relief trims (mutable accumulation)."""
+
+    lo: float
+    hi: float
+
+
+def _unfold_nonparallel_relieved(
+    resolved: list[_Resolved],
+    base_rec: FlangeFaceRecord,
+    thickness_mm: float,
+    default_k_factor: float,
+    reliefs: list[CornerRelief],
+) -> FlatPattern:
+    """Lay out a RELIEVED depth-1 tray (§4.4): the plus-pattern with corner notches.
+
+    Each relief removes a ``size x size`` square at the shared base corner of its two
+    named flanges and insets both flanges (+ their BA strips) there. The base
+    (minus notches) + inset legs + inset strips are unioned into ONE closed loop with
+    the reentrant notch. Byte-deterministic (§9 #4): every value is a deterministic
+    OCCT measurement + closed-form allowance + a coordinate-sorted assembly.
+
+    Raises:
+        UnfoldStarError: a relief names a bend not on this tray, names two parallel
+            (non-adjacent) flanges, or the relieved outline is not a single loop
+            (§4.4 v1 scope: rectangular relief at an adjacent-flange corner)."""
+    frame, arms = _build_arms(resolved, base_rec, thickness_mm)
+    wx, wy = frame.wx, frame.wy
+
+    trims = [_ArmTrim(a.span0, a.span1) for a in arms]
+    notches: list[_Rect] = []
+    for relief in reliefs:
+        ca, cb = relief.bend_a.centroid, relief.bend_b.centroid
+        i = _arm_index_for_bend(arms, (ca.x, ca.y, ca.z))
+        j = _arm_index_for_bend(arms, (cb.x, cb.y, cb.z))
+        ai, aj = arms[i], arms[j]
+        if ai.axis == aj.axis:
+            raise UnfoldStarError(
+                "A corner relief names two flanges on parallel edges; a corner is a "
+                "bend INTERSECTION of two PERPENDICULAR flanges (§4.4)."
+            )
+        size = relief.size_mm
+        # The shared base corner: each arm's fold is a base side (0 or wx/wy) on the
+        # OTHER arm's span axis. arm with axis==1 spans X, folds along a Y side; its
+        # relief partner (axis==0) folds along an X side = the corner's X coordinate.
+        arm_x = ai if ai.axis == 0 else aj  # spans Y, fold is an X coordinate
+        arm_y = ai if ai.axis == 1 else aj  # spans X, fold is a Y coordinate
+        corner_x, corner_y = arm_x.fold, arm_y.fold
+        notches.append(
+            _rect_from_ranges(
+                corner_x - size if corner_x > 0.0 else 0.0,
+                corner_x if corner_x > 0.0 else size,
+                corner_y - size if corner_y > 0.0 else 0.0,
+                corner_y if corner_y > 0.0 else size,
+            )
+        )
+        # Inset each flange's span by `size` at the corner end (the span end nearest
+        # the corner coordinate on that arm's span axis).
+        for ti, corner_coord in (
+            (trims[i if ai.axis == 0 else j], corner_y),  # arm_x spans Y
+            (trims[i if ai.axis == 1 else j], corner_x),  # arm_y spans X
+        ):
+            if abs(corner_coord - ti.hi) <= abs(corner_coord - ti.lo):
+                ti.hi -= size
+            else:
+                ti.lo += size
+
+    # Assemble every developed rectangle in frame coords: base cells (minus notches),
+    # then each arm's inset BA strip + leg.
+    rects: list[_Rect] = _base_minus_notches_rects(wx, wy, notches)
+    for a, ti in zip(arms, trims, strict=True):
+        lo, hi = ti.lo, ti.hi
+        near = a.fold
+        strip_far = near + a.sign * a.allowance_mm
+        leg_far = near + a.sign * (a.allowance_mm + a.leg_mm)
+        if a.axis == 0:  # spans Y in [lo, hi], extends along X
+            strip = _rect_from_ranges(near, strip_far, lo, hi)
+            leg = _rect_from_ranges(strip_far, leg_far, lo, hi)
+        else:  # spans X in [lo, hi], extends along Y
+            strip = _rect_from_ranges(lo, hi, near, strip_far)
+            leg = _rect_from_ranges(lo, hi, strip_far, leg_far)
+        rects.append(strip)
+        rects.append(leg)
+
+    snapped = _snap_rects(rects)
+    loop = _rectilinear_union_loop(snapped)
+    dx = min(p[0] for p in loop)
+    dy = min(p[1] for p in loop)
+    loop = [(p[0] - dx, p[1] - dy) for p in loop]
+    all_x = [p[0] for p in loop]
+    all_y = [p[1] for p in loop]
+
+    outline: list[FlatEdge2D] = []
+    n = len(loop)
+    for k in range(n):
+        x1, y1 = loop[k]
+        x2, y2 = loop[(k + 1) % n]
+        outline.append(FlatEdge2D(kind="line", x1=x1, y1=y1, x2=x2, y2=y2, role="body"))
+
+    bend_lines: list[BendLine] = []
+    for idx, (a, ti) in enumerate(zip(arms, trims, strict=True), start=1):
+        span_shift = dx if a.axis == 1 else dy
+        lo, hi = ti.lo - span_shift, ti.hi - span_shift
+        near = a.fold
+        fold_c = near + a.sign * (a.allowance_mm / 2.0)
+        if a.axis == 0:  # vertical fold centerline at X=fold_c, over Y span
+            xm = fold_c - dx
+            outline.append(
+                FlatEdge2D(kind="line", x1=xm, y1=lo, x2=xm, y2=hi, role="bend")
+            )
+        else:  # horizontal fold centerline at Y=fold_c, over X span
+            ym = fold_c - dy
+            outline.append(
+                FlatEdge2D(kind="line", x1=lo, y1=ym, x2=hi, y2=ym, role="bend")
+            )
+        bend_lines.append(
+            BendLine(
+                bend_id=f"bend-{idx}",
+                angle_deg=math.degrees(a.angle_rad),
+                radius_mm=a.radius_mm,
+                k_factor=a.k_factor,
+                allowance_mm=a.allowance_mm,
+                width_mm=abs(ti.hi - ti.lo),
+                direction=a.direction,
+                flat_start_mm=0.0,
+                flat_end_mm=a.allowance_mm,
+            )
+        )
+
+    outline.sort(key=lambda e: (e.role, e.x1, e.y1, e.x2, e.y2))
+    bend_lines.sort(key=lambda bl: bl.bend_id)
+
+    base_area = wx * wy - sum((rr[2] - rr[0]) * (rr[3] - rr[1]) for rr in notches)
+    flat_area = base_area + sum(
+        abs(t.hi - t.lo) * (a.leg_mm + a.allowance_mm)
+        for a, t in zip(arms, trims, strict=True)
+    )
+    return FlatPattern(
+        thickness_mm=thickness_mm,
+        k_factor=default_k_factor,
+        flat_length_mm=max(all_x) - min(all_x),
+        flat_area_mm2=flat_area,
+        bend_width_mm=max(all_y) - min(all_y),
+        outline=tuple(outline),
+        bends=tuple(bend_lines),
+    )
+
+
 # --- Depth-≥2 bend TREE unfold (graduated from the tractability spike) -------------
 #
 # A depth-≥2 body — a flange folded off ANOTHER flange (a box corner / return / hat
@@ -853,10 +1141,6 @@ def _emit_plus_pattern(
 # `_emit_plus_pattern` builds the depth-1 plus, not per-flange rectangles), and
 # (b) a self-OVERLAP gate (`UnfoldOverlapError`) for developments that need corner
 # relief (§7). The depth-1 star keeps its own pinned layout above (byte-identical).
-
-Vec2 = tuple[float, float]
-#: A developed axis-aligned rectangle: (min_x, min_y, max_x, max_y).
-_Rect = tuple[float, float, float, float]
 
 #: A flat face's in-run identity key (outward normal + area centroid, rounded to the
 #: subshape linear tolerance) so the bend tree's nodes are stable and hashable — a

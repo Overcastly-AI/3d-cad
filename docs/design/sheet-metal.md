@@ -393,6 +393,125 @@ by tests; the `UnfoldOverlapError` gate is the belt-and-suspenders backstop that
 guarantees a valid-tree development which *did* collide (e.g. from a future
 placement bug or unusual geometry) degrades typed, never emits a wrong blank.
 
+## 4.4 Corner relief — SHIPPED v1 (2026-07-19, kernel-architect)
+
+Corner relief is the secondary feature that lets a real box / tray / enclosure
+be manufactured: a small material cutout at a bend **intersection** so the sheet
+doesn't tear or interfere when folded, and — the point for this pillar — so the
+corner becomes **developable** into a single, non-overlapping flat blank. This
+section records the four decisions the brief asked for (relief type, auto-vs-
+explicit, sizing, the unfold interaction) and — most importantly — the honest
+finding on **which corner the notch can and cannot make developable in v1**.
+
+### 4.4.1 Relief type — RECTANGULAR for v1
+
+v1 ships **one** relief geometry: a **rectangular** notch (an axis-aligned
+square cut at the corner). Rationale: it is the simplest **developable** notch —
+its outline in the flat pattern is two straight cuts (a reentrant right-angle
+corner), so it composes with the existing rectilinear-union outline machinery
+(`_rectilinear_union_loop`, §4.3) with **no new curved-outline emitter and no
+`BRepBuilderAPI_MakeFace` wire-reconstruction risk** (§2.2). SolidWorks' *Corner
+Relief PropertyManager* offers Rectangular / Tear / Obround; Fusion drives it
+from the sheet-metal rule. **Follow-ons (deferred, each its own slice):**
+**obround / round** relief (a slot/circle at the corner — a curved cut needing
+arc outline edges + a circular boolean, the same curved-cut work a round *bend*
+relief needs); **tear / rip** relief (a zero-width slit — no material removed, a
+degenerate notch that needs a split/imprint, not a boolean cut). Rectangular is
+the incumbent default and the only one that is purely rectilinear, so it is the
+correct v1 atom.
+
+### 4.4.2 Auto vs. explicit — EXPLICIT spec in v1, auto as the layered follow-on
+
+The relief is an **explicit, per-corner spec** in v1: it names the two bends
+whose intersection it relieves (by their `CylindricalFaceSignature`, §5) and a
+size. **Recommendation for the pillar: auto-relief (a part-level default applied
+at every bend intersection that needs it) is the incumbent default (SolidWorks
+*Auto Reliefs*, Fusion's rule-driven relief) and is what makes a box "just
+unfold" — but it is a *policy layer* over this primitive, not new geometry.** The
+correct sequencing (matching `sheet-metal-parity.md`'s "Auto relief — blocked on
+corner relief landing first") is: ship the explicit primitive now (a corner the
+user/agent points at), then layer auto-detection on top (walk the bend graph,
+find every pair of bends whose developed regions would collide or whose flanges
+would tear at a shared corner, and synthesise an explicit relief for each). Auto
+is a pure function of the bend graph + a default size — no new kernel risk — so
+it is a clean follow-on, and shipping the explicit primitive first keeps the
+determinism/golden story tight (the relief set is an explicit input, not a
+graph-walk output that could drift).
+
+### 4.4.3 Sizing — a multiple of thickness, defaulted, overridable
+
+The relief size is `size_mm = relief_ratio × thickness_mm`, default
+`relief_ratio = 1.0` (one gauge thickness — a conservative, tear-safe default in
+the SolidWorks *Relief Ratio* family, which sizes rectangular/obround relief as a
+multiple of thickness). The explicit spec carries an absolute `size_mm` (the
+resolved value) so the golden pins an exact number; the ratio is the authoring
+convenience the auto/UI layer applies. A size must clear the bend region
+(`size ≥ bend_radius` is the sane floor so the notch actually reaches past the
+arc), but v1 does **not** hard-enforce it — an undersized relief is a manufacturing
+warning, not a geometry error, and the flat pattern is still developable.
+
+### 4.4.4 The unfold interaction — the crux, and the honest scope finding
+
+**What relief does to the flat pattern.** For a **depth-1 tray corner** — two
+adjacent flanges folded off perpendicular edges of one base, meeting at a shared
+base corner — the relief removes a `size × size` square of material at that
+corner: the base loses its corner square, and each of the two adjacent flanges
+(with its bend-allowance strip) is **inset** by `size` at that end. In the
+developed frame this is exactly a set of axis-aligned rectangles (base decomposed
+into the L that avoids the notched corner + the two inset flange rectangles + the
+two inset BA-strips), which `_rectilinear_union_loop` (§4.3) unions into ONE
+closed loop with a **reentrant right-angle notch** at the corner. Area is the §9
+invariant with the removed material subtracted:
+`flat_area = base + Σ(flange dev areas) + Σ(BA·width) − Σ(relief squares and the
+trimmed flange/strip slivers)`, and the outline stays a single closed loop — the
+notch is a genuine cut in the blank outline, not a separate hole. This is the
+shipped `_unfold_nonparallel_relieved` path; it only runs when a relief is
+supplied, so **every existing depth-1/depth-2 golden is byte-unchanged** (an
+empty relief set takes the verbatim pre-existing paths).
+
+**Why this is the right v1 target — and what the notch does NOT lift.** The
+brief's headline target was "turn the currently-rejected closed box corner into a
+correct flat pattern." A spike (recorded here, not hidden) established the precise
+boundary:
+
+- The **fully-closed / welded box corner** (two adjacent walls off the base, then
+  a **return** folded off *each* wall reaching into the shared corner — the
+  `_build_corner_box_returns` body) is rejected today as a **cyclic** connectivity
+  (`UnfoldStarError`, §4.3's finding), **not** as a self-overlap. A rectangular
+  corner notch does **NOT** lift that rejection: each return folds **outward into
+  the plane of the adjacent wall** (its developed node is coplanar with, and
+  co-located at, the opposite wall — verified: return centroid `(43,20,17.5)` ==
+  wall-B centroid), so the tree is cyclic *by construction of the fold
+  directions*, and trimming the corner material does not change which plane a
+  return folds into. Making that corner developable needs **miter / closed-corner
+  geometry** (trim-and-join the adjoining bend faces, `sheet-metal-parity.md`'s
+  "Closed corners" / "Miter flange" rows), a genuinely different operation than a
+  material cutout — correctly sequenced *after* corner relief. **v1 keeps that
+  body a typed reject** (the honest-degradation contract holds — it is never a
+  wrong or overlapping blank, and never a raw kernel crash).
+- The **depth-1 open-corner tray** already develops today (its two adjacent
+  flanges lay out as **disjoint arms**, §6's non-parallel path — the corner region
+  between them is already empty). So relief is **not what "enables" that unfold**
+  in the trivial sense. What relief adds — and why a shop needs it — is the
+  **manufacturable relieved blank**: a full-width-to-corner tray tears at the
+  shared corner when folded (both flanges' bend zones fight for the corner
+  material); the relief cuts the tear-free notch and Loft now models it, so the
+  blank a laser cuts has the correct relief, not a sharp shared corner. The flat
+  pattern is computed **analytically from the relief spec** (the authoritative
+  source of the notch), decoupled from the 3D boolean — so the notch is exact and
+  byte-deterministic regardless of how the 3D cut's trimmed faces resolve.
+
+**Net honest scope:** v1 corner relief ships (a) the **rectangular relief
+geometry** (`apply_corner_relief` — a provenance-located box boolean on the folded
+body, the manufacturable 3D notch) and (b) the **relieved flat-pattern unfold**
+(`_unfold_nonparallel_relieved` — the developable blank with the reentrant notch,
+area conservation, single closed loop, byte-deterministic), for the **depth-1
+adjacent-flange tray corner**. The **fully-welded depth-2 box corner remains a
+typed reject** pending miter/closed-corner geometry — a clear, evidence-backed
+boundary, not a silent gap. Both halves are driven by the SAME `CornerRelief`
+spec (same corner, same size), so the 3D body and the flat pattern are consistent
+by construction.
+
 ## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
 
 **Correction from an earlier draft of this doc:** a bend region is a
