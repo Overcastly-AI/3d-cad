@@ -9,12 +9,32 @@
         "type": "sketch",
         "version": 1,
         "params": {
-          "plane": {"kind": "datum_plane", "plane": "XY"},
+          "plane": { "kind": "datum_plane", "plane": "XY" },
           "entities": [
-            {"id": "e1", "kind": "line", "start": {"x": 0.0, "y": 0.0}, "end": {"x": 50.0, "y": 0.0}},
-            {"id": "e2", "kind": "line", "start": {"x": 50.0, "y": 0.0}, "end": {"x": 50.0, "y": 20.0}},
-            {"id": "e3", "kind": "line", "start": {"x": 50.0, "y": 20.0}, "end": {"x": 0.0, "y": 20.0}},
-            {"id": "e4", "kind": "line", "start": {"x": 0.0, "y": 20.0}, "end": {"x": 0.0, "y": 0.0}}
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 50.0, "y": 0.0 }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": { "x": 50.0, "y": 0.0 },
+              "end": { "x": 50.0, "y": 20.0 }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": { "x": 50.0, "y": 20.0 },
+              "end": { "x": 0.0, "y": 20.0 }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 20.0 },
+              "end": { "x": 0.0, "y": 0.0 }
+            }
           ],
           "constraints": []
         }
@@ -26,7 +46,10 @@
         "type": "sheet_metal_base_flange",
         "version": 1,
         "params": {
-          "profile": {"kind": "feature", "feature_id": "5e120000-0000-0000-0000-0000000000a1"},
+          "profile": {
+            "kind": "feature",
+            "feature_id": "5e120000-0000-0000-0000-0000000000a1"
+          },
           "thickness_mm": 2.0,
           "bend_radius_mm": 3.0,
           "k_factor": 0.44
@@ -48,9 +71,9 @@
               "signature": {
                 "subshape_type": "edge",
                 "curve": "line",
-                "end_a": {"x": 50.0, "y": 0.0, "z": 2.0},
-                "end_b": {"x": 50.0, "y": 20.0, "z": 2.0},
-                "midpoint": {"x": 50.0, "y": 10.0, "z": 2.0},
+                "end_a": { "x": 50.0, "y": 0.0, "z": 2.0 },
+                "end_b": { "x": 50.0, "y": 20.0, "z": 2.0 },
+                "midpoint": { "x": 50.0, "y": 10.0, "z": 2.0 },
                 "length_mm": 20.0
               }
             }

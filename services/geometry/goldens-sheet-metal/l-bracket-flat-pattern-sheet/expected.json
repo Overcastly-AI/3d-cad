@@ -14,7 +14,13 @@
   "body_edge_count": 4,
   "bend_edge_count": 1,
   "bend_table": [
-    {"bend_id": "bend-1", "angle_deg": 90.0, "radius_mm": 3.0, "direction": "up", "bend_allowance_mm": 6.094689747964199}
+    {
+      "bend_id": "bend-1",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    }
   ],
   "content_hash": "82216130a003cd3b8b84cfe8b5f44456abdedc7f569beb5597f5caffc3b6de7f"
 }

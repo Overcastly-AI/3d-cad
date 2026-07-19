@@ -22,6 +22,6 @@
   "bend_direction": "up",
   "volume_mm3": 3451.3274122871826,
   "volume_tolerance": 1e-6,
-  "topology": {"faces": 10, "edges": 24, "shells": 1},
+  "topology": { "faces": 10, "edges": 24, "shells": 1 },
   "content_hash": "66021d7938ed43155485238edd01cfd597b2fa374e7dd912dce54a5e7722ad4f"
 }

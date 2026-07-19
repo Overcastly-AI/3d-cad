@@ -14,8 +14,20 @@
   "body_edge_count": 4,
   "bend_edge_count": 2,
   "bend_table": [
-    {"bend_id": "bend-1", "angle_deg": 90.0, "radius_mm": 3.0, "direction": "up", "bend_allowance_mm": 6.094689747964199},
-    {"bend_id": "bend-2", "angle_deg": 90.0, "radius_mm": 3.0, "direction": "up", "bend_allowance_mm": 6.094689747964199}
+    {
+      "bend_id": "bend-1",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    },
+    {
+      "bend_id": "bend-2",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    }
   ],
   "content_hash": "42aaf9015cd8ebf828ed2252d96b82d89810f33a16d7a0bb21b1d73b587b1d4e"
 }

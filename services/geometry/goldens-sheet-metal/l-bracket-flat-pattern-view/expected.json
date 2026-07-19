@@ -8,11 +8,17 @@
   ],
   "tolerance": 1e-9,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill). The bend-table values are the exact unfold outputs; measured deviation vs the analytic nominals is ~1.2e-13 (the arc-fit inner radius 2.9999999999999933 propagating into BA), matching ../l-bracket-edge-flange/expected.json. The documented ceiling 1e-9 gives ~4 orders of headroom over the observed worst case while staying tighter than the standing kernel linear tolerance (1e-7 m).",
-  "scale": {"numerator": 1, "denominator": 1},
+  "scale": { "numerator": 1, "denominator": 1 },
   "body_edge_count": 4,
   "bend_edge_count": 1,
   "bend_table": [
-    {"bend_id": "bend-1", "angle_deg": 90.0, "radius_mm": 3.0, "direction": "up", "bend_allowance_mm": 6.094689747964199}
+    {
+      "bend_id": "bend-1",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    }
   ],
   "content_hash": "47c282e78e388b46e7831fcec0726e5141aa30bb18b9eb440297d48a93228396"
 }

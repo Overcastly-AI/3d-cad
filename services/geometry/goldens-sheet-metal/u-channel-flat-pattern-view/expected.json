@@ -8,12 +8,24 @@
   ],
   "tolerance": 1e-9,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill). Measured deviation vs the analytic nominals is ~1.2e-13 (arc-fit inner radius), matching ../u-channel-edge-flange/expected.json. The 1e-9 ceiling gives ~4 orders of headroom while staying tighter than the standing kernel linear tolerance (1e-7 m).",
-  "scale": {"numerator": 1, "denominator": 1},
+  "scale": { "numerator": 1, "denominator": 1 },
   "body_edge_count": 4,
   "bend_edge_count": 2,
   "bend_table": [
-    {"bend_id": "bend-1", "angle_deg": 90.0, "radius_mm": 3.0, "direction": "up", "bend_allowance_mm": 6.094689747964199},
-    {"bend_id": "bend-2", "angle_deg": 90.0, "radius_mm": 3.0, "direction": "up", "bend_allowance_mm": 6.094689747964199}
+    {
+      "bend_id": "bend-1",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    },
+    {
+      "bend_id": "bend-2",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    }
   ],
   "content_hash": "c5dc8dd08644394b938b7bc9cc66d83ca41aaf0ac3423e45d2417bf6728e72fb"
 }
