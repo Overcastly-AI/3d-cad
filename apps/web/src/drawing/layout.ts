@@ -29,12 +29,16 @@ export const STANDARD_VIEWS: readonly ViewProjection[] = [
   "iso",
 ];
 
-/** Human labels for a projection (the stamped caption under each view). */
+/** Human labels for a projection (the stamped caption under each view).
+ *  `flat_pattern` (sheet-metal.md §7) carries a label so the map stays total for
+ *  `ViewProjection` indexing; its dedicated flat-pattern sheet render (edge_role
+ *  bend-line stroke + bend table) is the next frontend slice, not wired here. */
 export const VIEW_LABEL: Record<ViewProjection, string> = {
   front: "Front",
   top: "Top",
   right: "Right",
   iso: "Isometric",
+  flat_pattern: "Flat Pattern",
 };
 
 type SheetSize = SheetResponse["size"];
@@ -99,6 +103,10 @@ export function standardLayout(
     top: { x: leftX, y: topY },
     right: { x: rightX, y: bottomY },
     iso: { x: rightX, y: topY },
+    // A flat-pattern view is not part of the standard third-angle seed; it is
+    // centred as a lone-view placeholder so the map stays total. Its real
+    // placement + bend-table render is the next frontend slice (sheet-metal.md §7).
+    flat_pattern: { x: dims.width / 2, y: dims.height / 2 },
   };
 }
 

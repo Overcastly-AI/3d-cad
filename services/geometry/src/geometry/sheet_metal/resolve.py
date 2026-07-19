@@ -136,15 +136,20 @@ def _cylindrical_faces(body: BodyShape) -> list[_CylFace]:
     return out
 
 
+def _perp_distance(delta: Vector, axis_dir: Vector) -> float:
+    """Distance from a point at offset *delta* to a line through the origin along
+    *axis_dir* — ``|delta - (delta·dir) dir|``. The one place the axis-line
+    perpendicular distance is computed (shared by the concentric test and both
+    cylinder-signature matchers), so the coincidence rule lives once."""
+    return (delta - axis_dir * delta.dot(axis_dir)).length
+
+
 def _axes_coincident(a: _CylFace, b: _CylFace) -> bool:
     """True if two cylindrical faces share the same axis LINE (concentric)."""
     if 1.0 - abs(a.axis_dir.dot(b.axis_dir)) > _PARALLEL_TOL:
         return False
     delta = b.axis_origin - a.axis_origin
-    # Distance from b's origin to a's axis line = |delta - (delta·dir) dir|.
-    along = a.axis_dir * delta.dot(a.axis_dir)
-    perp = delta - along
-    return perp.length <= _AXIS_COINCIDENT_TOL_MM
+    return _perp_distance(delta, a.axis_dir) <= _AXIS_COINCIDENT_TOL_MM
 
 
 def _flanking_flanges(
@@ -364,8 +369,7 @@ def _cyl_matches(candidate: _CylFace, target: CylindricalFaceSignature) -> bool:
         target.axis_origin.x, target.axis_origin.y, target.axis_origin.z
     )
     delta = target_origin - candidate.axis_origin
-    perp = delta - candidate.axis_dir * delta.dot(candidate.axis_dir)
-    if perp.length > _AXIS_COINCIDENT_TOL_MM:
+    if _perp_distance(delta, candidate.axis_dir) > _AXIS_COINCIDENT_TOL_MM:
         return False
     radius_ref = max(abs(target.radius_mm), 1.0)
     if abs(candidate.radius - target.radius_mm) / radius_ref > _RADIUS_REL_TOL:
@@ -473,8 +477,7 @@ def find_cylindrical_face(
         if 1.0 - abs(cand.axis_dir.dot(want_dir)) > _PARALLEL_TOL:
             continue
         delta = want_origin - cand.axis_origin
-        perp = delta - cand.axis_dir * delta.dot(cand.axis_dir)
-        if perp.length > _AXIS_COINCIDENT_TOL_MM:
+        if _perp_distance(delta, cand.axis_dir) > _AXIS_COINCIDENT_TOL_MM:
             continue
         if abs(cand.radius - radius_mm) / radius_ref > _RADIUS_REL_TOL:
             continue

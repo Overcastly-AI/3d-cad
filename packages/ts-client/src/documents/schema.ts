@@ -4224,7 +4224,7 @@ export interface components {
              * @description Projection direction (front / top / right / iso)
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
             /**
              * Ref Document Id
              * Format: uuid
@@ -4281,7 +4281,7 @@ export interface components {
              * Projection
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
             /**
              * Ref Document Id
              * Format: uuid
@@ -4345,7 +4345,7 @@ export interface components {
             expected_version: number;
             position?: components["schemas"]["SheetPoint"] | null;
             /** Projection */
-            projection?: ("front" | "top" | "right" | "iso") | null;
+            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern") | null;
             scale?: components["schemas"]["ViewScale"] | null;
         };
     };

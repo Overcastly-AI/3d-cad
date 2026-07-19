@@ -471,12 +471,42 @@ without overloading `visible`.
   dashed-blue stroke instead of the ordinary `visible`/hidden solid/dashed
   styling every other edge gets. One new `drawing` design token, one new
   conditional in the existing renderer — not a new renderer.
+
+  **Implementation note (slice #4 BACKEND, 2026-07-19).** The backend half
+  shipped exactly as designed: `ProjectedViewEdge.edge_role: "body"|"bend"`
+  (additive, defaulted `"body"` — generated non-optional like its sibling
+  `dimensionable`, the codebase's recurring defaulted-field pattern), the
+  `flat_pattern` `ViewProjection` member, and
+  `geometry.drawings.flat_pattern_view_result` which unfolds the sheet-metal
+  body (reusing `evaluate_tree` + `unfold_sheet_metal`) and feeds the outline
+  into the SAME `DrawingViewResult`/`ProjectedViewEdge` shape — SKIPPING HLR
+  (`geometry.drawings.evaluate.evaluate_drawing_views` branches before
+  `project_view`). **One honest composer-boundary finding, recorded not
+  forced:** the shipped `place_sheet` full-sheet composer auto-lays-out the
+  standard 4 (`STANDARD_VIEWS`) and does NOT place a `flat_pattern` view — a
+  flat-pattern sheet's placement (a lone view + the bend-table annotation) is
+  new placement math paired with the frontend render slice (the composer is a
+  verbatim port of the frontend `layout.ts`, so its flat-pattern branch ports
+  FROM that slice, not ahead of it). The flat-pattern view therefore rides the
+  **evaluate** path (`DrawingViewResult` edges + bend table) this slice, which
+  IS the reuse `drawings.md` §7 intends — the per-view edge machinery
+  (`view_to_svg_edges`/`view_bounds`) is generic over `ProjectedViewEdge`; only
+  the multi-view auto-layout is standard-4-specific.
 - **Bend table → a drawing annotation.** `annotations.type` gains a `table`
   kind (additive to the shipped `note`/`leader`, `drawings.md` §2.2) whose
   `params` holds the per-bend rows (id, angle, radius, direction, allowance)
   the `FlatPattern` output already computed (§6) — the data is free, the
   same "BOM is a free documents-side roll-up" argument `assemblies.md` §4
   made for its own table.
+
+  **Implementation note (slice #4 BACKEND, 2026-07-19).** The bend-table DATA
+  shipped as `py_kit.schemas.drawings.BendTableRow`
+  (`bend_id`/`angle_deg`/`radius_mm`/`direction`/`bend_allowance_mm`) surfaced
+  on `DrawingViewResult.bend_table` alongside the flat-pattern edges (the
+  computed values the frontend renders as the annotation table). The
+  `annotations.type = "table"` PERSISTED annotation kind is deferred to the
+  frontend slice with the render (the data is already free geometry-side; a
+  drawing need not persist it to display a live flat-pattern view).
 - **Bend allowance math** needs no new numeric dependency — it's a
   four-term closed-form (§1), computed the same way GProp-derived mass
   properties already are.

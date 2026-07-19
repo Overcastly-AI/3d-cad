@@ -37,7 +37,7 @@ from geometry.sheet_metal import (
     SheetMetalDefaults,
     unfold_sheet_metal,
 )
-from geometry.sheet_metal.resolve import SubshapeUnresolvedError
+from geometry.kernel.faces import SubshapeUnresolvedError
 from py_kit.schemas.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
@@ -509,3 +509,92 @@ def test_defaults_feed_bend_allowance() -> None:
     d = SheetMetalDefaults(thickness_mm=2.0, k_factor=0.44, bend_radius_mm=3.0)
     ba = bend_allowance(math.pi / 2.0, d.bend_radius_mm, d.k_factor, d.thickness_mm)
     assert ba == pytest.approx(6.094689747964199, abs=1e-12)
+
+
+# --------------------------------------------------------------------------- #
+# Deferred-scope boundaries — locked with real assertions, not prose (slice #3 #
+# code-review debt: the deferred cases were documented but not gated).        #
+# --------------------------------------------------------------------------- #
+
+
+def test_perpendicular_bend_star_is_unfold_star_error() -> None:
+    """A depth-1 star whose flanges fold off PERPENDICULAR base edges is outside the
+    v1 PARALLEL-star scope (§4.3): the parallel-axis check must raise UnfoldStarError,
+    never a silently wrong flat pattern. Authored end-to-end (two real edge flanges
+    on perpendicular edges of one plate), so the boundary is gated on real geometry."""
+    from build123d import Box
+    from geometry.kernel.edges import enumerate_edges
+    from geometry.sheet_metal import BendProvenance, build_edge_flange
+    from geometry.sheet_metal.unfold import UnfoldStarError
+
+    base = Box(40.0, 40.0, 2.0).translate((20.0, 20.0, 1.0))
+
+    # Bend 1 folds off the x=40 edge (bend axis +Y); bend 2 off the y=40 top edge
+    # (bend axis +X) — the two axes are perpendicular (same idiom as the degradation
+    # test above, avoiding the untyped-Vector helper).
+    edge1 = next(
+        rec.edge
+        for rec in enumerate_edges(base)
+        if rec.signature.curve == "line"
+        and abs((rec.edge @ 0.0).X - 40.0) < 1e-6
+        and abs((rec.edge @ 1.0).X - 40.0) < 1e-6
+        and abs((rec.edge @ 0.5).Z - 2.0) < 1e-6
+    )
+    r1 = build_edge_flange(base, edge1, 30.0, 90.0, 3.0, 2.0)
+    edge2 = next(
+        rec.edge
+        for rec in enumerate_edges(r1.body)
+        if rec.signature.curve == "line"
+        and abs((rec.edge @ 0.5).Y - 40.0) < 1e-6
+        and abs((rec.edge @ 0.5).Z - 2.0) < 1e-6
+        and abs((rec.edge @ 1.0).X - (rec.edge @ 0.0).X) > 1e-3
+    )
+    r2 = build_edge_flange(r1.body, edge2, 30.0, 90.0, 3.0, 2.0)
+
+    provs = [
+        BendProvenance(r1.cyl_signature, r1.base_face_signature, 0.44),
+        BendProvenance(r2.cyl_signature, r2.base_face_signature, 0.44),
+    ]
+    with pytest.raises(UnfoldStarError, match="not parallel"):
+        unfold_sheet_metal(r2.body, provs, 2.0, 0.44)
+
+
+def test_split_base_moving_no_base_match_is_unfold_star_error() -> None:
+    """`_split_base_moving`'s no-base-match branch (§4.3): if neither flanking face of
+    a bend matches the recorded base-flange signature, the bend is not a depth-1
+    flange off the recorded base — an honest UnfoldStarError, never a guess."""
+    from build123d import Box
+    from geometry.sheet_metal.resolve import FlangeFaceRecord
+    from geometry.sheet_metal.unfold import (
+        UnfoldStarError,
+        _split_base_moving,  # pyright: ignore[reportPrivateUsage]
+    )
+    from py_kit.schemas.features import PlanarFaceSignature
+    from py_kit.schemas.geometry import Vec3
+
+    face = Box(1.0, 1.0, 1.0).faces()[0]  # a real (placeholder) planar Face
+
+    def flange(cx: float) -> FlangeFaceRecord:
+        sig = PlanarFaceSignature(
+            normal=Vec3(x=0.0, y=0.0, z=1.0),
+            centroid=Vec3(x=cx, y=0.0, z=0.0),
+            area_mm2=100.0,
+        )
+        return FlangeFaceRecord(
+            face=face,
+            signature=sig,
+            developed_length_mm=10.0,
+            width_mm=10.0,
+            area_mm2=100.0,
+            normal=(0.0, 0.0, 1.0),
+            centroid=(cx, 0.0, 0.0),
+        )
+
+    # The recorded base sits at x=500 — neither flange (x=10 / x=20) matches it.
+    base_sig = PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=500.0, y=0.0, z=0.0),
+        area_mm2=100.0,
+    )
+    with pytest.raises(UnfoldStarError, match="Neither flanking face"):
+        _split_base_moving((flange(10.0), flange(20.0)), base_sig)

@@ -174,7 +174,8 @@ class CylindricalFaceSignature(BaseModel):
         description="Unit vector along the bend axis (full precision)"
     )
     radius_mm: float = Field(
-        gt=0, description="Cylinder radius (mm) — the bend's inner radius, full precision"
+        gt=0,
+        description="Cylinder radius (mm) — the bend's inner radius, full precision",
     )
     centroid: Vec3 = Field(
         description="Area centroid of the cylindrical face, world mm (full precision)"

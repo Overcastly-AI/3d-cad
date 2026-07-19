@@ -93,12 +93,16 @@ from reportlab.pdfgen.canvas import Canvas
 #: The four standard views in canonical creation + render order (layout.ts).
 STANDARD_VIEWS: tuple[ViewProjection, ...] = ("front", "top", "right", "iso")
 
-#: Human caption per projection (layout.ts VIEW_LABEL).
+#: Human caption per projection (layout.ts VIEW_LABEL). ``flat_pattern`` is present
+#: for totality (a flat-pattern view is NOT placed by :func:`place_sheet`'s standard-
+#: 4 auto-layout — its sheet placement + bend-table annotation pair with the frontend
+#: render slice, sheet-metal.md §7; it rides the evaluate path, not this composer).
 VIEW_LABEL: dict[ViewProjection, str] = {
     "front": "Front",
     "top": "Top",
     "right": "Right",
     "iso": "Isometric",
+    "flat_pattern": "Flat Pattern",
 }
 
 #: ISO / ANSI sheet dimensions in mm, given LANDSCAPE (w >= h) — layout.ts.

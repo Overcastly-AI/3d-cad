@@ -670,6 +670,46 @@ export interface components {
             kind: "axis_parallel";
         };
         /**
+         * BendTableRow
+         * @description One row of a flat-pattern view's bend table (sheet-metal.md §6/§7).
+         *
+         *     The shop's fold instructions for one bend line: which line (``bend_id``, the
+         *     same id the matching ``edge_role="bend"`` :class:`ProjectedViewEdge` carries via
+         *     the flat pattern), its fold ``angle_deg`` and inner ``radius_mm``, the fold
+         *     ``direction`` (up/down relative to the base flange), and the ``bend_allowance_mm``
+         *     (``BA = angle_rad * (radius + K * thickness)``, §1 — the developed length the
+         *     flat strip replaces). Every value is already computed by the unfold; documents
+         *     stores none of it — it is derived geometry-side alongside the flat-pattern edges.
+         */
+        BendTableRow: {
+            /**
+             * Angle Deg
+             * @description Fold angle (degrees)
+             */
+            angle_deg: number;
+            /**
+             * Bend Allowance Mm
+             * @description Bend allowance BA = angle_rad * (radius + K * thickness), mm (§1)
+             */
+            bend_allowance_mm: number;
+            /**
+             * Bend Id
+             * @description Bend line id (matches the 'bend' edge, §6)
+             */
+            bend_id: string;
+            /**
+             * Direction
+             * @description Fold sense up/down (§1)
+             * @enum {string}
+             */
+            direction: "up" | "down";
+            /**
+             * Radius Mm
+             * @description Inner bend radius (mm)
+             */
+            radius_mm: number;
+        };
+        /**
          * BooleanFeature
          * @description ``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
          *
@@ -961,7 +1001,7 @@ export interface components {
              * Views
              * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order
              */
-            views: ("front" | "top" | "right" | "iso")[];
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern")[];
         };
         /**
          * ComposedArrow
@@ -1294,7 +1334,7 @@ export interface components {
              * @description Projection direction
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
         };
         /**
          * ConcentricConstraint
@@ -1843,7 +1883,7 @@ export interface components {
              * @description Which requested view's frame measures it — supplies the §3.2 foreshortening reference only; the value is model-true regardless (§3.1)
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern";
         };
         /**
          * DrawingViewResult
@@ -1856,14 +1896,28 @@ export interface components {
          *     ``geometry.drawings.ViewProjectionError``) — never a 500, never a silently
          *     empty success. A per-view failure NEVER fails the whole request; the other
          *     requested views still project (mirroring the per-feature/per-mate posture).
+         *
+         *     For a ``flat_pattern`` view (sheet-metal.md §7) the SAME ``edges`` list carries
+         *     the unfold's outline — cut edges as ``edge_role="body"``, fold lines as
+         *     ``edge_role="bend"`` — and ``bend_table`` carries the per-bend fold data the
+         *     frontend renders as an annotation table. ``bend_table`` is empty for every
+         *     standard HLR view (additive — a non-sheet-metal consumer is unaffected). A
+         *     ``flat_pattern`` asked of a non-sheet-metal body is a typed per-view
+         *     ``flat_pattern_not_sheet_metal`` error, and an unresolvable bend a
+         *     ``subshape_unresolved`` (never a wrong flat pattern — §5).
          */
         DrawingViewResult: {
+            /**
+             * Bend Table
+             * @description Per-bend fold rows for a flat_pattern view (sheet-metal.md §6/§7); empty for every standard HLR view and on error
+             */
+            bend_table?: components["schemas"]["BendTableRow"][];
             /**
              * Edges
              * @description Canonically-ordered visible+hidden 2D edges (empty on error)
              */
             edges?: components["schemas"]["ProjectedViewEdge"][];
-            /** @description Typed per-view HLR failure (`view_projection_failed`), or null on success (design §1.5) */
+            /** @description Typed per-view failure (`view_projection_failed` for HLR, `flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern), or null on success (design §1.5 / sheet-metal.md §7) */
             error?: components["schemas"]["FeatureError"] | null;
             /** @description The scale applied (echoes the request) */
             scale: components["schemas"]["ViewScale"];
@@ -1872,7 +1926,7 @@ export interface components {
              * @description The projection direction of this view
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern";
         };
         /**
          * EdgeLengthMeasurement
@@ -2181,7 +2235,7 @@ export interface components {
              * Views
              * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order
              */
-            views: ("front" | "top" | "right" | "iso")[];
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern")[];
         };
         /**
          * EvaluateDrawingViewsResult
@@ -3114,7 +3168,7 @@ export interface components {
              * @description The view direction this dimension was measured in
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern";
         };
         /**
          * MeshStats
@@ -3527,6 +3581,13 @@ export interface components {
              * @default false
              */
             dimensionable: boolean;
+            /**
+             * Edge Role
+             * @description Outline role (sheet-metal.md §6): 'body' = a real cut edge (every HLR view edge, the default — additive so existing consumers are unaffected); 'bend' = a flat-pattern fold line, rendered as its own dashed-blue stroke rather than the visible/hidden BODY-edge styling. Orthogonal to `visible` (a bend line is neither a solid nor an occluded body edge).
+             * @default body
+             * @enum {string}
+             */
+            edge_role: "body" | "bend";
             /** @description Canonical second endpoint */
             end: components["schemas"]["ProjectedPoint"];
             /** @description A point ON the edge (orientation-independent) */
@@ -4020,7 +4081,7 @@ export interface components {
              * @description Projection direction of the view
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
             /**
              * @description View scale (rational; 1:1 default)
              * @default {

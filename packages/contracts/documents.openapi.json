@@ -4953,7 +4953,8 @@
               "front",
               "top",
               "right",
-              "iso"
+              "iso",
+              "flat_pattern"
             ],
             "title": "Projection",
             "type": "string"
@@ -5036,7 +5037,8 @@
               "front",
               "top",
               "right",
-              "iso"
+              "iso",
+              "flat_pattern"
             ],
             "title": "Projection",
             "type": "string"
@@ -5145,7 +5147,8 @@
                   "front",
                   "top",
                   "right",
-                  "iso"
+                  "iso",
+                  "flat_pattern"
                 ],
                 "type": "string"
               },

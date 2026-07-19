@@ -99,9 +99,24 @@ SheetOrientation = Literal["landscape", "portrait"]
 SheetProjectionConvention = Literal["third_angle", "first_angle"]
 
 #: The standard orthographic + isometric projection directions a view stores
-#: (design §2.2). The projection ENUM is ALL documents persists — mapping it to a
-#: 3D frame + running HLR is the geometry service's job (design §1.2), never here.
-ViewProjection = Literal["front", "top", "right", "iso"]
+#: (design §2.2), plus ``flat_pattern`` — a sheet-metal body's unfold as a view
+#: (sheet-metal.md §7). ``flat_pattern`` SKIPS HLR: a :class:`FlatPattern` is
+#: already 2D, so geometry feeds its ``edge_role``-tagged outline straight into the
+#: shipped :class:`ProjectedViewEdge` shape (never a projection frame). The
+#: projection ENUM is ALL documents persists — mapping a standard direction to a 3D
+#: frame + running HLR (or, for ``flat_pattern``, running the unfold) is the
+#: geometry service's job (design §1.2 / sheet-metal.md §6/§7), never here.
+ViewProjection = Literal["front", "top", "right", "iso", "flat_pattern"]
+
+#: An unfolded flat-pattern edge's ROLE (sheet-metal.md §6): a ``body`` edge is a
+#: real cut outline; a ``bend`` edge is a fold line (rendered as its own dashed-blue
+#: stroke, not a visible/hidden BODY-edge distinction). Additive to
+#: :class:`ProjectedViewEdge` (defaulting ``body``), so every existing HLR view is
+#: unaffected — the ONE new field the flat-pattern reuse needs (§6).
+EdgeRole = Literal["body", "bend"]
+
+#: A bend's fold sense in a flat pattern's bend table (sheet-metal.md §1/§6).
+BendDirection = Literal["up", "down"]
 
 #: The v1 dimension set (design §3.1).
 DimensionType = Literal["linear", "diameter", "radius", "angular"]
@@ -711,6 +726,14 @@ class ProjectedViewEdge(BaseModel):
         default_factory=list["ProjectedPoint"],
         description="Sampled polyline vertices (empty for line/circle/arc)",
     )
+    edge_role: EdgeRole = Field(
+        default="body",
+        description="Outline role (sheet-metal.md §6): 'body' = a real cut edge "
+        "(every HLR view edge, the default — additive so existing consumers are "
+        "unaffected); 'bend' = a flat-pattern fold line, rendered as its own dashed-"
+        "blue stroke rather than the visible/hidden BODY-edge styling. Orthogonal to "
+        "`visible` (a bend line is neither a solid nor an occluded body edge).",
+    )
     source_edge: EdgeSignature | None = Field(
         default=None,
         description="The MODEL edge this projected edge provenance-maps to (design "
@@ -742,6 +765,27 @@ class ProjectedViewEdge(BaseModel):
     )
 
 
+class BendTableRow(BaseModel):
+    """One row of a flat-pattern view's bend table (sheet-metal.md §6/§7).
+
+    The shop's fold instructions for one bend line: which line (``bend_id``, the
+    same id the matching ``edge_role="bend"`` :class:`ProjectedViewEdge` carries via
+    the flat pattern), its fold ``angle_deg`` and inner ``radius_mm``, the fold
+    ``direction`` (up/down relative to the base flange), and the ``bend_allowance_mm``
+    (``BA = angle_rad * (radius + K * thickness)``, §1 — the developed length the
+    flat strip replaces). Every value is already computed by the unfold; documents
+    stores none of it — it is derived geometry-side alongside the flat-pattern edges.
+    """
+
+    bend_id: str = Field(description="Bend line id (matches the 'bend' edge, §6)")
+    angle_deg: float = Field(description="Fold angle (degrees)")
+    radius_mm: float = Field(description="Inner bend radius (mm)")
+    direction: BendDirection = Field(description="Fold sense up/down (§1)")
+    bend_allowance_mm: float = Field(
+        description="Bend allowance BA = angle_rad * (radius + K * thickness), mm (§1)"
+    )
+
+
 class DrawingViewResult(BaseModel):
     """One requested view's projection outcome inside a 200 (design §1.3/§1.5).
 
@@ -752,6 +796,15 @@ class DrawingViewResult(BaseModel):
     ``geometry.drawings.ViewProjectionError``) — never a 500, never a silently
     empty success. A per-view failure NEVER fails the whole request; the other
     requested views still project (mirroring the per-feature/per-mate posture).
+
+    For a ``flat_pattern`` view (sheet-metal.md §7) the SAME ``edges`` list carries
+    the unfold's outline — cut edges as ``edge_role="body"``, fold lines as
+    ``edge_role="bend"`` — and ``bend_table`` carries the per-bend fold data the
+    frontend renders as an annotation table. ``bend_table`` is empty for every
+    standard HLR view (additive — a non-sheet-metal consumer is unaffected). A
+    ``flat_pattern`` asked of a non-sheet-metal body is a typed per-view
+    ``flat_pattern_not_sheet_metal`` error, and an unresolvable bend a
+    ``subshape_unresolved`` (never a wrong flat pattern — §5).
     """
 
     view: ViewProjection = Field(description="The projection direction of this view")
@@ -760,10 +813,16 @@ class DrawingViewResult(BaseModel):
         default_factory=list["ProjectedViewEdge"],
         description="Canonically-ordered visible+hidden 2D edges (empty on error)",
     )
+    bend_table: list[BendTableRow] = Field(
+        default_factory=list["BendTableRow"],
+        description="Per-bend fold rows for a flat_pattern view (sheet-metal.md §6/"
+        "§7); empty for every standard HLR view and on error",
+    )
     error: FeatureError | None = Field(
         default=None,
-        description="Typed per-view HLR failure (`view_projection_failed`), or null "
-        "on success (design §1.5)",
+        description="Typed per-view failure (`view_projection_failed` for HLR, "
+        "`flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern), "
+        "or null on success (design §1.5 / sheet-metal.md §7)",
     )
 
 

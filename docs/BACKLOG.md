@@ -782,16 +782,34 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       full geometry suite + ruff + pyright green. Deferred: non-parallel depth-1
       stars (flanges off perpendicular edges) + depth ≥2 (§4.3). [src: founder,
       design/sheet-metal.md §4.2/§4.3/§5/§10]
-- [ ] (P2, M) Sheet metal v1 #4 — flat pattern as a drawing view + bend
-      table (geometry + documents + web) — the v1 DoD, "one bracket → a
-      dimensionally-correct flat blank a shop can cut." `views.projection =
-      "flat_pattern"` feeds the `FlatPattern` output directly into the
-      shipped `ProjectedViewEdge` shape (no HLR needed — already flat) so the
-      sheet editor/dimension UI/SVG export work with MINIMAL additive
-      frontend, not zero — one new `edge_role: "body" | "bend"` field/render
-      branch, not a new renderer; `annotations.type = "table"` carries the
-      per-bend rows (angle, radius, direction, allowance) the unfold already
-      computed. [src: founder, design/sheet-metal.md §6/§7/§10]
+- [~] (P2, M) Sheet metal v1 #4 — flat pattern as a drawing view + bend
+      table — **BACKEND SHIPPED 2026-07-19; frontend render is the next
+      slice.** Backend (this slice): additive `ProjectedViewEdge.edge_role:
+      "body"|"bend"` (defaulted → existing HLR/drawing consumers unaffected;
+      generated non-optional like the sibling `dimensionable`), a
+      `flat_pattern` `ViewProjection` that SKIPS HLR and unfolds the
+      sheet-metal body (`geometry.drawings.flat_pattern_view_result`, reusing
+      `evaluate_tree` + `unfold_sheet_metal`) into the SAME
+      `DrawingViewResult`/`ProjectedViewEdge` shape — cut edges `edge_role
+      "body"`, fold lines `"bend"` — plus a `BendTableRow` bend table
+      (bend_id/angle/radius/direction/allowance) surfaced on `DrawingViewResult
+      .bend_table`; a non-sheet-metal body → typed per-view
+      `flat_pattern_not_sheet_metal`, an unresolvable bend →
+      `subshape_unresolved`. Wired end-to-end (documents stores the projection,
+      gateway `/drawing/evaluate` proxies it — both via the widened enum, no new
+      routes). Goldens `l-bracket-flat-pattern-view` (N=1) +
+      `u-channel-flat-pattern-view` (N=2): edge counts by role, analytic bend
+      table (residual <1e-12, tol 1e-9), byte-deterministic view result
+      (in-proc + fresh-restart). Part A review-debt cleared in the same commit:
+      the planar-signature matcher promoted to the importable kernel
+      `planar_signatures_match` (unfold dedup), the two deferred unfold-scope
+      boundaries locked with real assertions. gen-check clean; full geometry
+      suite + ruff + pyright + web typecheck/test green. **PENDING (next
+      slice):** the frontend flat-pattern render (the `edge_role="bend"`
+      dashed-blue stroke + bend-table annotation) and `place_sheet` full-sheet
+      composition of a flat-pattern view (NOT auto-laid-out by the standard-4
+      layout — pairs with the render). [src: founder, design/sheet-metal.md
+      §6/§7/§10]
 
 - [ ] (P2, M) Datum-plane completeness (founder ask 2026-07-16: "do we have
       planes, offset planes, midpoint planes etc") — **backend slice ✅

@@ -188,7 +188,7 @@ def planar_faces(body: BodyShape) -> list[PlanarFaceRecord]:
     return records
 
 
-def _signatures_match(
+def planar_signatures_match(
     candidate: PlanarFaceSignature, target: PlanarFaceSignature
 ) -> bool:
     """Nearest-within-tolerance match of two planar-face signatures (§7.2).
@@ -197,6 +197,12 @@ def _signatures_match(
     within the linear tolerance, and area within a relative tolerance. Compared
     field by field so a lone in-tolerance candidate is a unique match and two are
     an honest ambiguity (never a guess).
+
+    THE single planar-signature matcher (CLAUDE.md DRY rule): the face resolvers
+    below AND the sheet-metal unfold's base/moving split
+    (:func:`geometry.sheet_metal.unfold._split_base_moving`) call this one helper
+    against the one source of the three match tolerances above — no field-for-field
+    reimplementation, no re-declared epsilons.
     """
     n_dot = (
         candidate.normal.x * target.normal.x
@@ -233,7 +239,7 @@ def resolve_face_plane(
     matches = [
         record
         for record in planar_faces(body)
-        if _signatures_match(record.signature, target)
+        if planar_signatures_match(record.signature, target)
     ]
     if not matches:
         raise SubshapeUnresolvedError(
@@ -279,7 +285,7 @@ def resolve_faces(body: BodyShape, targets: list[PlanarFaceSignature]) -> list[F
     records = planar_faces(body)
     chosen: dict[int, Face] = {}
     for target in targets:
-        matches = [r for r in records if _signatures_match(r.signature, target)]
+        matches = [r for r in records if planar_signatures_match(r.signature, target)]
         if not matches:
             raise SubshapeUnresolvedError(
                 "No planar face of the current body matches a picked face "

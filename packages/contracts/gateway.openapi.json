@@ -524,6 +524,49 @@
         "title": "AxisParallelEdgesSelector",
         "type": "object"
       },
+      "BendTableRow": {
+        "description": "One row of a flat-pattern view's bend table (sheet-metal.md \u00a76/\u00a77).\n\nThe shop's fold instructions for one bend line: which line (``bend_id``, the\nsame id the matching ``edge_role=\"bend\"`` :class:`ProjectedViewEdge` carries via\nthe flat pattern), its fold ``angle_deg`` and inner ``radius_mm``, the fold\n``direction`` (up/down relative to the base flange), and the ``bend_allowance_mm``\n(``BA = angle_rad * (radius + K * thickness)``, \u00a71 \u2014 the developed length the\nflat strip replaces). Every value is already computed by the unfold; documents\nstores none of it \u2014 it is derived geometry-side alongside the flat-pattern edges.",
+        "properties": {
+          "angle_deg": {
+            "description": "Fold angle (degrees)",
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "bend_allowance_mm": {
+            "description": "Bend allowance BA = angle_rad * (radius + K * thickness), mm (\u00a71)",
+            "title": "Bend Allowance Mm",
+            "type": "number"
+          },
+          "bend_id": {
+            "description": "Bend line id (matches the 'bend' edge, \u00a76)",
+            "title": "Bend Id",
+            "type": "string"
+          },
+          "direction": {
+            "description": "Fold sense up/down (\u00a71)",
+            "enum": [
+              "up",
+              "down"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "radius_mm": {
+            "description": "Inner bend radius (mm)",
+            "title": "Radius Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "bend_id",
+          "angle_deg",
+          "radius_mm",
+          "direction",
+          "bend_allowance_mm"
+        ],
+        "title": "BendTableRow",
+        "type": "object"
+      },
       "BomLine": {
         "description": "One line of an assembly's bill of materials (a flat, direct-instance BOM).\n\nA BOM line GROUPS the assembly's DIRECT instances by the document they\nreference: ``quantity`` is the count of instances sharing this\n``ref_document_id``, ``name`` is the referenced document's CURRENT name, and\n``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 \u2014\ndirect instances only, NOT recursive into rigid sub-assemblies (an explicit\nfollow-up; a sub-assembly instance appears as a single ``kind: \"assembly\"``\nline, never expanded).\n\nA referenced document that was DELETED while still instanced surfaces\nhonestly, not silently: the line stays (its instances still exist and still\ncount), with ``name`` null and ``missing`` true, so a client can flag the\ndangling reference rather than the read 500-ing or the quantity vanishing.",
         "properties": {
@@ -1362,7 +1405,8 @@
               "front",
               "top",
               "right",
-              "iso"
+              "iso",
+              "flat_pattern"
             ],
             "title": "Projection",
             "type": "string"
@@ -2142,7 +2186,8 @@
               "front",
               "top",
               "right",
-              "iso"
+              "iso",
+              "flat_pattern"
             ],
             "title": "View",
             "type": "string"
@@ -2269,8 +2314,16 @@
         "type": "object"
       },
       "DrawingViewResult": {
-        "description": "One requested view's projection outcome inside a 200 (design \u00a71.3/\u00a71.5).\n\nOn success, ``edges`` carries the view's canonically-ordered visible+hidden 2D\nedges and ``error`` is null. On an exact-HLR failure (a fragile body \u2014 tangent\nedges, self-intersections, \u00a71.5), ``edges`` is empty and ``error`` is a typed\n``view_projection_failed`` (the boundary form of\n``geometry.drawings.ViewProjectionError``) \u2014 never a 500, never a silently\nempty success. A per-view failure NEVER fails the whole request; the other\nrequested views still project (mirroring the per-feature/per-mate posture).",
+        "description": "One requested view's projection outcome inside a 200 (design \u00a71.3/\u00a71.5).\n\nOn success, ``edges`` carries the view's canonically-ordered visible+hidden 2D\nedges and ``error`` is null. On an exact-HLR failure (a fragile body \u2014 tangent\nedges, self-intersections, \u00a71.5), ``edges`` is empty and ``error`` is a typed\n``view_projection_failed`` (the boundary form of\n``geometry.drawings.ViewProjectionError``) \u2014 never a 500, never a silently\nempty success. A per-view failure NEVER fails the whole request; the other\nrequested views still project (mirroring the per-feature/per-mate posture).\n\nFor a ``flat_pattern`` view (sheet-metal.md \u00a77) the SAME ``edges`` list carries\nthe unfold's outline \u2014 cut edges as ``edge_role=\"body\"``, fold lines as\n``edge_role=\"bend\"`` \u2014 and ``bend_table`` carries the per-bend fold data the\nfrontend renders as an annotation table. ``bend_table`` is empty for every\nstandard HLR view (additive \u2014 a non-sheet-metal consumer is unaffected). A\n``flat_pattern`` asked of a non-sheet-metal body is a typed per-view\n``flat_pattern_not_sheet_metal`` error, and an unresolvable bend a\n``subshape_unresolved`` (never a wrong flat pattern \u2014 \u00a75).",
         "properties": {
+          "bend_table": {
+            "description": "Per-bend fold rows for a flat_pattern view (sheet-metal.md \u00a76/\u00a77); empty for every standard HLR view and on error",
+            "items": {
+              "$ref": "#/components/schemas/BendTableRow"
+            },
+            "title": "Bend Table",
+            "type": "array"
+          },
           "edges": {
             "description": "Canonically-ordered visible+hidden 2D edges (empty on error)",
             "items": {
@@ -2288,7 +2341,7 @@
                 "type": "null"
               }
             ],
-            "description": "Typed per-view HLR failure (`view_projection_failed`), or null on success (design \u00a71.5)"
+            "description": "Typed per-view failure (`view_projection_failed` for HLR, `flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern), or null on success (design \u00a71.5 / sheet-metal.md \u00a77)"
           },
           "scale": {
             "$ref": "#/components/schemas/ViewScale",
@@ -2300,7 +2353,8 @@
               "front",
               "top",
               "right",
-              "iso"
+              "iso",
+              "flat_pattern"
             ],
             "title": "View",
             "type": "string"
@@ -2691,7 +2745,8 @@
                 "front",
                 "top",
                 "right",
-                "iso"
+                "iso",
+                "flat_pattern"
               ],
               "type": "string"
             },
@@ -4761,7 +4816,8 @@
               "front",
               "top",
               "right",
-              "iso"
+              "iso",
+              "flat_pattern"
             ],
             "title": "View",
             "type": "string"
@@ -5451,6 +5507,16 @@
             "description": "True iff `source_edge` is a single unambiguous model edge, so a dimension may attach to this projected edge (design \u00a73.3). False for silhouette/outline edges and ambiguous coincident projections \u2014 HONEST un-dimensionability rather than a wrong signature (\u00a71.5).",
             "title": "Dimensionable",
             "type": "boolean"
+          },
+          "edge_role": {
+            "default": "body",
+            "description": "Outline role (sheet-metal.md \u00a76): 'body' = a real cut edge (every HLR view edge, the default \u2014 additive so existing consumers are unaffected); 'bend' = a flat-pattern fold line, rendered as its own dashed-blue stroke rather than the visible/hidden BODY-edge styling. Orthogonal to `visible` (a bend line is neither a solid nor an occluded body edge).",
+            "enum": [
+              "body",
+              "bend"
+            ],
+            "title": "Edge Role",
+            "type": "string"
           },
           "end": {
             "$ref": "#/components/schemas/ProjectedPoint",
@@ -7880,7 +7946,8 @@
               "front",
               "top",
               "right",
-              "iso"
+              "iso",
+              "flat_pattern"
             ],
             "title": "Projection",
             "type": "string"
@@ -7963,7 +8030,8 @@
               "front",
               "top",
               "right",
-              "iso"
+              "iso",
+              "flat_pattern"
             ],
             "title": "Projection",
             "type": "string"
@@ -8072,7 +8140,8 @@
                   "front",
                   "top",
                   "right",
-                  "iso"
+                  "iso",
+                  "flat_pattern"
                 ],
                 "type": "string"
               },

@@ -305,7 +305,14 @@ def measure_dimension(
 
 def _as_direction(view: ViewProjection) -> ViewDirection:
     """The boundary ``ViewProjection`` literal is value-identical to the kernel
-    ``ViewDirection`` (front/top/right/iso); this narrows the type without a map."""
+    ``ViewDirection`` for the four standard directions; this narrows the type
+    without a map. ``flat_pattern`` (sheet-metal.md §7) has NO HLR projection
+    direction — measuring a dimension against a flat-pattern view is out of v1 scope
+    (dimensions attach to standard views); it falls back to the ``top`` normal purely
+    as the §3.2 foreshortening reference, and the measured value stays model-true
+    regardless (design §3.1)."""
+    if view == "flat_pattern":
+        return "top"
     return view
 
 

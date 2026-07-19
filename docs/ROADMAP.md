@@ -3,9 +3,10 @@
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
 **Current focus: Phase 4b — Sheet metal** (founder green-lit 2026-07-19;
-slices #1 base flange, #2 unfold algorithm, and #3 edge-flange/authored-body
-unfold landed — flat pattern as a drawing view + bend table (#4) is the
-remaining v1 slice; see §Phase 4b). The intervening
+slices #1 base flange, #2 unfold algorithm, #3 edge-flange/authored-body
+unfold, and #4 flat-pattern-drawing-view BACKEND landed — the #4 FRONTEND
+render (edge_role bend-line stroke + bend-table annotation) is the remaining
+v1 slice; see §Phase 4b). The intervening
 pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
 the **Multi-body** pillar through MB-4a (multi-lump bodies + opt-in disjoint
 union). The historical convergence notes below are retained as-is.
@@ -858,11 +859,23 @@ design/assemblies.md` v1 #2):
    hand-derived flat length/area, byte-deterministic. Cleared both deferred
    Spike-0 risks (MakeFace robustness; up/down inference). Deferred:
    non-parallel depth-1 stars + depth ≥2.
-4. Flat pattern as a drawing view (`views.projection = "flat_pattern"`,
-   reuses the shipped `ProjectedViewEdge` DTO + sheet editor + SVG export
-   with minimal additive frontend — one new `edge_role` field/render branch,
-   not a new renderer) + bend-table annotation (`annotations.type =
-   "table"`) — the v1 DoD, "one bracket → a flat blank a shop can cut."
+4. Flat pattern as a drawing view (`views.projection = "flat_pattern"`) —
+   **BACKEND SHIPPED 2026-07-19; frontend render pending (next slice).**
+   The backend half: additive `ProjectedViewEdge.edge_role: "body"|"bend"`
+   (defaulted → existing HLR consumers unaffected), a `flat_pattern`
+   projection that SKIPS HLR and unfolds the sheet-metal body into the SAME
+   `DrawingViewResult`/`ProjectedViewEdge` shape (reusing `evaluate_tree` +
+   `unfold_sheet_metal`, no new projection frame), a `BendTableRow` bend
+   table surfaced alongside, and an honest per-view `flat_pattern_not_sheet_metal`
+   error for a non-sheet-metal body. Goldens `l-bracket-flat-pattern-view` (N=1)
+   + `u-channel-flat-pattern-view` (N=2): edge counts by role, analytic bend
+   table, byte-deterministic view result (in-process + restart). **Still
+   pending (next slice):** the frontend flat-pattern sheet render (the
+   `edge_role="bend"` dashed-blue stroke + the bend-table annotation) and the
+   full-sheet `place_sheet` composition of a flat-pattern view (a flat-pattern
+   view is NOT placed by the standard-4 auto-layout — its placement pairs with
+   the render). This clears the v1 DoD's backend, "one bracket → a flat blank
+   a shop can cut."
 
 Explicitly deferred past v1 (design doc §10): multi-bend/bend-graph
 flattening (boxes, hat channels), miter flanges/hems/jogs/tabs/corner

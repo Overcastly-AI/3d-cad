@@ -36,10 +36,12 @@ and the typed DTOs at the boundary keep it honest.
 
 import math
 from dataclasses import dataclass
+from typing import Literal
 
 from build123d import Vector
 from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
 
+from geometry.kernel.faces import planar_signatures_match
 from geometry.kernel.types import BodyShape
 from geometry.sheet_metal.flat_pattern import BendLine, FlatEdge2D, FlatPattern
 from geometry.sheet_metal.resolve import (
@@ -50,12 +52,11 @@ from geometry.sheet_metal.resolve import (
     resolve_cylindrical_face,
 )
 
-#: Star-layout tolerances (documented, not ad-hoc — §9). Faces of an authored
-#: sheet are axis-aligned, so residuals are ulp-scale.
+#: Star-layout tolerance (documented, not ad-hoc — §9). Faces of an authored
+#: sheet are axis-aligned, so residuals are ulp-scale. Cylinder-axis-specific
+#: (not in faces.py); the planar-face match tolerances live once in
+#: :mod:`geometry.kernel.faces` and are applied via :func:`planar_signatures_match`.
 _PARALLEL_TOL = 1e-9  # 1 - |dot| between unit axis directions
-_NORMAL_TOL = 1e-9  # 1 - dot between same-sense unit normals
-_CENTROID_TOL_MM = 1e-6  # planar-face centroid distance (mm)
-_AREA_REL_TOL = 1e-6  # relative area difference
 
 
 class UnfoldScopeError(SheetMetalUnfoldError):
@@ -196,21 +197,7 @@ class _StarBend:
     moving_area_mm2: float
     u_position: float  # moving flange centroid, projected on the layout u-axis
     side: int  # +1 extends +u beyond the base, -1 extends -u
-    direction: str  # "up" | "down" — fold sense relative to the base normal
-
-
-def _planar_matches(a: PlanarFaceSignature, b: PlanarFaceSignature) -> bool:
-    """Same-sense normal + centroid + area within the documented tolerances."""
-    n_dot = a.normal.x * b.normal.x + a.normal.y * b.normal.y + a.normal.z * b.normal.z
-    if 1.0 - n_dot > _NORMAL_TOL:
-        return False
-    if (
-        math.dist((a.centroid.x, a.centroid.y, a.centroid.z),
-                  (b.centroid.x, b.centroid.y, b.centroid.z))
-        > _CENTROID_TOL_MM
-    ):
-        return False
-    return abs(a.area_mm2 - b.area_mm2) / max(abs(b.area_mm2), 1.0) <= _AREA_REL_TOL
+    direction: Literal["up", "down"]  # fold sense relative to the base normal
 
 
 def unfold_sheet_metal(
@@ -311,9 +298,9 @@ def _split_base_moving(
 ) -> tuple[FlangeFaceRecord, FlangeFaceRecord]:
     """(base, moving) — the flange matching *base_sig* is the base, the other moves."""
     a, b = flanges
-    if _planar_matches(a.signature, base_sig):
+    if planar_signatures_match(a.signature, base_sig):
         return a, b
-    if _planar_matches(b.signature, base_sig):
+    if planar_signatures_match(b.signature, base_sig):
         return b, a
     raise UnfoldStarError(
         "Neither flanking face of a bend matches the stored base-flange face "
@@ -358,7 +345,7 @@ def _lay_out_star(
                 k_factor=b.k_factor,
                 allowance_mm=b.allowance_mm,
                 width_mm=b.width_mm,
-                direction=b.direction,  # type: ignore[arg-type]
+                direction=b.direction,
                 flat_start_mm=strip_start,
                 flat_end_mm=strip_end,
             )

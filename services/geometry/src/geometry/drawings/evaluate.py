@@ -13,6 +13,10 @@ Pipeline (design §1.2):
 2. Run exact HLR (:func:`geometry.drawings.project_view`) per requested view. An
    HLR failure on one view (a fragile body, §1.5) becomes THAT view's typed
    ``view_projection_failed`` error — never a 500, never failing the other views.
+   A ``flat_pattern`` view (sheet-metal.md §7) instead SKIPS HLR and unfolds the
+   sheet-metal body (:func:`geometry.drawings.flat_pattern_view_result`) into the
+   SAME :class:`DrawingViewResult` shape (edge_role-tagged outline + bend table);
+   a non-sheet-metal body is that view's typed ``flat_pattern_not_sheet_metal``.
 3. Map the internal :class:`~geometry.drawings.ProjectedEdge` dataclasses → the
    neutral py-kit DTOs at this boundary. NO OCCT/kernel type crosses (CLAUDE.md).
 
@@ -34,6 +38,7 @@ from py_kit.schemas.drawings import (
 )
 from py_kit.schemas.features import EvaluateTreeRequest, FeatureError
 
+from geometry.drawings.flat_pattern import FLAT_PATTERN_VIEW, flat_pattern_view_result
 from geometry.drawings.measure import measure_dimension_dto
 from geometry.drawings.project import (
     Point2D,
@@ -161,6 +166,13 @@ def evaluate_drawing_views(
     body = evaluation.body
     views: list[DrawingViewResult] = []
     for view in request.views:
+        if view == FLAT_PATTERN_VIEW:
+            # A flat_pattern view SKIPS HLR (sheet-metal.md §7): it unfolds the
+            # sheet-metal body and feeds the edge_role-tagged outline + bend table
+            # straight into the SAME DrawingViewResult shape. Non-sheet-metal /
+            # unresolvable-bend cases are that view's typed error (handled inside).
+            views.append(flat_pattern_view_result(evaluation, request.scale))
+            continue
         try:
             projection = project_view(body, view, scale=scale_value)
         except ViewProjectionError as exc:

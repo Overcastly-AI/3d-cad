@@ -21,6 +21,10 @@ from geometry.drawings.compose import (
     serialize_svg,
 )
 from geometry.drawings.evaluate import evaluate_drawing_views
+from geometry.drawings.flat_pattern import (
+    FLAT_PATTERN_VIEW,
+    flat_pattern_view_result,
+)
 from geometry.drawings.measure import (
     DimensionTypeError,
     DimensionValue,
@@ -39,6 +43,7 @@ from geometry.drawings.project import (
 )
 
 __all__ = [
+    "FLAT_PATTERN_VIEW",
     "DimensionTypeError",
     "DimensionValue",
     "Point2D",
@@ -48,6 +53,7 @@ __all__ = [
     "ViewProjectionError",
     "canonical_edges_repr",
     "evaluate_drawing_views",
+    "flat_pattern_view_result",
     "measure_dimension",
     "measure_dimension_dto",
     "place_sheet",
