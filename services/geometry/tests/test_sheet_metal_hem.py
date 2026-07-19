@@ -506,3 +506,25 @@ def test_hem_kernel_failure_maps_to_typed_edge_flange_failed(
     assert [f.status for f in evaluation.result.features] == ["ok", "ok", "error"]
     err = evaluation.result.features[2].error
     assert err is not None and err.code == "edge_flange_failed"
+
+
+def test_hem_degenerate_tiny_radius_degrades_typed_not_generic() -> None:
+    """Honest degradation (parity §3) on a REAL degenerate bend — NOT monkeypatched.
+
+    An authorable sub-gauge radius (r far below 1e-6 mm; the schema only enforces
+    ``gt=0``) fuses into one solid yet leaves no findable bend arc, so
+    ``find_cylindrical_face`` raises ``NoBendFoundError``. The provenance guard in
+    ``edge_flange.py`` maps it to a TYPED ``edge_flange_failed`` — never the generic
+    ``evaluation_failed`` / "Unexpected NoBendFoundError" bucket. Regression for the
+    code-review 🟡 on 35e11f1 (the try/except used to END before the bend-face
+    resolution, so this real path escaped unwrapped; the monkeypatch test above only
+    exercised the build-failure mapping)."""
+    request = _tree(
+        (_SK, _rect(50.0, 20.0)),
+        (_BF, _base_flange()),
+        (_HM, _hem(_top_edge_sig(50.0, 20.0, 2.0), bend_radius_mm=1e-9)),
+    )
+    evaluation = evaluate_tree(request)
+    assert [f.status for f in evaluation.result.features] == ["ok", "ok", "error"]
+    err = evaluation.result.features[2].error
+    assert err is not None and err.code == "edge_flange_failed"

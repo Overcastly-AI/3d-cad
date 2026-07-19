@@ -220,8 +220,24 @@ def build_edge_flange(
     # tangent edge and curves away, never covering it).
     axis_origin = (p0.X + n.X * r, p0.Y + n.Y * r, p0.Z + n.Z * r)
     axis_dir = (v.X, v.Y, v.Z)
-    inner_face = find_cylindrical_face(result_body, axis_origin, axis_dir, r)
-    cyl_signature = cylindrical_face_signature(inner_face)
+    # Resolving the bend face is part of the kernel fold: a physically-degenerate
+    # bend (e.g. a radius far below gauge, ~<1e-6 mm) can fuse into one solid yet
+    # leave no findable cylindrical arc, so `find_cylindrical_face` raises
+    # `NoBendFoundError` (a `SheetMetalUnfoldError`, NOT an `EdgeFlangeError`). Map
+    # it — and any other resolution failure — to the typed `EdgeFlangeError` so the
+    # feature degrades to `edge_flange_failed`, never the generic `evaluation_failed`
+    # bucket (the honest-degradation contract; the try/except above only covers
+    # construction+fuse, this covers provenance resolution).
+    try:
+        inner_face = find_cylindrical_face(result_body, axis_origin, axis_dir, r)
+        cyl_signature = cylindrical_face_signature(inner_face)
+    except EdgeFlangeError:
+        raise
+    except Exception as exc:
+        raise EdgeFlangeError(
+            f"Edge-flange bend face could not be resolved ({type(exc).__name__}); "
+            "the bend radius may be too small to form a valid bend arc for this gauge."
+        ) from exc
     base_sig = face_signature_dto(reference)
     assert base_sig is not None, "reference face is planar"
     return EdgeFlangeResult(
