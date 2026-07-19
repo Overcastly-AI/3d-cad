@@ -50,6 +50,104 @@ discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
 
+## 2026-07-19 — INDEPENDENT geometry-QA of MB-4a multi-lump bodies + opt-in disjoint union (`e77da29`) — VERDICT: PASS (trustworthy)
+
+Independent verification of the reconciled MB-4a work (`EvaluationState.bodies`
+widened `dict[UUID, Solid]` → `dict[UUID, BodyShape]`; modifying ops relaxed to
+lump-count-preserving `== k`; `allow_disjoint` opt-in). All six requested gates
+PASS; no correctness defects found. Full geometry suite **1051 tests, exit 0**
+(`uv run pytest services/geometry/tests -q`, build123d 0.11.1 / OCCT 7.9).
+
+### 1. Determinism (GLB + STEP + tree-order independence) — PASS
+- In-process ×2 + fresh-interpreter restart for both new goldens →
+  **byte-identical GLB + identical metadata** (harness
+  `test_rebuild_is_deterministic_{in_process,across_interpreter_restart}`
+  green for `boolean-union-two-disjoint-cubes`, `boolean-union-disjoint-then-fillet-lump2`,
+  `multibody-two-disjoint-boxes`). GLB SHA-256 (12-char): disjoint-cubes
+  `703b0cba1017`, fillet-lump2 `0093f777496a`.
+- **Load-bearing cross-check:** `boolean-union-two-disjoint-cubes` GLB hash
+  `703b0cba1017` is **identical** to the MB-0 `multibody-two-disjoint-boxes`
+  hash — the disjoint-union path reproduces the two-body geometry byte-for-byte,
+  proving the flattened part roll-up + explicit lump sort are consistent across
+  the two code paths that reach the same solid.
+- **Tree-order independence (probed):** rebuilt the disjoint union with the
+  boolean's `target`/`tool` operand refs **swapped** → GLB **byte-identical** to
+  the original. The centroid-x/y/z-then-volume lump sort makes multi-lump output
+  order independent of operand supply order (RESEARCH §9).
+
+### 2. k=1 byte-identity vs pre-MB-4a — PASS
+Rebuilt 10 single-solid goldens that flow through a relaxed op — fillet
+(`fillet-plate-r5`, `fillet-top-edge`), chamfer (`chamfer-plate-d5`), shell
+(`shell-open-top-box`), draft (`draft-frustum-box`), pattern (linear/circular/
+cut), and `boolean-union-then-fillet` — at HEAD `e77da29` **and** at the
+pre-MB-4a parent `e77da29~1` (git worktree). **GLB SHA-256 identical on all 10.**
+The widening does not perturb the k=1 path. (STEP SHA differs cross-run, but the
+diff is exactly the 2-line `FILE_NAME` wall-clock timestamp — verified by
+diffing two exports of the *same* shape 1.1 s apart → 2 differing lines, both the
+`2026-07-19T02:30:35`/`:36` header; STEP *geometry* is preserved, see gate 4.)
+
+### 3. Volume / topology correctness of the two new goldens — PASS
+Independently re-derived analytics match `expected.json` and measured output:
+- `boolean-union-two-disjoint-cubes`: 2×20³ = **16000 mm³** (measured
+  15999.99999999999_6, dev ~4e-12); surface 12×400 = **4800 mm²** (meas
+  4799.99999999999_9); centroid (25, 10, 10); **12 faces / 24 edges / 2 shells**;
+  mesh 48 v / 24 t — all exact.
+- `boolean-union-disjoint-then-fillet-lump2`: 16000 − 20(4−π) = 15920 + 20π =
+  **15982.831853071795** (measured …0793, dev ~2e-12); surface 4712 + 22π =
+  **4781.115038378975** (meas …9745); centroid (24.97362582238927,
+  10.010261751083917, 10); **13 faces / 27 edges / 2 shells**; mesh 178 v / 152 t
+  — all exact. `shells=2` confirms the lump-2 fillet is lump-count-preserving.
+Both within the documented `tolerance=1e-9` (worst residual ~4e-12, ~250× inside).
+
+### 4. STEP round-trip of a Compound body — PASS
+`boolean-union-two-disjoint-cubes` Compound → `export_step` → `import_step`:
+lump count **2 → 2**; per-lump volumes **[8000, 8000] → [8000, 8000]**; total
+16000 → 16000 (deviations at GProp/STEP ulp, ~1e-12). `fillet-lump2` per-lump
+**[7982.83…, 8000] → [7982.83…, 8000]** (fillet lump survives, dev ~1e-11).
+Harness `test_step_roundtrip_preserves_geometry` green for both new goldens.
+
+### 5. `allow_disjoint` semantics — PASS
+Direct feature-tree probes (non-touching operands unless noted):
+- flag **absent** → `error boolean_disjoint`; flag **False** → `error boolean_disjoint`
+  (last-good body set = the two un-consumed bodies, shells=2 — correct §4.3);
+- flag **True** → `ok`, ONE 2-lump `Compound` (shells=2, lumps=2);
+- **touching** operands (share face x=20): `ok`, single `Solid` (shells=1) with
+  flag **True** *and* **absent** — fusion is unaffected by the flag;
+- non-overlapping **intersect** → `error boolean_empty` with flag True *and*
+  absent — an empty result stays `boolean_empty` regardless of the flag.
+
+### 6. Mate-against-multi-lump-face regression — PASS (genuinely cross-lump)
+`test_mate_resolves_a_face_on_a_multilump_body`: a `Compound([near x[0,20],
+far x[100,120]])` mate ref names the FAR lump's +X face (centroid x>100);
+`resolve_mate_geometry` resolves to a point at **x≈120** with outward **+X**.
+The near lump also has a +X face (x=20), so a correct result *requires*
+enumerating faces across both lumps and selecting the far one by signature — the
+test genuinely exercises body-scoped cross-lump resolution, not a first-lump
+shortcut. All 5 `test_multibody.py` tests green.
+
+### Note (NOT MB-4a; foreign in-flight work observed during this run)
+Early runs flaked on `test_goldens.py::test_every_golden_dir_is_complete` /
+collection. Root cause: a **concurrently-running sheet-metal agent** had dropped
+an untracked `goldens/sheet-metal-l-bracket-unfold/model.json` that is not a
+`TessellateRequest`/`EvaluateTreeRequest`, so `test_goldens._load_goldens()`
+(and the `test_step_roundtrip`/`test_export` golden globs) errored at collection.
+That agent then committed a fix ("move sheet-metal golden to its own harness
+dir", `45a4bf0`) relocating it to `goldens-sheet-metal/`, and the collision
+cleared. Diagnosis for the record: the golden harness globs **every**
+`goldens/*/model.json` and parses it strictly, so any non-golden `model.json`
+under that tree breaks the whole harness — the sheet-metal builder's fix is the
+right resolution; no MB-4a defect. MB-4a territory (lumps/boolean/fillet/shell/
+evaluate + the two new goldens) is untouched by `45a4bf0..HEAD`.
+
+### VERDICT: TRUSTWORTHY — MB-4a accepted
+Analytics re-derived from scratch match to the last significant digit; both new
+goldens' topology closes under Euler–Poincaré (V−E+F = 2 per lump); the k=1 path
+is GLB-byte-identical to pre-MB-4a across all five relaxed ops; the lump sort
+makes multi-lump output order-independent (byte-identical under operand swap and
+identical to the MB-0 hash); STEP preserves lump count + per-lump volumes;
+`allow_disjoint` gates exactly as specified; the mate resolver genuinely crosses
+lumps. No red findings. No tolerance was loosened.
+
 ## 2026-07-18 — INDEPENDENT geometry-QA of MB-3 fillet-on-boolean-edge + multi-body boolean pillar v1 (`7ed2dd8`) — VERDICT: PASS
 
 Independent verification (re-ran every suite myself; no self-report trusted; no
