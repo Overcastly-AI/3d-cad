@@ -76,19 +76,6 @@ scorecard impact → core capability → polish).
       SVG/PDF/DXF render identical cell text from the same server strings;
       byte goldens updated + the cross-serializer consistency test still
       passes. [src: docs/UI-REVIEW.md 2026-07-19 P2]
-- [ ] (P2, M) Sheet metal v2 #1 — non-parallel depth-1 bend stars (geometry).
-      v1's unfold is scoped to a depth-1 PARALLEL bend star (design doc
-      §4.3); a flange off a PERPENDICULAR edge (a non-parallel 2D outline — a
-      genuinely common tray/bracket shape) hits the documented
-      `UnfoldStarError` today. Generalize the layout math to a non-parallel
-      depth-1 star (still one base + N edge flanges, no bend-graph
-      relaxation — the harder depth≥2 problem stays deferred to the next
-      item). Acceptance: a 3-sided tray (base + 2 perpendicular edge flanges)
-      unfolds to a flat pattern with area-conservation + bend-allowance
-      goldens at the existing 1e-9 tolerance, byte-deterministic in-proc +
-      fresh-restart; existing parallel-star goldens (L-bracket, U-channel)
-      unchanged. [src: design/sheet-metal.md §4.3, "documented next
-      increment"]
 - [ ] (P2, M) Sheet metal v2 Spike — bend-chain (depth ≥2) unfold
       tractability proof. THE next flagged risk (design doc §10, named first
       in the "rough incumbent-parity order," ahead of hems/miters/tabs/
@@ -288,6 +275,19 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P2, M) Sheet metal v2 #1 — non-parallel depth-1 bend stars (geometry,
+      kernel-architect). Spike-first verdict: **TRACTABLE**, no wall — the 2D
+      plus/cross layout works and even shared-corner (adjacent perpendicular)
+      flanges are in scope: the arms occupy disjoint 2D cardinals and the built
+      3D body has exactly-additive volume (no overlap, measured ~1e-12 residual).
+      Generalized `unfold_sheet_metal` to branch: all-parallel bends keep the
+      verbatim 1D strip path (L-bracket/U-channel goldens byte-identical), while
+      non-parallel bends off a rectangular base lay out as a 2D plus. New golden
+      `corner-tray-perp-unfold` (base + 2 perpendicular flanges) at 1e-9 tol,
+      area-conservation + shoelace-outline witness + byte-determinism (in-proc +
+      fresh-restart). The `UnfoldStarError` narrowed to genuinely-unsupported:
+      non-rectangular/angled base, angled bend axis, depth≥2. [src:
+      design/sheet-metal.md §4.3, "documented next increment"]
 - [x] (P2, S) STEP import — parse-timeout bound hardened against CPU-contention
       flakiness. Replaced the single 5 s **wall-clock** subprocess bound (which
       false-fired on slow-but-legit imports under load) with a **CPU-time**
@@ -422,6 +422,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-19 — **Sheet metal v2 #1 — non-parallel bend stars (kernel-architect):**
+  spike proved the 2D plus/cross layout tractable (shared corners included —
+  disjoint arms, exactly-additive volume). `unfold_sheet_metal` branches
+  parallel (byte-identical 1D strip) vs non-parallel (2D tray); new
+  `corner-tray-perp-unfold` golden + narrowed `UnfoldStarError`. Full geometry
+  suite green.
 - 2026-07-19 — **STEP parse-timeout hardened (kernel-architect):** wall-clock
   bound → CPU-time ceiling (`RLIMIT_CPU`, default 20 s) + wall-clock liveness
   backstop (default 60 s); kills the CPU-contention false-fire flake while

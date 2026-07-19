@@ -407,12 +407,27 @@ FlatPattern`:
 flange from each moving flange by the recorded base-face `PlanarFaceSignature`
 (so the base area is counted once, never per-bend), infers each fold's up/down
 direction from the moving flange's side of the base normal (clearing Spike 0's
-deferred inference), and lays the depth-1 star out flat. **v1 scopes the layout
-to a depth-1 PARALLEL bend star** — all bends share a parallel axis (the
-L-bracket N=1 and U-channel N=2, the two goldens). A depth-1 star with flanges
-off *perpendicular* edges (a non-parallel 2D outline) is an honest
-`UnfoldStarError` and a documented next increment; depth ≥2 stays deferred
-(§4.3). Bend faces still unresolvable after an edit degrade to
+deferred inference), and lays the depth-1 star out flat.
+
+**Implementation note (sheet-metal v2 #1, 2026-07-19 — non-parallel stars
+SHIPPED).** `unfold_sheet_metal` now branches on bend-axis parallelism. All
+bends parallel → the verbatim 1D strip path (L-bracket N=1 / U-channel N=2 —
+their goldens stay **byte-identical**). Bends NOT all parallel → a 2D
+**plus/cross** layout (`_unfold_nonparallel`): each flange swings flat about its
+OWN bend axis and is placed as an axis-aligned arm off its base-rectangle side,
+the cylindrical bend replaced by a `BA`-length strip. **Spike-first verdict:
+TRACTABLE, no wall.** The known-hard shared-corner case (two flanges on adjacent
+perpendicular edges) is IN scope: the arms occupy disjoint 2D cardinal regions
+(the empty corner square between them is a reentrant notch), and the built 3D
+body has **exactly-additive volume** (measured residual ~1e-12 → no 3D overlap),
+so no corner relief is geometrically required in v1 (relief stays a §7 deferral).
+The golden `corner-tray-perp-unfold` (base + 2 perpendicular edge flanges) pins
+the analytic area/envelope + a shoelace-outline area witness + byte-determinism.
+**v1 non-parallel scope: a RECTANGULAR base with axis-aligned bends** (a tray /
+pan). Still an honest `UnfoldStarError` (narrowed): a non-rectangular / angled
+base, a bend axis not aligned to the base rectangle, or **depth ≥2** (a flange
+folded off ANOTHER flange — a box corner, the real graph-relaxation problem,
+deferred, §4.3). Bend faces unresolvable after an edit degrade to
 `subshape_unresolved` (§5), never a wrong flat pattern.
 5. Tag the seam between each original planar segment and its neighbor as a
    **bend line** (a construction-style edge in the output, carrying the

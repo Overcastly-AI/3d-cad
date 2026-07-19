@@ -533,21 +533,21 @@ def test_defaults_feed_bend_allowance() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_perpendicular_bend_star_is_unfold_star_error() -> None:
-    """A depth-1 star whose flanges fold off PERPENDICULAR base edges is outside the
-    v1 PARALLEL-star scope (§4.3): the parallel-axis check must raise UnfoldStarError,
-    never a silently wrong flat pattern. Authored end-to-end (two real edge flanges
-    on perpendicular edges of one plate), so the boundary is gated on real geometry."""
+def test_perpendicular_bend_star_now_unfolds() -> None:
+    """A depth-1 star whose flanges fold off PERPENDICULAR base edges now unfolds to
+    a 2D plus/cross (sheet-metal v2 #1, §4.3 non-parallel): the parallel-axis check
+    no longer raises for it. Authored end-to-end (two real edge flanges on
+    perpendicular edges of one plate). The dedicated golden
+    (``goldens-sheet-metal/corner-tray-perp-unfold``) pins the analytic values +
+    determinism; this locks the once-excluded boundary as now-SUCCEEDING geometry."""
     from build123d import Box
     from geometry.kernel.edges import enumerate_edges
     from geometry.sheet_metal import BendProvenance, build_edge_flange
-    from geometry.sheet_metal.unfold import UnfoldStarError
 
     base = Box(40.0, 40.0, 2.0).translate((20.0, 20.0, 1.0))
 
     # Bend 1 folds off the x=40 edge (bend axis +Y); bend 2 off the y=40 top edge
-    # (bend axis +X) — the two axes are perpendicular (same idiom as the degradation
-    # test above, avoiding the untyped-Vector helper).
+    # (bend axis +X) — the two axes are perpendicular.
     edge1 = next(
         rec.edge
         for rec in enumerate_edges(base)
@@ -571,8 +571,51 @@ def test_perpendicular_bend_star_is_unfold_star_error() -> None:
         BendProvenance(r1.cyl_signature, r1.base_face_signature, 0.44),
         BendProvenance(r2.cyl_signature, r2.base_face_signature, 0.44),
     ]
-    with pytest.raises(UnfoldStarError, match="not parallel"):
-        unfold_sheet_metal(r2.body, provs, 2.0, 0.44)
+    pattern = unfold_sheet_metal(r2.body, provs, 2.0, 0.44)
+
+    ba = (math.pi / 2.0) * (3.0 + 0.44 * 2.0)
+    # Area conservation (§9 #2): base (40x40) counted ONCE + two flange legs (30, 30)
+    # + two bend strips (BA * 40 each), for a 40x40 plate with full-width flanges.
+    expected_area = (40.0 * 40.0) + 2 * (30.0 * 40.0) + 2 * (ba * 40.0)
+    assert pattern.flat_area_mm2 == pytest.approx(expected_area, abs=1e-6)
+    assert len(pattern.bends) == 2
+    assert all(b.direction == "up" for b in pattern.bends)
+    assert all(b.allowance_mm == pytest.approx(ba, abs=1e-6) for b in pattern.bends)
+    # A plus with full-width perpendicular arms: 8 body edges + one fold line per bend.
+    assert sum(1 for e in pattern.outline if e.role == "body") == 8
+    assert sum(1 for e in pattern.outline if e.role == "bend") == 2
+
+
+def test_nonrectangular_base_is_unfold_star_error() -> None:
+    """The narrowed v1 boundary (§4.3): a NON-rectangular base flange (here a
+    triangular plate — three distinct edge directions) is still an honest
+    ``UnfoldStarError`` in the non-parallel layout, never a silently mislaid arm."""
+    from build123d import GeomType, RegularPolygon, extrude
+    from geometry.kernel.faces import face_signature_dto
+    from geometry.sheet_metal.resolve import FlangeFaceRecord
+    from geometry.sheet_metal.unfold import (
+        UnfoldStarError,
+        _base_frame,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    solid = extrude(RegularPolygon(radius=20.0, side_count=3), amount=2.0)
+    tri = max(
+        (f for f in solid.faces() if f.geom_type == GeomType.PLANE),
+        key=lambda f: float(f.area),
+    )
+    sig = face_signature_dto(tri)
+    assert sig is not None
+    rec = FlangeFaceRecord(
+        face=tri,
+        signature=sig,
+        developed_length_mm=1.0,
+        width_mm=1.0,
+        area_mm2=float(tri.area),
+        normal=(0.0, 0.0, 1.0),
+        centroid=(0.0, 0.0, 2.0),
+    )
+    with pytest.raises(UnfoldStarError, match="RECTANGULAR"):
+        _base_frame(rec)
 
 
 def test_split_base_moving_no_base_match_is_unfold_star_error() -> None:

@@ -1,0 +1,31 @@
+{
+  "description": "Sheet-metal v2 #1 flat-pattern golden for an AUTHORED corner tray: a rectangular base flange (40 x 30 mm) + TWO edge flanges on PERPENDICULAR (adjacent, corner-sharing) edges, unfolded by PROVENANCE (docs/design/sheet-metal.md §4.3 depth-1 bend STAR, NON-parallel; §6; §9 goldens #1/#2/#4). This is the case the L-bracket/U-channel goldens cannot exercise: the two bend axes are perpendicular, so the blank develops in 2D (a plus/cross with a reentrant corner) rather than a 1D strip. Each flange still folds INDEPENDENTLY off the fixed base (no graph relaxation), so both bends are found by their own CylindricalFaceSignature and placed analytically.",
+  "tangent_line_convention": "Each leg is measured to its bend TANGENT LINE (§9 #1). The base develops to its 40 x 30 flat top face; edge flange B (off the x=40 edge, bend axis +Y) develops to 20 mm, edge flange A (off the y=30 edge, bend axis +X) develops to 25 mm. Two bend allowances REPLACE the two sharp-corner setbacks.",
+  "derivation": [
+    "HAND-DERIVED analytic values (geometry-gates skill). Dims: base 40 (X) x 30 (Y) mm, flange off x=40 develops leg 20 mm (width 30, along the +Y bend axis), flange off y=30 develops leg 25 mm (width 40, along the +X bend axis), gauge t = 2 mm, inner bend radius r = 3 mm, both bends 90 deg, K = 0.44 (v1 default).",
+    "Bend allowance (§1), same for both 90-deg bends at r=3, t=2, K=0.44: BA = (pi/2)*(3 + 0.44*2) = 6.094689747964199 mm.",
+    "Developed area (§9 #2, the model-agnostic invariant): flat_area = base_area + flangeA_area + flangeB_area + 2 bend strips = (40*30) + (25*40) + (20*30) + (BA*40) + (BA*30) = 1200 + 1000 + 600 + BA*70 = 2800 + 426.628... = 3226.628282357494 mm^2. The SHARED base is counted ONCE (identified by its base-face signature), never per-bend. This holds even though the blank is a 2D plus, not a rectangle.",
+    "Bounding-box envelope of the 2D plus blank: flat_length (frame-X extent) = base 30 (the Y=30-edge flange folds along +X extending 30) + (BA + 25 leg of the x=40 flange) = 30 + 31.0947 = 61.094689747964196 mm; bend_width (frame-Y extent) = base 40 (the x=40-edge flange folds along +Y) + (BA + 20 leg of the y=30 flange) = 40 + 26.0947 = 66.0946897479642 mm. (The developed-frame axes are chosen deterministically from the base rectangle; which physical edge maps to frame-X/Y is a fixed, reproducible choice, not a correctness property -- the AREA invariant and the per-arm widths are.)",
+    "Outline: the union boundary is a plus/cross with ONE reentrant (270-deg) corner where the two perpendicular arms meet. Body edges: the two base free edges (no flange) + each arm's three outer edges (two sides + far) = 2 + 3 + 3 = 8. Two fold lines (one per bend) = 2 bend edges. The two arms occupy DISJOINT 2D regions (perpendicular cardinal directions); the empty corner square between them is a documented v1 simplification (no corner relief -- §7 deferred).",
+    "Both flanges fold to the +normal side of the base -> direction 'up' for both bends (§5 inference). Each fold line spans its flange's width: the x=40 flange's fold spans the 40 mm Y-extent (width 40), the y=30 flange's fold spans the 30 mm X-extent (width 30).",
+    "Fused body volume = base plate (40*30*2 = 2400) + flange B off x=40 (leg 20: 20*2 + quarter annulus 4*pi, width 30 = 40*30 + 4*pi*30 = 1200 + 376.99 = 1576.99) + flange A off y=30 (leg 25: 25*2 + 4*pi, width 40 = 2000 + 502.65 = 2502.65) = 2400 + 1576.99 + 2502.65 = 6479.645943 mm^3 (analytic). The volume is EXACTLY additive (measured residual ~1e-12): the two arms fold in perpendicular directions and do NOT overlap in 3D -- the geometric proof that the shared corner is tractable, not a wall.",
+    "content_hash is the sha256 of the provenance-driven FlatPattern.to_json_bytes() -- a DETERMINISM PIN reproducible in-process AND across a fresh interpreter restart (§9 #4), version-pinned to OCCT/build123d (arc-fit FP). A change without a kernel-version bump is a determinism regression (P0), never a retry."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set. Measured deviations vs hand-derived (2026-07-19, build123d 0.11.1 / OCCT 7.9): flat_area residual ~1e-12, flat_length/bend_width residuals ~5e-12, BA residuals ~1e-11 (both bends' arc-fit inner radii carry FP noise ~1e-14; one reports 2.999999999999996, the other 2.9999999999999933). Ceiling 1e-9 gives ~2-3 orders of headroom for platform FP variation while staying tighter than the kernel linear tolerance (1e-7 m). Volume tolerance 1e-6 absorbs the arc-fit noise scaled by width.",
+  "bend_allowance_mm": 6.094689747964199,
+  "flat_area_mm2": 3226.628282357494,
+  "flat_length_mm": 61.094689747964196,
+  "bend_width_mm": 66.0946897479642,
+  "bend_count": 2,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 3.0,
+  "bend_direction": "up",
+  "bend_widths_mm": [30.0, 40.0],
+  "body_edge_count": 8,
+  "bend_edge_count": 2,
+  "volume_mm3": 6479.645943005142,
+  "volume_tolerance": 1e-6,
+  "topology": { "faces": 16, "edges": 38, "shells": 1 },
+  "content_hash": "d8d7a0f64b78326b2b5dadf231298a3c7e0ea4421675fcaffaf865d659ffefd6"
+}

@@ -7,6 +7,30 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-19 — Sheet metal v2 #1: non-parallel depth-1 bend star (kernel-architect self-report)
+
+New golden `goldens-sheet-metal/corner-tray-perp-unfold` — a base flange (40×30)
++ TWO edge flanges on PERPENDICULAR (adjacent, corner-sharing) edges, authored
+through the real feature tree and unfolded by provenance to a **2D plus/cross**
+(the first non-1D flat pattern). Spike-first verdict: **TRACTABLE, no wall.**
+
+Evidence (build123d 0.11.1 / OCCT 7.9, tol 1e-9, vol tol 1e-6):
+- **Area conservation (§9 #2):** flat_area 3226.628282357493 vs analytic
+  3226.628282357494 (base counted once + 2 flange legs + 2 BA strips); an
+  INDEPENDENT shoelace area over the outline body-edge loop equals it to 1e-6.
+- **Exactly-additive 3D volume** — the shared-corner tractability proof: fused
+  body 6479.645943005143 vs analytic 6479.645943005142 (residual ~1e-12) ⇒ the
+  two perpendicular arms do NOT overlap in 3D. Topology faces=16/edges=38/shells=1.
+- **Bend allowance** 6.09468974796419x per bend (both 90°, r=3, K=0.44).
+- **Determinism (§9 #4):** content_hash `d8d7a0f6…` byte-identical in-process,
+  across a fresh interpreter, AND between a hand-built OCCT body and the
+  feature-tree-authored body.
+- **Parallel goldens byte-unchanged:** the L-bracket/U-channel content_hash pins
+  (`66021d79…`, `8247476a…`) still match — the parallel path is kept verbatim.
+- **Narrowed boundary:** `UnfoldStarError` now only for non-rectangular/angled
+  base, angled bend axis, or depth≥2 (gated with real geometry — a triangular
+  base raises; the perpendicular-star test now SUCCEEDS).
+
 ## How to run the geometry gates
 
 ```bash

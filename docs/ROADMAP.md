@@ -833,9 +833,15 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
 
 **v1 DoD MET, complete 2026-07-19** ("one bracket → a flat blank a shop can
 cut"; VISION scorecard ❌→➖, held short of ✅ on the depth-1-bend-star scope
-boundary — see VISION.md). v2 increments (non-parallel stars, bend chains,
-hems/miters/tabs) are tracked in BACKLOG, not an active roadmap phase. A
-pillar the vision-steward
+boundary — see VISION.md). **v2 #1 — non-parallel depth-1 stars — SHIPPED
+2026-07-19** (kernel-architect): `unfold_sheet_metal` now unfolds a tray / pan
+(base + edge flanges on PERPENDICULAR edges) to a 2D plus/cross, keeping the
+parallel L-bracket/U-channel goldens byte-identical. Spike-first verdict:
+tractable, no wall — shared-corner flanges included (disjoint 2D arms, exactly-
+additive 3D volume). Golden `corner-tray-perp-unfold`; `UnfoldStarError`
+narrowed to non-rectangular/angled bases + depth≥2. Remaining v2 increments
+(bend chains depth≥2, hems/miters/tabs) are tracked in BACKLOG, not an active
+roadmap phase. A pillar the vision-steward
 scoped 2026-07-17 in response to a founder ask ("anything for sheet metal?").
 Architecture decision: `docs/design/sheet-metal.md` (design doc corrected
 2026-07-19 before the first build slice — new additive `CylindricalFaceSignature`,
@@ -901,8 +907,9 @@ design/assemblies.md` v1 #2):
    detection. Goldens `l-bracket-edge-flange` (N=1) + `u-channel-edge-flange`
    (N=2, two flanges sharing the base) unfold from authored feature trees to
    hand-derived flat length/area, byte-deterministic. Cleared both deferred
-   Spike-0 risks (MakeFace robustness; up/down inference). Deferred:
-   non-parallel depth-1 stars + depth ≥2.
+   Spike-0 risks (MakeFace robustness; up/down inference). Non-parallel depth-1
+   stars SHIPPED as v2 #1 (2026-07-19, `corner-tray-perp-unfold`); depth ≥2
+   still deferred.
 4. Flat pattern as a drawing view (`views.projection = "flat_pattern"`) —
    **BACKEND SHIPPED 2026-07-19; frontend render pending (next slice).**
    The backend half: additive `ProjectedViewEdge.edge_role: "body"|"bend"`

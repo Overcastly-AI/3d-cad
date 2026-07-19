@@ -36,7 +36,7 @@ and the typed DTOs at the boundary keep it honest.
 
 import math
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from build123d import Vector
 from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
@@ -57,6 +57,12 @@ from geometry.sheet_metal.resolve import (
 #: (not in faces.py); the planar-face match tolerances live once in
 #: :mod:`geometry.kernel.faces` and are applied via :func:`planar_signatures_match`.
 _PARALLEL_TOL = 1e-9  # 1 - |dot| between unit axis directions
+#: Axis-alignment tolerance for the non-parallel (2D) layout: a bend axis or a
+#: base edge must be parallel/perpendicular to the base rectangle frame to within
+#: this |dot| residual. Authored sheets are axis-aligned, so residuals are
+#: ulp-scale; loose enough to absorb kernel jitter, tight enough that an angled
+#: flange is an honest out-of-scope raise, never a silently mislaid arm.
+_ALIGN_TOL = 1e-7
 
 
 class UnfoldScopeError(SheetMetalUnfoldError):
@@ -64,10 +70,14 @@ class UnfoldScopeError(SheetMetalUnfoldError):
 
 
 class UnfoldStarError(SheetMetalUnfoldError):
-    """The body is outside the v1 depth-1 PARALLEL bend-star unfold scope
-    (docs/design/sheet-metal.md §4.3): a base flange + N edge flanges whose bends
-    all share a parallel axis (the L-bracket and U-channel). Non-parallel stars
-    (flanges off perpendicular edges) and depth >= 2 are deferred."""
+    """The body is outside the v1 depth-1 bend-star unfold scope
+    (docs/design/sheet-metal.md §4.3). v1 unfolds a depth-1 star of edge flanges
+    folded directly off ONE fixed base flange, either all-parallel (L-bracket /
+    U-channel — a 1D strip) or non-parallel off a **rectangular** base (a tray /
+    pan — a 2D plus/cross). Still outside scope and raised here: a non-rectangular
+    or angled base, a bend axis not aligned to the base rectangle, or depth >= 2
+    (a flange folded off ANOTHER flange — a box corner, the real graph-relaxation
+    problem, deferred)."""
 
 
 def bend_allowance(
@@ -239,15 +249,45 @@ def unfold_sheet_metal(
     base_rec = resolved[0][0]
     base_normal = Vector(*base_rec.normal).normalized()
 
-    # Layout frame: v = the common bend axis (all parallel — v1 parallel-star
-    # scope); u ⟂ v in the base plane.
+    # A depth-1 star is PARALLEL (all bend axes share one direction → a 1D strip,
+    # the L-bracket / U-channel) or NON-PARALLEL (flanges off perpendicular edges
+    # of a rectangular base → a 2D plus/cross, a tray / pan). Both flatten each
+    # flange independently against the fixed base (no graph relaxation, §4.3); they
+    # differ only in the layout dimensionality. The parallel path is kept verbatim
+    # so its committed goldens stay byte-identical.
     v0 = resolved[0][2]
-    for _b, _m, axis_dir, _a, _p in resolved[1:]:
-        if 1.0 - abs(v0.dot(axis_dir)) > _PARALLEL_TOL:
-            raise UnfoldStarError(
-                "The bends are not parallel; v1 unfolds a depth-1 PARALLEL bend "
-                "star (L-bracket / U-channel). Non-parallel stars are deferred (§4.3)."
-            )
+    all_parallel = all(
+        1.0 - abs(v0.dot(axis_dir)) <= _PARALLEL_TOL
+        for _b, _m, axis_dir, _a, _p in resolved[1:]
+    )
+    if all_parallel:
+        return _unfold_parallel(
+            resolved, base_rec, base_normal, thickness_mm, default_k_factor
+        )
+    return _unfold_nonparallel(
+        resolved, base_rec, base_normal, thickness_mm, default_k_factor
+    )
+
+
+#: Type alias for a resolved bend: (base_rec, moving_rec, axis_dir, angle_rad, prov).
+_Resolved = tuple[FlangeFaceRecord, FlangeFaceRecord, Vector, float, BendProvenance]
+#: A 2D outline segment in frame coords: (x1, y1, x2, y2, role).
+_Seg = tuple[float, float, float, float, str]
+
+
+def _unfold_parallel(
+    resolved: list[_Resolved],
+    base_rec: FlangeFaceRecord,
+    base_normal: Vector,
+    thickness_mm: float,
+    default_k_factor: float,
+) -> FlatPattern:
+    """Lay out an all-parallel depth-1 star as a 1D strip (L-bracket / U-channel).
+
+    Kept verbatim from the v1 parallel implementation so its committed goldens
+    stay byte-identical: v = the common bend axis, u ⟂ v in the base plane, and
+    every flange projects onto u to a side of the fixed base."""
+    v0 = resolved[0][2]
     u_axis = v0.cross(base_normal).normalized()
 
     def proj_u(centroid: tuple[float, float, float]) -> float:
@@ -393,4 +433,291 @@ def _lay_out_star(
         bend_width_mm=width,
         outline=tuple(outline),
         bends=tuple(ordered),
+    )
+
+
+# --- Non-parallel depth-1 star (sheet-metal v2 #1) — a 2D plus/cross layout ------
+#
+# A depth-1 star whose bend axes are NOT all parallel (a tray / pan: a base + N
+# edge flanges off perpendicular edges) lays out in 2D, not along a single strip:
+# each flange swings flat about its OWN bend axis into the base plane, extending
+# OUTWARD along its own edge's direction. Because every flange folds independently
+# off the FIXED base (depth 1, §4.3), each arm is placed analytically against the
+# base rectangle with no graph relaxation — the same closed-form bend allowance,
+# now positioned in the plane instead of on a line. The blank is a plus/cross with
+# reentrant corners where perpendicular arms meet; those corners are disjoint in
+# 2D (each arm occupies its own cardinal quadrant of the plane) and the built 3D
+# body has exactly-additive volume (verified), so shared-corner flanges are IN
+# scope — corner reliefs stay a documented deferral (§7). v1 scopes the base to a
+# RECTANGLE with axis-aligned bends (a tray); a non-rectangular / angled base is
+# an honest UnfoldStarError.
+
+
+def _canonical_dir(v: Vector) -> Vector:
+    """A sign-canonical unit direction: flip so the largest-magnitude component is
+    positive (deterministic frame axis, independent of edge/vertex orientation)."""
+    comps = sorted(((abs(v.X), 0), (abs(v.Y), 1), (abs(v.Z), 2)))
+    idx = comps[-1][1]
+    comp = (v.X, v.Y, v.Z)[idx]
+    return v if comp >= 0.0 else v * -1.0
+
+
+@dataclass(frozen=True)
+class _BaseFrame:
+    """A rectangular base flange's in-plane 2D frame: two perpendicular unit axes
+    (world) + the min-corner offsets so any base point projects into ``[0, wx] x
+    [0, wy]``. The layout origin never depends on face iteration order."""
+
+    x2: Vector
+    y2: Vector
+    normal: Vector
+    x_min: float
+    y_min: float
+    wx: float
+    wy: float
+
+    def to2d(self, p: tuple[float, float, float]) -> tuple[float, float]:
+        v = Vector(*p)
+        return (v.dot(self.x2) - self.x_min, v.dot(self.y2) - self.y_min)
+
+
+def _base_frame(base_rec: FlangeFaceRecord) -> _BaseFrame:
+    """Deterministic 2D frame of a RECTANGULAR base face (v1 non-parallel scope).
+
+    Raises UnfoldStarError if the base has other than two perpendicular edge
+    directions (a non-rectangular or angled base is out of scope)."""
+    normal = _canonical_dir(Vector(*base_rec.normal).normalized())
+    dirs: list[Vector] = []
+    for edge in base_rec.face.edges():
+        delta = (edge @ 1.0) - (edge @ 0.0)
+        if delta.length < 1e-9:
+            continue
+        d = _canonical_dir(delta.normalized())
+        if not any(1.0 - abs(d.dot(x)) <= _ALIGN_TOL for x in dirs):
+            dirs.append(d)
+    if len(dirs) != 2:
+        raise UnfoldStarError(
+            f"The non-parallel unfold requires a RECTANGULAR base flange; its face "
+            f"has {len(dirs)} distinct edge directions. A non-rectangular / angled "
+            "base is a documented next increment (§4.3)."
+        )
+    dirs.sort(key=lambda d: (round(d.X, 9), round(d.Y, 9), round(d.Z, 9)))
+    x2, y2 = dirs[0], dirs[1]
+    if abs(x2.dot(y2)) > _ALIGN_TOL:
+        raise UnfoldStarError(
+            "The base flange's edge directions are not perpendicular; v1's "
+            "non-parallel unfold scopes to a rectangular base (§4.3)."
+        )
+    verts = [Vector(v.X, v.Y, v.Z) for v in base_rec.face.vertices()]
+    px = [v.dot(x2) for v in verts]
+    py = [v.dot(y2) for v in verts]
+    return _BaseFrame(
+        x2=x2,
+        y2=y2,
+        normal=normal,
+        x_min=min(px),
+        y_min=min(py),
+        wx=max(px) - min(px),
+        wy=max(py) - min(py),
+    )
+
+
+@dataclass(frozen=True)
+class _Arm:
+    """One flange laid out flat as an axis-aligned arm off a base-rectangle side.
+
+    ``axis`` 0 = the arm extends along the frame X axis, 1 = along Y; ``sign`` is
+    its outward direction. ``span`` is the arm's extent along the fold edge (the
+    base-edge direction). ``fold`` is the fold-edge coordinate (0 or wx/wy)."""
+
+    axis: int
+    sign: int
+    fold: float
+    span0: float
+    span1: float
+    allowance_mm: float
+    leg_mm: float
+    area_mm2: float
+    width_mm: float
+    radius_mm: float
+    angle_rad: float
+    k_factor: float
+    direction: Literal["up", "down"]
+
+
+def _unfold_nonparallel(
+    resolved: list[_Resolved],
+    base_rec: FlangeFaceRecord,
+    base_normal: Vector,
+    thickness_mm: float,
+    default_k_factor: float,
+) -> FlatPattern:
+    """Lay out a NON-PARALLEL depth-1 star (a tray / pan) as a 2D plus/cross.
+
+    Each flange is placed as an axis-aligned arm off its base-rectangle side, the
+    cylindrical bend replaced by a ``BA``-length strip (§1). Area is the §9
+    invariant (base counted once + Σ flange areas + Σ bend-strip areas); the
+    outline is the union boundary (base free edges + each arm's three outer edges +
+    one fold line per bend). Byte-deterministic: arms are sorted by a canonical
+    (axis, sign, span) key, independent of the input bend order."""
+    frame = _base_frame(base_rec)
+    base_c = Vector(*base_rec.centroid)
+
+    arms: list[_Arm] = []
+    for _brec, moving_rec, axis_dir, angle_rad, prov in resolved:
+        e = axis_dir.normalized()
+        radius = prov.cyl_signature.radius_mm
+        ba = bend_allowance(angle_rad, radius, prov.k_factor, thickness_mm)
+        # Outward direction in the base plane, pointing away from the base interior.
+        outward = e.cross(frame.normal).normalized()
+        if (Vector(*moving_rec.centroid) - base_c).dot(outward) < 0.0:
+            outward = outward * -1.0
+        ox, oy = outward.dot(frame.x2), outward.dot(frame.y2)
+        if abs(abs(ox) - 1.0) <= _ALIGN_TOL and abs(oy) <= _ALIGN_TOL:
+            axis, sign = 0, 1 if ox > 0 else -1
+            edge_dir = frame.y2
+        elif abs(abs(oy) - 1.0) <= _ALIGN_TOL and abs(ox) <= _ALIGN_TOL:
+            axis, sign = 1, 1 if oy > 0 else -1
+            edge_dir = frame.x2
+        else:
+            raise UnfoldStarError(
+                "A bend axis is not aligned to the base rectangle (an angled "
+                "flange); v1's non-parallel unfold scopes to axis-aligned bends "
+                "off a rectangular base (§4.3)."
+            )
+        # The arm's extent along the fold edge, from the moving flange's own
+        # vertices (fold about the bend axis preserves the along-axis coordinate).
+        edge_min = frame.x_min if axis == 1 else frame.y_min
+        proj = [
+            Vector(v.X, v.Y, v.Z).dot(edge_dir) - edge_min
+            for v in moving_rec.face.vertices()
+        ]
+        along_n = (Vector(*moving_rec.centroid) - base_c).dot(frame.normal)
+        arms.append(
+            _Arm(
+                axis=axis,
+                sign=sign,
+                fold=(frame.wx if axis == 0 else frame.wy) if sign > 0 else 0.0,
+                span0=min(proj),
+                span1=max(proj),
+                allowance_mm=ba,
+                leg_mm=moving_rec.developed_length_mm,
+                area_mm2=moving_rec.area_mm2,
+                width_mm=max(proj) - min(proj),
+                radius_mm=radius,
+                angle_rad=angle_rad,
+                k_factor=prov.k_factor,
+                direction="up" if along_n >= 0.0 else "down",
+            )
+        )
+
+    # Deterministic order: by (axis, outward sign, position along the fold edge).
+    arms.sort(key=lambda a: (a.axis, a.sign, a.span0, a.span1))
+
+    return _emit_plus_pattern(
+        arms,
+        frame,
+        thickness_mm=thickness_mm,
+        default_k_factor=default_k_factor,
+        base_area=base_rec.area_mm2,
+    )
+
+
+def _emit_plus_pattern(
+    arms: list[_Arm],
+    frame: _BaseFrame,
+    *,
+    thickness_mm: float,
+    default_k_factor: float,
+    base_area: float,
+) -> FlatPattern:
+    """Assemble the plus/cross outline + bend table from the placed arms.
+
+    Coordinates are shifted so the whole blank sits in the positive quadrant with
+    its bounding box at the origin — ``flat_length_mm`` / ``bend_width_mm`` are the
+    bbox extents (for a rectangular parallel blank these equal the strip length /
+    width, but that path never reaches here)."""
+    # Collect every arm's outer geometry in frame coords, then shift to origin.
+    raw: list[_Seg] = []
+    fold_sides: set[tuple[int, int]] = set()
+
+    for a in arms:
+        fold_sides.add((a.axis, a.sign))
+        near = a.fold
+        far = near + a.sign * (a.allowance_mm + a.leg_mm)
+        fold_c = near + a.sign * (a.allowance_mm / 2.0)
+        if a.axis == 0:  # arm along X; spans [span0, span1] in Y
+            raw.append((near, a.span0, far, a.span0, "body"))  # side
+            raw.append((near, a.span1, far, a.span1, "body"))  # side
+            raw.append((far, a.span0, far, a.span1, "body"))  # far edge
+            raw.append((fold_c, a.span0, fold_c, a.span1, "bend"))
+        else:  # arm along Y; spans [span0, span1] in X
+            raw.append((a.span0, near, a.span0, far, "body"))
+            raw.append((a.span1, near, a.span1, far, "body"))
+            raw.append((a.span0, far, a.span1, far, "body"))
+            raw.append((a.span0, fold_c, a.span1, fold_c, "bend"))
+
+    # Base rectangle's four sides; a side with a flange is a fold (skipped as a
+    # body edge — the arm continues the material there), else a real cut edge.
+    # (axis, sign) -> the side: X/+ = right (x=wx), X/- = left (x=0), Y/+ = top,
+    # Y/- = bottom.
+    wx, wy = frame.wx, frame.wy
+    base_sides: dict[tuple[int, int], _Seg] = {
+        (0, 1): (wx, 0.0, wx, wy, "body"),
+        (0, -1): (0.0, 0.0, 0.0, wy, "body"),
+        (1, 1): (0.0, wy, wx, wy, "body"),
+        (1, -1): (0.0, 0.0, wx, 0.0, "body"),
+    }
+    for side, seg in base_sides.items():
+        if side not in fold_sides:
+            raw.append(seg)
+
+    # Shift so the bounding box's min corner is the origin (all coords >= 0).
+    xs = [c for s in raw for c in (s[0], s[2])]
+    ys = [c for s in raw for c in (s[1], s[3])]
+    dx, dy = min(xs), min(ys)
+    outline: list[FlatEdge2D] = [
+        FlatEdge2D(
+            kind="line",
+            x1=s[0] - dx,
+            y1=s[1] - dy,
+            x2=s[2] - dx,
+            y2=s[3] - dy,
+            role=cast(Literal["body", "bend"], s[4]),
+        )
+        for s in raw
+    ]
+    # Deterministic outline order: body edges then bend edges, each by endpoints.
+    outline.sort(key=lambda e: (e.role, e.x1, e.y1, e.x2, e.y2))
+
+    bend_lines: list[BendLine] = []
+    for i, a in enumerate(arms, start=1):
+        near = a.fold
+        s0 = near + a.sign * 0.0
+        s1 = near + a.sign * a.allowance_mm
+        lo, hi = sorted((s0, s1))
+        shift = dx if a.axis == 0 else dy
+        bend_lines.append(
+            BendLine(
+                bend_id=f"bend-{i}",
+                angle_deg=math.degrees(a.angle_rad),
+                radius_mm=a.radius_mm,
+                k_factor=a.k_factor,
+                allowance_mm=a.allowance_mm,
+                width_mm=a.width_mm,
+                direction=a.direction,
+                flat_start_mm=lo - shift,
+                flat_end_mm=hi - shift,
+            )
+        )
+
+    flat_area = base_area + sum(a.area_mm2 + a.allowance_mm * a.width_mm for a in arms)
+    return FlatPattern(
+        thickness_mm=thickness_mm,
+        k_factor=default_k_factor,
+        flat_length_mm=max(xs) - min(xs),
+        flat_area_mm2=flat_area,
+        bend_width_mm=max(ys) - min(ys),
+        outline=tuple(outline),
+        bends=tuple(bend_lines),
     )
