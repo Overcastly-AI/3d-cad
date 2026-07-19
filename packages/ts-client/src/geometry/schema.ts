@@ -2286,7 +2286,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -3824,6 +3824,89 @@ export interface components {
              * @description The placed views (which projections to compose + their order)
              */
             views: components["schemas"]["SheetViewPlacement"][];
+        };
+        /**
+         * SheetMetalBaseFlangeFeature
+         * @description ``{"type": "sheet_metal_base_flange", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-CREATING base feature (docs/design/sheet-metal.md §4.1): it thickens a
+         *     profile to gauge, producing the sheet-metal part's first body, and anchors the
+         *     part's sheet-metal defaults (``k_factor``/``bend_radius_mm``). ``params`` is
+         *     :class:`SheetMetalBaseFlangeParamsV1`.
+         */
+        SheetMetalBaseFlangeFeature: {
+            params: components["schemas"]["SheetMetalBaseFlangeParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_base_flange";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalBaseFlangeParamsV1
+         * @description The first body of a sheet-metal part — a profile thickened to gauge (§4.1).
+         *
+         *     A base flange is a profile sketch extruded by a FIXED gauge ``thickness_mm``
+         *     — mechanically an additive extrude, so it shares :class:`ExtrudeParamsV1`'s
+         *     ``profile`` FeatureRef (an EARLIER sketch, design §2.2), ``direction``
+         *     (which side of the sketch plane the gauge grows), and ``merge`` (the
+         *     multi-body ADD flag — a base flange is a body-CREATING base feature, so it
+         *     starts the first body, or a second with ``merge=False``). Kernel-side it
+         *     calls the SAME ``build_profile_face`` + ``extrude_face`` path extrude uses —
+         *     no new geometry code (§4.1).
+         *
+         *     Unlike a plain extrude it carries the part's SHEET-METAL DEFAULTS
+         *     (``k_factor``, ``bend_radius_mm``) — the parameters a later edge-flange /
+         *     unfold reads to compute a bend allowance (``BA = angle * (radius + K *
+         *     thickness)``, §1). ``k_factor`` defaults to the v1 pinned
+         *     :data:`SHEET_METAL_DEFAULT_K_FACTOR` (0.44); ``bend_radius_mm`` is REQUIRED
+         *     (no universal default — it is tooling/material dependent) and names the
+         *     part-default inner bend radius edge flanges inherit. Neither default affects
+         *     the base flange's own geometry (a flat plate) — they ride ON the body for the
+         *     downstream slices, exactly as the design's "base flange is the natural anchor
+         *     for the sheet-metal parameters" decision intends.
+         *
+         *     There is NO ``operation`` field: a base flange always CREATES material (it is
+         *     the sheet's first body), never a cut. v1 scopes to a single per-part gauge +
+         *     K + default radius (§7); a gauge/material rule table is deferred (§10).
+         */
+        SheetMetalBaseFlangeParamsV1: {
+            /**
+             * Bend Radius Mm
+             * @description Part-default INNER bend radius (mm) a later edge flange inherits (§4.2). Required — no universal default (tooling/material dependent). Does not affect the base flange's own flat-plate geometry.
+             */
+            bend_radius_mm: number;
+            /**
+             * Direction
+             * @description Which side of the sketch plane the gauge grows: 'normal' along the plane normal, 'reverse' opposite (the extrude `direction` idiom). Additive-optional; absent reads 'normal'.
+             * @default normal
+             * @enum {string}
+             */
+            direction: "normal" | "reverse";
+            /**
+             * K Factor
+             * @description Neutral-axis fraction K ∈ [0, 1] from the INNER bend face (§1); the part-default a later edge flange inherits for its bend allowance. Defaults to the v1 baseline 0.44 (air-bent mild steel — a documented default, not a universal constant).
+             * @default 0.44
+             */
+            k_factor: number;
+            /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /** @description Must resolve to an EARLIER sketch feature whose entities form the single closed profile wire (design §2.2), thickened to the gauge */
+            profile: components["schemas"]["FeatureRef"];
+            /**
+             * Thickness Mm
+             * @description Gauge — the uniform sheet thickness (mm); the fixed distance the profile is thickened by. The part's one material thickness (§1).
+             */
+            thickness_mm: number;
         };
         /**
          * SheetPoint

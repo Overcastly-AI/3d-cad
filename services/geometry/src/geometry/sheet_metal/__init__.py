@@ -6,6 +6,7 @@ CLAUDE.md). Public surface: :func:`unfold_l_bracket` (folded body →
 docs/design/sheet-metal.md §2/§5/§6/§9 and :mod:`geometry.sheet_metal.unfold`.
 """
 
+from geometry.sheet_metal.base_flange import SheetMetalDefaults
 from geometry.sheet_metal.flat_pattern import (
     BendLine,
     FlatEdge2D,
@@ -33,6 +34,7 @@ __all__ = [
     "NoBendFoundError",
     "ResolvedBend",
     "ResolvedFlange",
+    "SheetMetalDefaults",
     "SheetMetalUnfoldError",
     "UnfoldScopeError",
     "bend_allowance",

@@ -88,6 +88,7 @@ from py_kit.schemas.features import (
     PatternFeature,
     PatternGeometry,
     RevolveFeature,
+    SheetMetalBaseFlangeFeature,
     ShellFeature,
     SketchFeature,
     SolvedSketchData,
@@ -162,6 +163,7 @@ from geometry.kernel import (
 )
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
+from geometry.sheet_metal import SheetMetalDefaults
 from geometry.sketch import (
     PlanegcsSketchSolver,
     SketchDefinitionError,
@@ -228,6 +230,14 @@ class EvaluationState:
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
     bodies: dict[uuid.UUID, BodyShape] = field(
         default_factory=dict[uuid.UUID, BodyShape]
+    )
+    #: The part's sheet-metal defaults (gauge/K/bend-radius) keyed by the
+    #: base-flange feature id that created the sheet body (docs/design/
+    #: sheet-metal.md §4.1/§5). Recorded only on an ok base flange; the
+    #: edge-flange / unfold slices read it to compute a bend allowance. Held as a
+    #: service-internal record (never serialized), exactly like ``bodies``.
+    sheet_metal_defaults: dict[uuid.UUID, SheetMetalDefaults] = field(
+        default_factory=dict[uuid.UUID, SheetMetalDefaults]
     )
     active_body_id: uuid.UUID | None = None
     #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
@@ -729,6 +739,52 @@ def _evaluate_extrude_cut(
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
     state.set_active_body(body)
+    return None
+
+
+def _evaluate_sheet_metal_base_flange(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Thicken a sketch profile to gauge — the sheet-metal base flange (§4.1).
+
+    A base flange is mechanically an ADDITIVE extrude by a FIXED gauge
+    (docs/design/sheet-metal.md §4.1), so this reuses the EXACT extrude path — the
+    shared :func:`_resolve_profile_face` (profile → single closed face) and
+    :func:`extrude_face` (prism along the plane normal, ``direction:
+    normal|reverse``) — with the gauge ``thickness_mm`` as the extrusion distance,
+    then the SAME multi-body ADD (:func:`_add_body`). No new kernel geometry code.
+
+    What a base flange adds over a plain extrude: on success it records the part's
+    sheet-metal defaults (gauge/K/bend-radius) keyed by THIS feature id — the body
+    identity (§MB-0 Decision 1) — so a later edge-flange / unfold slice reads the
+    gauge + defaults off the body it attaches to (§5). Recorded only after the
+    body is added (last-good semantics, §4.3): a boolean_failed leaves both the
+    body set AND the defaults untouched. There is no ``operation`` — a base flange
+    always creates material; kernel failures surface as the extrude error codes
+    (``profile_not_closed``/``profile_unsupported``/``reference_unresolved``,
+    ``boolean_failed``), pinned as extrude's are.
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalBaseFlangeFeature), (
+        "registry dispatches on type='sheet_metal_base_flange'"
+    )
+    params = feature.params
+    reverse = params.direction == "reverse"
+
+    resolved = _resolve_profile_face(params.profile, state)
+    if isinstance(resolved, FeatureError):
+        return resolved
+    face, plane, _ = resolved
+
+    tool = extrude_face(face, plane, params.thickness_mm, reverse)
+    error = _add_body(item, state, tool, merge=params.merge)
+    if error is not None:
+        return error
+    state.sheet_metal_defaults[item.id] = SheetMetalDefaults(
+        thickness_mm=params.thickness_mm,
+        k_factor=params.k_factor,
+        bend_radius_mm=params.bend_radius_mm,
+    )
     return None
 
 
@@ -1457,6 +1513,7 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "draft",
         "pattern",
         "import",
+        "sheet_metal_base_flange",
         "boolean",
     }
 )
@@ -1478,6 +1535,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "draft": _evaluate_draft,
     "pattern": _evaluate_pattern,
     "import": _evaluate_import,
+    "sheet_metal_base_flange": _evaluate_sheet_metal_base_flange,
     "boolean": _evaluate_boolean,
 }
 

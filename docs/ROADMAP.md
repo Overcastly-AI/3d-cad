@@ -829,9 +829,13 @@ kernel risk moved EARLY — mirrors how Assemblies proved its solver on
 synthetic residuals before real mate-geometry resolution existed, `docs/
 design/assemblies.md` v1 #2):
 
-1. Base flange feature (`SheetMetalBaseFlangeParamsV1` — gauge thickness +
-   default K-factor/bend radius, reuses `extrude.py`) — the minimal
-   foundation the risk item needs a real (if trivial) sheet body to act on.
+1. Base flange feature ✅ **SHIPPED 2026-07-19** (`SheetMetalBaseFlangeParamsV1`
+   — gauge thickness + default K-factor 0.44 / required bend radius, reuses
+   `extrude.py`'s `build_profile_face` + `extrude_face` verbatim; records the
+   part's `SheetMetalDefaults` on the body for slices #2/#3). Golden
+   `goldens-sheet-metal/base-flange-plate-40x25x2` (own harness): volume =
+   profile_area × gauge, exact topology, byte-deterministic. The minimal
+   foundation the risk item (#2) needs a real (if trivial) sheet body to act on.
 2. **The flat-pattern unfold algorithm — THE flagged risk, proven early**
    (`geometry.sheet_metal.unfold`: face classification + rigid-transform +
    bend-allowance reconstruction, depth-1-bend-star v1 scope), proven against

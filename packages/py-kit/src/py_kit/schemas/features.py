@@ -1265,6 +1265,93 @@ class BooleanParamsV1(BaseModel):
     )
 
 
+# --- Sheet-metal base flange — an extrude by a fixed gauge, semantically tagged --
+#
+# The first body of a sheet-metal part (docs/design/sheet-metal.md §4.1): a
+# profile sketch thickened by a FIXED gauge thickness — mechanically identical to
+# an additive `extrude`, which is exactly why the geometry side reuses
+# `extrude.py`'s `build_profile_face` + `extrude_face` thicken path VERBATIM (no
+# new kernel geometry code, §4.1). It is a DISTINCT feature type, not a reuse of
+# plain `extrude`, for ONE reason (design DECISION §4.1, mirroring how
+# `ShellParamsV1` is its own type even though its boolean plumbing reuses
+# `extrude.py`'s `combine_body`): it must persist the part's sheet-metal
+# parameters (`thickness_mm`, a default `k_factor`, a default `bend_radius_mm`)
+# somewhere, and the base flange is the natural anchor — later edge-flange /
+# unfold slices READ the gauge + defaults off the base flange body (§5/§9).
+
+
+#: v1 default K-factor (docs/design/sheet-metal.md §1/§9): the neutral-axis
+#: fraction (K ∈ [0, 1]) that locates the bend's neutral surface as a fraction of
+#: thickness from the INNER bend face. 0.44 is a common industry-baseline for
+#: air-bent mild steel — a DOCUMENTED v1 default, not a universal material
+#: constant. Stored on the base flange as the part's sheet-metal default and
+#: inherited by every later edge flange (a full gauge/material rule TABLE is
+#: deferred, §7/§10). Pinned here so the schema default and the golden's
+#: hand-derivation share ONE source (CLAUDE.md DRY rule).
+SHEET_METAL_DEFAULT_K_FACTOR = 0.44
+
+
+class SheetMetalBaseFlangeParamsV1(BaseModel):
+    """The first body of a sheet-metal part — a profile thickened to gauge (§4.1).
+
+    A base flange is a profile sketch extruded by a FIXED gauge ``thickness_mm``
+    — mechanically an additive extrude, so it shares :class:`ExtrudeParamsV1`'s
+    ``profile`` FeatureRef (an EARLIER sketch, design §2.2), ``direction``
+    (which side of the sketch plane the gauge grows), and ``merge`` (the
+    multi-body ADD flag — a base flange is a body-CREATING base feature, so it
+    starts the first body, or a second with ``merge=False``). Kernel-side it
+    calls the SAME ``build_profile_face`` + ``extrude_face`` path extrude uses —
+    no new geometry code (§4.1).
+
+    Unlike a plain extrude it carries the part's SHEET-METAL DEFAULTS
+    (``k_factor``, ``bend_radius_mm``) — the parameters a later edge-flange /
+    unfold reads to compute a bend allowance (``BA = angle * (radius + K *
+    thickness)``, §1). ``k_factor`` defaults to the v1 pinned
+    :data:`SHEET_METAL_DEFAULT_K_FACTOR` (0.44); ``bend_radius_mm`` is REQUIRED
+    (no universal default — it is tooling/material dependent) and names the
+    part-default inner bend radius edge flanges inherit. Neither default affects
+    the base flange's own geometry (a flat plate) — they ride ON the body for the
+    downstream slices, exactly as the design's "base flange is the natural anchor
+    for the sheet-metal parameters" decision intends.
+
+    There is NO ``operation`` field: a base flange always CREATES material (it is
+    the sheet's first body), never a cut. v1 scopes to a single per-part gauge +
+    K + default radius (§7); a gauge/material rule table is deferred (§10).
+    """
+
+    profile: FeatureRef = Field(
+        description="Must resolve to an EARLIER sketch feature whose entities form "
+        "the single closed profile wire (design §2.2), thickened to the gauge"
+    )
+    thickness_mm: float = Field(
+        gt=0,
+        description="Gauge — the uniform sheet thickness (mm); the fixed distance "
+        "the profile is thickened by. The part's one material thickness (§1).",
+    )
+    k_factor: float = Field(
+        default=SHEET_METAL_DEFAULT_K_FACTOR,
+        ge=0.0,
+        le=1.0,
+        description="Neutral-axis fraction K ∈ [0, 1] from the INNER bend face "
+        "(§1); the part-default a later edge flange inherits for its bend "
+        f"allowance. Defaults to the v1 baseline {SHEET_METAL_DEFAULT_K_FACTOR} "
+        "(air-bent mild steel — a documented default, not a universal constant).",
+    )
+    bend_radius_mm: float = Field(
+        gt=0,
+        description="Part-default INNER bend radius (mm) a later edge flange "
+        "inherits (§4.2). Required — no universal default (tooling/material "
+        "dependent). Does not affect the base flange's own flat-plate geometry.",
+    )
+    direction: Literal["normal", "reverse"] = Field(
+        default="normal",
+        description="Which side of the sketch plane the gauge grows: 'normal' "
+        "along the plane normal, 'reverse' opposite (the extrude `direction` "
+        "idiom). Additive-optional; absent reads 'normal'.",
+    )
+    merge: bool = MERGE_FIELD
+
+
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
@@ -1407,6 +1494,20 @@ class ImportFeature(BaseModel):
     params: ImportParamsV1
 
 
+class SheetMetalBaseFlangeFeature(BaseModel):
+    """``{"type": "sheet_metal_base_flange", "version": 1, "params": {...}}`` envelope.
+
+    A body-CREATING base feature (docs/design/sheet-metal.md §4.1): it thickens a
+    profile to gauge, producing the sheet-metal part's first body, and anchors the
+    part's sheet-metal defaults (``k_factor``/``bend_radius_mm``). ``params`` is
+    :class:`SheetMetalBaseFlangeParamsV1`.
+    """
+
+    type: Literal["sheet_metal_base_flange"]
+    version: Literal[1]
+    params: SheetMetalBaseFlangeParamsV1
+
+
 class BooleanFeature(BaseModel):
     """``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
 
@@ -1439,6 +1540,7 @@ Feature = Annotated[
     | DraftFeature
     | PatternFeature
     | ImportFeature
+    | SheetMetalBaseFlangeFeature
     | BooleanFeature,
     Field(discriminator="type"),
 ]
@@ -1457,6 +1559,7 @@ FeatureEnvelope = (
     | DraftFeature
     | PatternFeature
     | ImportFeature
+    | SheetMetalBaseFlangeFeature
     | BooleanFeature
 )
 
@@ -1612,6 +1715,7 @@ FEATURE_REGISTRY.register(ShellFeature)
 FEATURE_REGISTRY.register(DraftFeature)
 FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.register(ImportFeature)
+FEATURE_REGISTRY.register(SheetMetalBaseFlangeFeature)
 FEATURE_REGISTRY.register(BooleanFeature)
 FEATURE_REGISTRY.validate_chains()
 
@@ -1636,6 +1740,11 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         # `import` produces the base body (step-import.md §1), so its faces/edges
         # are nameable by a later SubshapeRef — "sketch on an imported part's face".
         "import",
+        # `sheet_metal_base_flange` produces the sheet body (sheet-metal.md §4.1),
+        # so its faces/edges are nameable by a later SubshapeRef — a sketch/hole on
+        # a flange face (§7), or (slice #3) the edge-flange bend attaches to a base
+        # edge. A base flange IS a body-affecting result like any extrude.
+        "sheet_metal_base_flange",
         # `boolean` produces a combined body (multi-body §Decisions-3), so its
         # result faces/edges are nameable by a later SubshapeRef (a fillet on a
         # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
@@ -1653,7 +1762,7 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
 #: body, so they are NOT valid boolean operands; `boolean` itself is excluded too
 #: (it takes over its target's base id, not its own — boolean-on-boolean is MB-4).
 BASE_BODY_AFFECTING_FEATURE_TYPES = frozenset(
-    {"extrude", "revolve", "sweep", "loft", "import"}
+    {"extrude", "revolve", "sweep", "loft", "import", "sheet_metal_base_flange"}
 )
 
 
@@ -1862,6 +1971,16 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             # materializes no feature_dependencies edge (like an offset datum /
             # a pattern). Its body is a pure function of `data`.
             pass
+        case SheetMetalBaseFlangeFeature():
+            # A base flange thickens a single sketch profile to gauge (sheet-metal
+            # §4.1) — the SAME `profile` FeatureRef → sketch slot extrude uses. Its
+            # sheet-metal defaults (k_factor/bend_radius_mm) are scalars, not refs;
+            # the neutral plane / bend are the edge-flange slice, not this one.
+            references.append(
+                FeatureReference(
+                    "profile", feature.params.profile, frozenset({"sketch"})
+                )
+            )
         case BooleanFeature():
             # A boolean combines two independently-built bodies named by their
             # BASE features (multi-body §Decisions-3): TARGET (surviving) + TOOL

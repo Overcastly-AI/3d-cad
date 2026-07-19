@@ -728,11 +728,21 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       geometry. Deferred to feature slices: `MakeFace` on a non-rectangular blank +
       up/down bend inference. No OCCT wall; 13 tests, ruff + pyright clean.
       [kernel-architect, spike]
-- [ ] (P2, M) Sheet metal v1 #1 — base flange feature (documents + geometry)
-      — `SheetMetalBaseFlangeParamsV1` (gauge `thickness_mm` + default
-      `k_factor`/`bend_radius_mm`), kernel-side reusing `extrude.py`'s
-      `build_profile_face` + thicken path verbatim (no new geometry code).
-      Blocked on the endorsement item above. [src: founder, design/
+- [x] (P2, M) Sheet metal v1 #1 — base flange feature (documents + geometry)
+      SHIPPED 2026-07-19. `SheetMetalBaseFlangeParamsV1` in py-kit (profile +
+      gauge `thickness_mm` + default `k_factor` 0.44 + required `bend_radius_mm`
+      + `direction`/`merge`), registered in the Feature union / registry /
+      body-affecting + base-body type sets / `feature_references`. Geometry
+      `_evaluate_sheet_metal_base_flange` reuses `build_profile_face` +
+      `extrude_face` + `_add_body` VERBATIM (no new kernel geometry) and records
+      the part's `SheetMetalDefaults` (gauge/K/radius) on the body identity for
+      the edge-flange/unfold slices (§5). Golden `goldens-sheet-metal/base-flange-
+      plate-40x25x2` (own harness in `tests/test_sheet_metal_features.py`, NOT the
+      shared tree): volume 2000 mm^3 (dev ~2e-13, tol 1e-9), 6 faces/12 edges/1
+      shell exact, byte-deterministic in-proc + fresh-restart. Documents needed
+      NO change (generic JSONB CRUD over the shared registry); ts-client type
+      additive, apps/web typecheck clean (no create-UI yet — slice #4). gen-check
+      clean; full geometry suite + ruff + pyright green. [src: founder, design/
       sheet-metal.md §4.1/§10]
 - [ ] (P2, L) Sheet metal v1 #2 — the flat-pattern unfold algorithm
       (geometry) — THE flagged risk (design doc §2), proven EARLY against a

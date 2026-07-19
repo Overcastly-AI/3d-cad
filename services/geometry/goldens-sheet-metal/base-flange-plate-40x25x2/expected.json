@@ -1,0 +1,28 @@
+{
+  "description": "FIRST SHEET-METAL FEATURE GOLDEN (docs/design/sheet-metal.md §4.1/§9): the §6 40 x 25 mm rectangle sketched on the XY datum plane, thickened to a 2 mm gauge by a `sheet_metal_base_flange` feature. Locks that a base flange evaluates through the REUSED extrude path (build_profile_face -> extrude_face -> add) to the correct gauge-thickness solid: volume = profile_area x thickness, exact planar mass properties, B-rep topology counts, and the deterministic 0.1 mm tessellation. The feature carries the part's sheet-metal defaults (k_factor omitted -> the v1 default 0.44; bend_radius_mm = 3.0) which ride ON the body for the edge-flange/unfold slices and do NOT affect the base flange's own flat-plate geometry. Because a base flange is mechanically an additive extrude, the solid is identical to the sketch-extrude plate at a 2 mm depth.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "profile: the 40 x 25 rectangle spans x in [0,40], y in [0,25] on XY (same entities + 5 constraints as goldens/sketch-extrude-40x25x10; zero residual at the drawn positions, so solved == input).",
+    "gauge thickness t = 2 mm; base flange thickens the profile along the XY normal (+Z, direction default 'normal'), so z spans [0, 2].",
+    "volume = profile_area x t = (40 * 25) * 2 = 1000 * 2 = 2000 mm^3",
+    "surface_area = 2*(40*25) + 2*(40*2) + 2*(25*2) = 2000 + 160 + 100 = 2260 mm^2",
+    "centroid = (40/2, 25/2, 2/2) = (20, 12.5, 1) mm by symmetry",
+    "bounding_box = [0,0,0]..[40,25,2]",
+    "topology: a rectangular prism is 6 planar faces, 12 straight edges, 1 closed shell (same construction path as sketch-extrude-40x25x10: BRepBuilderAPI_MakeFace + MakePrism)",
+    "mesh: each planar rectangular face tessellates to exactly 2 triangles (6 * 2 = 12); faceted per-face normals mean no vertex sharing across faces, so 6 faces * 4 corners = 24 vertices (same convention as box-10x20x30 / sketch-extrude-40x25x10)",
+    "sheet-metal defaults (thickness 2, K 0.44, bend_radius 3) are carried on the body for downstream slices and have NO effect on these geometry expectations."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). Same wire->face->prism construction path as goldens/sketch-extrude-40x25x10, which accumulates only ulp-scale floating-point error in GProp's integration over the constructed planar faces. Measured deviations vs the analytic values (2026-07-19, build123d 0.11.1 / OCCT 7.9, planegcs): volume ~2.3e-13 mm^3, surface_area ~4.5e-13 mm^2, centroid <= ~4e-15 mm, AABB exactly 0.0 on all six bounds. Documented ceiling 1e-9 mirrors the sketch-extrude golden's reviewed bound (100x TIGHTER than the standing planar 1e-7, ~2000x headroom over the observed worst case for libm/platform variation). The solver contributes zero error by construction (zero-residual start, solved == input bitwise). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 2000.0,
+    "surface_area": 2260.0,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 1.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 2.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}
