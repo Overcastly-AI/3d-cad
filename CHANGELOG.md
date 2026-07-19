@@ -395,6 +395,86 @@ feature-tree.md`: features table vs JSONB tradeoff, versioned param
   **Assemblies #1**; engineering audit Pass 2: F7 closed, F6/F8/F2 open.
   [backlog-groomer]
 
+## [Phase 3: Assemblies v1 + fast-follows, audit debt] — 2026-07-15
+
+- **docs(design): Assemblies architecture decision** (`b378633`) — new
+  `assembly` document type (instances + mates), in-house `AssemblySolver`
+  (no license-clean 3D constraint solver exists), phased v1 (3 mates +
+  shared-mesh tessellation).
+- **feat(documents): Assemblies v1 #1 — document model + CRUD** (`fab5115`,
+  `4a9716c`) — `assemblies`/`instances`/`mates` tables, OCC, write-time
+  acyclicity, cross-document dependents guard.
+- **feat(geometry): Assemblies v1 #2 — `AssemblySolver` core** (`c010ee1`,
+  `c962f73`) — quaternion 6-DOF, closed-form tree fast path + numpy-only
+  damped LM fallback (no GPL), full diagnosis vocabulary, BLAS-pinned
+  determinism.
+- **feat(geometry): Assemblies v1 #3 — mate-geometry-ref resolution**
+  (`40e895f`) — `MateFaceRef`/`MateAxisRef` resolve via the shipped
+  `on_face`/edge signature machinery; first real bolted solve.
+- **feat(geometry): Assemblies v1 #5 — evaluation + shared-mesh
+  tessellation** (`05f6aa1`, `2d8c82f` independent geometry-QA PASS) —
+  "bolt two parts together and see it," golden `assembly-two-plates-bolted`.
+- **feat(gateway): Assemblies v1 #4 — CRUD + evaluate proxies** (`cc72d23`)
+  — every route `CurrentUser`-gated (audit F7).
+- **feat(web): Assemblies v1 #6 — assembly workspace** (`e8ecce9`) —
+  balloon-numbered tree, shared-mesh multi-instance viewport, mate
+  authoring with snap-on-solve; `assembly.spec.ts` green. **Assemblies v1
+  MVP COMPLETE, VISION ❌→➖** (`096e657`).
+- **feat(geometry+web): distance + angle mates** (`56d457d`, `5457910`) —
+  signed-gap + `acos` conventions pinned, golden-backed; `NumberField`
+  mate-HUD authoring UI.
+- **feat(documents+web): flat BOM read-model + panel** (`901dad1`,
+  `cf617c8`) — direct-instance aggregation, SOLVE/PARTS toggle title-block
+  schedule.
+- **feat(geometry): MinIO/S3 mesh-store swap** (`bfa163f`, audit F1/F6) —
+  content-addressed `S3MeshStore`, single-worker guard lifted when
+  configured.
+- **feat(gateway): Redis-backed per-user rate limiting** (`65ee811`, audit
+  F7 second half) — sliding-window log, fail-open, 429 + Retry-After.
+- **perf(geometry): STEP re-parse cache** (`662ccd2`, audit F8) — per-worker
+  content-keyed LRU, one parse per upload not per edit.
+
+## [Phase 4a: Drawings v1, Viewport makeover, Units, Undo/redo, Datum-planes] — 2026-07-16 to 2026-07-18
+
+- **feat(documents+geometry): Drawings v1 #1–#3** (`03f2319`, `5c4b080`,
+  `d65caff`) — document model (sheets/views/dimensions naming geometry via
+  `EdgeSignature`), exact-HLR `project_view` (byte-deterministic), stateless
+  evaluate endpoint.
+- **feat(gateway): Drawings v1 #4 — proxy** (`1dc1c60`).
+- **feat(web): Drawings v1 #7 — frontend canvas** (`6671ec4`) — `/drawings`
+  register + sheet editor, one-action standard-4 layout, "paper on the
+  bench" tokens.
+- **feat(geometry): Drawings v1 #6/#6a — dimension measurement + provenance**
+  (`5e16f9d`, geometry-QA `8b1b47f`) — model-true linear/diameter/radius/
+  angular off the exact B-rep, geometric edge re-matching (HLR carries no
+  per-edge tag).
+- **feat(web): Drawings v1 #6b/#6c — dimension authoring UI** (`78ae196`,
+  `981c42f`) — pick → gated type menu → CRUD → drafting annotation;
+  angular + point-to-point (vertex handles).
+- **feat(web): Drawings v1 #5 — SVG export** (`4b8d975`) — standalone
+  self-contained download.
+- **feat(geometry+gateway+web): Drawing export DE-0…DE-3 (server-composed
+  PDF/DXF, one placement source)** (`eff3bf1` SVG compose, `3dfdb35`/
+  `a77bf77`/`84bf9d3` PDF, `6c82325`/`42af0d1` DXF, `4644f49`/`03f07e4`
+  client cutover) — `ComposedSheet` placement moves server-side; the
+  browser's duplicate placement engine is deleted.
+- **feat(web,design): Viewport makeover Batch 1–3** (`9767e17`, `c83b43b`,
+  `bde2b7b`) — full-bleed canvas, horizon-persistent grid + atmosphere +
+  matcap shading, decorative-chrome deletion, in-command band depth, body
+  hover/select feedback.
+- **feat(documents+web): Units U1/U2** (`426ff41`, `fb26305`) — `LengthUnit`
+  on part/assembly documents; pure `toMm`/`fromMm`/`parseLength`/
+  `formatLength` core threading every feature-param length input + the
+  distance mate.
+- **feat(documents+web): Undo/redo UR1–UR3** (`75c287f`, `6f33d94`,
+  `548c915`, `f0c2525`) — server-side bounded snapshot rings (part +
+  assembly), verbatim id-preserving restore, History command-band controls
+  - chords.
+- **feat(geometry+web): Datum-plane completeness** (`cc0736e`, `9495053`) —
+  midplane + offset-chaining kinds, `DatumEditor` Type selector.
+- **docs(vision): Drawings flips ❌→➖** (`09eb8fc`) — re-scored alongside
+  Sheet metal candidate-pillar scoping.
+
 ## [Phase 3 + 4a + 4b: Assemblies, Drawings enhancements, Multi-body, Sheet metal] — 2026-07-18 to 2026-07-19
 
 ### Drawings enhancements — Phase 4a exports + multi-body drawing support (2026-07-18)

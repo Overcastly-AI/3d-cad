@@ -2,23 +2,19 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 4b — Sheet metal v1 COMPLETE** (founder green-lit
-2026-07-19; slices #1 base flange, #2 unfold algorithm, #3 edge-flange/
-authored-body unfold, and #4 flat-pattern drawing view — BACKEND (composed
-flat-pattern SHEET + `ComposedBendTable`, `edge_role` through composition)
-AND FRONTEND (the `edge_role="bend"` dashed-blue fold stroke from the new
-`drawing.bend` token + the columnar bend-table annotation + the "Flat
-pattern" editor action + founder screenshots) all landed. **v1 DoD MET:
-"one bracket → a flat blank a shop can cut"** (see §Phase 4b). Flat-pattern UI
-P3 polish closed 2026-07-19 (text-accessible `BendSchedulePanel`, token-driven
-fold-line legend dash, de-magic'd bend-table columns — UI-REVIEW 2026-07-19). The intervening
-pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
-the **Multi-body** pillar **v1 COMPLETE through MB-4** (multi-lump bodies,
-opt-in disjoint union, multi-solid STEP import → ONE multi-lump body, and — as
-of MB-4c, 2026-07-19 — the frontend "Keep as one body" opt-in on the Combine
-editor + a guided `boolean_disjoint` recovery; the per-body multi-lump Bodies-
-panel row is deferred as an honest wire gap — per-body lump count isn't on the
-evaluate payload). The historical convergence notes below are retained as-is.
+**Current focus: no single locked initiative — Phase 4b (Sheet metal v1)
+COMPLETE 2026-07-19, converging a run of six pillars** (Assemblies, Drawings
++ server-composed export, Multi-body/booleans, Units, Undo/redo, Sheet
+metal), each independently reviewed + QA'd, each holding at ➖/✅ on the
+VISION.md scorecard with honest named residuals (full evidence:
+`CHANGELOG.md`, `docs/BACKLOG.md` Done archive). **No founder-directed
+initiative is currently in flight**; the autonomous loop pulls the top of
+`docs/BACKLOG.md` **Ready (top of queue)**, restocked 2026-07-19 by the
+backlog-groomer. Remaining VISION ❌ rows (Performance benchmarking,
+Collaboration/versioning, Extensibility/scripting+MCP) have no design doc yet
+and are not next-in-line by cost — the cheapest concrete ❌-row move is the
+Performance benchmark-suite item (BACKLOG Ready #1); see BACKLOG for the full
+ordering + rationale.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
@@ -187,7 +183,10 @@ item:
 
 ## Phase 3 — Assemblies, versioning, collaboration 🚧
 
-**Current focus.** Architecture decision endorsed 2026-07-15
+**Assemblies v1 + fast-follows complete** (see sub-item below, flipped to ✅
+this pass); still 🚧 as a phase because document versioning, realtime
+presence, and Helm/HA remain ⬜, unstarted. Architecture decision endorsed
+2026-07-15
 (`docs/design/assemblies.md`, `b378633`): a new `assembly` document type
 (instances + mates), an in-house deterministic `AssemblySolver` (protocol
 mirrors `SketchSolver`; no license-clean 3D constraint-solver library
@@ -201,7 +200,7 @@ conventions pinned + goldens + frontend authoring UI). Still deferred past v1
 interference detection, exploded views, BOM formatting, STEP-assembly
 export, flexible sub-assemblies, part-version pinning-as-default.
 
-- 🚧 Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
+- ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
       items, backend→gateway→frontend); "bolt two parts together and see it" is
       real end-to-end.** BOM shipped as a flat documents-side read model
       (see the BOM-landed note below); recursive/indented BOM is a tracked
@@ -307,7 +306,7 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       "(deleted)" with a ⚠ affordance (quantity preserved). `assembly-bom.spec.ts`
       drives A×3 + B×1 → PARTS → 2 lines (qty 3 / 1, total 4) against the real
       stack; founder shot `docs/screenshots/assembly-bom-desktop.png`.
-- 🚧 **Multi-body modeling + booleans — `docs/design/multi-body.md` (Option A,
+- ✅ **Multi-body modeling + booleans — `docs/design/multi-body.md` (Option A,
       base-feature-keyed eval-time body set). MB-0 plumbing landed 2026-07-18:**
       a part can now END WITH MORE THAN ONE BODY. `EvaluationState` swaps its
       single `body` slot for a tree-ordered `bodies` set keyed by each body's
@@ -559,7 +558,12 @@ export, flexible sub-assemblies, part-version pinning-as-default.
 - ⬜ Realtime presence + multi-user editing via gateway WebSocket
 - ⬜ Helm chart + Kustomize; HA topology guide
 
-## Phase 4 — Interop & drawings ⬜
+## Phase 4 — Interop & drawings 🚧
+
+**Header corrected 2026-07-19** (was stale ⬜ "planned" though most of the
+phase shipped): STEP import v1 + multi-solid, Drawings v1 + server-composed
+export, and Sheet metal v1 (Phase 4b below) are all done; IGES, named
+assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
 
 - 🚧 STEP/IGES import with healing report — **STEP import v1 shipped
       end-to-end** (kernel `4964fab` → gateway upload → UI file-picker,
@@ -571,7 +575,7 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       named assembly product-structure (part names/hierarchy — a multi-solid
       file still lands as one anonymous body, not a Loft assembly), sew/heal,
       blob-ref storage — BACKLOG Later.
-- 🚧 2D drawings: views from model, dimensions, PDF/DXF export — the
+- ✅ 2D drawings: views from model, dimensions, PDF/DXF export — the
       product audit's honest #2/near-#1 counter-argument to Assemblies
       (smaller build, completes the make-loop for the single-part case).
       **Drawings v1 #1 — document model + CRUD (documents) SHIPPED**:
@@ -819,9 +823,13 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       window is CLOSED — the drawing-export initiative (DE-0…DE-3) is complete.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
-## Phase 4b — Sheet metal 🔨 (founder green-lit; Spike 0 tractability proof landed)
+## Phase 4b — Sheet metal ✅ (v1 complete 2026-07-19)
 
-**In progress — founder green-lit 2026-07-19.** A pillar the vision-steward
+**v1 DoD MET, complete 2026-07-19** ("one bracket → a flat blank a shop can
+cut"; VISION scorecard ❌→➖, held short of ✅ on the depth-1-bend-star scope
+boundary — see VISION.md). v2 increments (non-parallel stars, bend chains,
+hems/miters/tabs) are tracked in BACKLOG, not an active roadmap phase. A
+pillar the vision-steward
 scoped 2026-07-17 in response to a founder ask ("anything for sheet metal?").
 Architecture decision: `docs/design/sheet-metal.md` (design doc corrected
 2026-07-19 before the first build slice — new additive `CylindricalFaceSignature`,
