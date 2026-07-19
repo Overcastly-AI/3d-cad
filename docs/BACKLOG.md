@@ -189,6 +189,16 @@ scorecard impact → core capability → polish).
       distinct from MB-4b's flatten-to-lumps); (3) a real sew/repair healing
       report. Split into independent slices when picked up. [src: roadmap,
       geometry-qa, step-import.md]
+- [ ] (P3, S) Sheet-metal bend-tree unfold — optional hardening (code-review
+      🟢 on `66aee0a`): (a) add a RUNTIME invariant inside `_unfold_bend_tree`
+      asserting the assembled union-loop shoelace area ≈ summed `flat_area_mm2`
+      (raise `UnfoldOverlapError` otherwise) so "the outline tiles the blank" is
+      load-bearing at runtime, not only in the golden tests — closes the one
+      theoretical path (flange vs non-adjacent BA-strip overlap merging into a
+      clean loop) the flange-rect-only overlap gate doesn't cover; (b) note the
+      `_face_key` normal-6dp/centroid-4dp tree-node rounding (fine for mm-scale
+      parts, in-run-only key). Neither demonstrated on a real body. [src:
+      code-reviewer]
 - [ ] (P3, S) py-kit: align FastAPI 422 OpenAPI schema with the py-kit error
       envelope (currently documents `HTTPValidationError`) [src:
       kernel-architect]
