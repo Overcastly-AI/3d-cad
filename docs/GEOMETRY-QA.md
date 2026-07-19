@@ -7,6 +7,41 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-19 — Sheet-metal depth-2 no-crash guard + N=4 full-pan golden (kernel-architect self-report)
+
+Code-review follow-up on the non-parallel unfold (three 🟡/🟢). The reachable
+defect: an author can fold a flange off ANOTHER flange (depth 2 — the edge-flange
+`edge` ref accepts an edge flange as its base). A **perpendicular** second bend
+axis (a real box corner) drove `outward = e.cross(base_normal).normalized()` to a
+zero-norm normalize and leaked a raw kernel `Standard_ConstructionError` through
+the public unfold API. Verified before the fix (reproduced the raw crash) and
+after (typed `UnfoldStarError`).
+
+- **Decision — depth-2 rejected UNIFORMLY** (a consistent "depth-1 only" contract):
+  a bend whose resolved base face is not the ONE shared base raises before any
+  layout math. Covers both the perpendicular box corner (the crash) and the
+  parallel box lip (which did NOT crash — it silently emitted a 1D strip — now
+  also rejected, since it is still the deferred graph-relaxation case). Two new
+  tests assert the typed error and prove no `Standard_ConstructionError` escapes.
+- **Full-width guard:** `_emit_plus_pattern` now asserts its developed body-edge
+  outline chains into ONE closed loop (a future partial/offset flange → typed
+  error, never a silently non-closed blank a shop would mis-cut).
+- **New golden `pan-four-flange-perp-unfold` (N=4 full pan)** — the headline
+  full-tray claim. Base 40×30 + a full-width flange off EACH edge (legs 20/15/25/10).
+  Evidence (build123d 0.11.1 / OCCT 7.9, tol 1e-9, vol tol 1e-6):
+  - Area conservation (§9 #2): flat_area 4503.256564714987 vs analytic
+    4503.256564714988 (residual ~9e-13); shoelace over the closed **12-edge** plus
+    outline equals it to 1e-6. 12 body edges + 4 fold lines, one closed loop.
+  - **Exactly-additive volume** (residual 0.0): fused 9059.291886010284 = analytic
+    sum of base + 4 flanges ⇒ NO 3D corner overlap even at N=4. Topology
+    faces=30/edges=68/shells=1.
+  - Determinism (§9 #4): content_hash `c7268519…` byte-identical in-process, across
+    a fresh interpreter, AND between a hand-built OCCT body and the feature-tree
+    body.
+- **Parallel + corner-tray goldens byte-unchanged** (guard is check-only, no
+  layout change). `BendLine.flat_start/end` documented as per-arm axial coords in
+  differing 2D frames — consumers must use the `role="bend"` outline edges.
+
 ## 2026-07-19 — Sheet metal v2 #1: non-parallel depth-1 bend star (kernel-architect self-report)
 
 New golden `goldens-sheet-metal/corner-tray-perp-unfold` — a base flange (40×30)

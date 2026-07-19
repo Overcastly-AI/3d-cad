@@ -308,6 +308,28 @@ graph-relaxation problem, §2.2, §7 deferred) or a **hat-channel-with-miter**
 way Assemblies' three mates were chosen — the smallest set that clears a
 real daily-driver case, not the largest set that's safe to promise.
 
+**Depth-2 is rejected UNIFORMLY — decision recorded (2026-07-19,
+code-review follow-up).** An edge flange's `edge` reference accepts another
+edge flange as its base (feature registry), so a depth-2 body — a flange
+folded off ANOTHER flange — is author-reachable. It is rejected as a typed
+`UnfoldStarError` **before any layout math**, on a single robust test: a
+bend whose resolved base face is not the ONE shared base flange is depth ≥ 2.
+This covers **both** sub-cases with one rule and one contract: (a) a
+**perpendicular/vertical second bend axis** (a real box corner) — which,
+unguarded, reached the non-parallel layout's `outward = e.cross(base_normal)`
+and leaked a raw kernel `Standard_ConstructionError` (zero-norm normalize)
+through the public API; and (b) a **parallel second bend axis** (a box
+lip/return) — which does not crash and would develop a geometrically
+plausible 1D strip, but is **still** the graph-relaxation case (a child
+bend's flattening transform composing with its already-moved parent's) that
+v1 defers. Accepting only the parallel sub-case was considered and rejected:
+a "depth-1 only" contract is simpler to reason about and to gate than "depth-1,
+plus parallel-axis depth-2," and the parallel strip is not independently
+goldened. So the contract is exactly depth-1, and **no authored depth-2 body
+produces a raw kernel exception or a silently-wrong flat pattern** — the
+honest-typed-degradation principle (§5), now proven by the depth-2 rejection
+tests (`test_sheet_metal_nonparallel_star.py`).
+
 ## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
 
 **Correction from an earlier draft of this doc:** a bend region is a
@@ -425,10 +447,25 @@ The golden `corner-tray-perp-unfold` (base + 2 perpendicular edge flanges) pins
 the analytic area/envelope + a shoelace-outline area witness + byte-determinism.
 **v1 non-parallel scope: a RECTANGULAR base with axis-aligned bends** (a tray /
 pan). Still an honest `UnfoldStarError` (narrowed): a non-rectangular / angled
-base, a bend axis not aligned to the base rectangle, or **depth ≥2** (a flange
-folded off ANOTHER flange — a box corner, the real graph-relaxation problem,
-deferred, §4.3). Bend faces unresolvable after an edit degrade to
-`subshape_unresolved` (§5), never a wrong flat pattern.
+base, a bend axis not aligned to the base rectangle, or **any depth ≥2** body (a
+flange folded off ANOTHER flange — a box corner OR a box lip/return, the real
+graph-relaxation problem, deferred, §4.3's uniform depth-2 rejection). Bend faces
+unresolvable after an edit degrade to `subshape_unresolved` (§5), never a wrong
+flat pattern.
+
+**Depth-2 guard + full-pan golden (2026-07-19, code-review follow-up).** Two
+correctness-of-contract fixes landed on the non-parallel path: (1) the depth-2
+guard above — a bend whose base face is not the shared base raises before the
+layout cross-product, so a perpendicular-second-axis box corner is a typed
+`UnfoldStarError` instead of a raw kernel `Standard_ConstructionError`, and a
+parallel-second-axis box lip is rejected on the same rule (§4.3). (2) The
+`_emit_plus_pattern` assembler now GUARDS its full-width-flange assumption: it
+asserts the developed body-edge outline chains into ONE closed loop (a future
+partial/offset flange would leave a gap on a skipped base side — a typed error,
+never a silently non-closed blank). New golden `pan-four-flange-perp-unfold` (N=4,
+a full-width flange off each edge of a 40×30 base) pins the headline full-tray
+claim: analytic area/envelope, a valid closed 12-edge plus outline, exactly-additive
+fused volume (residual 0.0 → no 3D corner overlap at N=4), and byte-determinism.
 5. Tag the seam between each original planar segment and its neighbor as a
    **bend line** (a construction-style edge in the output, carrying the
    bend's id, angle, and direction up/down) — this is what feeds the bend

@@ -422,6 +422,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-19 — **Sheet-metal depth-2 no-crash + N=4 pan golden (kernel-architect):**
+  code-review follow-up on the non-parallel unfold. Author-reachable depth-2
+  bodies (flange off a flange) now raise a UNIFORM typed `UnfoldStarError` before
+  the layout — the perpendicular box corner no longer leaks a raw kernel
+  `Standard_ConstructionError`; plus-pattern assembler guards its full-width
+  closed-loop assumption; `BendLine.flat_start/end` 2D-frame semantics documented;
+  new `pan-four-flange-perp-unfold` golden. Parallel goldens byte-identical.
 - 2026-07-19 — **Sheet metal v2 #1 — non-parallel bend stars (kernel-architect):**
   spike proved the 2D plus/cross layout tractable (shared corners included —
   disjoint arms, exactly-additive volume). `unfold_sheet_metal` branches

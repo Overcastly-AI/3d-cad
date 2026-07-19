@@ -839,7 +839,14 @@ boundary — see VISION.md). **v2 #1 — non-parallel depth-1 stars — SHIPPED
 parallel L-bracket/U-channel goldens byte-identical. Spike-first verdict:
 tractable, no wall — shared-corner flanges included (disjoint 2D arms, exactly-
 additive 3D volume). Golden `corner-tray-perp-unfold`; `UnfoldStarError`
-narrowed to non-rectangular/angled bases + depth≥2. Remaining v2 increments
+narrowed to non-rectangular/angled bases + depth≥2. **Code-review follow-up
+(2026-07-19): depth-2 no longer leaks a raw kernel exception** — a flange folded
+off another flange (author-reachable) is now a UNIFORM typed `UnfoldStarError`
+(both a perpendicular box corner, which had leaked a raw `Standard_ConstructionError`,
+and a parallel box lip), guarded before the layout cross-product; the plus-pattern
+assembler guards its full-width-flange assumption (closed-loop or typed error);
+new N=4 full-pan golden `pan-four-flange-perp-unfold` (exactly-additive volume,
+closed 12-edge outline, byte-determinism). Remaining v2 increments
 (bend chains depth≥2, hems/miters/tabs) are tracked in BACKLOG, not an active
 roadmap phase. A pillar the vision-steward
 scoped 2026-07-17 in response to a founder ask ("anything for sheet metal?").

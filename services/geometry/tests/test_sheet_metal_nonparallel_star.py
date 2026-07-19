@@ -3,14 +3,17 @@
 PERPENDICULAR edges, unfolding to a 2D plus/cross (not the 1D strip the L-bracket
 / U-channel goldens exercise).
 
-Gates the closed feature: the authored corner tray rebuilds from a real feature
-tree, unfolds via :func:`geometry.sheet_metal.unfold_sheet_metal` (the parallel
-check no longer raises for it), and is asserted against HAND-DERIVED analytic
-area / envelope / bend allowance (§9 #1/#2), the fused body's volume + topology,
-the plus outline (8 body edges + 2 fold lines forming a valid closed loop whose
-enclosed area equals the blank area), and byte-determinism (in-process + a fresh
-interpreter restart, §9 #4). Plus the narrowed out-of-scope boundaries: a
-non-rectangular / angled base is still an honest ``UnfoldStarError``.
+Parametrized over every ``*-perp-unfold`` golden: the N=2 ``corner-tray`` and the
+N=4 full pan (``pan-four-flange`` — base + a full-width flange off EACH edge, the
+headline 'full tray/pan' claim). Each authored body rebuilds from a real feature
+tree, unfolds via :func:`geometry.sheet_metal.unfold_sheet_metal`, and is asserted
+against HAND-DERIVED analytic area / envelope / bend allowance (§9 #1/#2), the
+fused body's volume + topology (exactly-additive → no 3D corner overlap), the plus
+outline (body + fold edges forming a valid closed loop whose enclosed area equals
+the blank area), and byte-determinism (in-process + a fresh interpreter restart,
+§9 #4). Plus the boundaries: a non-rectangular / angled base and ANY depth-2 body
+(a flange folded off another flange — box corner OR box lip) are honest
+``UnfoldStarError``s, never a wrong flat pattern and never a raw kernel crash.
 
 Does NOT touch the parallel goldens (``*-edge-flange``) — those stay byte-identical.
 """
@@ -22,7 +25,13 @@ from pathlib import Path
 
 import pytest
 from geometry.features.evaluate import TreeEvaluation, evaluate_tree
-from geometry.sheet_metal import FlatEdge2D, FlatPattern, unfold_sheet_metal
+from geometry.kernel.types import BodyShape
+from geometry.sheet_metal import (
+    BendProvenance,
+    FlatEdge2D,
+    FlatPattern,
+    unfold_sheet_metal,
+)
 from py_kit.schemas.features import EvaluateTreeRequest
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -227,6 +236,95 @@ def test_unfold_is_deterministic_across_interpreter_restart(golden_dir: Path) ->
     remote_hash = result.stdout.splitlines()[0]
     assert remote_hash == pattern.content_hash()
     assert remote_hash == expected.content_hash
+
+
+# --------------------------------------------------------------------------- #
+# Depth-2 rejection — a flange folded off ANOTHER flange (§4.3 / §7 deferred).  #
+# The v1 contract is depth-1 ONLY; depth-2 is rejected UNIFORMLY (both a        #
+# perpendicular second bend axis — a box corner — and a parallel one — a box    #
+# lip/return). The perpendicular case is the reachable-crash regression: before #
+# the guard it leaked a raw kernel Standard_ConstructionError (zero-norm cross   #
+# product) through the public unfold API. It MUST now be a typed UnfoldStarError.#
+# --------------------------------------------------------------------------- #
+
+
+def _build_depth2(second_axis: str) -> tuple[BodyShape, list[BendProvenance]]:
+    """Author a real depth-2 body: base + flange-1 off a base edge + flange-2 off
+    an edge of FLANGE-1 (depth 2). ``second_axis='perp'`` picks flange-1's vertical
+    free edge → the box-corner case whose second bend axis is PARALLEL to the base
+    normal (the reachable crash); ``'parallel'`` picks flange-1's top horizontal
+    edge → a box lip whose second bend axis is parallel to the first bend's."""
+    from build123d import Box
+    from geometry.kernel.edges import enumerate_edges
+    from geometry.sheet_metal import build_edge_flange
+
+    base = Box(40.0, 40.0, 2.0).translate((20.0, 20.0, 1.0))
+    edge1 = next(
+        rec.edge
+        for rec in enumerate_edges(base)
+        if rec.signature.curve == "line"
+        and abs((rec.edge @ 0.0).X - 40.0) < 1e-6
+        and abs((rec.edge @ 1.0).X - 40.0) < 1e-6
+        and abs((rec.edge @ 0.5).Z - 2.0) < 1e-6
+    )
+    r1 = build_edge_flange(base, edge1, 30.0, 90.0, 3.0, 2.0)
+    if second_axis == "perp":
+        # A vertical (along +Z) free edge of flange-1 → second bend axis || base
+        # normal → the zero-norm cross product the guard must pre-empt.
+        edge2 = next(
+            rec.edge
+            for rec in enumerate_edges(r1.body)
+            if rec.signature.curve == "line"
+            and abs((rec.edge @ 0.5).X - 43.0) < 1e-6
+            and abs((rec.edge @ 0.5).Y - 40.0) < 1e-6
+            and abs((rec.edge @ 1.0).Z - (rec.edge @ 0.0).Z) > 1e-3
+        )
+    else:
+        # Flange-1's top horizontal edge (along +Y) → second bend axis || first.
+        edge2 = next(
+            rec.edge
+            for rec in enumerate_edges(r1.body)
+            if rec.signature.curve == "line"
+            and abs((rec.edge @ 0.5).Z - 35.0) < 1e-6
+            and abs((rec.edge @ 0.5).X - 43.0) < 1e-6
+            and abs((rec.edge @ 1.0).Y - (rec.edge @ 0.0).Y) > 1e-3
+        )
+    r2 = build_edge_flange(r1.body, edge2, 20.0, 90.0, 3.0, 2.0)
+    provs = [
+        BendProvenance(r1.cyl_signature, r1.base_face_signature, 0.44),
+        BendProvenance(r2.cyl_signature, r2.base_face_signature, 0.44),
+    ]
+    return r2.body, provs
+
+
+def test_depth2_box_corner_is_typed_unfold_star_error_not_kernel_crash() -> None:
+    """THE regression: a depth-2 box corner (flange folded off a flange, second bend
+    axis perpendicular/vertical) must raise a TYPED UnfoldStarError — never leak the
+    raw kernel Standard_ConstructionError (zero-norm normalize) it did before the
+    guard. No raw kernel exception may escape the public API for an authored body."""
+    from geometry.sheet_metal.unfold import UnfoldStarError
+
+    body, provs = _build_depth2("perp")
+    with pytest.raises(UnfoldStarError, match="depth >= 2"):
+        unfold_sheet_metal(body, provs, 2.0, 0.44)
+    # Belt-and-suspenders: prove the escaping type is OUR typed error, not the OCP
+    # Standard_ConstructionError (whose name would appear on a raw-kernel leak).
+    try:
+        unfold_sheet_metal(body, provs, 2.0, 0.44)
+    except UnfoldStarError as exc:
+        assert "Standard_ConstructionError" not in type(exc).__name__
+
+
+def test_depth2_box_lip_parallel_axis_is_also_rejected() -> None:
+    """The DECIDED depth-2 contract (§4.3): the parallel-second-axis box lip — which
+    does NOT crash and would develop a geometrically-plausible strip — is rejected
+    too, for a consistent 'depth-1 only' contract (it is still the graph-relaxation
+    case v1 defers, §2.2 / §7), matching the corrected docstring/design."""
+    from geometry.sheet_metal.unfold import UnfoldStarError
+
+    body, provs = _build_depth2("parallel")
+    with pytest.raises(UnfoldStarError, match="depth >= 2"):
+        unfold_sheet_metal(body, provs, 2.0, 0.44)
 
 
 # --------------------------------------------------------------------------- #

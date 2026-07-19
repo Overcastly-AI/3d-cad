@@ -75,9 +75,14 @@ class UnfoldStarError(SheetMetalUnfoldError):
     folded directly off ONE fixed base flange, either all-parallel (L-bracket /
     U-channel — a 1D strip) or non-parallel off a **rectangular** base (a tray /
     pan — a 2D plus/cross). Still outside scope and raised here: a non-rectangular
-    or angled base, a bend axis not aligned to the base rectangle, or depth >= 2
-    (a flange folded off ANOTHER flange — a box corner, the real graph-relaxation
-    problem, deferred)."""
+    or angled base, a bend axis not aligned to the base rectangle, or **any**
+    depth >= 2 body — a flange folded off ANOTHER flange, whether its second bend
+    axis is perpendicular to the parent (a box corner) OR parallel to it (a box
+    lip / return). Depth-2 is rejected uniformly (a consistent "depth-1 only"
+    contract), even though the parallel sub-case happens to route through geometry
+    that would not crash: it is still the graph-relaxation problem (each child
+    bend's flattening transform composes with its already-moved parent's), which
+    v1 defers rather than validates (§2.2 / §7)."""
 
 
 def bend_allowance(
@@ -216,20 +221,25 @@ def unfold_sheet_metal(
     thickness_mm: float,
     default_k_factor: float,
 ) -> FlatPattern:
-    """Unfold an authored depth-1 parallel bend star into its :class:`FlatPattern`.
+    """Unfold an authored depth-1 bend star into its :class:`FlatPattern`.
 
     Resolves each bend by its :class:`CylindricalFaceSignature` (§5), separates the
     shared base flange from each moving flange by the base face signature, and lays
     the developed blank out flat: the base flange in the middle, each flange folded
     down onto its side with the cylindrical bend region replaced by a bend-allowance
-    strip (``BA = angle_rad * (radius + K * thickness)``, §1). Byte-deterministic
+    strip (``BA = angle_rad * (radius + K * thickness)``, §1). All-parallel bend
+    axes develop as a 1D strip (L-bracket / U-channel); non-parallel axes off a
+    rectangular base develop as a 2D plus/cross (a tray / pan). Byte-deterministic
     (§9 #4): every value flows from a deterministic OCCT measurement + closed form.
 
     Raises:
         SubshapeUnresolvedError / SubshapeAmbiguousError: a bend signature no longer
             resolves against *body* (a dangling bend — §5 honest degradation).
-        UnfoldStarError: the bends do not form a depth-1 PARALLEL star, or share no
-            single base flange face (outside v1 scope).
+        UnfoldStarError: the bends do not form a depth-1 star off ONE shared base
+            flange — including ANY depth >= 2 body (a flange folded off another
+            flange), rejected uniformly ahead of layout so no authored body leaks a
+            raw kernel exception — or a non-rectangular / axis-unaligned base
+            (outside v1 scope, §4.3).
     """
     if not bends:
         raise UnfoldStarError("An unfold needs at least one bend (edge flange).")
@@ -245,9 +255,36 @@ def unfold_sheet_metal(
         axis_dir = Vector(*rbf.axis_dir).normalized()
         resolved.append((base_rec, moving_rec, axis_dir, rbf.angle_rad, prov))
 
-    # The base flange is SHARED across every bend; take it from the first.
+    # The base flange is SHARED across every bend; take it from the first. The
+    # first-authored bend always folds directly off the base (a depth-2 flange
+    # references an earlier flange's edge, so it is authored AFTER its parent),
+    # so resolved[0][0] is the true fixed base.
     base_rec = resolved[0][0]
     base_normal = Vector(*base_rec.normal).normalized()
+
+    # DEPTH-1 CONTRACT (§4.3), enforced BEFORE any layout math: every bend must
+    # fold directly off the ONE shared base flange. A bend whose resolved base
+    # face is NOT that shared base is a flange folded off ANOTHER flange —
+    # depth >= 2 (a box corner or a box lip/return), the graph-relaxation case v1
+    # deliberately defers (§2.2 / §7). Rejecting HERE — ahead of both the parallel
+    # and non-parallel paths — is what keeps the honest-degradation contract (§5)
+    # true for EVERY authored depth-2 body: without this guard a perpendicular
+    # second bend axis reaches the `_unfold_nonparallel` cross-product below and
+    # leaks a raw kernel `Standard_ConstructionError` (zero-norm normalize), and a
+    # parallel second bend axis silently develops as if it folded off the base.
+    # Both are now one typed `UnfoldStarError`. (This never fires for a genuine
+    # depth-1 star — every edge flange there records the shared base's signature,
+    # so all bases match; the L-bracket / U-channel / tray goldens are unaffected.)
+    base_sig = base_rec.signature
+    for other_base, _m, _axis, _a, _p in resolved[1:]:
+        if not planar_signatures_match(other_base.signature, base_sig):
+            raise UnfoldStarError(
+                "A bend does not fold off the shared base flange: its base face is "
+                "another flange (depth >= 2 — a box corner or lip/return). v1 unfolds "
+                "a depth-1 bend STAR — N flanges folded directly off ONE fixed base "
+                "(§4.3); a flange folded off another flange needs the graph-relaxation "
+                "unfold deferred to a later increment (§2.2 / §7)."
+            )
 
     # A depth-1 star is PARALLEL (all bend axes share one direction → a 1D strip,
     # the L-bracket / U-channel) or NON-PARALLEL (flanges off perpendicular edges
@@ -568,6 +605,19 @@ def _unfold_nonparallel(
         e = axis_dir.normalized()
         radius = prov.cyl_signature.radius_mm
         ba = bend_allowance(angle_rad, radius, prov.k_factor, thickness_mm)
+        # Belt-and-suspenders (the shared-base guard in `unfold_sheet_metal` already
+        # rejects every depth-2 body before we reach here): a bend axis must be
+        # PERPENDICULAR to the base normal to lie in the base plane. A parallel axis
+        # (a box corner's vertical second bend) would make `e.cross(frame.normal)`
+        # degenerate to a zero vector, so guard it as a typed error rather than let
+        # `.normalized()` leak a raw kernel `Standard_ConstructionError` (§5).
+        if abs(e.dot(frame.normal)) > _ALIGN_TOL:
+            raise UnfoldStarError(
+                "A bend axis is not perpendicular to the base flange normal (a flange "
+                "folded off another flange — depth >= 2, a box corner). v1's "
+                "non-parallel unfold scopes to depth-1 bends off the shared base "
+                "(§4.3); depth-2 graph relaxation is deferred (§2.2 / §7)."
+            )
         # Outward direction in the base plane, pointing away from the base interior.
         outward = e.cross(frame.normal).normalized()
         if (Vector(*moving_rec.centroid) - base_c).dot(outward) < 0.0:
@@ -623,6 +673,45 @@ def _unfold_nonparallel(
     )
 
 
+#: Endpoint-coincidence tolerance for the closed-loop outline guard (mm). The
+#: outline endpoints are exact frame coordinates (shifted by a common offset), so
+#: matching residuals are ulp-scale; this bound is far tighter than the kernel
+#: linear tolerance yet loose enough to absorb FP addition noise.
+_LOOP_TOL_MM = 1e-6
+
+
+def _body_outline_is_closed_loop(outline: list[FlatEdge2D]) -> bool:
+    """True if the ``role="body"`` edges chain end-to-end into ONE closed loop.
+
+    A pure endpoint-adjacency walk (no kernel call): start at the first body edge
+    and repeatedly step to the unique unused edge sharing the current endpoint. The
+    outline is a single closed loop iff every body edge is consumed exactly once and
+    the walk returns to its start. Used to guard the full-width-flange assumption in
+    :func:`_emit_plus_pattern` — a partial-width flange leaves a gap, breaking the
+    walk, and is reported as a typed error rather than a silently non-closed blank."""
+    segs = [((e.x1, e.y1), (e.x2, e.y2)) for e in outline if e.role == "body"]
+    if not segs:
+        return False
+    used = [False] * len(segs)
+    used[0] = True
+    start, tail = segs[0]
+    for _ in range(len(segs) - 1):
+        nxt: tuple[float, float] | None = None
+        for i, (a, b) in enumerate(segs):
+            if used[i]:
+                continue
+            if math.dist(tail, a) <= _LOOP_TOL_MM:
+                nxt, used[i] = b, True
+                break
+            if math.dist(tail, b) <= _LOOP_TOL_MM:
+                nxt, used[i] = a, True
+                break
+        if nxt is None:
+            return False
+        tail = nxt
+    return all(used) and math.dist(tail, start) <= _LOOP_TOL_MM
+
+
 def _emit_plus_pattern(
     arms: list[_Arm],
     frame: _BaseFrame,
@@ -661,6 +750,14 @@ def _emit_plus_pattern(
     # body edge — the arm continues the material there), else a real cut edge.
     # (axis, sign) -> the side: X/+ = right (x=wx), X/- = left (x=0), Y/+ = top,
     # Y/- = bottom.
+    # FULL-WIDTH ASSUMPTION (guarded below): skipping a whole base side is only
+    # correct when the arm on it spans the ENTIRE edge (its span reaches both base
+    # corners), so the arm's side edges meet the neighbouring sides/arms and the
+    # union boundary stays a single closed loop. Every authorable edge flange today
+    # is full-width (the edge-flange feature folds off a whole base edge), so this
+    # holds. A future partial-width / offset flange would leave a gap on the skipped
+    # side — a NON-closed outline — which the closed-loop guard after assembly
+    # catches as a typed error rather than emitting a silently broken blank.
     wx, wy = frame.wx, frame.wy
     base_sides: dict[tuple[int, int], _Seg] = {
         (0, 1): (wx, 0.0, wx, wy, "body"),
@@ -689,6 +786,17 @@ def _emit_plus_pattern(
     ]
     # Deterministic outline order: body edges then bend edges, each by endpoints.
     outline.sort(key=lambda e: (e.role, e.x1, e.y1, e.x2, e.y2))
+
+    # Guard the full-width assumption (above): the body edges MUST chain into one
+    # closed loop. For every v1-authorable tray they do (full-width arms meet at the
+    # base corners); a future partial/offset flange would break it, and we fail typed
+    # here (§5) rather than emit a silently non-closed blank a shop would mis-cut.
+    if not _body_outline_is_closed_loop(outline):
+        raise UnfoldStarError(
+            "The developed outline is not a single closed loop — a flange does not "
+            "span its full base edge (a partial / offset flange). v1's non-parallel "
+            "unfold assumes full-width edge flanges (§4.3 / §7 deferred)."
+        )
 
     bend_lines: list[BendLine] = []
     for i, a in enumerate(arms, start=1):

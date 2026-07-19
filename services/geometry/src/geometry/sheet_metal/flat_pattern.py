@@ -55,9 +55,28 @@ class BendLine:
 
     ``allowance_mm`` is the bend allowance ``BA = angle_rad * (radius + K *
     thickness)`` (§1) — the flat length that replaces the two setback segments a
-    naive sharp-corner unfold would use. ``flat_start_mm``/``flat_end_mm`` bound
-    the developed bend strip along the ``u`` axis (``flat_end - flat_start ==
-    allowance_mm``); the fold centerline sits at their midpoint.
+    naive sharp-corner unfold would use.
+
+    ``flat_start_mm``/``flat_end_mm`` bound the developed bend strip, and only their
+    DIFFERENCE is contract-stable: ``flat_end - flat_start == allowance_mm`` always
+    holds (the strip is one bend allowance long, its fold centerline at the
+    midpoint). Their ABSOLUTE values are frame-relative and their meaning depends on
+    the pattern's dimensionality:
+
+    * **1D strip** (an all-parallel star — L-bracket / U-channel): every bend folds
+      about the SAME axis, so ``flat_start``/``flat_end`` are a shared developed-``u``
+      coordinate and are directly comparable across bends (fold-line placement).
+    * **2D plus/cross** (a non-parallel tray / pan): each arm folds about its OWN
+      axis, so a bend's ``flat_start``/``flat_end`` is an AXIAL coordinate **in that
+      arm's frame** — bend-1's may be a frame-X coordinate while bend-2's is a
+      frame-Y coordinate, in DIFFERENT axes with no shared origin. They are NOT
+      comparable across bends and must NOT be used for 2D fold-line placement.
+
+    The authoritative, dimensionality-independent geometry for placing a fold line
+    is the ``role="bend"`` edge in :attr:`FlatPattern.outline` (its endpoints are
+    real 2D coordinates in the developed frame). Consumers rendering or dimensioning
+    fold lines MUST use those outline bend edges; ``flat_start``/``flat_end`` are the
+    per-bend TABLE metadata (which bend, how long its allowance), not a 2D locator.
     """
 
     bend_id: str
