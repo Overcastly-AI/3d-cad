@@ -52,6 +52,7 @@ function union(
         operation: "union",
         target: { kind: "feature", feature_id: targetId },
         tool: { kind: "feature", feature_id: toolId },
+        allow_disjoint: false,
       },
     },
   };

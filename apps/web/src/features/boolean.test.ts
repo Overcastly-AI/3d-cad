@@ -111,6 +111,7 @@ describe("buildCombineParams", () => {
       operation: "union",
       target: { kind: "feature", feature_id: "x1" },
       tool: { kind: "feature", feature_id: "x2" },
+      allow_disjoint: false,
     });
   });
 
@@ -125,6 +126,7 @@ describe("buildCombineParams", () => {
       operation: "subtract",
       target: { kind: "feature", feature_id: "x1" },
       tool: { kind: "feature", feature_id: "x2" },
+      allow_disjoint: false,
     });
     expect(
       buildCombineParams({

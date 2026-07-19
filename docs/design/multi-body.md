@@ -174,10 +174,28 @@ is a pure OCCT function; byte-identical GLB+STEP across interpreter restarts;
     analytic numbers as the MB-0 `multibody-two-disjoint-boxes`, but ONE body via a
     boolean); a fillet-on-lump-2 golden (cross-lump naming proof); a 2-solid STEP
     import round-trip (`test_step_roundtrip` already handles multi-solid re-import).
-  - **Sequence:** MB-4a (multi-lump body support + relaxed guards + disjoint-union
-    golden, backend) → MB-4b (multi-solid STEP import) → MB-4c (frontend
-    `allow_disjoint` checkbox + error-code map). Per-lump pick/highlight is the
-    deferred tail.
+  - **Sequence:** MB-4a — SHIPPED 2026-07-18 (backend). Multi-lump body support:
+    `EvaluationState.bodies` widened `dict[UUID, Solid]` → `dict[UUID, BodyShape]`;
+    the modifying kernel ops (fillet/chamfer/shell/draft/pattern + `combine_body`'s
+    active side) relaxed `.solids() == 1` → lump-count-preserving `== k` (k from
+    the INPUT body; k=1 byte-identical). Fillet/chamfer run on the whole compound;
+    shell/draft run PER LUMP (OCCT's `MakeThickSolid`/`DraftAngle` cannot take a
+    compound — verified) via `IsSame` owner-grouping, untouched lumps passing
+    through. Every multi-lump `Compound` is assembled through one leaf helper
+    (`geometry.kernel.lumps`) in an EXPLICIT lump sort (centroid x/y/z, then
+    volume — a total order mirroring `_wire_sort_key`). `allow_disjoint: bool =
+    False` on `BooleanParamsV1` (additive, no `param_version` bump): set → a
+    `>1`-solid boolean returns a lump-sorted `Compound` as ONE body; default keeps
+    `boolean_disjoint`; empty still `boolean_empty`. Part roll-up flattened
+    (`Compound([s for b in bodies for s in b.solids()])`) — no nested compounds.
+    Goldens `boolean-union-two-disjoint-cubes` (16000 mm³, shells=2, 12/24, ONE
+    body via a boolean) + `boolean-union-disjoint-then-fillet-lump2` (cross-lump
+    naming to exactly one edge, 15920+20π mm³, 13/27/2); byte-identical GLB+STEP
+    across restart; every existing golden unchanged; mate-against-a-multi-lump-face
+    regression added. **The v1 coincident-lump `subshape_ambiguous` honesty is
+    documented in the `BooleanParamsV1` docstring.** → MB-4b (multi-solid STEP
+    import) → MB-4c (frontend `allow_disjoint` checkbox + error-code map). Per-lump
+    pick/highlight is the deferred tail.
   - **Risks:** the lump-count guard (capture `k` from the INPUT body — a wrong guard
     crashes legit ops or silently accepts a merge; shell especially); nested
     Compounds if the roll-up isn't flattened; lump-order determinism (the explicit

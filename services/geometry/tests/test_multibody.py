@@ -20,6 +20,7 @@ multi-body silently goes wrong:
    and must enumerate across every subshape solid of a Compound.
 """
 
+import uuid
 from typing import Any
 
 import pytest
@@ -256,3 +257,36 @@ def test_widened_resolvers_accept_solid_and_compound() -> None:
     assert len(enumerate_edges(compound)) == 24
     # The origin cube's top face signature is unique in the compound -> resolves.
     resolve_face_plane(compound, top.signature, 0.0)
+
+
+def test_mate_resolves_a_face_on_a_multilump_body() -> None:
+    """The historically-silent MB-0 ripple, now on a MULTI-LUMP body (§MB-4): a
+    part instance whose body is a Compound of several lumps must still resolve a
+    mate FACE ref that names a face of ONE lump. ``resolve_mate_geometry``
+    delegates to ``resolve_face_plane``, which enumerates faces across every
+    subshape solid, so a face unique to the far lump resolves to exactly one face
+    (centroid + outward normal) — never a silent break or a cross-lump tie."""
+    from geometry.assembly.protocol import ResolvedFace
+    from geometry.assembly.resolve import resolve_mate_geometry
+    from py_kit.schemas.assemblies import MateFaceRef
+
+    near = _one_box()  # origin cube, x[0,20]
+    far = Solid.make_box(20, 20, 20).translate((100, 0, 0))  # far lump, x[100,120]
+    compound = Compound([near, far])
+
+    # The +X face of the FAR lump (centroid x=120) is unique to that lump.
+    far_plus_x = next(
+        r
+        for r in planar_faces(compound)
+        if r.signature.normal.x > 0.99 and r.signature.centroid.x > 100
+    )
+    ref = MateFaceRef(
+        # any uuid — resolution is body-scoped, not id-scoped
+        instance_id=uuid.UUID(_iid("e01a")),
+        signature=far_plus_x.signature,
+    )
+    resolved = resolve_mate_geometry(compound, ref)
+    # Resolves to the far lump's +X face: a point ON it (x=120) with outward +X.
+    assert isinstance(resolved, ResolvedFace)
+    assert resolved.point.x == pytest.approx(120.0, abs=1e-9)
+    assert resolved.normal.x == pytest.approx(1.0, abs=1e-9)

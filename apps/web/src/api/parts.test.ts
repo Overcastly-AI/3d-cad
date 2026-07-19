@@ -565,6 +565,7 @@ const unionParams: BooleanParams = {
     kind: "feature",
     feature_id: "22222222-2222-2222-2222-222222222222",
   },
+  allow_disjoint: false,
 };
 
 describe("booleanFeatureCreate", () => {

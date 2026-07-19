@@ -88,18 +88,24 @@ def _extrude(fid: str, profile: str, *, merge: bool | None = None) -> dict[str, 
     return {"id": fid, "feature": {"type": "extrude", "version": 1, "params": params}}
 
 
-def _boolean(fid: str, operation: str, target: str, tool: str) -> dict[str, Any]:
+def _boolean(
+    fid: str,
+    operation: str,
+    target: str,
+    tool: str,
+    *,
+    allow_disjoint: bool | None = None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "operation": operation,
+        "target": {"kind": "feature", "feature_id": target},
+        "tool": {"kind": "feature", "feature_id": tool},
+    }
+    if allow_disjoint is not None:
+        params["allow_disjoint"] = allow_disjoint
     return {
         "id": fid,
-        "feature": {
-            "type": "boolean",
-            "version": 1,
-            "params": {
-                "operation": operation,
-                "target": {"kind": "feature", "feature_id": target},
-                "tool": {"kind": "feature", "feature_id": tool},
-            },
-        },
+        "feature": {"type": "boolean", "version": 1, "params": params},
     }
 
 
@@ -243,6 +249,73 @@ def test_union_of_disjoint_bodies_is_boolean_disjoint() -> None:
     assert props is not None
     assert props.volume == pytest.approx(16000.0, abs=1e-9)
     assert props.topology.shells == 2
+
+
+# --- MB-4: opt-in disjoint union -> ONE multi-lump body -------------------------
+
+
+def test_allow_disjoint_union_is_one_multilump_body() -> None:
+    """MB-4 opt-in: A[0,20] + B[30,50] (10 mm gap) union with
+    ``allow_disjoint=True`` keeps the two non-touching lumps as ONE multi-lump
+    body (a Compound), NOT a `boolean_disjoint` error: volume 16000 mm^3,
+    shells=2, and the last-good body is a Compound (one bodies-entry)."""
+    s1, e1, s2, e2, b = _iid("f01"), _iid("f02"), _iid("f03"), _iid("f04"), _iid("f05")
+    from build123d import Compound  # local: kept out of the single-body import head
+
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (30, 50), (s1, e1, s2, e2)),
+            _boolean(b, "union", e1, e2, allow_disjoint=True),
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 5
+    props = evaluation.result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(16000.0, abs=1e-9)
+    assert props.topology.shells == 2  # two lumps kept in one body
+    assert props.topology.faces == 12
+    assert isinstance(evaluation.body, Compound)
+
+
+def test_allow_disjoint_false_still_errors() -> None:
+    """The flag is genuinely opt-in: the SAME disjoint union with
+    ``allow_disjoint=False`` (explicit) is still a `boolean_disjoint` error —
+    the default safety is unchanged."""
+    s1, e1, s2, e2, b = _iid("f11"), _iid("f12"), _iid("f13"), _iid("f14"), _iid("f15")
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (30, 50), (s1, e1, s2, e2)),
+            _boolean(b, "union", e1, e2, allow_disjoint=False),
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 4 + [("error", "boolean_disjoint")]
+
+
+def test_allow_disjoint_empty_intersect_is_still_boolean_empty() -> None:
+    """``allow_disjoint`` only relaxes the >1-solid branch: an EMPTY result (a
+    non-overlapping intersect) is still `boolean_empty`, never a null body."""
+    s1, e1, s2, e2, b = _iid("f21"), _iid("f22"), _iid("f23"), _iid("f24"), _iid("f25")
+    evaluation = evaluate_tree(
+        _scene(
+            _two_bodies((0, 20), (30, 50), (s1, e1, s2, e2)),
+            _boolean(b, "intersect", e1, e2, allow_disjoint=True),
+        )
+    )
+    assert _codes(evaluation) == [("ok", None)] * 4 + [("error", "boolean_empty")]
+
+
+def test_allow_disjoint_union_is_deterministic() -> None:
+    """The multi-lump body is byte-identical across rebuilds — the lump order is
+    the explicit centroid sort, not OCCT traversal order (RESEARCH §9)."""
+    s1, e1, s2, e2, b = _iid("f31"), _iid("f32"), _iid("f33"), _iid("f34"), _iid("f35")
+    scene = _scene(
+        _two_bodies((0, 20), (30, 50), (s1, e1, s2, e2)),
+        _boolean(b, "union", e1, e2, allow_disjoint=True),
+    )
+    first = evaluate_tree(scene)
+    second = evaluate_tree(scene)
+    assert first.glb == second.glb
+    assert first.result.properties == second.result.properties
 
 
 def test_boolean_disjoint_is_deterministic() -> None:

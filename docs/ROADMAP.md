@@ -346,8 +346,27 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       edit that removes the referenced edge degrades to a clean typed
       `subshape_unresolved` (never wrong-edge/crash), the same best-effort stage-1
       posture as every feature — stage-2 provenance is the structural fix (MB-4/
-      deferred). **Multi-body pillar v1 COMPLETE through MB-3;** MB-4 (per-feature
-      target-body ref, per-body pick, disjoint multi-lump bodies) deferred.
+      deferred). **Multi-body pillar v1 COMPLETE through MB-3.** **MB-4a landed
+      2026-07-18 (backend) — multi-lump bodies + opt-in disjoint union:** a body
+      can now be a `Compound` of disjoint LUMPS. `EvaluationState.bodies` widens
+      `dict[UUID, Solid]` → `dict[UUID, BodyShape]`; the modifying kernel ops
+      (fillet/chamfer/shell/draft/pattern + `combine_body`'s active side) relax
+      their `.solids() == 1` guard to lump-count-preserving `== k` (k captured
+      from the INPUT body) — a fillet on one lump of a k-lump body keeps k lumps;
+      k=1 is byte-identical to before. Shell/draft run PER LUMP (OCCT can't shell
+      a compound); fillet/chamfer run on the whole compound; every multi-lump
+      `Compound` is assembled in an EXPLICIT lump sort (centroid x/y/z, then
+      volume — determinism). `BooleanParamsV1` gains `allow_disjoint: bool = False`
+      (additive, NO `param_version` bump): when set, a `>1`-solid boolean returns a
+      lump-sorted `Compound` as ONE body instead of `boolean_disjoint`; default
+      keeps the safety error; empty results still `boolean_empty`. The part roll-up
+      flattens (`Compound([s for b in bodies for s in b.solids()])`) to avoid
+      nested compounds. Goldens `boolean-union-two-disjoint-cubes` (two 20 mm cubes
+      → ONE multi-lump body via `allow_disjoint`, 16000 mm³, shells=2, 12/24) and
+      `boolean-union-disjoint-then-fillet-lump2` (fillet lump 2's edge → 15920+20π
+      mm³, 13/27/2 — cross-lump topo-naming to exactly one edge), byte-identical
+      GLB+STEP across restart; every existing golden unchanged. MB-4b (multi-solid
+      STEP import) + MB-4c (frontend `allow_disjoint` checkbox) next.
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

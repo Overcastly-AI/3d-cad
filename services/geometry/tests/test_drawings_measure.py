@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from typing import cast
 
 import pytest
 from build123d import Axis, Edge, Face, GeomType, Pos, Solid, Vector, Wire
@@ -70,7 +71,8 @@ def _through_hole_box() -> Solid:
     """A 40x25x10 plate with a Ø10 hole through its thickness (+Z), centred."""
     plate = _make_box(40, 25, 10)
     drill = build_cylinder(5, 40).locate(Pos(0, 0, -20))
-    return combine_body(plate, drill, "cut")
+    # Single-lump through-cut → Solid (combine_body widened to BodyShape for MB-4).
+    return cast(Solid, combine_body(plate, drill, "cut"))
 
 
 def _filleted_block() -> Solid:

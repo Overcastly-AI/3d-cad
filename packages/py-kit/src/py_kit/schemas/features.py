@@ -1202,12 +1202,31 @@ class BooleanParamsV1(BaseModel):
     (the subtrahend). The boolean result takes over the target's identity slot and
     the tool body is removed from the part.
 
-    All three operations are wired (union MB-1a; subtract/intersect MB-2). The v1
-    single-connected-solid-per-body invariant (§Decisions-3) governs the result:
-    a union of non-touching bodies, or a subtract that SEVERS the target into ≥2
-    pieces, is a ``boolean_disjoint`` rebuild error; a subtract that removes the
-    whole target, or an intersect with no overlap, is ``boolean_empty``. Disjoint
-    multi-lump bodies are deferred to MB-4.
+    All three operations are wired (union MB-1a; subtract/intersect MB-2). By
+    DEFAULT the v1 single-connected-solid-per-body invariant (§Decisions-3)
+    governs the result: a union of non-touching bodies, or a subtract that SEVERS
+    the target into ≥2 pieces, is a ``boolean_disjoint`` rebuild error; a subtract
+    that removes the whole target, or an intersect with no overlap, is
+    ``boolean_empty``.
+
+    MULTI-LUMP BODIES ARE OPT-IN (MB-4 / design §MB-4). Set ``allow_disjoint`` to
+    accept a ``>1``-solid result as ONE multi-lump body — a :class:`Compound` of
+    the disjoint lumps kept under the target's identity slot (a genuine
+    "combine into one body" of, say, two non-touching bosses). It defaults
+    ``False`` because a disjoint union is USUALLY a positioning bug, not an
+    intent, so v1 keeps the safety error unless the author explicitly opts in.
+    An EMPTY result is still ``boolean_empty`` / ``BooleanError`` regardless of
+    the flag (there is no material to keep). The flag is additive-optional
+    (absent reads ``False`` — the ``merge`` / ``flip`` idiom, NO ``param_version``
+    bump).
+
+    v1 MULTI-LUMP LIMIT — coincident lumps are honestly ambiguous
+    (design §MB-4, stated plainly): a downstream picked-face/edge reference on a
+    multi-lump body resolves by ABSOLUTE-world-coordinate signature, so a lump at
+    a distinct position resolves to exactly one subshape. But two lumps that
+    truly COINCIDE in space (a self-union of congruent bodies) give congruent
+    signatures and resolve to an honest ``subshape_ambiguous`` — the resolver
+    refuses to guess, never a wrong-lump modification (topological-naming.md §5).
 
     v1 TOPOLOGICAL-NAMING LIMIT (MB-3 / design §Decisions-4 — stated plainly, not
     oversold): a downstream feature (fillet/chamfer) CAN name an edge/face CREATED
@@ -1235,6 +1254,14 @@ class BooleanParamsV1(BaseModel):
     tool: FeatureRef = Field(
         description="Base feature of the CONSUMED body; removed from the part "
         "once the boolean succeeds (design §Decisions-3)"
+    )
+    allow_disjoint: bool = Field(
+        default=False,
+        description="Accept a >1-solid result as ONE multi-lump body (a Compound "
+        "of the disjoint lumps) instead of a `boolean_disjoint` error (MB-4). "
+        "Defaults False (a disjoint union is usually a positioning bug). An empty "
+        "result is still `boolean_empty`. Additive — absent reads False, no "
+        "param_version bump.",
     )
 
 

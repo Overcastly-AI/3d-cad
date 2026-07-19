@@ -226,7 +226,9 @@ class EvaluationState:
         default_factory=dict[uuid.UUID, Plane]
     )
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
-    bodies: dict[uuid.UUID, Solid] = field(default_factory=dict[uuid.UUID, Solid])
+    bodies: dict[uuid.UUID, BodyShape] = field(
+        default_factory=dict[uuid.UUID, BodyShape]
+    )
     active_body_id: uuid.UUID | None = None
     #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
     #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern
@@ -236,37 +238,41 @@ class EvaluationState:
     prev_body_feature: FeatureEnvelope | None = None
 
     @property
-    def active_body(self) -> Solid | None:
-        """The current solid of the ACTIVE body, or ``None`` if no body yet.
+    def active_body(self) -> BodyShape | None:
+        """The current shape of the ACTIVE body, or ``None`` if no body yet.
 
         The single read every modifying handler and the topo-naming resolvers
-        use in place of the former single ``body`` slot (§MB-0).
+        use in place of the former single ``body`` slot (§MB-0). A body is a
+        single :class:`~build123d.Solid` OR a multi-lump
+        :class:`~build123d.Compound` (§MB-4).
         """
         if self.active_body_id is None:
             return None
         return self.bodies[self.active_body_id]
 
-    def set_active_body(self, solid: Solid) -> None:
-        """Replace the ACTIVE body's current solid (a modifying feature result).
+    def set_active_body(self, shape: BodyShape) -> None:
+        """Replace the ACTIVE body's current shape (a modifying feature result).
 
         Keeps the body's identity slot (its base feature id) so downstream refs
-        keep resolving; asserts an active body exists (callers gate on it).
+        keep resolving; asserts an active body exists (callers gate on it). The
+        shape may be a single solid or a lump-count-preserving multi-lump
+        Compound (§MB-4).
         """
         assert self.active_body_id is not None, "no active body to modify"
-        self.bodies[self.active_body_id] = solid
+        self.bodies[self.active_body_id] = shape
 
-    def start_body(self, base_id: uuid.UUID, solid: Solid) -> None:
+    def start_body(self, base_id: uuid.UUID, shape: BodyShape) -> None:
         """Insert a NEW body keyed by its base feature id and make it active.
 
         The second-body path (``merge=False`` / ``import`` / the first body): a
         body's identity IS its base feature id (§MB-0 Decision 1), so the key is
         the creating feature's id and it becomes the resolution target.
         """
-        self.bodies[base_id] = solid
+        self.bodies[base_id] = shape
         self.active_body_id = base_id
 
     def combine_bodies(
-        self, target_id: uuid.UUID, tool_id: uuid.UUID, solid: Solid
+        self, target_id: uuid.UUID, tool_id: uuid.UUID, shape: BodyShape
     ) -> None:
         """Replace two operand bodies with a boolean result (multi-body §MB-1).
 
@@ -275,9 +281,10 @@ class EvaluationState:
         keeps target's base-feature id AND its tree-ordered insertion position, so
         every downstream ref to the surviving body keeps resolving — and the TOOL
         body is REMOVED from the set (consumed). The combined body becomes active.
-        Callers verify both ids name distinct current bodies first.
+        Callers verify both ids name distinct current bodies first. *shape* may be
+        a single solid or a multi-lump Compound (a disjoint boolean, §MB-4).
         """
-        self.bodies[target_id] = solid
+        self.bodies[target_id] = shape
         del self.bodies[tool_id]
         self.active_body_id = target_id
 
@@ -1196,8 +1203,8 @@ def _pattern_cut_tools(state: EvaluationState) -> list[Solid] | None:
 
 
 def _apply_pattern(
-    body: Solid, geometry: PatternGeometry, tools: list[Solid] | None
-) -> Solid:
+    body: BodyShape, geometry: PatternGeometry, tools: list[Solid] | None
+) -> BodyShape:
     """Dispatch one pattern to its kernel op (linear/circular x union/cut).
 
     ``tools is None`` selects the ADD (union whole-body copies) path — the
@@ -1343,7 +1350,7 @@ def _evaluate_import(
 
 def _resolve_operand_body(
     ref: FeatureRef, state: EvaluationState, *, slot: str
-) -> Solid | FeatureError:
+) -> BodyShape | FeatureError:
     """Resolve a boolean operand FeatureRef to its CURRENT body solid (§MB-1).
 
     An operand names a body by its BASE feature id — the key of
@@ -1356,8 +1363,8 @@ def _resolve_operand_body(
     cannot catch that last case statically — a body's consumption is an eval-time
     fact — so geometry re-checks (design §Decisions-3, §MB-1 error taxonomy).
     """
-    solid = state.bodies.get(ref.feature_id)
-    if solid is None:
+    body = state.bodies.get(ref.feature_id)
+    if body is None:
         return FeatureError(
             code="reference_unresolved",
             message=(
@@ -1368,7 +1375,7 @@ def _resolve_operand_body(
             ),
             upstream_feature_id=ref.feature_id,
         )
-    return solid
+    return body
 
 
 def _evaluate_boolean(
@@ -1419,7 +1426,9 @@ def _evaluate_boolean(
         return tool
 
     try:
-        combined = boolean_bodies(target, tool, params.operation)
+        combined = boolean_bodies(
+            target, tool, params.operation, allow_disjoint=params.allow_disjoint
+        )
     except BooleanDisjointError as exc:
         return FeatureError(code="boolean_disjoint", message=str(exc))
     except BooleanEmptyError as exc:
@@ -1631,10 +1640,19 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         # ``glb_stats`` sums over. Both are deterministic (RESEARCH §9).
         body_list = list(state.bodies.values())
         if len(body_list) == 1:
+            # ONE body — which may itself be a multi-lump Compound (a disjoint
+            # boolean / multi-solid import, §MB-4): measure it directly (GProp +
+            # .shells() count across its lumps), byte-identical to the single-solid
+            # path when it is a bare Solid.
             shape = body_list[0]
             properties = measure_shape(body_list[0])
         else:
-            shape = Compound(body_list)
+            # >1 body: roll up mass properties ANALYTICALLY per body, and tessellate
+            # a FLATTENED Compound of every body's lumps (§MB-4) — flattening avoids
+            # a nested Compound (a body that is itself a Compound), which would give
+            # ``glb_stats`` a nondeterministic traversal. Each body's lumps are
+            # already in explicit lump order; bodies stay tree-ordered.
+            shape = Compound([s for b in body_list for s in b.solids()])
             properties = combine_properties([measure_shape(b) for b in body_list])
         glb, mesh = tessellate_glb(shape, request.linear_deflection)
         mesh_glb_id = store_mesh_glb(glb)

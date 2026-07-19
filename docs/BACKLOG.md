@@ -878,8 +878,33 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
         can't tie a false `subshape_ambiguous`. Documented in `BooleanParamsV1`
         docstring + design §MB-3. **Multi-body pillar v1 complete through MB-3.**
         [kernel-architect]
-  - [ ] (P3, L) **MB-4 (deferred)** — explicit per-feature target-body ref,
-        per-body pick/highlight, disjoint multi-lump compound bodies. The stage-2
+  - [x] **MB-4a (P3, M) multi-lump bodies + opt-in disjoint union done
+        (2026-07-18)** — a body can now be a `Compound` of disjoint lumps.
+        `EvaluationState.bodies` widened `dict[UUID, Solid]` → `dict[UUID,
+        BodyShape]`; the modifying kernel ops (fillet/chamfer/shell/draft/pattern
+        + `combine_body`'s active side) relax `.solids() == 1` to
+        lump-count-preserving `== k` (k from the INPUT body; k=1 byte-identical).
+        Shell/draft run per-lump (OCCT can't shell a compound), fillet/chamfer on
+        the whole compound; every multi-lump `Compound` is assembled in an
+        EXPLICIT lump sort (centroid x/y/z, volume). `BooleanParamsV1` gains
+        `allow_disjoint: bool = False` (additive, no `param_version` bump): set →
+        a `>1`-solid boolean returns a lump-sorted `Compound` as ONE body instead
+        of `boolean_disjoint`; default keeps the error; empty still
+        `boolean_empty`. Part roll-up flattened to avoid nested compounds. Goldens
+        `boolean-union-two-disjoint-cubes` (16000 mm³, shells=2, 12/24) +
+        `boolean-union-disjoint-then-fillet-lump2` (fillet lump 2 → 15920+20π mm³,
+        13/27/2), byte-identical across restart; every existing golden unchanged;
+        mate-against-multi-lump-face regression added. [kernel-architect]
+  - [ ] (P3, M) **MB-4b** — multi-solid STEP import → ONE multi-lump body
+        (`import_step_solid` returns `BodyShape`; a lone solid stays a bare
+        `Solid`, ≥2 lump-sorted `Compound`); rename `ImportNotSingleSolidError`
+        "not single" → reject only 0 solids (`import_no_solid`; ripples py-kit →
+        ts-client → `featureErrors.ts`). [src: docs/design/multi-body.md §MB-4]
+  - [ ] (P3, S) **MB-4c** — frontend `allow_disjoint` checkbox on the Combine
+        editor + a multi-lump Bodies-panel row + `boolean_disjoint` error copy
+        that offers "keep as one body". [src: docs/design/multi-body.md §MB-4]
+  - [ ] (P3, L) **MB-4 tail (deferred)** — per-lump pick/highlight, explicit
+        per-feature target-body ref, a "split bodies" feature. The stage-2
         provenance naming that makes boolean-edge refs structurally
         non-retargeting (topological-naming.md §10) is the standing unblock.
   [src: product-auditor Pass 2, competitive, roadmap, docs/design/multi-body.md]
@@ -1052,6 +1077,12 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-18 — **MB-4a multi-lump bodies + opt-in disjoint union done (backend):**
+  `bodies` widened to `BodyShape`; modifying ops relax to lump-count-preserving
+  `== k` (k=1 byte-identical); `BooleanParamsV1.allow_disjoint` (no version bump)
+  keeps a `>1`-solid boolean as ONE lump-sorted `Compound`. Goldens
+  `boolean-union-two-disjoint-cubes` + `-then-fillet-lump2`; existing goldens
+  unchanged. [kernel-architect]
 - 2026-07-18 — **MB-3 fillet on a boolean edge done → multi-body pillar v1
   complete:** a downstream fillet resolves a boolean-CREATED edge via stage-1
   `EdgeSignature` on a clean rebuild (golden `boolean-union-then-fillet`, 11920 +

@@ -35,7 +35,10 @@ Determinism (RESEARCH §9): the OCCT draft is a pure function of
 ``(body, faces, neutral_plane, angle)``.
 """
 
-from build123d import Face, Plane, Solid
+from build123d import Compound, Face, Plane, Solid
+
+from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
+from geometry.kernel.types import BodyShape
 
 
 class DraftError(RuntimeError):
@@ -50,19 +53,49 @@ class DraftError(RuntimeError):
 
 
 def draft_body(
-    body: Solid, faces: list[Face], neutral_plane: Plane, angle_deg: float
-) -> Solid:
-    """Taper *faces* of *body* by *angle_deg* about *neutral_plane*; new solid.
+    body: BodyShape, faces: list[Face], neutral_plane: Plane, angle_deg: float
+) -> BodyShape:
+    """Taper *faces* of *body* by *angle_deg* about *neutral_plane*; LUMP-PRESERVING.
 
     *faces* is the resolved picked-face list (a non-empty list of kernel Faces —
     the empty case is a ``no_draft_faces`` decision the feature layer makes before
     calling here). *neutral_plane*'s normal is the pull direction (build123d
-    derives it). Returns a new single solid.
+    derives it).
+
+    Multi-body (§MB-4): a single :class:`~build123d.Solid` drafts exactly as
+    before (byte-identical). A multi-lump :class:`~build123d.Compound` is drafted
+    PER LUMP — OCCT's ``DraftAngle`` cannot run on a whole compound, so each lump
+    that OWNS a picked face is tapered independently and the lumps with none pass
+    straight through (unchanged), reassembling in the explicit lump order. The
+    lump count is preserved by construction.
 
     Raises:
         DraftError: the OCCT draft failed to complete (an angle too large for the
             geometry, an undraftable face, …) or left other than exactly one
-            solid (single body chain per part in v1, design §7.6).
+            solid per drafted lump (single body chain per lump, design §7.6).
+    """
+    if isinstance(body, Compound):
+        solids = body.solids()
+        groups = group_faces_by_lump(solids, faces)
+        return assemble_lumps(
+            [
+                _draft_one_lump(solid, lump_faces, neutral_plane, angle_deg)
+                if (lump_faces := groups.get(index))
+                else solid
+                for index, solid in enumerate(solids)
+            ]
+        )
+    return _draft_one_lump(body, faces, neutral_plane, angle_deg)
+
+
+def _draft_one_lump(
+    body: Solid, faces: list[Face], neutral_plane: Plane, angle_deg: float
+) -> Solid:
+    """Taper the picked *faces* of ONE lump — the byte-identical single-body path.
+
+    Shared by the single-solid fast path and each face-owning lump of the
+    multi-lump path (§MB-4). Returns a new single cleaned solid; a lump with no
+    picked face is passed through by :func:`draft_body` and never reaches here.
     """
     try:
         # draft() carries Shape[Unknown] type params upstream (the same gap

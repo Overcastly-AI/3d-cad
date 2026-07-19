@@ -95,12 +95,19 @@ export function canSubmitCombine(form: CombineForm): boolean {
   );
 }
 
-/** Build the persisted boolean params from valid form state, or null. */
+/** Build the persisted boolean params from valid form state, or null.
+ *
+ * `allow_disjoint` defaults to false (MB-4): a union whose operands don't touch
+ * fails as `boolean_disjoint_result` rather than silently producing a multi-lump
+ * body. Opting into a disjoint union is a deliberate multi-lump authoring choice
+ * exposed by a later editor affordance (MB-4c); the default keeps today's
+ * "operands must touch" contract. */
 export function buildCombineParams(form: CombineForm): BooleanParams | null {
   if (!canSubmitCombine(form)) return null;
   return {
     operation: form.operation,
     target: { kind: "feature", feature_id: form.targetFeatureId },
     tool: { kind: "feature", feature_id: form.toolFeatureId },
+    allow_disjoint: false,
   };
 }

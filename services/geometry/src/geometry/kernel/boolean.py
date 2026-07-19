@@ -12,17 +12,19 @@ build123d method surface ``combine_body`` already uses:
 * ``subtract``  — ``Solid.cut``       (``BRepAlgoAPI_Cut``);
 * ``intersect`` — ``Solid.intersect`` (``BRepAlgoAPI_Common``).
 
-THE v1 SINGLE-CONNECTED-SOLID-PER-BODY INVARIANT (§Decisions-3): the result MUST
-be exactly one connected solid. ``result.solids()`` counts the lumps OCCT
-produced:
+THE SINGLE-CONNECTED-SOLID DEFAULT (§Decisions-3, relaxed by §MB-4): by default
+the result MUST be exactly one connected solid. ``result.solids()`` counts the
+lumps OCCT produced:
 
-* ``> 1`` solids → :class:`BooleanDisjointError` (→ ``boolean_disjoint``): a
-  union of non-touching bodies, or a subtract/intersect that leaves the result in
-  ≥2 disconnected pieces (a cut that SEVERS the target, an intersect with two
-  separate contact regions). This guard is WHY a part's
-  ``EvaluationState.bodies`` values stay a single ``Solid`` (never a
-  ``Compound``): a body is always one connected lump in v1. Multi-lump compound
-  bodies are deferred to MB-4.
+* ``> 1`` solids → :class:`BooleanDisjointError` (→ ``boolean_disjoint``) UNLESS
+  the caller opts in with ``allow_disjoint`` (§MB-4), in which case the >1 lumps
+  are kept as ONE multi-lump body (a lump-sorted ``Compound``). The default error
+  covers the common case where a union of non-touching bodies — or a
+  subtract/intersect that leaves ≥2 disconnected pieces (a severing cut, a
+  two-region intersect) — is a positioning bug, not an intent. When it IS the
+  intent, ``allow_disjoint`` combines the lumps into one body: an
+  ``EvaluationState.bodies`` value is then a ``Compound`` (§MB-4 widened the map
+  from ``dict[UUID, Solid]`` to ``dict[UUID, BodyShape]``).
 * ``0`` solids (or a ``None`` result — build123d returns ``None`` for an empty
   ``intersect``) → the material vanished. For ``subtract``/``intersect`` this is a
   MEANINGFUL empty result — the tool consumes the whole target, or the operands
@@ -41,6 +43,8 @@ from typing import Literal
 from build123d import ShapeList, Solid
 
 from geometry.kernel.extrude import BooleanError
+from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.types import BodyShape
 
 
 class BooleanDisjointError(BooleanError):
@@ -67,22 +71,34 @@ class BooleanEmptyError(BooleanError):
 
 
 def boolean_bodies(
-    target: Solid, tool: Solid, operation: Literal["union", "subtract", "intersect"]
-) -> Solid:
-    """Boolean two whole part bodies; return the new single connected solid.
+    target: BodyShape,
+    tool: BodyShape,
+    operation: Literal["union", "subtract", "intersect"],
+    *,
+    allow_disjoint: bool = False,
+) -> BodyShape:
+    """Boolean two whole part bodies; return the new body (one or more lumps).
 
     *target* is the surviving body, *tool* the consumed body (multi-body
     §Decisions-3). ``union`` fuses, ``subtract`` cuts *tool* out of *target*, and
     ``intersect`` keeps their common volume — each an OCCT boolean via the
-    build123d method surface, followed by the single-connected-solid check and a
-    ``clean()`` that removes the redundant seam faces/edges the boolean leaves at
-    the former body boundary (so topology counts stay meaningful and
-    golden-assertable — exactly as :func:`combine_body` does in-chain).
+    build123d method surface, followed by a ``clean()`` per lump that removes the
+    redundant seam faces/edges the boolean leaves at the former body boundary (so
+    topology counts stay meaningful and golden-assertable — exactly as
+    :func:`combine_body` does in-chain).
+
+    By default the result MUST be exactly one connected solid; a >1-solid result
+    is a :class:`BooleanDisjointError`. When *allow_disjoint* is set (the opt-in
+    multi-lump path, §MB-4) a >1-solid result is instead accepted as ONE
+    multi-lump body — a lump-sorted :class:`~build123d.Compound` (deterministic
+    order, RESEARCH §9) — rather than raised. An EMPTY result is
+    :class:`BooleanEmptyError` / :class:`BooleanError` regardless of the flag.
 
     Raises:
-        BooleanDisjointError: the result is >1 disconnected solid — a union of
-            non-touching bodies, or a subtract/intersect that leaves ≥2 pieces
-            (the single-connected-solid-per-body invariant, §Decisions-3).
+        BooleanDisjointError: the result is >1 disconnected solid and
+            *allow_disjoint* is False — a union of non-touching bodies, or a
+            subtract/intersect that leaves ≥2 pieces (the single-connected-solid
+            invariant, §Decisions-3).
         BooleanEmptyError: a ``subtract``/``intersect`` produced no solid — the
             tool consumed the whole target, or the operands do not overlap.
         BooleanError: the kernel boolean raised, or a ``union`` produced no solid.
@@ -125,6 +141,11 @@ def boolean_bodies(
             "overlap, so their common volume is empty."
         )
     if len(solids) > 1:
+        if allow_disjoint:
+            # Opt-in multi-lump body (§MB-4): keep the >1 lumps as ONE body — a
+            # lump-sorted Compound of the cleaned lumps (each lump's boolean seams
+            # cleaned, then the explicit total order imposed for determinism).
+            return assemble_lumps([solid.clean() for solid in solids])
         if operation == "subtract":
             detail = (
                 f"severed the target into {len(solids)} disconnected pieces — the "
@@ -141,7 +162,7 @@ def boolean_bodies(
                 "touch, so their union is not one connected solid"
             )
         raise BooleanDisjointError(
-            f"Boolean {operation} {detail}. A part body is a single connected "
-            "solid in v1 (disjoint multi-lump bodies are not supported)."
+            f"Boolean {operation} {detail}. Set 'allow_disjoint' to keep the "
+            "result as one multi-lump body (design §MB-4)."
         )
     return solids[0].clean()
