@@ -32,8 +32,10 @@ TWO independent ceilings:
   this design fixes, 2026-07-19).
 * **Wall-clock (a liveness backstop only).** ``subprocess.run(..., timeout=…)``
   kills a child that is *wedged* (blocked, not CPU-burning) — a case ``RLIMIT_CPU``
-  cannot catch. Sized generously (default 60 s) so it, too, never fires on a legit
-  parse; it is a hang guard, not the DoS latency control.
+  cannot catch. Sized generously (default 60 s) — ~60x a legit parse's ~1 s of
+  wall time, so it is astronomically unlikely to false-fire under realistic
+  contention (a killed-then-reaped timeout remains the safe outcome if it ever
+  does); it is a hang guard, not the DoS latency control.
 
 A killed parse is reaped (``subprocess.run`` kills then waits; a signal-killed
 child is already reaped) and surfaces as :class:`ImportParseTimeoutError` →
@@ -100,8 +102,9 @@ DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S = 20.0
 #: Default **wall-clock** liveness backstop (seconds) — kills a child that is
 #: *wedged* (blocked, not CPU-burning), which ``RLIMIT_CPU`` cannot catch. It is
 #: NOT the DoS latency control (that is the CPU bound above); it is sized so a
-#: legit parse - ~1 s of wall-clock in isolation - never trips it even under
-#: heavy contention (60x headroom). Overridden per call from
+#: legit parse - ~1 s of wall-clock in isolation - is astronomically unlikely to
+#: trip it under realistic contention (~60x headroom; a killed-then-reaped
+#: timeout is still the safe outcome if it ever does). Overridden per call from
 #: ``GeometrySettings.step_import_wall_timeout_seconds`` (env
 #: ``STEP_IMPORT_WALL_TIMEOUT_SECONDS``).
 DEFAULT_STEP_IMPORT_WALL_TIMEOUT_S = 60.0

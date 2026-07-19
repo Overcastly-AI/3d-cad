@@ -177,6 +177,18 @@ scorecard impact → core capability → polish).
 
 ## Later (P3)
 
+- [ ] (P3, S) STEP import parse-worker — cap parse WORKING-SET memory + config
+      hardening (code-review 🟢 on `f5a9038`): the STEP subprocess now bounds CPU
+      time (`RLIMIT_CPU`) but NOT resident memory — only the 16 MiB _input_ is
+      capped, so an adversarial <16 MiB file can still balloon OCCT's in-memory
+      model. Add `RLIMIT_AS`/`RLIMIT_DATA` alongside the CPU limit in
+      `_step_parse_worker._apply_cpu_limit` (sized not to reject a legit large
+      part), and (a) map an OOM-`SIGKILL` to a memory/parse-failure code rather
+      than `import_parse_timeout`, (b) clamp/validate a non-finite
+      `STEP_IMPORT_TIMEOUT_SECONDS` in `GeometrySettings` (an inf/nan budget
+      currently degrades every import to `parse_failed` via an uncaught
+      `math.ceil`). Pre-existing, non-attacker-reachable footguns + a real
+      memory-DoS gap. [src: code-reviewer]
 - [ ] (P3, M) Hole feature — face-based placement (point on a face + depth,
       optionally counterbore/countersink), distinct from a sketched-circle
       extrude cut. [src: roadmap, product-auditor, competitive]
