@@ -69,7 +69,9 @@ def _through_hole_box() -> Solid:
     """A 40x25x10 plate with a Ø10 hole through its thickness (+Z), centred."""
     plate = _make_box(40, 25, 10)
     drill = build_cylinder(5, 40).locate(Pos(0, 0, -20))  # axis +Z, through centre
-    return combine_body(plate, drill, "cut")
+    # A through-cut of one plate stays a single lump → Solid (cast: combine_body
+    # widened to BodyShape for MB-4 multi-lump unions; irrelevant to this fixture).
+    return cast(Solid, combine_body(plate, drill, "cut"))
 
 
 def _back_pocket_block() -> Solid:
@@ -83,7 +85,7 @@ def _back_pocket_block() -> Solid:
     # Pocket 16(X) x 12(Y-depth) x 12(Z): opens at the back face (y=+10) and cuts
     # inward to y=-2; centred in X and Z → min corner (-8, -2, -6).
     pocket = build_box(16, 12, 12).locate(Pos(-8, -2, -6))
-    return combine_body(block, pocket, "cut")
+    return cast(Solid, combine_body(block, pocket, "cut"))
 
 
 def _cylinder(radius: float, height: float) -> Solid:
@@ -109,7 +111,7 @@ def _half_cylinder() -> Solid:
     the clean single-arc dimension-readiness golden."""
     cyl = build_cylinder(10, 20)
     cutter = build_box(40, 40, 40).locate(Pos(-20, 0, -5))  # spans y in [0,40]
-    return combine_body(cyl, cutter, "cut")
+    return cast(Solid, combine_body(cyl, cutter, "cut"))
 
 
 # --- helpers -------------------------------------------------------------------

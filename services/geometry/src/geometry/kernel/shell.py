@@ -36,7 +36,10 @@ Determinism (RESEARCH §9): the OCCT hollow is a pure function of
 ``(body, faces, thickness)``.
 """
 
-from build123d import Face, Solid
+from build123d import Compound, Face, Solid
+
+from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
+from geometry.kernel.types import BodyShape
 
 #: A valid inward shell strictly REMOVES material (the cavity), so the shelled
 #: volume is below the original. The margin absorbs GProp float noise while
@@ -66,21 +69,53 @@ class ShellThicknessError(ValueError):
     wall is too thick for this body", never a silently wrong solid."""
 
 
-def shell_body(body: Solid, faces_to_remove: list[Face], thickness_mm: float) -> Solid:
+def shell_body(
+    body: BodyShape, faces_to_remove: list[Face], thickness_mm: float
+) -> BodyShape:
     """Hollow *body* to a uniform inward *thickness_mm*, opening *faces_to_remove*.
 
     An empty *faces_to_remove* produces a sealed (fully-enclosed) hollow; a
-    non-empty list leaves those faces open. Returns a new single solid.
+    non-empty list leaves those faces open.
+
+    Multi-body (§MB-4): a single :class:`~build123d.Solid` hollows exactly as
+    before (byte-identical). A multi-lump :class:`~build123d.Compound` is shelled
+    PER LUMP — OCCT's ``MakeThickSolid`` cannot run on a whole compound, so each
+    lump is hollowed independently (opening the picked faces that belong to it;
+    lumps with no picked face become sealed hollows) and the results reassemble in
+    the explicit lump order. Every lump is hollowed, so the lump count is
+    preserved and the material-removed invariant is checked per lump.
 
     Raises:
-        ShellThicknessError: the thickness collapses the cavity (the hollow
-            completed but removed no material — OCCT's silent too-thick path).
+        ShellThicknessError: the thickness collapses the cavity on some lump (the
+            hollow completed but removed no material — OCCT's silent too-thick
+            path).
         ShellError: the OCCT hollow failed to complete, or left other than
-            exactly one solid (single body chain per part in v1, design §7.6).
+            exactly one solid per lump (single body chain per lump, design §7.6).
     """
     if thickness_mm <= 0:
         raise ValueError(f"thickness_mm must be > 0, got {thickness_mm}")
 
+    if isinstance(body, Compound):
+        solids = body.solids()
+        groups = group_faces_by_lump(solids, faces_to_remove)
+        return assemble_lumps(
+            [
+                _shell_one_lump(solid, groups.get(index, []), thickness_mm)
+                for index, solid in enumerate(solids)
+            ]
+        )
+    return _shell_one_lump(body, faces_to_remove, thickness_mm)
+
+
+def _shell_one_lump(
+    body: Solid, faces_to_remove: list[Face], thickness_mm: float
+) -> Solid:
+    """Hollow ONE lump (a single solid) — the byte-identical single-body path.
+
+    Shared by the single-solid fast path and each lump of the multi-lump path
+    (§MB-4). Returns a new single cleaned solid; raises on the two too-thick
+    modes (OCCT raise / silent no-op) exactly as the pre-multi-lump code did.
+    """
     original_volume = body.volume
     try:
         # Negative thickness shells INWARD (the wall grows into the solid); the

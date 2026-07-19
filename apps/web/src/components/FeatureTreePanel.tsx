@@ -8,7 +8,7 @@
  * (an extrude opens its editor); rolling the bar before a feature marks
  * everything below it inert without deleting it.
  */
-import { Panel, PanelSection } from "@loft/design";
+import { Button, Panel, PanelSection } from "@loft/design";
 import type { ReactNode } from "react";
 
 import type {
@@ -17,6 +17,11 @@ import type {
   FeatureResult,
   FeatureTreeResponse,
 } from "../api/parts";
+import {
+  friendlyFeatureError,
+  KEEP_AS_ONE_BODY_ACTION,
+  offersBooleanDisjointRecovery,
+} from "../features/featureErrors";
 import { barSlotIndex, rollbackIdForSlot } from "../features/rollback";
 
 export interface FeatureTreePanelProps {
@@ -30,6 +35,13 @@ export interface FeatureTreePanelProps {
   /** Move the rollback bar (null = tip); the workspace re-evaluates. */
   onMoveRollback: (rollbackFeatureId: string | null) => void;
   rollbackBusy: boolean;
+  /** Guided recovery for a `boolean_disjoint` error (MB-4c): re-run this boolean
+   * with `allow_disjoint` on, keeping the disconnected pieces as one multi-lump
+   * body. Only offered when the feature is a boolean whose opt-in is still off. */
+  onKeepAsOneBody?: (feature: FeatureResponse) => void;
+  /** True while a `boolean_disjoint` recovery write is in flight — disables the
+   * recovery button so a double-click can't enqueue two updates. */
+  recoveringDisjoint?: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -47,6 +59,8 @@ export function FeatureTreePanel({
   onSelectFeature,
   onMoveRollback,
   rollbackBusy,
+  onKeepAsOneBody,
+  recoveringDisjoint = false,
 }: FeatureTreePanelProps) {
   const resultById = new Map<string, FeatureResult>(
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
@@ -187,8 +201,29 @@ export function FeatureTreePanel({
                           {result.error.code}
                         </span>
                         <span className="mt-0.5 block font-body text-xs text-mist">
-                          {result.error.message}
+                          {friendlyFeatureError(
+                            result.error.code,
+                            result.error.message,
+                          )}
                         </span>
+                        {onKeepAsOneBody &&
+                        offersBooleanDisjointRecovery(
+                          feature,
+                          result.error.code,
+                        ) ? (
+                          <Button
+                            variant="ghost"
+                            className="mt-1.5 py-0.5 text-xs"
+                            disabled={recoveringDisjoint}
+                            aria-busy={recoveringDisjoint}
+                            data-testid={`feature-recover-disjoint-${index}`}
+                            onClick={() => onKeepAsOneBody(feature)}
+                          >
+                            {recoveringDisjoint
+                              ? "Combining…"
+                              : KEEP_AS_ONE_BODY_ACTION}
+                          </Button>
+                        ) : null}
                       </li>
                     ) : null}
                     {renderBar(index)}

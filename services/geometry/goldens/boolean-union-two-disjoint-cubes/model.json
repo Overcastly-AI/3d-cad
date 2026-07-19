@@ -1,0 +1,183 @@
+{
+  "part_id": "00000000-0000-0000-0000-000000000100",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000100001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "l1",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 20.0, "y": 0.0 }
+            },
+            {
+              "id": "l2",
+              "kind": "line",
+              "start": { "x": 20.0, "y": 0.0 },
+              "end": { "x": 20.0, "y": 20.0 }
+            },
+            {
+              "id": "l3",
+              "kind": "line",
+              "start": { "x": 20.0, "y": 20.0 },
+              "end": { "x": 0.0, "y": 20.0 }
+            },
+            {
+              "id": "l4",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 20.0 },
+              "end": { "x": 0.0, "y": 0.0 }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": { "entity": "l1", "point": "end" },
+              "b": { "entity": "l2", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l2", "point": "end" },
+              "b": { "entity": "l3", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l3", "point": "end" },
+              "b": { "entity": "l4", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l4", "point": "end" },
+              "b": { "entity": "l1", "point": "start" }
+            },
+            { "kind": "horizontal", "entity": "l1" },
+            { "kind": "horizontal", "entity": "l3" },
+            { "kind": "vertical", "entity": "l2" },
+            { "kind": "vertical", "entity": "l4" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000100002",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000100001"
+          },
+          "distance_mm": 20.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000100003",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "l1",
+              "kind": "line",
+              "start": { "x": 30.0, "y": 0.0 },
+              "end": { "x": 50.0, "y": 0.0 }
+            },
+            {
+              "id": "l2",
+              "kind": "line",
+              "start": { "x": 50.0, "y": 0.0 },
+              "end": { "x": 50.0, "y": 20.0 }
+            },
+            {
+              "id": "l3",
+              "kind": "line",
+              "start": { "x": 50.0, "y": 20.0 },
+              "end": { "x": 30.0, "y": 20.0 }
+            },
+            {
+              "id": "l4",
+              "kind": "line",
+              "start": { "x": 30.0, "y": 20.0 },
+              "end": { "x": 30.0, "y": 0.0 }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": { "entity": "l1", "point": "end" },
+              "b": { "entity": "l2", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l2", "point": "end" },
+              "b": { "entity": "l3", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l3", "point": "end" },
+              "b": { "entity": "l4", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "l4", "point": "end" },
+              "b": { "entity": "l1", "point": "start" }
+            },
+            { "kind": "horizontal", "entity": "l1" },
+            { "kind": "horizontal", "entity": "l3" },
+            { "kind": "vertical", "entity": "l2" },
+            { "kind": "vertical", "entity": "l4" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000100004",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000100003"
+          },
+          "distance_mm": 20.0,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000100005",
+      "feature": {
+        "type": "boolean",
+        "version": 1,
+        "params": {
+          "operation": "union",
+          "target": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000100002"
+          },
+          "tool": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000100004"
+          },
+          "allow_disjoint": true
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

@@ -57,7 +57,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from build123d import GeomType, Solid, Vector
+from build123d import GeomType, Vector
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from py_kit.schemas.assemblies import (
     LockMate,
@@ -85,6 +85,7 @@ from geometry.kernel.faces import (
     SubshapeUnresolvedError,
     resolve_face_plane,
 )
+from geometry.kernel.types import BodyShape
 
 # The stage-1 resolvers raise exactly these two on a zero/multiple match; both
 # become AssemblyDefinitionError at this boundary (the solver's malformed-input
@@ -97,13 +98,16 @@ class ResolvableInstance:
     """One assembly instance as the resolver sees it: identity, its evaluated
     part BODY (a kernel solid, LOCAL frame), authored seed pose, grounded flag.
 
-    Kernel-internal — the ``body`` is a ``Solid`` and never crosses the service
-    boundary (CLAUDE.md). The caller (evaluation #5) evaluates each unique part
-    once and hands the same body to every instance of that part.
+    Kernel-internal — the ``body`` is a build123d ``Shape`` (a single ``Solid``,
+    or a ``Compound`` of a multi-body part's solids — multi-body §MB-0) and never
+    crosses the service boundary (CLAUDE.md). The mate resolvers enumerate faces/
+    edges across whatever the shape holds, so a mate against a multi-body part
+    resolves against every subshape solid. The caller (evaluation #5) evaluates
+    each unique part once and hands the same body to every instance of that part.
     """
 
     instance_id: uuid.UUID
-    body: Solid
+    body: BodyShape
     placement: Placement
     grounded: bool = False
 
@@ -127,7 +131,7 @@ def _vec3(vector: Vector) -> Vec3:
     return Vec3(x=float(vector.X), y=float(vector.Y), z=float(vector.Z))
 
 
-def _resolve_face(body: Solid, ref: MateFaceRef) -> ResolvedFace:
+def _resolve_face(body: BodyShape, ref: MateFaceRef) -> ResolvedFace:
     """Resolve a planar-face ref to ``(centroid point, outward unit normal)``.
 
     Delegates to the ``on_face`` datum's :func:`resolve_face_plane` (offset 0):
@@ -146,7 +150,7 @@ def _resolve_face(body: Solid, ref: MateFaceRef) -> ResolvedFace:
     return ResolvedFace(point=_vec3(plane.origin), normal=_vec3(plane.z_dir))
 
 
-def _resolve_axis(body: Solid, ref: MateAxisRef) -> ResolvedAxis:
+def _resolve_axis(body: BodyShape, ref: MateAxisRef) -> ResolvedAxis:
     """Resolve a circular-edge ref to ``(circle centre, axis unit direction)``.
 
     Resolves the edge with :func:`resolve_edge` (exactly-one-or-error), then
@@ -178,7 +182,9 @@ def _resolve_axis(body: Solid, ref: MateAxisRef) -> ResolvedAxis:
     )
 
 
-def resolve_mate_geometry(body: Solid, ref: MateGeometryRef) -> ResolvedMateGeometry:
+def resolve_mate_geometry(
+    body: BodyShape, ref: MateGeometryRef
+) -> ResolvedMateGeometry:
     """Resolve one :class:`MateGeometryRef` against a part body (LOCAL frame).
 
     A :class:`MateFaceRef` → :class:`ResolvedFace`; a :class:`MateAxisRef` →
@@ -189,7 +195,7 @@ def resolve_mate_geometry(body: Solid, ref: MateGeometryRef) -> ResolvedMateGeom
     return _resolve_axis(body, ref)
 
 
-def _body_for(ref: MateGeometryRef, body_of: dict[uuid.UUID, Solid]) -> Solid:
+def _body_for(ref: MateGeometryRef, body_of: dict[uuid.UUID, BodyShape]) -> BodyShape:
     """The evaluated body of the instance a ref names, or a clean error.
 
     A ref to an instance absent from the assembly is malformed input — an
@@ -204,7 +210,7 @@ def _body_for(ref: MateGeometryRef, body_of: dict[uuid.UUID, Solid]) -> Solid:
 
 
 def _resolve_mate_pair(
-    mate: MateParams, body_of: dict[uuid.UUID, Solid]
+    mate: MateParams, body_of: dict[uuid.UUID, BodyShape]
 ) -> tuple[ResolvedMateGeometry, ResolvedMateGeometry] | None:
     """Resolve a mate's ``a``/``b`` slots into the solver's geometry pair.
 
@@ -244,7 +250,7 @@ def build_assembly_solve_input(
             not in the assembly, a stale/ambiguous signature, or a non-circular
             edge where an axis is expected (design §4 step 2).
     """
-    body_of: dict[uuid.UUID, Solid] = {}
+    body_of: dict[uuid.UUID, BodyShape] = {}
     for inst in instances:
         if inst.instance_id in body_of:
             raise AssemblyDefinitionError(f"duplicate instance id {inst.instance_id}")

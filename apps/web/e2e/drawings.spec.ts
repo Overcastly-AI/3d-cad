@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile } from "node:fs/promises";
 
 import { expect, test, type Page } from "./fixtures";
 
@@ -209,6 +209,25 @@ async function longestHorizontalEdge(page: Page, view: string) {
   return edges.nth(best);
 }
 
+/** The tallest vertical line pick-target in a view, by bbox height. */
+async function tallestVerticalEdge(page: Page, view: string) {
+  const edges = page.locator(
+    `[data-testid="drawing-pick-edge"][data-view="${view}"][data-primitive="line"]`,
+  );
+  const count = await edges.count();
+  let best = 0;
+  let bestHeight = 0;
+  for (let i = 0; i < count; i += 1) {
+    const box = await edges.nth(i).boundingBox();
+    if (!box) continue;
+    if (box.height > box.width && box.height > bestHeight) {
+      bestHeight = box.height;
+      best = i;
+    }
+  }
+  return edges.nth(best);
+}
+
 test("author a diameter on the hole and a linear on the 40 mm edge", async ({
   page,
 }) => {
@@ -276,6 +295,91 @@ test("author a diameter on the hole and a linear on the 40 mm edge", async ({
   ).toHaveCount(0, { timeout: 30_000 });
 });
 
+test("author an angular dimension between two perpendicular edges", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // Pick the 40 mm bottom edge in the top view, then choose "Angle" — this ARMS
+  // a second-edge pick rather than authoring (the staged two-edge flow).
+  const horizontal = await longestHorizontalEdge(page, "top");
+  await horizontal.click({ force: true });
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-start_angular").click();
+
+  // The menu closes and a hint invites the second edge; the sheet stays live.
+  await expect(page.getByTestId("dimension-pick-hint")).toBeVisible();
+
+  // Pick a perpendicular (vertical, 25 mm) edge → the gated menu now offers the
+  // angular type; author it.
+  const vertical = await tallestVerticalEdge(page, "top");
+  await vertical.click({ force: true });
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-angular").click();
+
+  // The re-evaluate measures the true 3D angle (a rectangle corner ⇒ 90.0°) and
+  // stamps the degree value on the sheet as an arc annotation.
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-type="angular"][data-dimension-value="90.0°"]',
+    ),
+  ).toHaveCount(1, { timeout: 30_000 });
+  await expect(
+    page.locator(
+      '[data-testid="dimension-row"][data-dimension-type="angular"]',
+    ),
+  ).toHaveCount(1);
+
+  // Founder frame — a sheet carrying an angular dimension.
+  const sheet = page.getByTestId("drawing-sheet");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(sheet).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-angular-1440.png`,
+  });
+});
+
+test("author a point-to-point linear between two picked vertices", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // Two vertex handles on straight edges in the top view — the point-to-point
+  // pick names a model vertex THROUGH its edge + a canonical endpoint.
+  const vertices = page.locator(
+    '[data-testid="drawing-pick-vertex"][data-view="top"]',
+  );
+  await expect(vertices.first()).toBeAttached();
+
+  // First vertex → the "pick the second point" hint (no menu, sheet stays live).
+  await vertices.nth(0).click({ force: true });
+  await expect(page.getByTestId("dimension-pick-hint")).toBeVisible();
+
+  // A DISTINCT second vertex → the gated menu offers point-to-point; author it.
+  await vertices.nth(2).click({ force: true });
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-point_to_point").click();
+
+  // The re-evaluate measures the model-true distance between the two vertices
+  // and stamps it (a plain linear value, three decimals) on the sheet.
+  const stamped = page.locator(
+    '[data-testid="drawing-dimension"][data-dimension-type="linear"]',
+  );
+  await expect(stamped).toHaveCount(1, { timeout: 30_000 });
+  await expect(stamped).toHaveAttribute("data-dimension-value", /^\d+\.\d{3}$/);
+  await expect(
+    page.locator('[data-testid="dimension-row"][data-dimension-type="linear"]'),
+  ).toHaveCount(1);
+
+  // Founder frame — a sheet carrying a point-to-point dimension.
+  const sheet = page.getByTestId("drawing-sheet");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(sheet).toBeVisible();
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/drawings-p2p-1440.png` });
+});
+
 /**
  * Drawings v1 #5 — SVG export. The shipped `DrawingSheet` renderer IS the
  * export: the laid-out sheet's `<svg>` (edges, dimensions, title block, inline
@@ -330,4 +434,141 @@ test("export the laid-out sheet as a standalone .svg", async ({ page }) => {
   // is written so the file opens/prints scale-correct.
   expect(svg).toContain('width="297mm"');
   expect(svg).toContain('height="210mm"');
+});
+
+/**
+ * DE-2 — server-composed PDF export, the shop deliverable. Unlike Export SVG
+ * (which serializes the on-screen `<svg>`), Export PDF POSTs the gateway export
+ * route; the gateway server-composes the sheet from the SAME persisted placement
+ * (byte-deterministic) and streams the PDF bytes back. This drives it end to end
+ * against the real stack — lay out the plate, author a Ø10 diameter, click
+ * Export PDF, catch the download, and assert it is a real, non-trivial `.pdf`
+ * (magic `%PDF-` prefix). Saves the artifact so the founder can open it.
+ */
+test("export the laid-out sheet as a server-composed .pdf", async ({
+  page,
+}, testInfo) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // Disabled before there is anything to export is covered by the Export-SVG
+  // spec's shared gate; here the sheet already has views, so PDF is enabled.
+  const exportButton = page.getByTestId("drawing-export-pdf");
+  await expect(exportButton).toBeEnabled();
+
+  // Author a Ø10 diameter so the composed PDF carries a real dimension stamp.
+  const topCircle = page
+    .locator(
+      '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
+    )
+    .first();
+  await topCircle.click({ force: true });
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-diameter").click();
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
+    ),
+  ).toHaveCount(1, { timeout: 30_000 });
+
+  // Founder frame — the drawing sheet with the Export PDF control visible.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(exportButton).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-export-pdf-desktop.png`,
+  });
+
+  // Click Export PDF and catch the download the anchor fires.
+  const downloadPromise = page.waitForEvent("download");
+  await exportButton.click();
+  const download = await downloadPromise;
+
+  // Filename is the sanitized drawing name ("Plate — dimensions"), .pdf.
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+
+  const path = await download.path();
+  const bytes = await readFile(path);
+  // A real, non-trivial PDF: the `%PDF-` magic prefix and a meaningful size.
+  expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  expect(bytes.byteLength).toBeGreaterThan(1000);
+
+  // Persist the artifact so the orchestrator/founder can open + verify it.
+  await testInfo.attach("drawing-export.pdf", {
+    path,
+    contentType: "application/pdf",
+  });
+  await mkdir(SCREENSHOT_DIR, { recursive: true });
+  await copyFile(path, `${SCREENSHOT_DIR}/drawing-export.pdf`);
+});
+
+/**
+ * DE-3 — server-composed DXF export, the interchange deliverable that completes
+ * the export loop (SVG / PDF / DXF). Like Export PDF, Export DXF POSTs the
+ * gateway export route; the gateway server-composes the sheet from the SAME
+ * persisted placement and streams the DXF bytes back (ezdxf R2000, reopens
+ * `audit()`-clean, deterministic). This drives it end to end against the real
+ * stack — lay out the plate, author a Ø10 diameter, click Export DXF, catch the
+ * download, and assert it is a real `.dxf` carrying the DXF group-code signature.
+ * Captures the founder frame showing all three Export controls side by side.
+ */
+test("export the laid-out sheet as a server-composed .dxf", async ({
+  page,
+}, testInfo) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // The sheet already has views, so DXF is enabled (its disabled-before-layout
+  // state shares the Export-SVG spec's gate).
+  const exportButton = page.getByTestId("drawing-export-dxf");
+  await expect(exportButton).toBeEnabled();
+
+  // Author a Ø10 diameter so the composed DXF carries a real dimension entity.
+  const topCircle = page
+    .locator(
+      '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
+    )
+    .first();
+  await topCircle.click({ force: true });
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+  await page.getByTestId("dimension-type-diameter").click();
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
+    ),
+  ).toHaveCount(1, { timeout: 30_000 });
+
+  // Founder frame — the drawing sheet with all three Export controls (SVG / PDF
+  // / DXF) visible in the Export group.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByTestId("drawing-export-svg")).toBeVisible();
+  await expect(page.getByTestId("drawing-export-pdf")).toBeVisible();
+  await expect(exportButton).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-export-dxf-desktop.png`,
+  });
+
+  // Click Export DXF and catch the download the anchor fires.
+  const downloadPromise = page.waitForEvent("download");
+  await exportButton.click();
+  const download = await downloadPromise;
+
+  // Filename is the sanitized drawing name ("Plate — dimensions"), .dxf.
+  expect(download.suggestedFilename()).toMatch(/\.dxf$/);
+
+  const path = await download.path();
+  const bytes = await readFile(path);
+  const text = bytes.toString("latin1");
+  // A real DXF: the group-code signature (`0\nSECTION`) opens the file, and it
+  // carries the ENTITIES section the sheet geometry lands in.
+  expect(text).toContain("SECTION");
+  expect(text).toContain("ENTITIES");
+  expect(bytes.byteLength).toBeGreaterThan(200);
+
+  // Persist the artifact so the orchestrator/founder can open + verify it.
+  await testInfo.attach("drawing-export.dxf", {
+    path,
+    contentType: "image/vnd.dxf",
+  });
+  await mkdir(SCREENSHOT_DIR, { recursive: true });
+  await copyFile(path, `${SCREENSHOT_DIR}/drawing-export.dxf`);
 });

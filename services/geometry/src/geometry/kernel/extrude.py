@@ -49,6 +49,9 @@ from py_kit.schemas.sketch import (
     SketchSpline,
 )
 
+from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.types import BodyShape
+
 #: Wire-assembly tolerance (mm) for chaining profile edges. Solved coincident
 #: endpoints are bitwise identical (solver gate, RESEARCH §2), so this is a
 #: numerical formality, aligned with the kernel linear tolerance (1e-7 m,
@@ -453,23 +456,34 @@ def extrude_face(
 
 
 def combine_body(
-    body: Solid | None, tool: Solid, operation: Literal["add", "cut"]
-) -> Solid:
-    """Boolean *tool* against *body*; returns the new single-solid body.
+    body: BodyShape | None, tool: Solid, operation: Literal["add", "cut"]
+) -> BodyShape:
+    """Boolean *tool* against *body*; returns the new body, LUMP-COUNT-PRESERVING.
 
     ``add`` with no prior body starts the body chain with *tool*. ``cut``
     with no prior body is a **feature-layer** error (``no_prior_body``) and
     never reaches here — asserting that keeps the contract explicit.
 
+    Multi-body (§MB-4): *body* may be a single :class:`~build123d.Solid` (the
+    common case — byte-identical to before, the guard reduces to ``== 1``) OR a
+    multi-lump :class:`~build123d.Compound` (an active body that a disjoint
+    boolean already made multi-lump). The in-chain boolean is
+    LUMP-COUNT-PRESERVING: it must leave exactly ``k = len(body.solids())`` lumps
+    — a fresh prism fuses into / cuts one lump and the others pass through. It is
+    NOT how a NEW body starts (that is ``merge=False`` → ``start_body``), so a
+    result with more lumps than the input (an add that lands disjoint) is still a
+    :class:`BooleanError`, never a silent extra body.
+
     Raises:
-        BooleanError: the kernel boolean failed, produced no solid (e.g. a
-            cut that consumed the whole body), or produced multiple disjoint
-            solids (single body chain per part in v1, design §7.6).
+        BooleanError: the kernel boolean failed, produced no solid (e.g. a cut
+            that consumed the whole body), or changed the lump count (an add that
+            lands disjoint, a cut that severs a lump — design §7.6 / §MB-4).
     """
     if body is None:
         assert operation == "add", "cut without a body is handled by the caller"
         return tool
 
+    lump_count = len(body.solids())
     try:
         # fuse/cut signatures carry Shape[Unknown] type params upstream (same
         # gap tessellate.py documents for export_gltf) — scoped ignores only.
@@ -478,7 +492,7 @@ def combine_body(
             if operation == "add"
             else body.cut(tool)  # pyright: ignore[reportUnknownMemberType]
         )
-        solids = result.solids()
+        solids = list(result.solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise BooleanError(
             f"Boolean {operation} failed in the kernel "
@@ -490,11 +504,16 @@ def combine_body(
         raise BooleanError(
             f"Boolean {operation} left no material — the cut consumed the entire body."
         )
-    if len(solids) > 1:
+    if len(solids) != lump_count:
         raise BooleanError(
-            f"Boolean {operation} produced {len(solids)} disjoint solids; "
-            "parts are a single body in v1."
+            f"Boolean {operation} produced {len(solids)} lumps from a "
+            f"{lump_count}-lump body; an in-chain add/cut must preserve each "
+            "lump (start a new body with merge=False, or a disjoint boolean)."
         )
     # clean() removes redundant seam faces/edges a boolean can leave behind,
-    # keeping topology counts meaningful (and golden-assertable).
-    return solids[0].clean()
+    # keeping topology counts meaningful (and golden-assertable). k==1 stays a
+    # bare cleaned Solid (byte-identical); a multi-lump body reassembles in the
+    # explicit lump order (RESEARCH §9).
+    if lump_count == 1:
+        return solids[0].clean()
+    return assemble_lumps([solid.clean() for solid in solids])

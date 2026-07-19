@@ -1,0 +1,31 @@
+{
+  "description": "Slice #4 FLAT-PATTERN DRAWING VIEW golden for the authored U-channel (base flange + TWO edge flanges off the same base — the depth-1-star §4.3 N=2 case). The SAME feature tree the u-channel-edge-flange unfold golden uses is requested AS a drawing view (projection = 'flat_pattern'): geometry evaluates the part once, SKIPS HLR, unfolds the depth-1 parallel bend star, and feeds the edge_role-tagged outline + two-row bend table into the shipped DrawingViewResult shape. Proves the flat-pattern view scales to N>1 bends through the same pipeline.",
+  "derivation": [
+    "The unfold math is HAND-DERIVED in ../u-channel-edge-flange/expected.json: two 90-degree bends, each BA = 6.094689747964199 mm, flat_length = 30 + BA + 50 + BA + 30 = 107.1893794959284 mm, flat_area = 2143.787589918568 mm^2. This golden asserts the DRAWING-VIEW projection of that unfold.",
+    "The flat pattern is a rectangle: 4 body edges (edge_role='body') plus one fold line per bend (edge_role='bend'). For the N=2 U-channel: body_edge_count = 4, bend_edge_count = 2.",
+    "The bend table has two rows (bend-1, bend-2), each carrying angle_deg, inner radius_mm, direction, and bend_allowance_mm — the ordering is the unfold's deterministic fold-position order. Row values are the analytic nominals (radius 3 mm, BA 6.094689747964199 mm), asserted within the documented tolerance.",
+    "content_hash is the sha256 of the flat_pattern DrawingViewResult.model_dump_json() at scale 1:1 — a DETERMINISM PIN reproducible in-process AND across a fresh interpreter restart (§9 #4). Version-pinned like the unfold golden."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). Measured deviation vs the analytic nominals is ~1.2e-13 (arc-fit inner radius), matching ../u-channel-edge-flange/expected.json. The 1e-9 ceiling gives ~4 orders of headroom while staying tighter than the standing kernel linear tolerance (1e-7 m).",
+  "scale": { "numerator": 1, "denominator": 1 },
+  "body_edge_count": 4,
+  "bend_edge_count": 2,
+  "bend_table": [
+    {
+      "bend_id": "bend-1",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    },
+    {
+      "bend_id": "bend-2",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    }
+  ],
+  "content_hash": "c5dc8dd08644394b938b7bc9cc66d83ca41aaf0ac3423e45d2417bf6728e72fb"
+}

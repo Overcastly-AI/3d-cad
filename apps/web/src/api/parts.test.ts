@@ -2,6 +2,8 @@ import { createGatewayClient } from "@loft/ts-client/gateway";
 import { describe, expect, it } from "vitest";
 
 import {
+  type BooleanParams,
+  booleanFeatureCreate,
   type ChamferParams,
   chamferFeatureCreate,
   chamferFeatureUpdate,
@@ -446,6 +448,7 @@ const extrudeParams: ExtrudeParams = {
   distance_mm: 10,
   operation: "add",
   direction: "normal",
+  merge: true,
 };
 
 describe("extrudeFeatureCreate", () => {
@@ -485,6 +488,7 @@ const revolveParams: RevolveParams = {
   angle_deg: 360,
   operation: "add",
   direction: "normal",
+  merge: true,
 };
 
 describe("revolveFeatureCreate", () => {
@@ -525,6 +529,7 @@ const sweepParams: SweepParams = {
     feature_id: "33333333-3333-3333-3333-333333333333",
   },
   operation: "add",
+  merge: true,
 };
 
 describe("sweepFeatureCreate", () => {
@@ -547,6 +552,30 @@ describe("sweepFeatureUpdate", () => {
       feature: { type: "sweep", version: 1, params: cut },
     });
     expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+const unionParams: BooleanParams = {
+  operation: "union",
+  target: {
+    kind: "feature",
+    feature_id: "11111111-1111-1111-1111-111111111111",
+  },
+  tool: {
+    kind: "feature",
+    feature_id: "22222222-2222-2222-2222-222222222222",
+  },
+  allow_disjoint: false,
+};
+
+describe("booleanFeatureCreate", () => {
+  it("wraps the union params in the {type, version, params} create envelope", () => {
+    const body = booleanFeatureCreate("Combine1", unionParams, 7);
+    expect(body).toEqual({
+      name: "Combine1",
+      expected_tree_version: 7,
+      feature: { type: "boolean", version: 1, params: unionParams },
+    });
   });
 });
 

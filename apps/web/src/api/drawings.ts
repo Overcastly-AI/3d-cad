@@ -39,6 +39,37 @@ export type MeasuredDimension = components["schemas"]["MeasuredDimension"];
 export type MeasuredDimensionResult =
   components["schemas"]["MeasuredDimensionResult"];
 
+// --- Composed sheet (DE-1c: the single server-side placement source) ---------
+// The gateway `/sheet` route returns a fully-placed `ComposedSheet` — every
+// coordinate already in FINAL sheet-mm SVG space (y-flip applied). The sheet
+// renderer draws these primitives verbatim; the client no longer computes any
+// layout/transform (the placement engine moved server-side, parity-gated DE-1a).
+export type ComposedSheet = components["schemas"]["ComposedSheet"];
+export type ComposedView = components["schemas"]["ComposedView"];
+export type ComposedPoint = components["schemas"]["ComposedPoint"];
+export type ComposedTitleBlock = components["schemas"]["ComposedTitleBlock"];
+export type ComposedLineEdge = components["schemas"]["ComposedLineEdge"];
+export type ComposedCircleEdge = components["schemas"]["ComposedCircleEdge"];
+export type ComposedPolylineEdge =
+  components["schemas"]["ComposedPolylineEdge"];
+/** The discriminated placed-edge union (line | circle | polyline). */
+export type ComposedEdge =
+  ComposedLineEdge | ComposedCircleEdge | ComposedPolylineEdge;
+/** A flat-pattern sheet's placed bend-table block — anchor rect + per-bend rows
+ * (sheet-metal.md §7). Null for every standard (HLR) sheet. */
+export type ComposedBendTable = components["schemas"]["ComposedBendTable"];
+/** One bend-table fold row (bend id, angle, radius, direction, allowance). */
+export type BendTableRow = components["schemas"]["BendTableRow"];
+/** The typed per-view/-feature error envelope (code + human message). */
+export type FeatureError = components["schemas"]["FeatureError"];
+export type ComposedMeasuredDimension =
+  components["schemas"]["ComposedMeasuredDimension"];
+export type ComposedDimensionError =
+  components["schemas"]["ComposedDimensionError"];
+/** The discriminated placed-dimension union (measured | error). */
+export type ComposedDimension =
+  ComposedMeasuredDimension | ComposedDimensionError;
+
 /**
  * The chosen name already belongs to another of the caller's drawings
  * (documents enforces a per-owner unique index → gateway 409). Typed so the
@@ -230,6 +261,31 @@ export async function evaluateDrawingViews(
   if (error !== undefined) {
     throw new Error(
       envelopeMessage(error, "The drawing views could not be projected."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Compose the drawing into a fully-placed {@link ComposedSheet} — the JSON-model
+ * twin of the byte export (DE-1b). The gateway does the SAME two-hop aggregation
+ * (drawing tree + the referenced part's evaluation-ready feature prefix) then
+ * calls geometry's composer, returning placed views/edges/dimensions/title-block
+ * in sheet-mm SVG space (y-flip applied). This is the SINGLE placement source the
+ * sheet renders from (DE-1c) — the browser no longer computes any layout. The
+ * route takes no body; it reads the drawing's persisted state server-side.
+ */
+export async function composeDrawingSheet(
+  drawingId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<ComposedSheet> {
+  const { data, error } = await client.POST(
+    "/api/v1/drawings/{drawing_id}/sheet",
+    { params: { path: { drawing_id: drawingId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The drawing sheet could not be composed."),
     );
   }
   return data;

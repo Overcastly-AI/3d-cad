@@ -31,6 +31,7 @@ from geometry.kernel import (
     export_step_bytes,
     import_step_solid,
 )
+from geometry.kernel.types import BodyShape
 from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
 
 PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000000fc")
@@ -82,10 +83,14 @@ def _spy_parse(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     calls = 0
     real = import_step_solid
 
-    def counted(step_text: str, *, timeout_s: float) -> Solid:
+    def counted(
+        step_text: str, *, cpu_timeout_s: float, wall_timeout_s: float
+    ) -> BodyShape:
         nonlocal calls
         calls += 1
-        return real(step_text, timeout_s=timeout_s)
+        return real(
+            step_text, cpu_timeout_s=cpu_timeout_s, wall_timeout_s=wall_timeout_s
+        )
 
     monkeypatch.setattr(step_cache, "import_step_solid", counted)
     return lambda: calls
@@ -165,11 +170,15 @@ def test_parse_failure_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     parses = _spy_parse(monkeypatch)
     with pytest.raises(ImportParseError):
-        step_cache.import_step_solid_cached("garbage not step", timeout_s=30.0)
+        step_cache.import_step_solid_cached(
+            "garbage not step", cpu_timeout_s=30.0, wall_timeout_s=30.0
+        )
     assert parses() == 1
     # Re-attempt still raises AND re-parses (the failure was not cached).
     with pytest.raises(ImportParseError):
-        step_cache.import_step_solid_cached("garbage not step", timeout_s=30.0)
+        step_cache.import_step_solid_cached(
+            "garbage not step", cpu_timeout_s=30.0, wall_timeout_s=30.0
+        )
     assert parses() == 2
 
 

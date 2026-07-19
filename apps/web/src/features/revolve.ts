@@ -39,6 +39,8 @@ export interface RevolveForm {
   angleInput: string;
   operation: RevolveOperation;
   direction: RevolveDirection;
+  /** "Merge result" (multi-body §MB-1) — see `ExtrudeForm.merge`. */
+  merge: boolean;
 }
 
 /** One line entity of the profile sketch, offered as an axis of revolution. */
@@ -65,6 +67,7 @@ export function defaultRevolveForm(
     angleInput: "360",
     operation: "add",
     direction: "normal",
+    merge: true,
   };
 }
 
@@ -76,6 +79,7 @@ export function formFromRevolveParams(params: RevolveParams): RevolveForm {
     angleInput: formatAngleInput(params.angle_deg),
     operation: params.operation,
     direction: params.direction,
+    merge: params.merge,
   };
 }
 

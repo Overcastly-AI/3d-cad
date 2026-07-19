@@ -106,6 +106,10 @@ EXTRUDE_PARAMS: dict[str, Any] = {
     "distance_mm": 10.0,
     "operation": "add",
     "direction": "normal",
+    # Additive multi-body "Merge result" flag (design multi-body.md §MB-0),
+    # defaults True — a dumped envelope carries it, so the verbatim round-trip
+    # must include it.
+    "merge": True,
 }
 
 #: Fillet params — round the vertical (Z-parallel) edges at r=5 (the golden

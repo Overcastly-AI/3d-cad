@@ -582,3 +582,153 @@ def test_concurrent_reciprocal_add_cannot_persist_cycle(pg_url: str) -> None:
     results, instance_count = asyncio.run(_reciprocal_add(pg_url))
     assert sorted(results) == ["assembly_cycle", "ok"]
     assert instance_count == 1  # only the winner's edge; no cycle persisted
+
+
+# --- BOM read model (assemblies.md residual — flat, direct-instance BOM) ---------
+
+
+def _delete_part_row(db_url: str, part_id: str) -> None:
+    """Delete a part row DIRECTLY (bypassing the 409-with-dependents pre-check).
+
+    Instances reference a part by a cross-document id, NOT a DB FK (design §1.2),
+    so a part deleted out from under a live instance (a delete/add race past the
+    non-atomic pre-check) leaves a dangling reference — exactly the state the BOM
+    must report ``missing`` rather than 500 on. The API refuses this, so the test
+    forces it at the persistence layer.
+    """
+
+    async def run() -> None:
+        engine = create_async_engine(async_dsn(db_url))
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with maker() as session:
+                part = await session.get(db.Part, uuid.UUID(part_id))
+                assert part is not None
+                await session.delete(part)
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_bom_groups_by_document_with_quantities(client: TestClient) -> None:
+    """3 instances of P + 1 of Q → 2 lines, quantities 3 and 1, ordered by name."""
+    assembly_id = _create_assembly(client, "bom-basic")
+    # Names chosen so the resolved-name ordering (alpha < beta) is NOT the
+    # insertion order — proving the deterministic sort, not incidental order.
+    beta = _create_part(client, "beta")
+    alpha = _create_part(client, "alpha")
+
+    version = 0
+    for i in range(3):
+        r = _add_instance(client, assembly_id, beta, version, name=f"Beta <{i + 1}>")
+        assert r.status_code == 201, r.text
+        version += 1
+    r = _add_instance(client, assembly_id, alpha, version, name="Alpha <1>")
+    assert r.status_code == 201, r.text
+
+    body = client.get(
+        f"/api/v1/assemblies/{assembly_id}/bom", headers=_headers()
+    ).json()
+    assert body["assembly_id"] == assembly_id
+    assert body["total_instances"] == 4
+    lines = body["lines"]
+    assert len(lines) == 2
+    # Ordered by resolved name: alpha before beta.
+    assert lines[0] == {
+        "ref_document_id": alpha,
+        "ref_document_kind": "part",
+        "name": "alpha",
+        "missing": False,
+        "quantity": 1,
+    }
+    assert lines[1] == {
+        "ref_document_id": beta,
+        "ref_document_kind": "part",
+        "name": "beta",
+        "missing": False,
+        "quantity": 3,
+    }
+
+
+def test_bom_sub_assembly_line_has_assembly_kind(client: TestClient) -> None:
+    """An instanced sub-assembly is one line with kind 'assembly' (not expanded)."""
+    parent = _create_assembly(client, "bom-parent")
+    child = _create_assembly(client, "bom-child")
+    r = _add_instance(
+        client, parent, child, 0, ref_document_kind="assembly", name="Child <1>"
+    )
+    assert r.status_code == 201, r.text
+
+    body = client.get(f"/api/v1/assemblies/{parent}/bom", headers=_headers()).json()
+    assert body["total_instances"] == 1
+    [line] = body["lines"]
+    assert line["ref_document_id"] == child
+    assert line["ref_document_kind"] == "assembly"
+    assert line["name"] == "bom-child"
+    assert line["quantity"] == 1
+    assert line["missing"] is False
+
+
+def test_bom_empty_assembly(client: TestClient) -> None:
+    """An assembly with no instances → empty lines, zero total."""
+    assembly_id = _create_assembly(client, "bom-empty")
+    body = client.get(
+        f"/api/v1/assemblies/{assembly_id}/bom", headers=_headers()
+    ).json()
+    assert body == {"assembly_id": assembly_id, "lines": [], "total_instances": 0}
+
+
+def test_bom_deleted_reference_is_flagged_missing(
+    client: TestClient, any_db_url: str
+) -> None:
+    """A part deleted while still instanced → a 'missing' line, null name, no 500.
+
+    The quantity is still reported (the instances exist), and a live line beside
+    it is unaffected. Deleted-ref lines sort LAST (null name), deterministically.
+    """
+    assembly_id = _create_assembly(client, "bom-dangling")
+    live = _create_part(client, "aaa-live")
+    doomed = _create_part(client, "zzz-doomed")
+
+    r = _add_instance(client, assembly_id, live, 0, name="Live <1>")
+    assert r.status_code == 201, r.text
+    r = _add_instance(client, assembly_id, doomed, 1, name="Doomed <1>")
+    assert r.status_code == 201, r.text
+    r = _add_instance(client, assembly_id, doomed, 2, name="Doomed <2>")
+    assert r.status_code == 201, r.text
+
+    _delete_part_row(any_db_url, doomed)
+
+    response = client.get(f"/api/v1/assemblies/{assembly_id}/bom", headers=_headers())
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total_instances"] == 3
+    lines = body["lines"]
+    assert len(lines) == 2
+    # Live line first (resolved name), missing line last (null name sorts last).
+    assert lines[0] == {
+        "ref_document_id": live,
+        "ref_document_kind": "part",
+        "name": "aaa-live",
+        "missing": False,
+        "quantity": 1,
+    }
+    assert lines[1] == {
+        "ref_document_id": doomed,
+        "ref_document_kind": "part",
+        "name": None,
+        "missing": True,
+        "quantity": 2,
+    }
+
+
+def test_bom_owner_isolation_404(client: TestClient) -> None:
+    """Another owner's assembly is a uniform 404 (same as the assembly GET)."""
+    assembly_id = _create_assembly(client, "bom-mine")
+    response = client.get(
+        f"/api/v1/assemblies/{assembly_id}/bom", headers=_headers(OTHER)
+    )
+    assert response.status_code == 404
+    assert _error(response.json())["code"] == "assembly_not_found"

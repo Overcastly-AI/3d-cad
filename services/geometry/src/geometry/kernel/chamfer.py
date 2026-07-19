@@ -19,7 +19,10 @@ Determinism (RESEARCH §9): the OCCT chamfer is a pure function of
 ``(body, edges, distance)``.
 """
 
-from build123d import Edge, Solid
+from build123d import Edge
+
+from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.types import BodyShape
 
 
 class ChamferError(RuntimeError):
@@ -27,33 +30,45 @@ class ChamferError(RuntimeError):
     distance too large for the local geometry, self-intersecting the body)."""
 
 
-def chamfer_body(body: Solid, edges: list[Edge], distance_mm: float) -> Solid:
-    """Bevel *edges* of *body* with a symmetric *distance_mm*; new single solid.
+def chamfer_body(body: BodyShape, edges: list[Edge], distance_mm: float) -> BodyShape:
+    """Bevel *edges* of *body* with a symmetric *distance_mm*; LUMP-COUNT-PRESERVING.
+
+    The chamfer twin of :func:`geometry.kernel.fillet.fillet_body` (§MB-4): *body*
+    is a single :class:`~build123d.Solid` (byte-identical to before) OR a
+    multi-lump :class:`~build123d.Compound`. OCCT bevels the named edges of
+    whichever lumps own them and leaves the rest untouched, so a chamfer on one
+    lump of a k-lump body keeps all k lumps; a lump-count change is a merge/sever
+    → :class:`ChamferError`.
 
     Raises:
-        ChamferError: the OCCT chamfer failed or left other than exactly one
-            solid (single body chain per part in v1, design §7.6) — e.g. a
-            distance too large for the adjacent faces.
+        ChamferError: the OCCT chamfer failed, or changed the body's lump count
+            (a distance too large for an adjacent face — design §7.6 / §MB-4).
     """
     if distance_mm <= 0:
         raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
+    lump_count = len(body.solids())
     try:
         # chamfer(length, length2, edge_list): length2=None → symmetric bevel
         # (both setbacks == length). Carries Shape[Unknown] type params
         # upstream (same gap tessellate.py documents) — scoped ignore only.
         result = body.chamfer(distance_mm, None, edges)  # pyright: ignore[reportUnknownMemberType]
-        solids = result.solids()
+        solids = list(result.solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise ChamferError(
             f"Chamfer failed in the kernel ({type(exc).__name__}); the distance "
             f"({distance_mm} mm) may be too large for an adjacent face."
         ) from exc
 
-    if len(solids) != 1:
+    if len(solids) != lump_count:
         raise ChamferError(
-            f"Chamfer produced {len(solids)} solids; parts are a single body "
-            "in v1 (design §7.6)."
+            f"Chamfer produced {len(solids)} lumps from a {lump_count}-lump body "
+            "(it merged or severed a lump); the distance may be too large for an "
+            "adjacent face (design §7.6 / §MB-4)."
         )
-    # clean() removes redundant seam faces/edges the operation can leave
-    # behind, keeping topology counts meaningful (and golden-assertable).
-    return solids[0].clean()
+    # clean() removes redundant seam faces/edges the operation can leave behind,
+    # keeping topology counts meaningful (and golden-assertable). k==1 returns a
+    # bare cleaned Solid (byte-identical); a multi-lump body reassembles in the
+    # explicit lump order (RESEARCH §9).
+    if lump_count == 1:
+        return solids[0].clean()
+    return assemble_lumps([solid.clean() for solid in solids])

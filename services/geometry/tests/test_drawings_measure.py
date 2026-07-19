@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from typing import cast
 
 import pytest
 from build123d import Axis, Edge, Face, GeomType, Pos, Solid, Vector, Wire
@@ -45,6 +46,7 @@ from py_kit.schemas.drawings import (
     RadiusDimensionParams,
 )
 from py_kit.schemas.features import EdgeSignature
+from py_kit.schemas.geometry import Vec3
 
 # --- Documented per-model tolerances (design §8; docs/GEOMETRY-QA.md) ----------
 # Measurement reads the EXACT B-rep (arc length / GProp radius), so residuals are
@@ -69,7 +71,8 @@ def _through_hole_box() -> Solid:
     """A 40x25x10 plate with a Ø10 hole through its thickness (+Z), centred."""
     plate = _make_box(40, 25, 10)
     drill = build_cylinder(5, 40).locate(Pos(0, 0, -20))
-    return combine_body(plate, drill, "cut")
+    # Single-lump through-cut → Solid (combine_body widened to BodyShape for MB-4).
+    return cast(Solid, combine_body(plate, drill, "cut"))
 
 
 def _filleted_block() -> Solid:
@@ -238,8 +241,6 @@ def test_diameter_foreshortened_flag_when_edge_on() -> None:
 
 def _bogus_line_signature() -> EdgeSignature:
     """A signature that matches no edge of the golden bodies (way off-part)."""
-    from py_kit.schemas.geometry import Vec3
-
     return EdgeSignature(
         curve="line",
         end_a=Vec3(x=1000.0, y=1000.0, z=1000.0),
@@ -594,6 +595,127 @@ def test_linear_edge_at_30_degrees_is_foreshortened() -> None:
     assert top.foreshortened is True, "the 30° edge tilts out of the top plane"
     assert front.value == pytest.approx(20.0, abs=LENGTH_TOL_MM)
     assert top.value == pytest.approx(20.0, abs=LENGTH_TOL_MM)
+
+
+# --- Golden G: model→projected endpoint correspondence (design §3.3) -----------
+# `start_is_end_a` is the one bit the lexicographic canonicalisation of a
+# projected edge's `start`/`end` drops: does the emitted canonical `start` project
+# from the source model edge's canonical `end_a`? A point-to-point linear
+# dimension needs it to name the correct model endpoint (`end_a` vs `end_b`) from a
+# picked projected end; before it was emitted the web layer had to REPLICATE the
+# view-frame table + projection to recover it. The oracle below re-derives the
+# correspondence from the FIRST-PRINCIPLES definition of each standard view — front
+# = look along -Y → screen (x, z); top → (x, y); right → (y, z); iso → the
+# documented normalize(-1,-1,1) frame — NEVER from the module's `_VIEW_FRAMES`, so
+# a wrong frame OR a wrong bit both fail it.
+
+_ScreenFn = Callable[[Vec3], tuple[float, float]]
+
+
+def _norm3(v: Pt) -> Pt:
+    m = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+    return (v[0] / m, v[1] / m, v[2] / m)
+
+
+def _cross3(a: Pt, b: Pt) -> Pt:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+# The isometric frame, re-derived from the documented convention (design §1.2):
+# outward normal N = normalize(-1,-1,1); in-plane x = normalize(worldUp x N); the
+# screen y-axis is N x x. Independent of the module's constants.
+_ISO_N = _norm3((-1.0, -1.0, 1.0))
+_ISO_X = _norm3(_cross3((0.0, 0.0, 1.0), _ISO_N))
+_ISO_Y = _cross3(_ISO_N, _ISO_X)
+
+
+def _iso_screen(v: Vec3) -> tuple[float, float]:
+    return (
+        v.x * _ISO_X[0] + v.y * _ISO_X[1] + v.z * _ISO_X[2],
+        v.x * _ISO_Y[0] + v.y * _ISO_Y[1] + v.z * _ISO_Y[2],
+    )
+
+
+#: view → its first-principles model→screen map (scale 1). `end_a`/`end_b` are the
+#: signature's `Vec3` (attributes `.x/.y/.z`), NOT the module's frame table.
+_VIEW_SCREEN: dict[str, _ScreenFn] = {
+    "front": lambda v: (v.x, v.z),
+    "top": lambda v: (v.x, v.y),
+    "right": lambda v: (v.y, v.z),
+}
+
+
+def _assert_correspondence(view: str, screen: _ScreenFn) -> None:
+    """Every dimensionable STRAIGHT edge of the box's *view* carries a correct
+    `start_is_end_a`: the projected `start` is the image of the named model
+    endpoint (`end_a` when the bit is True, else `end_b`) under the first-principles
+    `screen` map, and `end` is the image of the other."""
+    box = _make_box(40, 25, 10)
+    projection = project_view(box, view)  # type: ignore[arg-type]
+    lines = [
+        e
+        for e in projection.edges
+        if e.primitive == "line" and e.source_edge is not None
+    ]
+    assert lines, f"the box's {view} view has dimensionable straight edges"
+    checked = 0
+    for edge in lines:
+        assert edge.start_is_end_a is not None, (
+            "a straight dimensionable edge must carry the endpoint correspondence"
+        )
+        src = edge.source_edge
+        assert src is not None
+        pa = screen(src.end_a)
+        pb = screen(src.end_b)
+        if math.dist(pa, pb) < 1e-7:
+            continue  # edge-on: projects to a point, the correspondence is moot
+        named, other = (pa, pb) if edge.start_is_end_a else (pb, pa)
+        assert math.dist((edge.start.x, edge.start.y), named) < 1e-7, (
+            f"{view}: `start` must be the projection of the endpoint start_is_end_a "
+            f"names ({'end_a' if edge.start_is_end_a else 'end_b'})"
+        )
+        assert math.dist((edge.end.x, edge.end.y), other) < 1e-7, (
+            f"{view}: `end` must be the projection of the OTHER model endpoint"
+        )
+        checked += 1
+    assert checked > 0, f"the {view} view exercised no non-degenerate straight edge"
+
+
+@pytest.mark.parametrize("view", ["front", "top", "right"])
+def test_start_is_end_a_identifies_model_endpoint_ortho(view: str) -> None:
+    """The projected `start` of a straight dimensionable edge maps to the model
+    endpoint `start_is_end_a` names, in each orthographic view — the exact guard the
+    frontend duplication lacked (a wrong bit → a point-to-point dimension anchored to
+    the WRONG model vertex). Oracle: the first-principles view definition, not the
+    module frame table (design §3.3)."""
+    _assert_correspondence(view, _VIEW_SCREEN[view])
+
+
+def test_start_is_end_a_identifies_model_endpoint_iso() -> None:
+    """The correspondence holds in the ISOMETRIC view too (design §3.3) — every
+    projected straight edge is non-degenerate there, so the bit is exercised across
+    the full box. Oracle: the documented normalize(-1,-1,1) iso frame, re-derived in
+    the test, never the module's constants."""
+    _assert_correspondence("iso", _iso_screen)
+
+
+def test_start_is_end_a_is_none_for_non_straight_and_silhouette() -> None:
+    """The bit is optional exactly like `source_edge` (design §3.3): a circle/arc
+    carries `None` (no straight-endpoint correspondence), and so does an
+    un-dimensionable silhouette line — never a spurious `True`/`False`."""
+    plate = _through_hole_box()
+    top = project_view(plate, "top")
+    for arc_like in (e for e in top.edges if e.primitive in ("circle", "arc")):
+        assert arc_like.start_is_end_a is None, "a circle/arc has no endpoint bit"
+    cylinder = build_cylinder(10, 30)
+    right = project_view(cylinder, "right")
+    for edge in right.edges:
+        if edge.source_edge is None:  # silhouette / un-dimensionable
+            assert edge.start_is_end_a is None, "un-dimensionable edge carries no bit"
 
 
 def _typecheck_dimension_value() -> DimensionValue:

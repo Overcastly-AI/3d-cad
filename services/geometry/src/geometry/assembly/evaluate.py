@@ -45,7 +45,6 @@ import uuid
 from dataclasses import dataclass
 
 import numpy as np
-from build123d import Solid
 from py_kit.schemas.assemblies import (
     AssemblySolveDiagnosis,
     AssemblySolveStatus,
@@ -82,6 +81,7 @@ from geometry.assembly.solver import RigidBodyAssemblySolver
 from geometry.assembly.transform import Pose, as_vector
 from geometry.features import evaluate_tree
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
+from geometry.kernel.types import BodyShape
 
 #: The solver backend, typed as the protocol implementation. ``solve`` is
 #: stateless (a fresh system + a scoped BLAS pin per call), so one shared
@@ -105,7 +105,7 @@ class _PartResult:
     honest ``no_body`` — so every instance of that part reports the same reason.
     """
 
-    body: Solid | None
+    body: BodyShape | None
     mesh_glb_id: str | None
     properties: ShapeProperties | None
     error: FeatureError | None

@@ -152,25 +152,27 @@ inverse.
 ## 4. Decision 4 — healing report scope: v1 is "single solid or legible error"
 
 OCCT STEP read can yield a single solid, a compound of several solids, open
-shells, or non-solid geometry (surfaces/wireframe). v1 accepts **exactly one
-solid** and otherwise fails with a **legible, stats-bearing** per-feature error
-— it does **not** sew/heal/repair:
+shells, or non-solid geometry (surfaces/wireframe). Import accepts **one or more
+solids** and only rejects a **zero-solid** file, with a **legible, stats-bearing**
+per-feature error — it does **not** sew/heal/repair:
 
 - **Exactly one `TopAbs_SOLID`** in the transferred shape → wrap it as the body
-  (`ok`).
-- **Zero, or more than one, solids** → `import_not_single_solid`, whose message
-  carries the honest shape stats — *how many* solids/shells/faces were found and
-  whether a closed shell exists. That message **is** the v1 "healing report":
-  the shape's composition, surfaced honestly, so a user learns *why* their file
-  was rejected (e.g. "found 2 solids — multi-solid assemblies are not supported
-  yet" or "found 0 solids, 3 open shells — surface/wireframe STEP is not a
-  solid"). Verified: a compound of two disjoint boxes reads as a
-  `TopAbs_COMPOUND` with 2 solids → rejected with that count.
-- **Deferred, named not built:** IGES import; multi-solid → assembly / multi-body
-  parts; sewing open shells into a solid; surface repair / small-face removal;
-  a structured healing-report DTO across the boundary. Each is an additive
-  follow-up (a new `format` literal, a new error/report shape) that does not
-  reshape v1's params.
+  (`ok`), a bare `Solid`.
+- **Two or more solids** (SUPERSEDED 2026-07-19 by multi-body §MB-4b — see
+  `docs/design/multi-body.md`) → ONE multi-lump body, a lump-sorted `Compound`
+  of the file's solids preserved AS AUTHORED (not fused — import is not a
+  boolean), `ok`. This was formerly the `import_not_single_solid` rejection.
+- **Zero solids** → `import_no_solid`, whose message carries the honest shape
+  stats — *how many* shells/faces were found. That message **is** the "healing
+  report": the shape's composition, surfaced honestly, so a user learns *why*
+  their file has no importable body (e.g. "found no solids (shells=3) —
+  surface/wireframe STEP is not a solid"). Verified: a lone face reads as
+  `shells=1, faces=1`, 0 solids → rejected with that count.
+- **Deferred, named not built:** IGES import; splitting a multi-lump body into
+  independent bodies ("split bodies"); sewing open shells into a solid; surface
+  repair / small-face removal; a structured healing-report DTO across the
+  boundary. Each is an additive follow-up (a new `format` literal, a new
+  error/report shape) that does not reshape v1's params.
 
 The mass-properties/topology of the accepted body flow out through the standard
 `EvaluateTreeResult.properties` — when import is the last feature, those numbers
@@ -190,8 +192,9 @@ dispatcher's belt-and-braces `evaluation_failed` (never a tree-wide 500).
 | Situation | Surface | Code |
 |---|---|---|
 | STEP text OCCT cannot parse (`ReadFile` ≠ `RetDone`, or a transfer raise) | per-feature error, 200 | `import_parse_failed` |
-| Parse exceeds the wall-clock bound → killable subprocess SIGKILLed (§6) | per-feature error, 200 | `import_parse_timeout` |
-| Parsed but not exactly one solid (0, or ≥2; open shells; surfaces only) | per-feature error, 200 | `import_not_single_solid` |
+| Parse exceeds its CPU-time ceiling or wall-clock backstop → killable subprocess killed (§6) | per-feature error, 200 | `import_parse_timeout` |
+| Parsed but yielded ZERO solids (open shells; surfaces/wireframe only) | per-feature error, 200 | `import_no_solid` |
+| Parsed with ≥2 solids (multi-body §MB-4b) | **success**, one multi-lump `Compound` body | — |
 | Import with a body already present in the prefix | per-feature error, 200 | `import_with_prior_body` |
 | `data` empty or over the size bound (§6) | **request-validation 422** | pydantic `validation_error` |
 
@@ -215,26 +218,49 @@ Verified failure modes: garbage bytes and empty input both return OCCT
 - **OCCT parse failures are values, never crashes.** §5 — every read error maps
   to `import_parse_failed`; the reader is wrapped so no OCCT raise escapes as a
   500.
-- **Hard wall-clock bound on the untrusted parse — SHIPPED (2026-07-13, P1
-  fast-follow).** The 16 MiB size cap is a request-validation 422 *before* OCCT
-  parses, so it bounds the payload's **memory** footprint — but OCCT's STEP
-  transfer is not guaranteed linear in input size, so an adversarial or
-  degenerate part-21 can be super-linear and bound only in **time**. The two
-  unbounded-time OCCT calls (`ReadFile` → `TransferRoots`) therefore run in a
-  **separate, killable subprocess** (`geometry.kernel._step_parse_worker`,
-  invoked by file path so it imports OCP alone — ~0.9 s cold — not the whole
-  kernel), spawned with `subprocess.run(..., timeout=…)`. A parse that exceeds
-  the bound is **SIGKILLed and reaped** (`subprocess.run` kills then waits before
-  re-raising) and surfaces as the per-feature `import_parse_timeout` error inside
-  a 200 (strict-prefix rule) — never a hang, a 500, or a leaked/zombie process.
-  A thread / `signal.alarm` bound would NOT work here: it cannot interrupt OCCT
-  C++ mid-transfer and signals do not fire in FastAPI threadpool threads, so the
-  bound has to be a real out-of-process kill.
+- **Hard parse bound on the untrusted parse — SHIPPED (2026-07-13, P1
+  fast-follow; hardened to CPU-time + wall-clock backstop 2026-07-19).** The
+  16 MiB size cap is a request-validation 422 *before* OCCT parses, so it bounds
+  the payload's **memory** footprint — but OCCT's STEP transfer is not guaranteed
+  linear in input size, so an adversarial or degenerate part-21 can be
+  super-linear and bound only in **time**. The two unbounded-time OCCT calls
+  (`ReadFile` → `TransferRoots`) therefore run in a **separate, killable
+  subprocess** (`geometry.kernel._step_parse_worker`, invoked by file path so it
+  imports OCP alone — ~0.9 s cold — not the whole kernel) under **two independent
+  ceilings**:
+  - **CPU-time — the PRIMARY DoS bound.** The child caps its own CPU seconds via
+    `resource.setrlimit(RLIMIT_CPU, (soft, soft+1))` (and zeroes `RLIMIT_CORE`)
+    *before* importing OCP, so the whole child — cold-import included — is bounded.
+    On exhaustion the kernel sends `SIGXCPU` (soft) then `SIGKILL` (hard); the
+    parent maps either to `import_parse_timeout`. **Why CPU-time, not wall-clock:**
+    a wall-clock bound conflates the parse's *work* with the machine's *load* — a
+    legit ~1 s parse can take many WALL seconds while burning the same ~1 s of CPU
+    under CI/worktree contention, so a tight wall bound **false-fired on
+    slow-but-legit imports** (the flake, 2026-07-19). `RLIMIT_CPU` bounds CPU
+    seconds actually consumed — invariant to how starved the wall-clock is — so a
+    legit parse never trips it regardless of load, while an adversarial CPU-burn is
+    still capped.
+  - **Wall-clock — a LIVENESS backstop only.** `subprocess.run(..., timeout=…)`
+    kills a child that is *wedged* (blocked, not CPU-burning), which `RLIMIT_CPU`
+    cannot catch. It is sized so a legit ~1 s parse never trips it even under heavy
+    contention; it is a hang guard, **not** the DoS latency control.
+
+  A killed parse is **reaped** (`subprocess.run` kills then waits for the
+  wall-clock case; a signal-killed child is already reaped) and surfaces as the
+  per-feature `import_parse_timeout` error inside a 200 (strict-prefix rule) —
+  never a hang, a 500, or a leaked/zombie process. A thread / `signal.alarm` bound
+  would NOT work here: it cannot interrupt OCCT C++ mid-transfer and signals do not
+  fire in FastAPI threadpool threads, so the bound has to be a real out-of-process
+  kill.
   - **Configurable.** `GeometrySettings.step_import_timeout_seconds` (env
-    `STEP_IMPORT_TIMEOUT_SECONDS`), **default 5.0 s** — comfortably clears a real
-    mechanical part's transfer while capping an adversarial one. The evaluate
-    handler passes it into `import_step_solid(..., timeout_s=…)`; the kernel
-    never hardcodes the value in the hot path.
+    `STEP_IMPORT_TIMEOUT_SECONDS`), **default 20.0 s of CPU-time** — a legit parse
+    burns ~1 s of CPU (STEP round-trip warm median ~10–23 ms plus the ~0.9 s OCP
+    cold-import), so this is ~20× headroom while still capping an adversarial
+    CPU-burn; and `step_import_wall_timeout_seconds` (env
+    `STEP_IMPORT_WALL_TIMEOUT_SECONDS`), **default 60.0 s** wall-clock backstop.
+    The evaluate handler passes both into
+    `import_step_solid(..., cpu_timeout_s=…, wall_timeout_s=…)`; the kernel never
+    hardcodes the values in the hot path.
   - **Determinism unaffected (strengthened, even).** Units are pinned to mm in
     the worker's FRESH process, so the read is independent of any ambient
     `Interface_Static` state; the transferred shape crosses the process boundary

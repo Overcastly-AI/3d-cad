@@ -1,0 +1,33 @@
+{
+  "description": "Feature golden: SHIPPED depth-2 unfold of a box CORNER (base + edge flange F1 + return flange F2 folded off F1 with a PERPENDICULAR bend axis -- an L-with-return). The graph-relaxation case docs/design/sheet-metal.md sec 4.3 deferred, now unfolded by the recursive-compositional bend-TREE walk in geometry.sheet_metal.unfold_sheet_metal: each flange is placed in its parent's ALREADY-flattened frame (child_2d = parent_2d(tangent) + BA*w_parent), so F2 composes THROUGH F1's development with no error accumulation. The per-flange rectangles are chained into ONE closed union outline (a reentrant L, 6 body edges) -- the single-blank a shop cuts. Supersedes the spike golden spike-bend-chain-corner (which pinned the isolated _spike_bend_chain proof).",
+  "tangent_line_convention": "Each leg is measured to its bend TANGENT LINE (sec 9 #1). Base develops to its 40x30 flat top face; F1 develops to leg 25 (width 40 along the +X axis); F2 develops to leg 15 (width 25 along the +Z axis). Each bend allowance REPLACES a sharp-corner setback.",
+  "derivation": [
+    "HAND-DERIVED analytic values (geometry-gates skill; independently recomputed in the test, never read from kernel output). Dims: base 40 (X) x 30 (Y) mm; F1 leg 25 (width 40, bend axis +X); F2 leg 15 (width 25, bend axis +Z, perpendicular to B1); gauge t=2, inner radius r=3, both bends 90deg, K=0.44 (v1 default).",
+    "Bend allowance (sec 1), same for both 90-deg bends at r=3,t=2,K=0.44: BA = (pi/2)*(3 + 0.44*2) = 6.094689747964199 mm.",
+    "Developed area (sec 9 #2 invariant): flat_area = base_area + F1_area + F2_area + strip1 + strip2 = (40*30) + (25*40) + (15*25) + (BA*40) + (BA*25) = 1200 + 1000 + 375 + BA*65 = 2575 + 396.15483361767295 = 2971.154833617673 mm^2. The base is counted ONCE.",
+    "Single union outline (the feature slice's work over the spike's per-flange rectangles): base+strip1+F1 form a 40 x (30+BA+25) column; strip2+F2 attach to its right side flush at the F1 top, giving a reentrant L. Its shoelace-enclosed area equals flat_area EXACTLY (40*(55+BA) + (BA+15)*25 = 2575 + 65*BA), the independent witness that the one outline tiles the whole blank. 6 body edges + 1 fold line per bend (2 bend edges).",
+    "Bounding-box envelope of the developed blank: flat_length (dev-X extent) = 40 base + (BA + 15) F2 arm = 61.094689747964196 mm; bend_width (dev-Y extent) = 30 base + (BA + 25) F1 arm = 61.0946897479642 mm.",
+    "Both flanges fold to the +normal side -> direction 'up'. The three flange regions are pairwise DISJOINT (base y<15, F1 x<20, F2 x>26) -- no self-overlap, so the idealised zero-relief blank is valid (corner relief stays a sec 7 deferral; a shape that DID self-overlap degrades to a typed UnfoldOverlapError).",
+    "Built body (sanity): fused volume = base(40*30*2=2400) + F1(flat 25*2*40=2000 + quarter-annulus (pi/4)(5^2-3^2)*40=160pi=502.65) + F2(flat 15*2*25=750 + (pi/4)(16)*25=100pi=314.16) = 2400 + 2502.65 + 1064.16 = 5966.814089933348 mm^3. EXACTLY additive (no 3D overlap) -- the geometric proof that the perpendicular return is a real, non-self-intersecting box corner.",
+    "content_hash is the sha256 of the unfold's FlatPattern.to_json_bytes() -- a DETERMINISM pin reproducible in-process AND across a fresh interpreter restart (sec 9 #4), pinned to OCCT/build123d. A change without a kernel-version bump is a determinism regression (P0), never a retry."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set. Measured residuals (2026-07-19, build123d 0.11.1 / OCCT 7.9): per-flange developed area vs 3D face area 0.0, flat_area/envelope residuals ~1e-12 (arc-fit inner radii carry FP noise ~1e-14), outline-enclosed area vs flat_area ~1e-9. Ceiling 1e-9 gives 2-3 orders of headroom while staying tighter than the kernel linear tolerance (1e-7 m). Volume tolerance 1e-6 absorbs arc-fit noise scaled by width.",
+  "bend_allowance_mm": 6.094689747964199,
+  "flat_area_mm2": 2971.154833617673,
+  "flat_length_mm": 61.094689747964196,
+  "bend_width_mm": 61.0946897479642,
+  "flange_dev_areas_mm2": [375.0, 1000.0, 1200.0],
+  "outline_enclosed_area_mm2": 2971.154833617673,
+  "bend_count": 2,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 3.0,
+  "bend_direction": "up",
+  "bend_widths_mm": [40.0, 25.0],
+  "body_edge_count": 6,
+  "bend_edge_count": 2,
+  "volume_mm3": 5966.8140899333475,
+  "volume_tolerance": 1e-6,
+  "topology": { "faces": 16, "cylinders": 4, "solids": 1 },
+  "content_hash": "92e1b3df79a2da4515038f8c6d6fe6d9ac0e2105564e327bc475044dbeb1733d"
+}

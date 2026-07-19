@@ -7,9 +7,9 @@ The system layout at Phase 0. For rationale and design decisions, see
 
 ```
 apps/web            React 19 + Vite SPA (viewport + UI)
-services/gateway    FastAPI: REST aggregation, geometry proxy
-services/geometry   OCCT workers (OCP + build123d): evaluate, tessellate
-services/documents  Parts/assemblies, feature trees, versioning (Postgres) [Phase 1+]
+services/gateway    FastAPI: REST aggregation, geometry proxy, auth, WebSocket fan-out
+services/geometry   OCCT workers (OCP + build123d): feature evaluation, tessellation, export
+services/documents  Parts/assemblies, feature trees, versioning (Postgres)
 packages/py-kit     Shared service kit (config, logging, health, errors, queue)
 packages/contracts  Generated OpenAPI schemas (pydantic → committed)
 packages/ts-client  Generated TypeScript client (never hand-edited)
@@ -28,33 +28,42 @@ docs/               VISION, RESEARCH, ROADMAP, BACKLOG, QA reports
 - `apps/web` talks only to the gateway.
 - Types flow one way: pydantic models → OpenAPI → generated TS client.
 
-## Data flows — Phase 0 tessellation pipeline
+## Data flows — parametric feature evaluation
 
-**User input → Server tessellation → GLB → Viewport**
+**User input → Server evaluation → Tessellation → GLB → Viewport**
 
-1. **Browser (apps/web):** user edits x/y/z dimensions in title-block inspector
-2. **Gateway** (services/gateway): `POST /api/v1/geometry/tessellate`
-   - Passes dimensions as JSON to geometry service
-   - Returns GLB buffer + X-Loft-Properties metadata header
-3. **Geometry service** (services/geometry): `POST /api/v1/tessellate`
-   - Evaluates parametric box via OCCT/build123d B-rep kernel
-   - Tessellates to byte-deterministic GLB (identical across runs)
+1. **Browser (apps/web):** user authors a feature tree (sketch → extrude/revolve/
+   sweep/loft → fillet/chamfer/shell/draft/pattern, or sheet-metal base/edge
+   flange)
+2. **Documents service** (services/documents): stores feature tree JSON with
+   versioned param envelopes, maintains rebuild invariants (feature order,
+   dependency graph)
+3. **Geometry service** (services/geometry): `POST /api/v1/evaluate`
+   - Ordered feature dispatch: sketch solves via planegcs, subsequent features
+     build on prior bodies (extrude → sweep → fillet, etc.)
+   - Each feature produces a B-rep solid or compound (multi-lump bodies)
+   - Tessellates result to byte-deterministic GLB
    - Computes mass properties (volume, area, centroid) + topology counts
-   - Returns GLB + properties header
-4. **Viewport** (apps/web): r3f scene
-   - Renders three.js mesh from GLB buffers
-   - Displays mass properties parsed from X-Loft-Properties header
-   - On dimension edit, loop back to step 1
+   - Returns GLB, properties, and mesh-store reference (content-addressed ID)
+4. **Gateway** (services/gateway): proxies geometry evaluation, auth-gates routes,
+   proxies mesh fetch
+5. **Viewport** (apps/web): r3f scene
+   - Renders three.js mesh from GLB buffers or fetched mesh-store ID
+   - Displays mass properties + body tree in title block
+   - On parameter edit, loop back to step 1
 
 **Today:** pipeline is synchronous (HTTP request → OCCT evaluation → response);
 geometry evaluates in-request. **Future:** async queue (Redis + arq) feeds
 geometry workers.
 
-## Datastore footprint — Phase 0
+## Datastore footprint
 
-- **Postgres 16:** unused in Phase 0; documents service wired for future
-- **Redis 7:** unused in Phase 0; queue client in py-kit ready for Phase 1
-- **MinIO (S3-compat):** unused in Phase 0; storage client reserved in py-kit
+- **Postgres 16:** documents (parts/features/revisions), gateway (users/auth),
+  alembic migrations; active since Phase 1
+- **Redis 7:** rate limiting (gateway), async queue (arq workers); active since
+  Phase 1; fail-open if unset
+- **MinIO (S3-compat):** content-addressed mesh store (tessellation results);
+  active since Phase 1; in-memory LRU if unset
 - **In-memory state:** viewport state (zustand), geometry results (per-request)
 
 ## DRY enforcement
@@ -67,13 +76,40 @@ geometry workers.
 - **Design tokens:** `packages/design` constants drive both Tailwind preset
   (DOM) and r3f scene (WebGL); no hex values duplicated.
 
-## Test coverage — Phase 0
+## Feature types (services/geometry)
 
-- **Unit tests:** 76 pytest (Python services + py-kit), 13 vitest (web + design)
+Currently shipped: `Sketch`, `Extrude`, `Revolve`, `Sweep`, `Loft`, `Fillet`,
+`Chamfer`, `Shell`, `Draft`, `LinearPattern`, `CircularPattern`, `Import` (STEP),
+`Boolean` (union/subtract/intersect on multi-lump bodies), `SheetMetalBaseFlange`,
+`SheetMetalEdgeFlange`. Drawings introduce projection types: orthographic views
+(front/top/right/iso), `flat_pattern` (sheet-metal unfolded blank).
+
+## Golden test structure
+
+- `services/geometry/goldens/` — single-body parametric features (box, cylinder,
+  extrude/revolve/sweep/loft variants, fillet/chamfer/shell/draft, patterns,
+  import, boolean operations, topology-naming edge selection).
+- `services/geometry/goldens-assembly/` — multi-part assembly evaluation with
+  mate-solver results (instance placement, mass roll-up).
+- `services/geometry/goldens-sheet-metal/` — sheet-metal-specific: base flange,
+  edge flange, flat-pattern unfold, bend-table generation, STEP round-trip
+  retention of bend attributes.
+
+Each golden is a directory with `model.json` (parametric feature definition) and
+`expected.json` (mass properties, topology counts, mesh statistics, bend-table
+structure if applicable); the test harness is data-driven and discovers goldens
+via directory scan.
+
+## Test coverage
+
+- **Unit tests:** pytest across geometry/documents/gateway + py-kit, vitest
+  across web/design (89 total)
 - **Geometry QA:** golden-model suite (data-driven; mass properties, topology,
-  determinism), STEP round-trip fidelity test
-- **Web E2E:** Playwright against live geometry+gateway stack (tessellation,
-  dimension edits, mass properties assertion)
+  determinism, bend-table structure), STEP round-trip fidelity test, sheet-metal
+  unfold correctness
+- **Web E2E:** Playwright against live geometry+gateway+documents stack (feature
+  authoring, tessellation, dimension edits, assembly solve, sheet-metal flat
+  pattern)
 - **CI gates:** lint, typecheck, unit tests, contract drift check, compose
   config validation
 

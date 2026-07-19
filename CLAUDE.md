@@ -260,22 +260,59 @@ recipe here in the same commit as the fix.**
   picks up `/usr/bin/python3.12` automatically. PyPI + npm registries are
   direct (proxy no-proxy list), so `uv sync` / `pnpm install` just work.
 - `just` is not preinstalled: `uv tool install rust-just` → `~/.local/bin/just`.
-- **The full compose stack can't boot in this sandbox — the Docker registry is
-  blocked, not the daemon.** `dockerd` is NOT running by default but CAN be
-  started (`sudo dockerd &`; binary at `/usr/bin/dockerd`). The real wall is
-  the egress proxy: `docker pull` of `postgres:16` / `redis:7` /
-  `minio/minio:*` fails mid-blob with **403 Forbidden** from
-  `production.cloudfront.docker.com/...blobs...` — the same policy-denial class
-  as the github python-build block above (don't retry/route around). No infra
-  image caches. Consequence: `just dev` / `just e2e` (which need db/redis/minio
-  as containers; the services themselves run natively via uvicorn, not
-  containers) **cannot run here** — they run in CI where the registry is
-  reachable. So for a UI/backend slice in this sandbox, the runnable gates are
-  `pnpm --filter @loft/web {typecheck,test}` (vitest) + `just lint` +
-  geometry `pytest` (goldens/solver need no containers); the Playwright e2e
-  and founder before/after screenshots are written-and-committed but deferred
-  to CI. Don't report a slice as "e2e-verified" from this sandbox — say
-  "vitest/lint/pytest green; e2e committed, runs in CI."
+- **The Docker *registry* is blocked here, but the stack does NOT need Docker —
+  a native, container-free boot works and CAN drive `just e2e` + founder
+  screenshots.** `docker pull` of `postgres:16` / `redis:7` / `minio/minio:*`
+  fails mid-blob with **403 Forbidden** from
+  `production.cloudfront.docker.com/...blobs...` (same policy-denial class as
+  the github python-build block above; don't retry/route around), so the
+  *compose* stack can't build. But every external is OPTIONAL and the services
+  run natively via uvicorn, so the whole app boots with no containers:
+  - **documents / gateway → SQLite.** Each needs a schema. Do NOT run alembic
+    against SQLite: the migrations render Postgres DDL verbatim (e.g.
+    `created_at DATETIME DEFAULT (now())`) and SQLite has no `now()` →
+    `OperationalError` at insert time. Instead create the schema with
+    SQLAlchemy `metadata.create_all` (renders dialect-correct DDL —
+    `CURRENT_TIMESTAMP` on SQLite), exactly as `scripts/e2e.sh` and the unit
+    suites do:
+    ```python
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from documents.db import Base as D; from gateway.db import Base as G
+    from py_kit.db import async_dsn
+    for url, base in ((doc_dsn, D), (gw_dsn, G)):
+        e = create_async_engine(async_dsn(url))
+        async with e.begin() as c: await c.run_sync(base.metadata.create_all)
+        await e.dispose()
+    ```
+    DSNs are file URLs: `sqlite+aiosqlite:////abs/path/documents.db` (the env
+    var is `POSTGRES_URL`; `py_kit.db.async_dsn` normalizes `sqlite://` →
+    `sqlite+aiosqlite://`).
+  - **geometry → in-process LRU mesh store** when `S3_URL` is unset. Keep
+    `--workers 1` (the LRU is per-process; multi-worker would split it). No MinIO.
+  - **gateway → fail-open rate limiter** when `REDIS_URL` is unset (no-op
+    dependency). WS fan-out + mate authoring are plain REST/in-proc — no Redis. 
+  Boot (ports gateway :8000, documents :8001, geometry :8002 — the smoke/e2e
+  defaults), after the create_all above:
+  ```bash
+  uv run uvicorn geometry.main:app  --host 127.0.0.1 --port 8002 --workers 1 &
+  POSTGRES_URL="$DOC_DSN" uv run uvicorn documents.main:app --host 127.0.0.1 --port 8001 &
+  LOFT_ENV=dev POSTGRES_URL="$GW_DSN" GEOMETRY_URL=http://127.0.0.1:8002 \
+    DOCUMENTS_URL=http://127.0.0.1:8001 \
+    uv run uvicorn gateway.main:app --host 127.0.0.1 --port 8000 &
+  scripts/smoke-healthz.sh 8000   # all three /healthz+/readyz → 200
+  ```
+  `LOFT_ENV=dev` is required (the gateway fail-closes on JWT posture otherwise).
+  Then Vite: Playwright's `webServer` boots it itself (`reuseExistingServer`),
+  so just run the specs — the Vite `/api` proxy defaults to `:8000`; set
+  `GATEWAY_ORIGIN=http://127.0.0.1:8000` explicitly to be safe. Founder
+  screenshots: `UPDATE_SCREENSHOTS=1 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+  pnpm --filter @loft/web exec playwright test e2e/<spec>.ts`. This is how the
+  UR3 / units / mate / drawings founder shots under `docs/screenshots/` were
+  captured natively (2026-07-18) — **e2e + screenshots are NOT CI-only.**
+  Runnable gates here therefore include the full Playwright e2e, not just
+  `pnpm --filter @loft/web {typecheck,test}` + `just lint` + geometry `pytest`.
+  (Only `just dev` / `docker compose` proper — which build the container images —
+  still can't run; use the native boot above instead of the compose stack.)
 - **Stale dev uvicorns poison `just e2e`.** Long-lived service uvicorns (from a
   prior `just dev` or an agent that booted the stack) run **without**
   `--reload`, so after any backend commit their served OpenAPI/routes go stale.
@@ -325,3 +362,20 @@ recipe here in the same commit as the fix.**
   option in 1.56 (`use.contextOptions.reducedMotion`), and enabling it snaps the
   r3f camera, which shifts face-pick screen coords and flakes the pick specs —
   left off deliberately.
+- **`ruff check` + `pyright` is NOT the lint gate — `just lint` is.** CI
+  (`.github/workflows/ci.yml`) runs `uv run ruff format --check .` AND
+  `prettier --check .` (via `just lint`), and `ruff` is lock-pinned (uv.lock →
+  0.15.20; `pyproject` floor `>=0.12` is a red herring — `uv run ruff` uses the
+  locked version, the same one CI's `uv sync --locked` installs, so a local
+  `ruff format --check` failure is NEVER "version skew," it's a real red build).
+  A per-slice gate of only `ruff check`/`pyright`/`gen-check`/`web typecheck`
+  passes while `ruff format`- and prettier-dirty files accumulate — then the
+  batch-boundary `just lint` goes red (seen 2026-07-19: 4 `ruff format`-dirty
+  py files + **12 prettier-dirty `goldens-sheet-metal/*.json`** slipped through
+  ~10 green-looking slice commits). **Two rules: (1) every slice agent runs the
+  full `just lint` before committing, not just `ruff check`; (2) newly-committed
+  golden JSON (and any JSON/MD/YAML) must pass `prettier --check` — the test
+  harness parses goldens as JSON (whitespace-insensitive) so a stored content
+  hash is a string field unaffected by formatting, i.e. `prettier --write` on a
+  golden is behaviour-neutral and safe.** Always run the full `just lint` at the
+  batch boundary regardless.

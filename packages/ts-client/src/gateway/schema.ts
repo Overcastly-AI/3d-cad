@@ -53,6 +53,31 @@ export interface paths {
         patch: operations["update_assembly_api_v1_assemblies__assembly_id__patch"];
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/bom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Bom
+         * @description The assembly's flat bill of materials (direct instances only; uniform 404).
+         *
+         *     Documents aggregates the read model (one line per referenced document,
+         *     quantity = shared-reference count, current name + kind, deleted-ref lines
+         *     flagged ``missing``); the gateway proxies faithfully under the same
+         *     auth/ownership posture as :func:`get_assembly`.
+         */
+        get: operations["get_assembly_bom_api_v1_assemblies__assembly_id__bom_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/instances": {
         parameters: {
             query?: never;
@@ -337,6 +362,66 @@ export interface paths {
          * @description Delete a dimension; returns the updated tree (bumps ``doc_version``).
          */
         delete: operations["delete_dimension_api_v1_drawings__drawing_id__dimensions__dimension_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Drawing
+         * @description Compose the drawing into a downloadable SVG/PDF/DXF artifact (design §4.2).
+         *
+         *     Auth-gated and rate-limited (an OCCT-CPU compose route, same posture as the
+         *     parts export and the drawing-evaluate proxy — engineering audit F7). The
+         *     two-hop aggregation: documents serves the drawing tree AND the referenced
+         *     part's evaluation-ready feature prefix (principal attached, uniform 404 for an
+         *     unknown/foreign drawing re-surfaced verbatim), the gateway assembles the
+         *     :class:`ComposeDrawingRequest` from that persisted state, and the stateless
+         *     geometry service (identity-free upstream) evaluates + places + serializes it.
+         *     The artifact bytes stream back with geometry's ``Content-Type`` +
+         *     ``Content-Disposition``; its per-format envelopes (e.g. ``not_implemented`` for
+         *     ``dxf``) re-surface verbatim.
+         */
+        post: operations["export_drawing_api_v1_drawings__drawing_id__export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/sheet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose Drawing Sheet
+         * @description Compose the drawing into the placed ``ComposedSheet`` MODEL (design §4.2, DE-1b).
+         *
+         *     The JSON-model twin of ``/{drawing_id}/export``: the SAME auth-gated,
+         *     rate-limited two-hop aggregation (drawing tree + referenced part's
+         *     evaluation-ready feature prefix from documents, principal attached; the compose
+         *     hop is identity-free), but it calls geometry's ``/drawing/compose/sheet`` and
+         *     returns the typed :class:`ComposedSheet` (placed views/edges/dimensions/title
+         *     block in sheet-mm) instead of serialized bytes. This is the single placement
+         *     source the DE-1c frontend cutover renders from — deleting the browser's
+         *     duplicate placement engine. Deterministic (RESEARCH §9); the gateway just relays.
+         */
+        post: operations["compose_drawing_sheet_api_v1_drawings__drawing_id__sheet_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1225,6 +1310,36 @@ export interface components {
             sheet_id: string;
         };
         /**
+         * AssemblyBomResponse
+         * @description An assembly's flat bill of materials (design: assemblies.md residual).
+         *
+         *     A pure documents-side READ MODEL — no writes, no migration: it aggregates
+         *     the assembly's DIRECT instances into one :class:`BomLine` per referenced
+         *     document (quantity = shared-reference count), resolving each document's
+         *     current name from the ``parts`` / ``assemblies`` tables. Deterministically
+         *     ordered (resolved name, then ``ref_document_id``) so the list is stable
+         *     across reads. ``total_instances`` is the sum of every line's quantity (the
+         *     assembly's direct-instance count), so an empty assembly is
+         *     ``{lines: [], total_instances: 0}``.
+         */
+        AssemblyBomResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Lines
+             * @description One line per referenced document, deterministically ordered
+             */
+            lines: components["schemas"]["BomLine"][];
+            /**
+             * Total Instances
+             * @description Sum of all line quantities (direct instance count)
+             */
+            total_instances: number;
+        };
+        /**
          * AssemblyCreate
          * @description Create an assembly owned by the calling user (design §1.2).
          */
@@ -1462,6 +1577,191 @@ export interface components {
             kind: "axis_parallel";
         };
         /**
+         * BendTableRow
+         * @description One row of a flat-pattern view's bend table (sheet-metal.md §6/§7).
+         *
+         *     The shop's fold instructions for one bend line: a stable per-bend label
+         *     (``bend_id``), its fold ``angle_deg`` and inner ``radius_mm``, the fold
+         *     ``direction`` (up/down relative to the base flange), and the ``bend_allowance_mm``
+         *     (``BA = angle_rad * (radius + K * thickness)``, §1 — the developed length the
+         *     flat strip replaces). Every value is already computed by the unfold; documents
+         *     stores none of it — it is derived geometry-side alongside the flat-pattern edges.
+         *
+         *     Correlation to the drawing edges is POSITIONAL, not id-based:
+         *     :class:`ProjectedViewEdge` carries no id, so the i-th ``edge_role="bend"`` edge
+         *     (in the view's edge-list order) is this row's fold line — both the bend edges and
+         *     this table are emitted in the same deterministic fold-position order (§6). A
+         *     consumer keys a table row to its fold stroke by zipping the ``"bend"`` edges with
+         *     ``bend_table`` in order, never by matching ``bend_id`` against an edge field.
+         */
+        BendTableRow: {
+            /**
+             * Angle Deg
+             * @description Fold angle (degrees)
+             */
+            angle_deg: number;
+            /**
+             * Bend Allowance Mm
+             * @description Bend allowance BA = angle_rad * (radius + K * thickness), mm (§1)
+             */
+            bend_allowance_mm: number;
+            /**
+             * Bend Id
+             * @description Stable per-bend label (e.g. 'bend-1'); NOT an edge id — bend rows correlate to 'bend' edges positionally, in fold-position order (§6)
+             */
+            bend_id: string;
+            /**
+             * Direction
+             * @description Fold sense up/down (§1)
+             * @enum {string}
+             */
+            direction: "up" | "down";
+            /**
+             * Radius Mm
+             * @description Inner bend radius (mm)
+             */
+            radius_mm: number;
+        };
+        /**
+         * BomLine
+         * @description One line of an assembly's bill of materials (a flat, direct-instance BOM).
+         *
+         *     A BOM line GROUPS the assembly's DIRECT instances by the document they
+         *     reference: ``quantity`` is the count of instances sharing this
+         *     ``ref_document_id``, ``name`` is the referenced document's CURRENT name, and
+         *     ``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 —
+         *     direct instances only, NOT recursive into rigid sub-assemblies (an explicit
+         *     follow-up; a sub-assembly instance appears as a single ``kind: "assembly"``
+         *     line, never expanded).
+         *
+         *     A referenced document that was DELETED while still instanced surfaces
+         *     honestly, not silently: the line stays (its instances still exist and still
+         *     count), with ``name`` null and ``missing`` true, so a client can flag the
+         *     dangling reference rather than the read 500-ing or the quantity vanishing.
+         */
+        BomLine: {
+            /**
+             * Missing
+             * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
+             * @default false
+             */
+            missing: boolean;
+            /**
+             * Name
+             * @description The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)
+             */
+            name: string | null;
+            /**
+             * Quantity
+             * @description Count of direct instances referencing this document
+             */
+            quantity: number;
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The referenced part / sub-assembly document (the group key)
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+        };
+        /**
+         * BooleanFeature
+         * @description ``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-affecting feature that fuses two independently-built bodies
+         *     (docs/design/multi-body.md §Decisions-3 / §MB-1): unlike extrude/revolve/…
+         *     it consumes no sketch and produces no new primitive — it combines two
+         *     existing bodies named by their base features. ``params`` is
+         *     :class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``
+         *     defined, wired in MB-2).
+         */
+        BooleanFeature: {
+            params: components["schemas"]["BooleanParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "boolean";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * BooleanParamsV1
+         * @description A boolean between two independently-built bodies (design §Decisions-3).
+         *
+         *     ``target`` and ``tool`` are :class:`FeatureRef`s to the BASE feature of each
+         *     operand body (an ``extrude``/``revolve``/``sweep``/``loft``/``import`` — the
+         *     body-CREATING features, NOT a modifier like fillet). ``target`` is the
+         *     SURVIVING body (for ``subtract``, the minuend); ``tool`` is the CONSUMED body
+         *     (the subtrahend). The boolean result takes over the target's identity slot and
+         *     the tool body is removed from the part.
+         *
+         *     All three operations are wired (union MB-1a; subtract/intersect MB-2). By
+         *     DEFAULT the v1 single-connected-solid-per-body invariant (§Decisions-3)
+         *     governs the result: a union of non-touching bodies, or a subtract that SEVERS
+         *     the target into ≥2 pieces, is a ``boolean_disjoint`` rebuild error; a subtract
+         *     that removes the whole target, or an intersect with no overlap, is
+         *     ``boolean_empty``.
+         *
+         *     MULTI-LUMP BODIES ARE OPT-IN (MB-4 / design §MB-4). Set ``allow_disjoint`` to
+         *     accept a ``>1``-solid result as ONE multi-lump body — a :class:`Compound` of
+         *     the disjoint lumps kept under the target's identity slot (a genuine
+         *     "combine into one body" of, say, two non-touching bosses). It defaults
+         *     ``False`` because a disjoint union is USUALLY a positioning bug, not an
+         *     intent, so v1 keeps the safety error unless the author explicitly opts in.
+         *     An EMPTY result is still ``boolean_empty`` / ``BooleanError`` regardless of
+         *     the flag (there is no material to keep). The flag is additive-optional
+         *     (absent reads ``False`` — the ``merge`` / ``flip`` idiom, NO ``param_version``
+         *     bump).
+         *
+         *     v1 MULTI-LUMP LIMIT — coincident lumps are honestly ambiguous
+         *     (design §MB-4, stated plainly): a downstream picked-face/edge reference on a
+         *     multi-lump body resolves by ABSOLUTE-world-coordinate signature, so a lump at
+         *     a distinct position resolves to exactly one subshape. But two lumps that
+         *     truly COINCIDE in space (a self-union of congruent bodies) give congruent
+         *     signatures and resolve to an honest ``subshape_ambiguous`` — the resolver
+         *     refuses to guess, never a wrong-lump modification (topological-naming.md §5).
+         *
+         *     v1 TOPOLOGICAL-NAMING LIMIT (MB-3 / design §Decisions-4 — stated plainly, not
+         *     oversold): a downstream feature (fillet/chamfer) CAN name an edge/face CREATED
+         *     by a boolean — the fused body's subshapes get stage-1 signatures like any
+         *     primitive's, so a fillet on a boolean-result edge resolves to exactly one edge
+         *     on a CLEAN rebuild. But that reference is a best-effort stage-1 signature (see
+         *     :class:`SubshapeRef` / :class:`EdgeSubshapeRef`), NOT structurally
+         *     non-retargeting: a topology-CHANGING upstream edit that moves or removes the
+         *     referenced subshape degrades to an honest ``subshape_unresolved`` /
+         *     ``subshape_ambiguous`` — the SAME best-effort posture as every feature,
+         *     booleans being its weakest case (a boolean seam is the documented
+         *     ``subshape_ambiguous`` source). Never a wrong-edge modification or a crash;
+         *     the structural fix is stage-2 provenance naming (topological-naming.md §10).
+         */
+        BooleanParamsV1: {
+            /**
+             * Allow Disjoint
+             * @description Accept a >1-solid result as ONE multi-lump body (a Compound of the disjoint lumps) instead of a `boolean_disjoint` error (MB-4). Defaults False (a disjoint union is usually a positioning bug). An empty result is still `boolean_empty`. Additive — absent reads False, no param_version bump.
+             * @default false
+             */
+            allow_disjoint: boolean;
+            /**
+             * Operation
+             * @description Boolean operation: union (fuse), subtract (target minus tool) or intersect (common). All three wired (union MB-1a; subtract/intersect MB-2).
+             * @enum {string}
+             */
+            operation: "union" | "subtract" | "intersect";
+            /** @description Base feature of the SURVIVING body; the result takes over its identity slot so downstream refs keep resolving (design §Decisions-3) */
+            target: components["schemas"]["FeatureRef"];
+            /** @description Base feature of the CONSUMED body; removed from the part once the boolean succeeds (design §Decisions-3) */
+            tool: components["schemas"]["FeatureRef"];
+        };
+        /**
          * BoundingBox
          * @description Axis-aligned bounding box (mm), exact (not mesh-inflated).
          */
@@ -1605,6 +1905,405 @@ export interface components {
              * @enum {string}
              */
             type: "coincident";
+        };
+        /**
+         * ComposedArrow
+         * @description A filled arrowhead triangle — tip + two barb wings, in order (SVG space).
+         */
+        ComposedArrow: {
+            /**
+             * Points
+             * @description The three triangle vertices
+             */
+            points: components["schemas"]["ComposedPoint"][];
+        };
+        /**
+         * ComposedBendTable
+         * @description A flat-pattern sheet's placed bend-table annotation block (sheet-metal.md §6/§7).
+         *
+         *     The shop's fold instructions for the placed flat blank, laid out as a quiet-corner
+         *     block: the rectangle it occupies (``x``/``y``/``width``/``height`` in FINAL sheet-
+         *     SVG space — y-down, top-left origin, the same space every other placed primitive
+         *     uses) plus the per-bend ``rows`` (the :class:`BendTableRow` data the flat-pattern
+         *     :class:`DrawingViewResult` already carries, passed through unchanged). The block is
+         *     placed clear of the flat blank's drawn extent so it never overlaps the geometry.
+         *
+         *     Correlation to the placed fold strokes is POSITIONAL (sheet-metal.md §6), never an
+         *     id linkage: the i-th ``rows`` entry pairs with the i-th ``edge_role="bend"``
+         *     :class:`ComposedEdge` of the flat-pattern view, both in the unfold's deterministic
+         *     fold-position order. A consumer zips the ``"bend"`` edges with ``rows`` in order.
+         */
+        ComposedBendTable: {
+            /**
+             * Height
+             * @description Block height (mm)
+             */
+            height: number;
+            /**
+             * Rows
+             * @description Per-bend fold rows, in fold-position order (positionally paired with the flat-pattern view's `edge_role='bend'` edges, §6)
+             */
+            rows: components["schemas"]["BendTableRow"][];
+            /**
+             * Width
+             * @description Block width (mm)
+             */
+            width: number;
+            /**
+             * X
+             * @description Block left edge (mm, SVG space)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Block top edge (mm, SVG space, y-down)
+             */
+            y: number;
+        };
+        /**
+         * ComposedCircleEdge
+         * @description A placed projected circle — exact (a Ø/radius dimension reads its radius).
+         */
+        ComposedCircleEdge: {
+            /** Cx */
+            cx: number;
+            /** Cy */
+            cy: number;
+            /**
+             * Edge Role
+             * @description Outline role carried through composition (sheet-metal.md §6): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.
+             * @default body
+             * @enum {string}
+             */
+            edge_role: "body" | "bend";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "circle";
+            /** R */
+            r: number;
+            /**
+             * Visible
+             * @description True = solid; False = hidden (dashed)
+             */
+            visible: boolean;
+        };
+        /**
+         * ComposedDimLine
+         * @description One straight rule of a placed dimension (extension or dimension line).
+         */
+        ComposedDimLine: {
+            /**
+             * Role
+             * @description `extension` = thin witness line; `dimension` = arrowed measure
+             * @enum {string}
+             */
+            role: "extension" | "dimension";
+            /** X1 */
+            x1: number;
+            /** X2 */
+            x2: number;
+            /** Y1 */
+            y1: number;
+            /** Y2 */
+            y2: number;
+        };
+        /**
+         * ComposedDimText
+         * @description A placed dimension's stamped value — position, upright angle, label string.
+         */
+        ComposedDimText: {
+            /**
+             * Angle
+             * @description Upright text angle (degrees)
+             */
+            angle: number;
+            /**
+             * Value
+             * @description Stamped label ('Ø10.000' / '~40.000' / '90.0°')
+             */
+            value: string;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
+         * ComposedDimensionError
+         * @description A placed dimension the model could not measure — an honest marker (§3.3).
+         */
+        ComposedDimensionError: {
+            /** @description Marker position (SVG space) */
+            at: components["schemas"]["ComposedPoint"];
+            /**
+             * Code
+             * @description Typed measurement-failure code (never a value)
+             */
+            code: string;
+            /**
+             * Dimension Id
+             * @description Correlation id (echoes the request), or null
+             */
+            dimension_id?: string | null;
+            /**
+             * Dimension Type
+             * @description linear/diameter/radius/angular
+             * @enum {string}
+             */
+            dimension_type: "linear" | "diameter" | "radius" | "angular";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "error";
+        };
+        /**
+         * ComposedLineEdge
+         * @description A placed straight projected edge (sheet-mm SVG space).
+         */
+        ComposedLineEdge: {
+            /**
+             * Edge Role
+             * @description Outline role carried through composition (sheet-metal.md §6): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.
+             * @default body
+             * @enum {string}
+             */
+            edge_role: "body" | "bend";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line";
+            /**
+             * Visible
+             * @description True = solid; False = hidden (dashed)
+             */
+            visible: boolean;
+            /** X1 */
+            x1: number;
+            /** X2 */
+            x2: number;
+            /** Y1 */
+            y1: number;
+            /** Y2 */
+            y2: number;
+        };
+        /**
+         * ComposedMeasuredDimension
+         * @description A placed, measured dimension: rules + arrowheads + the stamped value.
+         */
+        ComposedMeasuredDimension: {
+            /**
+             * Arrows
+             * @description Filled arrowhead triangles
+             */
+            arrows: components["schemas"]["ComposedArrow"][];
+            /**
+             * Dimension Id
+             * @description Correlation id (echoes the request), or null
+             */
+            dimension_id?: string | null;
+            /**
+             * Dimension Type
+             * @description linear/diameter/radius/angular
+             * @enum {string}
+             */
+            dimension_type: "linear" | "diameter" | "radius" | "angular";
+            /**
+             * Foreshortened
+             * @description True: model-true value, foreshortened drawn length (§3.2)
+             * @default false
+             */
+            foreshortened: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "measured";
+            /**
+             * Lines
+             * @description Extension + dimension lines
+             */
+            lines: components["schemas"]["ComposedDimLine"][];
+            /** @description The stamped value */
+            text: components["schemas"]["ComposedDimText"];
+        };
+        /**
+         * ComposedPoint
+         * @description A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin).
+         */
+        ComposedPoint: {
+            /**
+             * X Mm
+             * @description X on the sheet (mm, SVG space)
+             */
+            x_mm: number;
+            /**
+             * Y Mm
+             * @description Y on the sheet (mm, SVG space, y-down)
+             */
+            y_mm: number;
+        };
+        /**
+         * ComposedPolylineEdge
+         * @description A placed sampled edge (arc / free-form) as a polyline (sheet-mm SVG space).
+         */
+        ComposedPolylineEdge: {
+            /**
+             * Edge Role
+             * @description Outline role carried through composition (sheet-metal.md §6): 'body' (default, every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct dashed-blue stroke). Orthogonal to `visible`.
+             * @default body
+             * @enum {string}
+             */
+            edge_role: "body" | "bend";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "polyline";
+            /**
+             * Points
+             * @description Ordered vertices (SVG space)
+             */
+            points: components["schemas"]["ComposedPoint"][];
+            /**
+             * Visible
+             * @description True = solid; False = hidden (dashed)
+             */
+            visible: boolean;
+        };
+        /**
+         * ComposedSheet
+         * @description A fully placed drawing sheet — the model the three serializers render (§4.2).
+         *
+         *     Every coordinate is sheet-mm in final SVG space (y-down, top-left origin). The
+         *     product of ``geometry.drawings.compose.place_sheet`` — a pure function of the
+         *     evaluated geometry + the :class:`SheetLayout` (deterministic, RESEARCH §9). The
+         *     paper + border rectangles are pure functions of ``width_mm``/``height_mm``/
+         *     ``margin_mm`` (the serializer derives them), keeping this model lean.
+         */
+        ComposedSheet: {
+            /** @description A flat-pattern sheet's placed bend-table block (rows + anchor rect, sheet-metal.md §7); null for every standard (HLR) sheet — additive, so a standard sheet composes byte-identically. */
+            bend_table?: components["schemas"]["ComposedBendTable"] | null;
+            /**
+             * Height Mm
+             * @description Sheet height (mm) — the SVG viewBox height
+             */
+            height_mm: number;
+            /**
+             * Margin Mm
+             * @description Border inset from the sheet edge (mm)
+             */
+            margin_mm: number;
+            /**
+             * Scale Label
+             * @description The sheet scale label ('1:1')
+             */
+            scale_label: string;
+            /**
+             * Title
+             * @description Drawing name (metadata / accessible label)
+             */
+            title: string;
+            /** @description The placed title block */
+            title_block: components["schemas"]["ComposedTitleBlock"];
+            /**
+             * Views
+             * @description Placed views in canonical (front/top/right/iso) order
+             */
+            views?: components["schemas"]["ComposedView"][];
+            /**
+             * Width Mm
+             * @description Sheet width (mm) — the SVG viewBox width
+             */
+            width_mm: number;
+        };
+        /**
+         * ComposedTitleBlock
+         * @description The placed bottom-right title block (drawing-export.md §4.2).
+         *
+         *     Geometry (box + the two internal rules) plus the three stamped values (drawing
+         *     ``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed
+         *     captions ("TITLE" / "SCALE" / "SIZE" / "LOFT · PART DRAWING") are the
+         *     serializer's rendering constants (matching the on-screen title block).
+         */
+        ComposedTitleBlock: {
+            /** Height */
+            height: number;
+            /**
+             * Mid Y
+             * @description Y of the horizontal rule in the right cell
+             */
+            mid_y: number;
+            /**
+             * Scale
+             * @description Scale label ('1:1')
+             */
+            scale: string;
+            /**
+             * Size
+             * @description Sheet size, display form ('A4', 'ANSI A')
+             */
+            size: string;
+            /**
+             * Split X
+             * @description X of the vertical rule (left | right cells)
+             */
+            split_x: number;
+            /**
+             * Title
+             * @description Drawing title, truncated to fit the cell
+             */
+            title: string;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
+         * ComposedView
+         * @description One placed view on the sheet — its edges, dimensions, caption (design §4.2).
+         *
+         *     ``failed`` marks a view with no projection (an HLR failure or an absent
+         *     result): the serializer stamps a "VIEW FAILED" placeholder at ``anchor`` and
+         *     ``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space
+         *     (the placeholder + caption reference it); ``label``/``label_pos`` are the
+         *     stamped caption ("FRONT") and its position.
+         */
+        ComposedView: {
+            /** @description View-centre in SVG space */
+            anchor: components["schemas"]["ComposedPoint"];
+            /**
+             * Dimensions
+             * @description Placed dimensions
+             */
+            dimensions?: (components["schemas"]["ComposedMeasuredDimension"] | components["schemas"]["ComposedDimensionError"])[];
+            /**
+             * Edges
+             * @description Placed projected edges
+             */
+            edges?: (components["schemas"]["ComposedLineEdge"] | components["schemas"]["ComposedCircleEdge"] | components["schemas"]["ComposedPolylineEdge"])[];
+            /**
+             * Failed
+             * @description True when the view has no projected geometry
+             */
+            failed: boolean;
+            /**
+             * Label
+             * @description Caption text (e.g. 'FRONT')
+             */
+            label: string;
+            /** @description Caption position (SVG space) */
+            label_pos: components["schemas"]["ComposedPoint"];
+            /**
+             * Projection
+             * @description Projection direction
+             * @enum {string}
+             */
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
         };
         /**
          * ConcentricConstraint
@@ -2222,7 +2921,7 @@ export interface components {
              * @description Which requested view's frame measures it — supplies the §3.2 foreshortening reference only; the value is model-true regardless (§3.1)
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern";
         };
         /**
          * DrawingListResponse
@@ -2312,14 +3011,28 @@ export interface components {
          *     ``geometry.drawings.ViewProjectionError``) — never a 500, never a silently
          *     empty success. A per-view failure NEVER fails the whole request; the other
          *     requested views still project (mirroring the per-feature/per-mate posture).
+         *
+         *     For a ``flat_pattern`` view (sheet-metal.md §7) the SAME ``edges`` list carries
+         *     the unfold's outline — cut edges as ``edge_role="body"``, fold lines as
+         *     ``edge_role="bend"`` — and ``bend_table`` carries the per-bend fold data the
+         *     frontend renders as an annotation table. ``bend_table`` is empty for every
+         *     standard HLR view (additive — a non-sheet-metal consumer is unaffected). A
+         *     ``flat_pattern`` asked of a non-sheet-metal body is a typed per-view
+         *     ``flat_pattern_not_sheet_metal`` error, and an unresolvable bend a
+         *     ``subshape_unresolved`` (never a wrong flat pattern — §5).
          */
         DrawingViewResult: {
+            /**
+             * Bend Table
+             * @description Per-bend fold rows for a flat_pattern view (sheet-metal.md §6/§7); empty for every standard HLR view and on error
+             */
+            bend_table?: components["schemas"]["BendTableRow"][];
             /**
              * Edges
              * @description Canonically-ordered visible+hidden 2D edges (empty on error)
              */
             edges?: components["schemas"]["ProjectedViewEdge"][];
-            /** @description Typed per-view HLR failure (`view_projection_failed`), or null on success (design §1.5) */
+            /** @description Typed per-view failure (`view_projection_failed` for HLR, `flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern), or null on success (design §1.5 / sheet-metal.md §7) */
             error?: components["schemas"]["FeatureError"] | null;
             /** @description The scale applied (echoes the request) */
             scale: components["schemas"]["ViewScale"];
@@ -2328,7 +3041,7 @@ export interface components {
              * @description The projection direction of this view
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern";
         };
         /**
          * EdgeLengthMeasurement
@@ -2637,7 +3350,7 @@ export interface components {
              * Views
              * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order
              */
-            views: ("front" | "top" | "right" | "iso")[];
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern")[];
         };
         /**
          * EvaluateDrawingViewsResult
@@ -2742,7 +3455,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -2905,6 +3618,12 @@ export interface components {
              */
             distance_mm: number;
             /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /**
              * Operation
              * @enum {string}
              */
@@ -2955,7 +3674,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -3038,7 +3757,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -3127,7 +3846,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -3239,11 +3958,15 @@ export interface components {
          *     ``STEPControl_Reader`` (units pinned to mm, RESEARCH §9): the same bytes yield
          *     a byte-identical body/mesh across rebuilds and interpreter restarts.
          *
-         *     v1 accepts EXACTLY ONE solid; a compound / open shells / surfaces-only file
-         *     is an honest ``import_not_single_solid`` rebuild error whose message carries
-         *     the shape stats (the v1 "healing report" — §4), and unparseable bytes are
-         *     ``import_parse_failed`` (§5). Sewing/repair, multi-solid assemblies, IGES,
-         *     and a positioned insert against an existing body are deferred (§7).
+         *     A file with ONE solid becomes a bare solid body; a file with TWO OR MORE
+         *     solids becomes ONE multi-lump body — a lump-sorted compound of its disjoint
+         *     solids (docs/design/multi-body.md §MB-4), not several bodies. STEP import is
+         *     not a boolean: the file's solids are preserved AS AUTHORED (touching or
+         *     overlapping solids are kept as separate lumps, never silently fused). Only a
+         *     file that yields ZERO solids (open shells / surfaces-only / wireframe) is an
+         *     honest ``import_no_solid`` rebuild error whose message carries the shape
+         *     stats, and unparseable bytes are ``import_parse_failed`` (§5). Sewing/repair,
+         *     IGES, and a positioned insert against an existing body are deferred (§7).
          *
          *     ``kind``/``format`` default so a future blob-ref source (§2a) and IGES join
          *     additively with no ``param_version`` bump.
@@ -3251,7 +3974,7 @@ export interface components {
         ImportParamsV1: {
             /**
              * Data
-             * @description STEP AP214 part-21 file text (inline). Bounded/non-empty at parse time (422); parsed to exactly one solid by the geometry service.
+             * @description STEP AP214 part-21 file text (inline). Bounded/non-empty at parse time (422); parsed to one or more solids by the geometry service (multi-solid → one multi-lump body, MB-4b; 0 solids → import_no_solid).
              */
             data: string;
             /**
@@ -3578,6 +4301,12 @@ export interface components {
          */
         LoftParamsV1: {
             /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /**
              * Operation
              * @enum {string}
              */
@@ -3846,7 +4575,7 @@ export interface components {
              * @description The view direction this dimension was measured in
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern";
         };
         /**
          * MeshStats
@@ -4373,6 +5102,13 @@ export interface components {
              * @default false
              */
             dimensionable: boolean;
+            /**
+             * Edge Role
+             * @description Outline role (sheet-metal.md §6): 'body' = a real cut edge (every HLR view edge, the default — additive so existing consumers are unaffected); 'bend' = a flat-pattern fold line, rendered as its own dashed-blue stroke rather than the visible/hidden BODY-edge styling. Orthogonal to `visible` (a bend line is neither a solid nor an occluded body edge).
+             * @default body
+             * @enum {string}
+             */
+            edge_role: "body" | "bend";
             /** @description Canonical second endpoint */
             end: components["schemas"]["ProjectedPoint"];
             /** @description A point ON the edge (orientation-independent) */
@@ -4397,6 +5133,11 @@ export interface components {
             source_edge?: components["schemas"]["EdgeSignature"] | null;
             /** @description Canonical first endpoint */
             start: components["schemas"]["ProjectedPoint"];
+            /**
+             * Start Is End A
+             * @description For a STRAIGHT dimensionable edge (design §3.3): True iff this edge's canonical `start` projected point corresponds to `source_edge`'s canonical `end_a` (False → `end_b`). The model→projected endpoint correspondence the lexicographic canonicalisation of `start`/`end` would otherwise drop — it lets a point-to-point linear dimension name the correct model endpoint (`DimensionEndpointRef.endpoint`) from a picked projected end WITHOUT re-deriving the view frame + projection. Null for a non-straight edge (circle/arc/polyline) or any edge with no single clean model source (silhouette/free-form/ambiguous, §1.5) — same optional-provenance style as `source_edge`.
+             */
+            start_is_end_a?: boolean | null;
             /**
              * Visible
              * @description True = solid (visible); False = dashed (hidden/occluded)
@@ -4584,6 +5325,12 @@ export interface components {
              */
             direction: "normal" | "reverse";
             /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /**
              * Operation
              * @enum {string}
              */
@@ -4695,6 +5442,159 @@ export interface components {
             size: "A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D";
             /** @description Free-text title block (design §9 q6) */
             title_block?: components["schemas"]["TitleBlock"] | null;
+        };
+        /**
+         * SheetMetalBaseFlangeFeature
+         * @description ``{"type": "sheet_metal_base_flange", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-CREATING base feature (docs/design/sheet-metal.md §4.1): it thickens a
+         *     profile to gauge, producing the sheet-metal part's first body, and anchors the
+         *     part's sheet-metal defaults (``k_factor``/``bend_radius_mm``). ``params`` is
+         *     :class:`SheetMetalBaseFlangeParamsV1`.
+         */
+        SheetMetalBaseFlangeFeature: {
+            params: components["schemas"]["SheetMetalBaseFlangeParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_base_flange";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalBaseFlangeParamsV1
+         * @description The first body of a sheet-metal part — a profile thickened to gauge (§4.1).
+         *
+         *     A base flange is a profile sketch extruded by a FIXED gauge ``thickness_mm``
+         *     — mechanically an additive extrude, so it shares :class:`ExtrudeParamsV1`'s
+         *     ``profile`` FeatureRef (an EARLIER sketch, design §2.2), ``direction``
+         *     (which side of the sketch plane the gauge grows), and ``merge`` (the
+         *     multi-body ADD flag — a base flange is a body-CREATING base feature, so it
+         *     starts the first body, or a second with ``merge=False``). Kernel-side it
+         *     calls the SAME ``build_profile_face`` + ``extrude_face`` path extrude uses —
+         *     no new geometry code (§4.1).
+         *
+         *     Unlike a plain extrude it carries the part's SHEET-METAL DEFAULTS
+         *     (``k_factor``, ``bend_radius_mm``) — the parameters a later edge-flange /
+         *     unfold reads to compute a bend allowance (``BA = angle * (radius + K *
+         *     thickness)``, §1). ``k_factor`` defaults to the v1 pinned
+         *     :data:`SHEET_METAL_DEFAULT_K_FACTOR` (0.44); ``bend_radius_mm`` is REQUIRED
+         *     (no universal default — it is tooling/material dependent) and names the
+         *     part-default inner bend radius edge flanges inherit. Neither default affects
+         *     the base flange's own geometry (a flat plate) — they ride ON the body for the
+         *     downstream slices, exactly as the design's "base flange is the natural anchor
+         *     for the sheet-metal parameters" decision intends.
+         *
+         *     There is NO ``operation`` field: a base flange always CREATES material (it is
+         *     the sheet's first body), never a cut. v1 scopes to a single per-part gauge +
+         *     K + default radius (§7); a gauge/material rule table is deferred (§10).
+         */
+        SheetMetalBaseFlangeParamsV1: {
+            /**
+             * Bend Radius Mm
+             * @description Part-default INNER bend radius (mm) a later edge flange inherits (§4.2). Required — no universal default (tooling/material dependent). Does not affect the base flange's own flat-plate geometry.
+             */
+            bend_radius_mm: number;
+            /**
+             * Direction
+             * @description Which side of the sketch plane the gauge grows: 'normal' along the plane normal, 'reverse' opposite (the extrude `direction` idiom). Additive-optional; absent reads 'normal'.
+             * @default normal
+             * @enum {string}
+             */
+            direction: "normal" | "reverse";
+            /**
+             * K Factor
+             * @description Neutral-axis fraction K ∈ [0, 1] from the INNER bend face (§1); the part-default a later edge flange inherits for its bend allowance. Defaults to the v1 baseline 0.44 (air-bent mild steel — a documented default, not a universal constant).
+             * @default 0.44
+             */
+            k_factor: number;
+            /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /** @description Must resolve to an EARLIER sketch feature whose entities form the single closed profile wire (design §2.2), thickened to the gauge */
+            profile: components["schemas"]["FeatureRef"];
+            /**
+             * Thickness Mm
+             * @description Gauge — the uniform sheet thickness (mm); the fixed distance the profile is thickened by. The part's one material thickness (§1).
+             */
+            thickness_mm: number;
+        };
+        /**
+         * SheetMetalEdgeFlangeFeature
+         * @description ``{"type": "sheet_metal_edge_flange", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-MODIFYING feature (docs/design/sheet-metal.md §4.2): it folds a flange
+         *     off a straight edge of the sheet body and fuses it across a cylindrical bend
+         *     region, tagging that bend face with a :class:`CylindricalFaceSignature` (§5)
+         *     for the unfold's provenance. ``params`` is :class:`SheetMetalEdgeFlangeParamsV1`.
+         */
+        SheetMetalEdgeFlangeFeature: {
+            params: components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_edge_flange";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalEdgeFlangeParamsV1
+         * @description A flange folded off a straight edge of the base flange (§4.2).
+         *
+         *     ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to fold off
+         *     — the SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer pick uses
+         *     (topological-naming §10), resolved against the current sheet body; its
+         *     ``feature_id`` materialises the dependency on the base-flange feature exactly
+         *     like a picked fillet edge. The flange extends outward from that edge in the
+         *     plane of its adjacent flat (plate) face and folds by ``bend_angle_deg`` about a
+         *     bend of ``bend_radius_mm`` (inner radius), producing ONE fused sheet body (the
+         *     base + flange joined across the cylindrical bend region).
+         *
+         *     INHERITED DEFAULTS (§4.2): ``bend_radius_mm`` and ``k_factor`` default from the
+         *     part's base flange (:class:`SheetMetalBaseFlangeParamsV1` — the gauge/K/radius
+         *     anchored on the sheet body) when omitted (``None``), and may be OVERRIDDEN
+         *     per-bend. ``flange_length_mm`` is the developed flat length of the flange leg
+         *     (to the bend tangent line, §9 golden #1's convention); ``bend_angle_deg`` is
+         *     the fold angle (90 deg for a right-angle flange).
+         *
+         *     Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+         *     it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+         *     to) — so its only whole-feature dependency is the named-edge ref + tree order.
+         */
+        SheetMetalEdgeFlangeParamsV1: {
+            /**
+             * Bend Angle Deg
+             * @description Fold angle (degrees); 90 = a right-angle flange. In (0, 180].
+             */
+            bend_angle_deg: number;
+            /**
+             * Bend Radius Mm
+             * @description INNER bend radius (mm). Omitted (None) inherits the part's base-flange default `bend_radius_mm` (§4.2); a value overrides it per-bend.
+             */
+            bend_radius_mm?: number | null;
+            /** @description The base-flange STRAIGHT edge to fold off (a stage-1 EdgeSignature reference resolved against the current sheet body). The flange extends from this edge's adjacent flat face and folds about it. */
+            edge: components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * Flange Length Mm
+             * @description Developed flat length of the flange leg (mm), measured to the bend tangent line (§9 golden #1 convention).
+             */
+            flange_length_mm: number;
+            /**
+             * K Factor
+             * @description Neutral-axis fraction K in [0, 1] for this bend's allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-bend.
+             */
+            k_factor?: number | null;
         };
         /**
          * SheetMutationResponse
@@ -5549,6 +6449,12 @@ export interface components {
          */
         SweepParamsV1: {
             /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /**
              * Operation
              * @enum {string}
              */
@@ -5788,7 +6694,7 @@ export interface components {
              * @description Projection direction (front / top / right / iso)
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
             /**
              * Ref Document Id
              * Format: uuid
@@ -5845,7 +6751,7 @@ export interface components {
              * Projection
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
             /**
              * Ref Document Id
              * Format: uuid
@@ -5909,7 +6815,7 @@ export interface components {
             expected_version: number;
             position?: components["schemas"]["SheetPoint"] | null;
             /** Projection */
-            projection?: ("front" | "top" | "right" | "iso") | null;
+            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern") | null;
             scale?: components["schemas"]["ViewScale"] | null;
         };
     };
@@ -6056,6 +6962,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_bom_api_v1_assemblies__assembly_id__bom_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyBomResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6606,6 +7543,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_drawing_api_v1_drawings__drawing_id__export_post: {
+        parameters: {
+            query?: {
+                /** @description Artifact format to compose: svg | pdf | dxf */
+                format?: "svg" | "pdf" | "dxf";
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The server-composed drawing artifact, proxied byte-exact from the geometry service: SVG (`image/svg+xml`), PDF (`application/pdf`), or DXF (`image/vnd.dxf`). `Content-Disposition` carries the suggested download filename. Composition is deterministic — identical drawing state produces an identical artifact (drawing-export.md §determinism). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "image/svg+xml": string;
+                    "image/vnd.dxf": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compose_drawing_sheet_api_v1_drawings__drawing_id__sheet_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposedSheet"];
                 };
             };
             /** @description Validation Error */

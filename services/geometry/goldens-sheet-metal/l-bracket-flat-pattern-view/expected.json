@@ -1,0 +1,24 @@
+{
+  "description": "Slice #4 FLAT-PATTERN DRAWING VIEW golden for the authored L-bracket (base flange + ONE edge flange). The SAME feature tree the l-bracket-edge-flange unfold golden uses is now requested AS a drawing view (projection = 'flat_pattern', docs/design/sheet-metal.md §7 / drawings.md §7): geometry evaluates the part once, SKIPS HLR, unfolds the sheet-metal body, and feeds the FlatPattern's edge_role-tagged outline straight into the shipped neutral ProjectedViewEdge / DrawingViewResult shape, plus a per-bend bend table. Proves the flat pattern rides the existing drawings compose pipeline (the ProjectedViewEdge shape + the DrawingViewResult envelope), not a new renderer.",
+  "derivation": [
+    "The unfold math is HAND-DERIVED in ../l-bracket-edge-flange/expected.json (§9 #1/#2): bend allowance BA = (pi/2)*(3 + 0.44*2) = 6.094689747964199 mm, flat_length = 50 + BA + 30 = 86.0946897479642 mm, flat_area = 1721.893794959284 mm^2. This golden asserts the DRAWING-VIEW projection of that unfold, not the unfold scalars again.",
+    "The flat pattern is a rectangle, so its outline is 4 body edges (edge_role='body') plus one fold line per bend (edge_role='bend'). For the N=1 L-bracket: body_edge_count = 4, bend_edge_count = 1.",
+    "The bend table has one row per bend, carrying the shop's fold instructions the unfold already computed: bend_id (matching the 'bend' outline edge), angle_deg, inner radius_mm, direction (up/down), and bend_allowance_mm. Row values are the analytic nominals (radius 3 mm, BA 6.094689747964199 mm); asserted within the documented tolerance (the kernel arc-fit radius carries ~1.2e-13 FP noise, ../l-bracket-edge-flange/expected.json).",
+    "content_hash is the sha256 of the flat_pattern DrawingViewResult.model_dump_json() at scale 1:1. It is a DETERMINISM PIN (byte-identity of the composed view result), reproducible in-process AND across a fresh interpreter restart (§9 #4) — the view result is a pure function of the deterministic FlatPattern. Version-pinned like the unfold golden: the arc-fit inner radius is OCCT/build123d-version-specific FP, so a kernel bump regenerates this hash; a change WITHOUT a kernel bump is a determinism regression (P0), never a retry."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). The bend-table values are the exact unfold outputs; measured deviation vs the analytic nominals is ~1.2e-13 (the arc-fit inner radius 2.9999999999999933 propagating into BA), matching ../l-bracket-edge-flange/expected.json. The documented ceiling 1e-9 gives ~4 orders of headroom over the observed worst case while staying tighter than the standing kernel linear tolerance (1e-7 m).",
+  "scale": { "numerator": 1, "denominator": 1 },
+  "body_edge_count": 4,
+  "bend_edge_count": 1,
+  "bend_table": [
+    {
+      "bend_id": "bend-1",
+      "angle_deg": 90.0,
+      "radius_mm": 3.0,
+      "direction": "up",
+      "bend_allowance_mm": 6.094689747964199
+    }
+  ],
+  "content_hash": "47c282e78e388b46e7831fcec0726e5141aa30bb18b9eb440297d48a93228396"
+}

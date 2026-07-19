@@ -65,6 +65,33 @@ export interface paths {
         patch: operations["update_assembly_api_v1_assemblies__assembly_id__patch"];
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/bom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Bom
+         * @description The assembly's flat bill of materials (direct instances only; uniform 404).
+         *
+         *     A pure read model (assemblies.md residual): groups the assembly's DIRECT
+         *     instances by referenced document, resolving each to its current name and
+         *     kind. NOT recursive into rigid sub-assemblies — a sub-assembly instance is a
+         *     single ``kind: "assembly"`` line (recursive/indented BOM is a tracked
+         *     follow-up). A referenced document deleted while still instanced is reported
+         *     as a ``missing`` line with a null name, never a 500.
+         */
+        get: operations["get_assembly_bom_api_v1_assemblies__assembly_id__bom_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/instances": {
         parameters: {
             query?: never;
@@ -793,6 +820,36 @@ export interface components {
             sheet_id: string;
         };
         /**
+         * AssemblyBomResponse
+         * @description An assembly's flat bill of materials (design: assemblies.md residual).
+         *
+         *     A pure documents-side READ MODEL — no writes, no migration: it aggregates
+         *     the assembly's DIRECT instances into one :class:`BomLine` per referenced
+         *     document (quantity = shared-reference count), resolving each document's
+         *     current name from the ``parts`` / ``assemblies`` tables. Deterministically
+         *     ordered (resolved name, then ``ref_document_id``) so the list is stable
+         *     across reads. ``total_instances`` is the sum of every line's quantity (the
+         *     assembly's direct-instance count), so an empty assembly is
+         *     ``{lines: [], total_instances: 0}``.
+         */
+        AssemblyBomResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Lines
+             * @description One line per referenced document, deterministically ordered
+             */
+            lines: components["schemas"]["BomLine"][];
+            /**
+             * Total Instances
+             * @description Sum of all line quantities (direct instance count)
+             */
+            total_instances: number;
+        };
+        /**
          * AssemblyCreate
          * @description Create an assembly owned by the calling user (design §1.2).
          */
@@ -958,6 +1015,145 @@ export interface components {
              * @enum {string}
              */
             kind: "axis_parallel";
+        };
+        /**
+         * BomLine
+         * @description One line of an assembly's bill of materials (a flat, direct-instance BOM).
+         *
+         *     A BOM line GROUPS the assembly's DIRECT instances by the document they
+         *     reference: ``quantity`` is the count of instances sharing this
+         *     ``ref_document_id``, ``name`` is the referenced document's CURRENT name, and
+         *     ``ref_document_kind`` is ``part`` or ``assembly``. This is the FLAT v1 —
+         *     direct instances only, NOT recursive into rigid sub-assemblies (an explicit
+         *     follow-up; a sub-assembly instance appears as a single ``kind: "assembly"``
+         *     line, never expanded).
+         *
+         *     A referenced document that was DELETED while still instanced surfaces
+         *     honestly, not silently: the line stays (its instances still exist and still
+         *     count), with ``name`` null and ``missing`` true, so a client can flag the
+         *     dangling reference rather than the read 500-ing or the quantity vanishing.
+         */
+        BomLine: {
+            /**
+             * Missing
+             * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
+             * @default false
+             */
+            missing: boolean;
+            /**
+             * Name
+             * @description The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)
+             */
+            name: string | null;
+            /**
+             * Quantity
+             * @description Count of direct instances referencing this document
+             */
+            quantity: number;
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The referenced part / sub-assembly document (the group key)
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+        };
+        /**
+         * BooleanFeature
+         * @description ``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-affecting feature that fuses two independently-built bodies
+         *     (docs/design/multi-body.md §Decisions-3 / §MB-1): unlike extrude/revolve/…
+         *     it consumes no sketch and produces no new primitive — it combines two
+         *     existing bodies named by their base features. ``params`` is
+         *     :class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``
+         *     defined, wired in MB-2).
+         */
+        BooleanFeature: {
+            params: components["schemas"]["BooleanParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "boolean";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * BooleanParamsV1
+         * @description A boolean between two independently-built bodies (design §Decisions-3).
+         *
+         *     ``target`` and ``tool`` are :class:`FeatureRef`s to the BASE feature of each
+         *     operand body (an ``extrude``/``revolve``/``sweep``/``loft``/``import`` — the
+         *     body-CREATING features, NOT a modifier like fillet). ``target`` is the
+         *     SURVIVING body (for ``subtract``, the minuend); ``tool`` is the CONSUMED body
+         *     (the subtrahend). The boolean result takes over the target's identity slot and
+         *     the tool body is removed from the part.
+         *
+         *     All three operations are wired (union MB-1a; subtract/intersect MB-2). By
+         *     DEFAULT the v1 single-connected-solid-per-body invariant (§Decisions-3)
+         *     governs the result: a union of non-touching bodies, or a subtract that SEVERS
+         *     the target into ≥2 pieces, is a ``boolean_disjoint`` rebuild error; a subtract
+         *     that removes the whole target, or an intersect with no overlap, is
+         *     ``boolean_empty``.
+         *
+         *     MULTI-LUMP BODIES ARE OPT-IN (MB-4 / design §MB-4). Set ``allow_disjoint`` to
+         *     accept a ``>1``-solid result as ONE multi-lump body — a :class:`Compound` of
+         *     the disjoint lumps kept under the target's identity slot (a genuine
+         *     "combine into one body" of, say, two non-touching bosses). It defaults
+         *     ``False`` because a disjoint union is USUALLY a positioning bug, not an
+         *     intent, so v1 keeps the safety error unless the author explicitly opts in.
+         *     An EMPTY result is still ``boolean_empty`` / ``BooleanError`` regardless of
+         *     the flag (there is no material to keep). The flag is additive-optional
+         *     (absent reads ``False`` — the ``merge`` / ``flip`` idiom, NO ``param_version``
+         *     bump).
+         *
+         *     v1 MULTI-LUMP LIMIT — coincident lumps are honestly ambiguous
+         *     (design §MB-4, stated plainly): a downstream picked-face/edge reference on a
+         *     multi-lump body resolves by ABSOLUTE-world-coordinate signature, so a lump at
+         *     a distinct position resolves to exactly one subshape. But two lumps that
+         *     truly COINCIDE in space (a self-union of congruent bodies) give congruent
+         *     signatures and resolve to an honest ``subshape_ambiguous`` — the resolver
+         *     refuses to guess, never a wrong-lump modification (topological-naming.md §5).
+         *
+         *     v1 TOPOLOGICAL-NAMING LIMIT (MB-3 / design §Decisions-4 — stated plainly, not
+         *     oversold): a downstream feature (fillet/chamfer) CAN name an edge/face CREATED
+         *     by a boolean — the fused body's subshapes get stage-1 signatures like any
+         *     primitive's, so a fillet on a boolean-result edge resolves to exactly one edge
+         *     on a CLEAN rebuild. But that reference is a best-effort stage-1 signature (see
+         *     :class:`SubshapeRef` / :class:`EdgeSubshapeRef`), NOT structurally
+         *     non-retargeting: a topology-CHANGING upstream edit that moves or removes the
+         *     referenced subshape degrades to an honest ``subshape_unresolved`` /
+         *     ``subshape_ambiguous`` — the SAME best-effort posture as every feature,
+         *     booleans being its weakest case (a boolean seam is the documented
+         *     ``subshape_ambiguous`` source). Never a wrong-edge modification or a crash;
+         *     the structural fix is stage-2 provenance naming (topological-naming.md §10).
+         */
+        BooleanParamsV1: {
+            /**
+             * Allow Disjoint
+             * @description Accept a >1-solid result as ONE multi-lump body (a Compound of the disjoint lumps) instead of a `boolean_disjoint` error (MB-4). Defaults False (a disjoint union is usually a positioning bug). An empty result is still `boolean_empty`. Additive — absent reads False, no param_version bump.
+             * @default false
+             */
+            allow_disjoint: boolean;
+            /**
+             * Operation
+             * @description Boolean operation: union (fuse), subtract (target minus tool) or intersect (common). All three wired (union MB-1a; subtract/intersect MB-2).
+             * @enum {string}
+             */
+            operation: "union" | "subtract" | "intersect";
+            /** @description Base feature of the SURVIVING body; the result takes over its identity slot so downstream refs keep resolving (design §Decisions-3) */
+            target: components["schemas"]["FeatureRef"];
+            /** @description Base feature of the CONSUMED body; removed from the part once the boolean succeeds (design §Decisions-3) */
+            tool: components["schemas"]["FeatureRef"];
         };
         /**
          * ChamferFeature
@@ -1910,7 +2106,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -1951,6 +2147,12 @@ export interface components {
              * @description Extrusion depth (mm)
              */
             distance_mm: number;
+            /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
             /**
              * Operation
              * @enum {string}
@@ -2002,7 +2204,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -2062,7 +2264,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -2131,7 +2333,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -2243,11 +2445,15 @@ export interface components {
          *     ``STEPControl_Reader`` (units pinned to mm, RESEARCH §9): the same bytes yield
          *     a byte-identical body/mesh across rebuilds and interpreter restarts.
          *
-         *     v1 accepts EXACTLY ONE solid; a compound / open shells / surfaces-only file
-         *     is an honest ``import_not_single_solid`` rebuild error whose message carries
-         *     the shape stats (the v1 "healing report" — §4), and unparseable bytes are
-         *     ``import_parse_failed`` (§5). Sewing/repair, multi-solid assemblies, IGES,
-         *     and a positioned insert against an existing body are deferred (§7).
+         *     A file with ONE solid becomes a bare solid body; a file with TWO OR MORE
+         *     solids becomes ONE multi-lump body — a lump-sorted compound of its disjoint
+         *     solids (docs/design/multi-body.md §MB-4), not several bodies. STEP import is
+         *     not a boolean: the file's solids are preserved AS AUTHORED (touching or
+         *     overlapping solids are kept as separate lumps, never silently fused). Only a
+         *     file that yields ZERO solids (open shells / surfaces-only / wireframe) is an
+         *     honest ``import_no_solid`` rebuild error whose message carries the shape
+         *     stats, and unparseable bytes are ``import_parse_failed`` (§5). Sewing/repair,
+         *     IGES, and a positioned insert against an existing body are deferred (§7).
          *
          *     ``kind``/``format`` default so a future blob-ref source (§2a) and IGES join
          *     additively with no ``param_version`` bump.
@@ -2255,7 +2461,7 @@ export interface components {
         ImportParamsV1: {
             /**
              * Data
-             * @description STEP AP214 part-21 file text (inline). Bounded/non-empty at parse time (422); parsed to exactly one solid by the geometry service.
+             * @description STEP AP214 part-21 file text (inline). Bounded/non-empty at parse time (422); parsed to one or more solids by the geometry service (multi-solid → one multi-lump body, MB-4b; 0 solids → import_no_solid).
              */
             data: string;
             /**
@@ -2551,6 +2757,12 @@ export interface components {
          *       ``loft_failed`` rebuild error, never a silently bad body.
          */
         LoftParamsV1: {
+            /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
             /**
              * Operation
              * @enum {string}
@@ -3138,6 +3350,12 @@ export interface components {
              */
             direction: "normal" | "reverse";
             /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /**
              * Operation
              * @enum {string}
              */
@@ -3229,6 +3447,159 @@ export interface components {
             size: "A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D";
             /** @description Free-text title block (design §9 q6) */
             title_block?: components["schemas"]["TitleBlock"] | null;
+        };
+        /**
+         * SheetMetalBaseFlangeFeature
+         * @description ``{"type": "sheet_metal_base_flange", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-CREATING base feature (docs/design/sheet-metal.md §4.1): it thickens a
+         *     profile to gauge, producing the sheet-metal part's first body, and anchors the
+         *     part's sheet-metal defaults (``k_factor``/``bend_radius_mm``). ``params`` is
+         *     :class:`SheetMetalBaseFlangeParamsV1`.
+         */
+        SheetMetalBaseFlangeFeature: {
+            params: components["schemas"]["SheetMetalBaseFlangeParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_base_flange";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalBaseFlangeParamsV1
+         * @description The first body of a sheet-metal part — a profile thickened to gauge (§4.1).
+         *
+         *     A base flange is a profile sketch extruded by a FIXED gauge ``thickness_mm``
+         *     — mechanically an additive extrude, so it shares :class:`ExtrudeParamsV1`'s
+         *     ``profile`` FeatureRef (an EARLIER sketch, design §2.2), ``direction``
+         *     (which side of the sketch plane the gauge grows), and ``merge`` (the
+         *     multi-body ADD flag — a base flange is a body-CREATING base feature, so it
+         *     starts the first body, or a second with ``merge=False``). Kernel-side it
+         *     calls the SAME ``build_profile_face`` + ``extrude_face`` path extrude uses —
+         *     no new geometry code (§4.1).
+         *
+         *     Unlike a plain extrude it carries the part's SHEET-METAL DEFAULTS
+         *     (``k_factor``, ``bend_radius_mm``) — the parameters a later edge-flange /
+         *     unfold reads to compute a bend allowance (``BA = angle * (radius + K *
+         *     thickness)``, §1). ``k_factor`` defaults to the v1 pinned
+         *     :data:`SHEET_METAL_DEFAULT_K_FACTOR` (0.44); ``bend_radius_mm`` is REQUIRED
+         *     (no universal default — it is tooling/material dependent) and names the
+         *     part-default inner bend radius edge flanges inherit. Neither default affects
+         *     the base flange's own geometry (a flat plate) — they ride ON the body for the
+         *     downstream slices, exactly as the design's "base flange is the natural anchor
+         *     for the sheet-metal parameters" decision intends.
+         *
+         *     There is NO ``operation`` field: a base flange always CREATES material (it is
+         *     the sheet's first body), never a cut. v1 scopes to a single per-part gauge +
+         *     K + default radius (§7); a gauge/material rule table is deferred (§10).
+         */
+        SheetMetalBaseFlangeParamsV1: {
+            /**
+             * Bend Radius Mm
+             * @description Part-default INNER bend radius (mm) a later edge flange inherits (§4.2). Required — no universal default (tooling/material dependent). Does not affect the base flange's own flat-plate geometry.
+             */
+            bend_radius_mm: number;
+            /**
+             * Direction
+             * @description Which side of the sketch plane the gauge grows: 'normal' along the plane normal, 'reverse' opposite (the extrude `direction` idiom). Additive-optional; absent reads 'normal'.
+             * @default normal
+             * @enum {string}
+             */
+            direction: "normal" | "reverse";
+            /**
+             * K Factor
+             * @description Neutral-axis fraction K ∈ [0, 1] from the INNER bend face (§1); the part-default a later edge flange inherits for its bend allowance. Defaults to the v1 baseline 0.44 (air-bent mild steel — a documented default, not a universal constant).
+             * @default 0.44
+             */
+            k_factor: number;
+            /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /** @description Must resolve to an EARLIER sketch feature whose entities form the single closed profile wire (design §2.2), thickened to the gauge */
+            profile: components["schemas"]["FeatureRef"];
+            /**
+             * Thickness Mm
+             * @description Gauge — the uniform sheet thickness (mm); the fixed distance the profile is thickened by. The part's one material thickness (§1).
+             */
+            thickness_mm: number;
+        };
+        /**
+         * SheetMetalEdgeFlangeFeature
+         * @description ``{"type": "sheet_metal_edge_flange", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-MODIFYING feature (docs/design/sheet-metal.md §4.2): it folds a flange
+         *     off a straight edge of the sheet body and fuses it across a cylindrical bend
+         *     region, tagging that bend face with a :class:`CylindricalFaceSignature` (§5)
+         *     for the unfold's provenance. ``params`` is :class:`SheetMetalEdgeFlangeParamsV1`.
+         */
+        SheetMetalEdgeFlangeFeature: {
+            params: components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_edge_flange";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalEdgeFlangeParamsV1
+         * @description A flange folded off a straight edge of the base flange (§4.2).
+         *
+         *     ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to fold off
+         *     — the SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer pick uses
+         *     (topological-naming §10), resolved against the current sheet body; its
+         *     ``feature_id`` materialises the dependency on the base-flange feature exactly
+         *     like a picked fillet edge. The flange extends outward from that edge in the
+         *     plane of its adjacent flat (plate) face and folds by ``bend_angle_deg`` about a
+         *     bend of ``bend_radius_mm`` (inner radius), producing ONE fused sheet body (the
+         *     base + flange joined across the cylindrical bend region).
+         *
+         *     INHERITED DEFAULTS (§4.2): ``bend_radius_mm`` and ``k_factor`` default from the
+         *     part's base flange (:class:`SheetMetalBaseFlangeParamsV1` — the gauge/K/radius
+         *     anchored on the sheet body) when omitted (``None``), and may be OVERRIDDEN
+         *     per-bend. ``flange_length_mm`` is the developed flat length of the flange leg
+         *     (to the bend tangent line, §9 golden #1's convention); ``bend_angle_deg`` is
+         *     the fold angle (90 deg for a right-angle flange).
+         *
+         *     Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+         *     it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+         *     to) — so its only whole-feature dependency is the named-edge ref + tree order.
+         */
+        SheetMetalEdgeFlangeParamsV1: {
+            /**
+             * Bend Angle Deg
+             * @description Fold angle (degrees); 90 = a right-angle flange. In (0, 180].
+             */
+            bend_angle_deg: number;
+            /**
+             * Bend Radius Mm
+             * @description INNER bend radius (mm). Omitted (None) inherits the part's base-flange default `bend_radius_mm` (§4.2); a value overrides it per-bend.
+             */
+            bend_radius_mm?: number | null;
+            /** @description The base-flange STRAIGHT edge to fold off (a stage-1 EdgeSignature reference resolved against the current sheet body). The flange extends from this edge's adjacent flat face and folds about it. */
+            edge: components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * Flange Length Mm
+             * @description Developed flat length of the flange leg (mm), measured to the bend tangent line (§9 golden #1 convention).
+             */
+            flange_length_mm: number;
+            /**
+             * K Factor
+             * @description Neutral-axis fraction K in [0, 1] for this bend's allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-bend.
+             */
+            k_factor?: number | null;
         };
         /**
          * SheetMutationResponse
@@ -3680,6 +4051,12 @@ export interface components {
          */
         SweepParamsV1: {
             /**
+             * Merge
+             * @description Merge result (ADD only): True fuses the new solid into the active body (default, historical single-body behaviour / starts the first body); False starts a NEW body (multi-body, design multi-body.md §MB-0). Ignored for a CUT. Additive — absent reads True, no param_version bump.
+             * @default true
+             */
+            merge: boolean;
+            /**
              * Operation
              * @enum {string}
              */
@@ -3851,7 +4228,7 @@ export interface components {
              * @description Projection direction (front / top / right / iso)
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
             /**
              * Ref Document Id
              * Format: uuid
@@ -3908,7 +4285,7 @@ export interface components {
              * Projection
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
             /**
              * Ref Document Id
              * Format: uuid
@@ -3972,7 +4349,7 @@ export interface components {
             expected_version: number;
             position?: components["schemas"]["SheetPoint"] | null;
             /** Projection */
-            projection?: ("front" | "top" | "right" | "iso") | null;
+            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern") | null;
             scale?: components["schemas"]["ViewScale"] | null;
         };
     };
@@ -4143,6 +4520,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_bom_api_v1_assemblies__assembly_id__bom_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyBomResponse"];
                 };
             };
             /** @description Validation Error */

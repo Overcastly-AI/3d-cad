@@ -22,6 +22,7 @@ import {
   updateAssemblyUnit,
   updateInstance,
 } from "../api/assemblies";
+import { fetchAssemblyBom } from "../api/bom";
 import { MeshNotFoundError, fetchBodyMesh } from "../api/mesh";
 import { fetchOverlay, type OverlayResult } from "../api/measure";
 import {
@@ -31,9 +32,16 @@ import {
 } from "../api/parts";
 import { AddInstancePanel } from "../components/AddInstancePanel";
 import { AssemblyCommandBand } from "../components/AssemblyCommandBand";
-import { AssemblyInspector } from "../components/AssemblyInspector";
+import {
+  AssemblyInspectorPanel,
+  type InspectorView,
+} from "../components/AssemblyInspectorPanel";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { AssemblyTreePanel } from "../components/AssemblyTreePanel";
+import {
+  HistoryErrorAlert,
+  type HistoryStepError,
+} from "../components/HistoryErrorAlert";
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { MateHud } from "../components/MateHud";
@@ -87,6 +95,17 @@ export function AssemblyPage() {
   const docVersion = graph?.doc_version ?? 0;
   const lengthUnit = graph?.assembly.length_unit ?? "mm";
   const instances = useMemo(() => graph?.instances ?? [], [graph]);
+
+  // The bill of materials — the flat, direct-instance read model (one line per
+  // referenced document, quantity = shared count). Keyed on doc_version so it
+  // refetches when instances are added/removed (which is what changes the
+  // aggregate); switching the right panel to PARTS never refetches.
+  const bomQuery = useQuery({
+    queryKey: ["assembly-bom", assemblyId, docVersion],
+    enabled: graph !== undefined,
+    queryFn: () => fetchAssemblyBom(assemblyId),
+  });
+  const [inspectorView, setInspectorView] = useState<InspectorView>("solve");
 
   const partDocIds = useMemo(
     () => (graph ? uniquePartDocumentIds(graph) : []),
@@ -442,10 +461,9 @@ export function AssemblyPage() {
   const [historyStep, setHistoryStep] = useState<HistoryStep | null>(null);
   const historyInFlight = useRef(false);
   /** A non-stale undo/redo failure, surfaced in the viewport HUD. */
-  const [historyError, setHistoryError] = useState<{
-    step: HistoryStep;
-    message: string;
-  } | null>(null);
+  const [historyError, setHistoryError] = useState<HistoryStepError | null>(
+    null,
+  );
 
   const runHistoryStep = useCallback(
     (step: HistoryStep) => {
@@ -555,6 +573,17 @@ export function AssemblyPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canMate, addOpen, setTool, toggleTool]);
 
+  // One predicate owns "who holds Ctrl+Z right now": an armed mate tool or the
+  // open part picker. Both the keyboard effect below and the band's disabled
+  // reason read THIS value, so the keys and the buttons can never disagree (a
+  // third owning state added to one and not the other was the drift risk).
+  const historyLockReason: string | null =
+    tool !== null
+      ? `Finish the ${mateToolLabel(tool)} mate first`
+      : addOpen
+        ? "Close the part picker first"
+        : null;
+
   // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — assembly
   // idle only. An armed mate tool owns the session (a mid-pick Ctrl+Z must
   // never yank the graph out from under the picks) and the open part picker
@@ -562,7 +591,7 @@ export function AssemblyPage() {
   // text field (the mate value input, the picker's filter) keeps its NATIVE
   // undo — the typing-target guard is resolved inside the pure grammar helper.
   useEffect(() => {
-    if (tool !== null || addOpen) return;
+    if (historyLockReason !== null) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const step = undoRedoStep(event, isTypingTarget(event.target));
       if (step === null) return;
@@ -574,7 +603,7 @@ export function AssemblyPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [tool, addOpen, triggerUndo, triggerRedo]);
+  }, [historyLockReason, triggerUndo, triggerRedo]);
 
   const selectInstance = useCallback((id: string) => {
     setSelectedInstanceId((current) => (current === id ? null : id));
@@ -626,13 +655,7 @@ export function AssemblyPage() {
             historyHoldReason={
               mutationInFlight ? "Waiting for the current edit…" : null
             }
-            historyLockReason={
-              tool !== null
-                ? `Finish the ${mateToolLabel(tool)} mate first`
-                : addOpen
-                  ? "Close the part picker first"
-                  : undefined
-            }
+            historyLockReason={historyLockReason ?? undefined}
             onUndo={triggerUndo}
             onRedo={triggerRedo}
             canAddPart={graph !== undefined}
@@ -662,30 +685,10 @@ export function AssemblyPage() {
                     onClose={() => setAddOpen(false)}
                   />
                 ) : null}
-                {historyError !== null ? (
-                  <div
-                    role="alert"
-                    data-testid="history-error"
-                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                      {historyError.step === "undo"
-                        ? "Undo failed"
-                        : "Redo failed"}
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      {historyError.message}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setHistoryError(null)}
-                      data-testid="history-error-dismiss"
-                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                ) : null}
+                <HistoryErrorAlert
+                  error={historyError}
+                  onDismiss={() => setHistoryError(null)}
+                />
                 {actionError ? (
                   <div
                     role="alert"
@@ -749,10 +752,15 @@ export function AssemblyPage() {
               busy={busy || historyStep !== null}
             />
           </FloatingPanel>
-          <FloatingPanel side="right" title="Solve" id="inspector">
-            <AssemblyInspector
+          <FloatingPanel side="right" title="Inspect" id="inspector">
+            <AssemblyInspectorPanel
+              view={inspectorView}
+              onViewChange={setInspectorView}
               evaluation={evaluation}
               evaluating={evalQuery.isFetching}
+              bom={bomQuery.data}
+              bomLoading={bomQuery.isLoading}
+              bomError={bomQuery.error}
             />
           </FloatingPanel>
         </main>

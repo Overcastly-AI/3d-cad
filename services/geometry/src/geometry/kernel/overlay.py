@@ -26,7 +26,7 @@ fully-typed :class:`OverlayResult` DTO keeps the boundary honest.
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
-from build123d import Edge, GeomType, Solid, Vector, Vertex
+from build123d import Edge, GeomType, Vector, Vertex
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GCPnts import GCPnts_QuasiUniformDeflection
 from py_kit.schemas.geometry import Vec3
@@ -39,6 +39,7 @@ from py_kit.schemas.overlay import (
 
 from geometry.kernel.edges import edge_signature_dto
 from geometry.kernel.faces import face_signature_dto
+from geometry.kernel.types import BodyShape
 
 #: OCCT ``GeomType`` → overlay edge kind (a rendering hint only). Anything not a
 #: straight line or a circle is ``other`` (ellipse, spline, …) — still sampled
@@ -81,7 +82,7 @@ def _edge_polyline(edge: Edge, linear_deflection: float) -> list[Vec3]:
     return points
 
 
-def selection_overlay(body: Solid, linear_deflection: float) -> OverlayResult:
+def selection_overlay(body: BodyShape, linear_deflection: float) -> OverlayResult:
     """Pickable vertices + edges of *body* (transient indices, world mm).
 
     ``edges`` is in ``body.edges()`` order — byte-for-byte the enumeration

@@ -74,7 +74,15 @@ export async function executeHistoryStep<TDoc>(
     return { kind: "restored" };
   } catch (error) {
     if (ports.isStale(error)) {
-      await ports.resync();
+      // Best-effort resync: the step WAS stale regardless of whether the
+      // refetch settles, and this function's contract is never-throws (both
+      // ports today are invalidateQueries-based and can't reject, but a future
+      // port must not be able to break the contract).
+      try {
+        await ports.resync();
+      } catch {
+        // Swallow — a failed refetch re-triggers on the next interaction.
+      }
       return { kind: "stale" };
     }
     // A transient network/server failure: the document is unchanged

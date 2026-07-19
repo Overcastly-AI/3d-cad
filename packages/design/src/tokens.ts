@@ -233,6 +233,11 @@ export const assembly = {
  * so the print is scale-correct. Consumed by the SVG sheet renderer directly (no
  * hex duplicated in app code — one palette, N renderers).
  */
+/** Muted graphite — the receding, secondary line ink on the vellum. The single
+ * source both a hidden (dashed) projected edge and an at-rest vertex handle
+ * share, so the "no hex duplicated" DRY rule holds inside the token source too. */
+const graphiteMuted = "#6E7A88";
+
 export const drawing = {
   /** The sheet — cool drafting white (deliberately not warm cream). */
   paper: "#ECEFF2",
@@ -243,7 +248,7 @@ export const drawing = {
   /** Visible projected edge — solid graphite (the print's primary lines). */
   edgeVisible: "#1B222B",
   /** Hidden (occluded) projected edge — lighter graphite, drawn dashed (≥3:1 on paper). */
-  edgeHidden: "#6E7A88",
+  edgeHidden: graphiteMuted,
   /** View labels + secondary title-block captions — mid graphite. */
   label: "#48525E",
   /** Stroke weights on the sheet, in millimetres (drawn at the sheet's mm scale). */
@@ -280,6 +285,19 @@ export const drawing = {
   dimensionOffsetMm: 11,
   /** Stamped value text height (mm) — sibling of the title-block value stamp. */
   dimensionTextMm: 3.2,
+  /** Radius (mm) of an angular dimension's arc, swept apex→out between the two
+   * edges. Sized to clear the vertex yet read as a distinct annotation layer. */
+  dimensionArcRadiusMm: 13,
+
+  // --- Vertex handles — the endpoint pick affordance for point-to-point. ---
+  // A point-to-point dimension names two edge ENDPOINTS (design §3.3), so a
+  // straight edge's ends get small square handles: precise vertex picking, the
+  // CAD idiom, in the same blueprint-blue pick ink as an edge.
+  /** Half-side (mm) of a vertex handle square on the sheet. */
+  vertexHandleMm: 1.5,
+  /** Vertex handle ink at rest — the same muted graphite a hidden edge uses
+   * (aliases `edgeHidden` via `graphiteMuted`; recedes until the handle is used). */
+  vertexHandleRest: graphiteMuted,
 
   // --- Pick affordance — dimensionable edges are interactive. ---
   // A blueprint blue: the one accent on the graphite sheet, grounded in the
@@ -296,6 +314,46 @@ export const drawing = {
   pickFocusRingMm: 2.4,
   /** Invisible hit-stroke width (mm) so thin edges are easy to click/focus. */
   pickHitMm: 2.6,
+
+  // --- Flat-pattern fold lines — the sheet-metal signature (sheet-metal.md §7). ---
+  // A sheet-metal flat blank's defining mark is the FOLD LINE: where the shop
+  // bends the cut sheet. A fold is neither a cut outline (a visible object edge)
+  // nor an occluded edge (hidden dashed) — it is its own annotation, so it reads
+  // as a distinct DASHED BLUE stroke, the drafting vernacular for a bend/phantom
+  // line. Boldness is spent here (design mandate) — one bright blue on the
+  // graphite sheet, clearly not the blueprint-blue PICK accent above. The hex is
+  // the SAME one the server composer hand-emits for a `bend` edge (compose.py
+  // `_EDGE_BEND`); landing it here makes the design token the single source both
+  // renderers read (one palette, two renderers — CLAUDE.md DRY design rule).
+  /** Fold-line ink — a distinct drafting blue (3.96:1 on the vellum, WCAG 1.4.11). */
+  bend: "#2F6FEB",
+  /** Fold-line weight (mm) — a light annotation stroke (matches `_BEND_W`). */
+  bendWeightMm: 0.4,
+  /** Fold-line dash + gap (mm) — matches the server composer's `_BEND_DASH`, so
+   * the on-screen fold line and the exported PDF/DXF/SVG read identically. */
+  bendDashMm: 3,
+  bendGapMm: 1.6,
+
+  // --- Bend table — the shop's fold instructions, a quiet precision instrument. ---
+  // Placed at its server-given anchor rect (top-left, the mirror of the title
+  // block). Dense, legible, columnar — a real annotation table, never a card.
+  /** Bend-table value height (mm) — sibling of the title-block value stamp. */
+  bendTableTextMm: 2.8,
+  /** Bend-table column-caption height (mm) — the quiet header row. */
+  bendTableCaptionMm: 2.1,
+  /** Bend-table header-row height (mm) — matches the server composer's
+   *  `_BEND_TABLE_HEADER_H`, so the DOM sheet + the server SVG share one metric
+   *  rather than each hardcoding 7. */
+  bendTableHeaderMm: 7,
+  /** Bend-table per-bend row height (mm) — matches `_BEND_TABLE_ROW_H` (was a
+   *  loose `6` inside the renderer). */
+  bendTableRowMm: 6,
+  /** Bend-table column-start offsets, as FRACTIONS of the block width. The
+   *  renderer derives each column x from `table.width` (`x + width * fraction`)
+   *  instead of the old magic absolute mm (3/26/43/62/77) coupled to the fixed
+   *  92 mm block — the same `_BEND_COL_DX / _BEND_TABLE_W` ratio the server uses,
+   *  named once here (BEND · ANGLE · RADIUS · DIR · ALLOW). */
+  bendTableColumnFractions: [3 / 92, 26 / 92, 43 / 92, 62 / 92, 77 / 92],
 } as const;
 
 export const font = {

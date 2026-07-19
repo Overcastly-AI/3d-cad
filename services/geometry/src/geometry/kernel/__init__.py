@@ -10,6 +10,11 @@ service boundary.
 
 from build123d import Solid
 
+from geometry.kernel.boolean import (
+    BooleanDisjointError,
+    BooleanEmptyError,
+    boolean_bodies,
+)
 from geometry.kernel.chamfer import ChamferError, chamfer_body
 from geometry.kernel.datum import (
     DATUM_PLANES,
@@ -47,7 +52,7 @@ from geometry.kernel.faces import (
 )
 from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.imports import (
-    ImportNotSingleSolidError,
+    ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
     import_step_solid,
@@ -70,7 +75,7 @@ from geometry.kernel.pattern import (
     linear_pattern,
     linear_pattern_cut,
 )
-from geometry.kernel.properties import measure_shape
+from geometry.kernel.properties import combine_properties, measure_shape
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
     NoAxisError,
@@ -90,6 +95,7 @@ from geometry.kernel.sweep import (
     sweep_profile,
 )
 from geometry.kernel.tessellate import glb_stats, tessellate_glb
+from geometry.kernel.types import BodyShape
 from geometry.schemas import (
     BoxParams,
     CylinderParams,
@@ -103,6 +109,8 @@ from geometry.schemas import (
 __all__ = [
     "DATUM_PLANES",
     "AxisIntersectsProfileError",
+    "BooleanDisjointError",
+    "BooleanEmptyError",
     "BooleanError",
     "ChamferError",
     "DraftError",
@@ -110,7 +118,7 @@ __all__ = [
     "EdgeRecord",
     "FaceResolutionError",
     "FilletError",
-    "ImportNotSingleSolidError",
+    "ImportNoSolidError",
     "ImportParseError",
     "ImportParseTimeoutError",
     "LoftError",
@@ -136,6 +144,7 @@ __all__ = [
     "SubshapeAmbiguousError",
     "SubshapeUnresolvedError",
     "SweepError",
+    "boolean_bodies",
     "build_box",
     "build_cylinder",
     "build_datum_plane",
@@ -149,6 +158,7 @@ __all__ = [
     "circular_pattern",
     "circular_pattern_cut",
     "combine_body",
+    "combine_properties",
     "draft_body",
     "edge_signature_dto",
     "enumerate_edges",
@@ -216,7 +226,7 @@ def evaluate_tessellation(
 
 
 def export_solid(
-    shape: Solid,
+    shape: BodyShape,
     fmt: ExportFormat,
     linear_deflection: float,
     angular_deflection: float,

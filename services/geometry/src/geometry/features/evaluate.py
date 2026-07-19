@@ -14,8 +14,9 @@ Dispatch is a ``type → handler`` registry (:data:`FEATURE_HANDLERS`):
 ``datum`` (resolves an offset/parallel plane a later sketch sits on — not
 body-affecting, total; docs/design/datum-planes.md), ``sketch`` (produces
 input geometry, not body-affecting), ``extrude`` (the
-first **body-affecting** feature, §4.3 — mutates the part's single solid body
-chain via add/cut booleans), ``revolve`` (sweeps a profile about a sketch-line
+first **body-affecting** feature, §4.3 — mutates the part's active body
+via add/cut booleans; an additive ``merge=False`` starts a second body,
+docs/design/multi-body.md §MB-0), ``revolve`` (sweeps a profile about a sketch-line
 axis, sharing extrude's profile + boolean plumbing), ``sweep`` (the first
 non-prismatic feature — sweeps a profile along a SECOND sketch's open path
 wire), ``loft`` (blends a solid through two or more ordered section sketches),
@@ -27,7 +28,10 @@ through the SAME stage-1 planar-face signature the ``on_face`` datum uses) and
 ``draft`` (tapers picked faces by an angle about a principal-datum neutral plane
 — the molding/casting release, reusing that SAME picked-face resolver) and
 ``import`` (brings an external STEP part in as the part's BASE body — the first
-non-modeled body source, docs/design/step-import.md).
+non-modeled body source, docs/design/step-import.md) and ``boolean`` (combines two
+independently-built bodies named by their base features — the headline
+multi-body feature; union/subtract/intersect all wired, docs/design/multi-body.md
+§MB-1/§MB-2).
 A feature that
 validates against
 the shared ``Feature`` union but has no registered handler is a per-feature
@@ -54,9 +58,10 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from build123d import Face, Plane, Solid, Vertex, Wire
+from build123d import Compound, Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
+    BooleanFeature,
     ChamferFeature,
     CircularPatternParamsV1,
     DatumFeature,
@@ -83,6 +88,8 @@ from py_kit.schemas.features import (
     PatternFeature,
     PatternGeometry,
     RevolveFeature,
+    SheetMetalBaseFlangeFeature,
+    SheetMetalEdgeFlangeFeature,
     ShellFeature,
     SketchFeature,
     SolvedSketchData,
@@ -95,11 +102,13 @@ from py_kit.schemas.sketch import classify_overconstraint
 from geometry.kernel import (
     DATUM_PLANES,
     AxisIntersectsProfileError,
+    BooleanDisjointError,
+    BooleanEmptyError,
     BooleanError,
     ChamferError,
     DraftError,
     FilletError,
-    ImportNotSingleSolidError,
+    ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
     LoftError,
@@ -123,6 +132,7 @@ from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
     SweepError,
+    boolean_bodies,
     build_datum_plane,
     build_loft_section,
     build_path_wire,
@@ -133,6 +143,7 @@ from geometry.kernel import (
     circular_pattern,
     circular_pattern_cut,
     combine_body,
+    combine_properties,
     draft_body,
     extrude_face,
     fillet_body,
@@ -143,6 +154,7 @@ from geometry.kernel import (
     midplane_between,
     offset_plane,
     resolve_axis_line,
+    resolve_edge,
     resolve_face_plane,
     resolve_faces,
     revolve_face,
@@ -151,7 +163,15 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
 )
+from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
+from geometry.sheet_metal import (
+    BendProvenance,
+    EdgeFlangeEdgeError,
+    EdgeFlangeError,
+    SheetMetalDefaults,
+    build_edge_flange,
+)
 from geometry.sketch import (
     PlanegcsSketchSolver,
     SketchDefinitionError,
@@ -166,18 +186,24 @@ from geometry.step_cache import import_step_solid_cached
 _SOLVER: SketchSolver = PlanegcsSketchSolver()
 
 
-def _step_import_timeout_s() -> float:
-    """The configured hard wall-clock bound for the untrusted STEP parse (§6).
+def _step_import_bounds() -> tuple[float, float]:
+    """The configured (CPU-time, wall-clock) bounds for the untrusted parse (§6).
 
-    Resolved from ``GeometrySettings.step_import_timeout_seconds`` (the py-kit
-    config knob) rather than hardcoded in the kernel hot path. Imported lazily
-    to avoid a cycle (``geometry.main`` imports this module through the API) —
-    the worker-module precedent. Only consulted when an ``import`` feature is
-    evaluated, so the per-call settings read is negligible.
+    Resolved from ``GeometrySettings`` (the py-kit config knobs
+    ``step_import_timeout_seconds`` — the CPU-time DoS ceiling — and
+    ``step_import_wall_timeout_seconds`` — the wall-clock liveness backstop)
+    rather than hardcoded in the kernel hot path. Imported lazily to avoid a cycle
+    (``geometry.main`` imports this module through the API) — the worker-module
+    precedent. Only consulted when an ``import`` feature is evaluated, so the
+    per-call settings read is negligible.
     """
     from geometry.main import GeometrySettings
 
-    return GeometrySettings().step_import_timeout_seconds
+    settings = GeometrySettings()
+    return (
+        settings.step_import_timeout_seconds,
+        settings.step_import_wall_timeout_seconds,
+    )
 
 
 @dataclass
@@ -191,12 +217,21 @@ class EvaluationState:
     ``datum`` feature — docs/design/datum-planes.md §3a), so every downstream
     builder takes a concrete plane. ``datum_planes`` holds the resolved
     :class:`~build123d.Plane` of each ok ``datum`` feature, keyed by its id, so
-    a later sketch's plane FeatureRef resolves against it. Both hold kernel
-    types strictly service-internal (never serialized), exactly like ``body``.
-    ``body`` is the part's single solid body chain (design §7.6) — a kernel type
-    held strictly service-internal, mutated only by body-affecting handlers **on
-    success** (so after a failure it is exactly the last-good body the
-    strict-prefix rule tessellates, §4.3).
+    a later sketch's plane FeatureRef resolves against it. All hold kernel
+    types strictly service-internal (never serialized), exactly like ``bodies``.
+
+    ``bodies`` is the part's set of solid bodies (docs/design/multi-body.md
+    §MB-0): keyed by the BASE feature id that created each body and insertion-
+    ordered by the tree order those base features were evaluated (deterministic,
+    RESEARCH §9). A part is *implicitly one body* until an additive feature with
+    ``merge=False`` (or an ``import`` after a body already exists) starts a
+    second. ``active_body_id`` names the body every MODIFYING feature (fillet/
+    chamfer/shell/draft/pattern, add-merge/cut) targets AND that topological
+    naming resolves against — NEVER a union of all bodies (the MB-0 correctness
+    rule, Decision 1): a congruent face on two coexisting bodies must not tie a
+    false ``subshape_ambiguous``. ``bodies`` is mutated only by body-affecting
+    handlers **on success**, so after a failure it is exactly the last-good body
+    set the strict-prefix rule tessellates (§4.3).
     """
 
     linear_deflection: float
@@ -207,13 +242,82 @@ class EvaluationState:
         default_factory=dict[uuid.UUID, Plane]
     )
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
-    body: Solid | None = None
+    bodies: dict[uuid.UUID, BodyShape] = field(
+        default_factory=dict[uuid.UUID, BodyShape]
+    )
+    #: The part's sheet-metal defaults (gauge/K/bend-radius) keyed by the
+    #: base-flange feature id that created the sheet body (docs/design/
+    #: sheet-metal.md §4.1/§5). Recorded only on an ok base flange; the
+    #: edge-flange / unfold slices read it to compute a bend allowance. Held as a
+    #: service-internal record (never serialized), exactly like ``bodies``.
+    sheet_metal_defaults: dict[uuid.UUID, SheetMetalDefaults] = field(
+        default_factory=dict[uuid.UUID, SheetMetalDefaults]
+    )
+    #: The bend provenance (§5: cylindrical-face + base-face signatures + K-factor)
+    #: recorded by each ok edge-flange feature, keyed by that feature id and
+    #: insertion-ordered by evaluation order (deterministic). The unfold reads it to
+    #: find each bend by provenance, never blind detection. Service-internal.
+    bend_provenance: dict[uuid.UUID, BendProvenance] = field(
+        default_factory=dict[uuid.UUID, BendProvenance]
+    )
+    active_body_id: uuid.UUID | None = None
     #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
     #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern
     #: reads it to infer whether it should array a CUT (source = a preceding
     #: extrude-cut, BACKLOG #3) or union whole-body copies (the default). Holds a
-    #: validated feature envelope — never serialized, exactly like ``body``.
+    #: validated feature envelope — never serialized, exactly like ``bodies``.
     prev_body_feature: FeatureEnvelope | None = None
+
+    @property
+    def active_body(self) -> BodyShape | None:
+        """The current shape of the ACTIVE body, or ``None`` if no body yet.
+
+        The single read every modifying handler and the topo-naming resolvers
+        use in place of the former single ``body`` slot (§MB-0). A body is a
+        single :class:`~build123d.Solid` OR a multi-lump
+        :class:`~build123d.Compound` (§MB-4).
+        """
+        if self.active_body_id is None:
+            return None
+        return self.bodies[self.active_body_id]
+
+    def set_active_body(self, shape: BodyShape) -> None:
+        """Replace the ACTIVE body's current shape (a modifying feature result).
+
+        Keeps the body's identity slot (its base feature id) so downstream refs
+        keep resolving; asserts an active body exists (callers gate on it). The
+        shape may be a single solid or a lump-count-preserving multi-lump
+        Compound (§MB-4).
+        """
+        assert self.active_body_id is not None, "no active body to modify"
+        self.bodies[self.active_body_id] = shape
+
+    def start_body(self, base_id: uuid.UUID, shape: BodyShape) -> None:
+        """Insert a NEW body keyed by its base feature id and make it active.
+
+        The second-body path (``merge=False`` / ``import`` / the first body): a
+        body's identity IS its base feature id (§MB-0 Decision 1), so the key is
+        the creating feature's id and it becomes the resolution target.
+        """
+        self.bodies[base_id] = shape
+        self.active_body_id = base_id
+
+    def combine_bodies(
+        self, target_id: uuid.UUID, tool_id: uuid.UUID, shape: BodyShape
+    ) -> None:
+        """Replace two operand bodies with a boolean result (multi-body §MB-1).
+
+        The operand-replacement mechanism of the ``boolean`` feature: the result
+        TAKES OVER the target's identity slot — reusing ``bodies[target_id]``
+        keeps target's base-feature id AND its tree-ordered insertion position, so
+        every downstream ref to the surviving body keeps resolving — and the TOOL
+        body is REMOVED from the set (consumed). The combined body becomes active.
+        Callers verify both ids name distinct current bodies first. *shape* may be
+        a single solid or a multi-lump Compound (a disjoint boolean, §MB-4).
+        """
+        self.bodies[target_id] = shape
+        del self.bodies[tool_id]
+        self.active_body_id = target_id
 
 
 #: One feature handler: evaluate the item, record outputs on ``state``, and
@@ -221,6 +325,49 @@ class EvaluationState:
 #: outcomes are values, never exceptions. Handlers mutate ``state`` only on
 #: the success path.
 FeatureHandler = Callable[[EvaluatedFeatureInput, EvaluationState], FeatureError | None]
+
+
+def _add_body(
+    item: EvaluatedFeatureInput,
+    state: EvaluationState,
+    tool: Solid,
+    *,
+    merge: bool,
+) -> FeatureError | None:
+    """Apply an ADDITIVE body op under the multi-body merge rule (§MB-0 Dec. 2).
+
+    ``merge=True`` with an active body fuses *tool* into it (today's single-body
+    behaviour); ``merge=False``, or no active body yet, STARTS a new active body
+    keyed by this feature's id (``item.id`` — the base-feature-keyed identity of
+    §MB-0 Decision 1). ``state.bodies`` is mutated only on success (last-good
+    semantics, §4.3). Shared by extrude/revolve/sweep/loft ADD (CLAUDE.md DRY).
+    """
+    if merge and state.active_body_id is not None:
+        active = state.active_body
+        assert active is not None
+        try:
+            fused = combine_body(active, tool, "add")
+        except BooleanError as exc:
+            return FeatureError(code="boolean_failed", message=str(exc))
+        state.set_active_body(fused)
+        return None
+    state.start_body(item.id, tool)
+    return None
+
+
+def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
+    """Subtract *tool* from the ACTIVE body (a modifying op — §MB-0).
+
+    The caller has already verified an active body exists (``no_prior_body``
+    otherwise). ``state.bodies`` is mutated only on success (§4.3).
+    """
+    active = state.active_body
+    assert active is not None, "cut without an active body is handled by the caller"
+    try:
+        state.set_active_body(combine_body(active, tool, "cut"))
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+    return None
 
 
 def resolve_sketch_plane(
@@ -284,7 +431,8 @@ def _resolve_face_datum_plane(
     ``subshape_ambiguous`` (refuse to guess — determinism, topo-naming §7.2).
     Errors pin the named body feature as the upstream cause.
     """
-    if state.body is None:
+    active = state.active_body
+    if active is None:
         return FeatureError(
             code="subshape_unresolved",
             message=(
@@ -295,7 +443,7 @@ def _resolve_face_datum_plane(
             upstream_feature_id=face.feature_id,
         )
     try:
-        return resolve_face_plane(state.body, face.selector.signature, offset_mm)
+        return resolve_face_plane(active, face.selector.signature, offset_mm)
     except SubshapeUnresolvedError as exc:
         return FeatureError(
             code="subshape_unresolved",
@@ -551,7 +699,7 @@ def _evaluate_extrude(
     → prism along the sketch plane normal (``direction: normal|reverse``) →
     ``add``/``cut`` against the prior body. Kernel failures surface as the
     design's error codes (``profile_not_closed``, ``boolean_failed``, …),
-    pinned to this feature; ``state.body`` is only replaced on success.
+    pinned to this feature; the active body is only replaced on success.
     """
     feature = item.feature
     assert isinstance(feature, ExtrudeFeature), "registry dispatches on type='extrude'"
@@ -571,11 +719,7 @@ def _evaluate_extrude(
     face, plane, _ = resolved
 
     tool = extrude_face(face, plane, params.distance_mm, reverse)
-    try:
-        state.body = combine_body(state.body, tool, "add")
-    except BooleanError as exc:
-        return FeatureError(code="boolean_failed", message=str(exc))
-    return None
+    return _add_body(item, state, tool, merge=params.merge)
 
 
 def _evaluate_extrude_cut(
@@ -591,7 +735,7 @@ def _evaluate_extrude_cut(
     former single-cut path (plate-with-holes cut unchanged). Cutting A then B is
     the same removal as cutting their union, and each step reuses
     :func:`combine_body`'s single-solid body-chain guarantee (design §7.6);
-    ``state.body`` is only replaced once every region cuts cleanly, preserving
+    the active body is only replaced once every region cuts cleanly, preserving
     last-good semantics on a mid-cut failure.
     """
     resolved = _resolve_profile_faces(params.profile, state)
@@ -599,7 +743,8 @@ def _evaluate_extrude_cut(
         return resolved
     faces, plane = resolved
 
-    if state.body is None:
+    body = state.active_body
+    if body is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -608,14 +753,137 @@ def _evaluate_extrude_cut(
             ),
         )
 
-    body = state.body
     try:
         for face in faces:
             tool = extrude_face(face, plane, params.distance_mm, reverse)
             body = combine_body(body, tool, "cut")
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
-    state.body = body
+    state.set_active_body(body)
+    return None
+
+
+def _evaluate_sheet_metal_base_flange(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Thicken a sketch profile to gauge — the sheet-metal base flange (§4.1).
+
+    A base flange is mechanically an ADDITIVE extrude by a FIXED gauge
+    (docs/design/sheet-metal.md §4.1), so this reuses the EXACT extrude path — the
+    shared :func:`_resolve_profile_face` (profile → single closed face) and
+    :func:`extrude_face` (prism along the plane normal, ``direction:
+    normal|reverse``) — with the gauge ``thickness_mm`` as the extrusion distance,
+    then the SAME multi-body ADD (:func:`_add_body`). No new kernel geometry code.
+
+    What a base flange adds over a plain extrude: on success it records the part's
+    sheet-metal defaults (gauge/K/bend-radius) keyed by THIS feature id — the body
+    identity (§MB-0 Decision 1) — so a later edge-flange / unfold slice reads the
+    gauge + defaults off the body it attaches to (§5). Recorded only after the
+    body is added (last-good semantics, §4.3): a boolean_failed leaves both the
+    body set AND the defaults untouched. There is no ``operation`` — a base flange
+    always creates material; kernel failures surface as the extrude error codes
+    (``profile_not_closed``/``profile_unsupported``/``reference_unresolved``,
+    ``boolean_failed``), pinned as extrude's are.
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalBaseFlangeFeature), (
+        "registry dispatches on type='sheet_metal_base_flange'"
+    )
+    params = feature.params
+    reverse = params.direction == "reverse"
+
+    resolved = _resolve_profile_face(params.profile, state)
+    if isinstance(resolved, FeatureError):
+        return resolved
+    face, plane, _ = resolved
+
+    tool = extrude_face(face, plane, params.thickness_mm, reverse)
+    error = _add_body(item, state, tool, merge=params.merge)
+    if error is not None:
+        return error
+    state.sheet_metal_defaults[item.id] = SheetMetalDefaults(
+        thickness_mm=params.thickness_mm,
+        k_factor=params.k_factor,
+        bend_radius_mm=params.bend_radius_mm,
+    )
+    return None
+
+
+def _evaluate_sheet_metal_edge_flange(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Fold a flange off a base-flange edge and fuse it across a bend (§4.2).
+
+    Body-modifying (design §7.6): it needs a prior sheet body with recorded
+    sheet-metal defaults (``no_base_flange`` otherwise — a bend allowance needs the
+    part gauge/K). The base-flange edge is resolved by the picked
+    :class:`EdgeSignature` (:func:`resolve_edge` — the SAME stage-1 machinery a
+    fillet uses); a ref that no longer resolves is ``subshape_unresolved`` / a
+    congruent twin ``subshape_ambiguous``. ``bend_radius_mm`` / ``k_factor`` inherit
+    the part defaults when omitted (§4.2). The bend geometry is built + fused
+    (:func:`build_edge_flange`); on success the active body becomes the fused sheet
+    and the bend's provenance (§5) is recorded for the unfold. The active body is
+    only replaced on success (strict-prefix tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalEdgeFlangeFeature), (
+        "registry dispatches on type='sheet_metal_edge_flange'"
+    )
+    params = feature.params
+
+    active = state.active_body
+    if active is None or state.active_body_id is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "An edge flange requires an existing sheet body, but no "
+                "body-affecting feature precedes it; add a base flange first."
+            ),
+        )
+    defaults = state.sheet_metal_defaults.get(state.active_body_id)
+    if defaults is None:
+        return FeatureError(
+            code="no_base_flange",
+            message=(
+                "An edge flange needs the part's sheet-metal gauge/K (from a base "
+                "flange) to compute its bend allowance, but the active body is not "
+                "a sheet-metal base flange."
+            ),
+        )
+
+    try:
+        edge = resolve_edge(active, params.edge.selector.signature)
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(code="subshape_unresolved", message=str(exc))
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(code="subshape_ambiguous", message=str(exc))
+
+    radius = params.bend_radius_mm or defaults.bend_radius_mm
+    k_factor = params.k_factor if params.k_factor is not None else defaults.k_factor
+
+    try:
+        result = build_edge_flange(
+            active,
+            edge,
+            flange_length_mm=params.flange_length_mm,
+            bend_angle_deg=params.bend_angle_deg,
+            bend_radius_mm=radius,
+            thickness_mm=defaults.thickness_mm,
+        )
+    except EdgeFlangeEdgeError as exc:
+        return FeatureError(code="edge_flange_bad_edge", message=str(exc))
+    except EdgeFlangeError as exc:
+        return FeatureError(code="edge_flange_failed", message=str(exc))
+
+    # set_active_body keeps the body's identity (its base-flange id), so the
+    # sheet-metal defaults stay reachable for a SECOND edge flange (a depth-1
+    # star, §4.3 — the U-channel case) without re-keying.
+    state.set_active_body(result.body)
+    state.bend_provenance[item.id] = BendProvenance(
+        cyl_signature=result.cyl_signature,
+        base_face_signature=result.base_face_signature,
+        k_factor=k_factor,
+    )
     return None
 
 
@@ -632,7 +900,7 @@ def _evaluate_revolve(
     ``profile_not_closed``/``profile_unsupported`` (upstream sketch),
     ``no_axis`` (bad axis reference), ``axis_intersects_profile`` (the axis
     crosses the profile → self-intersecting body), ``no_prior_body`` (cut with
-    nothing to cut), ``revolve_failed``, ``boolean_failed``. ``state.body`` is
+    nothing to cut), ``revolve_failed``, ``boolean_failed``. the active body is
     only replaced on success (strict-prefix rule tessellates the last-good
     body, §4.3).
     """
@@ -661,7 +929,7 @@ def _evaluate_revolve(
             upstream_feature_id=params.profile.feature_id,
         )
 
-    if params.operation == "cut" and state.body is None:
+    if params.operation == "cut" and state.active_body is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -681,11 +949,9 @@ def _evaluate_revolve(
     except RevolveError as exc:
         return FeatureError(code="revolve_failed", message=str(exc))
 
-    try:
-        state.body = combine_body(state.body, tool, params.operation)
-    except BooleanError as exc:
-        return FeatureError(code="boolean_failed", message=str(exc))
-    return None
+    if params.operation == "cut":
+        return _cut_active(state, tool)
+    return _add_body(item, state, tool, merge=params.merge)
 
 
 def _resolve_path_wire(path: FeatureRef, state: EvaluationState) -> Wire | FeatureError:
@@ -742,7 +1008,7 @@ def _evaluate_sweep(
     and ``reference_unresolved`` (upstream profile), ``sweep_path_empty``/
     ``sweep_path_not_connected``/``sweep_path_closed``/``reference_unresolved``
     (upstream path), ``no_prior_body`` (cut with nothing to cut),
-    ``sweep_failed``, ``boolean_failed``. ``state.body`` is only replaced on
+    ``sweep_failed``, ``boolean_failed``. the active body is only replaced on
     success (strict-prefix rule tessellates the last-good body, §4.3).
     """
     feature = item.feature
@@ -758,7 +1024,7 @@ def _evaluate_sweep(
     if isinstance(path, FeatureError):
         return path
 
-    if params.operation == "cut" and state.body is None:
+    if params.operation == "cut" and state.active_body is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -772,11 +1038,9 @@ def _evaluate_sweep(
     except SweepError as exc:
         return FeatureError(code="sweep_failed", message=str(exc))
 
-    try:
-        state.body = combine_body(state.body, tool, params.operation)
-    except BooleanError as exc:
-        return FeatureError(code="boolean_failed", message=str(exc))
-    return None
+    if params.operation == "cut":
+        return _cut_active(state, tool)
+    return _add_body(item, state, tool, merge=params.merge)
 
 
 def _resolve_loft_section(
@@ -830,7 +1094,7 @@ def _evaluate_loft(
     design error codes pinned to the failing feature — ``profile_not_closed``/
     ``profile_unsupported``/``reference_unresolved`` (upstream section),
     ``no_prior_body`` (cut with nothing to cut), ``loft_failed`` (incompatible
-    sections / not one solid), ``boolean_failed``. ``state.body`` is only
+    sections / not one solid), ``boolean_failed``. the active body is only
     replaced on success (strict-prefix rule tessellates the last-good body,
     §4.3). Fewer than 2 sections cannot reach here — ``LoftParamsV1`` enforces
     ``min_length=2`` at request validation (a clean 422, never a 500).
@@ -846,7 +1110,7 @@ def _evaluate_loft(
             return resolved
         sections.append(resolved)
 
-    if params.operation == "cut" and state.body is None:
+    if params.operation == "cut" and state.active_body is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -860,11 +1124,9 @@ def _evaluate_loft(
     except LoftError as exc:
         return FeatureError(code="loft_failed", message=str(exc))
 
-    try:
-        state.body = combine_body(state.body, tool, params.operation)
-    except BooleanError as exc:
-        return FeatureError(code="boolean_failed", message=str(exc))
-    return None
+    if params.operation == "cut":
+        return _cut_active(state, tool)
+    return _add_body(item, state, tool, merge=params.merge)
 
 
 def _evaluate_fillet(
@@ -876,14 +1138,15 @@ def _evaluate_fillet(
     prior body-affecting feature (``no_target_body`` otherwise). Edges are
     resolved by the geometric selector (design §2.4 — NOT topological naming):
     an empty match is ``no_fillet_edges``; a kernel failure is
-    ``fillet_failed``. ``state.body`` is only replaced on success (strict-prefix
+    ``fillet_failed``. the active body is only replaced on success (strict-prefix
     rule tessellates the last-good body, §4.3).
     """
     feature = item.feature
     assert isinstance(feature, FilletFeature), "registry dispatches on type='fillet'"
     params = feature.params
 
-    if state.body is None:
+    active = state.active_body
+    if active is None:
         return FeatureError(
             code="no_target_body",
             message=(
@@ -893,7 +1156,7 @@ def _evaluate_fillet(
         )
 
     try:
-        edges = select_edges(state.body, params.edges)
+        edges = select_edges(active, params.edges)
     except NoEdgesSelectedError as exc:
         return FeatureError(code="no_fillet_edges", message=str(exc))
     except SubshapeUnresolvedError as exc:
@@ -902,7 +1165,7 @@ def _evaluate_fillet(
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
     try:
-        state.body = fillet_body(state.body, edges, params.radius_mm)
+        state.set_active_body(fillet_body(active, edges, params.radius_mm))
     except FilletError as exc:
         return FeatureError(code="fillet_failed", message=str(exc))
     return None
@@ -916,7 +1179,7 @@ def _evaluate_chamfer(
     The chamfer sibling of :func:`_evaluate_fillet` — same shape, same edge
     plumbing (:func:`select_edges`, design §2.4), same single-body requirement
     (``no_target_body`` otherwise, design §7.6). An empty match is
-    ``no_chamfer_edges``; a kernel failure is ``chamfer_failed``. ``state.body``
+    ``no_chamfer_edges``; a kernel failure is ``chamfer_failed``. The active body
     is only replaced on success (strict-prefix rule tessellates the last-good
     body, §4.3).
     """
@@ -924,7 +1187,8 @@ def _evaluate_chamfer(
     assert isinstance(feature, ChamferFeature), "registry dispatches on type='chamfer'"
     params = feature.params
 
-    if state.body is None:
+    active = state.active_body
+    if active is None:
         return FeatureError(
             code="no_target_body",
             message=(
@@ -934,7 +1198,7 @@ def _evaluate_chamfer(
         )
 
     try:
-        edges = select_edges(state.body, params.edges)
+        edges = select_edges(active, params.edges)
     except NoEdgesSelectedError as exc:
         return FeatureError(code="no_chamfer_edges", message=str(exc))
     except SubshapeUnresolvedError as exc:
@@ -943,7 +1207,7 @@ def _evaluate_chamfer(
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
     try:
-        state.body = chamfer_body(state.body, edges, params.distance_mm)
+        state.set_active_body(chamfer_body(active, edges, params.distance_mm))
     except ChamferError as exc:
         return FeatureError(code="chamfer_failed", message=str(exc))
     return None
@@ -963,7 +1227,7 @@ def _evaluate_shell(
     An EMPTY faces list is a valid sealed (fully-enclosed) hollow — never an
     error. A thickness that collapses the cavity is ``shell_thickness_too_large``
     (OCCT's silent too-thick path, caught by the material-removed invariant); a
-    kernel offset failure is ``shell_failed`` (belt-and-braces). ``state.body``
+    kernel offset failure is ``shell_failed`` (belt-and-braces). The active body
     is only replaced on success (strict-prefix rule tessellates the last-good
     body, §4.3).
     """
@@ -971,7 +1235,8 @@ def _evaluate_shell(
     assert isinstance(feature, ShellFeature), "registry dispatches on type='shell'"
     params = feature.params
 
-    if state.body is None:
+    active = state.active_body
+    if active is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -982,7 +1247,7 @@ def _evaluate_shell(
 
     try:
         faces = resolve_faces(
-            state.body, [ref.selector.signature for ref in params.faces.refs]
+            active, [ref.selector.signature for ref in params.faces.refs]
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -990,7 +1255,7 @@ def _evaluate_shell(
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
     try:
-        state.body = shell_body(state.body, faces, params.thickness_mm)
+        state.set_active_body(shell_body(active, faces, params.thickness_mm))
     except ShellThicknessError as exc:
         return FeatureError(code="shell_thickness_too_large", message=str(exc))
     except ShellError as exc:
@@ -1014,14 +1279,15 @@ def _evaluate_draft(
     principal datum through the SAME :func:`build_datum_plane` an offset datum
     uses (no picked geometry — independent of topological naming). A kernel draft
     failure (angle too large / undraftable face — OCCT RAISES, never a silent bad
-    body) is ``draft_failed``. ``state.body`` is only replaced on success
+    body) is ``draft_failed``. the active body is only replaced on success
     (strict-prefix rule tessellates the last-good body, §4.3).
     """
     feature = item.feature
     assert isinstance(feature, DraftFeature), "registry dispatches on type='draft'"
     params = feature.params
 
-    if state.body is None:
+    active = state.active_body
+    if active is None:
         return FeatureError(
             code="no_prior_body",
             message=(
@@ -1032,7 +1298,7 @@ def _evaluate_draft(
 
     try:
         faces = resolve_faces(
-            state.body, [ref.selector.signature for ref in params.faces.refs]
+            active, [ref.selector.signature for ref in params.faces.refs]
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -1054,7 +1320,7 @@ def _evaluate_draft(
         params.neutral_plane.flip,
     )
     try:
-        state.body = draft_body(state.body, faces, neutral, params.angle_deg)
+        state.set_active_body(draft_body(active, faces, neutral, params.angle_deg))
     except DraftError as exc:
         return FeatureError(code="draft_failed", message=str(exc))
     return None
@@ -1092,8 +1358,8 @@ def _pattern_cut_tools(state: EvaluationState) -> list[Solid] | None:
 
 
 def _apply_pattern(
-    body: Solid, geometry: PatternGeometry, tools: list[Solid] | None
-) -> Solid:
+    body: BodyShape, geometry: PatternGeometry, tools: list[Solid] | None
+) -> BodyShape:
     """Dispatch one pattern to its kernel op (linear/circular x union/cut).
 
     ``tools is None`` selects the ADD (union whole-body copies) path — the
@@ -1147,13 +1413,14 @@ def _evaluate_pattern(
     1:1 to a per-feature ``pattern_*`` code — bad count/spacing/direction/axis/
     angle, ``pattern_disjoint`` (instances do not merge into / the cut severs one
     solid), or the kernel ``pattern_failed`` (incl. a cut that removes the whole
-    body). ``state.body`` is only replaced on success (strict-prefix rule
+    body). the active body is only replaced on success (strict-prefix rule
     tessellates the last-good body, §4.3).
     """
     feature = item.feature
     assert isinstance(feature, PatternFeature), "registry dispatches on type='pattern'"
 
-    if state.body is None:
+    active = state.active_body
+    if active is None:
         return FeatureError(
             code="no_target_body",
             message=(
@@ -1165,7 +1432,7 @@ def _evaluate_pattern(
 
     tools = _pattern_cut_tools(state)
     try:
-        state.body = _apply_pattern(state.body, feature.params.pattern, tools)
+        state.set_active_body(_apply_pattern(active, feature.params.pattern, tools))
     except PatternCountError as exc:
         return FeatureError(code="pattern_bad_count", message=str(exc))
     except PatternSpacingError as exc:
@@ -1188,12 +1455,14 @@ def _evaluate_import(
 ) -> FeatureError | None:
     """Import an external STEP part as the part's BASE body (§4.3).
 
-    v1 DESIGN DECISION (docs/design/step-import.md §1): an ``import`` is a
-    body-affecting BASE feature — like the first extrude it does not modify a
-    prior body, it SETS ``state.body`` to the imported solid. Because v1 has no
-    ``add``/``cut`` operation and no multi-body support (design §7.6), an import
-    with a body already present is an honest ``import_with_prior_body`` error
-    (a positioned insert against an existing body is future work, §7).
+    DESIGN DECISION (docs/design/step-import.md §1, docs/design/multi-body.md
+    §MB-0): an ``import`` is a body-affecting BASE feature — like the first
+    extrude it does not modify a prior body, it STARTS a new active body from the
+    imported solid. Under multi-body (§MB-0) an import with a body already
+    present is no longer an error (the former ``import_with_prior_body``): it
+    simply starts a SECOND body, exactly as an additive ``merge=False`` extrude
+    would. A positioned insert / boolean against an existing body is a later
+    boolean slice (MB-1+).
 
     The inline STEP text is read deterministically (units pinned to mm, RESEARCH
     §9) through :func:`~geometry.step_cache.import_step_solid_cached`, a
@@ -1202,45 +1471,139 @@ def _evaluate_import(
     editing a part that starts from an imported body pays one parse per distinct
     upload, not one per tree evaluation. A cache MISS runs the UNCHANGED bounded
     parse — the untrusted OCCT read still runs in a killable subprocess bounded
-    by the configured ``step_import_timeout_seconds`` (design §6, BACKLOG P1) —
-    and only a cleanly-parsed body is cached, so a hit never bypasses that bound
-    or the upstream 16 MiB size cap. Kernel failures surface as per-feature
-    errors pinned to this feature — ``import_parse_timeout`` (the parse exceeded
-    the wall-clock bound and was killed), ``import_parse_failed`` (unparseable
-    bytes) or ``import_not_single_solid`` (zero / multiple solids; the message
-    carries the shape stats, the v1 healing report). ``state.body`` is only set
-    on success. Size/emptiness of ``data`` is a request-validation 422 upstream
-    (§6), so it never reaches here.
+    by the configured CPU-time ceiling (``step_import_timeout_seconds``, the
+    contention-invariant primary DoS bound) plus a wall-clock liveness backstop
+    (``step_import_wall_timeout_seconds``) — design §6, BACKLOG P1 — and only a
+    cleanly-parsed body is cached, so a hit never bypasses those bounds or the
+    upstream 16 MiB size cap. Kernel failures surface as per-feature errors pinned
+    to this feature — ``import_parse_timeout`` (the parse exceeded its CPU-time
+    ceiling or the wall-clock backstop and was killed), ``import_parse_failed``
+    (unparseable
+    bytes) or ``import_no_solid`` (ZERO solids — surfaces/shells/wireframe only;
+    the message carries the shape stats). A file with ONE solid becomes a bare
+    Solid body and a file with TWO OR MORE becomes ONE lump-sorted Compound body
+    (§MB-4) — a multi-solid file is now a SUCCESS, not an error. The active body
+    is only started on success. Size/emptiness of ``data`` is a request-validation
+    422 upstream (§6), so it never reaches here.
     """
     feature = item.feature
     assert isinstance(feature, ImportFeature), "registry dispatches on type='import'"
     params = feature.params
 
-    if state.body is not None:
-        return FeatureError(
-            code="import_with_prior_body",
-            message=(
-                "Import creates the part's base body, but a body already exists "
-                "in this tree; an import must be the body-creating feature. "
-                "Combining an imported solid with an existing body is not "
-                "supported yet."
-            ),
-        )
-
     try:
-        state.body = import_step_solid_cached(
-            params.data, timeout_s=_step_import_timeout_s()
+        cpu_timeout_s, wall_timeout_s = _step_import_bounds()
+        body = import_step_solid_cached(
+            params.data, cpu_timeout_s=cpu_timeout_s, wall_timeout_s=wall_timeout_s
         )
     except ImportParseTimeoutError as exc:
         return FeatureError(code="import_parse_timeout", message=str(exc))
     except ImportParseError as exc:
         return FeatureError(code="import_parse_failed", message=str(exc))
-    except ImportNotSingleSolidError as exc:
-        return FeatureError(code="import_not_single_solid", message=str(exc))
+    except ImportNoSolidError as exc:
+        return FeatureError(code="import_no_solid", message=str(exc))
+    # An import is a BODY-CREATING BASE feature: it STARTS a new active body
+    # (keyed by its own id — §MB-0 Decision 1), whether or not a prior body
+    # exists. Multi-body (§MB-0) retires the former ``import_with_prior_body``
+    # error — a part may now hold an imported body alongside a modelled one. The
+    # imported body is a bare Solid (one solid) OR a lump-sorted Compound (a
+    # multi-solid file → ONE multi-lump body, §MB-4), never N bodies.
+    state.start_body(item.id, body)
     return None
 
 
-#: Feature types whose ok evaluation mutates ``state.body`` (design §7.6). The
+def _resolve_operand_body(
+    ref: FeatureRef, state: EvaluationState, *, slot: str
+) -> BodyShape | FeatureError:
+    """Resolve a boolean operand FeatureRef to its CURRENT body solid (§MB-1).
+
+    An operand names a body by its BASE feature id — the key of
+    ``state.bodies`` (§MB-0 Decision 1) — so resolution is a single dict lookup
+    of the operand's CURRENT geometry (every modifier already applied). A miss is
+    an honest eval-time ``reference_unresolved`` pinned to the referenced feature:
+    the base feature is later/rolled-back/non-body-creating, was MERGED into
+    another body (``merge=True`` — it never keyed a standalone body), or was
+    CONSUMED as the tool of an EARLIER boolean (removed from the set). Documents
+    cannot catch that last case statically — a body's consumption is an eval-time
+    fact — so geometry re-checks (design §Decisions-3, §MB-1 error taxonomy).
+    """
+    body = state.bodies.get(ref.feature_id)
+    if body is None:
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                f"Boolean {slot} must reference an earlier body-creating feature "
+                "that still holds a distinct body of this part; the referenced "
+                "feature is not a current body (it may have been merged into "
+                "another body or consumed by an earlier boolean)."
+            ),
+            upstream_feature_id=ref.feature_id,
+        )
+    return body
+
+
+def _evaluate_boolean(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Boolean two independently-built bodies (body-affecting, §Decisions-3).
+
+    The headline multi-body feature (docs/design/multi-body.md §MB-1/§MB-2): it
+    resolves ``target`` and ``tool`` to two CURRENT bodies of the part
+    (:func:`_resolve_operand_body` — each keyed by its base feature id, §MB-0),
+    booleans them (:func:`boolean_bodies` — ``union`` fuses, ``subtract`` cuts the
+    tool out of the target, ``intersect`` keeps their common volume), and REPLACES
+    both operands with the result — which takes over the target's identity slot
+    and drops the tool body (:meth:`EvaluationState.combine_bodies`), becoming the
+    active body.
+
+    All three operations are wired (MB-1a union, MB-2 subtract/intersect). Errors
+    pin the failing operand where relevant: ``reference_unresolved`` (an operand
+    is not a current body — incl. one consumed by an earlier boolean),
+    ``boolean_same_body`` (target and tool name the SAME body — a degenerate
+    self-op), ``boolean_disjoint`` (the result is >1 solid: a union of
+    non-touching bodies, or a subtract/intersect that leaves ≥2 pieces — the
+    single-connected-solid-per-body invariant, §Decisions-3), ``boolean_empty``
+    (a subtract that removes the whole target, or an intersect with no overlap),
+    or ``boolean_failed`` (a kernel failure). The body set is mutated only on
+    success (last-good semantics, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, BooleanFeature), "registry dispatches on type='boolean'"
+    params = feature.params
+
+    if params.target.feature_id == params.tool.feature_id:
+        return FeatureError(
+            code="boolean_same_body",
+            message=(
+                "A boolean's target and tool must name two DIFFERENT bodies, but "
+                "both reference the same base feature; pick two distinct bodies. "
+                "(A body unioned/subtracted/intersected with itself is degenerate.)"
+            ),
+            upstream_feature_id=params.tool.feature_id,
+        )
+
+    target = _resolve_operand_body(params.target, state, slot="target")
+    if isinstance(target, FeatureError):
+        return target
+    tool = _resolve_operand_body(params.tool, state, slot="tool")
+    if isinstance(tool, FeatureError):
+        return tool
+
+    try:
+        combined = boolean_bodies(
+            target, tool, params.operation, allow_disjoint=params.allow_disjoint
+        )
+    except BooleanDisjointError as exc:
+        return FeatureError(code="boolean_disjoint", message=str(exc))
+    except BooleanEmptyError as exc:
+        return FeatureError(code="boolean_empty", message=str(exc))
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+
+    state.combine_bodies(params.target.feature_id, params.tool.feature_id, combined)
+    return None
+
+
+#: Feature types whose ok evaluation mutates the body set (§MB-0). The
 #: main loop records the last such feature as ``state.prev_body_feature`` so a
 #: pattern can infer its combine mode from the immediately-preceding
 #: body-affecting feature (BACKLOG #3). Sketch/datum are absent — they produce
@@ -1257,6 +1620,9 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "draft",
         "pattern",
         "import",
+        "sheet_metal_base_flange",
+        "sheet_metal_edge_flange",
+        "boolean",
     }
 )
 
@@ -1277,6 +1643,9 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "draft": _evaluate_draft,
     "pattern": _evaluate_pattern,
     "import": _evaluate_import,
+    "sheet_metal_base_flange": _evaluate_sheet_metal_base_flange,
+    "sheet_metal_edge_flange": _evaluate_sheet_metal_edge_flange,
+    "boolean": _evaluate_boolean,
 }
 
 
@@ -1334,16 +1703,24 @@ class TreeEvaluation:
     and the content-addressed ``mesh_glb_id``. The remaining fields are
     strictly service-internal (used by the golden harness and future
     callers inside this service): ``solved_sketches`` (``ok`` sketch
-    features only, evaluation order), ``body`` (the last-good kernel solid —
-    never serialized), and the tessellation artifact ``glb``/``mesh`` that
-    ``mesh_glb_id`` addresses.
+    features only, evaluation order), ``body`` (the last-good kernel shape —
+    a single :class:`~build123d.Solid`, or a :class:`~build123d.Compound` of a
+    multi-body part's disjoint solids (§MB-0); never serialized), and the
+    tessellation artifact ``glb``/``mesh`` that ``mesh_glb_id`` addresses.
     """
 
     result: EvaluateTreeResult
     solved_sketches: dict[uuid.UUID, SolvedSketch]
-    body: Solid | None = None
+    body: BodyShape | None = None
     glb: bytes | None = None
     mesh: MeshStats | None = None
+    #: Sheet-metal unfold inputs (§5/§6), service-internal like ``body``: the bend
+    #: provenance recorded by each ok edge flange (evaluation order) + the part's
+    #: sheet-metal defaults (gauge/K/radius) from its base flange, so a flat-pattern
+    #: query (:func:`geometry.sheet_metal.unfold_sheet_metal`) resolves each bend by
+    #: provenance against ``body``. Empty / ``None`` for a non-sheet-metal part.
+    bend_provenance: list[BendProvenance] = field(default_factory=list[BendProvenance])
+    sheet_metal_defaults: SheetMetalDefaults | None = None
 
 
 def tree_no_body_error(
@@ -1419,7 +1796,7 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
             failed = True
 
     # §4.3/§4.4 artifact fields: the LAST-GOOD body — handlers mutate
-    # state.body only on success, so even after a mid-tree failure this is
+    # state.bodies only on success, so even after a mid-tree failure this is
     # the state after the last ok body-affecting feature ("the viewport
     # always has something honest to show"). No body (sketch-only tree, or
     # the first extrude failed) → honestly null, the §6 failure flavour.
@@ -1427,9 +1804,31 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     mesh_glb_id: str | None = None
     glb: bytes | None = None
     mesh: MeshStats | None = None
-    if state.body is not None:
-        properties = measure_shape(state.body)
-        glb, mesh = tessellate_glb(state.body, request.linear_deflection)
+    shape: BodyShape | None = None
+    if state.bodies:
+        # Tree/insertion-ordered body set (§MB-0): a part with ONE body measures
+        # and tessellates that bare solid — byte-identical to the pre-multi-body
+        # path. A part with >1 body rolls up its mass properties ANALYTICALLY
+        # (Σ over the body set, no re-mesh/boolean — the assembly pattern) and
+        # tessellates a COMPOUND of all bodies in the fixed base-order, which
+        # ``glb_stats`` sums over. Both are deterministic (RESEARCH §9).
+        body_list = list(state.bodies.values())
+        if len(body_list) == 1:
+            # ONE body — which may itself be a multi-lump Compound (a disjoint
+            # boolean / multi-solid import, §MB-4): measure it directly (GProp +
+            # .shells() count across its lumps), byte-identical to the single-solid
+            # path when it is a bare Solid.
+            shape = body_list[0]
+            properties = measure_shape(body_list[0])
+        else:
+            # >1 body: roll up mass properties ANALYTICALLY per body, and tessellate
+            # a FLATTENED Compound of every body's lumps (§MB-4) — flattening avoids
+            # a nested Compound (a body that is itself a Compound), which would give
+            # ``glb_stats`` a nondeterministic traversal. Each body's lumps are
+            # already in explicit lump order; bodies stay tree-ordered.
+            shape = Compound([s for b in body_list for s in b.solids()])
+            properties = combine_properties([measure_shape(b) for b in body_list])
+        glb, mesh = tessellate_glb(shape, request.linear_deflection)
         mesh_glb_id = store_mesh_glb(glb)
 
     return TreeEvaluation(
@@ -1442,7 +1841,9 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
             last_good_feature_id=last_good_feature_id,
         ),
         solved_sketches=state.solved_sketches,
-        body=state.body,
+        body=shape,
         glb=glb,
         mesh=mesh,
+        bend_provenance=list(state.bend_provenance.values()),
+        sheet_metal_defaults=next(iter(state.sheet_metal_defaults.values()), None),
     )

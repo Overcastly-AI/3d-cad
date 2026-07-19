@@ -18,9 +18,10 @@ sequence it into Ready without re-deriving the risk analysis.
 Related: RESEARCH §1 (OCCT via OCP, build123d — the only kernel), §9
 (determinism + golden gates); `feature-tree.md` (the part document model
 sheet metal features live *inside*, not beside); `topological-naming.md` §9/
-§10 (`EdgeSignature`/`PlanarFaceSignature`/`SubshapeRef` — reused for bend
-provenance, §5); `docs/design/drawings.md` §1 (HLR/view pipeline the flat
-pattern reuses, §6) and §3.3 (the exact-B-rep-geometry-references-survive-
+§10 (`EdgeSignature`/`PlanarFaceSignature`/`SubshapeRef` — the signature
+pattern bend provenance extends additively with a NEW `CylindricalFaceSignature`,
+§5); `docs/design/drawings.md` §1 (HLR/view pipeline the flat pattern
+composes with, §6) and §3.3 (the exact-B-rep-geometry-references-survive-
 edits pattern bend provenance mirrors); `assemblies.md` §2.4 (the "name the
 risk plainly, scope narrowly, own determinism" posture this doc repeats for
 the unfold).
@@ -35,9 +36,10 @@ genuine kernel risk in the whole pillar**, and this doc names it plainly in
 command — verified by a live module probe in this repo's geometry
 environment, not assumed. The mitigation mirrors `assemblies.md`'s mate
 solver and `drawings.md`'s HLR posture: scope the v1 bend graph to the
-provably-tractable case (a single bend, provenance-tracked, not blind
-recognition), own the geometry construction end-to-end, and gate it with
-analytic goldens before claiming anything harder.
+provably-tractable case (a **depth-1 bend star** — one base flange plus N
+edge flanges folded directly off it, provenance-tracked, not blind
+recognition, §4.3), own the geometry construction end-to-end, and gate it
+with analytic goldens before claiming anything harder.
 
 ---
 
@@ -82,7 +84,9 @@ below possible at all.
   same concept through its [Edge-Flange
   PropertyManager](https://help.solidworks.com/2024/english/Solidworks/sldworks/HIDD_FEAT_SM_EDGE_FLANGE.htm)
   bend-allowance-type setting. v1 scopes to a single global/per-feature
-  K-factor (§7); a full gauge/material rule *table* is deferred.
+  K-factor (§7) — pinned default `k_factor = 0.44`, overridable per
+  base-flange/edge-flange feature (§4.1/§4.2, §9 golden #2); a full
+  gauge/material rule *table* is deferred.
 - **Tabs, jogs, hems, corner reliefs** — the incumbent-standard secondary
   sheet-metal features: a **tab** is a small flange-like protrusion, a
   **jog** offsets a flat face by a step (two bends, no length between), a
@@ -127,7 +131,7 @@ What OCCT *does* give us — also verified live, not assumed:
 | Classify a face as planar vs. cylindrical | `OCP.BRepAdaptor.BRepAdaptor_Surface.GetType()` → `OCP.GeomAbs.GeomAbs_Cylinder` / `GeomAbs_Plane` | ✅ reachable, `GetType()`/`Cylinder()` present on `BRepAdaptor_Surface` |
 | Extract a cylindrical face's radius/axis (a bend's geometry) | `BRepAdaptor_Surface.Cylinder()` → `gp_Cylinder` | ✅ present |
 | Rebuild a planar wire/face from reconstructed 2D points (the flattened outline) | `OCP.BRepBuilderAPI` (`BRepBuilderAPI_MakeWire`/`MakeFace`/`MakeEdge`, 63 symbols exposed) | ✅ present — the same module `extrude.py`'s `build_profile_face` already uses |
-| Rigid-transform a sub-body (the "fold one segment flat" step) | `OCP.BRep`/`gp_Trsf` (already used by the assembly solver's pose application, `assemblies.md` §2.3) | ✅ present, already load-bearing elsewhere in the codebase |
+| Rigid-transform a sub-body (the "fold one segment flat" step) | `OCP.BRep`/`gp_Trsf`, reached via build123d's `.translate()`/`.rotate()`, already load-bearing in-kernel for `linear_pattern`/`circular_pattern` placement (`geometry/kernel/pattern.py:219`/`:258`) — **corrected citation**: NOT the assembly solver, which resolves poses in pure numpy (`assembly/solver.py`, `assembly/transform.py` — no OCCT transform type at all, `assemblies.md` §2.3 describes the quaternion pose *representation*, not a `gp_Trsf`) | ✅ present, already load-bearing elsewhere in the codebase |
 | Measure/verify (area, length, mass props) for goldens | `OCP.GProp`/`BRepGProp` (already used by `kernel/properties.py`) | ✅ present |
 
 So the **primitives** for a hand-built unfold exist and are the same
@@ -156,9 +160,11 @@ that is genuinely new work, not a wrapper around an existing OCCT command.
   flattening a *tree* of rigid segments where each bend's flattening
   transform composes with its parent's — a real, harder unfolding algorithm
   (this is where SolidWorks/Fusion's proprietary sheet-metal kernels earn
-  their keep). v1 (§7) scopes to a **single bend** specifically to avoid
-  this graph-relaxation problem entirely — see §4.3 for why that's still
-  genuinely useful, not a toy.
+  their keep). v1 (§7) scopes to a **depth-1 bend star** — every edge
+  flange folds directly off the one fixed base flange, never off another
+  edge flange — specifically to avoid this graph-relaxation problem entirely
+  (a star's bend transforms never compose with each other, only with the
+  fixed base) — see §4.3 for why that's still genuinely useful, not a toy.
 - **Recognition vs. provenance.** Detecting "is this cylindrical face a
   sheet-metal bend" purely from geometry (import-as-sheet-metal, incumbents'
   "Convert to Sheet Metal" tools) is a much harder, separate recognition
@@ -172,9 +178,9 @@ that is genuinely new work, not a wrapper around an existing OCCT command.
   doc does not claim to have solved it.
 
 **Bottom line: the unfold is tractable for a v1 scoped to provenance-tracked,
-single-bend geometry; it is NOT tractable to promise as "unfold any folded
-solid" without the harder recognition + graph-relaxation work this doc
-explicitly defers.** That is the same shape of claim `assemblies.md` made
+depth-1-bend-star geometry; it is NOT tractable to promise as "unfold any
+folded solid" without the harder recognition + graph-relaxation work this
+doc explicitly defers.** That is the same shape of claim `assemblies.md` made
 about the mate solver (tractable for a scoped mate set, not a general N-body
 solve) and `drawings.md` made about HLR (tractable with a performance/
 fragility escape hatch, not promised fast-and-robust on everything).
@@ -203,8 +209,9 @@ CRUD surface, no new versioning story. This is the cheap, correct call
 feature — it's a query over an evaluated sheet-metal body**, the same
 relationship a drawing view already has to a part (`drawings.md` §1.2: "a
 view is `(source document, projection frame, scale)`, resolved by
-evaluating the source"). `geometry.sheet_metal.unfold(body, bend_refs) →
-FlatPattern` is a pure function of an evaluated body — no persistence of its
+evaluating the source"). `geometry.sheet_metal.unfold(body,
+base_flange_faces, bend_refs) → FlatPattern` (§6) is a pure function of an
+evaluated body — no persistence of its
 own beyond being requestable, exactly like `project_view`. §6 details how it
 plugs into the shipped drawing pipeline instead of inventing a second one.
 
@@ -252,41 +259,209 @@ raw sweep authoring flow**, for two reasons:
    unfold pass never has to re-detect it from raw geometry (§2.2's stated
    uncertainty). A generic sweep gives you correct geometry but no such tag.
 
-### 4.3 Why a single bend at a time is still genuinely useful
+**Implementation note (slice #3, 2026-07-19 — kernel decision recorded):** the
+built geometry uses the **exact developed cross-section** (a partial annulus for
+the bend + the flange rectangle, in the plane perpendicular to the picked edge)
+**extruded along the straight bend axis**, rather than sweeping a (thickness ×
+width) profile along a curved OCCT spine. Both are "profile-along-path"
+reuse of the shipped extrude/sweep primitives — no new swept-surface code — but
+the exact-cross-section route was chosen because (a) extruding an analytic arc
+along a straight line yields an **exact cylinder** the `CylindricalFaceSignature`
+matches to ulp scale (the bend provenance's whole premise), and (b) the
+cross-section is a **fixed simple polygon + two arcs**, never a reconstructed
+outline, so §2.2's flagged `BRepBuilderAPI_MakeFace` robustness risk is
+**sidestepped, not merely deferred** (`geometry.sheet_metal.edge_flange`). The
+picked edge's larger adjacent flat is the reference face the flange extends from;
+the fold-up direction and the extension direction are derived deterministically
+from that face's normal (no `flip` param needed in v1).
+
+### 4.3 Why a depth-1 bend star is still genuinely useful
 
 v1 restricts each edge-flange feature to **one straight bend line**, and the
-unfold pass (§5) to a **single-bend flat pattern** per v1 scope (§7). This
-sounds narrow, but it covers a large share of real brackets: an **L-bracket**
-(one bend), a **U-channel** (two independent, parallel, non-interacting
-bends — each flattens independently, no graph relaxation needed because
-they don't share a rigid segment), simple **standoffs and mounting tabs**.
-What it does NOT cover: a **box** (bends meeting at shared corners — a real
+unfold pass (§5) to a **depth-1 bend star**: one base flange plus N edge
+flanges, each folded **directly off the base flange** (a star topology —
+every bend's parent is the SAME fixed base, never another edge flange).
+
+**Correction from an earlier draft of this doc:** this is NOT "a single
+bend" — that undersold the scope and its own rationale was wrong. A
+**U-channel's two flanges DO share the base flange's segments** (its left
+and right edges are exactly where the two bends attach — that's what makes
+it a U-channel, not two unrelated parts). What actually makes the U-channel
+tractable without graph relaxation isn't that the bends "don't share a rigid
+segment" — they do — it's that **neither flange's flattening transform
+depends on the OTHER flange's transform**: each is a single rigid rotation
+about its own bend axis, composed once against the fixed base, independent
+of how many sibling flanges exist. Graph relaxation is needed only when a
+bend's PARENT is itself a flattened (moved) segment — i.e. a flange folded
+off ANOTHER flange (depth ≥ 2), where the child's transform must compose
+with the parent's already-computed transform. A depth-1 star never hits
+that case: every bend composes with the fixed, never-moved base, and
+bends can be flattened independently and in any order.
+
+This still covers a large share of real brackets: an **L-bracket** (the
+star's N=1 case, one edge flange), a **U-channel** (N=2, two edge flanges
+off the same base), simple **standoffs and mounting tabs** (N edge flanges
+radiating from one base). What it does NOT cover: a **box** (a flange
+folded off another flange to close a corner — depth 2, a real
 graph-relaxation problem, §2.2, §7 deferred) or a **hat-channel-with-miter**
 (needs miter-corner trimming, §7 deferred). The v1 cut is chosen the same
 way Assemblies' three mates were chosen — the smallest set that clears a
 real daily-driver case, not the largest set that's safe to promise.
 
-## 5. Bend provenance — reusing topological naming, not a parallel taxonomy
+**Depth-2 is rejected UNIFORMLY — decision recorded (2026-07-19,
+code-review follow-up).** An edge flange's `edge` reference accepts another
+edge flange as its base (feature registry), so a depth-2 body — a flange
+folded off ANOTHER flange — is author-reachable. It is rejected as a typed
+`UnfoldStarError` **before any layout math**, on a single robust test: a
+bend whose resolved base face is not the ONE shared base flange is depth ≥ 2.
+This covers **both** sub-cases with one rule and one contract: (a) a
+**perpendicular/vertical second bend axis** (a real box corner) — which,
+unguarded, reached the non-parallel layout's `outward = e.cross(base_normal)`
+and leaked a raw kernel `Standard_ConstructionError` (zero-norm normalize)
+through the public API; and (b) a **parallel second bend axis** (a box
+lip/return) — which does not crash and would develop a geometrically
+plausible 1D strip, but is **still** the graph-relaxation case (a child
+bend's flattening transform composing with its already-moved parent's) that
+v1 defers. Accepting only the parallel sub-case was considered and rejected:
+a "depth-1 only" contract is simpler to reason about and to gate than "depth-1,
+plus parallel-axis depth-2," and the parallel strip is not independently
+goldened. So the contract is exactly depth-1, and **no authored depth-2 body
+produces a raw kernel exception or a silently-wrong flat pattern** — the
+honest-typed-degradation principle (§5), now proven by the depth-2 rejection
+tests (`test_sheet_metal_nonparallel_star.py`).
 
-**Decision: a bend region is referenced by the SAME `SubshapeRef`/
-`EdgeSignature`/`PlanarFaceSignature` machinery fillet, shell, mates, and
-dimensions all already use** (`topological-naming.md` §9/§10). When an edge
-flange feature creates its bend, it records:
+**Depth-≥2 unfold SPIKE — VERDICT: TRACTABLE, no wall (2026-07-19,
+kernel-architect).** The depth-2 rejection above is a *v1 contract* choice, not a
+kernel limitation — an isolated spike
+(`services/geometry/src/geometry/sheet_metal/_spike_bend_chain.py`) proved that the
+deferred graph-relaxation case (a flange folded off ANOTHER flange — a box corner /
+return / hat channel) unfolds with a clean **recursive-compositional tree walk**, no
+heavier solver needed. Algorithm: build the bend tree (each bend oriented
+parent→child by its recorded `base_face_signature`, §5), place the base flange at
+identity, then walk outward placing each child flange **in its parent's ALREADY-
+flattened 2D frame** — `child_2d(cpC) = parent_2d(cpP) + BA·w_parent_2d`, where
+`cpP`/`cpC` are the bend's tangent-contact lines on the parent/child planes, `BA` the
+closed-form allowance (§1), and `w_parent_2d` the parent's fold-perpendicular
+direction expressed in its own developed frame. The child's fold axis maps to the
+parent's mapped axis (the fold line is continuous material); the child extends beyond
+the `BA` strip. **This is exactly the composition depth-1 never needs** — the child
+folds off a parent that is itself already developed — and it composes EXACTLY: every
+input (axis, radius, tangent line) is an analytic quantity from the cylinder adaptor
+and every step is a 2×2 rigid motion, so there is **no relaxation, no iteration, and
+no error accumulation beyond floating point** (the feared "each error in the parent's
+development propagates" is real but bounded at FP scale — the composition does not
+*amplify* it). Proven on a hand-built PERPENDICULAR box corner AND a PARALLEL chain
+(both built through two shipped `build_edge_flange` folds with real provenance): the
+developed BA-strip offset equals the bend allowance to ~3e-15, each flange develops as
+an exact isometry (developed area = 3D face area, residual 0.0), area conservation is
+exact (§9 #2), and the output is byte-deterministic in-process and across a fresh
+interpreter (goldens `spike-bend-chain-corner` / `spike-bend-chain-parallel`). The
+three flanges occupy **disjoint 2D regions** (no overlap → the idealised zero-relief
+blank is valid for a single L-with-return; corner relief stays a §7 deferral).
 
-- the **cylindrical bend face's** signature (so the unfold pass can find it
-  again after a rebuild, exactly as a mate's `MateAxisRef` or a drawing's
-  `EdgeSignature` survive edits),
+**Depth-≥2 bend-TREE unfold — SHIPPED (2026-07-19, kernel-architect).** The spike
+graduated into the real `unfold_sheet_metal`: the uniform depth-2 rejection is
+LIFTED for the cases that develop without self-overlap. `unfold_sheet_metal` now
+DISPATCHES by tree depth — a depth-1 star keeps its pinned 1D-strip / 2D-plus layout
+(the L-bracket / U-channel / corner-tray / N=4-pan goldens stay **byte-identical**,
+proven by their pinned content hashes) — and a depth-≥2 body routes to
+`_unfold_bend_tree`, the spike's recursive-compositional frame math folded IN (the
+`_spike_bend_chain` module + its `spike-bend-chain-*` goldens are **retired**; DRY —
+one implementation). What the feature added over the spike: (1) the per-flange
+rectangles + BA-strips are chained into **ONE union outline** — a single closed
+rectilinear loop via a grid-cell union (a reentrant L for the box corner, a
+rectangle for the parallel Z), guarded to be exactly one loop (the depth-≥2 analogue
+of `_body_outline_is_closed_loop`); (2) a **self-OVERLAP gate** — pairwise
+developed-flange-rectangle intersection raises the new typed `UnfoldOverlapError`
+(the §7 corner-relief case: a shape whose development collides degrades typed, never
+a wrong / overlapping blank); (3) an **axis-aligned guard** — a non-axis-aligned
+intermediate flange (out of the shipped emitter's scope) is a typed `UnfoldStarError`
+(the spike's frame math supports general placement; the emitter is axis-aligned only,
+a documented follow-on). New feature goldens: `bend-chain-corner-unfold` (depth-2
+L-with-return) + `bend-chain-parallel-unfold` (depth-2 Z), both authored through two
+shipped `build_edge_flange` folds with real provenance.
+
+**Finding — real self-overlap is CYCLIC, caught before the overlap gate.** A valid
+bend TREE of axis-aligned rectangular flanges essentially never self-overlaps in
+development (the BA-strip offset keeps each depth-2 flange in its parent's leg band,
+disjoint from the base band; overlap requires two branches wrapping to the same
+region). The genuinely-unfoldable-only-with-relief shape — a full box corner whose
+adjacent-wall returns must CONNECT — is a *cyclic* connectivity in this feature's
+tree model (a flange linking two branches), rejected as a typed `UnfoldStarError`
+by the tree/BFS build BEFORE layout. So both honest-degradation paths are exercised
+by tests; the `UnfoldOverlapError` gate is the belt-and-suspenders backstop that
+guarantees a valid-tree development which *did* collide (e.g. from a future
+placement bug or unusual geometry) degrades typed, never emits a wrong blank.
+
+## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
+
+**Correction from an earlier draft of this doc:** a bend region is a
+**cylindrical** face, and the existing `PlanarFaceSignature` (`normal` +
+`centroid` + `area_mm2`, `py_kit/schemas/features.py:114-134`, built from
+`geometry/kernel/faces.py`'s `planar_face_signature`/`_signature_dto`)
+cannot name one — its whole fingerprint assumes a flat plane (an *outward
+normal* and an *in-plane centroid* are meaningless for a curved surface).
+Reusing it for a bend would be a type error, not a DRY win.
+
+**Decision: a NEW sibling schema, `CylindricalFaceSignature`, additive —
+no breaking change to `PlanarFaceSignature`/`EdgeSignature`/`SubshapeRef`.**
+It mirrors the established signature shape exactly (`features.py`'s
+`PlanarFaceSignature`/`EdgeSignature`: full-precision geometric invariants,
+never a quantized or enumeration-index identity, §7.2):
+
+```python
+class CylindricalFaceSignature(BaseModel):
+    subshape_type: Literal["face"] = "face"
+    surface: Literal["cylinder"] = "cylinder"   # the discriminator
+    axis_origin: Vec3   # a point on the bend axis, world mm, full precision
+    axis_dir: Vec3      # unit vector along the axis, full precision
+    radius_mm: float
+    centroid: Vec3      # area centroid of the face, world mm, full precision
+```
+
+`PlanarFaceSignature` already carries a `surface: Literal["plane"] =
+"plane"` field (`features.py:127`) that is structurally inert in v1 — it is
+exactly the seam this extension needs. `SelectorV1.signature`
+(`features.py:150`, currently `PlanarFaceSignature` alone) widens to
+`Annotated[PlanarFaceSignature | CylindricalFaceSignature,
+Field(discriminator="surface")]` — additive, no change to a persisted
+`SubshapeRef` row that references a planar face. `SubshapeRef.subshape_type`
+(`features.py:173`, `Literal["face"]` already) is unchanged; only the union
+inside `selector.signature` grows, the same additive posture the module's
+own comments anticipate for a future selector member (`features.py:141-146`).
+
+**Implementation note (slice #3, 2026-07-19).** `CylindricalFaceSignature`
+shipped in `py_kit.schemas.features` as the additive **sibling** schema, with the
+emit (`cylindrical_face_signature`) and match (`resolve_cylindrical_face`) sides
+in `geometry.sheet_metal.resolve`. In v1 it is **geometry-internal unfold
+provenance** — no feature persists a cylindrical `SubshapeRef`, so the shared
+planar `Selector`/`SubshapeRef` union is left UNCHANGED (it is not yet widened to
+the `Field(discriminator="surface")` union sketched above). That widening lands
+additively the moment a user-facing feature needs to *name* a cylindrical face
+(DRY — extract the union member on the second real consumer, not the first
+imagined one); until then it stays out of the wire contract, keeping the
+gen-check surface to exactly the new `SheetMetalEdgeFlangeParamsV1`.
+
+When an edge flange feature creates its bend, it records:
+
+- the **cylindrical bend face's** `CylindricalFaceSignature` (so the unfold
+  pass can find it again after a rebuild, exactly as a mate's `MateAxisRef`
+  or a drawing's `EdgeSignature` survive edits) — axis + radius pin the
+  bend's geometry to full precision, the same "never quantize the stored
+  identity" rule (§7.2) the planar/edge signatures already follow,
 - the resolved **bend geometry** (radius, angle, axis direction) computed at
   creation time — not re-derived by scanning for "any cylindrical face,"
-- the **two flanking planar faces'** signatures (the flat segments the bend
-  connects).
+- the **two flanking planar faces'** `PlanarFaceSignature`s (the flat
+  segments the bend connects) — these DO reuse the shipped planar signature
+  verbatim; the flanking faces are genuinely planar, so no new schema is
+  needed for them.
 
 This is the exact honest-degradation posture the rest of the codebase
 already ships: an edit that moves/removes the bend face yields an honest
 `subshape_unresolved` on the unfold request (a "dangling" bend, surfaced —
 never a wrong flat-pattern length), inheriting the same residual stage-1
 hole (`topological-naming.md` §7.3) every other consumer already carries,
-with no new mechanism.
+with no new mechanism beyond the one new signature type.
 
 ## 6. The unfold algorithm (v1 scope) and its output
 
@@ -310,6 +485,50 @@ FlatPattern`:
    `BRepBuilderAPI_MakeWire`/`MakeFace` (§2.2's flagged uncertainty — this
    step needs its own robustness golden before trusting non-rectangular
    profiles).
+
+**Implementation note (slice #3, 2026-07-19).** The shipped
+`unfold_sheet_metal` (`geometry.sheet_metal.unfold`) resolves each bend by its
+`CylindricalFaceSignature` (never blind detection), separates the SHARED base
+flange from each moving flange by the recorded base-face `PlanarFaceSignature`
+(so the base area is counted once, never per-bend), infers each fold's up/down
+direction from the moving flange's side of the base normal (clearing Spike 0's
+deferred inference), and lays the depth-1 star out flat.
+
+**Implementation note (sheet-metal v2 #1, 2026-07-19 — non-parallel stars
+SHIPPED).** `unfold_sheet_metal` now branches on bend-axis parallelism. All
+bends parallel → the verbatim 1D strip path (L-bracket N=1 / U-channel N=2 —
+their goldens stay **byte-identical**). Bends NOT all parallel → a 2D
+**plus/cross** layout (`_unfold_nonparallel`): each flange swings flat about its
+OWN bend axis and is placed as an axis-aligned arm off its base-rectangle side,
+the cylindrical bend replaced by a `BA`-length strip. **Spike-first verdict:
+TRACTABLE, no wall.** The known-hard shared-corner case (two flanges on adjacent
+perpendicular edges) is IN scope: the arms occupy disjoint 2D cardinal regions
+(the empty corner square between them is a reentrant notch), and the built 3D
+body has **exactly-additive volume** (measured residual ~1e-12 → no 3D overlap),
+so no corner relief is geometrically required in v1 (relief stays a §7 deferral).
+The golden `corner-tray-perp-unfold` (base + 2 perpendicular edge flanges) pins
+the analytic area/envelope + a shoelace-outline area witness + byte-determinism.
+**v1 non-parallel scope: a RECTANGULAR base with axis-aligned bends** (a tray /
+pan). Still an honest `UnfoldStarError` (narrowed): a non-rectangular / angled
+base, a bend axis not aligned to the base rectangle, or **any depth ≥2** body (a
+flange folded off ANOTHER flange — a box corner OR a box lip/return, the real
+graph-relaxation problem, deferred, §4.3's uniform depth-2 rejection). Bend faces
+unresolvable after an edit degrade to `subshape_unresolved` (§5), never a wrong
+flat pattern.
+
+**Depth-2 guard + full-pan golden (2026-07-19, code-review follow-up).** Two
+correctness-of-contract fixes landed on the non-parallel path: (1) the depth-2
+guard above — a bend whose base face is not the shared base raises before the
+layout cross-product, so a perpendicular-second-axis box corner is a typed
+`UnfoldStarError` instead of a raw kernel `Standard_ConstructionError`, and a
+parallel-second-axis box lip is rejected on the same rule (§4.3). (2) The
+`_emit_plus_pattern` assembler now GUARDS its full-width-flange assumption: it
+asserts the developed body-edge outline chains into ONE closed loop (a future
+partial/offset flange would leave a gap on a skipped base side — a typed error,
+never a silently non-closed blank). New golden `pan-four-flange-perp-unfold` (N=4,
+a full-width flange off each edge of a 40×30 base) pins the headline full-tray
+claim: analytic area/envelope, a valid closed 12-edge plus outline, exactly-additive
+fused volume (residual 0.0 → no 3D corner overlap at N=4), and byte-determinism.
 5. Tag the seam between each original planar segment and its neighbor as a
    **bend line** (a construction-style edge in the output, carrying the
    bend's id, angle, and direction up/down) — this is what feeds the bend
@@ -317,10 +536,29 @@ FlatPattern`:
 
 **Output — a `FlatPattern` DTO** (pure pydantic, no OCCT type, the same
 crossing-boundary posture every other kernel output takes): a planar face's
-2D outline (as neutral primitives — the exact `Line2D`/`Arc2D`/`Circle2D`
-vocabulary `drawings.md` §5 already defines, reused verbatim) + a list of
-tagged bend lines + per-bend metadata (angle, radius, direction, allowance)
-for the bend table.
+2D outline expressed as `ProjectedViewEdge`s — the **actual shipped**
+neutral 2D-edge type drawing views already emit
+(`py_kit/schemas/drawings.py:681`, discriminated by a
+`primitive: "line" | "circle" | "arc" | "polyline"` field rather than
+separate `Line2D`/`Arc2D`/`Circle2D` classes; **correction from an earlier
+draft of this doc:** no `Line2D`/`Arc2D`/`Circle2D` types exist anywhere in
+the codebase — `drawings.md` §5's `ViewGeometry`/`Line2D` sketch was that
+doc's pre-build design-time plan, superseded by `ProjectedViewEdge` +
+`DrawingViewResult` when Drawings actually shipped, `services/geometry/src/
+geometry/drawings/project.py`'s `ProjectedEdge` being the internal kernel
+twin) — plus a list of tagged bend lines + per-bend metadata (angle,
+radius, direction, allowance) for the bend table.
+
+**One additive field the reuse needs — this is why frontend work is
+"minimal additive," not "zero" (§7):** a bend line is neither a visible nor
+a hidden BODY edge — `ProjectedViewEdge.visible: bool`
+(`drawings.py:696-698`) only distinguishes solid-drawn from occluded/dashed
+body edges, and a fold line is a construction-style annotation, not either.
+`FlatPattern`'s edges add one new discriminator, `edge_role: "body" |
+"bend"` (additive to `ProjectedViewEdge`, defaulting to `"body"` so every
+existing drawing-view consumer — HLR views, dimensions, SVG export — is
+unaffected), so a bend line can render as its own dashed-blue stroke (§7)
+without overloading `visible`.
 
 ## 7. Composing with what exists — reuse, not reinvention
 
@@ -334,22 +572,56 @@ for the bend table.
 - **Flat pattern → a drawing view.** A `FlatPattern` is *already flat* — no
   HLR is needed to see it from "the front" (there's nothing to occlude in a
   planar face viewed along its own normal). **Decision: the flat pattern is
-  a new drawing view **`projection` kind** (`views.projection = "flat_
+  a new drawing view `projection` kind** (`views.projection = "flat_
   pattern"`, sibling of `front`/`top`/`right`/`iso`/`custom` in
-  `drawings.md` §2.2) that skips HLR and feeds the `FlatPattern`'s own 2D
-  outline + bend lines directly into the SAME `ViewGeometry` DTO
-  (`drawings.md` §5) every other view produces — the sheet editor, the
-  dimension-authoring UI (§6b), and SVG export (§4.1a) all work on a flat-
-  pattern view with **zero new frontend code**, because they already consume
-  `ViewGeometry` generically. Bend lines render as a distinct dashed-blue
-  (not visible-solid, not hidden-dashed) stroke — one new `drawing` design
-  token, not a new renderer.
+  `drawings.md` §2.2) that skips HLR and feeds the `FlatPattern`'s own
+  `edge_role`-tagged `ProjectedViewEdge` list (§6) directly into the SAME
+  `DrawingViewResult`/`ProjectedViewEdge` shape every other view produces
+  (`py_kit/schemas/drawings.py:681`/`:745`) — the sheet editor, the
+  dimension-authoring UI (§6b), and SVG export (§4.1a) work on a flat-
+  pattern view with **minimal additive frontend, not zero** (correction
+  from an earlier draft, which overclaimed "zero"): they already consume
+  `ProjectedViewEdge` generically, but the renderer needs ONE new branch on
+  the additive `edge_role` field (§6) — draw `"bend"` edges as a distinct
+  dashed-blue stroke instead of the ordinary `visible`/hidden solid/dashed
+  styling every other edge gets. One new `drawing` design token, one new
+  conditional in the existing renderer — not a new renderer.
+
+  **Implementation note (slice #4 BACKEND, 2026-07-19).** The backend half
+  shipped exactly as designed: `ProjectedViewEdge.edge_role: "body"|"bend"`
+  (additive, defaulted `"body"` — generated non-optional like its sibling
+  `dimensionable`, the codebase's recurring defaulted-field pattern), the
+  `flat_pattern` `ViewProjection` member, and
+  `geometry.drawings.flat_pattern_view_result` which unfolds the sheet-metal
+  body (reusing `evaluate_tree` + `unfold_sheet_metal`) and feeds the outline
+  into the SAME `DrawingViewResult`/`ProjectedViewEdge` shape — SKIPPING HLR
+  (`geometry.drawings.evaluate.evaluate_drawing_views` branches before
+  `project_view`). **One honest composer-boundary finding, recorded not
+  forced:** the shipped `place_sheet` full-sheet composer auto-lays-out the
+  standard 4 (`STANDARD_VIEWS`) and does NOT place a `flat_pattern` view — a
+  flat-pattern sheet's placement (a lone view + the bend-table annotation) is
+  new placement math paired with the frontend render slice (the composer is a
+  verbatim port of the frontend `layout.ts`, so its flat-pattern branch ports
+  FROM that slice, not ahead of it). The flat-pattern view therefore rides the
+  **evaluate** path (`DrawingViewResult` edges + bend table) this slice, which
+  IS the reuse `drawings.md` §7 intends — the per-view edge machinery
+  (`view_to_svg_edges`/`view_bounds`) is generic over `ProjectedViewEdge`; only
+  the multi-view auto-layout is standard-4-specific.
 - **Bend table → a drawing annotation.** `annotations.type` gains a `table`
   kind (additive to the shipped `note`/`leader`, `drawings.md` §2.2) whose
   `params` holds the per-bend rows (id, angle, radius, direction, allowance)
   the `FlatPattern` output already computed (§6) — the data is free, the
   same "BOM is a free documents-side roll-up" argument `assemblies.md` §4
   made for its own table.
+
+  **Implementation note (slice #4 BACKEND, 2026-07-19).** The bend-table DATA
+  shipped as `py_kit.schemas.drawings.BendTableRow`
+  (`bend_id`/`angle_deg`/`radius_mm`/`direction`/`bend_allowance_mm`) surfaced
+  on `DrawingViewResult.bend_table` alongside the flat-pattern edges (the
+  computed values the frontend renders as the annotation table). The
+  `annotations.type = "table"` PERSISTED annotation kind is deferred to the
+  frontend slice with the render (the data is already free geometry-side; a
+  drawing need not persist it to display a live flat-pattern view).
 - **Bend allowance math** needs no new numeric dependency — it's a
   four-term closed-form (§1), computed the same way GProp-derived mass
   properties already are.
@@ -369,12 +641,13 @@ never imports the kernel"):
 |---|---|---|
 | Sheet-metal feature params (base flange, edge flange) persisted in `features` | **documents** | Same `features` table every other feature type already uses — no new table. |
 | Face classification, bend geometry resolution, the unfold walk | **geometry** | `BRepAdaptor_Surface` classification + `BRepBuilderAPI` reconstruction — kernel-only, same posture as HLR/the mate solver. |
-| `FlatPattern` → a drawing `flat_pattern` view | **geometry** | Reuses `evaluate_tree` (the body) + feeds the shipped `ViewGeometry` DTO — no new crossing type. |
+| `FlatPattern` → a drawing `flat_pattern` view | **geometry** | Reuses `evaluate_tree` (the body) + feeds the shipped `ProjectedViewEdge` shape, widened by the additive `edge_role` field (§6) — no new crossing DTO. |
 | Bend-table annotation data | **documents** (storage) / **geometry** (computed values, passed through) | Same split BOM already uses — the numbers are computed once by geometry, persisted/queried as plain data. |
-| Sheet editor, bend-line rendering, dimension UI | **web** | Consumes `ViewGeometry` generically — no new renderer (§7). |
+| Sheet editor, bend-line rendering, dimension UI | **web** | Consumes `ProjectedViewEdge` generically, plus one new `edge_role` branch for the bend-line stroke — minimal additive frontend, not zero (§7). |
 
-No kernel type crosses a boundary: `FlatPattern` is pure pydantic (2D
-primitives + tagged bend lines), identical in shape to `ViewGeometry`.
+No kernel type crosses a boundary: `FlatPattern` is pure pydantic
+(`ProjectedViewEdge`s + per-bend metadata), the same crossing shape every
+other drawing view already produces, widened by one additive field.
 
 ## 9. Golden / geometry-QA strategy
 
@@ -389,13 +662,39 @@ New capability ⇒ new golden in the same commit (DoD, once built).
    the hand-derived `leg1 + BA + leg2` (§1's formula, tangent-line
    convention documented in the golden itself) within a documented
    tolerance — never an ad-hoc epsilon (RESEARCH §9).
-2. **Area conservation — a model-agnostic invariant, not just one hand-
-   derived case.** Bending doesn't stretch the neutral surface (that's the
-   K-factor method's whole premise), so the flat pattern's area MUST equal
-   the sum of each flange segment's own (mid-thickness) area. This is a
-   strong regression check independent of the L-bracket's specific numbers —
-   any future bend-graph geometry can be goldened this way without a fresh
-   hand-derivation each time.
+2. **Area conservation — a model-agnostic invariant, precisely stated (an
+   earlier draft of this doc under-specified it), not just one hand-derived
+   case.** Bending doesn't stretch the neutral surface (that's the K-factor
+   method's whole premise), so:
+
+   ```
+   flat_area = Σ(flange developed areas) + Σ(bend-strip areas)
+   ```
+
+   where each **flange developed area** is that flange's own flat planar
+   face area (unchanged by unfolding — a flange stays planar throughout),
+   and each **bend-strip area** is `BA × bend_width` — the bend allowance
+   `BA = angle_rad × (bend_radius + K × thickness)` (§1) times the bend's
+   width (the flange dimension measured along the bend axis, constant along
+   a straight bend line).
+
+   **Neutral-surface development convention, pinned:** the neutral axis
+   sits at `K × thickness` measured from the *inner* bend face (§1's
+   K-factor definition — the same convention Fusion 360's Sheet-metal-rule
+   reference and SolidWorks' Edge-Flange bend-allowance-type setting
+   document, both cited §1). **v1 default: `k_factor = 0.44`** (a common
+   industry-baseline neutral-axis fraction for air-bent mild steel — a
+   documented v1 default, not a universal material constant), stored on the
+   base flange (`SheetMetalBaseFlangeParamsV1.k_factor`, §4.1) and
+   overridable per edge-flange feature (§4.2); the golden asserts the
+   invariant against the part's OWN stored `K`, never an assumed constant,
+   so the check stays correct if a future part overrides it. A full
+   gauge/material bend-allowance rule TABLE remains deferred (§7/§10) — v1
+   ships exactly this one global/per-feature `K`.
+
+   This is a strong regression check independent of the L-bracket's
+   specific numbers — any future bend-graph geometry can be goldened this
+   way without a fresh hand-derivation each time.
 3. **Bend-line placement is exact.** The reconstructed bend line's position
    in the flat pattern (distance from each flange's original edge) is a
    closed-form function of the setback + bend allowance — asserted exactly,
@@ -423,20 +722,32 @@ blank a shop can cut":**
   (default from base), reusing `sweep.py`'s profile-along-path primitives
   internally; bend-region provenance tagged via the shipped signature
   machinery (§5).
-- **The unfold** (§6): single-bend flat pattern, rigid-transform + bend-
-  allowance substitution (no general graph relaxation), `FlatPattern` DTO
-  output.
+- **The unfold** (§6): depth-1-bend-star flat pattern (§4.3 — one base
+  flange plus N edge flanges, each flattened independently against the
+  fixed base), rigid-transform + bend-allowance substitution (no general
+  graph relaxation), `FlatPattern` DTO output.
 - **Flat pattern as a drawing view** (§7): `projection: "flat_pattern"`,
-  zero new frontend renderer code (reuses `ViewGeometry`), bend lines as a
-  new `drawing` token.
+  minimal additive frontend (reuses `ProjectedViewEdge` + one new
+  `edge_role` branch, not a new renderer), bend lines as a new `drawing`
+  token.
 - New goldens in the same commit (§9 items 1–5) — DoD.
 
 **Explicitly deferred (each a later, independently shippable loop item,
 listed in rough incumbent-parity order):**
 
-- **Multi-bend / bend-graph flattening** (boxes, hat channels with bends
-  meeting at shared corners) — the real graph-relaxation problem §2.2 names;
-  the single-bend v1 deliberately avoids it.
+- **Multi-bend / bend-TREE flattening** (a flange folded off ANOTHER flange —
+  a box corner / return / hat channel / parallel Z-chain, depth ≥ 2) —
+  **SHIPPED (2026-07-19, §4.3).** The spike's recursive-compositional tree walk
+  graduated into `unfold_sheet_metal`: a depth-≥2 body unfolds into a single
+  union outline; a self-overlapping development (full-box corners needing
+  relief) degrades to a typed `UnfoldOverlapError`, a non-axis-aligned
+  intermediate flange or a cyclic bend set to a typed `UnfoldStarError`. Depth-1
+  goldens byte-unchanged. **Still deferred here:** corner-RELIEF geometry itself
+  (this feature UNFOLDS a chain and REJECTS the cases that need relief; it does
+  not ADD relief), the general non-axis-aligned intermediate-flange emitter, and
+  a full EvaluateTreeRequest-JSON depth-2 golden (the shipped goldens author via
+  `build_edge_flange` — the real feature builder — which needs the intermediate
+  edge signature computed, a declarative-authoring convenience deferred).
 - **Miter flanges, hems, jogs, tabs, corner reliefs** (§1) — each is more
   bend-graph and corner-case geometry on the same primitive, not new kernel
   risk, but real authoring + reconstruction work.
@@ -476,7 +787,11 @@ listed in rough incumbent-parity order):**
 3. **`BRepBuilderAPI_MakeFace` robustness on non-rectangular profiles**
    (§2.2) — the first spike an implementer should run, before trusting
    anything beyond the L-bracket goldens.
-4. **U-channel / two-independent-bends case** — confirm the two bends truly
-   don't share a rigid segment (§4.3) before claiming it's covered by v1's
-   "no graph relaxation" scope; if they interact (e.g. a shared corner),
-   it's actually the deferred multi-bend case.
+4. ~~U-channel / two-independent-bends case~~ — **resolved by the §4.3
+   correction, not open:** a U-channel's two edge flanges DO share the base
+   flange's segments (that's what makes it a U-channel), but both bends are
+   children of the SAME fixed base (a depth-1 star, not a chain), so
+   neither bend's flattening transform depends on the other's — covered by
+   v1 scope. The case that's genuinely excluded is a flange folded off
+   ANOTHER flange (depth ≥ 2, e.g. closing a box's corner), which needs
+   real graph relaxation and stays deferred (§7).

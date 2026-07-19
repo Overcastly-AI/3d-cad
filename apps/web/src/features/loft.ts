@@ -29,11 +29,13 @@ export interface LoftForm {
   /** Earlier sketch feature ids, in blend order; "" is an unchosen slot. */
   sections: string[];
   operation: LoftOperation;
+  /** "Merge result" (multi-body §MB-1) — see `ExtrudeForm.merge`. */
+  merge: boolean;
 }
 
 /** The default new-loft form: add, through the given ordered section sketches. */
 export function defaultLoftForm(sections: readonly string[]): LoftForm {
-  return { sections: [...sections], operation: "add" };
+  return { sections: [...sections], operation: "add", merge: true };
 }
 
 /** Seed the form from an existing loft feature for editing (order preserved). */
@@ -41,6 +43,7 @@ export function formFromLoftParams(params: LoftParams): LoftForm {
   return {
     sections: params.profiles.map((p) => p.feature_id),
     operation: params.operation,
+    merge: params.merge,
   };
 }
 
@@ -127,5 +130,7 @@ export function buildLoftParams(form: LoftForm): LoftParams | null {
       feature_id: id,
     })),
     operation: form.operation,
+    // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
+    merge: form.operation === "add" ? form.merge : true,
   };
 }

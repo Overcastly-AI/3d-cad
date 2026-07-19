@@ -1,0 +1,351 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000ef",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000f0001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "l1",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 20.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "l2",
+              "kind": "line",
+              "start": {
+                "x": 20.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 20.0,
+                "y": 20.0
+              }
+            },
+            {
+              "id": "l3",
+              "kind": "line",
+              "start": {
+                "x": 20.0,
+                "y": 20.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 20.0
+              }
+            },
+            {
+              "id": "l4",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 20.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "l1",
+                "point": "end"
+              },
+              "b": {
+                "entity": "l2",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "l2",
+                "point": "end"
+              },
+              "b": {
+                "entity": "l3",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "l3",
+                "point": "end"
+              },
+              "b": {
+                "entity": "l4",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "l4",
+                "point": "end"
+              },
+              "b": {
+                "entity": "l1",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "horizontal",
+              "entity": "l1"
+            },
+            {
+              "kind": "horizontal",
+              "entity": "l3"
+            },
+            {
+              "kind": "vertical",
+              "entity": "l2"
+            },
+            {
+              "kind": "vertical",
+              "entity": "l4"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f0002",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000f0001"
+          },
+          "distance_mm": 20.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f0003",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "l1",
+              "kind": "line",
+              "start": {
+                "x": 10.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 30.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "l2",
+              "kind": "line",
+              "start": {
+                "x": 30.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 30.0,
+                "y": 20.0
+              }
+            },
+            {
+              "id": "l3",
+              "kind": "line",
+              "start": {
+                "x": 30.0,
+                "y": 20.0
+              },
+              "end": {
+                "x": 10.0,
+                "y": 20.0
+              }
+            },
+            {
+              "id": "l4",
+              "kind": "line",
+              "start": {
+                "x": 10.0,
+                "y": 20.0
+              },
+              "end": {
+                "x": 10.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "l1",
+                "point": "end"
+              },
+              "b": {
+                "entity": "l2",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "l2",
+                "point": "end"
+              },
+              "b": {
+                "entity": "l3",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "l3",
+                "point": "end"
+              },
+              "b": {
+                "entity": "l4",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "l4",
+                "point": "end"
+              },
+              "b": {
+                "entity": "l1",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "horizontal",
+              "entity": "l1"
+            },
+            {
+              "kind": "horizontal",
+              "entity": "l3"
+            },
+            {
+              "kind": "vertical",
+              "entity": "l2"
+            },
+            {
+              "kind": "vertical",
+              "entity": "l4"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f0004",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000f0003"
+          },
+          "distance_mm": 20.0,
+          "operation": "add",
+          "direction": "normal",
+          "merge": false
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f0005",
+      "feature": {
+        "type": "boolean",
+        "version": 1,
+        "params": {
+          "operation": "union",
+          "target": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000f0002"
+          },
+          "tool": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000f0004"
+          }
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f0006",
+      "feature": {
+        "type": "fillet",
+        "version": 1,
+        "params": {
+          "edges": {
+            "kind": "edges",
+            "refs": [
+              {
+                "kind": "subshape",
+                "feature_id": "00000000-0000-0000-0000-0000000f0005",
+                "subshape_type": "edge",
+                "selector": {
+                  "selector_version": 1,
+                  "signature": {
+                    "subshape_type": "edge",
+                    "curve": "line",
+                    "end_a": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 0.0
+                    },
+                    "end_b": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 20.0
+                    },
+                    "midpoint": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 10.0
+                    },
+                    "length_mm": 20.0
+                  }
+                }
+              }
+            ]
+          },
+          "radius_mm": 2.0
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

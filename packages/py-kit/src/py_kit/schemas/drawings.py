@@ -26,6 +26,7 @@ field, encoded in field names (``offset_mm``, ``x_mm``) exactly as
 :mod:`py_kit.schemas.geometry` does.
 """
 
+import re
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
@@ -98,9 +99,24 @@ SheetOrientation = Literal["landscape", "portrait"]
 SheetProjectionConvention = Literal["third_angle", "first_angle"]
 
 #: The standard orthographic + isometric projection directions a view stores
-#: (design §2.2). The projection ENUM is ALL documents persists — mapping it to a
-#: 3D frame + running HLR is the geometry service's job (design §1.2), never here.
-ViewProjection = Literal["front", "top", "right", "iso"]
+#: (design §2.2), plus ``flat_pattern`` — a sheet-metal body's unfold as a view
+#: (sheet-metal.md §7). ``flat_pattern`` SKIPS HLR: a :class:`FlatPattern` is
+#: already 2D, so geometry feeds its ``edge_role``-tagged outline straight into the
+#: shipped :class:`ProjectedViewEdge` shape (never a projection frame). The
+#: projection ENUM is ALL documents persists — mapping a standard direction to a 3D
+#: frame + running HLR (or, for ``flat_pattern``, running the unfold) is the
+#: geometry service's job (design §1.2 / sheet-metal.md §6/§7), never here.
+ViewProjection = Literal["front", "top", "right", "iso", "flat_pattern"]
+
+#: An unfolded flat-pattern edge's ROLE (sheet-metal.md §6): a ``body`` edge is a
+#: real cut outline; a ``bend`` edge is a fold line (rendered as its own dashed-blue
+#: stroke, not a visible/hidden BODY-edge distinction). Additive to
+#: :class:`ProjectedViewEdge` (defaulting ``body``), so every existing HLR view is
+#: unaffected — the ONE new field the flat-pattern reuse needs (§6).
+EdgeRole = Literal["body", "bend"]
+
+#: A bend's fold sense in a flat pattern's bend table (sheet-metal.md §1/§6).
+BendDirection = Literal["up", "down"]
 
 #: The v1 dimension set (design §3.1).
 DimensionType = Literal["linear", "diameter", "radius", "angular"]
@@ -710,6 +726,14 @@ class ProjectedViewEdge(BaseModel):
         default_factory=list["ProjectedPoint"],
         description="Sampled polyline vertices (empty for line/circle/arc)",
     )
+    edge_role: EdgeRole = Field(
+        default="body",
+        description="Outline role (sheet-metal.md §6): 'body' = a real cut edge "
+        "(every HLR view edge, the default — additive so existing consumers are "
+        "unaffected); 'bend' = a flat-pattern fold line, rendered as its own dashed-"
+        "blue stroke rather than the visible/hidden BODY-edge styling. Orthogonal to "
+        "`visible` (a bend line is neither a solid nor an occluded body edge).",
+    )
     source_edge: EdgeSignature | None = Field(
         default=None,
         description="The MODEL edge this projected edge provenance-maps to (design "
@@ -726,6 +750,49 @@ class ProjectedViewEdge(BaseModel):
         "silhouette/outline edges and ambiguous coincident projections — HONEST "
         "un-dimensionability rather than a wrong signature (§1.5).",
     )
+    start_is_end_a: bool | None = Field(
+        default=None,
+        description="For a STRAIGHT dimensionable edge (design §3.3): True iff this "
+        "edge's canonical `start` projected point corresponds to `source_edge`'s "
+        "canonical `end_a` (False → `end_b`). The model→projected endpoint "
+        "correspondence the lexicographic canonicalisation of `start`/`end` would "
+        "otherwise drop — it lets a point-to-point linear dimension name the correct "
+        "model endpoint (`DimensionEndpointRef.endpoint`) from a picked projected end "
+        "WITHOUT re-deriving the view frame + projection. Null for a non-straight "
+        "edge (circle/arc/polyline) or any edge with no single clean model source "
+        "(silhouette/free-form/ambiguous, §1.5) — same optional-provenance style as "
+        "`source_edge`.",
+    )
+
+
+class BendTableRow(BaseModel):
+    """One row of a flat-pattern view's bend table (sheet-metal.md §6/§7).
+
+    The shop's fold instructions for one bend line: a stable per-bend label
+    (``bend_id``), its fold ``angle_deg`` and inner ``radius_mm``, the fold
+    ``direction`` (up/down relative to the base flange), and the ``bend_allowance_mm``
+    (``BA = angle_rad * (radius + K * thickness)``, §1 — the developed length the
+    flat strip replaces). Every value is already computed by the unfold; documents
+    stores none of it — it is derived geometry-side alongside the flat-pattern edges.
+
+    Correlation to the drawing edges is POSITIONAL, not id-based:
+    :class:`ProjectedViewEdge` carries no id, so the i-th ``edge_role="bend"`` edge
+    (in the view's edge-list order) is this row's fold line — both the bend edges and
+    this table are emitted in the same deterministic fold-position order (§6). A
+    consumer keys a table row to its fold stroke by zipping the ``"bend"`` edges with
+    ``bend_table`` in order, never by matching ``bend_id`` against an edge field.
+    """
+
+    bend_id: str = Field(
+        description="Stable per-bend label (e.g. 'bend-1'); NOT an edge id — "
+        "bend rows correlate to 'bend' edges positionally, in fold-position order (§6)"
+    )
+    angle_deg: float = Field(description="Fold angle (degrees)")
+    radius_mm: float = Field(description="Inner bend radius (mm)")
+    direction: BendDirection = Field(description="Fold sense up/down (§1)")
+    bend_allowance_mm: float = Field(
+        description="Bend allowance BA = angle_rad * (radius + K * thickness), mm (§1)"
+    )
 
 
 class DrawingViewResult(BaseModel):
@@ -738,6 +805,15 @@ class DrawingViewResult(BaseModel):
     ``geometry.drawings.ViewProjectionError``) — never a 500, never a silently
     empty success. A per-view failure NEVER fails the whole request; the other
     requested views still project (mirroring the per-feature/per-mate posture).
+
+    For a ``flat_pattern`` view (sheet-metal.md §7) the SAME ``edges`` list carries
+    the unfold's outline — cut edges as ``edge_role="body"``, fold lines as
+    ``edge_role="bend"`` — and ``bend_table`` carries the per-bend fold data the
+    frontend renders as an annotation table. ``bend_table`` is empty for every
+    standard HLR view (additive — a non-sheet-metal consumer is unaffected). A
+    ``flat_pattern`` asked of a non-sheet-metal body is a typed per-view
+    ``flat_pattern_not_sheet_metal`` error, and an unresolvable bend a
+    ``subshape_unresolved`` (never a wrong flat pattern — §5).
     """
 
     view: ViewProjection = Field(description="The projection direction of this view")
@@ -746,10 +822,16 @@ class DrawingViewResult(BaseModel):
         default_factory=list["ProjectedViewEdge"],
         description="Canonically-ordered visible+hidden 2D edges (empty on error)",
     )
+    bend_table: list[BendTableRow] = Field(
+        default_factory=list["BendTableRow"],
+        description="Per-bend fold rows for a flat_pattern view (sheet-metal.md §6/"
+        "§7); empty for every standard HLR view and on error",
+    )
     error: FeatureError | None = Field(
         default=None,
-        description="Typed per-view HLR failure (`view_projection_failed`), or null "
-        "on success (design §1.5)",
+        description="Typed per-view failure (`view_projection_failed` for HLR, "
+        "`flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern), "
+        "or null on success (design §1.5 / sheet-metal.md §7)",
     )
 
 
@@ -873,4 +955,343 @@ class EvaluateDrawingViewsResult(BaseModel):
         default=None,
         description="Set when the part evaluated to no body (nothing to project or "
         "measure); `views` and `dimensions` are then empty (design §4)",
+    )
+
+
+# --- §4.2 server-composed export contract (drawing-export.md, Approach C) --------
+#
+# The load-bearing decision (drawing-export.md §"one placement source"): the
+# geometry service OWNS drafting placement. `evaluate_drawing_views` (reused
+# VERBATIM) supplies projected geometry + measured values; `place_sheet` then
+# PLACES them on the sheet — view anchoring, extension/dimension lines, arrowheads,
+# angular arc sweep, text position/angle, sibling-collision flip — producing a
+# `ComposedSheet` of placed primitives in sheet-mm (SVG space, y-flip applied).
+# Three pure serializers (`serialize_svg | serialize_pdf | serialize_dxf`) render
+# that ONE model, so the artifact and the on-screen sheet share a single placement
+# source (the `start_is_end_a` unification applied to placement). Kept GENERAL
+# (per-view part intent, a `SheetLayout` that scales to multi-part/assembly)
+# though v1 ships single-part / 4-standard-view / single-scale.
+
+#: The composed-artifact formats (drawing-export.md §libraries). SVG is
+#: dependency-free hand-emitted XML (DE-1a); PDF (reportlab, DE-2) and DXF (ezdxf,
+#: DE-3) are later slices — the composer + `ComposedSheet` are format-agnostic.
+ArtifactFormat = Literal["svg", "pdf", "dxf"]
+
+#: Media type per artifact format. SVG is IANA ``image/svg+xml``; PDF
+#: ``application/pdf``; DXF the widely-recognised ``image/vnd.dxf``.
+ARTIFACT_MEDIA_TYPES: dict[ArtifactFormat, str] = {
+    "svg": "image/svg+xml",
+    "pdf": "application/pdf",
+    "dxf": "image/vnd.dxf",
+}
+
+
+def artifact_filename(title: str, artifact_format: ArtifactFormat) -> str:
+    """A safe download basename for a composed artifact — ``<slug>.<ext>``.
+
+    Ports ``apps/web/src/drawing/exportSvg.ts::sanitizeDrawingFilename`` VERBATIM
+    (lower-case, non-alphanumeric runs → single hyphen, edges trimmed; empty →
+    ``drawing``) so the server-composed download and the client's own SVG export
+    name a file identically. The suggested name only — the artifact bytes are
+    format-determined by ``ARTIFACT_MEDIA_TYPES``.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", title.strip().lower()).strip("-")
+    return f"{slug or 'drawing'}.{artifact_format}"
+
+
+class SheetViewPlacement(BaseModel):
+    """One view's placement on the sheet (drawing-export.md §4.2 SheetLayout).
+
+    GENERAL per-view intent (multi-part/assembly ready): each placed view names
+    its ``projection`` direction, its authored sheet ``position``, and its
+    ``scale``. NB — the composer re-derives view ANCHORS from the projected bounds
+    (``boundsAwareLayout``, the on-screen renderer's behaviour), so ``position`` is
+    carried for generality/persistence but does not drive v1 anchoring; the field
+    that IS load-bearing here is ``projection`` (WHICH views to place and in what
+    order) and ``scale`` (the title-block stamp). v1 ships the 4 standard views at
+    one shared scale.
+    """
+
+    projection: ViewProjection = Field(description="Projection direction of the view")
+    position: SheetPoint = Field(description="Authored sheet position (mm)")
+    scale: ViewScale = Field(
+        default=DEFAULT_VIEW_SCALE, description="View scale (rational; 1:1 default)"
+    )
+
+
+class SheetLayout(BaseModel):
+    """A sheet's layout for composition — size, orientation, title block, views.
+
+    The sheet-side half of a :class:`ComposeDrawingRequest` (drawing-export.md
+    §4.2): the physical sheet (``size``/``orientation``/``projection``), the
+    title-block content, and the placed ``views``. ``title`` is the drawing name
+    stamped in the title block (the on-screen sheet stamps the drawing NAME, not
+    the free-text :class:`TitleBlock` fields, in v1). Kept general so a future
+    multi-part / multi-scale sheet composes through the SAME model.
+    """
+
+    size: SheetSize = Field(default="A4", description="Sheet size (ISO / ANSI)")
+    orientation: SheetOrientation = Field(
+        default="landscape", description="Sheet orientation"
+    )
+    projection: SheetProjectionConvention = Field(
+        default="third_angle",
+        description="Projection convention (third-angle default, design §1.2)",
+    )
+    title: DrawingName = Field(
+        description="Drawing name stamped in the title block (design §4.2)"
+    )
+    title_block: TitleBlock | None = Field(
+        default=None, description="Free-text title block (design §9 q6; v1 unused)"
+    )
+    views: list[SheetViewPlacement] = Field(
+        description="The placed views (which projections to compose + their order)"
+    )
+
+
+class ComposeDrawingRequest(EvaluateDrawingViewsRequest):
+    """Compose a drawing into a placed sheet + serialized artifact (design §4.2).
+
+    Extends :class:`EvaluateDrawingViewsRequest` (the evaluate INPUTS — ``part_id``
+    / ``tree_version`` / ``features`` / ``views`` / ``scale`` / ``dimensions`` are
+    inherited VERBATIM, so composition reuses ``evaluate_drawing_views`` as its
+    sole geometry source, no re-projection) with the ``layout`` (sheet + placed
+    views) and the requested ``format``. The geometry service evaluates the part
+    ONCE, places the sheet (``place_sheet``), and serializes to the requested
+    artifact — deterministic (RESEARCH §9): same request ⇒ byte-identical artifact.
+    """
+
+    layout: SheetLayout = Field(description="Sheet layout (size + title block + views)")
+    format: ArtifactFormat = Field(
+        default="svg", description="Artifact format to serialize (svg | pdf | dxf)"
+    )
+
+
+# --- the composed (placed) sheet — sheet-mm primitives (drawing-export.md §4.2) --
+#
+# `ComposedSheet` is the PLACED-primitive model the three serializers render: every
+# coordinate is in sheet millimetres in FINAL SVG space (y-DOWN, origin top-left —
+# the view y-flip is already applied), so a serializer emits coordinates verbatim
+# and never re-reasons about axes or reflected arc sweeps. It is a pure geometric
+# description (no kernel type, no interactivity) — picks/hover/endpoint handles stay
+# client-side over the neutral `ProjectedViewEdge` list. The placement math that
+# produces it is ported faithfully from the shipped `apps/web/src/drawing/{layout,
+# dimensions}.ts` (parity-gated).
+
+
+class ComposedPoint(BaseModel):
+    """A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin)."""
+
+    x_mm: float = Field(description="X on the sheet (mm, SVG space)")
+    y_mm: float = Field(description="Y on the sheet (mm, SVG space, y-down)")
+
+
+#: Shared help text for the placed-edge ``edge_role`` field — carried THROUGH
+#: composition from the source :class:`ProjectedViewEdge` (sheet-metal.md §6/§7) so a
+#: serializer / the frontend can style a flat-pattern ``bend`` fold line as its own
+#: dashed-blue stroke rather than the visible/hidden BODY-edge styling. ``body`` (the
+#: default) on every HLR view edge — additive, so a standard sheet composes identically.
+_EDGE_ROLE_DESC = (
+    "Outline role carried through composition (sheet-metal.md §6): 'body' (default, "
+    "every HLR edge) or 'bend' (a flat-pattern fold line, styled as a distinct "
+    "dashed-blue stroke). Orthogonal to `visible`."
+)
+
+
+class ComposedLineEdge(BaseModel):
+    """A placed straight projected edge (sheet-mm SVG space)."""
+
+    kind: Literal["line"] = "line"
+    visible: bool = Field(description="True = solid; False = hidden (dashed)")
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    edge_role: EdgeRole = Field(default="body", description=_EDGE_ROLE_DESC)
+
+
+class ComposedCircleEdge(BaseModel):
+    """A placed projected circle — exact (a Ø/radius dimension reads its radius)."""
+
+    kind: Literal["circle"] = "circle"
+    visible: bool = Field(description="True = solid; False = hidden (dashed)")
+    cx: float
+    cy: float
+    r: float
+    edge_role: EdgeRole = Field(default="body", description=_EDGE_ROLE_DESC)
+
+
+class ComposedPolylineEdge(BaseModel):
+    """A placed sampled edge (arc / free-form) as a polyline (sheet-mm SVG space)."""
+
+    kind: Literal["polyline"] = "polyline"
+    visible: bool = Field(description="True = solid; False = hidden (dashed)")
+    points: list[ComposedPoint] = Field(description="Ordered vertices (SVG space)")
+    edge_role: EdgeRole = Field(default="body", description=_EDGE_ROLE_DESC)
+
+
+#: A placed view edge — the boundary twin of the frontend ``SvgEdge`` union.
+ComposedEdge = Annotated[
+    ComposedLineEdge | ComposedCircleEdge | ComposedPolylineEdge,
+    Field(discriminator="kind"),
+]
+
+
+class ComposedDimLine(BaseModel):
+    """One straight rule of a placed dimension (extension or dimension line)."""
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    role: Literal["extension", "dimension"] = Field(
+        description="`extension` = thin witness line; `dimension` = arrowed measure"
+    )
+
+
+class ComposedArrow(BaseModel):
+    """A filled arrowhead triangle — tip + two barb wings, in order (SVG space)."""
+
+    points: list[ComposedPoint] = Field(description="The three triangle vertices")
+
+
+class ComposedDimText(BaseModel):
+    """A placed dimension's stamped value — position, upright angle, label string."""
+
+    x: float
+    y: float
+    angle: float = Field(description="Upright text angle (degrees)")
+    value: str = Field(description="Stamped label ('Ø10.000' / '~40.000' / '90.0°')")
+
+
+class ComposedMeasuredDimension(BaseModel):
+    """A placed, measured dimension: rules + arrowheads + the stamped value."""
+
+    kind: Literal["measured"] = "measured"
+    dimension_id: uuid.UUID | None = Field(
+        default=None, description="Correlation id (echoes the request), or null"
+    )
+    dimension_type: DimensionType = Field(description="linear/diameter/radius/angular")
+    lines: list[ComposedDimLine] = Field(description="Extension + dimension lines")
+    arrows: list[ComposedArrow] = Field(description="Filled arrowhead triangles")
+    text: ComposedDimText = Field(description="The stamped value")
+    foreshortened: bool = Field(
+        default=False,
+        description="True: model-true value, foreshortened drawn length (§3.2)",
+    )
+
+
+class ComposedDimensionError(BaseModel):
+    """A placed dimension the model could not measure — an honest marker (§3.3)."""
+
+    kind: Literal["error"] = "error"
+    dimension_id: uuid.UUID | None = Field(
+        default=None, description="Correlation id (echoes the request), or null"
+    )
+    dimension_type: DimensionType = Field(description="linear/diameter/radius/angular")
+    at: ComposedPoint = Field(description="Marker position (SVG space)")
+    code: str = Field(description="Typed measurement-failure code (never a value)")
+
+
+#: A placed dimension — measured (full geometry) or a typed error marker.
+ComposedDimension = Annotated[
+    ComposedMeasuredDimension | ComposedDimensionError,
+    Field(discriminator="kind"),
+]
+
+
+class ComposedView(BaseModel):
+    """One placed view on the sheet — its edges, dimensions, caption (design §4.2).
+
+    ``failed`` marks a view with no projection (an HLR failure or an absent
+    result): the serializer stamps a "VIEW FAILED" placeholder at ``anchor`` and
+    ``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space
+    (the placeholder + caption reference it); ``label``/``label_pos`` are the
+    stamped caption ("FRONT") and its position.
+    """
+
+    projection: ViewProjection = Field(description="Projection direction")
+    failed: bool = Field(description="True when the view has no projected geometry")
+    anchor: ComposedPoint = Field(description="View-centre in SVG space")
+    label: str = Field(description="Caption text (e.g. 'FRONT')")
+    label_pos: ComposedPoint = Field(description="Caption position (SVG space)")
+    edges: list[ComposedEdge] = Field(
+        default_factory=list["ComposedEdge"], description="Placed projected edges"
+    )
+    dimensions: list[ComposedDimension] = Field(
+        default_factory=list["ComposedDimension"], description="Placed dimensions"
+    )
+
+
+class ComposedTitleBlock(BaseModel):
+    """The placed bottom-right title block (drawing-export.md §4.2).
+
+    Geometry (box + the two internal rules) plus the three stamped values (drawing
+    ``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed
+    captions ("TITLE" / "SCALE" / "SIZE" / "LOFT · PART DRAWING") are the
+    serializer's rendering constants (matching the on-screen title block).
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+    split_x: float = Field(description="X of the vertical rule (left | right cells)")
+    mid_y: float = Field(description="Y of the horizontal rule in the right cell")
+    title: str = Field(description="Drawing title, truncated to fit the cell")
+    scale: str = Field(description="Scale label ('1:1')")
+    size: str = Field(description="Sheet size, display form ('A4', 'ANSI A')")
+
+
+class ComposedBendTable(BaseModel):
+    """A flat-pattern sheet's placed bend-table annotation block (sheet-metal.md §6/§7).
+
+    The shop's fold instructions for the placed flat blank, laid out as a quiet-corner
+    block: the rectangle it occupies (``x``/``y``/``width``/``height`` in FINAL sheet-
+    SVG space — y-down, top-left origin, the same space every other placed primitive
+    uses) plus the per-bend ``rows`` (the :class:`BendTableRow` data the flat-pattern
+    :class:`DrawingViewResult` already carries, passed through unchanged). The block is
+    placed clear of the flat blank's drawn extent so it never overlaps the geometry.
+
+    Correlation to the placed fold strokes is POSITIONAL (sheet-metal.md §6), never an
+    id linkage: the i-th ``rows`` entry pairs with the i-th ``edge_role="bend"``
+    :class:`ComposedEdge` of the flat-pattern view, both in the unfold's deterministic
+    fold-position order. A consumer zips the ``"bend"`` edges with ``rows`` in order.
+    """
+
+    x: float = Field(description="Block left edge (mm, SVG space)")
+    y: float = Field(description="Block top edge (mm, SVG space, y-down)")
+    width: float = Field(description="Block width (mm)")
+    height: float = Field(description="Block height (mm)")
+    rows: list[BendTableRow] = Field(
+        description="Per-bend fold rows, in fold-position order (positionally paired "
+        "with the flat-pattern view's `edge_role='bend'` edges, §6)"
+    )
+
+
+class ComposedSheet(BaseModel):
+    """A fully placed drawing sheet — the model the three serializers render (§4.2).
+
+    Every coordinate is sheet-mm in final SVG space (y-down, top-left origin). The
+    product of ``geometry.drawings.compose.place_sheet`` — a pure function of the
+    evaluated geometry + the :class:`SheetLayout` (deterministic, RESEARCH §9). The
+    paper + border rectangles are pure functions of ``width_mm``/``height_mm``/
+    ``margin_mm`` (the serializer derives them), keeping this model lean.
+    """
+
+    width_mm: float = Field(description="Sheet width (mm) — the SVG viewBox width")
+    height_mm: float = Field(description="Sheet height (mm) — the SVG viewBox height")
+    margin_mm: float = Field(description="Border inset from the sheet edge (mm)")
+    title: str = Field(description="Drawing name (metadata / accessible label)")
+    scale_label: str = Field(description="The sheet scale label ('1:1')")
+    views: list[ComposedView] = Field(
+        default_factory=list["ComposedView"],
+        description="Placed views in canonical (front/top/right/iso) order",
+    )
+    title_block: ComposedTitleBlock = Field(description="The placed title block")
+    bend_table: ComposedBendTable | None = Field(
+        default=None,
+        description="A flat-pattern sheet's placed bend-table block (rows + anchor "
+        "rect, sheet-metal.md §7); null for every standard (HLR) sheet — additive, so "
+        "a standard sheet composes byte-identically.",
     )

@@ -269,8 +269,9 @@ def _plate_body() -> Solid:
             part_id=UUID(int=1), tree_version=1, features=_plate_features()
         )
     )
-    assert evaluation.body is not None, "the plate golden must evaluate to a body"
-    return evaluation.body
+    body = evaluation.body
+    assert isinstance(body, Solid), "the plate golden must evaluate to one solid body"
+    return body
 
 
 def _first_sig(body: Solid, predicate: Any) -> EdgeSignature:

@@ -15,11 +15,11 @@ entry points cannot drift from each other (CLAUDE.md DRY rule).
 
 import json
 
-from build123d import Solid
 from py_kit.schemas.features import EvaluateTreeRequest
 
 from geometry.features import evaluate_tree
 from geometry.kernel import build_shape, evaluate_tessellation
+from geometry.kernel.types import BodyShape
 from geometry.schemas import TessellateRequest, TessellationMetadata
 
 #: Everything a golden's ``model.json`` may deserialize to.
@@ -67,7 +67,7 @@ def evaluate_model(request: ModelRequest) -> tuple[bytes, TessellationMetadata]:
     )
 
 
-def build_model_solid(request: ModelRequest) -> Solid:
+def build_model_solid(request: ModelRequest) -> BodyShape:
     """Rebuild a golden model to its B-rep solid (STEP round-trip gate)."""
     if isinstance(request, TessellateRequest):
         return build_shape(request)

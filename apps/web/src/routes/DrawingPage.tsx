@@ -1,14 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { drawing } from "@loft/design";
+
 import {
-  type DimensionParams,
+  type BendTableRow,
   type DimensionResponse,
   type DrawingDimensionInput,
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
   type ViewProjection,
+  composeDrawingSheet,
   createDimension,
   createSheet,
   createView,
@@ -18,19 +21,34 @@ import {
 } from "../api/drawings";
 import { fetchFeatureTree, fetchParts } from "../api/parts";
 import { Breadcrumb } from "../components/Breadcrumb";
-import {
-  type AuthorableType,
-  DimensionAuthorMenu,
-} from "../components/DimensionAuthorMenu";
+import { DimensionAuthorMenu } from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
 import {
   DrawingSheet,
   type EdgePickEvent,
+  type EndpointPickEvent,
   edgeKey,
+  vertexKey,
 } from "../components/DrawingSheet";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
+import {
+  IDLE,
+  type AuthoringState,
+  type DimensionAction,
+  armAngular,
+  armedSignatures,
+  buildDimension,
+  menuActions,
+  menuAnchor,
+  pickEdge,
+  pickEndpoint,
+  pickHint,
+  selectedEndpoints,
+} from "../drawing/authoring";
+import { type DrawingExportFormat, exportDrawing } from "../api/exportDrawing";
+import { downloadBlob } from "../api/exportPart";
 import { formatDimensionLabel } from "../drawing/dimensions";
 import { exportSheetSvg } from "../drawing/exportSvg";
 import {
@@ -42,24 +60,6 @@ import {
 } from "../drawing/layout";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { drawingRoute } from "../router";
-
-/** Build the create-payload params for a dimension on a picked model edge. */
-function dimensionParamsFor(
-  type: AuthorableType,
-  sourceEdge: EdgePickEvent["sourceEdge"],
-): DimensionParams {
-  switch (type) {
-    case "diameter":
-      return { type: "diameter", edge: sourceEdge };
-    case "radius":
-      return { type: "radius", edge: sourceEdge };
-    case "linear":
-      return {
-        type: "linear",
-        measurement: { mode: "edge_length", edge: sourceEdge },
-      };
-  }
-}
 
 /** The scale (num/den) for a picker value like "1:2", defaulting to 1:1. */
 function scaleFromValue(value: string): {
@@ -92,6 +92,20 @@ export function DrawingPage() {
   const docVersion = tree?.doc_version ?? 0;
   const sheet = tree?.sheets[0]?.sheet ?? null;
   const views = useMemo(() => tree?.sheets[0]?.views ?? [], [tree]);
+  // The projections actually persisted on the sheet — the SET we evaluate (so a
+  // flat-pattern sheet evaluates `flat_pattern`, carrying its bend-table +
+  // provenance + any typed failure). Falls back to the standard four before layout.
+  const requestedViews = useMemo<ViewProjection[]>(() => {
+    const seen = new Set<ViewProjection>();
+    const ordered: ViewProjection[] = [];
+    for (const view of views) {
+      if (seen.has(view.projection)) continue;
+      seen.add(view.projection);
+      ordered.push(view.projection);
+    }
+    return ordered.length > 0 ? ordered : [...STANDARD_VIEWS];
+  }, [views]);
+  const isFlatPatternSheet = requestedViews.includes("flat_pattern");
   const dimensions = useMemo<readonly DimensionResponse[]>(
     () => tree?.sheets[0]?.dimensions ?? [],
     [tree],
@@ -104,17 +118,6 @@ export function DrawingPage() {
     for (const view of views) map.set(view.id, view.projection);
     return map;
   }, [views]);
-  const dimensionsByView = useMemo(() => {
-    const map = new Map<ViewProjection, DimensionResponse[]>();
-    for (const dim of dimensions) {
-      const projection = projectionByViewId.get(dim.view_id);
-      if (!projection) continue;
-      const list = map.get(projection) ?? [];
-      list.push(dim);
-      map.set(projection, list);
-    }
-    return map;
-  }, [dimensions, projectionByViewId]);
   // The evaluate-request twin of the stored dimensions (each tagged with its
   // view) — geometry measures these against the SAME body it projects (§3.1).
   const dimensionInputs = useMemo<DrawingDimensionInput[]>(() => {
@@ -169,6 +172,7 @@ export function DrawingPage() {
       effectivePartId,
       partTree?.tree_version,
       effectiveScaleValue,
+      requestedViews.join(","),
       // Re-measure whenever a dimension is added/removed (any mutation bumps it).
       docVersion,
     ],
@@ -179,7 +183,7 @@ export function DrawingPage() {
         part_id: t.part_id,
         tree_version: t.tree_version,
         scale: scaleFromValue(effectiveScaleValue),
-        views: [...STANDARD_VIEWS],
+        views: requestedViews,
         features: t.features
           .filter((feature) => !feature.rolled_back)
           .map((feature) => ({ id: feature.id, feature: feature.feature })),
@@ -204,6 +208,25 @@ export function DrawingPage() {
     }
     return map;
   }, [evaluation]);
+
+  // The server-composed sheet (DE-1c): the SINGLE placement source the sheet
+  // renders from. The gateway `/sheet` route reads the drawing's persisted state
+  // and composes it — the browser computes no layout. Keyed identically to the
+  // evaluate query so the VISUAL (composed) and the PICK provenance (evaluate)
+  // move in lockstep: a reproject / new dimension refetches both together.
+  const sheetQuery = useQuery({
+    queryKey: [
+      "drawing-sheet",
+      effectivePartId,
+      partTree?.tree_version,
+      effectiveScaleValue,
+      docVersion,
+    ],
+    enabled: hasLayout && partTree !== undefined,
+    queryFn: () => composeDrawingSheet(drawingId),
+    staleTime: Infinity,
+  });
+  const composed = sheetQuery.data;
 
   // ---------------------------------------------------------------------
   // The auto-layout action: create the sheet (if needed) + the four views,
@@ -270,11 +293,70 @@ export function DrawingPage() {
     queryClient,
   ]);
 
+  // The flat-pattern action: create the sheet (if needed) + a single flat_pattern
+  // view (the lone unfold blank + its bend table, sheet-metal.md §7). A part with
+  // no sheet-metal bends composes an honest `flat_pattern_not_sheet_metal` failed
+  // view — surfaced inline, never a crash.
+  const handleFlatPattern = useCallback(() => {
+    if (hasLayout || selectedPartId === null || busy) return;
+    setBusy(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        let version = docVersion;
+        let sheetId = sheet?.id ?? null;
+        if (sheetId === null) {
+          const created = await createSheet(drawingId, {
+            name: "Sheet 1",
+            size: "A4",
+            orientation: "landscape",
+            projection: "third_angle",
+            expected_version: version,
+          });
+          version = created.doc_version;
+          sheetId = created.sheet.id;
+        }
+        const dims = sheetDimensions("A4", "landscape");
+        const created = await createView(drawingId, sheetId, {
+          projection: "flat_pattern",
+          ref_document_id: selectedPartId,
+          ref_document_kind: "part",
+          scale: scaleFromValue(scaleValue),
+          position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+          expected_version: version,
+        });
+        version = created.doc_version;
+        await queryClient.invalidateQueries({
+          queryKey: ["drawing", drawingId],
+        });
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The flat pattern could not be laid out.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [
+    hasLayout,
+    selectedPartId,
+    busy,
+    docVersion,
+    sheet,
+    drawingId,
+    scaleValue,
+    queryClient,
+  ]);
+
   const handleReproject = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ["drawing-part-tree", effectivePartId],
     });
     void queryClient.invalidateQueries({ queryKey: ["drawing-eval"] });
+    // Re-compose the placed sheet too (the VISUAL source) so a reproject repaints.
+    void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
   }, [queryClient, effectivePartId]);
 
   // ---------------------------------------------------------------------
@@ -299,31 +381,121 @@ export function DrawingPage() {
   }, [tree]);
 
   // ---------------------------------------------------------------------
-  // Dimension authoring: pick a dimensionable edge → choose a valid type →
-  // persist it (CRUD) → the re-evaluate measures + renders it model-true.
+  // Server-composed export (DE-2 PDF, DE-3 DXF): the shop deliverables. Unlike
+  // Export SVG (which serializes the on-screen <svg>), the gateway composes the
+  // sheet from the SAME persisted placement — byte-deterministic — and streams
+  // the artifact bytes back, which we hand to the browser as a named download.
+  // ONE in-flight + error path drives every server format (DRY); the SVG path
+  // stays separate because it is a synchronous client-side serialize.
   // ---------------------------------------------------------------------
-  const [pick, setPick] = useState<EdgePickEvent | null>(null);
-  const [dimBusy, setDimBusy] = useState(false);
-  const selectedEdgeKey = pick
-    ? edgeKey(pick.projection, pick.sourceEdge)
-    : null;
-
-  const handleAuthorDimension = useCallback(
-    (type: AuthorableType) => {
-      if (pick === null || dimBusy) return;
-      setDimBusy(true);
+  const [exporting, setExporting] = useState(false);
+  const runServerExport = useCallback(
+    (format: DrawingExportFormat) => {
+      if (!hasLayout || exporting) return;
+      setExporting(true);
       setActionError(null);
-      const target = pick;
       void (async () => {
         try {
-          await createDimension(drawingId, target.viewId, {
-            dimension: dimensionParamsFor(type, target.sourceEdge),
+          const { blob, filename } = await exportDrawing(drawingId, format);
+          downloadBlob(blob, filename);
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : `The drawing could not be exported to ${format.toUpperCase()}.`,
+          );
+        } finally {
+          setExporting(false);
+        }
+      })();
+    },
+    [hasLayout, exporting, drawingId],
+  );
+  const handleExportPdf = useCallback(
+    () => runServerExport("pdf"),
+    [runServerExport],
+  );
+  const handleExportDxf = useCallback(
+    () => runServerExport("dxf"),
+    [runServerExport],
+  );
+
+  // ---------------------------------------------------------------------
+  // Dimension authoring: pick sheet geometry → choose a valid type → persist it
+  // (CRUD) → the re-evaluate measures + renders it model-true. Most types take
+  // one pick; angular takes two straight edges and point-to-point two endpoints,
+  // staged through the pure `authoring` state machine (design §3.1/§3.3).
+  // ---------------------------------------------------------------------
+  const [authoring, setAuthoring] = useState<AuthoringState>(IDLE);
+  const [dimBusy, setDimBusy] = useState(false);
+
+  // Highlight sets the sheet reads: the single selected edge, all armed edges,
+  // and the selected endpoint handles for the in-progress pick.
+  const armed = armedSignatures(authoring);
+  const selectedEdgeKey = armed[0]
+    ? edgeKey(armed[0].projection, armed[0].sourceEdge)
+    : null;
+  const armedEdgeKeys = armed.map((a) => edgeKey(a.projection, a.sourceEdge));
+  const selectedVertexKeys = selectedEndpoints(authoring).map((e) =>
+    vertexKey(e.projection, e.sourceEdge, e.endpoint),
+  );
+  // A point-to-point pick is in progress — reveal every endpoint handle (and put
+  // it in the tab order) so the second vertex is reachable on any edge; at rest
+  // handles only appear on their edge's hover/focus (frontend-QA P2).
+  const endpointPickActive =
+    authoring.kind === "one-endpoint" || authoring.kind === "p2p-ready";
+  const menuActionList = menuActions(authoring);
+  const anchor = menuAnchor(authoring);
+  const hint = pickHint(authoring);
+
+  const handlePickEdge = useCallback((event: EdgePickEvent) => {
+    setAuthoring((state) =>
+      pickEdge(state, {
+        projection: event.projection,
+        viewId: event.viewId,
+        sourceEdge: event.sourceEdge,
+        primitive: event.primitive,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      }),
+    );
+  }, []);
+
+  const handlePickEndpoint = useCallback((event: EndpointPickEvent) => {
+    setAuthoring((state) =>
+      pickEndpoint(state, {
+        projection: event.projection,
+        viewId: event.viewId,
+        sourceEdge: event.sourceEdge,
+        endpoint: event.endpoint,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      }),
+    );
+  }, []);
+
+  const handleChooseAction = useCallback(
+    (action: DimensionAction) => {
+      if (dimBusy) return;
+      // "Angle" arms a second-edge pick rather than authoring immediately.
+      if (action === "start_angular") {
+        setAuthoring((state) => armAngular(state));
+        return;
+      }
+      const built = buildDimension(authoring, action);
+      if (built === null) return;
+      setDimBusy(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await createDimension(drawingId, built.viewId, {
+            dimension: built.params,
             expected_version: docVersion,
           });
           await queryClient.invalidateQueries({
             queryKey: ["drawing", drawingId],
           });
-          setPick(null);
+          setAuthoring(IDLE);
         } catch (error) {
           setActionError(
             error instanceof Error
@@ -335,7 +507,7 @@ export function DrawingPage() {
         }
       })();
     },
-    [pick, dimBusy, drawingId, docVersion, queryClient],
+    [authoring, dimBusy, drawingId, docVersion, queryClient],
   );
 
   const handleDeleteDimension = useCallback(
@@ -367,7 +539,7 @@ export function DrawingPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setPick(null);
+        setAuthoring(IDLE);
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -377,21 +549,48 @@ export function DrawingPage() {
         if (hasLayout) handleReproject();
         else handleLayout();
       }
+      // F unfolds the flat pattern (a lone flat blank + bend table). No-op once
+      // laid out (mirrors the command band's Flat pattern action).
+      if (event.key.toLowerCase() === "f" && !hasLayout) {
+        event.preventDefault();
+        handleFlatPattern();
+      }
       // E exports the laid-out sheet to a .svg (keyboard-first, mirrors the
       // command band's Export SVG action). No-op before layout.
       if (event.key.toLowerCase() === "e" && hasLayout) {
         event.preventDefault();
         handleExportSvg();
       }
+      // P server-composes the laid-out sheet to a .pdf (the shop deliverable),
+      // mirroring the command band's Export PDF action. No-op before layout.
+      if (event.key.toLowerCase() === "p" && hasLayout) {
+        event.preventDefault();
+        handleExportPdf();
+      }
+      // D server-composes the laid-out sheet to a .dxf (the interchange
+      // deliverable), mirroring the command band's Export DXF action.
+      if (event.key.toLowerCase() === "d" && hasLayout) {
+        event.preventDefault();
+        handleExportDxf();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hasLayout, handleLayout, handleReproject, handleExportSvg]);
+  }, [
+    hasLayout,
+    handleLayout,
+    handleFlatPattern,
+    handleReproject,
+    handleExportSvg,
+    handleExportPdf,
+    handleExportDxf,
+  ]);
 
   const draftedPartName =
     parts.find((part) => part.id === draftedPartId)?.name ?? null;
 
-  const projecting = evalQuery.isFetching || partTreeQuery.isFetching;
+  const projecting =
+    evalQuery.isFetching || partTreeQuery.isFetching || sheetQuery.isFetching;
 
   return (
     <div className="flex h-full flex-col">
@@ -414,10 +613,15 @@ export function DrawingPage() {
             scaleValue={effectiveScaleValue}
             onSelectScale={setScaleValue}
             hasLayout={hasLayout}
+            isFlatPattern={isFlatPatternSheet}
             draftedPartName={draftedPartName}
             onLayout={handleLayout}
+            onFlatPattern={handleFlatPattern}
             onReproject={handleReproject}
             onExportSvg={handleExportSvg}
+            onExportPdf={handleExportPdf}
+            onExportDxf={handleExportDxf}
+            exporting={exporting}
             busy={busy || projecting}
           />
         ) : null}
@@ -448,22 +652,41 @@ export function DrawingPage() {
             title="Loading drawing…"
             body="Fetching the sheet."
           />
-        ) : hasLayout && sheet ? (
+        ) : hasLayout && sheet && composed ? (
           // Reserve the right gutter for the Views panel so the paper never
           // slides under it (the panel would clip the sheet's framed corner).
           <div className="absolute inset-0 flex items-center justify-center p-6 sm:p-10 lg:pr-[22rem]">
             <DrawingSheet
               svgRef={sheetSvgRef}
-              sheet={sheet}
+              composed={composed}
               views={views}
               resultByProjection={resultByProjection}
-              title={tree.drawing.name}
-              dimensionsByView={dimensionsByView}
-              measuredById={measuredById}
               selectedEdgeKey={selectedEdgeKey}
-              onPickEdge={setPick}
+              armedEdgeKeys={armedEdgeKeys}
+              selectedVertexKeys={selectedVertexKeys}
+              endpointPickActive={endpointPickActive}
+              onPickEdge={handlePickEdge}
+              onPickEndpoint={handlePickEndpoint}
             />
           </div>
+        ) : hasLayout && sheet && sheetQuery.isError ? (
+          <CenterNote
+            testId="drawing-compose-error"
+            tone="error"
+            title="Sheet could not be composed"
+            body={
+              sheetQuery.error instanceof Error
+                ? sheetQuery.error.message
+                : "Reload and try again."
+            }
+          />
+        ) : hasLayout && sheet ? (
+          <CenterNote
+            testId="drawing-composing"
+            tone="quiet"
+            title="Composing sheet…"
+            body="Placing the standard views."
+          />
         ) : (
           <SetupHint hasParts={parts.length > 0} />
         )}
@@ -518,7 +741,11 @@ export function DrawingPage() {
             <div className="flex flex-col gap-3">
               <ViewsPanel
                 projecting={projecting}
+                projections={requestedViews}
                 resultByProjection={resultByProjection}
+              />
+              <BendSchedulePanel
+                rows={resultByProjection.get("flat_pattern")?.bend_table ?? []}
               />
               <DimensionsPanel
                 dimensions={dimensions}
@@ -530,21 +757,42 @@ export function DrawingPage() {
           </FloatingPanel>
         ) : null}
 
-        {/* The dimension author menu — opens by a picked, dimensionable edge. */}
-        {pick ? (
+        {/* A "pick the second …" hint while a two-pick dimension is in progress
+            (angular / point-to-point). Non-modal so the sheet stays live for the
+            second pick; Esc cancels. */}
+        {hint ? (
+          <div
+            role="status"
+            data-testid="dimension-pick-hint"
+            className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 border border-brass/60 bg-anvil px-3 py-1.5 shadow-float"
+          >
+            <span className="font-display text-2xs uppercase tracking-[0.16em] text-brass">
+              {hint}
+            </span>
+            <span className="ml-2 font-body text-2xs text-gauge">
+              Esc to cancel
+            </span>
+          </div>
+        ) : null}
+
+        {/* The gated dimension author menu — opens by the completing pick. A
+            backdrop closes it on an outside click; it renders only for a menu
+            state (a single-edge / two-edge / two-endpoint selection), never
+            while a second pick is still being made. */}
+        {anchor && menuActionList.length > 0 ? (
           <>
             <div
               className="fixed inset-0 z-40"
               aria-hidden="true"
-              onClick={() => setPick(null)}
+              onClick={() => setAuthoring(IDLE)}
             />
             <DimensionAuthorMenu
-              primitive={pick.primitive}
-              x={pick.clientX}
-              y={pick.clientY}
+              actions={menuActionList}
+              x={anchor.x}
+              y={anchor.y}
               busy={dimBusy}
-              onChoose={handleAuthorDimension}
-              onClose={() => setPick(null)}
+              onChoose={handleChooseAction}
+              onClose={() => setAuthoring(IDLE)}
             />
           </>
         ) : null}
@@ -602,7 +850,7 @@ function SetupHint({ hasParts }: { hasParts: boolean }) {
         </h2>
         <p className="mt-1 font-body text-sm text-gauge">
           {hasParts
-            ? "Choose a part and scale above, then lay out the standard views — front, top, right and isometric drop onto the sheet."
+            ? "Choose a part and scale above, then lay out the standard views — front, top, right and isometric — or unfold a sheet-metal part's flat pattern with its bend table."
             : "A drawing projects a part. Model a part, then return to draft it."}
         </p>
       </div>
@@ -610,19 +858,28 @@ function SetupHint({ hasParts }: { hasParts: boolean }) {
   );
 }
 
-/** The right-hand "Views" panel — a functional legend + per-view line count. */
+/** The right-hand "Views" panel — a functional legend + per-view line count. It
+ * lists exactly the projections placed on the sheet (the standard four, or a lone
+ * flat pattern), and its legend gains the FOLD-LINE swatch when a flat pattern is
+ * present (the sheet-metal signature stroke), reading from the same `drawing`
+ * token both renderers share. */
 function ViewsPanel({
   projecting,
+  projections,
   resultByProjection,
 }: {
   projecting: boolean;
+  projections: readonly ViewProjection[];
   resultByProjection: Map<ViewProjection, DrawingViewResult>;
 }) {
+  const flatPattern = projections.includes("flat_pattern");
+  const bendCount =
+    resultByProjection.get("flat_pattern")?.bend_table?.length ?? 0;
   return (
     <div className="border border-hairline bg-anvil">
       <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
         <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-          Standard views
+          {flatPattern ? "Flat pattern" : "Standard views"}
         </h2>
         <span className="grow" />
         {projecting ? (
@@ -635,7 +892,7 @@ function ViewsPanel({
         ) : null}
       </header>
       <ul className="divide-y divide-hairline">
-        {STANDARD_VIEWS.map((projection) => {
+        {projections.map((projection) => {
           const result = resultByProjection.get(projection);
           const failed = Boolean(result?.error);
           const count = result?.edges?.length ?? 0;
@@ -660,6 +917,17 @@ function ViewsPanel({
           );
         })}
       </ul>
+      {flatPattern && bendCount > 0 ? (
+        <div
+          className="flex items-center justify-between border-t border-hairline px-3 py-1.5"
+          data-testid="drawing-bend-count"
+        >
+          <span className="font-body text-xs text-mist">Bends</span>
+          <span className="font-data text-2xs tabular-nums text-gauge">
+            {bendCount}
+          </span>
+        </div>
+      ) : null}
       <div className="border-t border-hairline px-3 py-2">
         <div className="flex items-center gap-2 py-0.5">
           <svg width="26" height="6" aria-hidden="true">
@@ -673,24 +941,164 @@ function ViewsPanel({
               className="text-mist"
             />
           </svg>
-          <span className="font-body text-2xs text-gauge">Visible edge</span>
+          <span className="font-body text-2xs text-gauge">
+            {flatPattern ? "Cut edge" : "Visible edge"}
+          </span>
         </div>
-        <div className="flex items-center gap-2 py-0.5">
-          <svg width="26" height="6" aria-hidden="true">
-            <line
-              x1="0"
-              y1="3"
-              x2="26"
-              y2="3"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeDasharray="4 3"
-              className="text-gauge"
-            />
-          </svg>
-          <span className="font-body text-2xs text-gauge">Hidden edge</span>
-        </div>
+        {flatPattern ? (
+          // The fold-line swatch — the sheet-metal signature stroke, drawn in the
+          // exact `drawing.bend` ink AND `bendDash/Gap` pattern the real fold
+          // stroke uses, so the legend can never drift from the stroke.
+          <div className="flex items-center gap-2 py-0.5">
+            <svg width="26" height="6" aria-hidden="true">
+              <line
+                x1="0"
+                y1="3"
+                x2="26"
+                y2="3"
+                stroke={drawing.bend}
+                strokeWidth="1.5"
+                strokeDasharray={`${drawing.bendDashMm} ${drawing.bendGapMm}`}
+              />
+            </svg>
+            <span className="font-body text-2xs text-gauge">Fold line</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 py-0.5">
+            <svg width="26" height="6" aria-hidden="true">
+              <line
+                x1="0"
+                y1="3"
+                x2="26"
+                y2="3"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                // Same token pattern the hidden-edge stroke draws (was "4 3").
+                strokeDasharray={`${drawing.hiddenDashMm} ${drawing.hiddenGapMm}`}
+                className="text-gauge"
+              />
+            </svg>
+            <span className="font-body text-2xs text-gauge">Hidden edge</span>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+/** The formatted display cells for one bend-schedule row — the same values the
+ * SVG bend table stamps (angle°, R-radius, UP/DOWN, allowance), so the DOM text
+ * a screen reader reads matches the printed sheet. */
+function bendScheduleCells(row: BendTableRow): {
+  angle: string;
+  radius: string;
+  dir: string;
+  allow: string;
+} {
+  return {
+    angle: `${row.angle_deg.toFixed(1)}°`,
+    radius: `R${row.radius_mm.toFixed(2)}`,
+    dir: row.direction === "up" ? "UP" : "DOWN",
+    allow: row.bend_allowance_mm.toFixed(2),
+  };
+}
+
+/**
+ * The Bend schedule — a TEXT-accessible twin of the flat-pattern sheet's SVG
+ * bend table (which renders inside a `role="img"` sheet, so assistive tech never
+ * reads the per-bend values). A real `<table>` with column headers so AT reads
+ * each cell's meaning (angle / radius / direction / allowance); each row keys
+ * POSITIONALLY to the flat view's `edge_role="bend"` fold lines — the i-th row ↔
+ * the i-th bend edge (`data-bend-index`), the SAME contract the visual table
+ * uses, never a `bend_id` join. Rendered only for a flat pattern with bends.
+ */
+function BendSchedulePanel({ rows }: { rows: readonly BendTableRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div
+      className="border border-hairline bg-anvil"
+      data-testid="bend-schedule-panel"
+    >
+      <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
+        <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+          Bend schedule
+        </h2>
+        <span className="grow" />
+        <span className="font-data text-2xs tabular-nums text-gauge">
+          {rows.length}
+        </span>
+      </header>
+      <table
+        className="w-full border-collapse"
+        aria-label={`Bend schedule, ${rows.length} bends`}
+      >
+        <caption className="sr-only">
+          Fold instructions per bend, in fold-position order: fold angle, inner
+          radius in millimetres, direction, and bend allowance in millimetres.
+        </caption>
+        <thead>
+          <tr className="border-b border-hairline">
+            <th
+              scope="col"
+              className="px-3 py-1.5 text-left font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Bend
+            </th>
+            <th
+              scope="col"
+              className="px-2 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Angle
+            </th>
+            <th
+              scope="col"
+              className="px-2 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Radius
+            </th>
+            <th
+              scope="col"
+              className="px-2 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Dir
+            </th>
+            <th
+              scope="col"
+              className="px-3 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Allow mm
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-hairline">
+          {rows.map((row, i) => {
+            const cells = bendScheduleCells(row);
+            return (
+              <tr
+                key={i}
+                data-testid="bend-schedule-row"
+                data-bend-index={String(i)}
+              >
+                <td className="px-3 py-1.5 text-left font-data text-2xs text-mist">
+                  {row.bend_id}
+                </td>
+                <td className="px-2 py-1.5 text-right font-data text-2xs tabular-nums text-mist">
+                  {cells.angle}
+                </td>
+                <td className="px-2 py-1.5 text-right font-data text-2xs tabular-nums text-mist">
+                  {cells.radius}
+                </td>
+                <td className="px-2 py-1.5 text-right font-data text-2xs text-gauge">
+                  {cells.dir}
+                </td>
+                <td className="px-3 py-1.5 text-right font-data text-2xs tabular-nums text-mist">
+                  {cells.allow}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

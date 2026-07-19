@@ -45,6 +45,9 @@ from collections.abc import Sequence
 
 from build123d import Axis, Solid, Vector
 
+from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.types import BodyShape
+
 #: Minimum magnitude (mm-agnostic) for a direction/axis vector to define a
 #: direction. Aligned with the kernel linear tolerance posture (1e-7 m); below
 #: it the vector has no usable direction.
@@ -91,60 +94,71 @@ def _check_count(count: int) -> None:
         )
 
 
-def _fuse_and_finalize(body: Solid, copies: Sequence[Solid], count: int) -> Solid:
-    """Boolean-union every *copy* onto *body* and require one connected solid.
+def _fuse_and_finalize(
+    body: BodyShape, copies: Sequence[BodyShape], count: int
+) -> BodyShape:
+    """Boolean-union every *copy* onto *body*; require the LUMP COUNT unchanged.
 
     A single variadic ``fuse`` (as :func:`geometry.kernel.extrude.combine_body`
     does its boolean) so the result type stays a plain shape, then ``clean()``
     collapses the redundant seams a union leaves behind — keeping topology
-    counts meaningful (and golden-assertable). A union that leaves more than one
-    solid is the §7.6 single-body-chain violation.
+    counts meaningful (and golden-assertable). The result must have the SAME lump
+    count as *body* (``k`` — 1 for the common single-body case, byte-identical to
+    before; k>1 only if a multi-lump body's copies fuse lump-for-lump). A union
+    that lands MORE disjoint lumps is the §7.6/§MB-4 violation.
 
     Raises:
         PatternError: the OCCT union failed.
-        PatternDisjointError: the union left other than exactly one solid.
+        PatternDisjointError: the union changed the body's lump count.
     """
+    lump_count = len(body.solids())
     try:
         # fuse carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
         fused = body.fuse(*copies)  # pyright: ignore[reportUnknownMemberType]
-        solids = fused.clean().solids()
+        solids = list(fused.clean().solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise PatternError(
             f"Pattern union failed in the kernel ({type(exc).__name__}); an "
             "instance may self-intersect the body."
         ) from exc
 
-    if len(solids) != 1:
+    if len(solids) != lump_count:
         raise PatternDisjointError(
-            f"The pattern's {count} instances do not merge into a single "
-            f"connected solid — the union left {len(solids)} disjoint lumps, "
-            "but v1 parts are one body (design §7.6). Overlap or abut the "
-            "instances (reduce the spacing/angle), or await multi-body support."
+            f"The pattern's {count} instances do not merge into {lump_count} "
+            f"connected lump(s) — the union left {len(solids)} disjoint lumps. "
+            "Overlap or abut the instances (reduce the spacing/angle); a "
+            "spreading array of a multi-lump body is not supported (design §MB-4)."
         )
-    return solids[0]
+    if lump_count == 1:
+        return solids[0]
+    return assemble_lumps(solids)
 
 
-def _cut_and_finalize(body: Solid, tools: Sequence[Solid], count: int) -> Solid:
-    """Boolean-CUT every *tool* copy from *body* and require one connected solid.
+def _cut_and_finalize(
+    body: BodyShape, tools: Sequence[BodyShape], count: int
+) -> BodyShape:
+    """Boolean-CUT every *tool* copy from *body*; require the LUMP COUNT unchanged.
 
     The subtractive twin of :func:`_fuse_and_finalize` (BACKLOG #3 / showcase
     F1): a single variadic ``cut`` (as :func:`geometry.kernel.extrude.combine_body`
     does its boolean) removes every patterned tool copy in one operation, then
     ``clean()`` collapses the redundant seams the cut leaves behind — keeping
-    topology counts meaningful (and golden-assertable). A cut that consumes the
-    whole body or severs it into disjoint lumps is the §7.6 single-body-chain
-    violation.
+    topology counts meaningful (and golden-assertable). The result must have the
+    SAME lump count as *body* (``k``; 1 for the common single-body case,
+    byte-identical to before). A cut that consumes the whole body, or severs /
+    drops a lump, is the §7.6/§MB-4 violation.
 
     Raises:
         PatternError: the OCCT cut failed or removed the entire body.
-        PatternDisjointError: the cut severed the body into >1 solid.
+        PatternDisjointError: the cut changed the body's lump count.
     """
+    lump_count = len(body.solids())
     try:
         # cut carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
         cut = body.cut(*tools)  # pyright: ignore[reportUnknownMemberType]
-        solids = cut.clean().solids()
+        solids = list(cut.clean().solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise PatternError(
             f"Pattern cut failed in the kernel ({type(exc).__name__}); a tool "
@@ -156,14 +170,15 @@ def _cut_and_finalize(body: Solid, tools: Sequence[Solid], count: int) -> Solid:
             f"The pattern's {count} cut instances removed the entire body — "
             "nothing remains. Reduce the count or the tool size."
         )
-    if len(solids) > 1:
+    if len(solids) != lump_count:
         raise PatternDisjointError(
-            f"The pattern's {count} cut instances severed the body into "
-            f"{len(solids)} disjoint lumps, but v1 parts are one body (design "
-            "§7.6). Move the cuts so they do not slice the body apart, or await "
-            "multi-body support."
+            f"The pattern's {count} cut instances changed the body from "
+            f"{lump_count} to {len(solids)} disjoint lumps. Move the cuts so they "
+            "do not slice a lump apart (design §7.6 / §MB-4)."
         )
-    return solids[0]
+    if lump_count == 1:
+        return solids[0]
+    return assemble_lumps(solids)
 
 
 def _linear_unit(direction: tuple[float, float, float]) -> Vector:
@@ -179,11 +194,11 @@ def _linear_unit(direction: tuple[float, float, float]) -> Vector:
 
 
 def _linear_copies(
-    sources: Sequence[Solid],
+    sources: Sequence[BodyShape],
     direction: tuple[float, float, float],
     spacing_mm: float,
     count: int,
-) -> list[Solid]:
+) -> list[BodyShape]:
     """Copies of every *source* at placements ``k = 1..count-1`` along a row.
 
     Validated once (spacing then direction) and enumerated placement-outer,
@@ -208,12 +223,12 @@ def _linear_copies(
 
 
 def _circular_copies(
-    sources: Sequence[Solid],
+    sources: Sequence[BodyShape],
     axis_point: tuple[float, float, float],
     axis_direction: tuple[float, float, float],
     angle_deg: float,
     count: int,
-) -> list[Solid]:
+) -> list[BodyShape]:
     """Copies of every *source* at placements ``k = 1..count-1`` about a ring.
 
     Validated once (axis then angle) and enumerated placement-outer,
@@ -247,11 +262,11 @@ def _circular_copies(
 
 
 def linear_pattern(
-    body: Solid,
+    body: BodyShape,
     direction: tuple[float, float, float],
     spacing_mm: float,
     count: int,
-) -> Solid:
+) -> BodyShape:
     """Array *body* into a row of *count* along the world *direction* (ADD).
 
     Instance 0 is *body* itself; instances ``1..count-1`` are placed at
@@ -273,12 +288,12 @@ def linear_pattern(
 
 
 def circular_pattern(
-    body: Solid,
+    body: BodyShape,
     axis_point: tuple[float, float, float],
     axis_direction: tuple[float, float, float],
     angle_deg: float,
     count: int,
-) -> Solid:
+) -> BodyShape:
     """Array *body* into a ring of *count* about the world axis (ADD).
 
     Instance 0 is *body*; instances ``1..count-1`` are rotated ``angle_deg /
@@ -301,12 +316,12 @@ def circular_pattern(
 
 
 def linear_pattern_cut(
-    body: Solid,
+    body: BodyShape,
     tools: Sequence[Solid],
     direction: tuple[float, float, float],
     spacing_mm: float,
     count: int,
-) -> Solid:
+) -> BodyShape:
     """Array the cut *tools* into a row of *count* and remove them from *body*.
 
     The subtractive twin of :func:`linear_pattern` (BACKLOG #3 / showcase F1):
@@ -330,13 +345,13 @@ def linear_pattern_cut(
 
 
 def circular_pattern_cut(
-    body: Solid,
+    body: BodyShape,
     tools: Sequence[Solid],
     axis_point: tuple[float, float, float],
     axis_direction: tuple[float, float, float],
     angle_deg: float,
     count: int,
-) -> Solid:
+) -> BodyShape:
     """Array the cut *tools* into a ring of *count* and remove them from *body*.
 
     The subtractive twin of :func:`circular_pattern` (BACKLOG #3 / showcase F1

@@ -87,6 +87,10 @@ export type DraftFeature = components["schemas"]["DraftFeature"];
 export type DraftParams = components["schemas"]["DraftParamsV1"];
 /** The draft neutral (parting) plane: a principal datum, offset + flipped. */
 export type DraftNeutralPlane = components["schemas"]["DraftNeutralPlaneV1"];
+export type BooleanFeature = components["schemas"]["BooleanFeature"];
+/** Union/subtract/intersect between two independently-built bodies (§MB-1). */
+export type BooleanParams = components["schemas"]["BooleanParamsV1"];
+export type BooleanOperation = BooleanParams["operation"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =
@@ -467,6 +471,30 @@ export function loftFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: loftFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope for a boolean feature. */
+function booleanFeatureEnvelope(params: BooleanParams): BooleanFeature {
+  return { type: "boolean", version: 1, params };
+}
+
+/**
+ * The create payload for a boolean feature: fuse (union — the only op wired in
+ * MB-1) two independently-built bodies named by their base features (design
+ * §Decisions-3). Unlike extrude/revolve it consumes no sketch — it combines two
+ * existing bodies. The result takes over the TARGET's identity and the TOOL body
+ * is removed. Pure — unit-tested against the generated types.
+ */
+export function booleanFeatureCreate(
+  name: string,
+  params: BooleanParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: booleanFeatureEnvelope(params),
   };
 }
 

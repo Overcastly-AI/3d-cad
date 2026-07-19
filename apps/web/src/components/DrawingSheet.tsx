@@ -6,50 +6,44 @@
  * scale-correct) reading stroke colours + weights straight from the `drawing`
  * design tokens — one palette, two renderers (DOM + this SVG).
  *
- * Beyond drawing the projected edges it is now a DIMENSIONING surface (Drawings
- * v1 #6b): a `dimensionable` projected edge is interactive (hover/focus/select
- * in the blueprint-blue pick ink), and each authored dimension is stamped as a
- * proper drafting annotation — extension lines, a dimension line with filled
- * arrowheads, and the MODEL-true value with its prefix (Ø / R / bare). It stays
- * honest about a per-view projection failure and a per-dimension measure error.
+ * DE-1c cutover: the sheet now renders a server-composed {@link ComposedSheet} —
+ * placed edges, dimensions, and the title block whose coordinates are ALREADY in
+ * final sheet-mm SVG space (y-flip applied server-side, the single placement
+ * source). The browser no longer computes any layout/transform. It stays a
+ * DIMENSIONING surface: interaction (hover/focus/select + endpoint handles) is
+ * driven from the neutral `ProjectedViewEdge` PICK list fetched from
+ * `/geometry/drawing/evaluate`, whose provenance (source edge / dimensionable /
+ * endpoint correspondence) is aligned to the composed geometry by CANONICAL EDGE
+ * ORDER (compose + evaluate share it per view). Each authored dimension is drawn
+ * as a proper drafting annotation from the composed model; it stays honest about
+ * a per-view projection failure and a per-dimension measure error.
  */
 import { useState, type Ref } from "react";
 
 import { drawing, font, viewport } from "@loft/design";
 
 import type {
+  ComposedBendTable,
+  ComposedDimension,
+  ComposedEdge,
+  ComposedPoint,
+  ComposedSheet,
+  ComposedTitleBlock,
+  ComposedView,
   DimensionParams,
-  DimensionResponse,
   DrawingViewResult,
   EdgeSignature,
-  MeasuredDimension,
+  FeatureError,
   ProjectedViewEdge,
-  SheetResponse,
   ViewProjection,
   ViewResponse,
 } from "../api/drawings";
+import { edgeSignatureKey } from "../drawing/dimensions";
 import {
-  buildDimensionAnnotation,
-  dimensionEdgeSignature,
-  edgeSignatureKey,
-  findMatchingEdge,
-  type DimensionAnnotation,
-} from "../drawing/dimensions";
-import {
-  SHEET_MARGIN_MM,
-  STANDARD_VIEWS,
-  TITLE_BLOCK_MM,
   VIEW_LABEL,
-  boundsAwareLayout,
-  formatScale,
-  sheetDimensions,
-  viewBounds,
-  viewContentSvgRect,
-  viewToSvgEdges,
-  viewTransform,
-  type Anchor,
+  endpointHandlesForEdge,
+  type Point2D,
   type SvgEdge,
-  type SvgRect,
 } from "../drawing/layout";
 
 /** A pick on a dimensionable projected edge — the seed of an authored dimension. */
@@ -65,6 +59,19 @@ export interface EdgePickEvent {
   clientY: number;
 }
 
+/** A pick on a straight edge's endpoint handle — the seed of a point-to-point
+ * dimension (design §3.3 names a vertex THROUGH an edge + a canonical end). */
+export interface EndpointPickEvent {
+  projection: ViewProjection;
+  viewId: string;
+  /** The MODEL edge whose endpoint this is. */
+  sourceEdge: EdgeSignature;
+  /** Which canonical end of that edge (end_a / end_b). */
+  endpoint: "end_a" | "end_b";
+  clientX: number;
+  clientY: number;
+}
+
 /** A stable key for a projected edge — `projection:signature`. */
 export function edgeKey(
   projection: ViewProjection,
@@ -73,27 +80,55 @@ export function edgeKey(
   return `${projection}:${edgeSignatureKey(sig)}`;
 }
 
+/** A stable key for an edge endpoint — `projection:signature:end_a|end_b`. */
+export function vertexKey(
+  projection: ViewProjection,
+  sig: EdgeSignature,
+  endpoint: "end_a" | "end_b",
+): string {
+  return `${edgeKey(projection, sig)}:${endpoint}`;
+}
+
 export interface DrawingSheetProps {
-  sheet: SheetResponse;
+  /** The server-composed sheet — the single placement source (DE-1c). */
+  composed: ComposedSheet;
+  /** The stored views — projection → view id, for pick-event routing. */
   views: readonly ViewResponse[];
-  /** Per-projection projection outcome from `/geometry/drawing/evaluate`. */
+  /**
+   * Per-projection projection outcome from `/geometry/drawing/evaluate` — the
+   * neutral PICK list (source edge / dimensionable / endpoint correspondence),
+   * aligned to the composed geometry by canonical edge order.
+   */
   resultByProjection: Map<ViewProjection, DrawingViewResult>;
-  /** Title-block title (the drawing name). */
-  title: string;
-  /** Authored dimensions grouped by the view they annotate. */
-  dimensionsByView?: Map<ViewProjection, readonly DimensionResponse[]>;
-  /** Model-true measured result per dimension id (from the evaluate response). */
-  measuredById?: Map<string, MeasuredDimension>;
   /** The currently-selected pickable edge (`edgeKey`), highlighted for authoring. */
   selectedEdgeKey?: string | null;
+  /** Keys (`edgeKey`) of edges armed in a multi-pick (angular's first edge). */
+  armedEdgeKeys?: readonly string[];
+  /** Keys (`vertexKey`) of endpoint handles selected in a point-to-point pick. */
+  selectedVertexKeys?: readonly string[];
+  /** A point-to-point pick is armed — reveal ALL endpoint handles (and make them
+   * tabbable) so the second vertex is reachable even on an un-hovered edge. */
+  endpointPickActive?: boolean;
   /** Fired when a dimensionable edge is picked (click or keyboard). */
   onPickEdge?: (event: EdgePickEvent) => void;
+  /** Fired when a straight edge's endpoint handle is picked (point-to-point). */
+  onPickEndpoint?: (event: EndpointPickEvent) => void;
   /** Handle on the root `<svg>` so the editor can serialize it to a file (#5). */
   svgRef?: Ref<SVGSVGElement>;
 }
 
-/** Stroke props for a visible (solid) or hidden (dashed) projected edge. */
-function strokeFor(visible: boolean) {
+/** Stroke props by outline role (sheet-metal.md §6): a `bend` fold line draws as
+ * a distinct dashed-blue stroke — the sheet-metal signature, orthogonal to
+ * `visible` — while a `body` edge keeps the solid (visible) / dashed (hidden)
+ * object-line styling every drawing view uses. */
+function strokeFor(visible: boolean, edgeRole: SvgEdge["edgeRole"]) {
+  if (edgeRole === "bend") {
+    return {
+      stroke: drawing.bend,
+      strokeWidth: drawing.bendWeightMm,
+      strokeDasharray: `${drawing.bendDashMm} ${drawing.bendGapMm}`,
+    };
+  }
   return visible
     ? { stroke: drawing.edgeVisible, strokeWidth: drawing.visibleWeightMm }
     : {
@@ -101,6 +136,67 @@ function strokeFor(visible: boolean) {
         strokeWidth: drawing.hiddenWeightMm,
         strokeDasharray: `${drawing.hiddenDashMm} ${drawing.hiddenGapMm}`,
       };
+}
+
+/**
+ * The pick provenance carried alongside a composed primitive so the sheet can
+ * make a dimensionable edge interactive: it comes from the ALIGNED evaluate
+ * `ProjectedViewEdge` (same canonical order), never re-derived from geometry.
+ */
+function pickInfo(
+  evalEdge: ProjectedViewEdge | undefined,
+  kind: ComposedEdge["kind"],
+) {
+  const fallback: ProjectedViewEdge["primitive"] =
+    kind === "circle" ? "circle" : kind === "line" ? "line" : "polyline";
+  return {
+    dimensionable: evalEdge?.dimensionable ?? false,
+    sourceEdge: evalEdge?.source_edge ?? null,
+    edgePrimitive: evalEdge?.primitive ?? fallback,
+  };
+}
+
+/**
+ * A composed placed edge (final SVG space) fused with its aligned evaluate
+ * provenance → the `SvgEdge` the interactive layer draws + hit-tests. The
+ * geometry is drawn VERBATIM; only the pick metadata comes from `evalEdge`.
+ */
+function toSvgEdge(
+  composed: ComposedEdge,
+  evalEdge: ProjectedViewEdge | undefined,
+): SvgEdge {
+  const info = pickInfo(evalEdge, composed.kind);
+  const edgeRole = composed.edge_role;
+  if (composed.kind === "line") {
+    return {
+      kind: "line",
+      x1: composed.x1,
+      y1: composed.y1,
+      x2: composed.x2,
+      y2: composed.y2,
+      visible: composed.visible,
+      edgeRole,
+      ...info,
+    };
+  }
+  if (composed.kind === "circle") {
+    return {
+      kind: "circle",
+      cx: composed.cx,
+      cy: composed.cy,
+      r: composed.r,
+      visible: composed.visible,
+      edgeRole,
+      ...info,
+    };
+  }
+  return {
+    kind: "polyline",
+    points: composed.points.map((p) => ({ x: p.x_mm, y: p.y_mm })),
+    visible: composed.visible,
+    edgeRole,
+    ...info,
+  };
 }
 
 /** Render one SVG primitive for `edge` with the given stroke props. */
@@ -138,11 +234,15 @@ function EdgeShape({
   hover,
   focus,
   selected,
+  bendIndex = -1,
 }: {
   edge: SvgEdge;
   hover: boolean;
   focus: boolean;
   selected: boolean;
+  /** 0-based index of this fold line among the view's `bend` edges — the
+   * POSITIONAL key to its bend-table row (sheet-metal.md §6); -1 for a body edge. */
+  bendIndex?: number;
 }) {
   // Keyboard focus MUST read differently from mouse hover (WCAG 2.4.7): hover
   // recolors the edge blueprint-blue; focus adds a deep-blue RING under it (a
@@ -154,13 +254,15 @@ function EdgeShape({
       : null;
   const stroke = coreColor
     ? { stroke: coreColor, strokeWidth: 0.8 }
-    : strokeFor(edge.visible);
+    : strokeFor(edge.visible, edge.edgeRole);
   const common = {
     ...stroke,
     fill: "none" as const,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "data-edge": edge.kind,
+    "data-edge-role": edge.edgeRole,
+    ...(bendIndex >= 0 ? { "data-bend-index": String(bendIndex) } : {}),
     "data-visible": edge.visible ? "true" : "false",
     "data-dimensionable": edge.dimensionable ? "true" : "false",
     "data-focused": focus ? "true" : "false",
@@ -221,18 +323,27 @@ function HitShape({ edge }: { edge: SvgEdge }) {
   );
 }
 
-/** One projected edge — solid/dashed, and interactive when dimensionable. */
+/** One projected edge — solid/dashed, and interactive when dimensionable.
+ * Hover/focus of a dimensionable straight edge REVEALS its endpoint handles
+ * (via `onReveal`, keyed on the edge) — the Fusion/Plasticity proximity idiom,
+ * so the sheet stays uncluttered until the vertex snap is actually wanted. */
 function PickableEdge({
   edge,
   projection,
   viewId,
   selected,
+  bendIndex = -1,
+  onReveal,
   onPickEdge,
 }: {
   edge: SvgEdge;
   projection: ViewProjection;
   viewId: string | null;
   selected: boolean;
+  /** Positional bend-table key for a fold line (-1 for a body edge). */
+  bendIndex?: number;
+  /** Report this edge as the reveal target on hover/focus (null clears on leave). */
+  onReveal?: (key: string | null) => void;
   onPickEdge?: (event: EdgePickEvent) => void;
 }) {
   const [hover, setHover] = useState(false);
@@ -245,9 +356,17 @@ function PickableEdge({
 
   if (!interactive)
     return (
-      <EdgeShape edge={edge} hover={false} focus={false} selected={selected} />
+      <EdgeShape
+        edge={edge}
+        hover={false}
+        focus={false}
+        selected={selected}
+        bendIndex={bendIndex}
+      />
     );
 
+  const revealKey =
+    edge.sourceEdge !== null ? edgeKey(projection, edge.sourceEdge) : null;
   const fire = (clientX: number, clientY: number) => {
     if (edge.sourceEdge === null || viewId === null) return;
     onPickEdge?.({
@@ -262,7 +381,13 @@ function PickableEdge({
 
   return (
     <g>
-      <EdgeShape edge={edge} hover={hover} focus={focus} selected={selected} />
+      <EdgeShape
+        edge={edge}
+        hover={hover}
+        focus={focus}
+        selected={selected}
+        bendIndex={bendIndex}
+      />
       <g
         role="button"
         tabIndex={0}
@@ -275,9 +400,20 @@ function PickableEdge({
         // A custom SVG focus ring (in `EdgeShape`) is the visible focus
         // affordance, so the default box outline on this hit-group is suppressed.
         style={{ cursor: "pointer", outline: "none" }}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-        onFocus={() => setFocus(true)}
+        onMouseEnter={() => {
+          setHover(true);
+          onReveal?.(revealKey);
+        }}
+        onMouseLeave={() => {
+          setHover(false);
+          onReveal?.(null);
+        }}
+        onFocus={() => {
+          setFocus(true);
+          // Focus latches the reveal (no clear on blur) so a keyboard user can
+          // tab onward and still reach the now-revealed endpoint handles.
+          onReveal?.(revealKey);
+        }}
         onBlur={() => setFocus(false)}
         onClick={(event) => fire(event.clientX, event.clientY)}
         onKeyDown={(event) => {
@@ -294,18 +430,133 @@ function PickableEdge({
   );
 }
 
-/** A placed dimension — extension + dimension lines, arrowheads, value stamp. */
-function DimensionGlyph({
-  annotation,
-  dimensionType,
-  dimensionId,
+/** One endpoint handle on a straight edge — the vertex pick for point-to-point.
+ * It is NOT a persistent stamp: the drawn square + its tab stop only appear once
+ * `revealed` (the edge is hovered/focused, the pick is armed, or the handle
+ * itself is engaged). The transparent hit target is always present so a mouse
+ * (or a forced e2e click) can pick the vertex the moment it is approached. */
+function VertexHandle({
+  at,
+  projection,
+  viewId,
+  sourceEdge,
+  endpoint,
+  selected,
+  revealed,
+  onPickEndpoint,
 }: {
-  annotation: DimensionAnnotation;
-  dimensionType: DimensionParams["type"];
-  dimensionId: string;
+  at: Point2D;
+  projection: ViewProjection;
+  viewId: string;
+  sourceEdge: EdgeSignature;
+  endpoint: "end_a" | "end_b";
+  selected: boolean;
+  /** Reveal the drawn handle + admit it to the tab order (edge hover/focus or
+   * an armed point-to-point pick) — otherwise it stays out of both. */
+  revealed: boolean;
+  onPickEndpoint: (event: EndpointPickEvent) => void;
 }) {
-  if (annotation.kind === "error") {
-    const { at, code } = annotation;
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const half = drawing.vertexHandleMm;
+  // Hover recolors the square; focus adds a distinct deep-blue RING (a shape
+  // cue, not a colour-only change) so keyboard focus reads differently from
+  // mouse hover (WCAG 2.4.7) — the same seam `EdgeShape` uses (`pickFocusRingMm`).
+  const emphasized = hover || focus || selected;
+  // Drawn (and tabbable) when revealed by context or engaged directly. Its own
+  // hover reveals it (mouse proximity) but adds no tab stop; keyboard reach is
+  // gated on the contextual reveal / selection only.
+  const drawn = revealed || hover || focus || selected;
+  const tabbable = revealed || selected;
+  const fire = (clientX: number, clientY: number) =>
+    onPickEndpoint({
+      projection,
+      viewId,
+      sourceEdge,
+      endpoint,
+      clientX,
+      clientY,
+    });
+  return (
+    <g
+      role="button"
+      tabIndex={tabbable ? 0 : -1}
+      aria-hidden={tabbable ? undefined : true}
+      aria-label={`Dimension from this vertex in the ${VIEW_LABEL[projection]} view`}
+      data-testid="drawing-pick-vertex"
+      data-view={projection}
+      data-endpoint={endpoint}
+      data-selected={selected ? "true" : "false"}
+      data-revealed={drawn ? "true" : "false"}
+      style={{ cursor: "pointer", outline: "none" }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setFocus(true)}
+      onBlur={() => setFocus(false)}
+      onClick={(event) => fire(event.clientX, event.clientY)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          const rect = event.currentTarget.getBoundingClientRect();
+          fire(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        }
+      }}
+    >
+      {/* Generous transparent hit target — always present so the vertex stays
+          pickable (and force-clickable in tests) even before it is revealed. */}
+      <rect
+        x={at.x - drawing.pickHitMm}
+        y={at.y - drawing.pickHitMm}
+        width={drawing.pickHitMm * 2}
+        height={drawing.pickHitMm * 2}
+        fill="transparent"
+      />
+      {drawn ? (
+        <>
+          {focus ? (
+            <rect
+              data-testid="drawing-vertex-focus-ring"
+              x={at.x - half}
+              y={at.y - half}
+              width={half * 2}
+              height={half * 2}
+              fill="none"
+              stroke={drawing.pickSelected}
+              strokeWidth={drawing.pickFocusRingMm}
+              opacity={0.5}
+            />
+          ) : null}
+          <rect
+            x={at.x - half}
+            y={at.y - half}
+            width={half * 2}
+            height={half * 2}
+            fill={emphasized ? drawing.pickSelected : drawing.paper}
+            stroke={
+              emphasized ? drawing.pickSelected : drawing.vertexHandleRest
+            }
+            strokeWidth={emphasized ? 0.6 : 0.4}
+          />
+        </>
+      ) : null}
+    </g>
+  );
+}
+
+/** The three vertices of a composed arrowhead as an SVG `points` string. */
+function arrowPoints(arrow: {
+  points: readonly { x_mm: number; y_mm: number }[];
+}): string {
+  return arrow.points.map((p) => `${p.x_mm},${p.y_mm}`).join(" ");
+}
+
+/** A placed dimension — extension + dimension lines, arrowheads, value stamp.
+ * Drawn VERBATIM from the composed model (coordinates are final SVG space). */
+function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
+  const dimensionType: DimensionParams["type"] = dim.dimension_type;
+  const dimensionId = dim.dimension_id ?? undefined;
+  if (dim.kind === "error") {
+    const { at, code } = dim;
     return (
       <g
         data-testid="drawing-dimension"
@@ -315,8 +566,8 @@ function DimensionGlyph({
       >
         <title>Dimension could not be measured ({code})</title>
         <circle
-          cx={at.x}
-          cy={at.y}
+          cx={at.x_mm}
+          cy={at.y_mm}
           r={2.6}
           fill="none"
           stroke={drawing.dimensionFlag}
@@ -324,8 +575,8 @@ function DimensionGlyph({
           strokeDasharray="1 1"
         />
         <text
-          x={at.x}
-          y={at.y}
+          x={at.x_mm}
+          y={at.y_mm}
           textAnchor="middle"
           dominantBaseline="central"
           fill={drawing.dimensionFlag}
@@ -338,23 +589,23 @@ function DimensionGlyph({
     );
   }
 
-  const { lines, arrows, text, foreshortened } = annotation;
+  const { lines, arrows, text, foreshortened } = dim;
   // A paper halo behind the value so lines never cross the digits (keeps the
   // AA contrast the vellum gives — text sits on paper, not on a graphite rule).
-  const haloW = text.label.length * drawing.dimensionTextMm * 0.62 + 1.8;
+  const haloW = text.value.length * drawing.dimensionTextMm * 0.62 + 1.8;
   const haloH = drawing.dimensionTextMm + 1.4;
   return (
     <g
       data-testid="drawing-dimension"
       data-dimension-id={dimensionId}
       data-dimension-type={dimensionType}
-      data-dimension-value={text.label}
+      data-dimension-value={text.value}
       data-foreshortened={foreshortened ? "true" : "false"}
     >
       <title>
         {foreshortened
-          ? `${text.label} — foreshortened; dimension in a true-size view for the drawn length`
-          : text.label}
+          ? `${text.value} — foreshortened; dimension in a true-size view for the drawn length`
+          : text.value}
       </title>
       {lines.map((l, i) => (
         <line
@@ -372,8 +623,12 @@ function DimensionGlyph({
           strokeLinecap="round"
         />
       ))}
-      {arrows.map((points, i) => (
-        <polygon key={i} points={points} fill={drawing.dimensionInk} />
+      {arrows.map((arrow, i) => (
+        <polygon
+          key={i}
+          points={arrowPoints(arrow)}
+          fill={drawing.dimensionInk}
+        />
       ))}
       <g transform={`rotate(${text.angle} ${text.x} ${text.y})`}>
         <rect
@@ -395,76 +650,221 @@ function DimensionGlyph({
           fontSize={drawing.dimensionTextMm}
           letterSpacing={0.1}
         >
-          {text.label}
+          {text.value}
         </text>
       </g>
     </g>
   );
 }
 
-/** One placed view: its projected edges + dimensions + caption, or a failure. */
-function SheetView({
+/** Wrap `text` into lines of at most `maxChars`, at word boundaries (SVG `<text>`
+ * does not wrap). Caps at `maxLines`, ellipsizing the overflow. */
+function wrapText(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+    if (lines.length === maxLines) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (lines.length === maxLines) {
+    const last = lines[maxLines - 1] ?? "";
+    if (last.length > maxChars)
+      lines[maxLines - 1] = `${last.slice(0, maxChars - 1)}…`;
+  }
+  return lines;
+}
+
+/** A friendly headline per typed view error (sheet-metal.md §7 / drawings §1.5). */
+function errorHeadline(
+  projection: ViewProjection,
+  code: string | undefined,
+): string {
+  if (code === "flat_pattern_not_sheet_metal") return "NOT A SHEET-METAL PART";
+  if (code === "subshape_unresolved") return "BEND UNRESOLVED";
+  return projection === "flat_pattern" ? "FLAT PATTERN FAILED" : "VIEW FAILED";
+}
+
+/** An honest inline error state for a view that produced no geometry — a dashed
+ * placeholder box carrying the typed reason (never a crash or a silent blank).
+ * The flat-pattern "not sheet metal" case reads as guidance, not a failure mood
+ * (frontend-design: an error explains what went wrong and points forward). */
+function FailedView({
   projection,
   anchor,
-  sheetWidth,
-  sheetHeight,
-  result,
-  viewId,
-  dimensions,
-  measuredById,
-  selectedEdgeKey,
-  obstacles,
-  onPickEdge,
+  error,
 }: {
   projection: ViewProjection;
-  anchor: Anchor;
-  sheetWidth: number;
-  sheetHeight: number;
+  anchor: ComposedPoint;
+  error: FeatureError | null;
+}) {
+  const headline = errorHeadline(projection, error?.code);
+  const detail =
+    error?.code === "flat_pattern_not_sheet_metal"
+      ? "Add a base flange and an edge flange to unfold a flat blank."
+      : (error?.message ?? "This view produced no geometry.");
+  const lines = wrapText(detail, 34, 3);
+  const boxW = 78;
+  const boxH = 20 + lines.length * 4.4;
+  return (
+    <g
+      data-testid="drawing-view-error"
+      data-error-code={error?.code ?? "unknown"}
+    >
+      <rect
+        x={anchor.x_mm - boxW / 2}
+        y={anchor.y_mm - boxH / 2}
+        width={boxW}
+        height={boxH}
+        fill="none"
+        stroke={drawing.edgeHidden}
+        strokeWidth={drawing.hiddenWeightMm}
+        strokeDasharray={`${drawing.hiddenDashMm} ${drawing.hiddenGapMm}`}
+      />
+      <text
+        x={anchor.x_mm}
+        y={anchor.y_mm - boxH / 2 + 8}
+        textAnchor="middle"
+        fill={drawing.dimensionFlag}
+        fontFamily={font.display}
+        fontSize={3.4}
+        letterSpacing={0.6}
+      >
+        {headline}
+      </text>
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x={anchor.x_mm}
+          y={anchor.y_mm - boxH / 2 + 14 + i * 4.4}
+          textAnchor="middle"
+          fill={drawing.label}
+          fontFamily={font.data}
+          fontSize={2.8}
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  );
+}
+
+/** A pickable vertex handle resolved to final SVG space + its canonical label. */
+interface VertexHandleSpec {
+  key: string;
+  at: Point2D;
+  posKey: string;
+  sourceEdge: EdgeSignature;
+  endpoint: "end_a" | "end_b";
+}
+
+/** One placed view: its composed edges + dimensions + caption, or a failure.
+ * The VISUAL is the composed model; the interactive layer is the aligned
+ * evaluate PICK list (same canonical edge order). */
+function SheetView({
+  composedView,
+  result,
+  viewId,
+  selectedEdgeKey,
+  armedEdgeKeys,
+  selectedVertexKeys,
+  endpointPickActive,
+  onPickEdge,
+  onPickEndpoint,
+}: {
+  composedView: ComposedView;
+  /** The aligned evaluate result for this view (pick provenance), or undefined. */
   result: DrawingViewResult | undefined;
   viewId: string | null;
-  dimensions: readonly DimensionResponse[];
-  measuredById: Map<string, MeasuredDimension> | undefined;
   selectedEdgeKey: string | null | undefined;
-  /** Sibling views' SVG bounds a dimension on THIS view must not overlap. */
-  obstacles: readonly SvgRect[];
+  armedEdgeKeys: readonly string[];
+  selectedVertexKeys: readonly string[];
+  /** A point-to-point pick is armed — reveal all endpoint handles. */
+  endpointPickActive: boolean;
   onPickEdge?: (event: EdgePickEvent) => void;
+  onPickEndpoint?: (event: EndpointPickEvent) => void;
 }) {
-  const anchorSvgX = anchor.x;
-  const anchorSvgY = sheetHeight - anchor.y;
-  const edges = result?.edges ?? [];
-  const failed = Boolean(result?.error) || result === undefined;
-  const bounds = viewBounds(edges);
-  const svgEdges = viewToSvgEdges(edges, anchor, sheetHeight);
-  // Caption sits below the view's drawn extent (or a fixed drop when empty).
-  const belowMm = bounds ? bounds.center.y - bounds.min.y : 0;
-  const labelY = anchorSvgY + belowMm + 8;
+  const projection = composedView.projection;
+  // Which straight edge (by `edgeKey`) currently reveals its endpoint handles —
+  // set on that edge's hover/focus, so handles appear on proximity/intent rather
+  // than as a persistent stamp on every corner (frontend-QA P2).
+  const [revealKey, setRevealKey] = useState<string | null>(null);
+  const failed = composedView.failed;
+  const composedEdges = composedView.edges ?? [];
+  const composedDims = composedView.dimensions ?? [];
+  const evalEdges = result?.edges ?? [];
 
-  // Resolve each authored dimension to a drafting annotation on this view.
-  const toSvg = viewTransform(edges, anchor, sheetHeight);
-  const viewCenter = bounds?.center ?? { x: 0, y: 0 };
-  const annotations: {
-    id: string;
-    type: DimensionParams["type"];
-    annotation: DimensionAnnotation;
-  }[] = [];
-  for (const dim of dimensions) {
-    const sig = dimensionEdgeSignature(dim.dimension);
-    if (sig === null) continue;
-    const matched = findMatchingEdge(edges, sig);
-    if (matched === null) continue;
-    const measured = measuredById?.get(dim.id);
-    if (measured === undefined) continue;
-    const annotation = buildDimensionAnnotation({
-      type: dim.dimension.type,
-      measured,
-      edge: matched,
-      viewCenter,
-      toSvg,
-      obstacles,
-      sheet: { width: sheetWidth, height: sheetHeight },
-    });
-    if (annotation === null) continue;
-    annotations.push({ id: dim.id, type: dim.dimension.type, annotation });
+  // Fuse each composed placed edge (VISUAL) with its aligned evaluate edge
+  // (PICK provenance) by canonical index — compose + evaluate share the order.
+  const svgEdges = composedEdges.map((composed, i) =>
+    toSvgEdge(composed, evalEdges[i]),
+  );
+
+  // Positional bend key (sheet-metal.md §6): the i-th `bend` edge (in edge-list
+  // order) pairs with the i-th bend-table row — never an id join. Number the fold
+  // lines here so each carries its `data-bend-index`, mirroring the table's rows.
+  let bendCounter = 0;
+  const bendIndexByEdge = svgEdges.map((edge) =>
+    edge.edgeRole === "bend" ? bendCounter++ : -1,
+  );
+
+  // Endpoint handles for every dimensionable straight edge (deduped by position
+  // so a shared corner is one handle, not a stack) — the point-to-point pick.
+  // Positions come from the COMPOSED line endpoints; the canonical end_a/end_b
+  // correspondence from the aligned evaluate edge's `start_is_end_a`.
+  const posKeyOf = (p: Point2D): string =>
+    `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
+  const vertexHandles: VertexHandleSpec[] = [];
+  if (onPickEndpoint && viewId !== null && !failed) {
+    const seen = new Set<string>();
+    for (let i = 0; i < composedEdges.length; i += 1) {
+      const composed = composedEdges[i];
+      const evalEdge = evalEdges[i];
+      if (composed === undefined || composed.kind !== "line" || !evalEdge) {
+        continue;
+      }
+      const handles = endpointHandlesForEdge(evalEdge);
+      if (!handles || !evalEdge.source_edge) continue;
+      // `endpointHandlesForEdge` returns [start-handle, end-handle]; the composed
+      // line preserves start→(x1,y1), end→(x2,y2), so map by that fixed order.
+      const positions: Point2D[] = [
+        { x: composed.x1, y: composed.y1 },
+        { x: composed.x2, y: composed.y2 },
+      ];
+      for (let h = 0; h < handles.length; h += 1) {
+        const at = positions[h];
+        const handle = handles[h];
+        if (at === undefined || handle === undefined) continue;
+        const posKey = posKeyOf(at);
+        if (seen.has(posKey)) continue;
+        seen.add(posKey);
+        vertexHandles.push({
+          key: vertexKey(projection, evalEdge.source_edge, handle.endpoint),
+          at,
+          posKey,
+          sourceEdge: evalEdge.source_edge,
+          endpoint: handle.endpoint,
+        });
+      }
+    }
+  }
+
+  // The endpoint positions of the currently reveal-keyed edge (its hover/focus
+  // reveals its own two corners); an armed pick reveals every handle instead.
+  const revealedPosKeys = new Set<string>();
+  if (revealKey !== null) {
+    for (const handle of vertexHandles) {
+      if (edgeKey(projection, handle.sourceEdge) === revealKey) {
+        revealedPosKeys.add(handle.posKey);
+      }
+    }
   }
 
   return (
@@ -472,94 +872,78 @@ function SheetView({
       data-testid="drawing-view"
       data-view={projection}
       data-view-error={failed ? "true" : "false"}
-      data-edge-count={svgEdges.length}
-      data-dimension-count={annotations.length}
+      data-edge-count={composedEdges.length}
+      data-dimension-count={composedDims.length}
     >
       {failed ? (
-        <g>
-          <rect
-            x={anchorSvgX - 26}
-            y={anchorSvgY - 14}
-            width={52}
-            height={28}
-            fill="none"
-            stroke={drawing.edgeHidden}
-            strokeWidth={drawing.hiddenWeightMm}
-            strokeDasharray={`${drawing.hiddenDashMm} ${drawing.hiddenGapMm}`}
-          />
-          <text
-            x={anchorSvgX}
-            y={anchorSvgY + 1}
-            textAnchor="middle"
-            fill={drawing.label}
-            fontFamily={font.data}
-            fontSize={3}
-            letterSpacing={0.4}
-          >
-            VIEW FAILED
-          </text>
-        </g>
+        <FailedView
+          projection={projection}
+          anchor={composedView.anchor}
+          error={result?.error ?? null}
+        />
       ) : (
         <>
-          {svgEdges.map((edge, i) => (
-            <PickableEdge
-              key={i}
-              edge={edge}
-              projection={projection}
-              viewId={viewId}
-              selected={
-                selectedEdgeKey !== null &&
-                selectedEdgeKey !== undefined &&
-                edge.sourceEdge !== null &&
-                edgeKey(projection, edge.sourceEdge) === selectedEdgeKey
-              }
-              onPickEdge={onPickEdge}
-            />
+          {svgEdges.map((edge, i) => {
+            const key =
+              edge.sourceEdge !== null
+                ? edgeKey(projection, edge.sourceEdge)
+                : null;
+            return (
+              <PickableEdge
+                key={i}
+                edge={edge}
+                projection={projection}
+                viewId={viewId}
+                bendIndex={bendIndexByEdge[i] ?? -1}
+                selected={
+                  key !== null &&
+                  (key === selectedEdgeKey || armedEdgeKeys.includes(key))
+                }
+                onReveal={onPickEndpoint ? setRevealKey : undefined}
+                onPickEdge={onPickEdge}
+              />
+            );
+          })}
+          {composedDims.map((dim, i) => (
+            <DimensionGlyph key={dim.dimension_id ?? i} dim={dim} />
           ))}
-          {annotations.map((a) => (
-            <DimensionGlyph
-              key={a.id}
-              annotation={a.annotation}
-              dimensionType={a.type}
-              dimensionId={a.id}
-            />
-          ))}
+          {onPickEndpoint && viewId !== null
+            ? vertexHandles.map((h) => (
+                <VertexHandle
+                  key={h.key}
+                  at={h.at}
+                  projection={projection}
+                  viewId={viewId}
+                  sourceEdge={h.sourceEdge}
+                  endpoint={h.endpoint}
+                  selected={selectedVertexKeys.includes(h.key)}
+                  revealed={endpointPickActive || revealedPosKeys.has(h.posKey)}
+                  onPickEndpoint={onPickEndpoint}
+                />
+              ))
+            : null}
         </>
       )}
       <text
         data-testid="drawing-view-label"
-        x={anchorSvgX}
-        y={labelY}
+        x={composedView.label_pos.x_mm}
+        y={composedView.label_pos.y_mm}
         textAnchor="middle"
         fill={drawing.label}
         fontFamily={font.data}
         fontSize={3.4}
         letterSpacing={0.6}
       >
-        {VIEW_LABEL[projection].toUpperCase()}
+        {composedView.label}
       </text>
     </g>
   );
 }
 
-/** The bottom-right title block — stamped in mono, the drafting vernacular. */
-function TitleBlock({
-  dims,
-  title,
-  scale,
-  size,
-}: {
-  dims: { width: number; height: number };
-  title: string;
-  scale: string;
-  size: string;
-}) {
-  const w = TITLE_BLOCK_MM.width;
-  const h = TITLE_BLOCK_MM.height;
-  const x = dims.width - SHEET_MARGIN_MM - w;
-  const y = dims.height - SHEET_MARGIN_MM - h;
-  const splitX = x + w * 0.6; // left: title | right: scale/size stamp
-  const midY = y + h * 0.5;
+/** The bottom-right title block — stamped in mono, the drafting vernacular.
+ * Geometry + stamped values come from the composed model (server-placed). */
+function TitleBlock({ block }: { block: ComposedTitleBlock }) {
+  const { x, y, width: w, height: h, split_x: splitX, mid_y: midY } = block;
   const rule = { stroke: drawing.ink, strokeWidth: drawing.hiddenWeightMm };
   const caption = {
     fill: drawing.label,
@@ -590,7 +974,7 @@ function TitleBlock({
         TITLE
       </text>
       <text data-testid="title-block-name" x={x + 4} y={y + 18} {...value}>
-        {title.length > 22 ? `${title.slice(0, 21)}…` : title}
+        {block.title}
       </text>
       <text x={x + 4} y={y + h - 4} {...caption}>
         LOFT · PART DRAWING
@@ -605,71 +989,142 @@ function TitleBlock({
         y={midY - 3}
         {...value}
       >
-        {scale}
+        {block.scale}
       </text>
       <text x={splitX + 4} y={midY + 8} {...caption}>
         SIZE
       </text>
       <text x={splitX + 4} y={y + h - 4} {...value}>
-        {size.replace("_", " ")}
+        {block.size}
       </text>
     </g>
   );
 }
 
+/** The flat-pattern bend table — the shop's fold instructions, placed at the
+ * server-given anchor rect (top-left, the mirror of the title block). A quiet,
+ * dense, columnar precision instrument (design mandate §3): one row per bend,
+ * in fold-position order, so the i-th row keys POSITIONALLY to the i-th fold
+ * line on the blank (sheet-metal.md §6 — never an id join). Values are the
+ * unfold's computed geometry, drawn verbatim. Mirrors the server SVG test hooks
+ * (`drawing-bend-table`, `drawing-bend-row`) so QA drives one target set. */
+function BendTable({ table }: { table: ComposedBendTable }) {
+  const { x, y, width: w, height: h, rows } = table;
+  const headerH = drawing.bendTableHeaderMm;
+  const rowH = drawing.bendTableRowMm;
+  // Column left edges DERIVED from the block width (`x + width * fraction`), not
+  // magic absolute mm coupled to the fixed 92 mm block: each fraction is a named
+  // design token (the server's `_BEND_COL_DX / _BEND_TABLE_W` ratio, one source).
+  const frac = drawing.bendTableColumnFractions;
+  const col = {
+    bend: x + w * frac[0],
+    angle: x + w * frac[1],
+    radius: x + w * frac[2],
+    dir: x + w * frac[3],
+    allow: x + w * frac[4],
+  };
+  const caption = {
+    fill: drawing.label,
+    fontFamily: font.display,
+    fontSize: drawing.bendTableCaptionMm,
+    letterSpacing: 0.4,
+  } as const;
+  const cell = {
+    fill: drawing.dimensionText,
+    fontFamily: font.data,
+    fontSize: drawing.bendTableTextMm,
+  } as const;
+  const captionY = y + headerH - 2.4;
+  return (
+    <g
+      data-testid="drawing-bend-table"
+      aria-label={`Bend table, ${rows.length} bends`}
+    >
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={h}
+        fill={drawing.paper}
+        stroke={drawing.ink}
+        strokeWidth={drawing.borderWeightMm}
+      />
+      {/* Header rule (mirrors the server composer). */}
+      <line
+        x1={x}
+        y1={y + headerH}
+        x2={x + w}
+        y2={y + headerH}
+        stroke={drawing.ink}
+        strokeWidth={drawing.hiddenWeightMm}
+      />
+      <text x={col.bend} y={captionY} {...caption}>
+        BEND
+      </text>
+      <text x={col.angle} y={captionY} {...caption}>
+        ANGLE
+      </text>
+      <text x={col.radius} y={captionY} {...caption}>
+        RADIUS
+      </text>
+      <text x={col.dir} y={captionY} {...caption}>
+        DIR
+      </text>
+      <text x={col.allow} y={captionY} {...caption}>
+        ALLOW mm
+      </text>
+      {rows.map((row, i) => {
+        const ry = y + headerH + (i + 1) * rowH - 2;
+        return (
+          <g key={i} data-testid="drawing-bend-row" data-bend-index={String(i)}>
+            <text x={col.bend} y={ry} {...cell}>
+              {row.bend_id}
+            </text>
+            <text x={col.angle} y={ry} {...cell}>
+              {`${(row.angle_deg + 0).toFixed(1)}°`}
+            </text>
+            <text x={col.radius} y={ry} {...cell}>
+              {`R${(row.radius_mm + 0).toFixed(2)}`}
+            </text>
+            <text x={col.dir} y={ry} {...cell}>
+              {row.direction === "up" ? "UP" : "DOWN"}
+            </text>
+            <text x={col.allow} y={ry} {...cell}>
+              {(row.bend_allowance_mm + 0).toFixed(2)}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 export function DrawingSheet({
-  sheet,
+  composed,
   views,
   resultByProjection,
-  title,
-  dimensionsByView,
-  measuredById,
   selectedEdgeKey,
+  armedEdgeKeys,
+  selectedVertexKeys,
+  endpointPickActive,
   onPickEdge,
+  onPickEndpoint,
   svgRef,
 }: DrawingSheetProps) {
-  const dims = sheetDimensions(sheet.size, sheet.orientation);
-  // Space the views by their own projected extents so they never overlap for a
-  // part larger than the demo plate (fixed sheet fractions did — code review).
-  const boundsByProjection: Partial<
-    Record<ViewProjection, ReturnType<typeof viewBounds>>
-  > = {};
-  for (const projection of STANDARD_VIEWS) {
-    const result = resultByProjection.get(projection);
-    boundsByProjection[projection] =
-      result && !result.error ? viewBounds(result.edges ?? []) : null;
-  }
-  const layout = boundsAwareLayout(boundsByProjection, dims);
-  // Each placed view's drawn extent in SVG space — a dimension on any view must
-  // clear its SIBLINGS' boxes (no callout landing on a neighbour — P1 fix).
-  const svgRectByProjection = new Map<ViewProjection, SvgRect>();
-  for (const projection of STANDARD_VIEWS) {
-    const result = resultByProjection.get(projection);
-    if (!result || result.error) continue;
-    const rect = viewContentSvgRect(
-      result.edges ?? [],
-      layout[projection],
-      dims.height,
-    );
-    if (rect) svgRectByProjection.set(projection, rect);
-  }
-  const scaleLabel = formatScale(
-    views[0]?.scale ?? { numerator: 1, denominator: 1 },
-  );
+  const width = composed.width_mm;
+  const height = composed.height_mm;
+  const margin = composed.margin_mm;
+  const composedViews = composed.views ?? [];
   const viewIdByProjection = new Map<ViewProjection, string>();
   for (const view of views) viewIdByProjection.set(view.projection, view.id);
-  // Draw in the standard order, but only views that were actually created.
-  const placed = STANDARD_VIEWS.filter((projection) =>
-    views.some((view) => view.projection === projection),
-  );
 
   return (
     <svg
       ref={svgRef}
       data-testid="drawing-sheet"
       role="img"
-      aria-label={`Drawing sheet — ${title}, ${placed.length} views at ${scaleLabel}`}
-      viewBox={`0 0 ${dims.width} ${dims.height}`}
+      aria-label={`Drawing sheet — ${composed.title}, ${composedViews.length} views at ${composed.scale_label}`}
+      viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="xMidYMid meet"
       className="h-full w-full"
       // Seat the sheet on the bench — a drop-shadow follows the paper's alpha
@@ -682,8 +1137,8 @@ export function DrawingSheet({
       <rect
         x={0}
         y={0}
-        width={dims.width}
-        height={dims.height}
+        width={width}
+        height={height}
         fill={drawing.paper}
         stroke={drawing.paperEdge}
         strokeWidth={0.6}
@@ -691,38 +1146,30 @@ export function DrawingSheet({
       {/* Drawn border frame. */}
       <rect
         data-testid="drawing-border"
-        x={SHEET_MARGIN_MM}
-        y={SHEET_MARGIN_MM}
-        width={dims.width - 2 * SHEET_MARGIN_MM}
-        height={dims.height - 2 * SHEET_MARGIN_MM}
+        x={margin}
+        y={margin}
+        width={width - 2 * margin}
+        height={height - 2 * margin}
         fill="none"
         stroke={drawing.ink}
         strokeWidth={drawing.borderWeightMm}
       />
-      {placed.map((projection) => (
+      {composedViews.map((composedView) => (
         <SheetView
-          key={projection}
-          projection={projection}
-          anchor={layout[projection]}
-          sheetWidth={dims.width}
-          sheetHeight={dims.height}
-          result={resultByProjection.get(projection)}
-          viewId={viewIdByProjection.get(projection) ?? null}
-          dimensions={dimensionsByView?.get(projection) ?? []}
-          measuredById={measuredById}
+          key={composedView.projection}
+          composedView={composedView}
+          result={resultByProjection.get(composedView.projection)}
+          viewId={viewIdByProjection.get(composedView.projection) ?? null}
           selectedEdgeKey={selectedEdgeKey}
-          obstacles={[...svgRectByProjection]
-            .filter(([p]) => p !== projection)
-            .map(([, rect]) => rect)}
+          armedEdgeKeys={armedEdgeKeys ?? []}
+          selectedVertexKeys={selectedVertexKeys ?? []}
+          endpointPickActive={endpointPickActive ?? false}
           onPickEdge={onPickEdge}
+          onPickEndpoint={onPickEndpoint}
         />
       ))}
-      <TitleBlock
-        dims={dims}
-        title={title}
-        scale={scaleLabel}
-        size={sheet.size}
-      />
+      <TitleBlock block={composed.title_block} />
+      {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
     </svg>
   );
 }

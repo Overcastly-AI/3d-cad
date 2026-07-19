@@ -2,13 +2,31 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 3 — Assemblies.** Phase 2 (parametric core)
+**Current focus: no single locked initiative — Phase 4b (Sheet metal v1)
+COMPLETE 2026-07-19, converging a run of six pillars** (Assemblies, Drawings
++ server-composed export, Multi-body/booleans, Units, Undo/redo, Sheet
+metal), each independently reviewed + QA'd, each holding at ➖/✅ on the
+VISION.md scorecard with honest named residuals (full evidence:
+`CHANGELOG.md`, `docs/BACKLOG.md` Done archive). **No founder-directed
+initiative is currently in flight**; the autonomous loop pulls the top of
+`docs/BACKLOG.md` **Ready (top of queue)**, restocked 2026-07-19 by the
+backlog-groomer. Remaining VISION ❌ rows (Performance benchmarking,
+Collaboration/versioning, Extensibility/scripting+MCP) have no design doc yet.
+The Performance benchmark-suite INFRA step shipped 2026-07-19 (two-tier perf
+gate: generous asserted CI DoS/regression tripwires + an opt-in `-m benchmark`
+median/p95 baseline table; `just bench` / `docs/GEOMETRY-QA.md`) — this closes
+the benchmark-suite half of Performance ❌ but not the row (VISION also names
+"no real reference-part corpus yet"), so ❌ holds pending that corpus. See
+BACKLOG for the full ordering + rationale.
+
+Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
 last gaps to ✅ (sketch dimension expressions + driving/driven,
 constrainable spline fit points, and typed over-constraint diagnosis closed
 Sketching; multi-loop-cut + pattern-a-cut closed Part modeling, held under
 the showcase stress test). Interop stands at ➖ (STEP import shipped
-end-to-end; IGES/multi-solid deferred). The F7 gateway-auth security gap
+end-to-end, incl. multi-solid → one multi-lump body (MB-4b); IGES deferred).
+The F7 gateway-auth security gap
 closed the same day (`36dc3d9`). Full evidence: `CHANGELOG.md`.
 
 Both independent audits re-baselined 2026-07-15 and converge on the same
@@ -131,11 +149,17 @@ item:
       (incl. pattern-arrays-a-cut), offset/datum planes, multi-loop closed
       profiles → holes (incl. multi-disjoint-loop cut), shell, draft.
       **Part modeling row flips ❌→➖→✅** (`3c23c73`), held under a
-      4-part showcase stress test (`d8d3b87`); multi-body boolean is the
-      one remaining scope boundary (BACKLOG Later).
+      4-part showcase stress test (`d8d3b87`); multi-body boolean was the
+      one remaining scope boundary — now **SHIPPED end-to-end** (`docs/design/
+      multi-body.md`, MB-0..MB-4c complete 2026-07-19: union/subtract/
+      intersect between independently-built bodies, multi-lump bodies, opt-in
+      disjoint union, multi-solid STEP import — geometry-QA'd PASS twice;
+      VISION Part modeling row Notes corrected same pass, score unchanged).
 - ✅ STEP import v1 — kernel (`4964fab`) → gateway upload → UI file-picker,
-      with a P1 security wall-clock bound on the untrusted parse.
-      **Interop row flips ❌→➖.**
+      with a P1 security bound on the untrusted parse. **Interop row flips
+      ❌→➖.** Parse bound hardened 2026-07-19: wall-clock → contention-invariant
+      `RLIMIT_CPU` CPU-time ceiling (default 20 s) + wall-clock liveness backstop
+      (default 60 s), fixing the CPU-contention false-fire flake.
 - ✅ Measurement (distance/angle), design system (grouped-icon toolbar +
       flyouts), fillet/chamfer authoring UI.
 - ✅ Mesh-store single-worker guard (engineering audit F1) — fail-loud v1
@@ -158,13 +182,17 @@ item:
       no P0s either pass; Pass 2 verdict **"yes for a part, no for a
       project"** — names **Assemblies as #1**, the pivot to Phase 3.
 - Not carried forward as Phase-2 debt (independent, stay BACKLOG Next P2):
-  performance-benchmark CI budgets, undo/redo across feature operations.
+  performance-benchmark CI budgets (INFRA step shipped 2026-07-19 — two-tier
+  perf gate, see above), undo/redo across feature operations.
   `docs/COMPETITIVE.md` (first pass 2026-07-12) is now stale — flagged for
   the vision-steward to refresh against Phase 3.
 
 ## Phase 3 — Assemblies, versioning, collaboration 🚧
 
-**Current focus.** Architecture decision endorsed 2026-07-15
+**Assemblies v1 + fast-follows complete** (see sub-item below, flipped to ✅
+this pass); still 🚧 as a phase because document versioning, realtime
+presence, and Helm/HA remain ⬜, unstarted. Architecture decision endorsed
+2026-07-15
 (`docs/design/assemblies.md`, `b378633`): a new `assembly` document type
 (instances + mates), an in-house deterministic `AssemblySolver` (protocol
 mirrors `SketchSolver`; no license-clean 3D constraint-solver library
@@ -178,10 +206,11 @@ conventions pinned + goldens + frontend authoring UI). Still deferred past v1
 interference detection, exploded views, BOM formatting, STEP-assembly
 export, flexible sub-assemblies, part-version pinning-as-default.
 
-- 🚧 Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
+- ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
       items, backend→gateway→frontend); "bolt two parts together and see it" is
-      real end-to-end.** BOM deferred to a trivial documents-side read model
-      once instances exist. **v1 #1 landed**:
+      real end-to-end.** BOM shipped as a flat documents-side read model
+      (see the BOM-landed note below); recursive/indented BOM is a tracked
+      residual. **v1 #1 landed**:
       the documents foundation — `py_kit.schemas.assemblies` (Placement/Quat,
       the discriminated 5-mate union, MateFace/AxisRef reusing the feature
       signatures), `assemblies`/`instances`/`mates` tables (migration `0003`),
@@ -259,6 +288,126 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       `distance`/`angle` mate from the generated client union; unit tests +
       `assembly.spec.ts` distance-mate e2e cover it. Both mates are now
       user-authorable end-to-end.
+      **BOM read-model landed 2026-07-18 (the assemblies residual):**
+      `GET /api/v1/assemblies/{id}/bom` — a pure documents-side aggregation
+      (`documents.assemblies._bom_response`, no migration/no writes) grouping the
+      assembly's DIRECT instances by `ref_document_id` into `BomLine`s
+      (`py_kit.schemas.assemblies`: `quantity` = shared-reference count, the
+      referenced document's CURRENT `name` + `ref_document_kind`), deterministically
+      ordered (resolved name, then id). A referenced document deleted while still
+      instanced is reported honestly — a `missing` line with a null `name`, never a
+      500 or a silently-dropped quantity. Gateway proxy mirrors the assembly-GET
+      posture (auth-gated `CurrentUser`, `X-Loft-User` principal, envelopes
+      resurfaced). **FLAT v1 — direct instances only; recursive/indented BOM into
+      rigid sub-assemblies is a tracked follow-up (a sub-assembly instance is one
+      `kind: "assembly"` line).** documents + gateway pytest green; contracts +
+      ts-client regenerated.
+      **BOM panel landed 2026-07-18 (apps/web):** the read model now has a UI —
+      the assembly's right instrument gains a SOLVE / PARTS toggle
+      (`AssemblyInspectorPanel` + `SegmentedControl`); PARTS renders a title-block
+      parts-list schedule (`AssemblyBomPanel`: ITEM · PART + kind badge · QTY, a
+      brass TOTAL foot) off `GET .../bom` via TanStack Query, deterministic order
+      preserved, quantities/total in the shared number face. Honest states:
+      loading, empty ("No components yet"), and a `missing` line flagged italic
+      "(deleted)" with a ⚠ affordance (quantity preserved). `assembly-bom.spec.ts`
+      drives A×3 + B×1 → PARTS → 2 lines (qty 3 / 1, total 4) against the real
+      stack; founder shot `docs/screenshots/assembly-bom-desktop.png`.
+- ✅ **Multi-body modeling + booleans — `docs/design/multi-body.md` (Option A,
+      base-feature-keyed eval-time body set). MB-0 plumbing landed 2026-07-18:**
+      a part can now END WITH MORE THAN ONE BODY. `EvaluationState` swaps its
+      single `body` slot for a tree-ordered `bodies` set keyed by each body's
+      base feature id + an `active_body_id`; an additive `merge: bool = True`
+      (extrude/revolve/sweep/loft ADD; `merge=False` starts a new active body,
+      `import` starts a second body) is the authoring seam, additive so NO
+      `param_version` bump. Part mass properties roll up ANALYTICALLY over the
+      body set (`combine_properties` — Σ volume, volume-weighted centroid,
+      unioned AABB, summed faces/edges/shells; the assembly-roll-up pattern, no
+      re-mesh/boolean); tessellation + STEP/STL export widen to a `Compound` of
+      all bodies (valid AP214 multi-solid). The face/edge/tessellate/export AND
+      **assembly-mate** resolvers widen `Solid`→`BodyShape` (the sneaky ripple:
+      a mate on a multi-body part resolves across every subshape solid), and
+      body-modifying features resolve topo-naming against the ACTIVE body only
+      (never a union — no false `subshape_ambiguous` across congruent bodies).
+      Golden `multibody-two-disjoint-boxes` (two 20 mm cubes, `merge=False` on
+      the second → 16000 mm³, shells=2, byte-identical GLB+STEP across restart).
+      Existing single-body goldens stay byte-identical (a single body is `bodies`
+      with one entry, measured/tessellated as the bare solid). **MB-1a landed
+      2026-07-18 — the headline `union` boolean BACKEND:** a `boolean` feature
+      fuses two independently-built bodies named by their base-feature
+      `FeatureRef`s (OCCT `fuse` + clean), REPLACING both operands (result takes
+      the target's identity slot, tool consumed) with a `boolean_disjoint` guard
+      (union must stay one connected solid). Golden
+      `boolean-union-two-cubes-overlap` (12000 mm³, shells=1). **MB-1b landed
+      2026-07-18 — the frontend:** a design-system `Checkbox` primitive drives a
+      "Merge result" toggle on the extrude/revolve/sweep/loft ADD editors
+      (default on = fuse; off = new body); a **Combine** tool (Modify strip)
+      authors a `boolean` union by picking a target + tool body → the union fuses
+      them (`boolean_disjoint`/reference errors surface via the tree's per-feature
+      error affordance); a **Bodies panel** lists the part's bodies (tree-derived
+      partition, `apps/web/src/features/bodies.ts`), each selectable. Threaded the
+      MB-0 `merge` field through the param builders/editors/fixtures (un-redding
+      `apps/web typecheck`). E2e `multibody-union.spec.ts`: two `merge=false`
+      cubes → Combine → one fused 12000 mm³ solid (founder shot
+      `docs/screenshots/multibody-union-desktop.png`). **MB-2a landed 2026-07-18 —
+      subtract + intersect BACKEND:** `boolean_bodies` wires `subtract` (OCCT
+      `cut`) + `intersect` (`common`), same operand-replacement + single-connected
+      -solid guard; new `boolean_empty` (an empty subtract/intersect) and widened
+      `boolean_disjoint` (a severing subtract) taxonomy. Analytic goldens
+      `boolean-{subtract,intersect}-two-cubes-overlap` (both a clean 4000 mm³ box,
+      shells=1). No schema change (the `operation` Literal already carried all
+      three). **MB-2b landed 2026-07-18 — the frontend operation selector:** the
+      CombineEditor gains a union/subtract/intersect `SegmentedControl`
+      (`+ / − / ∩`), and the Target/Tool role labels + note track the operation so
+      subtract's `Target − Tool` asymmetry is explicit; the new `boolean_empty` /
+      `boolean_disjoint` codes get friendly per-feature copy via
+      `friendlyFeatureError`. e2e proves subtract → 4000 mm³ and intersect →
+      4000 mm³ (one body each) against the real stack; founder shot
+      `docs/screenshots/multibody-boolean-ops-desktop.png`. **MB-3 landed
+      2026-07-18 (backend) — a downstream fillet on a boolean-CREATED edge:** the
+      fused body's edges get stage-1 `EdgeSignature`s like any primitive's, so a
+      fillet naming a boolean-result edge resolves to exactly one edge on a clean
+      rebuild (golden `boolean-union-then-fillet` — union → fused 30×20×20 box →
+      fillet r=2 a picked corner = 11920 + 20π mm³, 7/15/1, byte-identical
+      GLB+STEP). The honest limit, proven + tested: a topology-changing upstream
+      edit that removes the referenced edge degrades to a clean typed
+      `subshape_unresolved` (never wrong-edge/crash), the same best-effort stage-1
+      posture as every feature — stage-2 provenance is the structural fix (MB-4/
+      deferred). **Multi-body pillar v1 COMPLETE through MB-3.** **MB-4a landed
+      2026-07-18 (backend) — multi-lump bodies + opt-in disjoint union:** a body
+      can now be a `Compound` of disjoint LUMPS. `EvaluationState.bodies` widens
+      `dict[UUID, Solid]` → `dict[UUID, BodyShape]`; the modifying kernel ops
+      (fillet/chamfer/shell/draft/pattern + `combine_body`'s active side) relax
+      their `.solids() == 1` guard to lump-count-preserving `== k` (k captured
+      from the INPUT body) — a fillet on one lump of a k-lump body keeps k lumps;
+      k=1 is byte-identical to before. Shell/draft run PER LUMP (OCCT can't shell
+      a compound); fillet/chamfer run on the whole compound; every multi-lump
+      `Compound` is assembled in an EXPLICIT lump sort (centroid x/y/z, then
+      volume — determinism). `BooleanParamsV1` gains `allow_disjoint: bool = False`
+      (additive, NO `param_version` bump): when set, a `>1`-solid boolean returns a
+      lump-sorted `Compound` as ONE body instead of `boolean_disjoint`; default
+      keeps the safety error; empty results still `boolean_empty`. The part roll-up
+      flattens (`Compound([s for b in bodies for s in b.solids()])`) to avoid
+      nested compounds. Goldens `boolean-union-two-disjoint-cubes` (two 20 mm cubes
+      → ONE multi-lump body via `allow_disjoint`, 16000 mm³, shells=2, 12/24) and
+      `boolean-union-disjoint-then-fillet-lump2` (fillet lump 2's edge → 15920+20π
+      mm³, 13/27/2 — cross-lump topo-naming to exactly one edge), byte-identical
+      GLB+STEP across restart; every existing golden unchanged. **MB-4b SHIPPED
+      2026-07-19:** multi-solid STEP import → ONE multi-lump body
+      (`import_step_solid` returns `BodyShape` — one solid stays a bare `Solid`
+      byte-identically, ≥2 → a lump-sorted `Compound` preserved as authored, never
+      fused); `ImportNotSingleSolidError` → `ImportNoSolidError`
+      (`import_not_single_solid` → `import_no_solid`, rejects ONLY 0 solids), rippled
+      through contracts/ts-client/`featureErrors.ts`; golden
+      `import-step-two-disjoint-boxes` (2-solid STEP authored reversed → 16000 mm³,
+      shells=2, deterministic regardless of reader order). **Interop scorecard:
+      multi-solid STEP import ❌→✅.** **MB-4c SHIPPED 2026-07-19 (frontend →
+      multi-body pillar v1 COMPLETE through MB-4):** "Keep as one body" opt-in
+      (design-system `Checkbox`) threads real `allow_disjoint` into
+      `buildCombineParams` for all three ops; `boolean_disjoint` is now a guided
+      recovery (copy names the fix + a one-click button PATCHes the failing
+      boolean with the flag on and re-evaluates). The multi-lump Bodies-panel row
+      is deferred — per-body lump count is an honest wire gap (not on
+      `EvaluateTreeResult`; `properties.topology.shells` is a whole-part aggregate).
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.
@@ -415,16 +564,24 @@ export, flexible sub-assemblies, part-version pinning-as-default.
 - ⬜ Realtime presence + multi-user editing via gateway WebSocket
 - ⬜ Helm chart + Kustomize; HA topology guide
 
-## Phase 4 — Interop & drawings ⬜
+## Phase 4 — Interop & drawings 🚧
+
+**Header corrected 2026-07-19** (was stale ⬜ "planned" though most of the
+phase shipped): STEP import v1 + multi-solid, Drawings v1 + server-composed
+export, and Sheet metal v1 (Phase 4b below) are all done; IGES, named
+assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
 
 - 🚧 STEP/IGES import with healing report — **STEP import v1 shipped
       end-to-end** (kernel `4964fab` → gateway upload → UI file-picker,
       P1 security parse-timeout; **Interop row flips ❌→➖**), evidence
       summarized under Phase 2 above and in full in `CHANGELOG.md` /
-      `docs/design/step-import.md`. Remaining: IGES, multi-solid/assembly
-      (likely couples to Phase 3), sew/heal, blob-ref storage — BACKLOG
-      Later.
-- 🚧 2D drawings: views from model, dimensions, PDF/DXF export — the
+      `docs/design/step-import.md`. **Multi-solid STEP import SHIPPED
+      2026-07-19** (`919ebcf`, MB-4b) — a ≥2-solid file now imports as one
+      lump-sorted multi-lump body instead of being rejected. Remaining: IGES,
+      named assembly product-structure (part names/hierarchy — a multi-solid
+      file still lands as one anonymous body, not a Loft assembly), sew/heal,
+      blob-ref storage — BACKLOG Later.
+- ✅ 2D drawings: views from model, dimensions, PDF/DXF export — the
       product audit's honest #2/near-#1 counter-argument to Assemblies
       (smaller build, completes the make-loop for the single-part case).
       **Drawings v1 #1 — document model + CRUD (documents) SHIPPED**:
@@ -513,8 +670,26 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       — no raw hex, primitives not instances. `drawing/dimensions.ts` pure
       geometry + 14 unit tests; e2e authors Ø10.000 on the hole + 40.000 on the
       40 mm edge and deletes one, against the real stack; `just lint` green.
-      Deferred to BACKLOG: angular + point-to-point linear authoring, manual
-      drag-to-place. **Drawings v1 #5 — SVG export (apps/web) SHIPPED**: an
+      **Drawings v1 #6c — angular + point-to-point authoring (apps/web)
+      SHIPPED**: the measurement backend already supported both; the sheet now
+      AUTHORS them too. A single straight-edge pick's type menu adds **Angle**
+      (arms a second-edge pick → the gated menu offers **Angular**, authored as
+      a real arc annotation: apex at the two edges' apparent intersection, a
+      sampled arc swept the short way through the enclosed region, tangent
+      arrowheads, the model-true degree value); straight edges also get **vertex
+      handles** (precise endpoint picking) whose pair authors a **point-to-point
+      linear** (extension lines from each named model vertex, the model-true
+      distance). Pure `drawing/authoring.ts` pick state machine + placement math
+      in `dimensions.ts` (`placeAngular`/`placeLinearBetween`) + a frontend twin
+      of the §1.2 view-frame table in `layout.ts` (`projectModelPoint`, to
+      recover the model→projected endpoint correspondence the wire format
+      canonicalises away). New `dimensionArcRadiusMm`/`vertexHandle*` tokens; +23
+      unit tests (angle value/arc radius, point-to-point distance/line geometry,
+      the null→placed transition, the pick reducer); e2e authors a 90.0° angular
+      between two perpendicular edges and a point-to-point linear between two
+      vertices against the real stack (runs in CI). Closes the named Drawings v1
+      residual. Deferred to BACKLOG: manual drag-to-place. **Drawings v1 #5 —
+      SVG export (apps/web) SHIPPED**: an
       **Export SVG** action in the drawing command band (near Re-project, shortcut
       **E**, enabled only once `hasLayout`, honest disabled reason before) and a
       keyboard path serialize the already-rendered `DrawingSheet` `<svg>` to a
@@ -531,49 +706,279 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       and asserts the sheet root, the hole `<circle>`, and the `10.000` value;
       `just lint` green. **Drawings v1 export loop closed.** Remaining in the
       pillar: section/detail/assembly views + server-composed PDF/DXF.
+      **Drawing export DE-0/1a — server placement composer + SVG (geometry +
+      contract) SHIPPED** (2026-07-18): Approach C's load-bearing slice — the
+      geometry service now OWNS drafting placement. `ComposeDrawingRequest` /
+      `SheetLayout` / `ComposedSheet` / `ArtifactFormat` DTOs (py-kit, `just gen`
+      clean); `geometry.drawings.compose.place_sheet` PORTS the shipped
+      `layout.ts`/`dimensions.ts` placement VERBATIM (bounds-aware view anchoring,
+      linear/p2p/diameter/radius/angular dimension geometry, arrowheads, the
+      `chooseByPenalty` sibling-collision flip) into a `ComposedSheet` of sheet-mm
+      primitives; `serialize_svg` emits a deterministic, byte-stable SVG (same
+      `drawing` token colours). `POST /api/v1/drawing/compose` returns the SVG bytes
+      + `Content-Disposition` (mirrors `/export`; PDF/DXF → typed `not_implemented`
+      until DE-2/3). Gates: a **port-parity** suite (the TS `dimensions`/`layout`
+      test expected values as the Python oracle — catches a drifted constant here,
+      not at DE-1c), a **byte-stability golden** (fresh-interpreter reproducible),
+      the drawings HLR goldens unchanged, `just lint`/pyright/`gen-check` green.
+      **Client still renders its own placement until DE-1c (time-boxed two-engine
+      window, by design).**
+      **Drawing export DE-2a — reportlab PDF serializer (geometry) SHIPPED**
+      (2026-07-18): the shop deliverable. `serialize_pdf(ComposedSheet) -> bytes`
+      draws the SAME placed primitives onto a reportlab canvas (BSD-3; base-14
+      Courier, no embedding); the ONE y-flip is the canvas mode `bottomup=0`
+      (top-left y-down, matching `ComposedSheet`), so the placement math is
+      untouched. Deterministic (§8.3): `invariant=1` pins `/CreationDate`/`/ModDate`/
+      `/ID`/`/Producer` (no version stamp) + `pageCompression=0` avoids zlib-version
+      bytes → byte-identical in-process AND across a fresh interpreter. Endpoint
+      `POST /api/v1/drawing/compose?format=pdf` wired (`application/pdf` +
+      `Content-Disposition`); `dxf` stays typed `not_implemented` until DE-3.
+      Byte-stability PDF golden + structural + endpoint gates green; reportlab
+      pinned in the geometry deps.
+      **Drawing export DE-2b — gateway export proxy SHIPPED** (2026-07-18):
+      `POST /api/v1/drawings/{id}/export?format=pdf|svg` (`services/gateway/
+      drawings.py`) — auth-gated + `COMPUTE_RATE_LIMIT`, the drawing twin of the
+      parts `/{id}/export` two-hop aggregation. Documents serves the drawing tree
+      + the referenced part's evaluation-request (principal attached; uniform 404
+      re-surfaced); the gateway assembles the `ComposeDrawingRequest` (part prefix
+      + views + dimensions + `SheetLayout` from the persisted sheet) and forwards
+      to the identity-free geometry compose hop, streaming the artifact bytes +
+      `Content-Disposition` back. Geometry's `not_implemented` (dxf) / per-format
+      envelopes re-surface verbatim; unknown `format` → gateway 422. Gateway
+      pytest + contracts regenerated green.
+      **Drawing export DE-2c — frontend "Export PDF" control (apps/web) SHIPPED**
+      (2026-07-18): the shop deliverable now ships end-to-end in an engineer's
+      hands. An **Export PDF** action sits beside Export SVG in the drawing
+      command band's Export group (shortcut **P**, `data-testid=drawing-export-pdf`,
+      enabled only once `hasLayout`, honest disabled reason + "Composing…"
+      in-flight state); clicking it POSTs the gateway export route via a new
+      `api/exportDrawing.ts` (typed off the generated client, reuses the shared
+      `parseContentDispositionFilename` + `downloadBlob` — DRY), receives the
+      server-composed PDF **bytes** (`parseAs:"blob"`), and hands them to the
+      browser as `<name>.pdf`. Unlike client-side Export SVG, the placement is
+      the server's byte-deterministic compose. 3 `exportDrawing` unit tests;
+      e2e lays out a sheet, authors a Ø10, clicks Export PDF, and asserts the
+      download is a real `.pdf` (`%PDF-` magic, >1 KB) — green against the native
+      stack (6/6 drawings specs). Founder shot: `docs/screenshots/drawings-export-pdf-desktop.png`;
+      artifact saved to `docs/screenshots/drawing-export.pdf`. **This flips the
+      #1 Drawings residual — server-composed PDF export now ships end-to-end.**
+      Remaining: DE-1c client-placement cutover + DE-3 DXF.
+      **Drawing export DE-3a — ezdxf DXF serializer (geometry) SHIPPED**
+      (2026-07-18): CAD/CAM interchange — reopen the drawing's geometry in another
+      tool. `serialize_dxf(ComposedSheet) -> bytes` emits REAL model-space entities
+      (ezdxf, MIT) on a clean layer scheme — `LINE`/`CIRCLE`/`LWPOLYLINE` (sampled
+      arcs stay polylines, no re-fit) on `VISIBLE`/`HIDDEN` (dashed linetype), dim
+      lines + filled-triangle `SOLID` arrowheads + `TEXT` on `DIMENSION`, border +
+      title block on `TITLE` — so a hole is a `CIRCLE` a CAM tool can path, not a
+      picture. The ONE y-flip is applied once at emission (model space is y-up);
+      placement math untouched. Deterministic (§8.3): `write_fixed_meta_data_for_
+      testing` pins the timestamps/GUIDs/handle-seed + the **R2000** version pin
+      (R2010's scaffold objects order in a PYTHONHASHSEED-dependent way; R2000 is
+      byte-identical across ANY seed — verified 14 seeds) → byte-identical in-process
+      AND across a fresh interpreter. Endpoint `?format=dxf` wired (`image/vnd.dxf`);
+      a **reopens-cleanly** gate (`ezdxf.read` → audit, entity counts by layer, the
+      Ø10 holes are real `CIRCLE`s, dim values are `TEXT`) proves it's CAD geometry.
+      Byte-stability DXF golden + reopen + endpoint gates green; ezdxf pinned.
+      **Drawing export DE-3b — frontend "Export DXF" control (apps/web) SHIPPED**
+      (2026-07-18): an **Export DXF** action beside Export SVG/PDF in the command
+      band (shortcut D, honest disabled-before-layout + "Composing…" in-flight
+      states), reusing the typed `exportDrawing` client. The PDF + DXF server-export
+      in-flight/error path is unified into one `runServerExport(format)` (DRY; the
+      client-side SVG serialize stays separate). E2e drives it end-to-end against
+      the real stack — lay out + dimension, click Export DXF, catch the download,
+      assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
+      **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
+      pillar: section/detail/assembly views (DE-1c client-placement cutover DONE —
+      see below).
+      **Drawing export DE-1b — JSON compose endpoint (`ComposedSheet` model) SHIPPED**
+      (2026-07-18): the backend prerequisite for the DE-1c client cutover — the
+      frontend must RENDER from the server's placement, so it needs the placed model
+      as JSON. A DEDICATED geometry route `POST /api/v1/drawing/compose/sheet` returns
+      the `ComposedSheet` MODEL as typed JSON (reusing `place_sheet` VERBATIM — no new
+      placement logic) rather than a `format=json` branch on `/compose` (a route whose
+      response TYPE flips by query is awkward for codegen; separate operations emit
+      `ComposedSheet` + its nested `ComposedView`/`ComposedEdge`/`ComposedDimension`/
+      `ComposedTitleBlock` unions cleanly into the ts-client). Gateway proxy
+      `POST /api/v1/drawings/{id}/sheet` — auth-gated + `COMPUTE_RATE_LIMIT`, reusing
+      the EXACT two-hop aggregation the `/export` proxy uses (factored into a shared
+      `_aggregate_compose_request` helper — DRY), returns the model JSON. `just gen`
+      surfaces `ComposedSheet` in the ts-client for the first time (compose previously
+      returned only bytes). Gates: geometry route returns a well-formed `ComposedSheet`
+      for the compose golden (placed views/edges/dims/title block asserted; equals the
+      in-process `place_sheet`); gateway proxy aggregates + 401-gates + returns the
+      model; `just lint`/pyright/`gen-check` green.
+      **Drawing export DE-1c — client render cutover SHIPPED** (2026-07-18): the
+      frontend now renders the server-composed `ComposedSheet` VERBATIM (`DrawingSheet`
+      draws the placed edges/dimensions/title block, coordinates already in final
+      sheet-mm SVG space; TanStack-keyed off the DE-1b `/drawings/{id}/sheet` proxy like
+      the evaluate query). The browser's DUPLICATE placement engine is DELETED —
+      `apps/web/src/drawing/layout.ts` lost `boundsAwareLayout`/`viewTransform`/
+      `viewBounds`/`viewContentSvgRect`/`sampleArc`/`viewToSvgEdges`/`formatScale` +
+      margin/title-block constants; `dimensions.ts` lost `buildDimensionAnnotation` +
+      every place/arrow/penalty/edge-match helper (kept only `edgeSignatureKey` for
+      React/selection keys + `formatDimensionLabel` for the Dimensions side-panel);
+      the placement unit tests moved server-side (compose golden + parity). Picks,
+      hover, and endpoint handles stay client-side on the neutral `ProjectedViewEdge`
+      list, ALIGNED to the composed geometry by canonical edge order (compose +
+      evaluate share it per view) — the pick geometry reads composed coordinates while
+      provenance (source edge / dimensionable / `start_is_end_a`) comes from evaluate.
+      Gates: full `drawings.spec.ts` green (author linear/diameter/radius/angular/p2p +
+      SVG/PDF/DXF export, 7/7); founder screenshots visually IDENTICAL to the committed
+      baselines (sheet region pixel-identical; only transient interaction chrome
+      differs); `just lint` green. **ONE placement source; the time-boxed two-engine
+      window is CLOSED — the drawing-export initiative (DE-0…DE-3) is complete.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
-## Phase 4b — Sheet metal ⬜ (scoped, not yet endorsed/sequenced)
+## Phase 4b — Sheet metal ✅ (v1 complete 2026-07-19)
 
-**Not started, not yet green-lit** — a candidate pillar the vision-steward
+**v1 DoD MET, complete 2026-07-19** ("one bracket → a flat blank a shop can
+cut"; VISION scorecard ❌→➖, held short of ✅ on the depth-1-bend-star scope
+boundary — see VISION.md). **v2 #1 — non-parallel depth-1 stars — SHIPPED
+2026-07-19** (kernel-architect): `unfold_sheet_metal` now unfolds a tray / pan
+(base + edge flanges on PERPENDICULAR edges) to a 2D plus/cross, keeping the
+parallel L-bracket/U-channel goldens byte-identical. Spike-first verdict:
+tractable, no wall — shared-corner flanges included (disjoint 2D arms, exactly-
+additive 3D volume). Golden `corner-tray-perp-unfold`; `UnfoldStarError`
+narrowed to non-rectangular/angled bases + depth≥2. **Code-review follow-up
+(2026-07-19): depth-2 no longer leaks a raw kernel exception** — a flange folded
+off another flange (author-reachable) is now a UNIFORM typed `UnfoldStarError`
+(both a perpendicular box corner, which had leaked a raw `Standard_ConstructionError`,
+and a parallel box lip), guarded before the layout cross-product; the plus-pattern
+assembler guards its full-width-flange assumption (closed-loop or typed error);
+new N=4 full-pan golden `pan-four-flange-perp-unfold` (exactly-additive volume,
+closed 12-edge outline, byte-determinism). **Bend-TREE (depth≥2) unfold FEATURE — SHIPPED
+2026-07-19** (kernel-architect): the spike graduated into `unfold_sheet_metal`. A
+flange folded off ANOTHER flange (box corner / return / parallel Z-chain) now
+unfolds via a recursive-compositional tree walk (each child placed in its parent's
+already-flattened frame — no relaxation, no error accumulation beyond FP), with the
+per-flange rectangles chained into ONE union outline (a reentrant L / a rectangle).
+`unfold_sheet_metal` dispatches by tree depth so **depth-1 goldens stay
+byte-identical** (pinned content hashes green); depth-2 goldens
+`bend-chain-corner-unfold` (L-with-return) + `bend-chain-parallel-unfold` (Z),
+authored through two shipped `build_edge_flange` folds, gate area-conservation +
+exact outline-tiling + byte-determinism. Self-overlapping developments (full-box
+corners needing relief, §7) degrade to a typed `UnfoldOverlapError`; non-axis-aligned
+/ cyclic bend sets to a typed `UnfoldStarError` — never a crash or a wrong blank. The
+isolated `_spike_bend_chain` module + `spike-bend-chain-*` goldens are RETIRED (DRY —
+frame math folded in). Remaining v2 increments (corner RELIEF geometry itself,
+hems/miters/tabs/gauge-tables, the non-axis-aligned emitter) are tracked in BACKLOG,
+not an active roadmap phase. A pillar the vision-steward
 scoped 2026-07-17 in response to a founder ask ("anything for sheet metal?").
-Architecture decision: `docs/design/sheet-metal.md`. Named after Drawings
+Architecture decision: `docs/design/sheet-metal.md` (design doc corrected
+2026-07-19 before the first build slice — new additive `CylindricalFaceSignature`,
+real `ProjectedViewEdge` 2D vocab, depth-1-bend-star scope, exact area-conservation
+invariant + pinned K-factor, `gp_Trsf`/`pattern.py` citation).
+
+**Spike 0 (L-bracket unfold tractability proof) landed 2026-07-19 — VERDICT:
+TRACTABLE.** Before committing the feature schema, an isolated spike proved the
+flat-pattern unfold end-to-end on the simplest depth-1 case: `leg1 + BA + leg2`
+with `BA = angle × (r + K·t)`, K=0.44. Bend-allowance residual 1.78e-15 (ceiling
+1e-9); flat length (86.09 mm) + flat area (1721.89 mm²) residual 0.0; area
+conservation verified two independent ways; **byte-deterministic across
+fresh-process restarts** (golden `goldens-sheet-metal/l-bracket-unfold`, in its
+own harness dir per the `goldens-assembly/` precedent). New additive
+`services/geometry/src/geometry/sheet_metal/` module (in-module `FlatPattern`
+dataclass — no py-kit/contract change yet). The geometric bend resolver already
+extracts every field the future `CylindricalFaceSignature` must carry (axis /
+radius / centroid off OCCT's cylinder adaptor), proving slice #3 is a
+persistence-and-matching wrapper, not new geometry. Two items honestly deferred to
+the feature slices: `MakeFace` robustness on a non-rectangular blank (hole/notch
+through a bend), and up/down bend-direction inference. No OCCT wall. 13 tests,
+ruff + pyright clean. [kernel-architect, spike] Named after Drawings
 (not before Phase 5) because it composes directly with the shipped
-Drawings pipeline — the flat pattern rides the same `ViewGeometry`/HLR-view
-machinery as a part drawing (design doc §7) — and because Drawings landing
-first is what makes a flat-pattern-as-a-drawing-view cheap. **The genuine
-kernel risk, named plainly (design doc §2): OCCT ships no turnkey
+Drawings pipeline — the flat pattern rides the same `ProjectedViewEdge`/
+HLR-view machinery as a part drawing (design doc §7) — and because Drawings
+landing first is what makes a flat-pattern-as-a-drawing-view cheap. **The
+genuine kernel risk, named plainly (design doc §2): OCCT ships no turnkey
 flat-pattern unfold** (verified — no `Unfold`/`Sheet`/`Develop`/`Flatten`
-module in OCP); v1 scopes to a single provenance-tracked bend to avoid the
-harder general bend-graph relaxation problem. No new document type needed
-(unlike Assemblies/Drawings) — sheet-metal features extend the existing part
-feature-tree model.
+module in OCP); v1 scopes to a **depth-1 bend star** (one base flange plus N
+edge flanges folded directly off it — an L-bracket or a U-channel, not a
+box) to avoid the harder general bend-graph relaxation problem (a flange
+folded off another flange, depth ≥ 2, design doc §4.3). No new document type
+needed (unlike Assemblies/Drawings) — sheet-metal features extend the
+existing part feature-tree model.
 
 Sequenced slice titles (BACKLOG "Next" for full text; dependency-ordered,
 kernel risk moved EARLY — mirrors how Assemblies proved its solver on
 synthetic residuals before real mate-geometry resolution existed, `docs/
 design/assemblies.md` v1 #2):
 
-1. Base flange feature (`SheetMetalBaseFlangeParamsV1` — gauge thickness +
-   default K-factor/bend radius, reuses `extrude.py`) — the minimal
-   foundation the risk item needs a real (if trivial) sheet body to act on.
-2. **The flat-pattern unfold algorithm — THE flagged risk, proven early**
-   (`geometry.sheet_metal.unfold`: face classification + rigid-transform +
-   bend-allowance reconstruction, single-bend v1 scope), proven against a
-   directly hand-built OCCT test body (a known cylindrical bend face
-   constructed without going through a real edge-flange feature yet) — the
-   same "prove the hard algorithm in isolation before wiring real authored
-   geometry to it" posture the mate solver took. Ships with the analytic
-   unfolded-length + area-conservation goldens in the same commit.
-3. Edge-flange (bend) feature (`SheetMetalEdgeFlangeParamsV1` — parameter-
-   driven arc+line path, reuses `sweep.py`'s profile-along-path primitives;
-   bend-region provenance tagged via the shipped `SubshapeRef`/
-   `EdgeSignature` machinery) — wires #2's proven algorithm to real,
-   user-authored bend geometry.
-4. Flat pattern as a drawing view (`views.projection = "flat_pattern"`,
-   reuses the shipped `ViewGeometry` DTO + sheet editor + SVG export with no
-   new frontend renderer) + bend-table annotation (`annotations.type =
-   "table"`) — the v1 DoD, "one bracket → a flat blank a shop can cut."
+1. Base flange feature ✅ **SHIPPED 2026-07-19** (`SheetMetalBaseFlangeParamsV1`
+   — gauge thickness + default K-factor 0.44 / required bend radius, reuses
+   `extrude.py`'s `build_profile_face` + `extrude_face` verbatim; records the
+   part's `SheetMetalDefaults` on the body for slices #2/#3). Golden
+   `goldens-sheet-metal/base-flange-plate-40x25x2` (own harness): volume =
+   profile_area × gauge, exact topology, byte-deterministic. The minimal
+   foundation the risk item (#2) needs a real (if trivial) sheet body to act on.
+2. **The flat-pattern unfold algorithm — THE flagged risk** ✅ **PROVEN by
+   Spike 0 (2026-07-19), WIRED to authored geometry by #3.**
+   (`geometry.sheet_metal.unfold`: face classification + bend resolution +
+   bend-allowance reconstruction, depth-1-bend-star v1 scope). Spike 0 proved
+   it in isolation on a hand-built OCCT body; slice #3 generalised it to a
+   depth-1 PARALLEL bend star driven by provenance (`unfold_sheet_metal`).
+   Analytic unfolded-length + area-conservation goldens shipped.
+3. Edge-flange (bend) feature ✅ **SHIPPED 2026-07-19**
+   (`SheetMetalEdgeFlangeParamsV1` — edge selector via the shipped
+   `EdgeSignature` machinery + `flange_length`/`bend_angle`/inherited radius/K;
+   bend-region provenance tagged via the new additive `CylindricalFaceSignature`
+   sibling of `PlanarFaceSignature`, design doc §5). Builds the bend+flange by
+   extruding the exact developed cross-section along the bend axis (a clean
+   analytic cylinder the signature matches), fuses to ONE sheet body, and wires
+   #2's proven unfold to real authored geometry — PROVENANCE-driven, never blind
+   detection. Goldens `l-bracket-edge-flange` (N=1) + `u-channel-edge-flange`
+   (N=2, two flanges sharing the base) unfold from authored feature trees to
+   hand-derived flat length/area, byte-deterministic. Cleared both deferred
+   Spike-0 risks (MakeFace robustness; up/down inference). Non-parallel depth-1
+   stars SHIPPED as v2 #1 (2026-07-19, `corner-tray-perp-unfold`); depth ≥2
+   still deferred.
+4. Flat pattern as a drawing view (`views.projection = "flat_pattern"`) —
+   **BACKEND SHIPPED 2026-07-19; frontend render pending (next slice).**
+   The backend half: additive `ProjectedViewEdge.edge_role: "body"|"bend"`
+   (defaulted → existing HLR consumers unaffected), a `flat_pattern`
+   projection that SKIPS HLR and unfolds the sheet-metal body into the SAME
+   `DrawingViewResult`/`ProjectedViewEdge` shape (reusing `evaluate_tree` +
+   `unfold_sheet_metal`, no new projection frame), a `BendTableRow` bend
+   table surfaced alongside, and an honest per-view `flat_pattern_not_sheet_metal`
+   error for a non-sheet-metal body. Goldens `l-bracket-flat-pattern-view` (N=1)
+   + `u-channel-flat-pattern-view` (N=2): edge counts by role, analytic bend
+   table, byte-deterministic view result (in-process + restart). **Composed
+   flat-pattern SHEET SHIPPED 2026-07-19:** `place_sheet` gained an additive
+   flat-pattern branch — the single blank placed CENTRED from its projected
+   extents (reusing `view_to_svg_edges`/`view_bounds`, no forked machinery) +
+   a quiet-corner `ComposedBendTable` (rows + anchor rect on
+   `ComposedSheet.bend_table`; positional bend-row↔bend-edge correlation),
+   `edge_role` carried THROUGH composition onto every `Composed*Edge` (SVG/PDF/
+   DXF style `bend` dashed-blue). Goldens `l-bracket/u-channel-flat-pattern-sheet`
+   (centred, table non-overlapping, byte-deterministic in-proc + restart);
+   standard sheets compose byte-identically (additive). So a flat-pattern view
+   now renders through the standard server-composed-sheet path. **FRONTEND
+   RENDER SHIPPED 2026-07-19 — v1 DoD MET, "one bracket → a flat blank a shop
+   can cut":** the drawing editor gains a "Flat pattern" action (shortcut F)
+   that unfolds a sheet-metal part onto a lone-view sheet. `DrawingSheet` styles
+   `edge_role="bend"` edges as the dashed-blue FOLD stroke from a NEW
+   `@loft/design` `drawing.bend` token (the SAME `#2F6FEB` hex the server
+   composer hand-emits — one palette, two renderers) and renders the
+   `ComposedBendTable` as a quiet columnar precision instrument at its server
+   anchor (BEND / ANGLE / RADIUS / DIR / ALLOW), mirroring the SVG test hooks
+   (`drawing-bend-table` / `drawing-bend-row`). Bend rows key POSITIONALLY to
+   fold lines (i-th row ↔ i-th `edge_role="bend"` edge, shared `data-bend-index`).
+   A non-sheet-metal body renders an honest inline `flat_pattern_not_sheet_metal`
+   error, never a blank/crash. E2e `sheet-metal-flat-pattern.spec.ts` seeds an
+   L-bracket + U-channel through the API, unfolds each, and captures founder
+   frames at 1440 + 1280 (`docs/screenshots/sheet-metal-flat-pattern-{l,u}-{1440,1280}.png`).
+
+**Closing polish (2026-07-19, kernel-architect):** (a) **bend-table export
+consistency** — the server SVG/PDF/DXF serializers now render the bend table in
+the SAME 5-column columnar layout, precision, and labels as the on-screen DOM
+`BendTable` (BEND/ANGLE/RADIUS/DIR/ALLOW mm; angle 1dp+°, radius 2dp `R2.00`,
+allowance bare 2dp), replacing the PDF/DXF run-together `BA`-line so a shop's
+DXF/PDF matches the screen (UI-REVIEW P2). One shared `_bend_row_cells` +
+`_BEND_COL_DX`/`_BEND_TABLE_CAPTIONS` feeds all three; a cross-serializer
+consistency test + regenerated byte goldens DRY-lock it. Deeper cross-boundary
+refactor (pre-format cells into `ComposedBendTable`) filed BACKLOG SM-fmt-1.
+(b) **non-90° regression golden** `l-bracket-120-flange` (BA = (2π/3)·3.88 =
+8.126 mm, flat 88.126 mm) pins that the bend allowance scales with the MEASURED
+fold angle, not a `pi/2` hardcode (tol 1e-9; own test).
 
 Explicitly deferred past v1 (design doc §10): multi-bend/bend-graph
 flattening (boxes, hat channels), miter flanges/hems/jogs/tabs/corner

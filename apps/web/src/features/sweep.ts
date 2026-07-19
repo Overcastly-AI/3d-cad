@@ -26,6 +26,8 @@ export interface SweepForm {
   profileFeatureId: string;
   pathFeatureId: string;
   operation: SweepOperation;
+  /** "Merge result" (multi-body §MB-1) — see `ExtrudeForm.merge`. */
+  merge: boolean;
 }
 
 /** The default new-sweep form: add, against the given profile + path sketches. */
@@ -33,7 +35,7 @@ export function defaultSweepForm(
   profileFeatureId: string,
   pathFeatureId: string,
 ): SweepForm {
-  return { profileFeatureId, pathFeatureId, operation: "add" };
+  return { profileFeatureId, pathFeatureId, operation: "add", merge: true };
 }
 
 /** Seed the form from an existing sweep feature for editing. */
@@ -42,6 +44,7 @@ export function formFromSweepParams(params: SweepParams): SweepForm {
     profileFeatureId: params.profile.feature_id,
     pathFeatureId: params.path.feature_id,
     operation: params.operation,
+    merge: params.merge,
   };
 }
 
@@ -102,5 +105,7 @@ export function buildSweepParams(form: SweepForm): SweepParams | null {
     profile: { kind: "feature", feature_id: form.profileFeatureId },
     path: { kind: "feature", feature_id: form.pathFeatureId },
     operation: form.operation,
+    // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
+    merge: form.operation === "add" ? form.merge : true,
   };
 }

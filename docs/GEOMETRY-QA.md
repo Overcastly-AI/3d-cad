@@ -7,6 +7,138 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-19 — Sheet-metal depth-≥2 bend-TREE unfold FEATURE (kernel-architect self-report)
+
+**SHIPPED — the spike graduated into `unfold_sheet_metal`.** Depth-2 is no longer
+rejected: a flange folded off ANOTHER flange (box corner / return / parallel Z)
+unfolds through the real path. Evidence:
+
+- **Depth-1 goldens BYTE-UNCHANGED** (the load-bearing regression gate). `just`
+  `pytest tests/` green; the L-bracket / U-channel / `corner-tray-perp-unfold` /
+  `pan-four-flange-perp-unfold` pinned content-hash tests pass unchanged —
+  `unfold_sheet_metal` dispatches by tree depth, so the depth-1 star runs the exact
+  pinned 1D-strip / 2D-plus layout as before.
+- **Depth-2 unfolds correctly**, authored through two shipped `build_edge_flange`
+  folds (real provenance), new goldens:
+  - `bend-chain-corner-unfold` (depth-2 L-with-return, F2 ⟂ F1): flat_area
+    2971.154834 mm² = base 1200 + F1 1000 + F2 375 + Σ(BA·width) (hand-derived,
+    independently recomputed in-test); the per-flange rectangles chain into ONE
+    reentrant-L union outline (6 body edges + 2 fold lines) whose **shoelace-enclosed
+    area equals flat_area exactly** (the layout tiles the blank); content_hash pinned,
+    byte-deterministic in-process + fresh-restart; fused body volume 5966.814 mm³
+    exactly additive (no 3D overlap).
+  - `bend-chain-parallel-unfold` (depth-2 Z): flat_area 3287.575 mm², single 40×82.19
+    rectangle (4 body edges), area-tiling + determinism witnessed the same way.
+- **Honest degradation, all typed (no crash, no wrong blank):** empty bend set +
+  unresolvable provenance → typed; a **full box corner needing relief** (two
+  adjacent-wall returns closing the corner) → typed `UnfoldStarError` (cyclic
+  connectivity, rejected before layout); the `_rects_overlap` self-overlap gate +
+  `UnfoldOverlapError` are the backstop for any valid-tree development that collides.
+- **Finding (recorded):** a valid bend TREE of axis-aligned rectangular flanges does
+  not self-overlap in development — real "needs-relief" shapes are *cyclic* and
+  caught earlier. The overlap gate stays as defense-in-depth (unit-tested predicate +
+  the corner-box integration test prove both the gate and the earlier cyclic reject).
+- DRY: the isolated `_spike_bend_chain` module + `spike-bend-chain-*` goldens are
+  RETIRED; the frame math lives once in `unfold._unfold_bend_tree`.
+
+## 2026-07-19 — Sheet-metal depth-≥2 bend-chain unfold SPIKE (kernel-architect self-report)
+
+**VERDICT: TRACTABLE, no wall.** The next flagged sheet-metal risk (design §4.3/§10,
+the graph-relaxation problem v1 defers): a flange folded off ANOTHER flange (box
+corner / return / hat channel — depth ≥ 2), where the child's unfold transform must
+compose THROUGH the parent's already-applied development. Proven end-to-end in an
+**isolated** spike (`services/geometry/src/geometry/sheet_metal/_spike_bend_chain.py`,
+NOT wired into the shipped depth-1 `unfold_sheet_metal`, which stays byte-unchanged
+and still rejects depth-2).
+
+- **Algorithm — recursive-compositional tree walk, no relaxation.** Orient each bend
+  parent→child by its recorded `base_face_signature` (§5), build the bend tree, place
+  the base at identity, then walk outward placing each child flange in its parent's
+  ALREADY-flattened 2D frame: `child_2d(cpC) = parent_2d(cpP) + BA·w_parent_2d`.
+  Every input (axis/radius/tangent line) is an analytic cylinder-adaptor quantity and
+  every step is a 2×2 rigid motion, so the composition is EXACT — the feared error
+  propagation is real but **bounded at FP scale, never amplified**.
+- **Two hand-built depth-2 bodies (both via two shipped `build_edge_flange` folds,
+  real provenance), build123d 0.11.1 / OCCT 7.9, tol 1e-9, vol tol 1e-6:**
+  - `spike-bend-chain-corner` (PERPENDICULAR box corner, B2 axis ⟂ B1): BA-strip
+    offset residual max **2.7e-15**, per-flange isometry residual **0.0** (developed
+    area = 3D face area: base 1200, F1 1000, F2 375), area conservation exact
+    (flat_area 2971.154833617673), fused volume 5966.814089933348 **exactly additive**
+    (no 3D overlap → real box corner), topology faces=16/cyl=4/solids=1, content_hash
+    `863c28d9…` byte-identical in-proc + fresh-restart.
+  - `spike-bend-chain-parallel` (PARALLEL chain / Z, B2 axis ∥ B1, still depth-2):
+    same residual class, flat_area 3287.575179837136, volume 6605.309649148734,
+    content_hash `3c469b5b…`. Proves the recursion also covers the parallel chain the
+    shipped unfold defers.
+  - **No overlap:** the three flanges occupy disjoint 2D regions in both cases (the
+    single L-with-return needs no corner relief — relief stays a §7 deferral).
+- **Honest failure:** empty bends → typed `BendChainError`; a bend whose provenance no
+  longer resolves → typed `subshape_unresolved` (§5), never a wrong pattern.
+- **Follow-on FEATURE work (spike-flagged, not hit here):** lift the depth-2
+  rejection + generalize the shipped layout to the general tree; assemble the single
+  union outline with reentrant notches; overlap-guard the full 4-sided box (where
+  relief IS required). Existing depth-1 goldens (l-bracket/u-channel/corner-tray/
+  pan) byte-UNCHANGED; full `pytest tests/` green.
+
+## 2026-07-19 — Sheet-metal depth-2 no-crash guard + N=4 full-pan golden (kernel-architect self-report)
+
+Code-review follow-up on the non-parallel unfold (three 🟡/🟢). The reachable
+defect: an author can fold a flange off ANOTHER flange (depth 2 — the edge-flange
+`edge` ref accepts an edge flange as its base). A **perpendicular** second bend
+axis (a real box corner) drove `outward = e.cross(base_normal).normalized()` to a
+zero-norm normalize and leaked a raw kernel `Standard_ConstructionError` through
+the public unfold API. Verified before the fix (reproduced the raw crash) and
+after (typed `UnfoldStarError`).
+
+- **Decision — depth-2 rejected UNIFORMLY** (a consistent "depth-1 only" contract):
+  a bend whose resolved base face is not the ONE shared base raises before any
+  layout math. Covers both the perpendicular box corner (the crash) and the
+  parallel box lip (which did NOT crash — it silently emitted a 1D strip — now
+  also rejected, since it is still the deferred graph-relaxation case). Two new
+  tests assert the typed error and prove no `Standard_ConstructionError` escapes.
+- **Full-width guard:** `_emit_plus_pattern` now asserts its developed body-edge
+  outline chains into ONE closed loop (a future partial/offset flange → typed
+  error, never a silently non-closed blank a shop would mis-cut).
+- **New golden `pan-four-flange-perp-unfold` (N=4 full pan)** — the headline
+  full-tray claim. Base 40×30 + a full-width flange off EACH edge (legs 20/15/25/10).
+  Evidence (build123d 0.11.1 / OCCT 7.9, tol 1e-9, vol tol 1e-6):
+  - Area conservation (§9 #2): flat_area 4503.256564714987 vs analytic
+    4503.256564714988 (residual ~9e-13); shoelace over the closed **12-edge** plus
+    outline equals it to 1e-6. 12 body edges + 4 fold lines, one closed loop.
+  - **Exactly-additive volume** (residual 0.0): fused 9059.291886010284 = analytic
+    sum of base + 4 flanges ⇒ NO 3D corner overlap even at N=4. Topology
+    faces=30/edges=68/shells=1.
+  - Determinism (§9 #4): content_hash `c7268519…` byte-identical in-process, across
+    a fresh interpreter, AND between a hand-built OCCT body and the feature-tree
+    body.
+- **Parallel + corner-tray goldens byte-unchanged** (guard is check-only, no
+  layout change). `BendLine.flat_start/end` documented as per-arm axial coords in
+  differing 2D frames — consumers must use the `role="bend"` outline edges.
+
+## 2026-07-19 — Sheet metal v2 #1: non-parallel depth-1 bend star (kernel-architect self-report)
+
+New golden `goldens-sheet-metal/corner-tray-perp-unfold` — a base flange (40×30)
++ TWO edge flanges on PERPENDICULAR (adjacent, corner-sharing) edges, authored
+through the real feature tree and unfolded by provenance to a **2D plus/cross**
+(the first non-1D flat pattern). Spike-first verdict: **TRACTABLE, no wall.**
+
+Evidence (build123d 0.11.1 / OCCT 7.9, tol 1e-9, vol tol 1e-6):
+- **Area conservation (§9 #2):** flat_area 3226.628282357493 vs analytic
+  3226.628282357494 (base counted once + 2 flange legs + 2 BA strips); an
+  INDEPENDENT shoelace area over the outline body-edge loop equals it to 1e-6.
+- **Exactly-additive 3D volume** — the shared-corner tractability proof: fused
+  body 6479.645943005143 vs analytic 6479.645943005142 (residual ~1e-12) ⇒ the
+  two perpendicular arms do NOT overlap in 3D. Topology faces=16/edges=38/shells=1.
+- **Bend allowance** 6.09468974796419x per bend (both 90°, r=3, K=0.44).
+- **Determinism (§9 #4):** content_hash `d8d7a0f6…` byte-identical in-process,
+  across a fresh interpreter, AND between a hand-built OCCT body and the
+  feature-tree-authored body.
+- **Parallel goldens byte-unchanged:** the L-bracket/U-channel content_hash pins
+  (`66021d79…`, `8247476a…`) still match — the parallel path is kept verbatim.
+- **Narrowed boundary:** `UnfoldStarError` now only for non-rectangular/angled
+  base, angled bend axis, or depth≥2 (gated with real geometry — a triangular
+  base raises; the perpendicular-star test now SUCCEEDS).
+
 ## How to run the geometry gates
 
 ```bash
@@ -35,6 +167,11 @@ uv run pytest services/geometry/tests/test_export.py -v
 
 # full geometry service suite (kernel unit tests + API + worker + gates):
 uv run pytest services/geometry
+
+# performance benchmark — DETAILED tier (opt-in, median/p95 table, no CI gate):
+just bench   # == uv run pytest .../test_benchmarks.py -m benchmark -s
+# the generous CI tripwires (tier 1) run in the default suite already:
+uv run pytest services/geometry/tests/test_benchmarks.py
 ```
 
 `just e2e`'s geometry half should invoke the first two commands; the
@@ -49,6 +186,369 @@ for a feature tree — `geometry.harness` owns the dispatch) + `expected.json`
 discovery-inventory guard tests fail loudly if discovery ever breaks.
 Expectations must be hand-derived or cross-checked in a second tool — never
 recorded from harness output.
+
+## 2026-07-19 — Performance benchmark suite + CI tripwires (BACKLOG Ready #1, `tests/test_benchmarks.py`)
+
+**What shipped.** A systematic two-tier perf suite (gate 4, RESEARCH §9) over
+a corpus of REAL operations run on the shipped goldens — replacing the ad-hoc
+per-golden warm numbers scattered through this log with one committed baseline
+table + a non-flaky CI regression/DoS tripwire. Territory: `test_benchmarks.py`
++ the `benchmark` marker (root `pyproject.toml`) + a thin `just bench` target.
+No app/kernel source touched — the benchmarks call existing APIs on existing
+golden inputs (DRY: the same feature trees, sheet-metal trees, drawing request,
+assembly requests, and primitive shapes the correctness gates already lock).
+
+**Design — two tiers, deliberately separate (the anti-flake constraint).** A
+perf assertion with a TIGHT bound false-reds under CI CPU contention (shared
+runners, concurrent jobs), and a false-red perf gate is worse than none. So:
+
+- **Tier 1 — CI tripwires (asserted, DEFAULT pytest path, unmarked).** Every
+  case asserts warm wall-clock under a GENEROUS ceiling (below). Sized to catch
+  a gross regression or a DoS (a 5–10×+ blowup, or the RESEARCH §9 2 s rebuild
+  ceiling), NOT a drift. Each case is warmed once (cold OCCT/import discarded)
+  then timed best-of-2 (the minimum is the warmest, contention-free reading).
+- **Tier 2 — detailed timings (opt-in, `-m benchmark`, `just bench`).** A
+  fixed-warmup median-of-15 per case, printed as the table below for humans to
+  watch trends. EXCLUDED from the default suite (root `addopts` carries
+  `-m 'not benchmark'`; a CLI `-m benchmark` overrides it). Asserts NOTHING
+  tight — it records numbers, it does not gate CI.
+
+This is a DELIBERATE divergence from the item's original ">10% regression CI
+gate" acceptance: a 10% CI bound is exactly the tight bound that flakes under
+contention. The >10%-drift watch lives in tier 2 (human-reviewed), and CI gates
+only on the generous DoS ceilings. Recorded here as the reviewed decision.
+
+### Baseline table (2026-07-19, warmup=2, median-of-15; native container-free boot)
+
+Environment: dev container, Python 3.12, build123d 0.11.1 (OCCT 7.9 via OCP),
+single uvicorn-class process, no Docker. Warm timings (setup — request parse /
+solid build — excluded from timing where the operation is a sub-step):
+
+| group | operation (golden input) | median ms | p95 ms | CI ceiling ms | headroom |
+| --- | --- | ---: | ---: | ---: | ---: |
+| tree | plate-6hole-ring-cut (`sketch-extrude-plate-6hole-ring-cut-60x60x10`) | 99.98 | 111.17 | 2000 | 20× |
+| tree | pattern-cut-6hole (`pattern-cut-6hole-boltcircle-60x60x10`) | 69.03 | 77.76 | 2000 | 29× |
+| tree | shell-open-top (`shell-open-top-box-40x25x10-t2`) | 15.34 | 16.63 | 1000 | 65× |
+| tree | fillet-top-edge (`fillet-top-edge-40x25x10-r5`) | 14.25 | 15.37 | 1000 | 70× |
+| boolean | union-two-cubes (`boolean-union-two-cubes-overlap`) | 17.31 | 18.00 | 1000 | 58× |
+| boolean | subtract-two-cubes (`boolean-subtract-two-cubes-overlap`) | 14.86 | 15.26 | 1000 | 67× |
+| boolean | union-then-fillet (`boolean-union-then-fillet`) | 28.38 | 29.61 | 1000 | 35× |
+| tessellate | box-primitive (`box-10x20x30`) | 2.30 | 2.84 | 1000 | 435× |
+| tessellate | cylinder-curved (`cylinder-r10-h25`) | 3.73 | 4.07 | 1000 | 268× |
+| tessellate | complex-6hole plate (`pattern-cut-6hole-boltcircle-60x60x10`) | 36.23 | 40.74 | 1000 | 28× |
+| step_roundtrip | box (`box-10x20x30`) | 9.87 | 11.01 | 1000 | 101× |
+| step_roundtrip | complex-6hole plate | 22.76 | 23.92 | 2000 | 88× |
+| sheet_metal | l-bracket flat-pattern (unfold+compose) | 31.76 | 35.13 | 1000 | 31× |
+| sheet_metal | u-channel flat-pattern (unfold+compose) | 63.70 | 64.47 | 2000 | 31× |
+| drawing | HLR compose → SVG (plate compose golden) | 88.19 | 88.70 | 2000 | 23× |
+| drawing | HLR compose → PDF | 92.68 | 95.91 | 2000 | 22× |
+| drawing | HLR compose → DXF | 107.88 | 108.96 | 2000 | 19× |
+| assembly | two-plates bolted (mate solve + roll-up) | 67.40 | 72.54 | 2000 | 30× |
+| assembly | two-plates gap | 65.89 | 69.52 | 2000 | 30× |
+
+### CI-ceiling policy (the generous multiples + why they won't flake)
+
+Two documented ceilings, chosen measured-then-set (the golden-tolerance
+convention applied to time):
+
+- **`CEILING_LIGHT_MS = 1000`** — warm median < 40 ms (tessellation, single-body
+  trees, booleans, the STEP box round-trip, the L-bracket unfold). 28×–435× the
+  warm median of every light case.
+- **`CEILING_HEAVY_MS = 2000`** — warm median ≥ 40 ms (multi-feature/dense trees,
+  drawing HLR+compose+serialize, assembly solves, the U-channel unfold, the
+  complex-plate STEP round-trip). This is literally the RESEARCH §9 rebuild
+  ceiling; 19×–30× the warm median of every heavy case.
+
+**Why they won't false-red:** the SMALLEST multiple in the corpus is 19×
+(drawing→DXF, 108 ms vs 2000 ms). Shared-runner CPU contention rarely exceeds a
+3–5× slowdown; even a 4× contention slowdown leaves ≥4.7× of headroom on the
+tightest case. Loosening a ceiling is a reviewed decision recorded here, never a
+quick fix; a genuine >5–10× breach is a defect to root-cause to
+sketch/solver/feature-eval/tessellation/export, not a bound to widen.
+
+**Non-flake evidence:** the tier-1 tripwires ran green across the full geometry
+suite (`uv run pytest tests/`, 1× — exit 0) plus 2 further standalone module
+runs (20/20 each, 3 consecutive greens) with the margins above; the detailed
+tier's own sanity assert (median < ceiling) also held for all 19 cases.
+
+### Finding — no operation is near a concerning latency
+
+Every real operation is warm-fast: the slowest is the drawing DXF export at
+~108 ms median (HLR projection + 4-view compose + ezdxf serialize of the plate
+golden), ~19× under the 2 s rebuild ceiling. Nothing in the current corpus is a
+perf problem; this run files NO perf defect. The heaviest kernel path
+(`plate-6hole-ring-cut` at ~100 ms — sketch→extrude then a multi-disjoint-loop
+cut) is the natural watch item as parts grow denser.
+
+### Honest scorecard note — this is the INFRA half of Performance ❌
+
+This suite closes the **benchmark-suite** half of the Performance ❌ row: a
+systematic, committed baseline + a CI regression/DoS tripwire now exist. It does
+NOT by itself flip Performance ❌→➖ — VISION also names "no real parts yet": the
+corpus is the shipped goldens (representative single features + small multi-body
+parts + the sheet-metal/drawing/assembly pillars), not yet a library of
+engineer-scale reference parts (100+ features, deep assemblies). That real-part
+corpus is the other half and remains open. Left the VISION ❌ marker to the
+vision-steward; noted the context in the ROADMAP/BACKLOG ticks.
+
+[geometry-qa]
+
+---
+
+## 2026-07-19 — INDEPENDENT geometry-QA of MB-4a multi-lump bodies + opt-in disjoint union (`e77da29`) — VERDICT: PASS (trustworthy)
+
+Independent verification of the reconciled MB-4a work (`EvaluationState.bodies`
+widened `dict[UUID, Solid]` → `dict[UUID, BodyShape]`; modifying ops relaxed to
+lump-count-preserving `== k`; `allow_disjoint` opt-in). All six requested gates
+PASS; no correctness defects found. Full geometry suite **1051 tests, exit 0**
+(`uv run pytest services/geometry/tests -q`, build123d 0.11.1 / OCCT 7.9).
+
+### 1. Determinism (GLB + STEP + tree-order independence) — PASS
+- In-process ×2 + fresh-interpreter restart for both new goldens →
+  **byte-identical GLB + identical metadata** (harness
+  `test_rebuild_is_deterministic_{in_process,across_interpreter_restart}`
+  green for `boolean-union-two-disjoint-cubes`, `boolean-union-disjoint-then-fillet-lump2`,
+  `multibody-two-disjoint-boxes`). GLB SHA-256 (12-char): disjoint-cubes
+  `703b0cba1017`, fillet-lump2 `0093f777496a`.
+- **Load-bearing cross-check:** `boolean-union-two-disjoint-cubes` GLB hash
+  `703b0cba1017` is **identical** to the MB-0 `multibody-two-disjoint-boxes`
+  hash — the disjoint-union path reproduces the two-body geometry byte-for-byte,
+  proving the flattened part roll-up + explicit lump sort are consistent across
+  the two code paths that reach the same solid.
+- **Tree-order independence (probed):** rebuilt the disjoint union with the
+  boolean's `target`/`tool` operand refs **swapped** → GLB **byte-identical** to
+  the original. The centroid-x/y/z-then-volume lump sort makes multi-lump output
+  order independent of operand supply order (RESEARCH §9).
+
+### 2. k=1 byte-identity vs pre-MB-4a — PASS
+Rebuilt 10 single-solid goldens that flow through a relaxed op — fillet
+(`fillet-plate-r5`, `fillet-top-edge`), chamfer (`chamfer-plate-d5`), shell
+(`shell-open-top-box`), draft (`draft-frustum-box`), pattern (linear/circular/
+cut), and `boolean-union-then-fillet` — at HEAD `e77da29` **and** at the
+pre-MB-4a parent `e77da29~1` (git worktree). **GLB SHA-256 identical on all 10.**
+The widening does not perturb the k=1 path. (STEP SHA differs cross-run, but the
+diff is exactly the 2-line `FILE_NAME` wall-clock timestamp — verified by
+diffing two exports of the *same* shape 1.1 s apart → 2 differing lines, both the
+`2026-07-19T02:30:35`/`:36` header; STEP *geometry* is preserved, see gate 4.)
+
+### 3. Volume / topology correctness of the two new goldens — PASS
+Independently re-derived analytics match `expected.json` and measured output:
+- `boolean-union-two-disjoint-cubes`: 2×20³ = **16000 mm³** (measured
+  15999.99999999999_6, dev ~4e-12); surface 12×400 = **4800 mm²** (meas
+  4799.99999999999_9); centroid (25, 10, 10); **12 faces / 24 edges / 2 shells**;
+  mesh 48 v / 24 t — all exact.
+- `boolean-union-disjoint-then-fillet-lump2`: 16000 − 20(4−π) = 15920 + 20π =
+  **15982.831853071795** (measured …0793, dev ~2e-12); surface 4712 + 22π =
+  **4781.115038378975** (meas …9745); centroid (24.97362582238927,
+  10.010261751083917, 10); **13 faces / 27 edges / 2 shells**; mesh 178 v / 152 t
+  — all exact. `shells=2` confirms the lump-2 fillet is lump-count-preserving.
+Both within the documented `tolerance=1e-9` (worst residual ~4e-12, ~250× inside).
+
+### 4. STEP round-trip of a Compound body — PASS
+`boolean-union-two-disjoint-cubes` Compound → `export_step` → `import_step`:
+lump count **2 → 2**; per-lump volumes **[8000, 8000] → [8000, 8000]**; total
+16000 → 16000 (deviations at GProp/STEP ulp, ~1e-12). `fillet-lump2` per-lump
+**[7982.83…, 8000] → [7982.83…, 8000]** (fillet lump survives, dev ~1e-11).
+Harness `test_step_roundtrip_preserves_geometry` green for both new goldens.
+
+### 5. `allow_disjoint` semantics — PASS
+Direct feature-tree probes (non-touching operands unless noted):
+- flag **absent** → `error boolean_disjoint`; flag **False** → `error boolean_disjoint`
+  (last-good body set = the two un-consumed bodies, shells=2 — correct §4.3);
+- flag **True** → `ok`, ONE 2-lump `Compound` (shells=2, lumps=2);
+- **touching** operands (share face x=20): `ok`, single `Solid` (shells=1) with
+  flag **True** *and* **absent** — fusion is unaffected by the flag;
+- non-overlapping **intersect** → `error boolean_empty` with flag True *and*
+  absent — an empty result stays `boolean_empty` regardless of the flag.
+
+### 6. Mate-against-multi-lump-face regression — PASS (genuinely cross-lump)
+`test_mate_resolves_a_face_on_a_multilump_body`: a `Compound([near x[0,20],
+far x[100,120]])` mate ref names the FAR lump's +X face (centroid x>100);
+`resolve_mate_geometry` resolves to a point at **x≈120** with outward **+X**.
+The near lump also has a +X face (x=20), so a correct result *requires*
+enumerating faces across both lumps and selecting the far one by signature — the
+test genuinely exercises body-scoped cross-lump resolution, not a first-lump
+shortcut. All 5 `test_multibody.py` tests green.
+
+### Note (NOT MB-4a; foreign in-flight work observed during this run)
+Early runs flaked on `test_goldens.py::test_every_golden_dir_is_complete` /
+collection. Root cause: a **concurrently-running sheet-metal agent** had dropped
+an untracked `goldens/sheet-metal-l-bracket-unfold/model.json` that is not a
+`TessellateRequest`/`EvaluateTreeRequest`, so `test_goldens._load_goldens()`
+(and the `test_step_roundtrip`/`test_export` golden globs) errored at collection.
+That agent then committed a fix ("move sheet-metal golden to its own harness
+dir", `45a4bf0`) relocating it to `goldens-sheet-metal/`, and the collision
+cleared. Diagnosis for the record: the golden harness globs **every**
+`goldens/*/model.json` and parses it strictly, so any non-golden `model.json`
+under that tree breaks the whole harness — the sheet-metal builder's fix is the
+right resolution; no MB-4a defect. MB-4a territory (lumps/boolean/fillet/shell/
+evaluate + the two new goldens) is untouched by `45a4bf0..HEAD`.
+
+### VERDICT: TRUSTWORTHY — MB-4a accepted
+Analytics re-derived from scratch match to the last significant digit; both new
+goldens' topology closes under Euler–Poincaré (V−E+F = 2 per lump); the k=1 path
+is GLB-byte-identical to pre-MB-4a across all five relaxed ops; the lump sort
+makes multi-lump output order-independent (byte-identical under operand swap and
+identical to the MB-0 hash); STEP preserves lump count + per-lump volumes;
+`allow_disjoint` gates exactly as specified; the mate resolver genuinely crosses
+lumps. No red findings. No tolerance was loosened.
+
+## 2026-07-18 — INDEPENDENT geometry-QA of MB-3 fillet-on-boolean-edge + multi-body boolean pillar v1 (`7ed2dd8`) — VERDICT: PASS
+
+Independent verification (re-ran every suite myself; no self-report trusted; no
+Docker — native `uv run pytest`). MB-3 shipped the highest topological-naming
+risk in the multi-body design: a fillet on an edge CREATED by a boolean. The
+load-bearing question was not "green?" but "is the honest degrade limit TRULY
+bounded — a clean typed error, never a wrong-edge modification or crash?"
+
+### 1. Golden `boolean-union-then-fillet` — re-derived from scratch (PASS)
+Union of two 20mm cubes (A[0,20], B[10,30], overlap x[10,20]) → fused 30×20×20
+box → fillet r=2 on the boolean-created vertical corner edge at x=0,y=0,z[0,20].
+Analytic re-derivation done independently (removed corner = h·(r²−πr²/4) =
+20·(4−π)):
+
+| quantity | my derivation | golden `expected.json` | measured (`evaluate_model`) | dev |
+|---|---|---|---|---|
+| volume | 11920+20π = **11982.831853071795** | 11982.831853071795 | 11982.831853071795 | **0.0** |
+| surface_area | 3112+22π = **3181.1150383789754** | 3181.1150383789754 | 3181.1150383789754 | **0.0** |
+| centroid | (15.020850878973928, 10.013687235546936, 10.0) | idem | idem | **0.0** |
+| bbox min | (0,0,0) | (0,0,0) | (−4.44e-16, −4.44e-16, 0) | 4.4e-16 (fillet tangent at machine-ε, documented) |
+| topology | 6 box + 1 fillet = **7 F / 15 E / 1 S** | 7/15/1 | 7/15/1 | exact |
+| mesh | (curved face — GLB-gated) | 154 V / 140 T | 154 V / 140 T, glb=7732 | exact |
+
+7 faces = 6 box + 1 fillet face confirms the fillet resolved the INTENDED single
+boolean-created edge (not a fan of edges, not the wrong corner). Golden expected
+values match my hand-derivation to the last digit. `test_goldens.py`: 110 passed.
+
+### 2. Degrade-under-edit matrix — the honesty check (PASS, TRULY BOUNDED)
+Independently reproduced (`test_boolean.py`: 17 passed) AND re-ran the matrix
+standalone, inspecting the last-good body to rule out a silently-wrong fillet:
+
+| upstream edit (move cube B) | fillet feature status | last-good body |
+|---|---|---|
+| baseline overlap [10,30] | `ok` | filleted Solid, vol **11982.83** |
+| **SWALLOW corner** [-5,15] (picked edge becomes interior) | **`subshape_unresolved`** (typed) | Solid, vol **9999.99…** = the UN-filleted 25×20×20 fused box |
+| non-topology edit [5,25] (edge untouched) | `ok` | filleted Solid, vol **9982.83** (=25·20·20−20(4−π)) |
+| disjoint [30,50] | boolean_disjoint fires FIRST, fillet `skipped` | two-cube Compound, vol 16000 |
+
+The critical evidence: when the edit swallows the picked corner, the fillet fails
+CLEANLY (`subshape_unresolved`) and the last-good body volume is exactly the
+**un-filleted** fused box (10000 mm³) — the fillet did NOT round a different edge,
+did NOT crash, did NOT 500. Stage-1 absolute-coordinate EdgeSignature is
+exact-match-or-unresolved. Disjoint is caught before the fillet is reached. This
+is a genuinely bounded honest degrade.
+
+### 3. Determinism (PASS — byte-identical GLB + STEP across a fresh interpreter)
+- GLB + metadata byte-identical in-process and across interpreter restart
+  (`test_goldens.py` restart gate, fillet goldens: 12 passed).
+- STEP + STL byte-identical across a fresh interpreter under a DIFFERENT
+  PYTHONHASHSEED (`test_export.py` tree-export restart gate, boolean-union-then-
+  fillet: passed; fillet export-determinism subset: 9 passed).
+
+### 4. No regression across the pillar (PASS)
+Full golden suite **110 passed**; assembly goldens **12 passed** (BodyShape
+widening from MB-0 still solves). Sibling boolean/multibody goldens byte-identical
+to committed expectations: union 12000 (6/12/1), subtract 4000 (6/12/1), intersect
+4000 (6/12/1), disjoint 16000 (12/24/2).
+
+### 5. STEP round-trip of the filleted boolean result (PASS)
+`test_step_roundtrip.py` fillet subset: 3 passed. Independent re-measure: export →
+re-import volume **11982.831853071813** (dev **1.8e-11** mm³ vs. original), SA dev
+4.1e-12, topology preserved 7/15/1. Well inside the golden's 1e-9 ceiling for the
+in-memory assertion; round-trip dev is kernel STEP re-read noise, not a defect.
+
+### VERDICT: PASS — MB-3 and multi-body boolean pillar v1 are geometrically sound
+Every measured number matches independent analytic derivation to machine
+precision; the fillet resolves exactly one boolean-created edge; determinism is
+byte-stable across GLB/STEP and interpreter restarts; no golden regressed.
+**Honest documented stage-1 limit:** the picked edge is named by an absolute-
+coordinate EdgeSignature, so a topology-changing upstream edit that moves/removes
+that edge degrades to a clean typed `subshape_unresolved` (never a wrong-edge
+fillet or crash) — robust name-tracking through booleans is a later stage, and the
+limit is bounded and honest as shipped. No red findings; no coverage gap (the new
+capability ships with its own headline golden).
+
+## 2026-07-18 — INDEPENDENT geometry-QA of MB-0 multi-body plumbing (`396dbcd`) — VERDICT: PASS
+
+Independent gate on the commit that swapped the eval loop's single `body` slot
+for a tree-ordered `bodies` dict (a part can now end with >1 body) and widened
+the mass-props / tessellation / export / assembly-mate path to a `Compound`.
+Ran the suites myself; did not trust the builder's self-report. All five checks
+PASS.
+
+### Check 1 — single-body regression (the critical one): PASS, byte-identical
+- `git show --stat 396dbcd` touches only the NEW golden's two files
+  (`multibody-two-disjoint-boxes/{model,expected}.json`). **No pre-existing
+  golden's `expected.json` or `model.json` was modified** — the byte-identical
+  claim is structurally confirmed, not just asserted.
+- Full golden harness green: **94 passed** (`test_goldens.py`, 23 goldens × 4
+  gates + inventory). Every pre-existing single-body golden — extrude, revolve
+  (`revolve-annulus-r10-20-h15`), sweep (`sweep-circle-r8-h30`), loft
+  (`loft-cylinder-offset`, `loft-pyramid-sq20-h30`), fillet
+  (`fillet-plate-r5`, `fillet-top-edge`), chamfer (`chamfer-plate-d5`), shell
+  (`shell-open-top-box`), draft (`draft-frustum-box`), pattern
+  (linear/circular/cut), hole (`plate-2holes`, `6hole-ring-cut`), boss-on-face,
+  import (`import-step-box`) — passes its committed `expected.json` unchanged.
+- Code confirms the mechanism: `evaluate.py:1517-1520` — `body_list =
+  list(state.bodies.values())`; `if len(body_list) == 1:` measures/tessellates
+  the **bare Solid** (no Compound path). One body → pre-MB path exactly.
+
+### Check 2 — `multibody-two-disjoint-boxes`, re-derived from scratch: PASS
+Rebuilt from `model.json` (NOT from expected.json) and measured:
+- body type = **Compound**, 2 disjoint solids: A bbox (0,0,0)→(20,20,20) vol
+  8000.0, B bbox (30,0,0)→(50,20,20) vol 8000.0 — the 10 mm x-gap is real.
+- volume **15999.999999999996** (dev vs analytic 16000 = **3.64e-12**)
+- surface_area **4799.999999999999** (dev vs 4800 = 9.1e-13)
+- centroid (**25.0, 9.999999999999998, 10.0**) — dev x=0, y=1.8e-15, z=0
+- bbox (0,0,0)→(**50,20,20**) exact
+- topology **faces=12, edges=24, shells=2** (shells=2 is the load-bearing
+  multi-body assertion); mesh **vertices=48, triangles=24**
+All match `expected.json` within its documented tolerance **1e-9** (worst case
+3.64e-12 is ~250× inside the ceiling). Golden's expected values are analytically
+correct — not enshrined buggy output.
+
+### Check 3 — determinism (fresh interpreter, base-order compound): PASS
+- Golden restart gate (`test_goldens.py`, subprocess `sys.executable -c`, genuinely
+  fresh interpreter) — GLB + metadata byte-identical for the multibody golden.
+- Went further than the shipped suite: exported STEP + GLB in **three fresh
+  interpreters under PYTHONHASHSEED ∈ {1, 424242, unset/random}** →
+  STEP sha256 `30835e1f…9483` and GLB sha256 `703b0cba…d51d8` identical across
+  all three. The base-order Compound (`list(state.bodies.values())` over an
+  insertion-ordered dict inserted in tree/base order) is genuinely
+  hash-independent, not accidentally stable within one seed.
+
+### Check 4 — assembly goldens intact (the flagged ripple): PASS
+`test_assembly_goldens.py` **10 passed** — `assembly-two-plates-bolted` and
+`assembly-two-plates-gap` still solve to the same poses / combined roll-up /
+shared-mesh dedup / restart-determinism after `TreeEvaluation.body` widened
+`Solid → BodyShape`. Mate resolution over a single-body part did NOT silently
+break. `test_multibody.py` **4 passed** (body-scoped resolution: coincident-twin
+fillet resolves to exactly one edge on the active body — no false
+`subshape_ambiguous`; widened resolvers accept Solid AND Compound).
+
+### Check 5 — STEP multi-solid round-trip: PASS
+- `test_step_roundtrip.py` **22 passed**; the multibody golden IS covered.
+  Independent re-measure: STEP export is AP214 (`AUTOMOTIVE_DESIGN`), **2×
+  `MANIFOLD_SOLID_BREP`** (valid multi-solid), re-import → 2 solids, total
+  volume dev vs original **0.0**, topology **shells=2 faces=12 edges=24**
+  preserved.
+
+### Test-suite gap found + closed (test code only, no app code)
+`test_export.py::test_export_is_byte_deterministic_across_interpreter_restart`
+is `@each_model` = **shape goldens only**; tree/compound goldens (incl.
+multibody) got STEP/STL determinism **in-process only** — which shares one hash
+seed and therefore CANNOT catch a hash-seed-dependent Compound ordering. Added
+`test_tree_export_is_byte_deterministic_across_interpreter_restart` (`@each_tree_model`,
+subprocess forced to a DIFFERENT `PYTHONHASHSEED=0`, reproduces the endpoint's
+`evaluate_tree → export_solid` path). **21 passed** (all tree goldens, incl.
+multibody). Full `test_export.py` green: **149 passed**. Ruff clean.
+
+### Evidence tail
+`test_goldens.py` 94 passed (103s) · `test_multibody.py`+`test_assembly_goldens.py`+
+`test_step_roundtrip.py` 40 passed · `test_export.py` 149 passed (108s) · three-seed
+STEP/GLB digest probe identical. No golden regressed; no tolerance touched.
+**VERDICT: PASS — MB-0 multi-body plumbing is geometrically correct and
+deterministic; single-body path is byte-identical.**
 
 ## 2026-07-17 — Distance + angle mates shipped: conventions PINNED with analytic goldens
 
@@ -793,12 +1293,15 @@ ceiling — measured 0.0). Through the shared golden runner this also proves
 byte-determinism in-process AND across an interpreter restart for free. This is
 the import counterpart to `test_step_roundtrip`'s export-direction 0.0 result.
 
-**Healing report scope (v1 = single solid or legible error).** Exactly one
-`TopAbs_SOLID` → accepted. Zero/multiple solids (open shells, surfaces-only, a
-multi-solid assembly) → `import_not_single_solid`, whose message carries the
-shape stats (solids/shells/faces) — the honest v1 healing report. Verified: a
-compound of two disjoint boxes reads as a `TopAbs_COMPOUND` with 2 solids and is
-rejected with that count. Sewing/repair, IGES, and multi-body are deferred.
+**Body scope (one or more solids; §MB-4b).** One `TopAbs_SOLID` → a bare `Solid`
+body (byte-identical to the single-solid pipeline). **Two or more** → ONE
+multi-lump body, a lump-sorted `Compound` of the file's solids preserved as
+authored (not fused — import is not a boolean; golden
+`import-step-two-disjoint-boxes`, 16000 mm³, shells=2). Only **zero** solids
+(open shells, surfaces-only, wireframe) → `import_no_solid`, whose message
+carries the shape stats (shells/faces) — the honest healing report. Verified: a
+lone face reads `shells=1, faces=1`, 0 solids and is rejected with that count.
+Sewing/repair, IGES, and splitting a multi-lump body are deferred.
 
 **Error taxonomy (per-feature, never a 500/hang; §4.3).** Garbage/empty/truncated
 bytes → OCCT `IFSelect_RetFail` → `import_parse_failed` (verified: no raise, no
@@ -2779,13 +3282,36 @@ finding, not absorbed into the tolerance.
 
 **Import parse runs out-of-process (security bound, 2026-07-13).** The untrusted
 OCCT STEP parse (`ReadFile` → `TransferRoots`) now runs in a spawned, killable
-subprocess bounded by `step_import_timeout_seconds` (default 5 s) so an
-adversarial/degenerate part-21 cannot pin a worker (docs/design/step-import.md
-§6, BACKLOG P1). The ~0.9 s per import feature is cold-OCP spawn cost (the worker
-imports OCP alone, not build123d) — still well inside the 2 s tripwire and
-confined to the import path; `import-step-box-10x20x30` still measures **0.0
-deviation** through the subprocess+BREP boundary. Timeout + no-fd/zombie-leak are
-gated in `tests/test_imports.py`.
+subprocess so an adversarial/degenerate part-21 cannot pin a worker
+(docs/design/step-import.md §6, BACKLOG P1). The ~0.9 s per import feature is
+cold-OCP spawn cost (the worker imports OCP alone, not build123d) — still well
+inside the 2 s tripwire and confined to the import path;
+`import-step-box-10x20x30` still measures **0.0 deviation** through the
+subprocess+BREP boundary. Timeout + no-fd/zombie-leak are gated in
+`tests/test_imports.py`.
+
+**Parse-timeout hardened to CPU-time + wall-clock backstop (2026-07-19).** The
+original bound was a single 5 s **wall-clock** `subprocess.run(timeout=…)`, which
+conflates the parse's *work* with the machine's *load*: under CPU contention
+(parallel CI/worktrees) a legit ~1 s parse can take many WALL seconds while
+burning the same ~1 s of CPU, so it **false-fired** on slow-but-legit imports
+(observed: `test_import_step_solid_round_trips_a_box_losslessly` +
+`…_is_deterministic` transiently failing on a loaded machine, green in
+isolation). Fix: the primary DoS bound is now a **CPU-time** ceiling
+(`RLIMIT_CPU` inside the worker, `step_import_timeout_seconds` /
+`STEP_IMPORT_TIMEOUT_SECONDS`, default **20 s of CPU-time** = ~20× a legit
+parse's ~1 s CPU) — invariant to machine load, so it never false-fires no matter
+how starved the wall-clock; plus a generous **wall-clock liveness backstop**
+(`step_import_wall_timeout_seconds` / `STEP_IMPORT_WALL_TIMEOUT_SECONDS`, default
+60 s) that only kills a *wedged* (blocked, not CPU-burning) child. On CPU
+exhaustion the kernel sends `SIGXCPU`/`SIGKILL`, which the parent maps to
+`import_parse_timeout`. Evidence: the two previously-flaky tests pass **8× under
+2× CPU oversubscription with zero false-timeouts**; the DoS guard is asserted to
+still FIRE (`test_cpu_limit_kills_a_real_cpu_burn_regardless_of_wall_clock`
+kills a real CPU burn via `RLIMIT_CPU`; `test_cpu_limit_signal_maps_to_import_parse_timeout`
+pins the `-SIGXCPU` → timeout taxonomy; the wall-backstop kill is gated by
+`test_import_parse_wall_backstop_fires_and_is_not_a_hang`). No schema/contract
+change.
 
 ### Gaps / coverage list for future passes
 
@@ -2909,3 +3435,127 @@ residuals (worst 1.455e-11) sit 687× inside a documented, honestly-justified 1e
 determinism is byte-stable across rebuilds and interpreters. Reaches the same solid
 as #4 (ring golden) via a different feature path and origin, verified independently
 — not assumed equal. No red findings.
+
+---
+
+## 2026-07-19 — Sheet-metal v1 pillar: whole-pillar CAD-correctness gate (geometry-qa)
+
+Independent geometric-correctness QA of the COMPLETE sheet-metal v1 pillar now
+that all slices have landed (base flange, edge flange, unfold, flat-pattern view,
+server-composed flat-pattern sheet; commits fb555cc → 645f236). Each slice was
+code-reviewed; this is the cross-pillar CAD gate. Reference: `docs/design/
+sheet-metal.md` §1/§6/§9. Env: native boot, build123d 0.11.1 / OCCT 7.9,
+Python 3.12.
+
+**Full geometry suite:** `uv run pytest tests/ -q` → **green** (all pass, 1 skip,
+exit 0). Sheet-metal + STEP + compose subset re-run standalone: green.
+
+### 1. Bend allowance across cases (PASS — incl. non-90°, the documented gap CLOSED)
+Re-derived `BA = angle_rad × (radius + K·thickness)` from scratch (third source,
+independent of golden AND kernel), K=0.44, t=2, r=3:
+
+| case | my BA | golden | match |
+|---|---|---|---|
+| 90° | 6.094689747964199 | 6.094689747964199 | exact |
+| L-bracket flat_len | 50+BA+30 = 86.0946897479642 | 86.0946897479642 | exact |
+| U-channel flat_len | 25+BA+40+BA+30 = 107.1893794959284 | 107.1893794959284 | ~1e-14 |
+
+**Non-90° probe (the goldens are all 90°; item flagged for coverage).** Authored
+real edge flanges at 45°/60°/120° end-to-end (`build_edge_flange` →
+`unfold_sheet_metal`) and confirmed BA scales with the MEASURED fold angle, not a
+hardcode. The resolver's `_fold_angle` (angle between flanking-flange normals)
+returns 45.0000000000 / 60 / 120° exactly; reported BA vs closed form:
+
+| fold | measured angle | BA reported | BA expected | Δ |
+|---|---|---|---|---|
+| 45° | 45.0000000000° | 3.0473448739821256 | 3.0473448739820994 | 2.6e-14 |
+| 60° | 60.0000000000° | 4.063126498642802 | 4.063126498642799 | 3.6e-15 |
+| 120° | 120.0000000000° | 8.126252997285597 | 8.126252997285597 | 0.0 |
+
+**Finding:** non-90° folds are correct end-to-end — this is BETTER than the
+"document the gap" fallback. The only honest gap is that no non-90° GOLDEN is
+committed (all shipped goldens are 90°); the *capability* is exercised and correct.
+Recommend a 120° edge-flange golden next cycle to lock it as a regression pin
+(🟡 coverage gap, not a defect).
+
+### 2. Area conservation (PASS — verified independently, §9 #2)
+Recomputed `flat_area = base_area + Σ(flange_area) + Σ(BA·width)` from the parts,
+not by re-reading the code's own formula:
+- L-bracket: 1000 + 600 + 6.09469·20 = **1721.893794959284** = golden (also
+  = flat_length·width = 86.09469·20, rectangular blank). Measured residual ~2.4e-12.
+- U-channel: 800 + 500 + 600 + 2·(6.09469·20) = **2143.787589918568** = golden.
+  The SHARED base is counted ONCE (identified by base-face signature), confirmed:
+  double-counting would give 800·2 = wrong; the analytic single-count matches.
+
+### 3. Determinism across the pillar (PASS — in-process + restart + PYTHONHASHSEED)
+Unfold `FlatPattern.content_hash()`, `DrawingViewResult` JSON hash, and
+`ComposedSheet` JSON hash all reproduce the committed pins under PYTHONHASHSEED 0
+and 12345 AND across a fresh interpreter:
+
+| artifact | L-bracket | U-channel | seed-independent |
+|---|---|---|---|
+| unfold hash | 66021d7938ed… | 8247476afb8d… | yes |
+| view hash | 47c282e78e38… | c5dc8dd08644… | yes |
+| sheet hash | 82216130a003… | 42aaf9015cd8… | yes |
+
+Multi-bend (U-channel) output order is stable: `[bend-1, bend-2]` under both seeds
+— the lump/bend sort (`_lay_out_star`, sorted by u-position; bend table sorted by
+fold-line midpoint) makes it deterministic, not hash-order dependent.
+
+### 4. Flat-pattern SVG/PDF/DXF byte-pin (ADDED — the compose review's explicit ask)
+The compose code-review requested a byte-pin for the composed flat-pattern
+artifacts; only the ComposedSheet JSON hash was pinned. **Contributed** golden
+byte files + a test (`tests/test_sheet_metal_flat_pattern_bytes.py`,
+`tests/sheet_metal_compose_goldens/{l-bracket,u-channel}.{svg,pdf,dxf}`): 14 new
+assertions, all green. Bytes are byte-stable across a fresh interpreter and
+PYTHONHASHSEED variation. The DXF/SVG bend-table row is exactly
+`bend-1  90.0°  R3.000  UP  BA6.095` — the degree symbol `°` is asserted present as
+UTF-8 in the SVG text AND the DXF bytes (the encoding detail a byte pin protects;
+a latin-1/ASCII serializer regression would break it while the JSON pin stayed green).
+Regenerate on a deliberate kernel bump via the module's `_regenerate()`.
+
+### 5. STEP round-trip of authored sheet-metal bodies (ADDED — was a coverage HOLE)
+The kernel STEP round-trip gate (`test_step_roundtrip.py`) parametrizes over
+`goldens/` only — **no** sheet-metal part was there, so a folded body (base + a
+cylindrical bend + edge flange) had ZERO export→import coverage. **Contributed**
+`tests/test_sheet_metal_step_roundtrip.py` (reuses the shared
+`assert_roundtrip_preserved` fixture, iterates the authored trees). Measured:
+
+| body | volume Δ | area Δ | centroid Δ | solids | topology (orig=reimp) |
+|---|---|---|---|---|---|
+| L-bracket | 8.2e-12 | 1.6e-11 | ≤4.1e-14 | 1 | 10/24/1 |
+| U-channel | 7.3e-12 | 3.2e-11 | ≤7.3e-14 | 1 | 14/36/1 |
+
+Mass props preserved within ROUNDTRIP_TOL (1e-7) — worst 3.2e-11, ~3 orders inside;
+topology exact; single connected solid (a bend exported as a disconnected shell
+would split this). Cylindrical bend geometry survives STEP without degradation.
+
+### 6. Honest degradation (PASS — verified via existing gates)
+- Removing a bend's cylindrical face → typed `SubshapeUnresolvedError` /
+  `subshape_unresolved` (not a wrong flat pattern / crash):
+  `test_bend_provenance_degrades_when_bend_face_removed`,
+  `test_flat_pattern_view_unresolvable_bend_degrades_honestly` — both green.
+- Perpendicular-star boundary holds: authored two flanges on perpendicular base
+  edges → `UnfoldStarError` (match "not parallel"),
+  `test_perpendicular_bend_star_is_unfold_star_error` — green. depth-1 PARALLEL
+  scope is enforced, not silently mis-unfolded.
+
+### 7. Provenance correctness — equal-radius bend disambiguation (PASS)
+The U-channel's two bends both have r≈3.0 but distinct axis lines. Resolved each
+provenance independently: prov0 axis_origin (40,0,5) / centroid (41.91,10,3.09);
+prov1 axis_origin (0,20,5) / centroid (−1.91,10,3.09). Each resolves to its OWN
+face (centroids 43.8 mm apart, `TopoDS.IsSame`=False, zero cross-match distance) —
+axis/centroid disambiguation, NOT first-found. Note: prov0's stored radius is the
+arc-fit `2.9999999999999933`, prov1's is exact `3.0`; both match via the relative
+radius tolerance (1e-6) — consistent with the goldens' documented FP note.
+
+### VERDICT: PILLAR IS GEOMETRICALLY SOUND — no P0/P1 defects
+Bend allowance is analytically exact across 45/60/90/120° (measured angle, not a
+hardcode); area conserves the neutral surface with the shared base counted once;
+determinism is byte-stable across process + restart + hash-seed for unfold, view,
+sheet, AND the new SVG/PDF/DXF artifacts; STEP round-trip preserves mass props
+(≤3.2e-11) and topology exactly; honest-degradation and perpendicular-star
+boundaries hold; equal-radius bends disambiguate correctly. Two QA contributions
+landed (byte-pin + STEP round-trip, both filling real coverage holes).
+**One 🟡 finding (not a defect):** no non-90° golden is committed though the
+capability is correct — file a "120° edge-flange golden" backlog item to lock it.

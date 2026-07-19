@@ -46,6 +46,7 @@ function extrude(id: string, profileId: string): FeatureResponse {
         distance_mm: 12,
         operation: "add",
         direction: "normal",
+        merge: true,
       },
     },
   };
@@ -64,6 +65,7 @@ describe("defaultLoftSections / defaultLoftForm", () => {
     expect(defaultLoftForm(["s1", "s2"])).toEqual({
       sections: ["s1", "s2"],
       operation: "add",
+      merge: true,
     });
   });
 
@@ -82,10 +84,12 @@ describe("formFromLoftParams", () => {
         { kind: "feature", feature_id: "s2" },
       ],
       operation: "cut",
+      merge: true,
     };
     expect(formFromLoftParams(params)).toEqual({
       sections: ["s1", "s3", "s2"],
       operation: "cut",
+      merge: true,
     });
   });
 });
@@ -95,6 +99,7 @@ describe("ordered-section list ops", () => {
     expect(addSection(defaultLoftForm(["s1", "s2"]))).toEqual({
       sections: ["s1", "s2", ""],
       operation: "add",
+      merge: true,
     });
   });
 
@@ -141,6 +146,7 @@ describe("buildLoftParams", () => {
         { kind: "feature", feature_id: "s3" },
       ],
       operation: "add",
+      merge: true,
     });
   });
 

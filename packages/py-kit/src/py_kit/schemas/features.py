@@ -134,6 +134,54 @@ class PlanarFaceSignature(BaseModel):
     area_mm2: float = Field(gt=0, description="Face area (mm^2), full precision")
 
 
+class CylindricalFaceSignature(BaseModel):
+    """§5 stage-1 geometric fingerprint of a CYLINDRICAL face — typed, kernel-free.
+
+    The bend-provenance sibling of :class:`PlanarFaceSignature`
+    (docs/design/sheet-metal.md §5): a sheet-metal **bend region** is a cylindrical
+    face, and the planar signature cannot name one — an outward *normal* and an
+    in-plane *centroid* are meaningless for a curved surface, so reusing it would
+    be a type error, not a DRY win. This additive schema pins the bend's exact
+    B-rep geometry to full precision (§7.2 forbids quantizing the stored identity):
+    a point on the bend ``axis_origin`` + the unit ``axis_dir`` + the ``radius_mm``
+    + the area ``centroid`` (all world mm). The geometry service EMITS it off a
+    cylindrical face at edge-flange construction time
+    (:func:`geometry.sheet_metal.resolve.cylindrical_face_signature`) and MATCHES
+    it back to the bend face on a rebuilt body
+    (:func:`geometry.sheet_metal.resolve.resolve_cylindrical_face`,
+    nearest-within-tolerance, exactly one or an honest ``subshape_unresolved`` —
+    the same best-effort stage-1 posture as the planar/edge signatures) so the
+    unfold pass finds the bend by PROVENANCE, never blind geometric detection
+    (§2.2 recognition-vs-provenance).
+
+    ``surface`` is the ``"cylinder"`` discriminator mirroring
+    :class:`PlanarFaceSignature`'s structurally-inert ``surface: "plane"`` — the
+    seam §5 anticipates for a future ``SelectorV1.signature`` widening to a
+    ``Field(discriminator="surface")`` union. v1 keeps the shared planar
+    ``SubshapeRef``/``Selector`` machinery unchanged (no feature persists a
+    cylindrical SubshapeRef yet — the signature is geometry-internal unfold
+    provenance), so this schema is a pure additive sibling: it destabilises no
+    persisted planar face reference (DRY — extract the union member on the second
+    real consumer, not the first imagined one).
+    """
+
+    subshape_type: Literal["face"] = "face"
+    surface: Literal["cylinder"] = "cylinder"
+    axis_origin: Vec3 = Field(
+        description="A point on the bend axis line, world mm (full precision)"
+    )
+    axis_dir: Vec3 = Field(
+        description="Unit vector along the bend axis (full precision)"
+    )
+    radius_mm: float = Field(
+        gt=0,
+        description="Cylinder radius (mm) — the bend's inner radius, full precision",
+    )
+    centroid: Vec3 = Field(
+        description="Area centroid of the cylindrical face, world mm (full precision)"
+    )
+
+
 class SelectorV1(BaseModel):
     """Stage-1 selector payload: the geometric signature alone (§3, §4).
 
@@ -588,6 +636,27 @@ class SketchParamsV1(SketchDefinition):
     plane: GeomRef
 
 
+#: The multi-body "Merge result" flag (docs/design/multi-body.md §MB-0,
+#: Decision 2), shared by every ADDITIVE body-affecting feature
+#: (extrude/revolve/sweep/loft) — CLAUDE.md DRY rule, one definition. It applies
+#: to the ADD operation only: ``True`` fuses the new solid into the ACTIVE body
+#: (the historical single-body behaviour, and the "create the first body if none
+#: exists yet" case); ``False`` STARTS a new active body — the second-body path
+#: that lets a part end with more than one lump. Ignored for a CUT (which always
+#: modifies the active body). Additive-optional and defaulting ``True``, so
+#: legacy rows (persisted with no ``merge`` key) read ``True`` and behave exactly
+#: as before — the ``flip``/``direction`` idiom, NO ``param_version`` bump.
+MERGE_FIELD = Field(
+    default=True,
+    description=(
+        "Merge result (ADD only): True fuses the new solid into the active body "
+        "(default, historical single-body behaviour / starts the first body); "
+        "False starts a NEW body (multi-body, design multi-body.md §MB-0). "
+        "Ignored for a CUT. Additive — absent reads True, no param_version bump."
+    ),
+)
+
+
 class ExtrudeParamsV1(BaseModel):
     """Linear extrusion of an earlier sketch feature's profile."""
 
@@ -597,6 +666,7 @@ class ExtrudeParamsV1(BaseModel):
     distance_mm: float = Field(gt=0, description="Extrusion depth (mm)")
     operation: Literal["add", "cut"]
     direction: Literal["normal", "reverse"] = "normal"
+    merge: bool = MERGE_FIELD
 
 
 class RevolveAxis(BaseModel):
@@ -656,6 +726,7 @@ class RevolveParamsV1(BaseModel):
         description="Sweep sense about the axis for a partial revolution "
         "(irrelevant at a full 360°): 'reverse' sweeps the opposite way",
     )
+    merge: bool = MERGE_FIELD
 
 
 class SweepParamsV1(BaseModel):
@@ -707,6 +778,7 @@ class SweepParamsV1(BaseModel):
         "form a single OPEN wire — the sweep trajectory (design §2.2)"
     )
     operation: Literal["add", "cut"]
+    merge: bool = MERGE_FIELD
 
 
 class LoftParamsV1(BaseModel):
@@ -760,6 +832,7 @@ class LoftParamsV1(BaseModel):
         "(design §2.2). Fewer than 2 is a request-validation 422.",
     )
     operation: Literal["add", "cut"]
+    merge: bool = MERGE_FIELD
 
 
 class FilletParamsV1(BaseModel):
@@ -1121,11 +1194,15 @@ class ImportParamsV1(BaseModel):
     ``STEPControl_Reader`` (units pinned to mm, RESEARCH §9): the same bytes yield
     a byte-identical body/mesh across rebuilds and interpreter restarts.
 
-    v1 accepts EXACTLY ONE solid; a compound / open shells / surfaces-only file
-    is an honest ``import_not_single_solid`` rebuild error whose message carries
-    the shape stats (the v1 "healing report" — §4), and unparseable bytes are
-    ``import_parse_failed`` (§5). Sewing/repair, multi-solid assemblies, IGES,
-    and a positioned insert against an existing body are deferred (§7).
+    A file with ONE solid becomes a bare solid body; a file with TWO OR MORE
+    solids becomes ONE multi-lump body — a lump-sorted compound of its disjoint
+    solids (docs/design/multi-body.md §MB-4), not several bodies. STEP import is
+    not a boolean: the file's solids are preserved AS AUTHORED (touching or
+    overlapping solids are kept as separate lumps, never silently fused). Only a
+    file that yields ZERO solids (open shells / surfaces-only / wireframe) is an
+    honest ``import_no_solid`` rebuild error whose message carries the shape
+    stats, and unparseable bytes are ``import_parse_failed`` (§5). Sewing/repair,
+    IGES, and a positioned insert against an existing body are deferred (§7).
 
     ``kind``/``format`` default so a future blob-ref source (§2a) and IGES join
     additively with no ``param_version`` bump.
@@ -1137,7 +1214,270 @@ class ImportParamsV1(BaseModel):
         min_length=1,
         max_length=MAX_INLINE_STEP_CHARS,
         description="STEP AP214 part-21 file text (inline). Bounded/non-empty at "
-        "parse time (422); parsed to exactly one solid by the geometry service.",
+        "parse time (422); parsed to one or more solids by the geometry service "
+        "(multi-solid → one multi-lump body, MB-4b; 0 solids → import_no_solid).",
+    )
+
+
+# --- Boolean params — a boolean between two independently-built bodies -----------
+#
+# The headline multi-body feature (docs/design/multi-body.md §Decisions-3 / §MB-1):
+# a boolean between two bodies built independently (each with its own base
+# feature), where MB-0's `merge=False` seam let a part hold more than one lump.
+# The operands are `FeatureRef`s to each body's BASE feature — the id that keys a
+# body in `EvaluationState.bodies` (§MB-0 Decision 1: a body's identity IS its
+# base-feature id) — so each materializes a `feature_dependencies` edge exactly
+# like any other FeatureRef (generic documents validation then handles delete/
+# reorder safety, no documents code change). The result REPLACES both operands,
+# taking over the target's identity slot (keeps target's base id so downstream
+# refs resolve) and removing the tool body; it becomes the active body.
+#
+# OPERATION SCOPE (MB-1a decision, recorded here): the `operation` Literal names
+# all three OCCT booleans (`union` = BRepAlgoAPI_Fuse, `subtract` =
+# BRepAlgoAPI_Cut, `intersect` = BRepAlgoAPI_Common) so the schema — and the
+# generated ts-client type — is STABLE across the MB-2 slice that wires subtract/
+# intersect (no `param_version` bump, no client type churn then). This slice
+# (MB-1a) WIRES `union` only; the geometry evaluator returns an honest per-feature
+# `boolean_not_implemented` for `subtract`/`intersect` until MB-2, never a silent
+# wrong body. v1 keeps the single-connected-solid-per-body invariant (§Decisions-3):
+# a union of DISJOINT (non-touching) bodies is a `boolean_disjoint` rebuild error
+# (multi-lump compound bodies are deferred to MB-4), which is exactly why the
+# body set stays a `Solid` per body, never a `Compound`.
+
+
+class BooleanParamsV1(BaseModel):
+    """A boolean between two independently-built bodies (design §Decisions-3).
+
+    ``target`` and ``tool`` are :class:`FeatureRef`s to the BASE feature of each
+    operand body (an ``extrude``/``revolve``/``sweep``/``loft``/``import`` — the
+    body-CREATING features, NOT a modifier like fillet). ``target`` is the
+    SURVIVING body (for ``subtract``, the minuend); ``tool`` is the CONSUMED body
+    (the subtrahend). The boolean result takes over the target's identity slot and
+    the tool body is removed from the part.
+
+    All three operations are wired (union MB-1a; subtract/intersect MB-2). By
+    DEFAULT the v1 single-connected-solid-per-body invariant (§Decisions-3)
+    governs the result: a union of non-touching bodies, or a subtract that SEVERS
+    the target into ≥2 pieces, is a ``boolean_disjoint`` rebuild error; a subtract
+    that removes the whole target, or an intersect with no overlap, is
+    ``boolean_empty``.
+
+    MULTI-LUMP BODIES ARE OPT-IN (MB-4 / design §MB-4). Set ``allow_disjoint`` to
+    accept a ``>1``-solid result as ONE multi-lump body — a :class:`Compound` of
+    the disjoint lumps kept under the target's identity slot (a genuine
+    "combine into one body" of, say, two non-touching bosses). It defaults
+    ``False`` because a disjoint union is USUALLY a positioning bug, not an
+    intent, so v1 keeps the safety error unless the author explicitly opts in.
+    An EMPTY result is still ``boolean_empty`` / ``BooleanError`` regardless of
+    the flag (there is no material to keep). The flag is additive-optional
+    (absent reads ``False`` — the ``merge`` / ``flip`` idiom, NO ``param_version``
+    bump).
+
+    v1 MULTI-LUMP LIMIT — coincident lumps are honestly ambiguous
+    (design §MB-4, stated plainly): a downstream picked-face/edge reference on a
+    multi-lump body resolves by ABSOLUTE-world-coordinate signature, so a lump at
+    a distinct position resolves to exactly one subshape. But two lumps that
+    truly COINCIDE in space (a self-union of congruent bodies) give congruent
+    signatures and resolve to an honest ``subshape_ambiguous`` — the resolver
+    refuses to guess, never a wrong-lump modification (topological-naming.md §5).
+
+    v1 TOPOLOGICAL-NAMING LIMIT (MB-3 / design §Decisions-4 — stated plainly, not
+    oversold): a downstream feature (fillet/chamfer) CAN name an edge/face CREATED
+    by a boolean — the fused body's subshapes get stage-1 signatures like any
+    primitive's, so a fillet on a boolean-result edge resolves to exactly one edge
+    on a CLEAN rebuild. But that reference is a best-effort stage-1 signature (see
+    :class:`SubshapeRef` / :class:`EdgeSubshapeRef`), NOT structurally
+    non-retargeting: a topology-CHANGING upstream edit that moves or removes the
+    referenced subshape degrades to an honest ``subshape_unresolved`` /
+    ``subshape_ambiguous`` — the SAME best-effort posture as every feature,
+    booleans being its weakest case (a boolean seam is the documented
+    ``subshape_ambiguous`` source). Never a wrong-edge modification or a crash;
+    the structural fix is stage-2 provenance naming (topological-naming.md §10).
+    """
+
+    operation: Literal["union", "subtract", "intersect"] = Field(
+        description="Boolean operation: union (fuse), subtract (target minus tool) "
+        "or intersect (common). All three wired (union MB-1a; subtract/intersect "
+        "MB-2)."
+    )
+    target: FeatureRef = Field(
+        description="Base feature of the SURVIVING body; the result takes over "
+        "its identity slot so downstream refs keep resolving (design §Decisions-3)"
+    )
+    tool: FeatureRef = Field(
+        description="Base feature of the CONSUMED body; removed from the part "
+        "once the boolean succeeds (design §Decisions-3)"
+    )
+    allow_disjoint: bool = Field(
+        default=False,
+        description="Accept a >1-solid result as ONE multi-lump body (a Compound "
+        "of the disjoint lumps) instead of a `boolean_disjoint` error (MB-4). "
+        "Defaults False (a disjoint union is usually a positioning bug). An empty "
+        "result is still `boolean_empty`. Additive — absent reads False, no "
+        "param_version bump.",
+    )
+
+
+# --- Sheet-metal base flange — an extrude by a fixed gauge, semantically tagged --
+#
+# The first body of a sheet-metal part (docs/design/sheet-metal.md §4.1): a
+# profile sketch thickened by a FIXED gauge thickness — mechanically identical to
+# an additive `extrude`, which is exactly why the geometry side reuses
+# `extrude.py`'s `build_profile_face` + `extrude_face` thicken path VERBATIM (no
+# new kernel geometry code, §4.1). It is a DISTINCT feature type, not a reuse of
+# plain `extrude`, for ONE reason (design DECISION §4.1, mirroring how
+# `ShellParamsV1` is its own type even though its boolean plumbing reuses
+# `extrude.py`'s `combine_body`): it must persist the part's sheet-metal
+# parameters (`thickness_mm`, a default `k_factor`, a default `bend_radius_mm`)
+# somewhere, and the base flange is the natural anchor — later edge-flange /
+# unfold slices READ the gauge + defaults off the base flange body (§5/§9).
+
+
+#: v1 default K-factor (docs/design/sheet-metal.md §1/§9): the neutral-axis
+#: fraction (K ∈ [0, 1]) that locates the bend's neutral surface as a fraction of
+#: thickness from the INNER bend face. 0.44 is a common industry-baseline for
+#: air-bent mild steel — a DOCUMENTED v1 default, not a universal material
+#: constant. Stored on the base flange as the part's sheet-metal default and
+#: inherited by every later edge flange (a full gauge/material rule TABLE is
+#: deferred, §7/§10). Pinned here so the schema default and the golden's
+#: hand-derivation share ONE source (CLAUDE.md DRY rule).
+SHEET_METAL_DEFAULT_K_FACTOR = 0.44
+
+
+class SheetMetalBaseFlangeParamsV1(BaseModel):
+    """The first body of a sheet-metal part — a profile thickened to gauge (§4.1).
+
+    A base flange is a profile sketch extruded by a FIXED gauge ``thickness_mm``
+    — mechanically an additive extrude, so it shares :class:`ExtrudeParamsV1`'s
+    ``profile`` FeatureRef (an EARLIER sketch, design §2.2), ``direction``
+    (which side of the sketch plane the gauge grows), and ``merge`` (the
+    multi-body ADD flag — a base flange is a body-CREATING base feature, so it
+    starts the first body, or a second with ``merge=False``). Kernel-side it
+    calls the SAME ``build_profile_face`` + ``extrude_face`` path extrude uses —
+    no new geometry code (§4.1).
+
+    Unlike a plain extrude it carries the part's SHEET-METAL DEFAULTS
+    (``k_factor``, ``bend_radius_mm``) — the parameters a later edge-flange /
+    unfold reads to compute a bend allowance (``BA = angle * (radius + K *
+    thickness)``, §1). ``k_factor`` defaults to the v1 pinned
+    :data:`SHEET_METAL_DEFAULT_K_FACTOR` (0.44); ``bend_radius_mm`` is REQUIRED
+    (no universal default — it is tooling/material dependent) and names the
+    part-default inner bend radius edge flanges inherit. Neither default affects
+    the base flange's own geometry (a flat plate) — they ride ON the body for the
+    downstream slices, exactly as the design's "base flange is the natural anchor
+    for the sheet-metal parameters" decision intends.
+
+    There is NO ``operation`` field: a base flange always CREATES material (it is
+    the sheet's first body), never a cut. v1 scopes to a single per-part gauge +
+    K + default radius (§7); a gauge/material rule table is deferred (§10).
+    """
+
+    profile: FeatureRef = Field(
+        description="Must resolve to an EARLIER sketch feature whose entities form "
+        "the single closed profile wire (design §2.2), thickened to the gauge"
+    )
+    thickness_mm: float = Field(
+        gt=0,
+        description="Gauge — the uniform sheet thickness (mm); the fixed distance "
+        "the profile is thickened by. The part's one material thickness (§1).",
+    )
+    k_factor: float = Field(
+        default=SHEET_METAL_DEFAULT_K_FACTOR,
+        ge=0.0,
+        le=1.0,
+        description="Neutral-axis fraction K ∈ [0, 1] from the INNER bend face "
+        "(§1); the part-default a later edge flange inherits for its bend "
+        f"allowance. Defaults to the v1 baseline {SHEET_METAL_DEFAULT_K_FACTOR} "
+        "(air-bent mild steel — a documented default, not a universal constant).",
+    )
+    bend_radius_mm: float = Field(
+        gt=0,
+        description="Part-default INNER bend radius (mm) a later edge flange "
+        "inherits (§4.2). Required — no universal default (tooling/material "
+        "dependent). Does not affect the base flange's own flat-plate geometry.",
+    )
+    direction: Literal["normal", "reverse"] = Field(
+        default="normal",
+        description="Which side of the sketch plane the gauge grows: 'normal' "
+        "along the plane normal, 'reverse' opposite (the extrude `direction` "
+        "idiom). Additive-optional; absent reads 'normal'.",
+    )
+    merge: bool = MERGE_FIELD
+
+
+# --- Sheet-metal edge flange (bend) — a flange folded off a base-flange edge -----
+#
+# The headline sheet-metal feature (docs/design/sheet-metal.md §4.2): a new flange
+# added off a STRAIGHT EDGE of the base flange, at a chosen bend radius + angle,
+# connected to the base by a cylindrical BEND REGION. Geometrically it is a sweep
+# of the sheet's thickness cross-section along an arc (the bend) + a straight
+# segment (the flange length) — the geometry side reuses `sweep.py`'s
+# profile-along-path primitives, driven by named parameters rather than a sketch
+# (§4.2 decision: parameter-driven, the incumbent edge-flange gesture, not a raw
+# sweep authoring flow). It is a DISTINCT feature type for two reasons (§4.2):
+# named parameters instead of a sketch, and BEND PROVENANCE — the feature tags the
+# cylindrical bend face with a `CylindricalFaceSignature` (§5) at construction, so
+# the unfold pass finds the bend by provenance, never blind detection.
+#
+# v1 SCOPE (§4.3 depth-1 bend star): each edge flange folds DIRECTLY off the fixed
+# base flange (never off another edge flange — depth >= 2 is deferred). N edge
+# flanges radiating from one base cover the L-bracket (N=1) and U-channel (N=2)
+# without the graph-relaxation a flange-off-a-flange would need.
+
+
+class SheetMetalEdgeFlangeParamsV1(BaseModel):
+    """A flange folded off a straight edge of the base flange (§4.2).
+
+    ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to fold off
+    — the SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer pick uses
+    (topological-naming §10), resolved against the current sheet body; its
+    ``feature_id`` materialises the dependency on the base-flange feature exactly
+    like a picked fillet edge. The flange extends outward from that edge in the
+    plane of its adjacent flat (plate) face and folds by ``bend_angle_deg`` about a
+    bend of ``bend_radius_mm`` (inner radius), producing ONE fused sheet body (the
+    base + flange joined across the cylindrical bend region).
+
+    INHERITED DEFAULTS (§4.2): ``bend_radius_mm`` and ``k_factor`` default from the
+    part's base flange (:class:`SheetMetalBaseFlangeParamsV1` — the gauge/K/radius
+    anchored on the sheet body) when omitted (``None``), and may be OVERRIDDEN
+    per-bend. ``flange_length_mm`` is the developed flat length of the flange leg
+    (to the bend tangent line, §9 golden #1's convention); ``bend_angle_deg`` is
+    the fold angle (90 deg for a right-angle flange).
+
+    Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+    it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+    to) — so its only whole-feature dependency is the named-edge ref + tree order.
+    """
+
+    edge: EdgeSubshapeRef = Field(
+        description="The base-flange STRAIGHT edge to fold off (a stage-1 "
+        "EdgeSignature reference resolved against the current sheet body). The "
+        "flange extends from this edge's adjacent flat face and folds about it."
+    )
+    flange_length_mm: float = Field(
+        gt=0,
+        description="Developed flat length of the flange leg (mm), measured to the "
+        "bend tangent line (§9 golden #1 convention).",
+    )
+    bend_angle_deg: float = Field(
+        gt=0.0,
+        le=180.0,
+        allow_inf_nan=False,
+        description="Fold angle (degrees); 90 = a right-angle flange. In (0, 180].",
+    )
+    bend_radius_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description="INNER bend radius (mm). Omitted (None) inherits the part's "
+        "base-flange default `bend_radius_mm` (§4.2); a value overrides it per-bend.",
+    )
+    k_factor: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Neutral-axis fraction K in [0, 1] for this bend's allowance "
+        "(§1). Omitted (None) inherits the part's base-flange default `k_factor` "
+        "(0.44 v1 baseline); a value overrides it per-bend.",
     )
 
 
@@ -1283,6 +1623,50 @@ class ImportFeature(BaseModel):
     params: ImportParamsV1
 
 
+class SheetMetalBaseFlangeFeature(BaseModel):
+    """``{"type": "sheet_metal_base_flange", "version": 1, "params": {...}}`` envelope.
+
+    A body-CREATING base feature (docs/design/sheet-metal.md §4.1): it thickens a
+    profile to gauge, producing the sheet-metal part's first body, and anchors the
+    part's sheet-metal defaults (``k_factor``/``bend_radius_mm``). ``params`` is
+    :class:`SheetMetalBaseFlangeParamsV1`.
+    """
+
+    type: Literal["sheet_metal_base_flange"]
+    version: Literal[1]
+    params: SheetMetalBaseFlangeParamsV1
+
+
+class SheetMetalEdgeFlangeFeature(BaseModel):
+    """``{"type": "sheet_metal_edge_flange", "version": 1, "params": {...}}`` envelope.
+
+    A body-MODIFYING feature (docs/design/sheet-metal.md §4.2): it folds a flange
+    off a straight edge of the sheet body and fuses it across a cylindrical bend
+    region, tagging that bend face with a :class:`CylindricalFaceSignature` (§5)
+    for the unfold's provenance. ``params`` is :class:`SheetMetalEdgeFlangeParamsV1`.
+    """
+
+    type: Literal["sheet_metal_edge_flange"]
+    version: Literal[1]
+    params: SheetMetalEdgeFlangeParamsV1
+
+
+class BooleanFeature(BaseModel):
+    """``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
+
+    A body-affecting feature that fuses two independently-built bodies
+    (docs/design/multi-body.md §Decisions-3 / §MB-1): unlike extrude/revolve/…
+    it consumes no sketch and produces no new primitive — it combines two
+    existing bodies named by their base features. ``params`` is
+    :class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``
+    defined, wired in MB-2).
+    """
+
+    type: Literal["boolean"]
+    version: Literal[1]
+    params: BooleanParamsV1
+
+
 #: Discriminated union of the CURRENT version of every feature type — this is
 #: what the OpenAPI contract exports (design §1.4). Older stored versions are
 #: upcast on read via :data:`FEATURE_REGISTRY`.
@@ -1298,7 +1682,10 @@ Feature = Annotated[
     | ShellFeature
     | DraftFeature
     | PatternFeature
-    | ImportFeature,
+    | ImportFeature
+    | SheetMetalBaseFlangeFeature
+    | SheetMetalEdgeFlangeFeature
+    | BooleanFeature,
     Field(discriminator="type"),
 ]
 
@@ -1316,6 +1703,9 @@ FeatureEnvelope = (
     | DraftFeature
     | PatternFeature
     | ImportFeature
+    | SheetMetalBaseFlangeFeature
+    | SheetMetalEdgeFlangeFeature
+    | BooleanFeature
 )
 
 
@@ -1470,6 +1860,9 @@ FEATURE_REGISTRY.register(ShellFeature)
 FEATURE_REGISTRY.register(DraftFeature)
 FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.register(ImportFeature)
+FEATURE_REGISTRY.register(SheetMetalBaseFlangeFeature)
+FEATURE_REGISTRY.register(SheetMetalEdgeFlangeFeature)
+FEATURE_REGISTRY.register(BooleanFeature)
 FEATURE_REGISTRY.validate_chains()
 
 
@@ -1493,7 +1886,34 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         # `import` produces the base body (step-import.md §1), so its faces/edges
         # are nameable by a later SubshapeRef — "sketch on an imported part's face".
         "import",
+        # `sheet_metal_base_flange` produces the sheet body (sheet-metal.md §4.1),
+        # so its faces/edges are nameable by a later SubshapeRef — a sketch/hole on
+        # a flange face (§7), or (slice #3) the edge-flange bend attaches to a base
+        # edge. A base flange IS a body-affecting result like any extrude.
+        "sheet_metal_base_flange",
+        # `sheet_metal_edge_flange` folds a flange onto the sheet body (sheet-metal
+        # §4.2), so its result faces/edges are nameable by a later SubshapeRef — a
+        # hole on a formed flange face, or a second edge flange off a NEW edge the
+        # first created (still a depth-1 star off the base, §4.3).
+        "sheet_metal_edge_flange",
+        # `boolean` produces a combined body (multi-body §Decisions-3), so its
+        # result faces/edges are nameable by a later SubshapeRef (a fillet on a
+        # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
+        "boolean",
     }
+)
+
+
+#: The body-CREATING (base) feature types — the acceptable target/tool of a
+#: `boolean` operand ref (multi-body §Decisions-3: a boolean combines two bodies
+#: named by their BASE features). A body's identity is its base-feature id
+#: (§MB-0 Decision 1), and only these features CREATE a body (extrude/revolve/
+#: sweep/loft build a primitive, import brings one in). The MODIFIERS (fillet/
+#: chamfer/shell/draft/pattern) mutate the active body in place and never key a
+#: body, so they are NOT valid boolean operands; `boolean` itself is excluded too
+#: (it takes over its target's base id, not its own — boolean-on-boolean is MB-4).
+BASE_BODY_AFFECTING_FEATURE_TYPES = frozenset(
+    {"extrude", "revolve", "sweep", "loft", "import", "sheet_metal_base_flange"}
 )
 
 
@@ -1702,6 +2122,50 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             # materializes no feature_dependencies edge (like an offset datum /
             # a pattern). Its body is a pure function of `data`.
             pass
+        case SheetMetalBaseFlangeFeature():
+            # A base flange thickens a single sketch profile to gauge (sheet-metal
+            # §4.1) — the SAME `profile` FeatureRef → sketch slot extrude uses. Its
+            # sheet-metal defaults (k_factor/bend_radius_mm) are scalars, not refs;
+            # the neutral plane / bend are the edge-flange slice, not this one.
+            references.append(
+                FeatureReference(
+                    "profile", feature.params.profile, frozenset({"sketch"})
+                )
+            )
+        case SheetMetalEdgeFlangeFeature():
+            # An edge flange names the base-flange EDGE it folds off (sheet-metal
+            # §4.2) — an EdgeSubshapeRef resolved against the current sheet body,
+            # exactly like a picked fillet/chamfer edge. Its feature_id materialises
+            # into feature_dependencies (the named base-flange feature), so deleting
+            # the base flange is a 409-with-dependents and a reorder re-checks
+            # strict-backward. flange_length/bend_angle/radius/K are scalars, not
+            # refs. The edge is named on a body-affecting feature's result.
+            references.append(
+                FeatureReference(
+                    "edge", feature.params.edge, BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
+        case BooleanFeature():
+            # A boolean combines two independently-built bodies named by their
+            # BASE features (multi-body §Decisions-3): TARGET (surviving) + TOOL
+            # (consumed). Each FeatureRef.feature_id materializes into
+            # feature_dependencies exactly like an extrude's profile, so deleting
+            # either operand's base feature is a 409-with-dependents and a reorder
+            # re-checks strict-backward. Both slots accept only the body-CREATING
+            # base features (a boolean operand IS a body — a modifier or another
+            # boolean is not a valid operand base here; boolean-on-boolean is MB-4).
+            references.append(
+                FeatureReference(
+                    "target",
+                    feature.params.target,
+                    BASE_BODY_AFFECTING_FEATURE_TYPES,
+                )
+            )
+            references.append(
+                FeatureReference(
+                    "tool", feature.params.tool, BASE_BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
         case _:
             assert_never(feature)  # exhaustive: new types must map their slots
 

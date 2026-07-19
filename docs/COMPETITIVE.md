@@ -161,6 +161,43 @@ the groomer._
      breadth-for-breadth's-sake per the operating question. Phase 3/4,
      revisit once Part modeling is closer to parity.
 
+- **2026-07-19 (AEC/BIM scoping, founder ask — no table added, by design).**
+  Founder asked (late-night, plain language): "How could this app also
+  compare with Revit? For building homes?" **Deliberately did NOT add a
+  Revit column to any table above** — Revit is BIM (a semantic
+  building-object database: walls that host openings, levels/grids as the
+  organizing spine, rooms as computed enclosures, IFC interop, live
+  schedules), a genuinely different discipline from the mechanical-CAD
+  capability map these tables track, not an incremental gap on the same
+  axis as Fusion/Plasticity/SolidWorks/Onshape/FreeCAD. Forcing it into a
+  row here (e.g. "sketch tools" or "feature types") would misrepresent it
+  as breadth-for-breadth's-sake on the current scorecard, the exact
+  mis-framing CLAUDE.md's boundary on this agent warns against ("never
+  frame the roadmap as clone-competitor-X"). Full pre-greenlight scoping
+  — what transfers from Loft's shipped foundation (kernel, feature-tree,
+  drawings/sheets pipeline, the assemblies new-document-type precedent),
+  what the BIM domain layer genuinely costs (roughly Phase-0-through-4
+  sized), the license-clean IFC path (`ifcopenshell`, LGPL-3.0-or-later,
+  confirmed via the project's own GitHub license discussion — not GPL;
+  the GPL BlenderBIM add-on is a Blender-specific boundary Loft would
+  never cross since it'd consume the LGPL library directly), the
+  competitive OSS-BIM read (FreeCAD's BIM Workbench is the closest
+  existing open-source competitor, desktop-only, no real-time
+  collaboration), and the honest verdict ("a legitimate 2027+ platform
+  bet, not a near-term pillar") — lives in `docs/design/aec-bim.md`. One
+  speculative BACKLOG icebox pointer filed (`[src: founder]`, explicitly
+  unsized/unsequenced). Sources read this pass: buildingSMART
+  (`buildingsmart.org`, `technical.buildingsmart.org` — IFC4.3/
+  ISO 16739-1:2024, IFC5 in development), IfcOpenShell
+  (`github.com/IfcOpenShell/IfcOpenShell`, its license discussion
+  `#4102`, `docs.ifcopenshell.org`), FreeCAD
+  (`github.com/FreeCAD/FreeCAD-documentation` — merged BIM Workbench,
+  native IFC2x3/IFC4 read-write), Autodesk (`autodesk.com/learn`
+  wall-properties/opening/datum-element pages — **honest caveat**:
+  `help.autodesk.com` itself wasn't directly fetched this pass, a thinner
+  sourcing bar than the sheet-metal pass's `WebFetch`-verified citations,
+  flagged in the design doc for re-verification if ever picked up).
+
 - **2026-07-17 (sheet metal pass, founder ask).** New **Sheet metal** table
   added (above), scoped in response to a direct founder question ("anything
   for sheet metal?") rather than a routine pipeline-refill pass — the rest of

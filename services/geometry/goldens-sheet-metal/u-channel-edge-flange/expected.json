@@ -1,0 +1,27 @@
+{
+  "description": "Slice #3 flat-pattern golden for an AUTHORED U-channel (base flange + TWO edge flanges off OPPOSITE edges) unfolded by PROVENANCE (docs/design/sheet-metal.md §4.3 depth-1 bend STAR, N=2; §9 goldens #1/#2/#4). Exercises the depth-1-star N>1 case the L-bracket cannot: two edge flanges SHARE the base flange (its two ends are exactly where the bends attach), and neither flange's flattening depends on the other's -- both fold independently off the fixed base (no graph relaxation, §4.3). Both bends are found by their own CylindricalFaceSignature.",
+  "tangent_line_convention": "Each leg is measured to its bend TANGENT LINE (§9 #1). The base flange develops to 40 mm (its flat top face, between the two bend tangent lines); the two edge flanges develop to 30 mm and 25 mm. Two bend allowances REPLACE the two sharp-corner setbacks.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill). Dims: base flange 40 x 20 mm (developed leg 40, width 20), edge flange B (off the x=40 edge) developed leg 30 mm, edge flange A (off the x=0 edge) developed leg 25 mm, gauge t = 2 mm, inner bend radius r = 3 mm, both bends 90 deg, K = 0.44 (v1 default).",
+    "Bend allowance (§1), same for both 90-deg bends at r=3, t=2, K=0.44: BA = (pi/2)*(3 + 0.44*2) = 6.094689747964199 mm.",
+    "Flat length (§9 #1), the two flanges lay out on OPPOSITE sides of the base: flat_length = flangeA_leg + BA + base_leg + BA + flangeB_leg = 25 + 6.094689747964199 + 40 + 6.094689747964199 + 30 = 95 + 2*BA = 107.1893794959284 mm.",
+    "Developed area (§9 #2): flat_area = base_area + flangeA_area + flangeB_area + 2*(BA*width) = (40*20) + (25*20) + (30*20) + 2*(6.094689747964199*20) = 800 + 500 + 600 + 243.78758... = 2143.787589918568 mm^2 = flat_length * 20 (rectangular blank). The SHARED base flange is counted ONCE (identified by its base-face signature), never double-counted per bend.",
+    "Both flanges fold to the +normal side of the base -> direction 'up' for both bends (§5 inference).",
+    "Fused body volume = base plate (40*20*2 = 1600) + two flanges (flange B leg 30: 30*2 + 4*pi width 20 = 1451.327; flange A leg 25: 25*2 + 4*pi, width 20 = 1251.327) = 1600 + 1451.327 + 1251.327 = 4302.654824 mm^3 (analytic, the two quarter-annulus bend cross-sections each add (pi/4)(5^2-3^2) = 4*pi).",
+    "content_hash is the sha256 of the provenance-driven FlatPattern.to_json_bytes() -- a DETERMINISM PIN reproducible in-process AND across a fresh interpreter restart (§9 #4), version-pinned to OCCT/build123d (arc-fit FP). A change without a kernel-version bump is a determinism regression (P0)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set. Measured deviations vs hand-derived (2026-07-19, build123d 0.11.1 / OCCT 7.9): flat_length residual ~1.2e-13, flat_area residual ~2.4e-12 (both bends' arc-fit inner radii carry FP noise ~1e-14, one reports 2.9999999999999933, the other 3.0). Ceiling 1e-9 gives ~4 orders of headroom for platform FP variation while staying tighter than the kernel linear tolerance (1e-7 m). Volume tolerance 1e-6 absorbs the arc-fit noise scaled by width.",
+  "bend_allowance_mm": 6.094689747964199,
+  "flat_length_mm": 107.1893794959284,
+  "flat_area_mm2": 2143.787589918568,
+  "bend_width_mm": 20.0,
+  "bend_count": 2,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 3.0,
+  "bend_direction": "up",
+  "volume_mm3": 4302.654824574367,
+  "volume_tolerance": 1e-6,
+  "topology": { "faces": 14, "edges": 36, "shells": 1 },
+  "content_hash": "8247476afb8d88412f25ce1abe4c302eddcdaa18fc8e5cea843e54febdd60c7f"
+}

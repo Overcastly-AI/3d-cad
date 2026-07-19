@@ -39,9 +39,11 @@ the boundary honest.
 import math
 from dataclasses import dataclass
 
-from build123d import CenterOf, Face, GeomType, Plane, Solid, Vector
+from build123d import CenterOf, Face, GeomType, Plane, Vector
 from py_kit.schemas.features import PlanarFaceSignature
 from py_kit.schemas.geometry import Vec3
+
+from geometry.kernel.types import BodyShape
 
 #: The intended face is bit-for-bit identical on a clean rebuild, so a match is
 #: an equality up to floating-point jitter. Normals of an authored part differ
@@ -153,7 +155,7 @@ def face_signature_dto(face: Face) -> PlanarFaceSignature | None:
     return _signature_dto(*sig)
 
 
-def planar_faces(body: Solid) -> list[PlanarFaceRecord]:
+def planar_faces(body: BodyShape) -> list[PlanarFaceRecord]:
     """Every PLANAR face of *body* in ``body.faces()`` order (deterministic).
 
     THE shared enumeration (CLAUDE.md DRY rule): the selection overlay builds its
@@ -161,6 +163,13 @@ def planar_faces(body: Solid) -> list[PlanarFaceRecord]:
     :func:`resolve_face_plane` matches against these records, so a signature the
     overlay hands a client resolves back to the SAME face (order-equality gate).
     Non-planar faces are omitted — they are not sketchable in v1.
+
+    *body* is any :class:`~build123d.Shape`: a single :class:`~build123d.Solid`,
+    or a :class:`~build123d.Compound` of a multi-body part's solids (multi-body
+    §MB-0), whose ``.faces()`` iterates every subshape solid's faces. NB the
+    MB-0 correctness rule (design §MB-0 Decision 1): a MODIFYING feature resolves
+    against its ACTIVE body ONLY, never a union of all bodies — so congruent
+    faces on two coexisting bodies never tie a false ``subshape_ambiguous``.
     """
     records: list[PlanarFaceRecord] = []
     for index, face in enumerate(body.faces()):
@@ -179,7 +188,7 @@ def planar_faces(body: Solid) -> list[PlanarFaceRecord]:
     return records
 
 
-def _signatures_match(
+def planar_signatures_match(
     candidate: PlanarFaceSignature, target: PlanarFaceSignature
 ) -> bool:
     """Nearest-within-tolerance match of two planar-face signatures (§7.2).
@@ -188,6 +197,12 @@ def _signatures_match(
     within the linear tolerance, and area within a relative tolerance. Compared
     field by field so a lone in-tolerance candidate is a unique match and two are
     an honest ambiguity (never a guess).
+
+    THE single planar-signature matcher (CLAUDE.md DRY rule): the face resolvers
+    below AND the sheet-metal unfold's base/moving split
+    (:func:`geometry.sheet_metal.unfold._split_base_moving`) call this one helper
+    against the one source of the three match tolerances above — no field-for-field
+    reimplementation, no re-declared epsilons.
     """
     n_dot = (
         candidate.normal.x * target.normal.x
@@ -207,7 +222,7 @@ def _signatures_match(
 
 
 def resolve_face_plane(
-    body: Solid, target: PlanarFaceSignature, offset_mm: float
+    body: BodyShape, target: PlanarFaceSignature, offset_mm: float
 ) -> Plane:
     """Resolve a stage-1 face signature to its planar face's sketch plane.
 
@@ -224,7 +239,7 @@ def resolve_face_plane(
     matches = [
         record
         for record in planar_faces(body)
-        if _signatures_match(record.signature, target)
+        if planar_signatures_match(record.signature, target)
     ]
     if not matches:
         raise SubshapeUnresolvedError(
@@ -249,7 +264,7 @@ def resolve_face_plane(
     )
 
 
-def resolve_faces(body: Solid, targets: list[PlanarFaceSignature]) -> list[Face]:
+def resolve_faces(body: BodyShape, targets: list[PlanarFaceSignature]) -> list[Face]:
     """Resolve stage-1 face signatures to their planar :class:`Face`s.
 
     The picked-FACE sibling of :func:`geometry.kernel.edges._resolve_picked_edges`
@@ -270,7 +285,7 @@ def resolve_faces(body: Solid, targets: list[PlanarFaceSignature]) -> list[Face]
     records = planar_faces(body)
     chosen: dict[int, Face] = {}
     for target in targets:
-        matches = [r for r in records if _signatures_match(r.signature, target)]
+        matches = [r for r in records if planar_signatures_match(r.signature, target)]
         if not matches:
             raise SubshapeUnresolvedError(
                 "No planar face of the current body matches a picked face "

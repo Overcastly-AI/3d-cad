@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { createPartViaApi, seedSession } from "./support";
+import { createPartViaApi, seedSession, SCREENSHOT_DIR } from "./support";
 
 /**
  * Units U2 acceptance (docs/design/units.md §U2). The document-unit selector +
@@ -148,6 +148,13 @@ test.describe("document units — inch entry stores canonical mm", () => {
     // Re-open the extrude: its length re-seeds in the document unit → reads "2".
     await page.getByTestId("feature-select-1").click();
     await expect(page.getByTestId("extrude-distance")).toHaveValue("2");
+
+    // Founder shot: the document unit selector reads "in" and the extrude length
+    // is unit-aware (2 in), the mm→in re-label seam under test made visible.
+    await page.mouse.move(1400, 900);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/document-units-inch-desktop.png`,
+    });
 
     // Type an explicit mm-suffixed value into the inch document: the suffix
     // overrides, so 25.4 mm stores 25.4 mm and re-displays as 1 in.

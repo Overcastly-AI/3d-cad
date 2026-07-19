@@ -35,6 +35,7 @@ import pytest
 # Upstream signatures carry Shape[Unknown]/PathLike[Unknown] type params
 # (same gap tessellate.py documents for export_gltf) — scoped ignores only.
 from build123d import (
+    Compound,
     export_step,  # pyright: ignore[reportUnknownVariableType]
     import_step,  # pyright: ignore[reportUnknownVariableType]
 )
@@ -73,10 +74,14 @@ def test_step_roundtrip_preserves_geometry(
         "ISO-10303-21"
     ), f"{name}: not a STEP part 21 file"
 
-    # Re-import and re-measure with the identical GProp pipeline.
+    # Re-import and re-measure with the identical GProp pipeline. A multi-body
+    # golden (§MB-0) exports as a multi-solid STEP, so the re-imported body set
+    # is a single Solid OR a Compound of the imported solids — measure the whole
+    # set (measure_shape rolls up either), covering multi-body round-trips too.
     imported = import_step(step_path)
     solids = imported.solids()
-    assert len(solids) == 1, f"{name}: expected 1 solid after import, got {len(solids)}"
-    reimported = measure_shape(solids[0])
+    assert solids, f"{name}: expected at least 1 solid after import, got 0"
+    reimported_shape = solids[0] if len(solids) == 1 else Compound(list(solids))
+    reimported = measure_shape(reimported_shape)
 
     assert_roundtrip_preserved(name, reimported, original)

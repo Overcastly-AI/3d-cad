@@ -380,6 +380,7 @@ both 🟡 landed on top):_
 | Parts/Assemblies home | ✅ functional / P3 thumbnails, delete-confirm |
 | Sign-in | ✅ |
 | A11y floor | ✅ (disabled-tooltip reachability fixed in Batch 2) |
+| Assembly BOM panel + SOLVE/PARTS toggle | ✅ PASS (spot-check cf617c8) / 2× P3 system-level below |
 
 Evidence: `docs/screenshots/ui-audit/*.png` (44 shots, desktop + laptop).
 Re-audit with before/afters after each batch lands.
@@ -1061,3 +1062,340 @@ undo to focused text fields; buttons are wired to real server `can_undo`/
   while a step restores).
 - **Deferred as agreed:** the band-wide `aria-hidden` tooltip SR gap →
   BACKLOG (an `aria-describedby` hook on the ToolButton primitive).
+
+---
+
+## 2026-07-18 — Spot-check: angular + point-to-point dimension authoring — commit `981c42f`
+
+Static/token + a11y/UX review (live stack unbootable in sandbox — Docker
+registry 403 per CLAUDE.md; render-level checks flagged CI-deferred). Scope:
+`VertexHandle` + `vertexHandleMm`/`vertexHandleRest` tokens, the staged
+multi-pick flow (hint pill + gated backdrop) in `DrawingPage`, the action-driven
+`DimensionAuthorMenu`, and the angular / point-to-point rendered annotations.
+
+### PASS
+
+- **`DimensionAuthorMenu`** (`apps/web/src/components/DimensionAuthorMenu.tsx`)
+  — clean refactor edge-type→action-driven; same anvil card, hairline rules,
+  brass `focus-visible`, `disabled` while busy, auto-focus first item, per-action
+  `data-testid`. Voice consistent (`Angle` hint `pick 2nd edge` is honest about
+  arming a second pick; `°` / `↔` hints match the existing Ø/R idiom). Empty
+  action list returns null — no orphan menu. No inline hex.
+- **Staged flow** (`DrawingPage.tsx`) — genuinely non-modal as claimed: the
+  `fixed inset-0` backdrop renders ONLY for a menu state (`anchor && actions>0`),
+  never while a second pick is pending, so the sheet stays live for the second
+  pick. Cancel is real and reachable: Escape is handled first in the global
+  keydown (before the typing-target/modifier guards) so it always resets to
+  `IDLE`, and it is not swallowed by `VertexHandle`/`PickableEdge` (those
+  preventDefault only Enter/Space). Hint pill is `role="status"` (announced),
+  `pointer-events-none` (never blocks a pick), eyebrow styling on tokens
+  (`border-brass/60 bg-anvil text-brass font-display text-2xs`), carries an
+  explicit `Esc to cancel`. Microcopy matches the app's terse voice.
+- **Angular + point-to-point annotations** (`dimensions.ts`) — reuse the shared
+  drafting primitives (`placeLinearBetween` factored out for both edge-length and
+  p2p; `arrowPoints`, `extension`/`dimension` weights, the paper halo, the
+  obstacle/sheet flip). Degree stamp is tight `${n}°` (1 dp) — matches the
+  resolved app-wide symbol-suffix convention and does NOT reintroduce the earlier
+  `MeasureReadout` `m`→`M` SI collision (angular uses the `°` glyph, linear stays
+  bare). `~` foreshorten flag prepended in `dimensionFlag` ink, identical to the
+  linear treatment; angular's `<title>` and the "stamped value is model-true, the
+  drawn sweep is apparent" honesty is preserved. Unplaceable cases (unmatched
+  edge, parallel angular edges, coincident p2p points) return null and list
+  honestly rather than mis-draw. Render-geometry correctness (arc sweep side,
+  arrow tangents) is CI/e2e-deferred and owned by code-review/geometry-qa.
+
+### Findings
+
+- **P2 — `DrawingSheet` `VertexHandle` — focus is NOT distinct from hover
+  (WCAG 2.4.7 regression vs. its sibling primitive).** The handle collapses
+  `const active = hover || focus || selected` and renders all three identically
+  (fill→`pickSelected`, stroke 0.6). The sibling `PickableEdge`/`EdgeShape` was
+  *explicitly* fixed for exactly this (2026-07-17 pass): hover recolors, focus
+  adds a distinct deep-blue RING (`drawing.pickFocusRingMm`) — a shape cue, not
+  colour-only. The new handle didn't inherit that seam.
+  *System fix:* give `VertexHandle` the same focus treatment as `EdgeShape`
+  (a `pickFocusRingMm` ring around the square on `focus`), so keyboard focus
+  reads differently from mouse hover. `docs/screenshots` CI-deferred.
+- **P2 — `DrawingSheet` — vertex handles render PERSISTENTLY on every
+  straight-edge endpoint, adding non-geometry marks + a tab stop per corner to
+  the hero blueprint.** `DrawingPage` always passes `onPickEndpoint`, and
+  `SheetView` draws a handle for every dimensionable straight edge's ends
+  whenever it is set — there is no authoring-mode / hover gate. Consequences vs.
+  mandate 3 ("chrome recedes; the model gets the pixels") and 3a (benchmark
+  Fusion/Plasticity, where vertex snaps appear on hover/proximity, not as
+  permanent stamps): (a) a dense multi-view drawing gains dozens of small squares
+  that are not geometry; (b) every corner becomes a keyboard tab stop *in
+  addition to* every edge — this compounds the already-filed "tab-stop-at-scale"
+  P3 (BACKLOG, 2026-07-17) rather than respecting it. `PickableEdge` adds no
+  at-rest mark (it decorates the existing geometry edge on hover only); the
+  handle is the first primitive to add persistent chrome to the sheet.
+  *System fix:* reveal endpoint handles contextually — on edge hover/focus, or
+  behind a "point-to-point" authoring affordance — instead of stamping all
+  corners at all times; keep them out of the tab order until revealed.
+- **P3 — `packages/design/src/tokens.ts` — `vertexHandleRest` duplicates a hex
+  literal and the comment mislabels it.** `vertexHandleRest: "#6E7A88"` restates
+  the exact literal of `edgeHidden: "#6E7A88"` in the same `drawing` object
+  instead of aliasing it — the "no hex duplicated" DRY rule applies inside the
+  token source too. The comment calls it "the quiet gauge graphite," but `gauge`
+  is `#9DAABA`; the value is `edgeHidden`. *System fix:* `vertexHandleRest:
+  drawing.edgeHidden` (or a shared `graphiteMuted` constant) + correct the
+  comment.
+
+### Component checklist (delta)
+
+- `DimensionAuthorMenu` (action-driven) ✅ — type-gated, keyboard-first, honest hints, AA
+- `DrawingSheet` staged multi-pick flow ✅ — non-modal, `role=status` hint, Esc cancels
+- `DrawingSheet` `VertexHandle` ✅ — distinct focus ring + contextual reveal (fixed 2026-07-18)
+- `dimensions.ts` angular + point-to-point placement ✅ — shared primitives, tight `°`, `~` parity (render CI-deferred)
+- `vertexHandle*` tokens ✅ — aliases `edgeHidden` via `graphiteMuted`, comment fixed (2026-07-18)
+
+### Resolution — fix pass (2026-07-18)
+
+Frontend-builder pass closing all three filed `VertexHandle` findings (and the
+code-review 🟡 cross-boundary duplication) on commit `981c42f`:
+
+- **P2 focus not distinct from hover** — `VertexHandle` no longer collapses
+  `hover||focus||selected`. Focus now draws a distinct deep-blue RING around the
+  square (`drawing.pickFocusRingMm`, opacity 0.5 — `data-testid=
+  "drawing-vertex-focus-ring"`), the exact seam `EdgeShape` uses; hover/selected
+  recolor the fill, focus adds the shape cue. Keyboard focus reads differently
+  from mouse hover (WCAG 2.4.7).
+- **P2 persistent handles / tab-stop-per-corner** — the drawn square + its tab
+  stop now appear only when **revealed**: on the owning edge's hover/focus (a
+  reveal keyed on the edge in `SheetView`), on the handle's own hover (mouse
+  proximity), or when a point-to-point pick is armed (`endpointPickActive`, which
+  reveals every handle so the second vertex is reachable on any edge). Until
+  revealed the handle is `tabIndex=-1` + `aria-hidden` — out of tab order and off
+  the a11y tree — so a dense multi-view sheet no longer carries dozens of
+  non-geometry squares or a tab stop at every corner. The transparent hit target
+  stays attached at all times, so the pick (and the forced e2e click) still fires
+  the moment the vertex is approached; the staged point-to-point flow is
+  unchanged.
+- **P3 token dedup** — `vertexHandleRest` now aliases `edgeHidden` through a
+  shared module-level `graphiteMuted` constant (no repeated `#6E7A88`); the
+  misleading "gauge graphite" comment is corrected (gauge is `#9DAABA`).
+- **Code-review 🟡 (cross-boundary duplication)** — deleted `projectModelPoint`,
+  the `VIEW_AXES`/iso-frame table, and the vec3 helpers from `layout.ts` (a twin
+  of the geometry service's view frames). `endpointHandlesForEdge` /
+  `endpointProjected` now derive the model↔projected endpoint correspondence from
+  the wire's `start_is_end_a` bool alone; the point-to-point pick is gated on
+  `source_edge != null && start_is_end_a != null`, so a straight edge missing the
+  correspondence (silhouette/ambiguous) offers no vertex pick.
+
+Gates: `@loft/web` unit (669) + `@loft/design` (31) + both typechecks + eslint/
+prettier on touched files green. Drawings e2e is behaviourally unchanged (the
+authored dimension is identical — only the internal correspondence source moved
+from re-projection to the wire bool) and runs in CI; founder before/after shots
+CI-deferred (sandbox Docker-registry 403 per CLAUDE.md).
+
+---
+
+## 2026-07-18 — Assembly BOM panel + SOLVE/PARTS toggle (spot-check cf617c8) — PASS
+
+Static + token + screenshot review of the BOM parts-list schedule
+(`AssemblyBomPanel.tsx`), its inspector wrapper (`AssemblyInspectorPanel.tsx`,
+new `SegmentedControl` SOLVE/PARTS toggle), and the `AssemblyPage` wiring.
+Judged against `docs/screenshots/assembly-bom-desktop.png`. Correctness
+(fetch/aggregation/states) is covered by `bom.test.ts` + `assembly-bom.spec.ts`
+and out of scope here.
+
+**Design-system adherence — PASS.** Zero inline hex; every class resolves to a
+`packages/design` token (`brass`/`etch`/`gauge`/`mist`/`flag`/`hairline`/
+`anvil` via `Panel`, `font-display`/`body`/`data`, `text-2xs`/`base`,
+`duration-fast`). Composes `Panel`/`PanelSection` and the existing
+`SegmentedControl` primitive; no restyled raw chrome. Right-aligned QTY/TOTAL in
+the `font-data` tabular-nums DRO idiom and the brass TOTAL rule match the app's
+number/accent language. The hand-rolled `KindBadge` is NOT a primitive bypass —
+no `Badge` primitive exists in `@loft/design`, and the chip recipe
+(`rounded-sm px-1 font-display text-2xs uppercase tracking-[…]`) is the same one
+`AssemblyTreePanel` already hand-rolls, so it is consistent with app convention.
+
+**A11y — PASS.** Real semantic `<table>` (thead/`<th scope="col">`/tbody/tfoot),
+not divs. Toggle is keyboard-operable via `SegmentedControl` real `<button>`s
+(`aria-pressed`, `aria-label="View"`, `focus-visible:outline … outline-brass`).
+The `missing:true` line conveys state as literal text `(deleted)` — the `⚠` is
+`aria-hidden`, so SR users get the word, not colour/icon-only. Error is
+`role="alert"`, loading is `aria-live="polite"`. Contrast on `anvil`: `flag`
+6.5:1, `gauge` 7.2:1, `brass` ≈7.6:1, `mist` 13.2:1 — all AA. Name column
+`truncate min-w-0` + `shrink-0` badge holds at 1280×800 without overflow.
+
+Two P3 system-level follow-ups (neither blocks; both are repair-the-primitive):
+
+- **P3 — inspector table — no accessible name on the `<table>`.** The parts-list
+  `<table>` is announced as an unnamed "table"; the enclosing `<aside>` carries
+  `aria-label="Bill of materials"` but the table element itself does not.
+  System fix: add `aria-labelledby` to the eyebrow or a `sr-only` `<caption>`
+  (candidate for a `PanelSection`-provided caption seam so every schedule gets
+  one). Ref: `AssemblyBomPanel.tsx:85`.
+- **P3 — design system — extract a `Badge`/`Chip` primitive.** The token chip
+  recipe is now hand-rolled in ≥2 places (`AssemblyTreePanel`, BOM `KindBadge`),
+  each re-picking arbitrary `tracking-[…]` values (BOM alone mixes
+  `0.12`/`0.14`/`0.16em`). Per DRY "extract on the second real use," promote a
+  `Badge` primitive to `packages/design` and let both compose it; fold the
+  arbitrary tracking literals into a tracking scale token while there.
+
+Verdict: ship as-is; queue the two P3s for the design-system backlog. No P1/P2.
+
+---
+
+## 2026-07-19 — Sheet-metal flat-pattern drawing UI (spot-check, commit 645f236)
+
+**Scope.** The new flat-pattern surface: dashed-blue `bend` fold lines
+(`drawing.bend` token), the columnar `BendTable` (BEND/ANGLE/RADIUS/DIR/ALLOW),
+the Views-panel Cut-edge/Fold-line legend, the "Flat pattern" command-band
+action (shortcut F), and the `flat_pattern_not_sheet_metal` inline error.
+Source-audited against founder shots `docs/screenshots/sheet-metal-flat-pattern-
+{l,u}-{1440,1280}.png`; contrast recomputed; DOM vs server composer
+cross-referenced. Files: `apps/web/src/components/DrawingSheet.tsx`,
+`apps/web/src/routes/DrawingPage.tsx` (`ViewsPanel`),
+`apps/web/src/components/DrawingCommandBand.tsx`, `packages/design/src/tokens.ts`,
+`services/geometry/src/geometry/drawings/compose.py`.
+
+### Executive verdict
+
+**Ship it.** The on-screen surface meets the tool-grade bar: the fold line reads
+as a distinct dashed-blue phantom line (correct SolidWorks/Fusion flat-pattern
+vernacular, clearly not the blueprint-blue pick accent), the bend table is a
+dense quiet columnar instrument (not a card), every chrome element is wired to
+real state, and the token discipline is clean — `drawing.bend = #2F6FEB` is a
+genuine single-source token whose hex + weight + dash exactly match the server
+composer's `_EDGE_BEND`/`_BEND_W`/`_BEND_DASH`, so the on-screen fold line is
+byte-identical to the exported one. Contrast claims verified. The findings below
+are one real P2 (export/screen bend-table divergence) and polish nits; none
+block the founder's morning review.
+
+### Findings
+
+- **P2 — bend table — the three outputs of ONE sheet disagree; PDF/DXF (the shop
+  deliverables) don't match the screen. ✅ RESOLVED 2026-07-19
+  (`services/geometry` — kernel-architect).** The server SVG/PDF/DXF serializers
+  now render the bend table in the SAME 5-column columnar layout, precision, and
+  labels as the on-screen DOM `BendTable`: captions BEND/ANGLE/RADIUS/DIR/ALLOW mm,
+  cells `bend-1 · 90.0° · R3.00 · UP · 6.09` (angle 1dp + °, radius 2dp `R2.00`,
+  allowance bare 2dp — the DOM's canonical format). One shared `_bend_row_cells`
+  helper + `_BEND_COL_DX`/`_BEND_TABLE_CAPTIONS` constants (comment-anchored to the
+  DrawingSheet.tsx canonical spec) feed all three server serializers, so they are
+  pure layout passes and can't re-format independently. DRY-locked by a new
+  cross-serializer consistency test (`test_bend_table_text_consistent_across_
+  serializers`) asserting SVG/DXF emit identical ordered cells + PDF contains them;
+  byte goldens regenerated to the unified format. **Follow-up (deeper DRY, spans
+  frontend — BACKLOG SM-fmt-1):** pre-format display-ready cells INTO
+  `ComposedBendTable` server-side so the DOM `BendTable` and all serializers become
+  a single layout pass over shared strings (kills the Python/TS format duplication
+  entirely). Not done here to stay in the `services/geometry` territory.
+  Original finding below for context. — The on-screen `BendTable`
+  (`DrawingSheet.tsx:1011`) renders a proper 5-column grid with per-column
+  captions (BEND/ANGLE/RADIUS/DIR/ALLOW mm), radius at 2dp (`R2.00`), allowance
+  bare at 2dp (`3.14`). **Export SVG** serializes this DOM `<svg>` (WYSIWYG, so
+  it matches). But **Export PDF** and **Export DXF** are server-composed
+  (`compose.py` `_emit_bend_table`/`_pdf_bend_table`/`_dxf_bend_table` via
+  `_bend_row_text`), which emits a *single "BEND TABLE" heading* + *run-together
+  single-line rows* `B1  90.0°  R2.000  UP  BA3.140` — radius 3dp, allowance
+  BA-prefixed 3dp, no column captions. So the same drawing's SVG vs PDF/DXF bend
+  tables differ in **layout, precision, and labels**, and the shop deliverable
+  doesn't look like the screen. This breaks WYSIWYG on the signature sheet-metal
+  surface. Root cause: the bend table is NOT "one composed model, N renderers" —
+  `ComposedBendTable.rows` carries numbers and each renderer re-formats + re-lays
+  out independently (a WET/DRY defect: two column/precision layouts that have
+  already diverged). System fix: make the server composer render the SAME
+  columnar layout + number formatting as the DOM `BendTable` (or lift the column
+  x-offsets + `toFixed`/prefix rules into the shared composed model so both
+  renderers consume them). Screenshot ref: on-screen vs a PDF/DXF export of the
+  same flat pattern. Screen + SVG are correct; PDF/DXF are the fix targets.
+
+- **P3 — bend-table values have no text-accessible equivalent (SVG is
+  `role="img"`). ✅ RESOLVED 2026-07-19 (frontend-builder).** New DOM
+  `BendSchedulePanel` (`DrawingPage.tsx`) renders the per-bend values as a real
+  `<table>` with `scope="col"` headers (BEND/ANGLE/RADIUS/DIR/ALLOW mm) + an
+  `sr-only` caption, so AT reads each cell's meaning and a keyboard/non-pointer
+  user reaches the fold data the `role="img"` sheet hides. Keyed POSITIONALLY to
+  the flat view's `edge_role="bend"` fold lines (the i-th `bend-schedule-row` ↔
+  the i-th bend edge via the same `data-bend-index` contract — never a `bend_id`
+  join), values formatted to match the printed sheet (90.0° / R3.00 / UP / 6.09).
+  Testids `bend-schedule-panel`/`bend-schedule-row`; existing SVG hooks untouched.
+  E2e (L-bracket 1 row, U-channel 2 rows) asserts the panel; founder shots
+  refreshed. Original finding below. — The root sheet `<svg>` is `role="img"` with a single summary
+  `aria-label` (`DrawingSheet.tsx:1120-1124`), so AT treats the whole sheet as
+  one opaque image and never descends into the `BendTable`'s `aria-label="Bend
+  table, N bends"` or its per-row text — those hooks serve tests, not screen
+  readers. The `ViewsPanel` exposes only the bend *count* in the DOM; the
+  per-bend angle/radius/direction/allowance are unreachable to a screen-reader or
+  non-pointer user. (Same structural gap the dimension glyphs have, but there the
+  `DimensionsPanel` mirrors every value in the DOM — bends have no such panel.)
+  System fix: a DOM bend-schedule panel mirroring `DimensionsPanel` (also gives
+  keyboard users the fold data), reusing the same `data-bend-index` keying.
+
+- **P3 — `ViewsPanel` fold-line legend swatch dash/ink don't mirror the sheet.**
+  ✅ RESOLVED 2026-07-19 (frontend-builder). The fold-line legend swatch now
+  drives its `strokeDasharray` from `drawing.bendDashMm`/`bendGapMm` (the SAME
+  tokens the real fold stroke uses), and the hidden-edge swatch from
+  `hiddenDashMm`/`hiddenGapMm` — the legend can no longer drift from the strokes
+  it documents. Original finding below. — The legend fold swatch (`DrawingPage.tsx:948-957`) uses `drawing.bend` (good —
+  true token, 3.88:1 on `anvil`, passes 1.4.11) but hardcodes
+  `strokeDasharray="4 2"`, whereas the actual fold line is `3 1.6`
+  (`bendDashMm`/`bendGapMm`); and the Cut-edge/Visible/Hidden swatches use
+  `currentColor` chrome inks (`text-mist`/`text-gauge`) rather than the sheet's
+  graphite tokens (defensible — graphite is invisible on the dark panel — but it
+  makes the legend a loose approximation, not a true key). Low-stakes truthfulness
+  nit. System fix: drive the swatch dash from `drawing.bendDashMm`/`bendGapMm`
+  (a `<DashSwatch strokeDasharray>` derived from the tokens) so the key can't
+  drift from the stroke it documents.
+
+- **P3 — `BendTable` column x-offsets are hardcoded magic numbers coupled to a
+  92mm block.** ✅ RESOLVED 2026-07-19 (frontend-builder, client-side de-magic).
+  The `BendTable` columns now derive from the server-given `table.width`
+  (`x + width * fraction`), the fractions named as a design token
+  `drawing.bendTableColumnFractions` (the `_BEND_COL_DX / _BEND_TABLE_W` ratio),
+  and `headerH`/`rowH` read from new `drawing.bendTableHeaderMm`/`bendTableRowMm`
+  tokens (matching `_BEND_TABLE_HEADER_H`/`_ROW_H`) — no absolute-mm magic left in
+  the renderer. The DEEPER cross-boundary share (server pre-formats display cells
+  into `ComposedBendTable`) stays filed as BACKLOG SM-fmt-1 (changes the wire
+  schema + backend), out of scope here. Original finding below. — `col.bend/angle/radius/dir/allow` (`DrawingSheet.tsx:1017-1023`)
+  are literal `x+3/26/43/62/77`, commented "Sized for the 92 mm block," but the
+  block `width` is read from the server (`_BEND_TABLE_W`). `headerH`/`rowH`
+  (7/6) are also re-declared here, duplicating `_BEND_TABLE_HEADER_H`/`_ROW_H`.
+  If the server ever changes the block width or row metrics, the DOM columns
+  silently misalign / overflow. Not a live defect (values agree today). System
+  fix: derive columns as fractions of `table.width` and carry `headerH`/`rowH`
+  in the composed model so the single source drives both renderers.
+
+### Verified PASS (no action)
+
+- **Token single-source (P1 lens):** `drawing.bend #2F6FEB` == server
+  `_EDGE_BEND`; `bendWeightMm 0.4` == `_BEND_W`; `bendDashMm/bendGapMm "3 1.6"`
+  == `_BEND_DASH`. Fold-line stroke, hidden/visible strokes, dimension inks,
+  title-block inks all read from `@loft/design`; no raw hex in the components.
+- **Contrast (builder's claims confirmed):** bend stroke #2F6FEB on paper
+  #ECEFF2 = **3.96:1** (≥3:1, WCAG 1.4.11 graphical); caption `drawing.label`
+  #48525E = **6.89:1**; value `drawing.dimensionText` #1B222B ≈ **13:1**. The
+  sheet is theme-independent (always the paper inversion — no light theme
+  exists; whole product is all-dark), so there is no dark-theme regression to
+  check on the sheet content. Fold-line legend swatch on `anvil` = 3.88:1, passes.
+- **Focus / disabled explainability:** the F "Flat pattern" `ToolButton` uses
+  `aria-disabled` (not native `disabled`), so it still hovers/focuses and its
+  reason `caption` reaches both mouse and keyboard (and SR via
+  `aria-describedby`) — no `pointer-events-none` tooltip trap. Brass
+  `focus-visible` outline. F is keyboard-reachable via the global handler AND the
+  focusable button; Escape clears authoring, doesn't destroy layout. Pickable
+  edges/vertex handles keep custom SVG focus rings (`pickFocusRingMm`) distinct
+  from hover recolor (WCAG 2.4.7).
+- **Responsive 1280×800:** the sheet is one `preserveAspectRatio="xMidYMid meet"`
+  SVG that scales uniformly, so the table anchor (top-left) / title block
+  (bottom-right) placement is width-independent — no DOM overflow between 1440
+  and 1280. `showLabel` command-band tools shed labels below 1360px, so the band
+  doesn't clip at the floor. (Table-vs-blank overlap, if any, is a server mm
+  placement concern, not a DOM responsive bug — not observed in the founder shots.)
+- **Missing states:** loading ("Projecting…"/"Unfolding…" captions +
+  `drawing-projecting`), empty (`SetupHint` naming the flat-pattern path), error
+  (`FailedView` renders `flat_pattern_not_sheet_metal` as forward-looking
+  guidance — "Add a base flange and an edge flange…" — never a silent blank).
+- **Test hooks intact:** `drawing-bend-table`, `drawing-bend-row`,
+  `data-bend-index`, `drawing-view-error` (+ `data-error-code`),
+  `drawing-flat-pattern`, `drawing-bend-count`, `drawing-edge-role="bend"` all
+  present and mirror the server SVG hooks.
+
+Running checklist: Flat-pattern sheet (screen) ✅ · Bend fold-line token ✅ ·
+Views legend ✅ (dash tokenized 2026-07-19) · Flat-pattern action + F shortcut ✅ ·
+flat_pattern_not_sheet_metal error ✅ · **Bend-table export fidelity (PDF/DXF) ✅
+(P2 fixed 2026-07-19)** · Bend-table SR access ✅ (P3 BendSchedulePanel 2026-07-19) ·
+BendTable column de-magic ✅ (P3 2026-07-19). All three P3 nits from this pass closed.

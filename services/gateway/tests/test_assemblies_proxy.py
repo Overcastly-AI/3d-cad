@@ -21,11 +21,13 @@ from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
 from py_kit.db import async_dsn
 from py_kit.schemas.assemblies import (
+    AssemblyBomResponse,
     AssemblyCreate,
     AssemblyGraphResponse,
     AssemblyListResponse,
     AssemblyResponse,
     AssemblyUndoRedoRequest,
+    BomLine,
     InstanceCreate,
     InstanceMutationResponse,
     InstanceResponse,
@@ -95,6 +97,21 @@ def _graph(owner_id: uuid.UUID) -> AssemblyGraphResponse:
         mates=[_mate()],
         can_undo=True,
         can_redo=False,
+    )
+
+
+def _bom() -> AssemblyBomResponse:
+    return AssemblyBomResponse(
+        assembly_id=ASSEMBLY,
+        lines=[
+            BomLine(
+                ref_document_id=uuid.UUID("00000000-0000-0000-0000-0000000000c1"),
+                ref_document_kind="part",
+                name="Bracket",
+                quantity=2,
+            )
+        ],
+        total_instances=2,
     )
 
 
@@ -173,6 +190,8 @@ def _echo_documents(seen: list[httpx.Request]) -> Handler:
         if path == "/api/v1/assemblies":
             listing = AssemblyListResponse(assemblies=[_assembly(owner_id)])
             return httpx.Response(200, content=listing.model_dump_json())
+        if path.endswith("/bom"):
+            return httpx.Response(200, content=_bom().model_dump_json())
         return httpx.Response(200, content=_graph(owner_id).model_dump_json())
 
     return handler
@@ -204,6 +223,7 @@ def _envelope(body: dict[str, Any]) -> dict[str, Any]:
         ("POST", "/api/v1/assemblies"),
         ("GET", "/api/v1/assemblies"),
         ("GET", f"/api/v1/assemblies/{ASSEMBLY}"),
+        ("GET", f"/api/v1/assemblies/{ASSEMBLY}/bom"),
         ("PATCH", f"/api/v1/assemblies/{ASSEMBLY}"),
         ("DELETE", f"/api/v1/assemblies/{ASSEMBLY}"),
         ("POST", f"/api/v1/assemblies/{ASSEMBLY}/instances"),
@@ -279,6 +299,22 @@ def test_get_assembly_graph_passthrough(db_url: str, seen: list[httpx.Request]) 
     assert len(graph.mates) == 1
     [upstream] = seen
     assert upstream.url.path == f"/api/v1/assemblies/{ASSEMBLY}"
+
+
+def test_get_assembly_bom_passthrough(db_url: str, seen: list[httpx.Request]) -> None:
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        response = client.get(f"/api/v1/assemblies/{ASSEMBLY}/bom", headers=bearer)
+
+    assert response.status_code == 200
+    bom = AssemblyBomResponse.model_validate(response.json())
+    assert bom.total_instances == 2
+    assert [line.name for line in bom.lines] == ["Bracket"]
+    assert bom.lines[0].quantity == 2
+    [upstream] = seen
+    assert upstream.method == "GET"
+    assert upstream.url.path == f"/api/v1/assemblies/{ASSEMBLY}/bom"
+    assert upstream.headers[PRINCIPAL_HEADER] == user_id
 
 
 def test_crud_roundtrip_create_instances_mate_read(

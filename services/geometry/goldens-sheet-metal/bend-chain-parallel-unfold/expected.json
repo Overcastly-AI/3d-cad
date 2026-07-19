@@ -1,0 +1,32 @@
+{
+  "description": "Feature golden: SHIPPED depth-2 unfold of a PARALLEL chain (base + F1 + F2 folded off F1's free edge with a PARALLEL bend axis -- a Z / offset). Same recursive-compositional bend-TREE walk as the corner case; F2 composes THROUGH F1's already-flattened placement, but the two parallel fold axes develop as a 1D strip so the union outline is a single 40 x 82.19 rectangle (4 body edges). Supersedes the spike golden spike-bend-chain-parallel.",
+  "tangent_line_convention": "Legs to the bend TANGENT LINE (sec 9 #1). Base 30 (Y) + BA + F1 leg 25 + BA + F2 leg 15 stack along dev-Y; all flanges full-width 40 along dev-X.",
+  "derivation": [
+    "HAND-DERIVED (independently recomputed in the test). Dims: base 40x30; F1 leg 25 width 40; F2 leg 15 width 40 (folds off F1's full free edge, so its width matches F1's 40, NOT the corner case's 25); t=2, r=3, both 90deg, K=0.44.",
+    "BA = (pi/2)*(3 + 0.44*2) = 6.094689747964199 mm (both bends).",
+    "Developed area (sec 9 #2): flat_area = base + F1 + F2 + strip1 + strip2 = (40*30)+(25*40)+(15*40)+(BA*40)+(BA*40) = 1200+1000+600+BA*80 = 2800 + 487.5751798371359 = 3287.575179837136 mm^2.",
+    "Single union outline: a monotone 1D stack (all axes parallel) of full-width-40 rectangles chains into ONE 40 x (30+BA+25+BA+15) rectangle. Its shoelace-enclosed area equals flat_area EXACTLY, the witness that the outline tiles the blank. 4 body edges + 1 fold line per bend (2 bend edges).",
+    "Envelope: flat_length (dev-X) = 40; bend_width (dev-Y) = 30 base + (BA+25) F1 + (BA+15) F2 = 82.18937949592839 mm. Both bends 'up'.",
+    "Built body volume = base 2400 + F1 2502.65 + F2(flat 15*2*40=1200 + (pi/4)(16)*40=502.65 = 1702.65) = 6605.309649148734 mm^3, exactly additive.",
+    "content_hash = sha256 of FlatPattern.to_json_bytes() -- determinism pin, in-process AND fresh-restart reproducible (sec 9 #4)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured residuals same class as the corner golden: developed-area residual 0.0, envelope ~1e-12, outline-enclosed area vs flat_area ~1e-9. Ceiling 1e-9; volume tolerance 1e-6.",
+  "bend_allowance_mm": 6.094689747964199,
+  "flat_area_mm2": 3287.575179837136,
+  "flat_length_mm": 40.0,
+  "bend_width_mm": 82.18937949592839,
+  "flange_dev_areas_mm2": [600.0, 1000.0, 1200.0],
+  "outline_enclosed_area_mm2": 3287.575179837136,
+  "bend_count": 2,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 3.0,
+  "bend_direction": "up",
+  "bend_widths_mm": [40.0, 40.0],
+  "body_edge_count": 4,
+  "bend_edge_count": 2,
+  "volume_mm3": 6605.309649148734,
+  "volume_tolerance": 1e-6,
+  "topology": { "faces": 14, "cylinders": 4, "solids": 1 },
+  "content_hash": "f9eee91c94fad998660c67ace8399590c637d69ed43f4f711816958ebd09faf2"
+}

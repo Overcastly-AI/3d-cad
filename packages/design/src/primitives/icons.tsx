@@ -64,6 +64,15 @@ export const RectIcon = (p: IconProps) => (
   </Icon>
 );
 
+/** Flat pattern — a cut blank with a dashed fold line down the middle (the
+ * sheet-metal unfold: the shop's flat cut, scored where it bends). */
+export const FlatPatternIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={4} y={7} width={16} height={10} />
+    <path d="M12 6 L12 18" strokeDasharray="2.4 1.6" />
+  </Icon>
+);
+
 export const CircleIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx={12} cy={12} r={7} />
@@ -450,6 +459,19 @@ export const CircularPatternIcon = (p: IconProps) => (
     <Node cx={12} cy={13} />
     <Node cx={5} cy={16} />
     <Node cx={19} cy={16} />
+  </Icon>
+);
+
+/**
+ * Combine = a boolean between two independently-built bodies (union). Two
+ * overlapping solids scribed as offset squares — the Venn-of-boxes gesture in
+ * the title-block square vocabulary the extrude/pattern glyphs speak, so it
+ * reads as "fuse these two bodies into one", not a generic group/merge icon.
+ */
+export const CombineIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={4} y={9} width={10} height={10} />
+    <rect x={10} y={5} width={10} height={10} />
   </Icon>
 );
 
