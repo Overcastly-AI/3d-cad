@@ -1177,9 +1177,10 @@ _INK = "#1B222B"
 _EDGE_VISIBLE = "#1B222B"
 _EDGE_HIDDEN = "#6E7A88"
 #: Flat-pattern fold-line stroke (sheet-metal.md §6/§7) — a distinct dashed-blue, NOT
-#: the visible/hidden body-edge styling. Kept in sync with the frontend `drawing` bend
-#: token the render slice adds (the cross-renderer token duplication the module header
-#: notes) so the artifact reads a fold line the way the on-screen sheet will.
+#: the visible/hidden body-edge styling. The SINGLE source is the frontend `drawing.bend`
+#: design token (packages/design/src/tokens.ts), which the on-screen sheet + SVG/PDF/DXF
+#: renderers all read; this constant is the byte-export twin (the cross-renderer token
+#: duplication the module header notes) — keep the two hexes in lock-step.
 _EDGE_BEND = "#2F6FEB"
 _LABEL = "#48525E"
 _DIM_INK = "#2A3542"

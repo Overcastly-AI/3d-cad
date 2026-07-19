@@ -55,6 +55,13 @@ export type ComposedPolylineEdge =
 /** The discriminated placed-edge union (line | circle | polyline). */
 export type ComposedEdge =
   ComposedLineEdge | ComposedCircleEdge | ComposedPolylineEdge;
+/** A flat-pattern sheet's placed bend-table block — anchor rect + per-bend rows
+ * (sheet-metal.md §7). Null for every standard (HLR) sheet. */
+export type ComposedBendTable = components["schemas"]["ComposedBendTable"];
+/** One bend-table fold row (bend id, angle, radius, direction, allowance). */
+export type BendTableRow = components["schemas"]["BendTableRow"];
+/** The typed per-view/-feature error envelope (code + human message). */
+export type FeatureError = components["schemas"]["FeatureError"];
 export type ComposedMeasuredDimension =
   components["schemas"]["ComposedMeasuredDimension"];
 export type ComposedDimensionError =

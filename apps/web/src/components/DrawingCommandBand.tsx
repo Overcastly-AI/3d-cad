@@ -8,6 +8,7 @@
  * recedes; the sheet is the hero.
  */
 import {
+  FlatPatternIcon,
   RectIcon,
   SelectField,
   SheetExportIcon,
@@ -26,9 +27,13 @@ export interface DrawingCommandBandProps {
   onSelectScale: (value: string) => void;
   /** True once the standard views have been laid out on the sheet. */
   hasLayout: boolean;
+  /** True when the laid-out sheet is a flat-pattern (sheet-metal) sheet. */
+  isFlatPattern?: boolean;
   /** Name of the part the sheet drafts (shown as a readout after layout). */
   draftedPartName: string | null;
   onLayout: () => void;
+  /** Unfold the selected part's flat pattern onto a lone-view sheet (§7). */
+  onFlatPattern: () => void;
   onReproject: () => void;
   /** Serialize the laid-out sheet to a downloadable `.svg` (#5). */
   onExportSvg: () => void;
@@ -48,8 +53,10 @@ export function DrawingCommandBand({
   scaleValue,
   onSelectScale,
   hasLayout,
+  isFlatPattern = false,
   draftedPartName,
   onLayout,
+  onFlatPattern,
   onReproject,
   onExportSvg,
   onExportPdf,
@@ -121,24 +128,45 @@ export function DrawingCommandBand({
             showLabel
             shortcut="L"
             disabled={busy}
-            caption={busy ? "Projecting…" : "Refresh views from the part"}
+            caption={
+              busy
+                ? "Projecting…"
+                : isFlatPattern
+                  ? "Refresh the flat pattern from the part"
+                  : "Refresh views from the part"
+            }
             data-testid="drawing-reproject"
             onClick={onReproject}
           />
         ) : (
-          <ToolButton
-            icon={<RectIcon />}
-            label="Lay out standard views"
-            showLabel
-            shortcut="L"
-            disabled={!canLayout}
-            caption={
-              layoutReason ??
-              (busy ? "Projecting…" : "Front · Top · Right · Iso")
-            }
-            data-testid="drawing-autolayout"
-            onClick={onLayout}
-          />
+          <>
+            <ToolButton
+              icon={<RectIcon />}
+              label="Lay out standard views"
+              showLabel
+              shortcut="L"
+              disabled={!canLayout}
+              caption={
+                layoutReason ??
+                (busy ? "Projecting…" : "Front · Top · Right · Iso")
+              }
+              data-testid="drawing-autolayout"
+              onClick={onLayout}
+            />
+            <ToolButton
+              icon={<FlatPatternIcon />}
+              label="Flat pattern"
+              showLabel
+              shortcut="F"
+              disabled={!canLayout}
+              caption={
+                layoutReason ??
+                (busy ? "Unfolding…" : "Unfold a sheet-metal blank")
+              }
+              data-testid="drawing-flat-pattern"
+              onClick={onFlatPattern}
+            />
+          </>
         )}
       </ToolGroup>
       <ToolGroup eyebrow="Export">

@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { drawing } from "@loft/design";
+
 import {
   type DimensionResponse,
   type DrawingDimensionInput,
@@ -89,6 +91,20 @@ export function DrawingPage() {
   const docVersion = tree?.doc_version ?? 0;
   const sheet = tree?.sheets[0]?.sheet ?? null;
   const views = useMemo(() => tree?.sheets[0]?.views ?? [], [tree]);
+  // The projections actually persisted on the sheet — the SET we evaluate (so a
+  // flat-pattern sheet evaluates `flat_pattern`, carrying its bend-table +
+  // provenance + any typed failure). Falls back to the standard four before layout.
+  const requestedViews = useMemo<ViewProjection[]>(() => {
+    const seen = new Set<ViewProjection>();
+    const ordered: ViewProjection[] = [];
+    for (const view of views) {
+      if (seen.has(view.projection)) continue;
+      seen.add(view.projection);
+      ordered.push(view.projection);
+    }
+    return ordered.length > 0 ? ordered : [...STANDARD_VIEWS];
+  }, [views]);
+  const isFlatPatternSheet = requestedViews.includes("flat_pattern");
   const dimensions = useMemo<readonly DimensionResponse[]>(
     () => tree?.sheets[0]?.dimensions ?? [],
     [tree],
@@ -155,6 +171,7 @@ export function DrawingPage() {
       effectivePartId,
       partTree?.tree_version,
       effectiveScaleValue,
+      requestedViews.join(","),
       // Re-measure whenever a dimension is added/removed (any mutation bumps it).
       docVersion,
     ],
@@ -165,7 +182,7 @@ export function DrawingPage() {
         part_id: t.part_id,
         tree_version: t.tree_version,
         scale: scaleFromValue(effectiveScaleValue),
-        views: [...STANDARD_VIEWS],
+        views: requestedViews,
         features: t.features
           .filter((feature) => !feature.rolled_back)
           .map((feature) => ({ id: feature.id, feature: feature.feature })),
@@ -259,6 +276,63 @@ export function DrawingPage() {
           error instanceof Error
             ? error.message
             : "The views could not be laid out.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [
+    hasLayout,
+    selectedPartId,
+    busy,
+    docVersion,
+    sheet,
+    drawingId,
+    scaleValue,
+    queryClient,
+  ]);
+
+  // The flat-pattern action: create the sheet (if needed) + a single flat_pattern
+  // view (the lone unfold blank + its bend table, sheet-metal.md §7). A part with
+  // no sheet-metal bends composes an honest `flat_pattern_not_sheet_metal` failed
+  // view — surfaced inline, never a crash.
+  const handleFlatPattern = useCallback(() => {
+    if (hasLayout || selectedPartId === null || busy) return;
+    setBusy(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        let version = docVersion;
+        let sheetId = sheet?.id ?? null;
+        if (sheetId === null) {
+          const created = await createSheet(drawingId, {
+            name: "Sheet 1",
+            size: "A4",
+            orientation: "landscape",
+            projection: "third_angle",
+            expected_version: version,
+          });
+          version = created.doc_version;
+          sheetId = created.sheet.id;
+        }
+        const dims = sheetDimensions("A4", "landscape");
+        const created = await createView(drawingId, sheetId, {
+          projection: "flat_pattern",
+          ref_document_id: selectedPartId,
+          ref_document_kind: "part",
+          scale: scaleFromValue(scaleValue),
+          position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+          expected_version: version,
+        });
+        version = created.doc_version;
+        await queryClient.invalidateQueries({
+          queryKey: ["drawing", drawingId],
+        });
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The flat pattern could not be laid out.",
         );
       } finally {
         setBusy(false);
@@ -474,6 +548,12 @@ export function DrawingPage() {
         if (hasLayout) handleReproject();
         else handleLayout();
       }
+      // F unfolds the flat pattern (a lone flat blank + bend table). No-op once
+      // laid out (mirrors the command band's Flat pattern action).
+      if (event.key.toLowerCase() === "f" && !hasLayout) {
+        event.preventDefault();
+        handleFlatPattern();
+      }
       // E exports the laid-out sheet to a .svg (keyboard-first, mirrors the
       // command band's Export SVG action). No-op before layout.
       if (event.key.toLowerCase() === "e" && hasLayout) {
@@ -498,6 +578,7 @@ export function DrawingPage() {
   }, [
     hasLayout,
     handleLayout,
+    handleFlatPattern,
     handleReproject,
     handleExportSvg,
     handleExportPdf,
@@ -531,8 +612,10 @@ export function DrawingPage() {
             scaleValue={effectiveScaleValue}
             onSelectScale={setScaleValue}
             hasLayout={hasLayout}
+            isFlatPattern={isFlatPatternSheet}
             draftedPartName={draftedPartName}
             onLayout={handleLayout}
+            onFlatPattern={handleFlatPattern}
             onReproject={handleReproject}
             onExportSvg={handleExportSvg}
             onExportPdf={handleExportPdf}
@@ -657,6 +740,7 @@ export function DrawingPage() {
             <div className="flex flex-col gap-3">
               <ViewsPanel
                 projecting={projecting}
+                projections={requestedViews}
                 resultByProjection={resultByProjection}
               />
               <DimensionsPanel
@@ -762,7 +846,7 @@ function SetupHint({ hasParts }: { hasParts: boolean }) {
         </h2>
         <p className="mt-1 font-body text-sm text-gauge">
           {hasParts
-            ? "Choose a part and scale above, then lay out the standard views — front, top, right and isometric drop onto the sheet."
+            ? "Choose a part and scale above, then lay out the standard views — front, top, right and isometric — or unfold a sheet-metal part's flat pattern with its bend table."
             : "A drawing projects a part. Model a part, then return to draft it."}
         </p>
       </div>
@@ -770,19 +854,28 @@ function SetupHint({ hasParts }: { hasParts: boolean }) {
   );
 }
 
-/** The right-hand "Views" panel — a functional legend + per-view line count. */
+/** The right-hand "Views" panel — a functional legend + per-view line count. It
+ * lists exactly the projections placed on the sheet (the standard four, or a lone
+ * flat pattern), and its legend gains the FOLD-LINE swatch when a flat pattern is
+ * present (the sheet-metal signature stroke), reading from the same `drawing`
+ * token both renderers share. */
 function ViewsPanel({
   projecting,
+  projections,
   resultByProjection,
 }: {
   projecting: boolean;
+  projections: readonly ViewProjection[];
   resultByProjection: Map<ViewProjection, DrawingViewResult>;
 }) {
+  const flatPattern = projections.includes("flat_pattern");
+  const bendCount =
+    resultByProjection.get("flat_pattern")?.bend_table?.length ?? 0;
   return (
     <div className="border border-hairline bg-anvil">
       <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
         <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-          Standard views
+          {flatPattern ? "Flat pattern" : "Standard views"}
         </h2>
         <span className="grow" />
         {projecting ? (
@@ -795,7 +888,7 @@ function ViewsPanel({
         ) : null}
       </header>
       <ul className="divide-y divide-hairline">
-        {STANDARD_VIEWS.map((projection) => {
+        {projections.map((projection) => {
           const result = resultByProjection.get(projection);
           const failed = Boolean(result?.error);
           const count = result?.edges?.length ?? 0;
@@ -820,6 +913,17 @@ function ViewsPanel({
           );
         })}
       </ul>
+      {flatPattern && bendCount > 0 ? (
+        <div
+          className="flex items-center justify-between border-t border-hairline px-3 py-1.5"
+          data-testid="drawing-bend-count"
+        >
+          <span className="font-body text-xs text-mist">Bends</span>
+          <span className="font-data text-2xs tabular-nums text-gauge">
+            {bendCount}
+          </span>
+        </div>
+      ) : null}
       <div className="border-t border-hairline px-3 py-2">
         <div className="flex items-center gap-2 py-0.5">
           <svg width="26" height="6" aria-hidden="true">
@@ -833,23 +937,44 @@ function ViewsPanel({
               className="text-mist"
             />
           </svg>
-          <span className="font-body text-2xs text-gauge">Visible edge</span>
+          <span className="font-body text-2xs text-gauge">
+            {flatPattern ? "Cut edge" : "Visible edge"}
+          </span>
         </div>
-        <div className="flex items-center gap-2 py-0.5">
-          <svg width="26" height="6" aria-hidden="true">
-            <line
-              x1="0"
-              y1="3"
-              x2="26"
-              y2="3"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeDasharray="4 3"
-              className="text-gauge"
-            />
-          </svg>
-          <span className="font-body text-2xs text-gauge">Hidden edge</span>
-        </div>
+        {flatPattern ? (
+          // The fold-line swatch — the sheet-metal signature stroke, drawn in the
+          // exact `drawing.bend` token both renderers read (one palette).
+          <div className="flex items-center gap-2 py-0.5">
+            <svg width="26" height="6" aria-hidden="true">
+              <line
+                x1="0"
+                y1="3"
+                x2="26"
+                y2="3"
+                stroke={drawing.bend}
+                strokeWidth="1.5"
+                strokeDasharray="4 2"
+              />
+            </svg>
+            <span className="font-body text-2xs text-gauge">Fold line</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 py-0.5">
+            <svg width="26" height="6" aria-hidden="true">
+              <line
+                x1="0"
+                y1="3"
+                x2="26"
+                y2="3"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeDasharray="4 3"
+                className="text-gauge"
+              />
+            </svg>
+            <span className="font-body text-2xs text-gauge">Hidden edge</span>
+          </div>
+        )}
       </div>
     </div>
   );

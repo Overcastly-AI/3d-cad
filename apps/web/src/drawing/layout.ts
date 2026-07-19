@@ -14,12 +14,17 @@
  *    composed geometry; this only resolves the canonical end_a/end_b labels.
  */
 import type {
+  ComposedEdge,
   EdgeSignature,
   ProjectedPoint,
   ProjectedViewEdge,
   SheetResponse,
   ViewProjection,
 } from "../api/drawings";
+
+/** Outline role of a composed edge (sheet-metal.md §6): a `body` cut/object edge
+ * or a `bend` flat-pattern fold line (styled as a distinct dashed-blue stroke). */
+export type EdgeRole = ComposedEdge["edge_role"];
 
 /** The four standard views, in the canonical creation + render order. */
 export const STANDARD_VIEWS: readonly ViewProjection[] = [
@@ -30,9 +35,9 @@ export const STANDARD_VIEWS: readonly ViewProjection[] = [
 ];
 
 /** Human labels for a projection (the stamped caption under each view).
- *  `flat_pattern` (sheet-metal.md §7) carries a label so the map stays total for
- *  `ViewProjection` indexing; its dedicated flat-pattern sheet render (edge_role
- *  bend-line stroke + bend table) is the next frontend slice, not wired here. */
+ *  `flat_pattern` (sheet-metal.md §7) renders the unfold's flat blank — cut
+ *  outline as `edge_role="body"`, fold lines as `edge_role="bend"` — plus the
+ *  bend-table annotation (DrawingSheet.tsx). */
 export const VIEW_LABEL: Record<ViewProjection, string> = {
   front: "Front",
   top: "Top",
@@ -148,7 +153,11 @@ export type SvgEdge = (
   | { kind: "circle"; cx: number; cy: number; r: number; visible: boolean }
   | { kind: "polyline"; points: Point2D[]; visible: boolean }
 ) &
-  EdgePickInfo;
+  EdgePickInfo & {
+    /** Outline role — a `bend` edge draws as the dashed-blue fold stroke; every
+     * standard/HLR edge is `body` (sheet-metal.md §6). */
+    edgeRole: EdgeRole;
+  };
 
 // --- straight-edge endpoint correspondence (model end_a/end_b ↔ projected) ---
 //

@@ -23,14 +23,17 @@ import { useState, type Ref } from "react";
 import { drawing, font, viewport } from "@loft/design";
 
 import type {
+  ComposedBendTable,
   ComposedDimension,
   ComposedEdge,
+  ComposedPoint,
   ComposedSheet,
   ComposedTitleBlock,
   ComposedView,
   DimensionParams,
   DrawingViewResult,
   EdgeSignature,
+  FeatureError,
   ProjectedViewEdge,
   ViewProjection,
   ViewResponse,
@@ -114,8 +117,18 @@ export interface DrawingSheetProps {
   svgRef?: Ref<SVGSVGElement>;
 }
 
-/** Stroke props for a visible (solid) or hidden (dashed) projected edge. */
-function strokeFor(visible: boolean) {
+/** Stroke props by outline role (sheet-metal.md §6): a `bend` fold line draws as
+ * a distinct dashed-blue stroke — the sheet-metal signature, orthogonal to
+ * `visible` — while a `body` edge keeps the solid (visible) / dashed (hidden)
+ * object-line styling every drawing view uses. */
+function strokeFor(visible: boolean, edgeRole: SvgEdge["edgeRole"]) {
+  if (edgeRole === "bend") {
+    return {
+      stroke: drawing.bend,
+      strokeWidth: drawing.bendWeightMm,
+      strokeDasharray: `${drawing.bendDashMm} ${drawing.bendGapMm}`,
+    };
+  }
   return visible
     ? { stroke: drawing.edgeVisible, strokeWidth: drawing.visibleWeightMm }
     : {
@@ -153,6 +166,7 @@ function toSvgEdge(
   evalEdge: ProjectedViewEdge | undefined,
 ): SvgEdge {
   const info = pickInfo(evalEdge, composed.kind);
+  const edgeRole = composed.edge_role;
   if (composed.kind === "line") {
     return {
       kind: "line",
@@ -161,6 +175,7 @@ function toSvgEdge(
       x2: composed.x2,
       y2: composed.y2,
       visible: composed.visible,
+      edgeRole,
       ...info,
     };
   }
@@ -171,6 +186,7 @@ function toSvgEdge(
       cy: composed.cy,
       r: composed.r,
       visible: composed.visible,
+      edgeRole,
       ...info,
     };
   }
@@ -178,6 +194,7 @@ function toSvgEdge(
     kind: "polyline",
     points: composed.points.map((p) => ({ x: p.x_mm, y: p.y_mm })),
     visible: composed.visible,
+    edgeRole,
     ...info,
   };
 }
@@ -217,11 +234,15 @@ function EdgeShape({
   hover,
   focus,
   selected,
+  bendIndex = -1,
 }: {
   edge: SvgEdge;
   hover: boolean;
   focus: boolean;
   selected: boolean;
+  /** 0-based index of this fold line among the view's `bend` edges — the
+   * POSITIONAL key to its bend-table row (sheet-metal.md §6); -1 for a body edge. */
+  bendIndex?: number;
 }) {
   // Keyboard focus MUST read differently from mouse hover (WCAG 2.4.7): hover
   // recolors the edge blueprint-blue; focus adds a deep-blue RING under it (a
@@ -233,13 +254,15 @@ function EdgeShape({
       : null;
   const stroke = coreColor
     ? { stroke: coreColor, strokeWidth: 0.8 }
-    : strokeFor(edge.visible);
+    : strokeFor(edge.visible, edge.edgeRole);
   const common = {
     ...stroke,
     fill: "none" as const,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "data-edge": edge.kind,
+    "data-edge-role": edge.edgeRole,
+    ...(bendIndex >= 0 ? { "data-bend-index": String(bendIndex) } : {}),
     "data-visible": edge.visible ? "true" : "false",
     "data-dimensionable": edge.dimensionable ? "true" : "false",
     "data-focused": focus ? "true" : "false",
@@ -309,6 +332,7 @@ function PickableEdge({
   projection,
   viewId,
   selected,
+  bendIndex = -1,
   onReveal,
   onPickEdge,
 }: {
@@ -316,6 +340,8 @@ function PickableEdge({
   projection: ViewProjection;
   viewId: string | null;
   selected: boolean;
+  /** Positional bend-table key for a fold line (-1 for a body edge). */
+  bendIndex?: number;
   /** Report this edge as the reveal target on hover/focus (null clears on leave). */
   onReveal?: (key: string | null) => void;
   onPickEdge?: (event: EdgePickEvent) => void;
@@ -330,7 +356,13 @@ function PickableEdge({
 
   if (!interactive)
     return (
-      <EdgeShape edge={edge} hover={false} focus={false} selected={selected} />
+      <EdgeShape
+        edge={edge}
+        hover={false}
+        focus={false}
+        selected={selected}
+        bendIndex={bendIndex}
+      />
     );
 
   const revealKey =
@@ -349,7 +381,13 @@ function PickableEdge({
 
   return (
     <g>
-      <EdgeShape edge={edge} hover={hover} focus={focus} selected={selected} />
+      <EdgeShape
+        edge={edge}
+        hover={hover}
+        focus={focus}
+        selected={selected}
+        bendIndex={bendIndex}
+      />
       <g
         role="button"
         tabIndex={0}
@@ -619,6 +657,105 @@ function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
   );
 }
 
+/** Wrap `text` into lines of at most `maxChars`, at word boundaries (SVG `<text>`
+ * does not wrap). Caps at `maxLines`, ellipsizing the overflow. */
+function wrapText(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+    if (lines.length === maxLines) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (lines.length === maxLines) {
+    const last = lines[maxLines - 1] ?? "";
+    if (last.length > maxChars)
+      lines[maxLines - 1] = `${last.slice(0, maxChars - 1)}…`;
+  }
+  return lines;
+}
+
+/** A friendly headline per typed view error (sheet-metal.md §7 / drawings §1.5). */
+function errorHeadline(
+  projection: ViewProjection,
+  code: string | undefined,
+): string {
+  if (code === "flat_pattern_not_sheet_metal") return "NOT A SHEET-METAL PART";
+  if (code === "subshape_unresolved") return "BEND UNRESOLVED";
+  return projection === "flat_pattern" ? "FLAT PATTERN FAILED" : "VIEW FAILED";
+}
+
+/** An honest inline error state for a view that produced no geometry — a dashed
+ * placeholder box carrying the typed reason (never a crash or a silent blank).
+ * The flat-pattern "not sheet metal" case reads as guidance, not a failure mood
+ * (frontend-design: an error explains what went wrong and points forward). */
+function FailedView({
+  projection,
+  anchor,
+  error,
+}: {
+  projection: ViewProjection;
+  anchor: ComposedPoint;
+  error: FeatureError | null;
+}) {
+  const headline = errorHeadline(projection, error?.code);
+  const detail =
+    error?.code === "flat_pattern_not_sheet_metal"
+      ? "Add a base flange and an edge flange to unfold a flat blank."
+      : (error?.message ?? "This view produced no geometry.");
+  const lines = wrapText(detail, 34, 3);
+  const boxW = 78;
+  const boxH = 20 + lines.length * 4.4;
+  return (
+    <g
+      data-testid="drawing-view-error"
+      data-error-code={error?.code ?? "unknown"}
+    >
+      <rect
+        x={anchor.x_mm - boxW / 2}
+        y={anchor.y_mm - boxH / 2}
+        width={boxW}
+        height={boxH}
+        fill="none"
+        stroke={drawing.edgeHidden}
+        strokeWidth={drawing.hiddenWeightMm}
+        strokeDasharray={`${drawing.hiddenDashMm} ${drawing.hiddenGapMm}`}
+      />
+      <text
+        x={anchor.x_mm}
+        y={anchor.y_mm - boxH / 2 + 8}
+        textAnchor="middle"
+        fill={drawing.dimensionFlag}
+        fontFamily={font.display}
+        fontSize={3.4}
+        letterSpacing={0.6}
+      >
+        {headline}
+      </text>
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x={anchor.x_mm}
+          y={anchor.y_mm - boxH / 2 + 14 + i * 4.4}
+          textAnchor="middle"
+          fill={drawing.label}
+          fontFamily={font.data}
+          fontSize={2.8}
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  );
+}
+
 /** A pickable vertex handle resolved to final SVG space + its canonical label. */
 interface VertexHandleSpec {
   key: string;
@@ -668,6 +805,14 @@ function SheetView({
   // (PICK provenance) by canonical index — compose + evaluate share the order.
   const svgEdges = composedEdges.map((composed, i) =>
     toSvgEdge(composed, evalEdges[i]),
+  );
+
+  // Positional bend key (sheet-metal.md §6): the i-th `bend` edge (in edge-list
+  // order) pairs with the i-th bend-table row — never an id join. Number the fold
+  // lines here so each carries its `data-bend-index`, mirroring the table's rows.
+  let bendCounter = 0;
+  const bendIndexByEdge = svgEdges.map((edge) =>
+    edge.edgeRole === "bend" ? bendCounter++ : -1,
   );
 
   // Endpoint handles for every dimensionable straight edge (deduped by position
@@ -731,29 +876,11 @@ function SheetView({
       data-dimension-count={composedDims.length}
     >
       {failed ? (
-        <g>
-          <rect
-            x={composedView.anchor.x_mm - 26}
-            y={composedView.anchor.y_mm - 14}
-            width={52}
-            height={28}
-            fill="none"
-            stroke={drawing.edgeHidden}
-            strokeWidth={drawing.hiddenWeightMm}
-            strokeDasharray={`${drawing.hiddenDashMm} ${drawing.hiddenGapMm}`}
-          />
-          <text
-            x={composedView.anchor.x_mm}
-            y={composedView.anchor.y_mm + 1}
-            textAnchor="middle"
-            fill={drawing.label}
-            fontFamily={font.data}
-            fontSize={3}
-            letterSpacing={0.4}
-          >
-            VIEW FAILED
-          </text>
-        </g>
+        <FailedView
+          projection={projection}
+          anchor={composedView.anchor}
+          error={result?.error ?? null}
+        />
       ) : (
         <>
           {svgEdges.map((edge, i) => {
@@ -767,6 +894,7 @@ function SheetView({
                 edge={edge}
                 projection={projection}
                 viewId={viewId}
+                bendIndex={bendIndexByEdge[i] ?? -1}
                 selected={
                   key !== null &&
                   (key === selectedEdgeKey || armedEdgeKeys.includes(key))
@@ -873,6 +1001,102 @@ function TitleBlock({ block }: { block: ComposedTitleBlock }) {
   );
 }
 
+/** The flat-pattern bend table — the shop's fold instructions, placed at the
+ * server-given anchor rect (top-left, the mirror of the title block). A quiet,
+ * dense, columnar precision instrument (design mandate §3): one row per bend,
+ * in fold-position order, so the i-th row keys POSITIONALLY to the i-th fold
+ * line on the blank (sheet-metal.md §6 — never an id join). Values are the
+ * unfold's computed geometry, drawn verbatim. Mirrors the server SVG test hooks
+ * (`drawing-bend-table`, `drawing-bend-row`) so QA drives one target set. */
+function BendTable({ table }: { table: ComposedBendTable }) {
+  const { x, y, width: w, height: h, rows } = table;
+  const headerH = 7;
+  const rowH = 6;
+  // Column left edges within the block (mm from the block's left). Sized for the
+  // 92 mm block so five monospace columns read as a clean grid.
+  const col = {
+    bend: x + 3,
+    angle: x + 26,
+    radius: x + 43,
+    dir: x + 62,
+    allow: x + 77,
+  };
+  const caption = {
+    fill: drawing.label,
+    fontFamily: font.display,
+    fontSize: drawing.bendTableCaptionMm,
+    letterSpacing: 0.4,
+  } as const;
+  const cell = {
+    fill: drawing.dimensionText,
+    fontFamily: font.data,
+    fontSize: drawing.bendTableTextMm,
+  } as const;
+  const captionY = y + headerH - 2.4;
+  return (
+    <g
+      data-testid="drawing-bend-table"
+      aria-label={`Bend table, ${rows.length} bends`}
+    >
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={h}
+        fill={drawing.paper}
+        stroke={drawing.ink}
+        strokeWidth={drawing.borderWeightMm}
+      />
+      {/* Header rule (mirrors the server composer). */}
+      <line
+        x1={x}
+        y1={y + headerH}
+        x2={x + w}
+        y2={y + headerH}
+        stroke={drawing.ink}
+        strokeWidth={drawing.hiddenWeightMm}
+      />
+      <text x={col.bend} y={captionY} {...caption}>
+        BEND
+      </text>
+      <text x={col.angle} y={captionY} {...caption}>
+        ANGLE
+      </text>
+      <text x={col.radius} y={captionY} {...caption}>
+        RADIUS
+      </text>
+      <text x={col.dir} y={captionY} {...caption}>
+        DIR
+      </text>
+      <text x={col.allow} y={captionY} {...caption}>
+        ALLOW mm
+      </text>
+      {rows.map((row, i) => {
+        const ry = y + headerH + (i + 1) * rowH - 2;
+        return (
+          <g key={i} data-testid="drawing-bend-row" data-bend-index={String(i)}>
+            <text x={col.bend} y={ry} {...cell}>
+              {row.bend_id}
+            </text>
+            <text x={col.angle} y={ry} {...cell}>
+              {`${(row.angle_deg + 0).toFixed(1)}°`}
+            </text>
+            <text x={col.radius} y={ry} {...cell}>
+              {`R${(row.radius_mm + 0).toFixed(2)}`}
+            </text>
+            <text x={col.dir} y={ry} {...cell}>
+              {row.direction === "up" ? "UP" : "DOWN"}
+            </text>
+            <text x={col.allow} y={ry} {...cell}>
+              {(row.bend_allowance_mm + 0).toFixed(2)}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 export function DrawingSheet({
   composed,
   views,
@@ -943,6 +1167,7 @@ export function DrawingSheet({
         />
       ))}
       <TitleBlock block={composed.title_block} />
+      {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
     </svg>
   );
 }

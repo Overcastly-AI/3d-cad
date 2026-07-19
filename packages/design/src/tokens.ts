@@ -314,6 +314,33 @@ export const drawing = {
   pickFocusRingMm: 2.4,
   /** Invisible hit-stroke width (mm) so thin edges are easy to click/focus. */
   pickHitMm: 2.6,
+
+  // --- Flat-pattern fold lines — the sheet-metal signature (sheet-metal.md §7). ---
+  // A sheet-metal flat blank's defining mark is the FOLD LINE: where the shop
+  // bends the cut sheet. A fold is neither a cut outline (a visible object edge)
+  // nor an occluded edge (hidden dashed) — it is its own annotation, so it reads
+  // as a distinct DASHED BLUE stroke, the drafting vernacular for a bend/phantom
+  // line. Boldness is spent here (design mandate) — one bright blue on the
+  // graphite sheet, clearly not the blueprint-blue PICK accent above. The hex is
+  // the SAME one the server composer hand-emits for a `bend` edge (compose.py
+  // `_EDGE_BEND`); landing it here makes the design token the single source both
+  // renderers read (one palette, two renderers — CLAUDE.md DRY design rule).
+  /** Fold-line ink — a distinct drafting blue (3.96:1 on the vellum, WCAG 1.4.11). */
+  bend: "#2F6FEB",
+  /** Fold-line weight (mm) — a light annotation stroke (matches `_BEND_W`). */
+  bendWeightMm: 0.4,
+  /** Fold-line dash + gap (mm) — matches the server composer's `_BEND_DASH`, so
+   * the on-screen fold line and the exported PDF/DXF/SVG read identically. */
+  bendDashMm: 3,
+  bendGapMm: 1.6,
+
+  // --- Bend table — the shop's fold instructions, a quiet precision instrument. ---
+  // Placed at its server-given anchor rect (top-left, the mirror of the title
+  // block). Dense, legible, columnar — a real annotation table, never a card.
+  /** Bend-table value height (mm) — sibling of the title-block value stamp. */
+  bendTableTextMm: 2.8,
+  /** Bend-table column-caption height (mm) — the quiet header row. */
+  bendTableCaptionMm: 2.1,
 } as const;
 
 export const font = {

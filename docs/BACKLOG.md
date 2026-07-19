@@ -47,15 +47,17 @@ duplication:
   views, no GD&T/auto-dimensioning. (Angular + point-to-point authoring shipped
   #6c 2026-07-18, closing that residual.) See VISION.md row for the full
   evidence chain.
-- **Sheet metal — new ❌ row this pass (founder ask 2026-07-17: "anything for
-  sheet metal?").** Scoped, not built: `docs/design/sheet-metal.md` names
-  the flat-pattern unfold as the pillar's genuine kernel risk (OCCT has no
-  turnkey unfold — verified) and proposes a v1 cut (a **depth-1 bend star**
-  — one base flange plus N edge flanges directly off it, provenance-tracked
-  via a new additive `CylindricalFaceSignature`, reusing the shipped
-  extrude/sweep kernel primitives + the Drawings view pipeline). **Not yet
-  endorsed for build** — the design doc needs a `code-reviewer` pass before
-  its slices (filed below, Next) move to Ready.
+- **Sheet metal — v1 SHIPPED 2026-07-19 (founder ask 2026-07-17: "anything
+  for sheet metal?").** The **depth-1 bend star** cut is built end-to-end —
+  base flange + edge flange features, the provenance-tracked flat-pattern
+  unfold (a new additive `CylindricalFaceSignature`, reusing the shipped
+  extrude/sweep primitives + the Drawings view pipeline), and the
+  flat-pattern drawing view WITH its on-screen fold-line + bend-table render
+  (slices #1–#4, all done). **v1 DoD MET: "one bracket → a flat blank a shop
+  can cut."** Deferred past v1 (design §10): multi-bend/bend-graph flattening,
+  miter/hem/jog/tab/corner-relief features, gauge/material rule tables, lofted
+  bends, import-as-sheet-metal recognition, server-composed flat-pattern
+  export. The VISION scorecard ❌ row can flip on the next steward pass.
 - **Unfiled-but-named product-audit follow-ups** (history-tree drag-reorder/
   suppress, feature-mirror + 2-direction pattern, a friendlier
   `boolean_failed` message) — next groom pass, once assemblies v1 has room.
@@ -782,9 +784,27 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       full geometry suite + ruff + pyright green. Deferred: non-parallel depth-1
       stars (flanges off perpendicular edges) + depth ≥2 (§4.3). [src: founder,
       design/sheet-metal.md §4.2/§4.3/§5/§10]
-- [~] (P2, M) Sheet metal v1 #4 — flat pattern as a drawing view + bend
-      table — **BACKEND SHIPPED 2026-07-19; frontend render is the next
-      slice.** Backend (this slice): additive `ProjectedViewEdge.edge_role:
+- [x] (P2, M) Sheet metal v1 #4 — flat pattern as a drawing view + bend
+      table — **COMPLETE 2026-07-19 (frontend render + screenshots landed →
+      pillar v1 DoD MET: "one bracket → a flat blank a shop can cut").**
+      FRONTEND slice (this commit, apps/web + packages/design): a "Flat
+      pattern" editor action (shortcut F) unfolds a sheet-metal part onto a
+      lone-view sheet; `DrawingSheet` styles `edge_role="bend"` edges as the
+      dashed-blue FOLD stroke from a NEW `@loft/design` `drawing.bend` token
+      (the SAME `#2F6FEB` the server composer emits — one palette, two
+      renderers; compose.py comment now names the token as the single source),
+      and renders `ComposedBendTable` as a quiet columnar precision instrument
+      (BEND/ANGLE/RADIUS/DIR/ALLOW) at its server anchor, mirroring the SVG
+      test hooks (`drawing-bend-table`/`drawing-bend-row`). Bend rows key
+      POSITIONALLY to fold lines (i-th row ↔ i-th `edge_role="bend"` edge, via
+      a shared `data-bend-index`). A non-sheet-metal body renders an honest
+      inline `flat_pattern_not_sheet_metal` error (never blank/crash). New
+      `FlatPatternIcon` primitive + fold-line legend in the Views panel. E2e
+      `sheet-metal-flat-pattern.spec.ts` seeds an L-bracket + U-channel through
+      the API and captures founder frames at 1440 + 1280 (`docs/screenshots/
+      sheet-metal-flat-pattern-{l,u}-{1440,1280}.png`); web typecheck/test/lint
+      + design typecheck/test green. Backend (prior slice): additive
+      `ProjectedViewEdge.edge_role:
       "body"|"bend"` (defaulted → existing HLR/drawing consumers unaffected;
       generated non-optional like the sibling `dimensionable`), a
       `flat_pattern` `ViewProjection` that SKIPS HLR and unfolds the

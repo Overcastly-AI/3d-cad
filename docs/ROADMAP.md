@@ -2,14 +2,14 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: Phase 4b — Sheet metal** (founder green-lit 2026-07-19;
-slices #1 base flange, #2 unfold algorithm, #3 edge-flange/authored-body
-unfold, and #4 flat-pattern-drawing-view BACKEND landed — including the
-composed flat-pattern SHEET (`place_sheet` centres the blank + emits a
-`ComposedBendTable`, `edge_role` preserved through composition). The #4
-FRONTEND render (the `edge_role="bend"` dashed-blue stroke + bend-table
-annotation block over the composed sheet) is the remaining v1 slice; see
-§Phase 4b). The intervening
+**Current focus: Phase 4b — Sheet metal v1 COMPLETE** (founder green-lit
+2026-07-19; slices #1 base flange, #2 unfold algorithm, #3 edge-flange/
+authored-body unfold, and #4 flat-pattern drawing view — BACKEND (composed
+flat-pattern SHEET + `ComposedBendTable`, `edge_role` through composition)
+AND FRONTEND (the `edge_role="bend"` dashed-blue fold stroke from the new
+`drawing.bend` token + the columnar bend-table annotation + the "Flat
+pattern" editor action + founder screenshots) all landed. **v1 DoD MET:
+"one bracket → a flat blank a shop can cut"** (see §Phase 4b). The intervening
 pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
 the **Multi-body** pillar through MB-4a (multi-lump bodies + opt-in disjoint
 union). The historical convergence notes below are retained as-is.
@@ -882,11 +882,21 @@ design/assemblies.md` v1 #2):
    DXF style `bend` dashed-blue). Goldens `l-bracket/u-channel-flat-pattern-sheet`
    (centred, table non-overlapping, byte-deterministic in-proc + restart);
    standard sheets compose byte-identically (additive). So a flat-pattern view
-   now renders through the standard server-composed-sheet path. **Still
-   pending (next slice):** the FRONTEND render of that composed sheet (the
-   `edge_role="bend"` dashed-blue stroke + the bend-table annotation block +
-   screenshots). This clears the v1 DoD's backend, "one bracket → a flat blank
-   a shop can cut."
+   now renders through the standard server-composed-sheet path. **FRONTEND
+   RENDER SHIPPED 2026-07-19 — v1 DoD MET, "one bracket → a flat blank a shop
+   can cut":** the drawing editor gains a "Flat pattern" action (shortcut F)
+   that unfolds a sheet-metal part onto a lone-view sheet. `DrawingSheet` styles
+   `edge_role="bend"` edges as the dashed-blue FOLD stroke from a NEW
+   `@loft/design` `drawing.bend` token (the SAME `#2F6FEB` hex the server
+   composer hand-emits — one palette, two renderers) and renders the
+   `ComposedBendTable` as a quiet columnar precision instrument at its server
+   anchor (BEND / ANGLE / RADIUS / DIR / ALLOW), mirroring the SVG test hooks
+   (`drawing-bend-table` / `drawing-bend-row`). Bend rows key POSITIONALLY to
+   fold lines (i-th row ↔ i-th `edge_role="bend"` edge, shared `data-bend-index`).
+   A non-sheet-metal body renders an honest inline `flat_pattern_not_sheet_metal`
+   error, never a blank/crash. E2e `sheet-metal-flat-pattern.spec.ts` seeds an
+   L-bracket + U-channel through the API, unfolds each, and captures founder
+   frames at 1440 + 1280 (`docs/screenshots/sheet-metal-flat-pattern-{l,u}-{1440,1280}.png`).
 
 Explicitly deferred past v1 (design doc §10): multi-bend/bend-graph
 flattening (boxes, hat channels), miter flanges/hems/jogs/tabs/corner
