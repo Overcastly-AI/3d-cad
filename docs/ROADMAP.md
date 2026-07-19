@@ -151,9 +151,11 @@ item:
       profiles → holes (incl. multi-disjoint-loop cut), shell, draft.
       **Part modeling row flips ❌→➖→✅** (`3c23c73`), held under a
       4-part showcase stress test (`d8d3b87`); multi-body boolean was the
-      one remaining scope boundary — now **in progress** (`docs/design/
-      multi-body.md`, MB-0 plumbing landed 2026-07-18; a part can end with >1
-      body via `merge=False`, the `union` boolean is MB-1).
+      one remaining scope boundary — now **SHIPPED end-to-end** (`docs/design/
+      multi-body.md`, MB-0..MB-4c complete 2026-07-19: union/subtract/
+      intersect between independently-built bodies, multi-lump bodies, opt-in
+      disjoint union, multi-solid STEP import — geometry-QA'd PASS twice;
+      VISION Part modeling row Notes corrected same pass, score unchanged).
 - ✅ STEP import v1 — kernel (`4964fab`) → gateway upload → UI file-picker,
       with a P1 security wall-clock bound on the untrusted parse.
       **Interop row flips ❌→➖.**
@@ -563,9 +565,12 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       end-to-end** (kernel `4964fab` → gateway upload → UI file-picker,
       P1 security parse-timeout; **Interop row flips ❌→➖**), evidence
       summarized under Phase 2 above and in full in `CHANGELOG.md` /
-      `docs/design/step-import.md`. Remaining: IGES, multi-solid/assembly
-      (likely couples to Phase 3), sew/heal, blob-ref storage — BACKLOG
-      Later.
+      `docs/design/step-import.md`. **Multi-solid STEP import SHIPPED
+      2026-07-19** (`919ebcf`, MB-4b) — a ≥2-solid file now imports as one
+      lump-sorted multi-lump body instead of being rejected. Remaining: IGES,
+      named assembly product-structure (part names/hierarchy — a multi-solid
+      file still lands as one anonymous body, not a Loft assembly), sew/heal,
+      blob-ref storage — BACKLOG Later.
 - 🚧 2D drawings: views from model, dimensions, PDF/DXF export — the
       product audit's honest #2/near-#1 counter-argument to Assemblies
       (smaller build, completes the make-loop for the single-part case).

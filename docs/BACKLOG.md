@@ -18,12 +18,16 @@ duplication:
 - **Sketching, Part modeling — both ✅ (2026-07-15).** Sketching's last three
   gaps (over-constraint diagnosis, dimension expressions/driving-driven,
   constrainable splines) closed this batch (`a1c42be`); Part modeling held
-  under the showcase stress test the pass before. Residual, non-gating scope
-  boundaries: multi-body boolean, spline tangency, expression functions/units.
+  under the showcase stress test the pass before. **Multi-body boolean SHIPPED
+  2026-07-19** (MB-0..MB-4c, geometry-QA'd PASS twice) — no longer a residual;
+  VISION Part modeling Notes corrected 2026-07-19. Residual, non-gating scope
+  boundaries: spline tangency, expression functions/units, history reorder/
+  suppress, compound multi-edge picker.
 - **Interop — ➖.** STEP import shipped end-to-end (upload → sketch-on-it →
   re-export), verified live by the product-auditor. **Multi-solid STEP import
   now lands as ONE multi-lump body (MB-4b, 2026-07-19)** — a multi-solid file is
-  no longer rejected. IGES and a structured healing report remain deferred (Later).
+  no longer rejected. IGES, named assembly product-structure import, and a
+  structured healing report remain deferred (Later).
 - **Assemblies — ➖ (2026-07-15, flipped from ❌).** v1 MVP shipped
   end-to-end this batch (documents → solver → resolution → evaluation →
   gateway → viewport, all 6 Ready slices below), golden independently
@@ -39,26 +43,31 @@ duplication:
   no RECURSIVE/indented BOM (flat direct-instance only — filed below), no
   assembly-level STEP IO, instances track a part's live tip not a pinned version,
   sub-assemblies rigid-only. See VISION.md row for full evidence chain.
-- **Drawings — flipped ❌→➖ (2026-07-17).** v1 shipped end-to-end (document
+- **Drawings — ➖ (flipped ❌→➖ 2026-07-17).** v1 shipped end-to-end (document
   model → HLR projection → evaluate endpoint → gateway proxy → dimension
   measurement/provenance → frontend sheet editor → dimension authoring → SVG
-  export), every stage independently reviewed/QA'd, e2e-proven live. Honest
-  residuals, not gating the ➖: no server-composed export (PDF/DXF/byte-
-  stable stored artifact), no assembly drawings, no section/detail/auxiliary
-  views, no GD&T/auto-dimensioning. (Angular + point-to-point authoring shipped
-  #6c 2026-07-18, closing that residual.) See VISION.md row for the full
-  evidence chain.
-- **Sheet metal — v1 SHIPPED 2026-07-19 (founder ask 2026-07-17: "anything
-  for sheet metal?").** The **depth-1 bend star** cut is built end-to-end —
-  base flange + edge flange features, the provenance-tracked flat-pattern
-  unfold (a new additive `CylindricalFaceSignature`, reusing the shipped
-  extrude/sweep primitives + the Drawings view pipeline), and the
-  flat-pattern drawing view WITH its on-screen fold-line + bend-table render
-  (slices #1–#4, all done). **v1 DoD MET: "one bracket → a flat blank a shop
-  can cut."** Deferred past v1 (design §10): multi-bend/bend-graph flattening,
-  miter/hem/jog/tab/corner-relief features, gauge/material rule tables, lofted
-  bends, import-as-sheet-metal recognition, server-composed flat-pattern
-  export. The VISION scorecard ❌ row can flip on the next steward pass.
+  export), every stage independently reviewed/QA'd, e2e-proven live. **Server-
+  composed export (PDF/DXF, one placement source) SHIPPED 2026-07-19** (DE-0/
+  1a/1b/1c + DE-2a/b/c + DE-3a/b) — the client-side-only-SVG residual is
+  closed; angular + point-to-point authoring shipped 2026-07-18, also closed.
+  Honest residuals still gating ➖, not ✅: no assembly drawings, no section/
+  detail/auxiliary views, no GD&T/auto-dimensioning. See VISION.md row for the
+  full evidence chain.
+- **Sheet metal — ➖ (flipped ❌→➖ 2026-07-19, founder ask 2026-07-17:
+  "anything for sheet metal?").** The **depth-1 bend star** cut is built
+  end-to-end — base flange + edge flange features, the provenance-tracked
+  flat-pattern unfold (a new additive `CylindricalFaceSignature`, reusing the
+  shipped extrude/sweep primitives + the Drawings view pipeline), and the
+  flat-pattern drawing view WITH its on-screen fold-line + bend-table render,
+  now server-composed too (slices #1–#4, all done). **v1 DoD MET: "one
+  bracket → a flat blank a shop can cut,"** independently geometry-QA'd PASS
+  (`5ed73c0`) and frontend-QA'd ship-it (`f82b813`, one P2 closed `24b1c53`).
+  VISION scorecard row flipped ❌→➖ this pass — held short of ✅ because the
+  depth-1-star scope (no bend chains) is a materially narrower slice of the
+  sheet-metal domain than incumbent parity requires; see VISION.md row for the
+  full reasoning. Deferred past v1 (design §10): multi-bend/bend-graph
+  flattening, miter/hem/jog/tab/corner-relief features, gauge/material rule
+  tables, lofted bends, import-as-sheet-metal recognition.
   **Flat-pattern UI P3 polish closed 2026-07-19 (frontend-builder):** a
   text-accessible `BendSchedulePanel` (AT/keyboard twin of the `role="img"`
   sheet's bend table, positionally keyed by `data-bend-index`), the fold-line
