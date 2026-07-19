@@ -46,18 +46,6 @@ item is archived below (Done, one line each — full evidence in
 this restock orders by the standing rules (P0 wrong-geometry/security →
 scorecard impact → core capability → polish).
 
-- [ ] (P2, M) Performance benchmark suite with CI budgets — the cheapest
-      concrete move on the Performance ❌ scorecard row (no other ❌ row —
-      Collaboration/versioning, Extensibility/MCP — has a design doc yet).
-      Formalize the ad-hoc per-golden warm-rebuild numbers already in
-      GEOMETRY-QA.md (3.8–33 ms today) into a committed table with
-      per-golden budgets + a CI regression gate (GEOMETRY-QA gap #7:
-      ">10% regression inside budget is still a filed defect"). Acceptance:
-      every golden has a committed budget row; a CI job fails on >10%
-      regression against it; existing goldens stay green. Honest scope note:
-      this alone doesn't flip Performance ❌→➖ (VISION also names "no real
-      parts yet," a separate larger gap) but is the necessary first step.
-      [src: geometry-qa gap #7]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
       mesh_store/S3 seam (§8.3). The last open Drawings v1 tail — SVG/PDF/DXF
       compose today re-renders on every request; store the composed bytes
@@ -387,6 +375,15 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       unfold, flat-pattern drawing view + bend table (server-composed,
       frontend-rendered), bend-table export-consistency fix, 120° regression
       golden. **VISION ❌→➖.** [src: design/sheet-metal.md]
+- [x] Performance benchmark suite + CI tripwires — two-tier perf gate
+      (`test_benchmarks.py`): generous asserted DoS/gross-regression ceilings
+      (1000/2000 ms, 19×–435× warm) in the default suite + an opt-in
+      `-m benchmark` median/p95 tier (`just bench`) that records the baseline
+      table. Corpus = the shipped goldens (tree/boolean/tessellate/step/
+      sheet-metal/drawing/assembly). Deliberately NOT a >10% CI bound (flakes
+      under contention — moved to the human-watched tier). INFRA half of the
+      Performance ❌ row only; the real-part corpus is still open, so no
+      ❌→➖ flip. [src: geometry-qa gap #7; docs/GEOMETRY-QA.md 2026-07-19]
 - [x] Units (length) v1 — `LengthUnit` on part/assembly documents; frontend
       convert/parse/format core threading every feature-param length input +
       the distance mate. [src: design/units.md]

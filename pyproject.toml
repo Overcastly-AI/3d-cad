@@ -77,4 +77,12 @@ venv = ".venv"
 testpaths = ["services", "packages"]
 # importlib mode: test module names may repeat across workspace members
 # (e.g. every member can have tests/test_config.py) without collisions.
-addopts = "-q --import-mode=importlib"
+# `-m 'not benchmark'`: the geometry perf suite's DETAILED timing tier
+# (tests/test_benchmarks.py, `benchmark`-marked) is heavy median-of-N work and
+# opt-in — the default suite still runs its generous, asserted CI tripwires
+# (unmarked). Run the detailed tier explicitly with `just bench` /
+# `uv run pytest -m benchmark` (a CLI `-m` overrides this default).
+addopts = "-q --import-mode=importlib -m 'not benchmark'"
+markers = [
+    "benchmark: opt-in detailed perf timings (median/p95); excluded from the default suite",
+]

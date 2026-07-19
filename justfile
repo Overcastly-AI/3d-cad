@@ -35,6 +35,14 @@ test:
     uv run pytest
     pnpm run test
 
+# Detailed geometry performance timings (opt-in tier 2 of the perf suite).
+# Runs the `benchmark`-marked detailed run (median/p95 per real operation) and
+# prints the markdown table for docs/GEOMETRY-QA.md. The generous CI tripwires
+# (tier 1) run in the DEFAULT `just test`; this is the human-watched detail and
+# is NOT a CI gate. `-s` surfaces the printed table.
+bench:
+    uv run pytest services/geometry/tests/test_benchmarks.py -m benchmark -s -p no:cacheprovider
+
 # Regenerate OpenAPI contracts (pydantic → packages/contracts) + typed TS
 # client (packages/ts-client). Both are committed; CI fails on drift.
 gen:

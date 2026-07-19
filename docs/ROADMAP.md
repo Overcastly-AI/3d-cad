@@ -11,10 +11,13 @@ VISION.md scorecard with honest named residuals (full evidence:
 initiative is currently in flight**; the autonomous loop pulls the top of
 `docs/BACKLOG.md` **Ready (top of queue)**, restocked 2026-07-19 by the
 backlog-groomer. Remaining VISION ❌ rows (Performance benchmarking,
-Collaboration/versioning, Extensibility/scripting+MCP) have no design doc yet
-and are not next-in-line by cost — the cheapest concrete ❌-row move is the
-Performance benchmark-suite item (BACKLOG Ready #1); see BACKLOG for the full
-ordering + rationale.
+Collaboration/versioning, Extensibility/scripting+MCP) have no design doc yet.
+The Performance benchmark-suite INFRA step shipped 2026-07-19 (two-tier perf
+gate: generous asserted CI DoS/regression tripwires + an opt-in `-m benchmark`
+median/p95 baseline table; `just bench` / `docs/GEOMETRY-QA.md`) — this closes
+the benchmark-suite half of Performance ❌ but not the row (VISION also names
+"no real reference-part corpus yet"), so ❌ holds pending that corpus. See
+BACKLOG for the full ordering + rationale.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
@@ -177,7 +180,8 @@ item:
       no P0s either pass; Pass 2 verdict **"yes for a part, no for a
       project"** — names **Assemblies as #1**, the pivot to Phase 3.
 - Not carried forward as Phase-2 debt (independent, stay BACKLOG Next P2):
-  performance-benchmark CI budgets, undo/redo across feature operations.
+  performance-benchmark CI budgets (INFRA step shipped 2026-07-19 — two-tier
+  perf gate, see above), undo/redo across feature operations.
   `docs/COMPETITIVE.md` (first pass 2026-07-12) is now stale — flagged for
   the vision-steward to refresh against Phase 3.
 
