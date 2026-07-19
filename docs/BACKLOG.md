@@ -1043,6 +1043,15 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       core wedge, but explicitly not urgent: doesn't flip a current ❌ row
       since Loft's parametric core isn't finished yet. Revisit once Part
       modeling is closer to parity. [src: competitive]
+- [ ] **SPECULATIVE — not sized, not sequenced, candidate future vertical
+      only.** AEC/BIM domain layer (Revit-class: walls-that-host-openings,
+      levels/grids as spine, IFC interop, schedules) — see
+      `docs/design/aec-bim.md` for the full pre-greenlight scoping. Honest
+      verdict there: a legitimate 2027+ platform bet comparable in size to
+      everything Loft has shipped through Phase 4, gated on a domain
+      correctness bar (code/egress/energy) the team doesn't have — NOT a
+      near-term pillar, does not compete with Phase 4b/5 for attention.
+      [src: founder]
 
 ## Blocked (environment/timing — not build-blocked)
 
