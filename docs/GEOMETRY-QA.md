@@ -7,6 +7,45 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-19 — Sheet-metal depth-≥2 bend-chain unfold SPIKE (kernel-architect self-report)
+
+**VERDICT: TRACTABLE, no wall.** The next flagged sheet-metal risk (design §4.3/§10,
+the graph-relaxation problem v1 defers): a flange folded off ANOTHER flange (box
+corner / return / hat channel — depth ≥ 2), where the child's unfold transform must
+compose THROUGH the parent's already-applied development. Proven end-to-end in an
+**isolated** spike (`services/geometry/src/geometry/sheet_metal/_spike_bend_chain.py`,
+NOT wired into the shipped depth-1 `unfold_sheet_metal`, which stays byte-unchanged
+and still rejects depth-2).
+
+- **Algorithm — recursive-compositional tree walk, no relaxation.** Orient each bend
+  parent→child by its recorded `base_face_signature` (§5), build the bend tree, place
+  the base at identity, then walk outward placing each child flange in its parent's
+  ALREADY-flattened 2D frame: `child_2d(cpC) = parent_2d(cpP) + BA·w_parent_2d`.
+  Every input (axis/radius/tangent line) is an analytic cylinder-adaptor quantity and
+  every step is a 2×2 rigid motion, so the composition is EXACT — the feared error
+  propagation is real but **bounded at FP scale, never amplified**.
+- **Two hand-built depth-2 bodies (both via two shipped `build_edge_flange` folds,
+  real provenance), build123d 0.11.1 / OCCT 7.9, tol 1e-9, vol tol 1e-6:**
+  - `spike-bend-chain-corner` (PERPENDICULAR box corner, B2 axis ⟂ B1): BA-strip
+    offset residual max **2.7e-15**, per-flange isometry residual **0.0** (developed
+    area = 3D face area: base 1200, F1 1000, F2 375), area conservation exact
+    (flat_area 2971.154833617673), fused volume 5966.814089933348 **exactly additive**
+    (no 3D overlap → real box corner), topology faces=16/cyl=4/solids=1, content_hash
+    `863c28d9…` byte-identical in-proc + fresh-restart.
+  - `spike-bend-chain-parallel` (PARALLEL chain / Z, B2 axis ∥ B1, still depth-2):
+    same residual class, flat_area 3287.575179837136, volume 6605.309649148734,
+    content_hash `3c469b5b…`. Proves the recursion also covers the parallel chain the
+    shipped unfold defers.
+  - **No overlap:** the three flanges occupy disjoint 2D regions in both cases (the
+    single L-with-return needs no corner relief — relief stays a §7 deferral).
+- **Honest failure:** empty bends → typed `BendChainError`; a bend whose provenance no
+  longer resolves → typed `subshape_unresolved` (§5), never a wrong pattern.
+- **Follow-on FEATURE work (spike-flagged, not hit here):** lift the depth-2
+  rejection + generalize the shipped layout to the general tree; assemble the single
+  union outline with reentrant notches; overlap-guard the full 4-sided box (where
+  relief IS required). Existing depth-1 goldens (l-bracket/u-channel/corner-tray/
+  pan) byte-UNCHANGED; full `pytest tests/` green.
+
 ## 2026-07-19 — Sheet-metal depth-2 no-crash guard + N=4 full-pan golden (kernel-architect self-report)
 
 Code-review follow-up on the non-parallel unfold (three 🟡/🟢). The reachable

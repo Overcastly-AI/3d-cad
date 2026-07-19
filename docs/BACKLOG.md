@@ -76,20 +76,6 @@ scorecard impact → core capability → polish).
       SVG/PDF/DXF render identical cell text from the same server strings;
       byte goldens updated + the cross-serializer consistency test still
       passes. [src: docs/UI-REVIEW.md 2026-07-19 P2]
-- [ ] (P2, M) Sheet metal v2 Spike — bend-chain (depth ≥2) unfold
-      tractability proof. THE next flagged risk (design doc §10, named first
-      in the "rough incumbent-parity order," ahead of hems/miters/tabs/
-      gauge-tables): a flange folded off ANOTHER flange (the shape an
-      enclosure/hat-channel/chassis needs) is the real bend-graph-relaxation
-      problem v1 deliberately avoided. Before committing a feature-schema
-      change, prove it end-to-end on a hand-built two-bend-deep OCCT body
-      (mirrors Spike 0's structure/rigor, `d95c851`): bend-allowance +
-      area-conservation residuals at the existing ceiling, byte-deterministic
-      across fresh-process restarts. Acceptance: an isolated spike module +
-      golden proving the relaxation algorithm on ≥1 concrete two-deep case; a
-      written tractable/not-tractable verdict (and if tractable, the
-      follow-on feature slices) before any schema work starts. [src:
-      design/sheet-metal.md §10, §4.3]
 - [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
       trap, product audit #4) — marking the on-axis edge `construction: true`
       (the natural SolidWorks/Fusion idiom) excludes it from the profile wire
@@ -275,6 +261,23 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P2, M) Sheet metal v2 Spike — bend-chain (depth ≥2) unfold tractability
+      proof (geometry, kernel-architect). **VERDICT: TRACTABLE, no wall.** A
+      flange folded off ANOTHER flange (box corner / return / hat channel) —
+      the graph-relaxation case v1 defers — unfolds with a clean
+      **recursive-compositional tree walk**: place the base at identity, then
+      walk the bend tree outward placing each child flange in its parent's
+      ALREADY-flattened frame (`child_2d = parent_2d(tangent) + BA·w_parent`).
+      No relaxation, no iteration, no error accumulation beyond FP. Proven on a
+      hand-built PERPENDICULAR box corner AND a PARALLEL chain (both built via
+      two shipped `build_edge_flange` folds, real provenance): BA-strip offset
+      residual ~3e-15, per-flange isometry residual 0.0, area conservation
+      exact, byte-deterministic in-proc + fresh-restart, flanges occupy
+      disjoint 2D regions (no overlap → idealised zero-relief blank valid).
+      Isolated `_spike_bend_chain.py` + 2 goldens (`spike-bend-chain-corner`,
+      `spike-bend-chain-parallel`); shipped depth-1 `unfold_sheet_metal`
+      byte-UNCHANGED (still rejects depth-2). Follow-on feature slices named in
+      design §4.3. [src: design/sheet-metal.md §10, §4.3]
 - [x] (P2, M) Sheet metal v2 #1 — non-parallel depth-1 bend stars (geometry,
       kernel-architect). Spike-first verdict: **TRACTABLE**, no wall — the 2D
       plus/cross layout works and even shared-corner (adjacent perpendicular)
@@ -422,6 +425,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-19 — **Sheet-metal depth-≥2 bend-chain unfold SPIKE (kernel-architect):**
+  VERDICT **TRACTABLE, no wall.** Recursive-compositional tree walk unfolds a
+  box corner (flange off a flange) — each child placed in its parent's already-
+  flattened frame; BA-strip residual ~3e-15, isometry residual 0.0, exact area
+  conservation, byte-deterministic. Isolated `_spike_bend_chain.py` + 2 goldens
+  (perp corner + parallel chain); shipped depth-1 unfold byte-unchanged.
+  Follow-on feature slices named in design §4.3.
 - 2026-07-19 — **Sheet-metal depth-2 no-crash + N=4 pan golden (kernel-architect):**
   code-review follow-up on the non-parallel unfold. Author-reachable depth-2
   bodies (flange off a flange) now raise a UNIFORM typed `UnfoldStarError` before

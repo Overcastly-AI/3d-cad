@@ -330,6 +330,51 @@ produces a raw kernel exception or a silently-wrong flat pattern** — the
 honest-typed-degradation principle (§5), now proven by the depth-2 rejection
 tests (`test_sheet_metal_nonparallel_star.py`).
 
+**Depth-≥2 unfold SPIKE — VERDICT: TRACTABLE, no wall (2026-07-19,
+kernel-architect).** The depth-2 rejection above is a *v1 contract* choice, not a
+kernel limitation — an isolated spike
+(`services/geometry/src/geometry/sheet_metal/_spike_bend_chain.py`) proved that the
+deferred graph-relaxation case (a flange folded off ANOTHER flange — a box corner /
+return / hat channel) unfolds with a clean **recursive-compositional tree walk**, no
+heavier solver needed. Algorithm: build the bend tree (each bend oriented
+parent→child by its recorded `base_face_signature`, §5), place the base flange at
+identity, then walk outward placing each child flange **in its parent's ALREADY-
+flattened 2D frame** — `child_2d(cpC) = parent_2d(cpP) + BA·w_parent_2d`, where
+`cpP`/`cpC` are the bend's tangent-contact lines on the parent/child planes, `BA` the
+closed-form allowance (§1), and `w_parent_2d` the parent's fold-perpendicular
+direction expressed in its own developed frame. The child's fold axis maps to the
+parent's mapped axis (the fold line is continuous material); the child extends beyond
+the `BA` strip. **This is exactly the composition depth-1 never needs** — the child
+folds off a parent that is itself already developed — and it composes EXACTLY: every
+input (axis, radius, tangent line) is an analytic quantity from the cylinder adaptor
+and every step is a 2×2 rigid motion, so there is **no relaxation, no iteration, and
+no error accumulation beyond floating point** (the feared "each error in the parent's
+development propagates" is real but bounded at FP scale — the composition does not
+*amplify* it). Proven on a hand-built PERPENDICULAR box corner AND a PARALLEL chain
+(both built through two shipped `build_edge_flange` folds with real provenance): the
+developed BA-strip offset equals the bend allowance to ~3e-15, each flange develops as
+an exact isometry (developed area = 3D face area, residual 0.0), area conservation is
+exact (§9 #2), and the output is byte-deterministic in-process and across a fresh
+interpreter (goldens `spike-bend-chain-corner` / `spike-bend-chain-parallel`). The
+three flanges occupy **disjoint 2D regions** (no overlap → the idealised zero-relief
+blank is valid for a single L-with-return; corner relief stays a §7 deferral).
+
+**Follow-on FEATURE slices (the spike being green, the schema already supports it —
+an edge flange's `edge` ref accepts a `sheet_metal_edge_flange` base per the
+registry):** (1) **Lift the uniform depth-2 rejection** in `unfold_sheet_metal` and
+generalize its layout from the depth-1 star's 1D-strip / 2D-plus special cases to the
+general tree walk the spike validated (the spike's `_spike_bend_chain` module is the
+reference implementation; the feature merges it into the shipped path behind the
+`FlatPattern` DTO). (2) **Assemble the single union outline** with reentrant corner
+notches (the spike emits per-flange rectangles + fold lines; the feature must chain
+them into one closed boundary the way `_emit_plus_pattern` does for the depth-1
+plus). (3) **Residual risk to gate in the feature, NOT hit by the spike:** a
+**self-overlapping** development (two returns colliding in the flat — a full 4-sided
+box's corners, where relief IS geometrically required, §7) needs an overlap check that
+degrades to a typed error, and a **non-axis-aligned / non-rectangular** intermediate
+flange needs the general (not axis-aligned) 2D placement the spike's frame math
+already supports but the shipped emitter does not.
+
 ## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
 
 **Correction from an earlier draft of this doc:** a bend region is a
@@ -675,7 +720,11 @@ listed in rough incumbent-parity order):**
 - **Multi-bend / bend-graph flattening** (boxes, hat channels with a
   flange folded off ANOTHER flange to close a corner — depth ≥ 2) — the
   real graph-relaxation problem §2.2 names; the depth-1-bend-star v1
-  deliberately avoids it (§4.3).
+  deliberately avoids it (§4.3). **SPIKE COMPLETE — VERDICT: TRACTABLE
+  (2026-07-19, §4.3):** the recursive-compositional tree walk unfolds a box
+  corner with no relaxation and no error accumulation beyond FP; this is now a
+  scoped FEATURE (lift the depth-2 rejection + generalize the layout +
+  overlap-guard the full-box case), not an open kernel risk.
 - **Miter flanges, hems, jogs, tabs, corner reliefs** (§1) — each is more
   bend-graph and corner-case geometry on the same primitive, not new kernel
   risk, but real authoring + reconstruction work.
