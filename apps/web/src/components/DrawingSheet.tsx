@@ -1010,16 +1010,18 @@ function TitleBlock({ block }: { block: ComposedTitleBlock }) {
  * (`drawing-bend-table`, `drawing-bend-row`) so QA drives one target set. */
 function BendTable({ table }: { table: ComposedBendTable }) {
   const { x, y, width: w, height: h, rows } = table;
-  const headerH = 7;
-  const rowH = 6;
-  // Column left edges within the block (mm from the block's left). Sized for the
-  // 92 mm block so five monospace columns read as a clean grid.
+  const headerH = drawing.bendTableHeaderMm;
+  const rowH = drawing.bendTableRowMm;
+  // Column left edges DERIVED from the block width (`x + width * fraction`), not
+  // magic absolute mm coupled to the fixed 92 mm block: each fraction is a named
+  // design token (the server's `_BEND_COL_DX / _BEND_TABLE_W` ratio, one source).
+  const frac = drawing.bendTableColumnFractions;
   const col = {
-    bend: x + 3,
-    angle: x + 26,
-    radius: x + 43,
-    dir: x + 62,
-    allow: x + 77,
+    bend: x + w * frac[0],
+    angle: x + w * frac[1],
+    radius: x + w * frac[2],
+    dir: x + w * frac[3],
+    allow: x + w * frac[4],
   };
   const caption = {
     fill: drawing.label,

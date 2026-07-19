@@ -9,7 +9,9 @@ flat-pattern SHEET + `ComposedBendTable`, `edge_role` through composition)
 AND FRONTEND (the `edge_role="bend"` dashed-blue fold stroke from the new
 `drawing.bend` token + the columnar bend-table annotation + the "Flat
 pattern" editor action + founder screenshots) all landed. **v1 DoD MET:
-"one bracket → a flat blank a shop can cut"** (see §Phase 4b). The intervening
+"one bracket → a flat blank a shop can cut"** (see §Phase 4b). Flat-pattern UI
+P3 polish closed 2026-07-19 (text-accessible `BendSchedulePanel`, token-driven
+fold-line legend dash, de-magic'd bend-table columns — UI-REVIEW 2026-07-19). The intervening
 pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
 the **Multi-body** pillar through MB-4a (multi-lump bodies + opt-in disjoint
 union). The historical convergence notes below are retained as-is.

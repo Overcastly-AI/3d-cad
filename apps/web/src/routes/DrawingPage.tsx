@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { drawing } from "@loft/design";
 
 import {
+  type BendTableRow,
   type DimensionResponse,
   type DrawingDimensionInput,
   type DrawingViewResult,
@@ -743,6 +744,9 @@ export function DrawingPage() {
                 projections={requestedViews}
                 resultByProjection={resultByProjection}
               />
+              <BendSchedulePanel
+                rows={resultByProjection.get("flat_pattern")?.bend_table ?? []}
+              />
               <DimensionsPanel
                 dimensions={dimensions}
                 measuredById={measuredById}
@@ -943,7 +947,8 @@ function ViewsPanel({
         </div>
         {flatPattern ? (
           // The fold-line swatch — the sheet-metal signature stroke, drawn in the
-          // exact `drawing.bend` token both renderers read (one palette).
+          // exact `drawing.bend` ink AND `bendDash/Gap` pattern the real fold
+          // stroke uses, so the legend can never drift from the stroke.
           <div className="flex items-center gap-2 py-0.5">
             <svg width="26" height="6" aria-hidden="true">
               <line
@@ -953,7 +958,7 @@ function ViewsPanel({
                 y2="3"
                 stroke={drawing.bend}
                 strokeWidth="1.5"
-                strokeDasharray="4 2"
+                strokeDasharray={`${drawing.bendDashMm} ${drawing.bendGapMm}`}
               />
             </svg>
             <span className="font-body text-2xs text-gauge">Fold line</span>
@@ -968,7 +973,8 @@ function ViewsPanel({
                 y2="3"
                 stroke="currentColor"
                 strokeWidth="1.5"
-                strokeDasharray="4 3"
+                // Same token pattern the hidden-edge stroke draws (was "4 3").
+                strokeDasharray={`${drawing.hiddenDashMm} ${drawing.hiddenGapMm}`}
                 className="text-gauge"
               />
             </svg>
@@ -976,6 +982,123 @@ function ViewsPanel({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The formatted display cells for one bend-schedule row — the same values the
+ * SVG bend table stamps (angle°, R-radius, UP/DOWN, allowance), so the DOM text
+ * a screen reader reads matches the printed sheet. */
+function bendScheduleCells(row: BendTableRow): {
+  angle: string;
+  radius: string;
+  dir: string;
+  allow: string;
+} {
+  return {
+    angle: `${row.angle_deg.toFixed(1)}°`,
+    radius: `R${row.radius_mm.toFixed(2)}`,
+    dir: row.direction === "up" ? "UP" : "DOWN",
+    allow: row.bend_allowance_mm.toFixed(2),
+  };
+}
+
+/**
+ * The Bend schedule — a TEXT-accessible twin of the flat-pattern sheet's SVG
+ * bend table (which renders inside a `role="img"` sheet, so assistive tech never
+ * reads the per-bend values). A real `<table>` with column headers so AT reads
+ * each cell's meaning (angle / radius / direction / allowance); each row keys
+ * POSITIONALLY to the flat view's `edge_role="bend"` fold lines — the i-th row ↔
+ * the i-th bend edge (`data-bend-index`), the SAME contract the visual table
+ * uses, never a `bend_id` join. Rendered only for a flat pattern with bends.
+ */
+function BendSchedulePanel({ rows }: { rows: readonly BendTableRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div
+      className="border border-hairline bg-anvil"
+      data-testid="bend-schedule-panel"
+    >
+      <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
+        <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+          Bend schedule
+        </h2>
+        <span className="grow" />
+        <span className="font-data text-2xs tabular-nums text-gauge">
+          {rows.length}
+        </span>
+      </header>
+      <table
+        className="w-full border-collapse"
+        aria-label={`Bend schedule, ${rows.length} bends`}
+      >
+        <caption className="sr-only">
+          Fold instructions per bend, in fold-position order: fold angle, inner
+          radius in millimetres, direction, and bend allowance in millimetres.
+        </caption>
+        <thead>
+          <tr className="border-b border-hairline">
+            <th
+              scope="col"
+              className="px-3 py-1.5 text-left font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Bend
+            </th>
+            <th
+              scope="col"
+              className="px-2 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Angle
+            </th>
+            <th
+              scope="col"
+              className="px-2 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Radius
+            </th>
+            <th
+              scope="col"
+              className="px-2 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Dir
+            </th>
+            <th
+              scope="col"
+              className="px-3 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+            >
+              Allow mm
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-hairline">
+          {rows.map((row, i) => {
+            const cells = bendScheduleCells(row);
+            return (
+              <tr
+                key={i}
+                data-testid="bend-schedule-row"
+                data-bend-index={String(i)}
+              >
+                <td className="px-3 py-1.5 text-left font-data text-2xs text-mist">
+                  {row.bend_id}
+                </td>
+                <td className="px-2 py-1.5 text-right font-data text-2xs tabular-nums text-mist">
+                  {cells.angle}
+                </td>
+                <td className="px-2 py-1.5 text-right font-data text-2xs tabular-nums text-mist">
+                  {cells.radius}
+                </td>
+                <td className="px-2 py-1.5 text-right font-data text-2xs text-gauge">
+                  {cells.dir}
+                </td>
+                <td className="px-3 py-1.5 text-right font-data text-2xs tabular-nums text-mist">
+                  {cells.allow}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

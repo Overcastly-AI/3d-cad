@@ -1304,7 +1304,17 @@ block the founder's morning review.
   same flat pattern. Screen + SVG are correct; PDF/DXF are the fix targets.
 
 - **P3 — bend-table values have no text-accessible equivalent (SVG is
-  `role="img"`).** The root sheet `<svg>` is `role="img"` with a single summary
+  `role="img"`). ✅ RESOLVED 2026-07-19 (frontend-builder).** New DOM
+  `BendSchedulePanel` (`DrawingPage.tsx`) renders the per-bend values as a real
+  `<table>` with `scope="col"` headers (BEND/ANGLE/RADIUS/DIR/ALLOW mm) + an
+  `sr-only` caption, so AT reads each cell's meaning and a keyboard/non-pointer
+  user reaches the fold data the `role="img"` sheet hides. Keyed POSITIONALLY to
+  the flat view's `edge_role="bend"` fold lines (the i-th `bend-schedule-row` ↔
+  the i-th bend edge via the same `data-bend-index` contract — never a `bend_id`
+  join), values formatted to match the printed sheet (90.0° / R3.00 / UP / 6.09).
+  Testids `bend-schedule-panel`/`bend-schedule-row`; existing SVG hooks untouched.
+  E2e (L-bracket 1 row, U-channel 2 rows) asserts the panel; founder shots
+  refreshed. Original finding below. — The root sheet `<svg>` is `role="img"` with a single summary
   `aria-label` (`DrawingSheet.tsx:1120-1124`), so AT treats the whole sheet as
   one opaque image and never descends into the `BendTable`'s `aria-label="Bend
   table, N bends"` or its per-row text — those hooks serve tests, not screen
@@ -1316,7 +1326,11 @@ block the founder's morning review.
   keyboard users the fold data), reusing the same `data-bend-index` keying.
 
 - **P3 — `ViewsPanel` fold-line legend swatch dash/ink don't mirror the sheet.**
-  The legend fold swatch (`DrawingPage.tsx:948-957`) uses `drawing.bend` (good —
+  ✅ RESOLVED 2026-07-19 (frontend-builder). The fold-line legend swatch now
+  drives its `strokeDasharray` from `drawing.bendDashMm`/`bendGapMm` (the SAME
+  tokens the real fold stroke uses), and the hidden-edge swatch from
+  `hiddenDashMm`/`hiddenGapMm` — the legend can no longer drift from the strokes
+  it documents. Original finding below. — The legend fold swatch (`DrawingPage.tsx:948-957`) uses `drawing.bend` (good —
   true token, 3.88:1 on `anvil`, passes 1.4.11) but hardcodes
   `strokeDasharray="4 2"`, whereas the actual fold line is `3 1.6`
   (`bendDashMm`/`bendGapMm`); and the Cut-edge/Visible/Hidden swatches use
@@ -1328,7 +1342,15 @@ block the founder's morning review.
   drift from the stroke it documents.
 
 - **P3 — `BendTable` column x-offsets are hardcoded magic numbers coupled to a
-  92mm block.** `col.bend/angle/radius/dir/allow` (`DrawingSheet.tsx:1017-1023`)
+  92mm block.** ✅ RESOLVED 2026-07-19 (frontend-builder, client-side de-magic).
+  The `BendTable` columns now derive from the server-given `table.width`
+  (`x + width * fraction`), the fractions named as a design token
+  `drawing.bendTableColumnFractions` (the `_BEND_COL_DX / _BEND_TABLE_W` ratio),
+  and `headerH`/`rowH` read from new `drawing.bendTableHeaderMm`/`bendTableRowMm`
+  tokens (matching `_BEND_TABLE_HEADER_H`/`_ROW_H`) — no absolute-mm magic left in
+  the renderer. The DEEPER cross-boundary share (server pre-formats display cells
+  into `ComposedBendTable`) stays filed as BACKLOG SM-fmt-1 (changes the wire
+  schema + backend), out of scope here. Original finding below. — `col.bend/angle/radius/dir/allow` (`DrawingSheet.tsx:1017-1023`)
   are literal `x+3/26/43/62/77`, commented "Sized for the 92 mm block," but the
   block `width` is read from the server (`_BEND_TABLE_W`). `headerH`/`rowH`
   (7/6) are also re-declared here, duplicating `_BEND_TABLE_HEADER_H`/`_ROW_H`.
@@ -1373,6 +1395,7 @@ block the founder's morning review.
   present and mirror the server SVG hooks.
 
 Running checklist: Flat-pattern sheet (screen) ✅ · Bend fold-line token ✅ ·
-Views legend ✅ · Flat-pattern action + F shortcut ✅ · flat_pattern_not_sheet_metal
-error ✅ · **Bend-table export fidelity (PDF/DXF) ✅ (P2 fixed 2026-07-19)** ·
-Bend-table SR access 🔴 (P3).
+Views legend ✅ (dash tokenized 2026-07-19) · Flat-pattern action + F shortcut ✅ ·
+flat_pattern_not_sheet_metal error ✅ · **Bend-table export fidelity (PDF/DXF) ✅
+(P2 fixed 2026-07-19)** · Bend-table SR access ✅ (P3 BendSchedulePanel 2026-07-19) ·
+BendTable column de-magic ✅ (P3 2026-07-19). All three P3 nits from this pass closed.

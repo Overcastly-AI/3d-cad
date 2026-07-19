@@ -247,6 +247,14 @@ test("unfold an L-bracket's flat pattern with its bend table", async ({
   await expect(rows.first()).toHaveAttribute("data-bend-index", "0");
   await expect(bendEdges.first()).toHaveAttribute("data-bend-index", "0");
 
+  // The text-accessible bend schedule (a11y twin of the SVG table, which lives
+  // inside a role="img" sheet AT can't read): one row per bend, keyed to the
+  // fold line by the SAME positional `data-bend-index`.
+  await expect(page.getByTestId("bend-schedule-panel")).toBeVisible();
+  const scheduleRows = page.getByTestId("bend-schedule-row");
+  await expect(scheduleRows).toHaveCount(1);
+  await expect(scheduleRows.first()).toHaveAttribute("data-bend-index", "0");
+
   // Founder frames — desktop + small-laptop widths.
   await settleForShot(page);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -296,6 +304,10 @@ test("unfold a U-channel's flat pattern (two fold lines + two-row bend table)", 
   expect(await bendEdges.count()).toBeGreaterThanOrEqual(2);
   await expect(page.getByTestId("drawing-bend-table")).toBeVisible();
   await expect(page.getByTestId("drawing-bend-row")).toHaveCount(2);
+
+  // The text-accessible bend schedule carries both fold rows for AT / keyboard.
+  await expect(page.getByTestId("bend-schedule-panel")).toBeVisible();
+  await expect(page.getByTestId("bend-schedule-row")).toHaveCount(2);
 
   await settleForShot(page);
   await page.setViewportSize({ width: 1440, height: 900 });

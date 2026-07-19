@@ -58,6 +58,13 @@ duplication:
   miter/hem/jog/tab/corner-relief features, gauge/material rule tables, lofted
   bends, import-as-sheet-metal recognition, server-composed flat-pattern
   export. The VISION scorecard ❌ row can flip on the next steward pass.
+  **Flat-pattern UI P3 polish closed 2026-07-19 (frontend-builder):** a
+  text-accessible `BendSchedulePanel` (AT/keyboard twin of the `role="img"`
+  sheet's bend table, positionally keyed by `data-bend-index`), the fold-line
+  legend swatch driven from the `bendDash/Gap` tokens, and the `BendTable`
+  columns de-magic'd (derived from `table.width` + named header/row tokens).
+  All three UI-REVIEW 2026-07-19 P3 nits done; SM-fmt-1 (P2, deeper cross-
+  boundary format share) stays open below.
 - **Unfiled-but-named product-audit follow-ups** (history-tree drag-reorder/
   suppress, feature-mirror + 2-direction pattern, a friendlier
   `boolean_failed` message) — next groom pass, once assemblies v1 has room.

@@ -341,6 +341,19 @@ export const drawing = {
   bendTableTextMm: 2.8,
   /** Bend-table column-caption height (mm) — the quiet header row. */
   bendTableCaptionMm: 2.1,
+  /** Bend-table header-row height (mm) — matches the server composer's
+   *  `_BEND_TABLE_HEADER_H`, so the DOM sheet + the server SVG share one metric
+   *  rather than each hardcoding 7. */
+  bendTableHeaderMm: 7,
+  /** Bend-table per-bend row height (mm) — matches `_BEND_TABLE_ROW_H` (was a
+   *  loose `6` inside the renderer). */
+  bendTableRowMm: 6,
+  /** Bend-table column-start offsets, as FRACTIONS of the block width. The
+   *  renderer derives each column x from `table.width` (`x + width * fraction`)
+   *  instead of the old magic absolute mm (3/26/43/62/77) coupled to the fixed
+   *  92 mm block — the same `_BEND_COL_DX / _BEND_TABLE_W` ratio the server uses,
+   *  named once here (BEND · ANGLE · RADIUS · DIR · ALLOW). */
+  bendTableColumnFractions: [3 / 92, 26 / 92, 43 / 92, 62 / 92, 77 / 92],
 } as const;
 
 export const font = {
