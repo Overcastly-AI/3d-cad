@@ -36,36 +36,54 @@ they can't match** (the full thesis is in [`docs/VISION.md`](./docs/VISION.md)):
 
 ## Status — honest and specific
 
-**Phase 0: foundation.** This README claims nothing that isn't verifiable in
-this repo at this commit. The
+**Phase 4b — multi-body & sheet metal.** This README claims nothing that
+isn't verifiable in this repo at this commit. The
 [daily-driver scorecard in VISION.md](./docs/VISION.md#daily-driver-scorecard)
-is deliberately all-❌ except price/freedom — that honesty is the operating
-model, and flipping rows is the roadmap.
+tracks daily-driver readiness honestly — rows flip as pillars ship, and the
+roadmap is the order they flip in.
 
 **What runs today (verified in this repo):**
 
-- **Monorepo** — uv + pnpm workspaces, `justfile`, ruff/pyright(strict)/
-  eslint/prettier; `just lint` and `just test` green (89 unit tests: 76 pytest
-  + 13 vitest).
-- **Three FastAPI services** (`gateway`, `documents`, `geometry`) booting on
-  a shared service kit (`packages/py-kit`: config, JSON logging,
-  health/readiness probes, error envelope, queue client).
-- **OCCT kernel first light** — parametric box via build123d, tessellation
-  to byte-deterministic GLB, exact mass properties and topology counts,
-  golden 10×20×30 box asserted analytically at 1e-7.
-- **Web shell** — React 19 + Vite + TypeScript, r3f viewport rendering the
-  server-tessellated cube through the gateway, live parametric dimension
-  editing, and a token-driven design system (`packages/design` — one
-  palette across DOM and WebGL).
+- **Parametric part modeling** — a constraint-solved sketcher (with dimension
+  expressions and driving/driven dims) → extrude / revolve / sweep / loft →
+  fillet / chamfer (click-specific edge) / pattern / shell / draft, on an
+  ordered feature tree with stage-1 topological naming that survives rebuilds,
+  evaluated through the OCCT kernel (build123d) to byte-deterministic GLB with
+  exact mass properties.
+- **Multi-body** — a part holds several bodies; boolean union / subtract /
+  intersect between them, an opt-in disjoint (multi-lump) result, and a
+  downstream fillet that resolves a boolean-created edge.
+- **Assemblies** — a distinct document type: part instances + mates
+  (coincident / concentric / lock) solved by an in-house, GPL-free 6-DOF
+  rigid-body solver, byte-deterministic across machines.
+- **Drawings** — associative standard views (front / top / right / iso) via
+  exact OCCT HLR, model-true dimensions, and SVG / PDF / DXF export.
+- **Sheet metal (v1)** — base flange + edge flange, the provenance-driven
+  flat-pattern unfold (bend allowance / K-factor), and the flat pattern as a
+  drawing view with a bend table: model a bracket → get a flat blank a shop
+  can cut.
+- **Interop** — STEP import, including multi-solid files as one multi-lump
+  body; STEP/STL export.
+- **Three FastAPI services** (`gateway`, `documents`, `geometry`) on a shared
+  service kit (`packages/py-kit`: config, JSON logging, health/readiness,
+  error envelope, queue client, WebSocket fan-out), backed by Postgres 16 +
+  Redis 7 + MinIO/S3.
+- **Web app** — React 19 + Vite + TypeScript, an r3f modeling viewport
+  (ViewCube, studio shading, feature tree, mass-properties inspector) over a
+  token-driven design system (`packages/design` — one palette across DOM and
+  WebGL).
 - **Contract pipeline** — pydantic → OpenAPI (`packages/contracts`) →
   generated TS client (`packages/ts-client`); `just gen-check` fails CI on
   drift.
-- **CI** — GitHub Actions ([`ci.yml`](./.github/workflows/ci.yml)): lint,
-  typecheck, unit tests, contract drift check, compose config validation.
+- **Quality gates** — `just lint` (ruff + pyright strict + eslint + prettier)
+  and `just test` green: ~2,450 unit tests (1,735 pytest + 712 vitest), plus
+  geometry golden models, STEP round-trips, and determinism gates. CI is
+  GitHub Actions ([`ci.yml`](./.github/workflows/ci.yml)).
 - **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services,
-  authored and config-validated. **Caveat:** the development sandbox has no
-  Docker daemon, so `docker compose up` has not been runtime-verified yet
-  (tracked in [`docs/ROADMAP.md`](./docs/ROADMAP.md)).
+  authored and config-validated. The app also boots **container-free** for
+  development (SQLite + in-process mesh store). **Caveat:** the development
+  sandbox has no Docker daemon, so `docker compose up` itself is not
+  runtime-verified there (tracked in [`docs/ROADMAP.md`](./docs/ROADMAP.md)).
 
 **What does NOT exist yet** (no sugar-coating): IGES import/export, assembly
 import/export, multi-solid STEP healing, the async job-queue runtime (geometry
