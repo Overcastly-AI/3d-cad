@@ -720,7 +720,8 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       `BA = angle × (r + K·t)`, K=0.44) BEFORE committing the feature schema.
       Bend-allowance residual 1.78e-15 (ceiling 1e-9); flat length + area residual
       0.0; area conservation verified two ways; byte-deterministic across
-      fresh-process restarts (golden `sheet-metal-l-bracket-unfold`). New additive
+      fresh-process restarts (golden `goldens-sheet-metal/l-bracket-unfold`, own
+      harness dir per the `goldens-assembly/` precedent). New additive
       `services/geometry/src/geometry/sheet_metal/` (in-module `FlatPattern`, no
       py-kit/contract change). The geometric bend resolver already extracts every
       `CylindricalFaceSignature` field → slice #3 is a persistence wrapper, not new

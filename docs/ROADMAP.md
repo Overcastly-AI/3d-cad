@@ -801,7 +801,8 @@ flat-pattern unfold end-to-end on the simplest depth-1 case: `leg1 + BA + leg2`
 with `BA = angle × (r + K·t)`, K=0.44. Bend-allowance residual 1.78e-15 (ceiling
 1e-9); flat length (86.09 mm) + flat area (1721.89 mm²) residual 0.0; area
 conservation verified two independent ways; **byte-deterministic across
-fresh-process restarts** (golden `sheet-metal-l-bracket-unfold`). New additive
+fresh-process restarts** (golden `goldens-sheet-metal/l-bracket-unfold`, in its
+own harness dir per the `goldens-assembly/` precedent). New additive
 `services/geometry/src/geometry/sheet_metal/` module (in-module `FlatPattern`
 dataclass — no py-kit/contract change yet). The geometric bend resolver already
 extracts every field the future `CylindricalFaceSignature` must carry (axis /

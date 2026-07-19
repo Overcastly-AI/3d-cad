@@ -15,7 +15,7 @@ kernel output):
 * **Honest failure** — a body that is not a folded sheet raises a typed error,
   never a wrong flat pattern.
 
-Concrete dims (from ``goldens/sheet-metal-l-bracket-unfold/model.json``):
+Concrete dims (from ``goldens-sheet-metal/l-bracket-unfold/model.json``):
 leg1_dev = 50 mm, leg2_dev = 30 mm, thickness t = 2 mm, inner bend radius
 r = 3 mm, 90 deg fold, bend width w = 20 mm, K = 0.44 (v1 default).
 
@@ -57,7 +57,7 @@ from pydantic import BaseModel, ConfigDict
 
 _HERE = Path(__file__).resolve().parent
 _BUILDER_PATH = _HERE / "_l_bracket_builder.py"
-_GOLDEN_DIR = _HERE.parent / "goldens" / "sheet-metal-l-bracket-unfold"
+_GOLDEN_DIR = _HERE.parent / "goldens-sheet-metal" / "l-bracket-unfold"
 _MODEL_PATH = _GOLDEN_DIR / "model.json"
 _EXPECTED_PATH = _GOLDEN_DIR / "expected.json"
 
