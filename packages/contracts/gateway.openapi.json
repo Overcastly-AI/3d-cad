@@ -525,7 +525,7 @@
         "type": "object"
       },
       "BendTableRow": {
-        "description": "One row of a flat-pattern view's bend table (sheet-metal.md \u00a76/\u00a77).\n\nThe shop's fold instructions for one bend line: which line (``bend_id``, the\nsame id the matching ``edge_role=\"bend\"`` :class:`ProjectedViewEdge` carries via\nthe flat pattern), its fold ``angle_deg`` and inner ``radius_mm``, the fold\n``direction`` (up/down relative to the base flange), and the ``bend_allowance_mm``\n(``BA = angle_rad * (radius + K * thickness)``, \u00a71 \u2014 the developed length the\nflat strip replaces). Every value is already computed by the unfold; documents\nstores none of it \u2014 it is derived geometry-side alongside the flat-pattern edges.",
+        "description": "One row of a flat-pattern view's bend table (sheet-metal.md \u00a76/\u00a77).\n\nThe shop's fold instructions for one bend line: a stable per-bend label\n(``bend_id``), its fold ``angle_deg`` and inner ``radius_mm``, the fold\n``direction`` (up/down relative to the base flange), and the ``bend_allowance_mm``\n(``BA = angle_rad * (radius + K * thickness)``, \u00a71 \u2014 the developed length the\nflat strip replaces). Every value is already computed by the unfold; documents\nstores none of it \u2014 it is derived geometry-side alongside the flat-pattern edges.\n\nCorrelation to the drawing edges is POSITIONAL, not id-based:\n:class:`ProjectedViewEdge` carries no id, so the i-th ``edge_role=\"bend\"`` edge\n(in the view's edge-list order) is this row's fold line \u2014 both the bend edges and\nthis table are emitted in the same deterministic fold-position order (\u00a76). A\nconsumer keys a table row to its fold stroke by zipping the ``\"bend\"`` edges with\n``bend_table`` in order, never by matching ``bend_id`` against an edge field.",
         "properties": {
           "angle_deg": {
             "description": "Fold angle (degrees)",
@@ -538,7 +538,7 @@
             "type": "number"
           },
           "bend_id": {
-            "description": "Bend line id (matches the 'bend' edge, \u00a76)",
+            "description": "Stable per-bend label (e.g. 'bend-1'); NOT an edge id \u2014 bend rows correlate to 'bend' edges positionally, in fold-position order (\u00a76)",
             "title": "Bend Id",
             "type": "string"
           },

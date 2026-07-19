@@ -673,13 +673,19 @@ export interface components {
          * BendTableRow
          * @description One row of a flat-pattern view's bend table (sheet-metal.md §6/§7).
          *
-         *     The shop's fold instructions for one bend line: which line (``bend_id``, the
-         *     same id the matching ``edge_role="bend"`` :class:`ProjectedViewEdge` carries via
-         *     the flat pattern), its fold ``angle_deg`` and inner ``radius_mm``, the fold
+         *     The shop's fold instructions for one bend line: a stable per-bend label
+         *     (``bend_id``), its fold ``angle_deg`` and inner ``radius_mm``, the fold
          *     ``direction`` (up/down relative to the base flange), and the ``bend_allowance_mm``
          *     (``BA = angle_rad * (radius + K * thickness)``, §1 — the developed length the
          *     flat strip replaces). Every value is already computed by the unfold; documents
          *     stores none of it — it is derived geometry-side alongside the flat-pattern edges.
+         *
+         *     Correlation to the drawing edges is POSITIONAL, not id-based:
+         *     :class:`ProjectedViewEdge` carries no id, so the i-th ``edge_role="bend"`` edge
+         *     (in the view's edge-list order) is this row's fold line — both the bend edges and
+         *     this table are emitted in the same deterministic fold-position order (§6). A
+         *     consumer keys a table row to its fold stroke by zipping the ``"bend"`` edges with
+         *     ``bend_table`` in order, never by matching ``bend_id`` against an edge field.
          */
         BendTableRow: {
             /**
@@ -694,7 +700,7 @@ export interface components {
             bend_allowance_mm: number;
             /**
              * Bend Id
-             * @description Bend line id (matches the 'bend' edge, §6)
+             * @description Stable per-bend label (e.g. 'bend-1'); NOT an edge id — bend rows correlate to 'bend' edges positionally, in fold-position order (§6)
              */
             bend_id: string;
             /**

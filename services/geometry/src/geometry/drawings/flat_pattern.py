@@ -79,7 +79,9 @@ def _to_bend_table(pattern: FlatPattern) -> list[BendTableRow]:
 
     Values are MODEL-true (mm / degrees), never scaled — they are the real fold
     instructions. Order is the unfold's deterministic bend order (by fold position),
-    and each row's ``bend_id`` matches its ``edge_role="bend"`` outline edge.
+    the SAME order the ``edge_role="bend"`` outline edges are emitted in — so a row
+    correlates to its fold stroke POSITIONALLY (i-th bend row ↔ i-th "bend" edge),
+    not by matching ``bend_id`` (``ProjectedViewEdge`` carries no id).
     """
     return [
         BendTableRow(
