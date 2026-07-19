@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 297.0000 210.0000" width="297.0000mm" height="210.0000mm" preserveAspectRatio="xMidYMid meet">
+  <rect x="0" y="0" width="297.0000" height="210.0000" fill="#ECEFF2" stroke="#C9CFD7" stroke-width="0.6000"/>
+  <rect data-testid="drawing-border" x="10.0000" y="10.0000" width="277.0000" height="190.0000" fill="none" stroke="#1B222B" stroke-width="0.7000"/>
+    <g data-testid="drawing-view" data-view="flat_pattern" data-view-error="false">
+      <line x1="105.4527" y1="115.0000" x2="191.5473" y2="115.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="191.5473" y1="115.0000" x2="191.5473" y2="95.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="191.5473" y1="95.0000" x2="105.4527" y2="95.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="105.4527" y1="95.0000" x2="105.4527" y2="115.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="138.5000" y1="115.0000" x2="138.5000" y2="95.0000" stroke="#2F6FEB" stroke-width="0.4000" stroke-dasharray="3 1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <text data-testid="drawing-view-label" x="148.5000" y="123.0000" text-anchor="middle" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4" letter-spacing="0.6">FLAT PATTERN</text>
+    </g>
+    <g data-testid="drawing-title-block">
+      <rect x="191.0000" y="166.0000" width="96.0000" height="34.0000" fill="none" stroke="#1B222B" stroke-width="0.7000"/>
+      <line x1="248.6000" y1="166.0000" x2="248.6000" y2="200.0000" stroke="#1B222B" stroke-width="0.3500"/>
+      <line x1="248.6000" y1="183.0000" x2="287.0000" y2="183.0000" stroke="#1B222B" stroke-width="0.3500"/>
+      <text x="195.0000" y="174.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">TITLE</text>
+      <text data-testid="title-block-name" x="195.0000" y="184.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">L-Bracket Flat Pattern</text>
+      <text x="195.0000" y="196.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">LOFT · PART DRAWING</text>
+      <text x="252.6000" y="174.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">SCALE</text>
+      <text data-testid="title-block-scale" x="252.6000" y="180.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">1:1</text>
+      <text x="252.6000" y="191.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">SIZE</text>
+      <text x="252.6000" y="196.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">A4</text>
+    </g>
+    <g data-testid="drawing-bend-table">
+      <rect x="10.0000" y="10.0000" width="92.0000" height="13.0000" fill="#ECEFF2" stroke="#1B222B" stroke-width="0.7000"/>
+      <line x1="10.0000" y1="17.0000" x2="102.0000" y2="17.0000" stroke="#1B222B" stroke-width="0.3500"/>
+      <text x="13.0000" y="15.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.6" letter-spacing="0.5">BEND TABLE</text>
+      <text data-testid="drawing-bend-row" x="13.0000" y="21.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">bend-1  90.0°  R3.000  UP  BA6.095</text>
+    </g>
+</svg>

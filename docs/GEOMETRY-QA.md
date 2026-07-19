@@ -3164,3 +3164,127 @@ residuals (worst 1.455e-11) sit 687× inside a documented, honestly-justified 1e
 determinism is byte-stable across rebuilds and interpreters. Reaches the same solid
 as #4 (ring golden) via a different feature path and origin, verified independently
 — not assumed equal. No red findings.
+
+---
+
+## 2026-07-19 — Sheet-metal v1 pillar: whole-pillar CAD-correctness gate (geometry-qa)
+
+Independent geometric-correctness QA of the COMPLETE sheet-metal v1 pillar now
+that all slices have landed (base flange, edge flange, unfold, flat-pattern view,
+server-composed flat-pattern sheet; commits fb555cc → 645f236). Each slice was
+code-reviewed; this is the cross-pillar CAD gate. Reference: `docs/design/
+sheet-metal.md` §1/§6/§9. Env: native boot, build123d 0.11.1 / OCCT 7.9,
+Python 3.12.
+
+**Full geometry suite:** `uv run pytest tests/ -q` → **green** (all pass, 1 skip,
+exit 0). Sheet-metal + STEP + compose subset re-run standalone: green.
+
+### 1. Bend allowance across cases (PASS — incl. non-90°, the documented gap CLOSED)
+Re-derived `BA = angle_rad × (radius + K·thickness)` from scratch (third source,
+independent of golden AND kernel), K=0.44, t=2, r=3:
+
+| case | my BA | golden | match |
+|---|---|---|---|
+| 90° | 6.094689747964199 | 6.094689747964199 | exact |
+| L-bracket flat_len | 50+BA+30 = 86.0946897479642 | 86.0946897479642 | exact |
+| U-channel flat_len | 25+BA+40+BA+30 = 107.1893794959284 | 107.1893794959284 | ~1e-14 |
+
+**Non-90° probe (the goldens are all 90°; item flagged for coverage).** Authored
+real edge flanges at 45°/60°/120° end-to-end (`build_edge_flange` →
+`unfold_sheet_metal`) and confirmed BA scales with the MEASURED fold angle, not a
+hardcode. The resolver's `_fold_angle` (angle between flanking-flange normals)
+returns 45.0000000000 / 60 / 120° exactly; reported BA vs closed form:
+
+| fold | measured angle | BA reported | BA expected | Δ |
+|---|---|---|---|---|
+| 45° | 45.0000000000° | 3.0473448739821256 | 3.0473448739820994 | 2.6e-14 |
+| 60° | 60.0000000000° | 4.063126498642802 | 4.063126498642799 | 3.6e-15 |
+| 120° | 120.0000000000° | 8.126252997285597 | 8.126252997285597 | 0.0 |
+
+**Finding:** non-90° folds are correct end-to-end — this is BETTER than the
+"document the gap" fallback. The only honest gap is that no non-90° GOLDEN is
+committed (all shipped goldens are 90°); the *capability* is exercised and correct.
+Recommend a 120° edge-flange golden next cycle to lock it as a regression pin
+(🟡 coverage gap, not a defect).
+
+### 2. Area conservation (PASS — verified independently, §9 #2)
+Recomputed `flat_area = base_area + Σ(flange_area) + Σ(BA·width)` from the parts,
+not by re-reading the code's own formula:
+- L-bracket: 1000 + 600 + 6.09469·20 = **1721.893794959284** = golden (also
+  = flat_length·width = 86.09469·20, rectangular blank). Measured residual ~2.4e-12.
+- U-channel: 800 + 500 + 600 + 2·(6.09469·20) = **2143.787589918568** = golden.
+  The SHARED base is counted ONCE (identified by base-face signature), confirmed:
+  double-counting would give 800·2 = wrong; the analytic single-count matches.
+
+### 3. Determinism across the pillar (PASS — in-process + restart + PYTHONHASHSEED)
+Unfold `FlatPattern.content_hash()`, `DrawingViewResult` JSON hash, and
+`ComposedSheet` JSON hash all reproduce the committed pins under PYTHONHASHSEED 0
+and 12345 AND across a fresh interpreter:
+
+| artifact | L-bracket | U-channel | seed-independent |
+|---|---|---|---|
+| unfold hash | 66021d7938ed… | 8247476afb8d… | yes |
+| view hash | 47c282e78e38… | c5dc8dd08644… | yes |
+| sheet hash | 82216130a003… | 42aaf9015cd8… | yes |
+
+Multi-bend (U-channel) output order is stable: `[bend-1, bend-2]` under both seeds
+— the lump/bend sort (`_lay_out_star`, sorted by u-position; bend table sorted by
+fold-line midpoint) makes it deterministic, not hash-order dependent.
+
+### 4. Flat-pattern SVG/PDF/DXF byte-pin (ADDED — the compose review's explicit ask)
+The compose code-review requested a byte-pin for the composed flat-pattern
+artifacts; only the ComposedSheet JSON hash was pinned. **Contributed** golden
+byte files + a test (`tests/test_sheet_metal_flat_pattern_bytes.py`,
+`tests/sheet_metal_compose_goldens/{l-bracket,u-channel}.{svg,pdf,dxf}`): 14 new
+assertions, all green. Bytes are byte-stable across a fresh interpreter and
+PYTHONHASHSEED variation. The DXF/SVG bend-table row is exactly
+`bend-1  90.0°  R3.000  UP  BA6.095` — the degree symbol `°` is asserted present as
+UTF-8 in the SVG text AND the DXF bytes (the encoding detail a byte pin protects;
+a latin-1/ASCII serializer regression would break it while the JSON pin stayed green).
+Regenerate on a deliberate kernel bump via the module's `_regenerate()`.
+
+### 5. STEP round-trip of authored sheet-metal bodies (ADDED — was a coverage HOLE)
+The kernel STEP round-trip gate (`test_step_roundtrip.py`) parametrizes over
+`goldens/` only — **no** sheet-metal part was there, so a folded body (base + a
+cylindrical bend + edge flange) had ZERO export→import coverage. **Contributed**
+`tests/test_sheet_metal_step_roundtrip.py` (reuses the shared
+`assert_roundtrip_preserved` fixture, iterates the authored trees). Measured:
+
+| body | volume Δ | area Δ | centroid Δ | solids | topology (orig=reimp) |
+|---|---|---|---|---|---|
+| L-bracket | 8.2e-12 | 1.6e-11 | ≤4.1e-14 | 1 | 10/24/1 |
+| U-channel | 7.3e-12 | 3.2e-11 | ≤7.3e-14 | 1 | 14/36/1 |
+
+Mass props preserved within ROUNDTRIP_TOL (1e-7) — worst 3.2e-11, ~3 orders inside;
+topology exact; single connected solid (a bend exported as a disconnected shell
+would split this). Cylindrical bend geometry survives STEP without degradation.
+
+### 6. Honest degradation (PASS — verified via existing gates)
+- Removing a bend's cylindrical face → typed `SubshapeUnresolvedError` /
+  `subshape_unresolved` (not a wrong flat pattern / crash):
+  `test_bend_provenance_degrades_when_bend_face_removed`,
+  `test_flat_pattern_view_unresolvable_bend_degrades_honestly` — both green.
+- Perpendicular-star boundary holds: authored two flanges on perpendicular base
+  edges → `UnfoldStarError` (match "not parallel"),
+  `test_perpendicular_bend_star_is_unfold_star_error` — green. depth-1 PARALLEL
+  scope is enforced, not silently mis-unfolded.
+
+### 7. Provenance correctness — equal-radius bend disambiguation (PASS)
+The U-channel's two bends both have r≈3.0 but distinct axis lines. Resolved each
+provenance independently: prov0 axis_origin (40,0,5) / centroid (41.91,10,3.09);
+prov1 axis_origin (0,20,5) / centroid (−1.91,10,3.09). Each resolves to its OWN
+face (centroids 43.8 mm apart, `TopoDS.IsSame`=False, zero cross-match distance) —
+axis/centroid disambiguation, NOT first-found. Note: prov0's stored radius is the
+arc-fit `2.9999999999999933`, prov1's is exact `3.0`; both match via the relative
+radius tolerance (1e-6) — consistent with the goldens' documented FP note.
+
+### VERDICT: PILLAR IS GEOMETRICALLY SOUND — no P0/P1 defects
+Bend allowance is analytically exact across 45/60/90/120° (measured angle, not a
+hardcode); area conserves the neutral surface with the shared base counted once;
+determinism is byte-stable across process + restart + hash-seed for unfold, view,
+sheet, AND the new SVG/PDF/DXF artifacts; STEP round-trip preserves mass props
+(≤3.2e-11) and topology exactly; honest-degradation and perpendicular-star
+boundaries hold; equal-radius bends disambiguate correctly. Two QA contributions
+landed (byte-pin + STEP round-trip, both filling real coverage holes).
+**One 🟡 finding (not a defect):** no non-90° golden is committed though the
+capability is correct — file a "120° edge-flange golden" backlog item to lock it.
