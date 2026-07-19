@@ -201,6 +201,20 @@ scorecard impact → core capability → polish).
       `_face_key` normal-6dp/centroid-4dp tree-node rounding (fine for mm-scale
       parts, in-run-only key). Neither demonstrated on a real body. [src:
       code-reviewer]
+- [ ] (P3, S) Sheet-metal corner relief — optional hardening (code-review 🟡/🟢
+      on `d1aaadd`): (a) an oversized relief (`size_mm`/`relief_ratio` developing a
+      notch deeper than ~half the shared flange width) produces a VALID body but
+      fails only at draw time on the relieved flat-pattern unfold — move the check
+      EARLIER, into the corner-relief evaluator, so it degrades to a typed
+      `corner_relief_failed` at feature-eval time (matching the honest-degradation
+      contract) instead of surfacing downstream in the flat-pattern view; (b) 🟢
+      `cut_relief_tools`'s `(body, tools)` split is currently exercised only through
+      `apply_corner_relief`'s single-relief path — YAGNI signature, fold back inline
+      if no second caller materializes; (c) 🟢 note the relief-notch `content_hash`
+      is order-sensitive on the tool subtraction sequence (deterministic today via
+      the feature-tree order, but not intrinsically order-free). None blocks a real
+      user model; all are out-of-scope-input / internal-shape notes. [src:
+      code-reviewer, corner-relief multi-corner review]
 - [ ] (P3, S) py-kit: align FastAPI 422 OpenAPI schema with the py-kit error
       envelope (currently documents `HTTPValidationError`) [src:
       kernel-architect]
