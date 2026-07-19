@@ -302,14 +302,30 @@ def _rect_sketch() -> dict[str, object]:
         "params": {
             "plane": {"kind": "datum_plane", "plane": "XY"},
             "entities": [
-                {"id": "e1", "kind": "line", "start": {"x": 0.0, "y": 0.0},
-                 "end": {"x": 40.0, "y": 0.0}},
-                {"id": "e2", "kind": "line", "start": {"x": 40.0, "y": 0.0},
-                 "end": {"x": 40.0, "y": 25.0}},
-                {"id": "e3", "kind": "line", "start": {"x": 40.0, "y": 25.0},
-                 "end": {"x": 0.0, "y": 25.0}},
-                {"id": "e4", "kind": "line", "start": {"x": 0.0, "y": 25.0},
-                 "end": {"x": 0.0, "y": 0.0}},
+                {
+                    "id": "e1",
+                    "kind": "line",
+                    "start": {"x": 0.0, "y": 0.0},
+                    "end": {"x": 40.0, "y": 0.0},
+                },
+                {
+                    "id": "e2",
+                    "kind": "line",
+                    "start": {"x": 40.0, "y": 0.0},
+                    "end": {"x": 40.0, "y": 25.0},
+                },
+                {
+                    "id": "e3",
+                    "kind": "line",
+                    "start": {"x": 40.0, "y": 25.0},
+                    "end": {"x": 0.0, "y": 25.0},
+                },
+                {
+                    "id": "e4",
+                    "kind": "line",
+                    "start": {"x": 0.0, "y": 25.0},
+                    "end": {"x": 0.0, "y": 0.0},
+                },
             ],
             "constraints": [],
         },

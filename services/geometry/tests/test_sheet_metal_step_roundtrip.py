@@ -58,9 +58,7 @@ def test_sheet_metal_roundtrip_inventory_is_nonempty() -> None:
 def test_sheet_metal_step_roundtrip_preserves_geometry(
     model_path: Path,
     tmp_path: Path,
-    assert_roundtrip_preserved: Callable[
-        [str, ShapeProperties, ShapeProperties], None
-    ],
+    assert_roundtrip_preserved: Callable[[str, ShapeProperties, ShapeProperties], None],
 ) -> None:
     """An authored folded sheet body survives STEP export→import with its mass
     properties (tol) and topology (exact) intact, as a single connected solid."""
@@ -69,9 +67,9 @@ def test_sheet_metal_step_roundtrip_preserves_geometry(
         model_path.read_text(encoding="utf-8")
     )
     evaluation = evaluate_tree(request)
-    assert all(
-        f.status == "ok" for f in evaluation.result.features
-    ), [f.status for f in evaluation.result.features]
+    assert all(f.status == "ok" for f in evaluation.result.features), [
+        f.status for f in evaluation.result.features
+    ]
     assert evaluation.body is not None, f"{name}: no body evaluated"
     original_shape = evaluation.body
     original = measure_shape(original_shape)

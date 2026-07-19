@@ -81,9 +81,8 @@ def _adjacent_faces(body: BodyShape, edge: Edge) -> list[Face]:
                 sig.curve == target.curve
                 and _close(sig.end_a, target.end_a)
                 and _close(sig.end_b, target.end_b)
-                and abs(sig.length_mm - target.length_mm) <= 1e-6 * max(
-                    target.length_mm, 1.0
-                )
+                and abs(sig.length_mm - target.length_mm)
+                <= 1e-6 * max(target.length_mm, 1.0)
             ):
                 out.append(face)
                 break
