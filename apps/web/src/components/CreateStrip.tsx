@@ -14,12 +14,15 @@
  * it lights up), matching how Extrude greys out until a sketch is solved.
  */
 import {
+  BaseFlangeIcon,
   ChamferIcon,
   CombineIcon,
   DatumIcon,
   DraftIcon,
+  EdgeFlangeIcon,
   ExtrudeIcon,
   FilletIcon,
+  FlatPatternIcon,
   ImportStepIcon,
   LoftIcon,
   MeasureIcon,
@@ -109,6 +112,26 @@ export interface CreateStripProps {
   /** Taper picked faces for mold release about a neutral plane (D). */
   onDraft?: () => void;
   /**
+   * A solved sketch exists to thicken into a sheet-metal base flange (the same
+   * gate as Extrude — a base flange consumes a sketch profile).
+   */
+  canBaseFlange?: boolean;
+  /** Thicken a sketch profile to gauge — the sheet-metal part's first body. */
+  onNewBaseFlange?: () => void;
+  /**
+   * The part is sheet metal (a base flange exists), so an edge flange can fold
+   * off one of its straight edges, and the flat pattern can be unfolded.
+   */
+  canEdgeFlange?: boolean;
+  /** Fold a leg off a picked straight edge of the sheet body. */
+  onNewEdgeFlange?: () => void;
+  /** The flat pattern can be unfolded (the part is sheet metal). */
+  canFlatPattern?: boolean;
+  /** A flat-pattern unfold is in flight (opening the drawing). */
+  flatteningPattern?: boolean;
+  /** Unfold the sheet body onto a flat-pattern drawing (the model→flatten loop). */
+  onFlatPattern?: () => void;
+  /**
    * Two or more bodies exist to fuse (a `merge: false` add / an import started a
    * second body). Below two bodies the Combine tool disables with its reason.
    */
@@ -164,6 +187,13 @@ export function CreateStrip({
   onPattern,
   onShell,
   onDraft,
+  canBaseFlange = false,
+  onNewBaseFlange,
+  canEdgeFlange = false,
+  onNewEdgeFlange,
+  canFlatPattern = false,
+  flatteningPattern = false,
+  onFlatPattern,
   canCombine = false,
   onCombine,
   canMeasure = false,
@@ -186,6 +216,15 @@ export function CreateStrip({
   const shellReady = canModify && treeReady && onShell !== undefined;
   const draftReady = canModify && treeReady && onDraft !== undefined;
   const combineReady = canCombine && treeReady && onCombine !== undefined;
+  const baseFlangeReady =
+    canBaseFlange && treeReady && onNewBaseFlange !== undefined;
+  const edgeFlangeReady =
+    canEdgeFlange && treeReady && onNewEdgeFlange !== undefined;
+  const flatPatternReady =
+    canFlatPattern &&
+    treeReady &&
+    !flatteningPattern &&
+    onFlatPattern !== undefined;
 
   // An open command scopes the whole band: every tool locks with one honest
   // reason, so no click can discard the open command's picks (Track C P1).
@@ -496,6 +535,54 @@ export function CreateStrip({
             caption={captionFor(combineReady, "Needs two bodies")}
             disabled={locked || !combineReady}
             onClick={onCombine}
+          />
+        </ToolGroup>
+
+        <ToolGroup eyebrow="Sheet metal">
+          <ToolButton
+            icon={<BaseFlangeIcon />}
+            showLabel
+            label="Base flange"
+            data-testid="new-base-flange"
+            aria-label={
+              baseFlangeReady
+                ? "Base flange — thicken a sketch profile to gauge (the sheet's first body)"
+                : "Base flange — solve a sketch first"
+            }
+            caption={captionFor(baseFlangeReady, "Solve a sketch first")}
+            disabled={locked || !baseFlangeReady}
+            onClick={onNewBaseFlange}
+          />
+          <ToolButton
+            icon={<EdgeFlangeIcon />}
+            showLabel
+            label="Edge flange"
+            data-testid="new-edge-flange"
+            aria-label={
+              edgeFlangeReady
+                ? "Edge flange — fold a leg off a straight edge of the sheet"
+                : "Edge flange — add a base flange first"
+            }
+            caption={captionFor(edgeFlangeReady, "Add a base flange first")}
+            disabled={locked || !edgeFlangeReady}
+            onClick={onNewEdgeFlange}
+          />
+          <ToolButton
+            icon={<FlatPatternIcon />}
+            showLabel
+            label="Flat pattern"
+            data-testid="new-flat-pattern"
+            aria-label={
+              canFlatPattern
+                ? "Flat pattern — unfold the sheet body onto a drawing blank"
+                : "Flat pattern — add a base flange first"
+            }
+            caption={captionFor(
+              flatPatternReady,
+              flatteningPattern ? "Unfolding…" : "Add a base flange first",
+            )}
+            disabled={locked || !flatPatternReady}
+            onClick={onFlatPattern}
           />
         </ToolGroup>
 

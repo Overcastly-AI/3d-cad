@@ -424,6 +424,37 @@ export const DraftIcon = (p: IconProps) => (
   </Icon>
 );
 
+// --- Sheet metal features ---------------------------------------------------
+
+/**
+ * Base flange = the sheet-metal part's first body — a flat plate at gauge. A
+ * thin iso slab (top face parallelogram + a visible front/side thickness): the
+ * gauge is the thing this glyph shows that a plain extrude solid does not, so it
+ * reads as "flat sheet at a fixed thickness", the anchor the bends fold off.
+ */
+export const BaseFlangeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 12 L9 8 H21 L15 12 Z" />
+    <path d="M3 12 V15 L15 15 V12" />
+    <path d="M15 15 L21 11 V8" />
+  </Icon>
+);
+
+/**
+ * Edge flange = a leg folded up off a straight edge of the sheet. An L-section
+ * strip of CONSTANT gauge (two parallel outlines a wall-thickness apart) bent
+ * about a radius — the double outline + bend arc say "the sheet itself is
+ * folded", distinct from the fillet's solid rounded corner.
+ */
+export const EdgeFlangeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 14 H13 A3 3 0 0 0 16 11 V4" />
+    <path d="M4 17 H14 A6 6 0 0 0 20 11 V4" />
+    <path d="M16 4 H20" />
+    <path d="M4 14 V17" />
+  </Icon>
+);
+
 /**
  * Pattern = the seed body copied into an array — a 2×2 grid of square cells,
  * the top-left one punched to mark the seed (instance 0). Reads as "repeat",

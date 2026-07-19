@@ -91,6 +91,14 @@ export type BooleanFeature = components["schemas"]["BooleanFeature"];
 /** Union/subtract/intersect between two independently-built bodies (§MB-1). */
 export type BooleanParams = components["schemas"]["BooleanParamsV1"];
 export type BooleanOperation = BooleanParams["operation"];
+export type SheetMetalBaseFlangeFeature =
+  components["schemas"]["SheetMetalBaseFlangeFeature"];
+export type SheetMetalBaseFlangeParams =
+  components["schemas"]["SheetMetalBaseFlangeParamsV1"];
+export type SheetMetalEdgeFlangeFeature =
+  components["schemas"]["SheetMetalEdgeFlangeFeature"];
+export type SheetMetalEdgeFlangeParams =
+  components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =
@@ -633,6 +641,78 @@ export function draftFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: draftFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by base-flange create/update. */
+function baseFlangeFeatureEnvelope(
+  params: SheetMetalBaseFlangeParams,
+): SheetMetalBaseFlangeFeature {
+  return { type: "sheet_metal_base_flange", version: 1, params };
+}
+
+/**
+ * The create payload for a base-flange feature: the sheet-metal part's first
+ * body — an EARLIER sketch profile thickened to gauge (sheet-metal.md §4.1, the
+ * extrude sibling, but carrying the part's gauge / K / default bend radius).
+ * Pure — unit-tested against the generated types.
+ */
+export function baseFlangeFeatureCreate(
+  name: string,
+  params: SheetMetalBaseFlangeParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: baseFlangeFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing base flange (no rename). */
+export function baseFlangeFeatureUpdate(
+  params: SheetMetalBaseFlangeParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: baseFlangeFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by edge-flange create/update. */
+function edgeFlangeFeatureEnvelope(
+  params: SheetMetalEdgeFlangeParams,
+): SheetMetalEdgeFlangeFeature {
+  return { type: "sheet_metal_edge_flange", version: 1, params };
+}
+
+/**
+ * The create payload for an edge-flange feature: a leg folded off a straight
+ * edge of the sheet body (sheet-metal.md §4.2, the fillet sibling — a named
+ * `EdgeSubshapeRef` against the current sheet body, inheriting the part's gauge
+ * defaults). Pure — unit-tested against the generated types.
+ */
+export function edgeFlangeFeatureCreate(
+  name: string,
+  params: SheetMetalEdgeFlangeParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: edgeFlangeFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing edge flange (no rename). */
+export function edgeFlangeFeatureUpdate(
+  params: SheetMetalEdgeFlangeParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: edgeFlangeFeatureEnvelope(params),
   };
 }
 

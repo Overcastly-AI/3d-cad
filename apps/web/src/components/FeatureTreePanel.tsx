@@ -50,6 +50,21 @@ const STATUS_LABEL: Record<string, string> = {
   skipped: "SKIP",
 };
 
+/**
+ * Friendlier type badges for the few feature types whose wire name is
+ * snake_case. Everything else (extrude / fillet / …) is already a plain word,
+ * so it falls through to the raw type.
+ */
+const FEATURE_TYPE_LABEL: Record<string, string> = {
+  sheet_metal_base_flange: "base flange",
+  sheet_metal_edge_flange: "edge flange",
+};
+
+/** The badge text for a feature type — a friendly label, else the raw type. */
+function featureTypeLabel(type: string): string {
+  return FEATURE_TYPE_LABEL[type] ?? type;
+}
+
 export function FeatureTreePanel({
   tree,
   treeError,
@@ -173,7 +188,7 @@ export function FeatureTreePanel({
                           {feature.name}
                         </span>
                         <span className="shrink-0 font-body text-xs text-gauge">
-                          {feature.feature.type}
+                          {featureTypeLabel(feature.feature.type)}
                         </span>
                       </button>
                       <span

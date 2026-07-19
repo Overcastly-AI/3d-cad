@@ -14,6 +14,9 @@
  *   - a `cut` (extrude/revolve/…) modifies the active body — no new body.
  *   - a `boolean` union consumes the TOOL body and keeps the TARGET's identity
  *     slot (design §Decisions-3), so the set shrinks by one.
+ *   - a `sheet_metal_base_flange` starts the sheet body (§4.1), honouring
+ *     `merge` like an ADD; a `sheet_metal_edge_flange` folds onto the active
+ *     body (§4.2) — no new body.
  *   - every other feature (fillet/chamfer/shell/draft/pattern/datum/sketch)
  *     modifies the active body or is non-body — the set is unchanged.
  *
@@ -54,6 +57,16 @@ export function computeBodies(
     if (type === "import") {
       bodies.push({ baseFeatureId: f.id, name: f.name, featureType: type });
       activeId = f.id;
+    } else if (type === "sheet_metal_base_flange") {
+      // A base flange always CREATES material (the sheet's first body, §4.1) —
+      // it has no `operation`, only `merge` (default true): a merged base flange
+      // fuses into the active body, else it starts a new one.
+      const params = f.feature.params as { merge?: boolean };
+      const merge = params.merge ?? true;
+      if (!merge || activeId === null) {
+        bodies.push({ baseFeatureId: f.id, name: f.name, featureType: type });
+        activeId = f.id;
+      }
     } else if (BODY_CREATING.has(type)) {
       const params = f.feature.params as {
         operation: "add" | "cut";

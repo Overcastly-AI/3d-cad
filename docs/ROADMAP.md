@@ -27,8 +27,15 @@ assumptions in the original founder-stated order — authoring UI → corner
 relief → hems → jogs → miters → tabs → gauge tables → DXF/nesting →
 convert-to-sheet-metal → forming tools; full rationale in
 `sheet-metal-parity.md` "Parity roadmap"):
-1. Authoring UI 🔨, 2. Corner relief 🔨 (both no correction — table-stakes
-first, highest-leverage kernel item second).
+1. Authoring UI ✅ **SHIPPED 2026-07-19** (frontend-builder; reconciled from
+   the agent's stranded-but-complete work after a container restart —
+   typecheck + 696 web tests + design tests + lint green, founder screenshots
+   captured). Base Flange + Edge Flange toolbar actions in a dedicated SHEET
+   METAL create group; a user clicks to model a bracket → the flat pattern is
+   reachable. Independent code-review still owed (dead-agent work).
+   2. Corner relief 🔨 (highest-leverage kernel item; the agent's work was
+   BROKEN mid-edit by the restart — an undefined `_Rect` in unfold.py — being
+   relaunched to finish).
 3. **Hems** — sequence **closed hem first** (near-trivial edge-flange
    specialization: angle=π, near-zero radius) as its own fast slice, THEN
    open/teardrop/rolled (each a genuinely new curved cross-section, not one

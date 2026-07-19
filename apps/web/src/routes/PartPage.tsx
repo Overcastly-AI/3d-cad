@@ -63,6 +63,12 @@ import {
   type ShellParams,
   shellFeatureCreate,
   shellFeatureUpdate,
+  type SheetMetalBaseFlangeParams,
+  baseFlangeFeatureCreate,
+  baseFlangeFeatureUpdate,
+  type SheetMetalEdgeFlangeParams,
+  edgeFlangeFeatureCreate,
+  edgeFlangeFeatureUpdate,
   type SweepParams,
   sweepFeatureCreate,
   sweepFeatureUpdate,
@@ -84,6 +90,8 @@ import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
 import { DraftEditor } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
+import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
+import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
 import { LoftEditor } from "../components/LoftEditor";
@@ -134,6 +142,17 @@ import {
   type LoftForm,
 } from "../features/loft";
 import { computeBodies } from "../features/bodies";
+import {
+  type BaseFlangeForm,
+  defaultBaseFlangeForm,
+  defaultEdgeFlangeForm,
+  type EdgeFlangeForm,
+  formFromBaseFlangeParams,
+  formFromEdgeFlangeParams,
+  isSheetMetalPart,
+  pickedFromEdgeFlangeParams,
+  sheetMetalDefaults,
+} from "../features/sheetMetal";
 import { type CombineForm, defaultCombineForm } from "../features/boolean";
 import {
   type ChamferForm,
@@ -189,6 +208,14 @@ import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
 import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
 import { partRoute } from "../router";
+import { useNavigate } from "@tanstack/react-router";
+import {
+  createDrawing,
+  createSheet,
+  createView,
+  DrawingNameTakenError,
+} from "../api/drawings";
+import { sheetDimensions } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
 import { Viewport } from "../viewport/Viewport";
 
@@ -267,6 +294,19 @@ type OpenEditor =
       featureId?: string;
     }
   | {
+      kind: "baseFlange";
+      mode: "create" | "edit";
+      initial: BaseFlangeForm;
+      featureId?: string;
+    }
+  | {
+      kind: "edgeFlange";
+      mode: "create" | "edit";
+      initial: EdgeFlangeForm;
+      initialPicked: EdgeSignature[];
+      featureId?: string;
+    }
+  | {
       kind: "combine";
       mode: "create";
       initial: CombineForm;
@@ -285,6 +325,8 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   shell: "Shell",
   draft: "Draft",
   datum: "Datum plane",
+  baseFlange: "Base flange",
+  edgeFlange: "Edge flange",
   combine: "Combine",
 };
 
@@ -311,6 +353,7 @@ export function PartPage() {
   const begin = useSketchStore((state) => state.begin);
   const setTool = useSketchStore((state) => state.setTool);
   const toggleSnap = useSketchStore((state) => state.toggleSnap);
+  const navigate = useNavigate();
 
   const part = useQuery({
     queryKey: ["part", partId],
@@ -1015,6 +1058,12 @@ export function PartPage() {
   // Bodies panel and the Combine tool's target/tool pickers. One body is the
   // common case; a `merge: false` add (or an import) starts a second.
   const bodies = useMemo(() => computeBodies(features), [features]);
+  // Sheet-metal state: the part is sheet metal once it has a base flange, and
+  // that base flange's gauge / bend-radius / K become the defaults every edge
+  // flange inherits (sheet-metal.md §4.2). Edge flange + Flat pattern light up
+  // from `isSheetMetal`; the edge-flange editor shows `smDefaults`.
+  const smDefaults = useMemo(() => sheetMetalDefaults(features), [features]);
+  const isSheetMetal = useMemo(() => isSheetMetalPart(features), [features]);
   // Datum features already in the tree, offered as reusable sketch planes in
   // the plane picker (a standalone datum seats many sketches — DRY).
   const datumPlaneOptions = useMemo(
@@ -1097,6 +1146,11 @@ export function PartPage() {
   // envelope's own message on rejection, surfaced in the viewport HUD.
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  // Flat pattern (a discrete action, no editor panel): unfolding the sheet body
+  // creates a drawing + a lone flat-pattern view referencing this part, then
+  // navigates to it. Busy + the server envelope's own message on rejection.
+  const [flatPatternBusy, setFlatPatternBusy] = useState(false);
+  const [flatPatternError, setFlatPatternError] = useState<string | null>(null);
   // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
   const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
   const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
@@ -1481,6 +1535,96 @@ export function PartPage() {
     setEditor({ kind: "datum", mode: "create", initial: defaultDatumForm() });
   }, []);
 
+  // A base flange thickens a sketch profile to gauge — the sheet-metal part's
+  // first body (sheet-metal.md §4.1). Like extrude it needs a solved sketch to
+  // consume, so it mirrors openCreateExtrude's profile guard.
+  const openCreateBaseFlange = useCallback(() => {
+    const profileId = defaultProfileId(tree.data?.features ?? []);
+    if (profileId === "") return;
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "baseFlange",
+      mode: "create",
+      initial: defaultBaseFlangeForm(profileId),
+    });
+  }, [tree.data]);
+
+  // An edge flange folds a leg off ONE picked straight edge of the sheet body
+  // (sheet-metal.md §4.2). It picks like fillet/chamfer (single-select), so it
+  // only needs a sheet body to exist.
+  const openCreateEdgeFlange = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "edgeFlange",
+      mode: "create",
+      initial: defaultEdgeFlangeForm(),
+      initialPicked: [],
+    });
+  }, []);
+
+  // Flat pattern (sheet-metal.md §7): unfold the sheet body onto a lone drawing
+  // sheet, so the model → flatten loop is click-through from the part. It
+  // creates a drawing named after the part (a numeric suffix dodges a name
+  // clash), a sheet, and a single flat_pattern view, then opens the drawing —
+  // where the reused flat-pattern renderer draws the blank + bend table. A
+  // non-sheet-metal part composes an honest `flat_pattern_not_sheet_metal` view
+  // there, never a crash.
+  const openFlatPattern = useCallback(() => {
+    if (flatPatternBusy) return;
+    setFlatPatternBusy(true);
+    setFlatPatternError(null);
+    void (async () => {
+      try {
+        const baseName = `${part.data?.name ?? "Part"} — flat pattern`;
+        let drawing = null;
+        for (let attempt = 0; attempt < 6 && drawing === null; attempt += 1) {
+          const name = attempt === 0 ? baseName : `${baseName} ${attempt + 1}`;
+          try {
+            drawing = await createDrawing(name);
+          } catch (error) {
+            if (error instanceof DrawingNameTakenError) continue;
+            throw error;
+          }
+        }
+        if (drawing === null) {
+          throw new Error("A drawing for this flat pattern already exists.");
+        }
+        const sheet = await createSheet(drawing.id, {
+          name: "Sheet 1",
+          size: "A4",
+          orientation: "landscape",
+          projection: "third_angle",
+          expected_version: drawing.doc_version,
+        });
+        const dims = sheetDimensions("A4", "landscape");
+        await createView(drawing.id, sheet.sheet.id, {
+          projection: "flat_pattern",
+          ref_document_id: partId,
+          ref_document_kind: "part",
+          scale: { numerator: 1, denominator: 1 },
+          position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+          expected_version: sheet.doc_version,
+        });
+        await navigate({
+          to: "/drawings/$drawingId",
+          params: { drawingId: drawing.id },
+        });
+      } catch (error) {
+        setFlatPatternError(
+          error instanceof Error
+            ? error.message
+            : "The flat pattern could not be opened.",
+        );
+      } finally {
+        setFlatPatternBusy(false);
+      }
+    })();
+  }, [flatPatternBusy, part.data, partId, navigate]);
+
   // Combine needs ≥2 bodies to fuse (a boolean union names two of them). It
   // seeds the first two bodies in tree order; the user retargets either.
   const openCreateCombine = useCallback(() => {
@@ -1571,6 +1715,21 @@ export function PartPage() {
             feature.feature.params,
           ),
         });
+      } else if (feature.feature.type === "sheet_metal_base_flange") {
+        setEditor({
+          kind: "baseFlange",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromBaseFlangeParams(feature.feature.params, lengthUnit),
+        });
+      } else if (feature.feature.type === "sheet_metal_edge_flange") {
+        setEditor({
+          kind: "edgeFlange",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromEdgeFlangeParams(feature.feature.params, lengthUnit),
+          initialPicked: pickedFromEdgeFlangeParams(feature.feature.params),
+        });
       } else if (
         feature.feature.type === "datum" &&
         feature.feature.params.kind !== "on_face"
@@ -1606,6 +1765,10 @@ export function PartPage() {
       (editor.kind === "fillet" || editor.kind === "chamfer")
     ) {
       store.open(editor.initialPicked, editor.initial.mode === "pick");
+    } else if (editor !== null && editor.kind === "edgeFlange") {
+      // An edge flange always picks (a lone straight edge to fold off) — single-
+      // select: a click replaces the pick rather than accumulating a set.
+      store.open(editor.initialPicked, true, true);
     } else {
       store.close();
     }
@@ -1846,6 +2009,44 @@ export function PartPage() {
         current.mode === "create",
         current.featureId,
         "The datum plane could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitBaseFlange = useCallback(
+    (params: SheetMetalBaseFlangeParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "baseFlange") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sheet_metal_base_flange")
+          .length + 1;
+      runFeatureSave(
+        (version) =>
+          baseFlangeFeatureCreate(`Base flange${nextIndex}`, params, version),
+        (version) => baseFlangeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The base flange could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitEdgeFlange = useCallback(
+    (params: SheetMetalEdgeFlangeParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "edgeFlange") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sheet_metal_edge_flange")
+          .length + 1;
+      runFeatureSave(
+        (version) =>
+          edgeFlangeFeatureCreate(`Edge flange${nextIndex}`, params, version),
+        (version) => edgeFlangeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The edge flange could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -2334,6 +2535,13 @@ export function PartPage() {
               onPattern={openCreatePattern}
               onShell={openCreateShell}
               onDraft={openCreateDraft}
+              canBaseFlange={hasSolvedSketch}
+              onNewBaseFlange={openCreateBaseFlange}
+              canEdgeFlange={isSheetMetal}
+              onNewEdgeFlange={openCreateEdgeFlange}
+              canFlatPattern={isSheetMetal}
+              flatteningPattern={flatPatternBusy}
+              onFlatPattern={openFlatPattern}
               canCombine={bodies.length >= 2}
               onCombine={openCreateCombine}
               canMeasure={hasBody}
@@ -2494,6 +2702,27 @@ export function PartPage() {
                       saving={editorSaving}
                       error={editorError}
                     />
+                  ) : editor.kind === "baseFlange" ? (
+                    <BaseFlangeEditor
+                      mode={editor.mode}
+                      profiles={sketchProfiles}
+                      initial={editor.initial}
+                      onSubmit={submitBaseFlange}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "edgeFlange" ? (
+                    <EdgeFlangeEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      bodyFeatureId={bodyFeatureId}
+                      defaults={smDefaults}
+                      onSubmit={submitEdgeFlange}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
                   ) : editor.kind === "datum" ? (
                     <DatumEditor
                       mode={editor.mode}
@@ -2544,6 +2773,41 @@ export function PartPage() {
                       type="button"
                       onClick={() => setImportError(null)}
                       data-testid="import-step-dismiss"
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
+                {flatPatternBusy ? (
+                  <div
+                    role="status"
+                    data-testid="flat-pattern-status"
+                    className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                      Unfolding flat pattern
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      Laying the blank onto a drawing sheet.
+                    </span>
+                  </div>
+                ) : flatPatternError !== null ? (
+                  <div
+                    role="alert"
+                    data-testid="flat-pattern-error"
+                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      Flat pattern failed
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {flatPatternError}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFlatPatternError(null)}
+                      data-testid="flat-pattern-dismiss"
                       className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
                     >
                       Dismiss
