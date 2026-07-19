@@ -163,21 +163,22 @@ def _open_fd_count() -> int:
     return len(os.listdir("/proc/self/fd"))
 
 
-def test_import_parse_timeout_fires_and_is_not_a_hang() -> None:
-    """A parse that exceeds the wall-clock bound raises ImportParseTimeoutError.
+def test_import_parse_wall_backstop_fires_and_is_not_a_hang() -> None:
+    """A wedged parse trips the wall-clock backstop → ImportParseTimeoutError.
 
     Technique (documented): the untrusted parse runs in a spawned OCP-only
-    subprocess that costs ~0.9 s of cold OCCT import before it can even read, so
-    a sub-100 ms bound ALWAYS trips the timeout deterministically (OCP import is
+    subprocess that costs ~0.9 s of cold OCCT import before it can even read, so a
+    sub-100 ms WALL-clock backstop ALWAYS trips deterministically (OCP import is
     never that fast) — forcing a real SIGKILL of a subprocess mid-work, the exact
-    adversarial-parse condition, without needing a synthetic pathological
-    part-21. The call must return promptly (near the bound + reap), never hang.
+    hang-guard condition, without needing a synthetic pathological part-21. The
+    CPU ceiling is left generous so this exercises the wall backstop specifically.
+    The call must return promptly (near the bound + reap), never hang.
     """
     import time
 
     start = time.monotonic()
     with pytest.raises(ImportParseTimeoutError):
-        import_step_solid(_box_step_text(), timeout_s=0.05)
+        import_step_solid(_box_step_text(), wall_timeout_s=0.05, cpu_timeout_s=30.0)
     elapsed = time.monotonic() - start
     # Killed near the bound + reap overhead — nowhere near a full parse/hang.
     assert elapsed < 5.0
@@ -195,13 +196,90 @@ def test_import_parse_timeout_reaps_subprocess_no_fd_leak() -> None:
     """
     # Warm-up so first-call import machinery doesn't skew the baseline count.
     with pytest.raises(ImportParseTimeoutError):
-        import_step_solid(_box_step_text(), timeout_s=0.05)
+        import_step_solid(_box_step_text(), wall_timeout_s=0.05, cpu_timeout_s=30.0)
     before = _open_fd_count()
     for _ in range(5):
         with pytest.raises(ImportParseTimeoutError):
-            import_step_solid(_box_step_text(), timeout_s=0.05)
+            import_step_solid(_box_step_text(), wall_timeout_s=0.05, cpu_timeout_s=30.0)
     after = _open_fd_count()
     assert after <= before
+
+
+def test_cpu_limit_kills_a_real_cpu_burn_regardless_of_wall_clock() -> None:
+    """The CPU-time ceiling (RLIMIT_CPU) genuinely kills a CPU-burning process.
+
+    This proves the PRIMARY DoS bound actually fires — the worker's production
+    ``_apply_cpu_limit`` caps CPU seconds, so a process that busy-loops past the
+    budget is signalled dead (``SIGXCPU`` at the soft limit, or ``SIGKILL`` at the
+    hard limit) — with a large wall-clock allowance, showing the kill is driven by
+    CPU consumption, NOT wall-clock. This is the contention-invariant half of the
+    bound: a legit ~1 s-CPU parse never reaches a 1 s budget's kill on a starved
+    machine, but a genuine CPU burn always does.
+    """
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    prog = (
+        "from geometry.kernel._step_parse_worker import _apply_cpu_limit\n"
+        "_apply_cpu_limit(1)\n"
+        "while True:\n    pass\n"
+    )
+    start = time.monotonic()
+    # wall-clock timeout is a huge safety net (15 s) - if the CPU bound works the
+    # child dies in ~1-2 s of CPU, far sooner, via a signal (negative returncode).
+    completed = subprocess.run([sys.executable, "-c", prog], timeout=15)
+    elapsed = time.monotonic() - start
+    assert completed.returncode in (-signal.SIGXCPU, -signal.SIGKILL)
+    # Killed by the 1 s CPU budget, nowhere near the 15 s wall safety net.
+    assert elapsed < 10.0
+
+
+def test_cpu_limit_signal_maps_to_import_parse_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SIGXCPU-killed worker (RLIMIT_CPU) maps to ImportParseTimeoutError.
+
+    Proves the parent's returncode taxonomy: a process killed by the CPU-time
+    ceiling reports ``returncode == -SIGXCPU`` (or ``-SIGKILL`` at the hard
+    limit), which the reader must classify as a TIMEOUT (``import_parse_timeout``),
+    not a parse FAILURE. Simulated by stubbing ``subprocess.run`` so the assertion
+    is deterministic and fast — no dependence on a real CPU-heavy parse.
+    """
+    import signal
+    import subprocess
+
+    def fake_run(
+        *_args: object, **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(args=[], returncode=-signal.SIGXCPU)
+
+    monkeypatch.setattr("geometry.kernel.imports.subprocess.run", fake_run)
+    with pytest.raises(ImportParseTimeoutError):
+        import_step_solid(_box_step_text())
+
+
+def test_worker_crash_maps_to_parse_failed_not_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-CPU-limit crash (e.g. SIGSEGV) is a parse FAILURE, not a timeout.
+
+    Guards the taxonomy boundary the other way: only the CPU-limit signals map to
+    a timeout; any other non-zero exit (a segfault, the worker's
+    ``EXIT_PARSE_FAILED``) is ``import_parse_failed``.
+    """
+    import signal
+    import subprocess
+
+    def fake_run(
+        *_args: object, **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(args=[], returncode=-signal.SIGSEGV)
+
+    monkeypatch.setattr("geometry.kernel.imports.subprocess.run", fake_run)
+    with pytest.raises(ImportParseError):
+        import_step_solid(_box_step_text())
 
 
 def test_valid_step_still_imports_through_the_subprocess_bound() -> None:
@@ -211,9 +289,7 @@ def test_valid_step_still_imports_through_the_subprocess_bound() -> None:
     (the golden asserts 0.0 deviation end-to-end; this pins it at the kernel).
     """
     original = Solid.make_box(10, 20, 30)
-    imported = import_step_solid(
-        export_step_bytes(original).decode("utf-8"), timeout_s=30.0
-    )
+    imported = import_step_solid(export_step_bytes(original).decode("utf-8"))
     got = measure_shape(imported)
     want = measure_shape(original)
     assert got.volume == pytest.approx(want.volume, abs=1e-7)
@@ -229,9 +305,12 @@ def test_import_parse_timeout_is_per_feature_code(
 ) -> None:
     """A configured tiny bound surfaces as ``import_parse_timeout`` (200, not 500).
 
-    Proves the full config wiring: ``STEP_IMPORT_TIMEOUT_SECONDS`` env →
+    Proves the full config wiring: ``STEP_IMPORT_WALL_TIMEOUT_SECONDS`` env →
     ``GeometrySettings`` → the evaluate handler → the kernel subprocess bound →
-    a per-feature error inside a 200 under the strict-prefix rule.
+    a per-feature error inside a 200 under the strict-prefix rule. The WALL-clock
+    backstop is driven here (not the CPU ceiling) because a sub-100 ms wall bound
+    trips deterministically on the ~0.9 s OCP cold-import, giving a fast, stable
+    assertion of the config→per-feature-code path.
 
     The step cache is reset first to force a genuine MISS: an earlier test in
     this process may have cached the identical box STEP, and a cache HIT
@@ -243,7 +322,7 @@ def test_import_parse_timeout_is_per_feature_code(
     from geometry.step_cache import reset_step_cache
 
     reset_step_cache()
-    monkeypatch.setenv("STEP_IMPORT_TIMEOUT_SECONDS", "0.05")
+    monkeypatch.setenv("STEP_IMPORT_WALL_TIMEOUT_SECONDS", "0.05")
     payload = _request(
         [{"id": str(IMPORT_ID), "feature": _import_feature(_box_step_text())}]
     )

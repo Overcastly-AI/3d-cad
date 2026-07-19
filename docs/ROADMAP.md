@@ -156,8 +156,10 @@ item:
       disjoint union, multi-solid STEP import — geometry-QA'd PASS twice;
       VISION Part modeling row Notes corrected same pass, score unchanged).
 - ✅ STEP import v1 — kernel (`4964fab`) → gateway upload → UI file-picker,
-      with a P1 security wall-clock bound on the untrusted parse.
-      **Interop row flips ❌→➖.**
+      with a P1 security bound on the untrusted parse. **Interop row flips
+      ❌→➖.** Parse bound hardened 2026-07-19: wall-clock → contention-invariant
+      `RLIMIT_CPU` CPU-time ceiling (default 20 s) + wall-clock liveness backstop
+      (default 60 s), fixing the CPU-contention false-fire flake.
 - ✅ Measurement (distance/angle), design system (grouped-icon toolbar +
       flyouts), fillet/chamfer authoring UI.
 - ✅ Mesh-store single-worker guard (engineering audit F1) — fail-loud v1

@@ -24,8 +24,8 @@ OCCT parse runs in the timeout-bounded, SIGKILL-able, subprocess-isolated
 worker. The 16 MiB size cap is enforced at request validation (a 422) BEFORE a
 feature is dispatched, so it is never bypassed either. Only a body that ALREADY
 parsed cleanly once (one or more solids, within the wall-clock bound) is cached,
-so a hit is reached only for input that has already cleared every bound — a hit
-never short-circuits the timeout or the size cap.
+so a hit is reached only for input that has already cleared every bound (CPU-time
++ wall-clock parse bounds and the size cap) — a hit never short-circuits them.
 
 **What is stored — BREP bytes, not a live shape.** The cache holds OCCT's native
 lossless BREP serialization of the parsed solid, re-read into a FRESH shape on
@@ -117,7 +117,9 @@ def reset_step_cache() -> None:
     _cache = StepParseCache(STEP_CACHE_CAPACITY)
 
 
-def import_step_solid_cached(step_text: str, *, timeout_s: float) -> BodyShape:
+def import_step_solid_cached(
+    step_text: str, *, cpu_timeout_s: float, wall_timeout_s: float
+) -> BodyShape:
     """Parse *step_text* into a :data:`BodyShape`, caching the result.
 
     Returns a bare :class:`~build123d.Solid` for a single-solid file or a
@@ -141,6 +143,8 @@ def import_step_solid_cached(step_text: str, *, timeout_s: float) -> BodyShape:
     cached = _cache.get(key)
     if cached is not None:
         return solid_from_brep_bytes(cached)
-    body = import_step_solid(step_text, timeout_s=timeout_s)
+    body = import_step_solid(
+        step_text, cpu_timeout_s=cpu_timeout_s, wall_timeout_s=wall_timeout_s
+    )
     _cache.put(key, solid_to_brep_bytes(body))
     return body

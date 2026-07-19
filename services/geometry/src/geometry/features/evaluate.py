@@ -186,18 +186,24 @@ from geometry.step_cache import import_step_solid_cached
 _SOLVER: SketchSolver = PlanegcsSketchSolver()
 
 
-def _step_import_timeout_s() -> float:
-    """The configured hard wall-clock bound for the untrusted STEP parse (§6).
+def _step_import_bounds() -> tuple[float, float]:
+    """The configured (CPU-time, wall-clock) bounds for the untrusted parse (§6).
 
-    Resolved from ``GeometrySettings.step_import_timeout_seconds`` (the py-kit
-    config knob) rather than hardcoded in the kernel hot path. Imported lazily
-    to avoid a cycle (``geometry.main`` imports this module through the API) —
-    the worker-module precedent. Only consulted when an ``import`` feature is
-    evaluated, so the per-call settings read is negligible.
+    Resolved from ``GeometrySettings`` (the py-kit config knobs
+    ``step_import_timeout_seconds`` — the CPU-time DoS ceiling — and
+    ``step_import_wall_timeout_seconds`` — the wall-clock liveness backstop)
+    rather than hardcoded in the kernel hot path. Imported lazily to avoid a cycle
+    (``geometry.main`` imports this module through the API) — the worker-module
+    precedent. Only consulted when an ``import`` feature is evaluated, so the
+    per-call settings read is negligible.
     """
     from geometry.main import GeometrySettings
 
-    return GeometrySettings().step_import_timeout_seconds
+    settings = GeometrySettings()
+    return (
+        settings.step_import_timeout_seconds,
+        settings.step_import_wall_timeout_seconds,
+    )
 
 
 @dataclass
@@ -1465,11 +1471,14 @@ def _evaluate_import(
     editing a part that starts from an imported body pays one parse per distinct
     upload, not one per tree evaluation. A cache MISS runs the UNCHANGED bounded
     parse — the untrusted OCCT read still runs in a killable subprocess bounded
-    by the configured ``step_import_timeout_seconds`` (design §6, BACKLOG P1) —
-    and only a cleanly-parsed body is cached, so a hit never bypasses that bound
-    or the upstream 16 MiB size cap. Kernel failures surface as per-feature
-    errors pinned to this feature — ``import_parse_timeout`` (the parse exceeded
-    the wall-clock bound and was killed), ``import_parse_failed`` (unparseable
+    by the configured CPU-time ceiling (``step_import_timeout_seconds``, the
+    contention-invariant primary DoS bound) plus a wall-clock liveness backstop
+    (``step_import_wall_timeout_seconds``) — design §6, BACKLOG P1 — and only a
+    cleanly-parsed body is cached, so a hit never bypasses those bounds or the
+    upstream 16 MiB size cap. Kernel failures surface as per-feature errors pinned
+    to this feature — ``import_parse_timeout`` (the parse exceeded its CPU-time
+    ceiling or the wall-clock backstop and was killed), ``import_parse_failed``
+    (unparseable
     bytes) or ``import_no_solid`` (ZERO solids — surfaces/shells/wireframe only;
     the message carries the shape stats). A file with ONE solid becomes a bare
     Solid body and a file with TWO OR MORE becomes ONE lump-sorted Compound body
@@ -1482,7 +1491,10 @@ def _evaluate_import(
     params = feature.params
 
     try:
-        body = import_step_solid_cached(params.data, timeout_s=_step_import_timeout_s())
+        cpu_timeout_s, wall_timeout_s = _step_import_bounds()
+        body = import_step_solid_cached(
+            params.data, cpu_timeout_s=cpu_timeout_s, wall_timeout_s=wall_timeout_s
+        )
     except ImportParseTimeoutError as exc:
         return FeatureError(code="import_parse_timeout", message=str(exc))
     except ImportParseError as exc:

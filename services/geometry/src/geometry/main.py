@@ -46,15 +46,24 @@ class GeometrySettings(BaseServiceSettings):
     s3_secret_access_key: str | None = None
     s3_region: str = "us-east-1"
 
-    #: Hard wall-clock bound (seconds) on the untrusted OCCT STEP parse, which
-    #: runs in a killable subprocess (docs/design/step-import.md §6, BACKLOG P1).
-    #: A parse exceeding this is SIGKILLed and surfaces as ``import_parse_timeout``
-    #: so a degenerate/adversarial part-21 cannot pin a worker. Env:
-    #: ``STEP_IMPORT_TIMEOUT_SECONDS``. NOTE: the bound spans the whole child
-    #: lifetime, including the ~0.9s OCP cold-import, so the effective parse
-    #: budget is roughly this minus ~1s — do not set it below ~1s or every import
-    #: false-times-out. Default 5.0s leaves ~4s of real parse headroom.
-    step_import_timeout_seconds: float = 5.0
+    #: Hard **CPU-time** ceiling (seconds) on the untrusted OCCT STEP parse — the
+    #: PRIMARY DoS bound, enforced by ``RLIMIT_CPU`` inside the killable worker
+    #: (docs/design/step-import.md §6, BACKLOG P1). A parse exceeding this is
+    #: killed and surfaces as ``import_parse_timeout`` so a degenerate/adversarial
+    #: part-21 cannot pin a worker. Env: ``STEP_IMPORT_TIMEOUT_SECONDS``. Being a
+    #: CPU-time bound (not wall-clock) it is INVARIANT to machine load, so it does
+    #: not false-fire on a slow-but-legit import under CI/contention — the flake
+    #: the old 5 s wall-clock bound caused (2026-07-19). The bound spans the whole
+    #: child, including the ~0.9 s OCP cold-import; a legit parse burns ~1 s of
+    #: CPU, so the 20 s default is ~20x headroom.
+    step_import_timeout_seconds: float = 20.0
+
+    #: **Wall-clock** liveness backstop (seconds) on the parse subprocess — kills a
+    #: child that is *wedged* (blocked, not CPU-burning), which ``RLIMIT_CPU``
+    #: cannot catch. NOT the DoS latency control (that is the CPU ceiling above);
+    #: sized so a legit ~1 s parse never trips it even under heavy contention. Env:
+    #: ``STEP_IMPORT_WALL_TIMEOUT_SECONDS``. Default 60.0s.
+    step_import_wall_timeout_seconds: float = 60.0
 
 
 def build_app(settings: GeometrySettings | None = None) -> FastAPI:

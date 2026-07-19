@@ -26,11 +26,14 @@ duplication.
   (Phase 3, unstarted), Extensibility/scripting + MCP (Phase 5, unstarted).
 - **Correction this pass:** VISION's Interop row Notes call "the untrusted-
   parse wall-clock/DoS bound" a tracked P1 fast-follow — **stale**. The hard
-  SIGKILLed-subprocess bound (`DEFAULT_STEP_IMPORT_TIMEOUT_S`, `483d5ae`,
-  2026-07-13) already closed that P1 six days before the current VISION pass;
-  flagged for the vision-steward to correct next re-score. The one real
-  remaining tail is CI/production flakiness under CPU contention, not a
-  security gap — filed in Ready below.
+  SIGKILLed-subprocess bound (`483d5ae`, 2026-07-13) already closed that P1 six
+  days before the current VISION pass; flagged for the vision-steward to correct
+  next re-score. The one remaining tail — CI/production flakiness under CPU
+  contention — is now **closed too** (2026-07-19): the wall-clock bound was
+  replaced with a contention-invariant `RLIMIT_CPU` ceiling + a wall-clock
+  liveness backstop (see Done archive). The Interop-row residual note (item 5,
+  "the untrusted-parse wall-clock/DoS bound is a tracked P1 fast-follow") is now
+  wholly stale — left for the vision-steward to re-score.
 - **`docs/COMPETITIVE.md`** still mostly dates from the 2026-07-12 first pass
   (only Sheet metal 07-17 + AEC/BIM scoping 07-19 added since) — stale
   against Assemblies/Drawings/Multi-body; flagged for the vision-steward to
@@ -54,19 +57,6 @@ scorecard impact → core capability → polish).
       export of an unchanged drawing returns byte-identical artifact bytes
       from storage; `S3_URL`-unset dev path still works (in-memory fallback,
       matching the mesh-store convention). [src: drawing-export.md §8.3]
-- [ ] (P2, S) STEP import — harden the parse-timeout bound against
-      CPU-contention flakiness. The P1 DoS bound itself is DONE (`483d5ae`,
-      2026-07-13 — a killable SIGKILLed subprocess enforces
-      `DEFAULT_STEP_IMPORT_TIMEOUT_S` = 5s; VISION's residual calling this "a
-      tracked P1 fast-follow" is stale, see Scorecard gaps above). The
-      remaining real defect: code-reviewer flagged the 5s wall-clock bound
-      transiently flakes under CI/CPU contention, which risks a legitimate
-      import spuriously failing under production load too, not just a test
-      flake. Acceptance: an adaptive/raised bound or a documented
-      environment-scaled default that stops the flake in the golden runner +
-      CI (proven by N repeated runs under artificial contention, zero
-      false-timeouts) while an artificially hung parse still gets killed
-      within a bounded time. [src: code-reviewer]
 - [ ] (P2, S) MB-4c tail — per-body lump count on the evaluate wire +
       Bodies-panel indicator. `EvaluateTreeResult` carries no per-body list
       today (only a whole-part aggregate `properties.topology.shells`,
@@ -284,6 +274,20 @@ scorecard impact → core capability → polish).
 
 Full evidence for every line below lives in `CHANGELOG.md`.
 
+### Recently shipped
+
+- [x] (P2, S) STEP import — parse-timeout bound hardened against CPU-contention
+      flakiness. Replaced the single 5 s **wall-clock** subprocess bound (which
+      false-fired on slow-but-legit imports under load) with a **CPU-time**
+      ceiling (`RLIMIT_CPU` in the worker, env `STEP_IMPORT_TIMEOUT_SECONDS`,
+      default 20 s — invariant to machine load, the primary DoS bound) plus a
+      generous **wall-clock liveness backstop** (env
+      `STEP_IMPORT_WALL_TIMEOUT_SECONDS`, default 60 s, kills only a *wedged*
+      child). Proven: the two previously-flaky STEP tests pass 8× under 2×
+      CPU oversubscription with zero false-timeouts; the DoS guard still fires
+      (RLIMIT_CPU kills a real CPU burn; `-SIGXCPU` maps to
+      `import_parse_timeout`). No schema/contract change. [src: code-reviewer]
+
 ### Phase 0 (through commit 322a988)
 
 - [x] (P1, M) Monorepo scaffold — uv + pnpm workspaces, justfile, lint/test
@@ -406,6 +410,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-19 — **STEP parse-timeout hardened (kernel-architect):** wall-clock
+  bound → CPU-time ceiling (`RLIMIT_CPU`, default 20 s) + wall-clock liveness
+  backstop (default 60 s); kills the CPU-contention false-fire flake while
+  preserving the DoS guard. Full geometry suite green; flaky tests 8× clean
+  under 2× CPU oversubscription. No contract change.
 - 2026-07-19 — **Groom + restock (backlog-groomer):** reconciled BACKLOG +
   ROADMAP against `36dc3d9..a6a5814` (six converged pillars: Assemblies,
   Drawings+export, Multi-body, Units, Undo/redo, Sheet metal); archived

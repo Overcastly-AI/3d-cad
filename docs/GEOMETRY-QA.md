@@ -3150,13 +3150,36 @@ finding, not absorbed into the tolerance.
 
 **Import parse runs out-of-process (security bound, 2026-07-13).** The untrusted
 OCCT STEP parse (`ReadFile` → `TransferRoots`) now runs in a spawned, killable
-subprocess bounded by `step_import_timeout_seconds` (default 5 s) so an
-adversarial/degenerate part-21 cannot pin a worker (docs/design/step-import.md
-§6, BACKLOG P1). The ~0.9 s per import feature is cold-OCP spawn cost (the worker
-imports OCP alone, not build123d) — still well inside the 2 s tripwire and
-confined to the import path; `import-step-box-10x20x30` still measures **0.0
-deviation** through the subprocess+BREP boundary. Timeout + no-fd/zombie-leak are
-gated in `tests/test_imports.py`.
+subprocess so an adversarial/degenerate part-21 cannot pin a worker
+(docs/design/step-import.md §6, BACKLOG P1). The ~0.9 s per import feature is
+cold-OCP spawn cost (the worker imports OCP alone, not build123d) — still well
+inside the 2 s tripwire and confined to the import path;
+`import-step-box-10x20x30` still measures **0.0 deviation** through the
+subprocess+BREP boundary. Timeout + no-fd/zombie-leak are gated in
+`tests/test_imports.py`.
+
+**Parse-timeout hardened to CPU-time + wall-clock backstop (2026-07-19).** The
+original bound was a single 5 s **wall-clock** `subprocess.run(timeout=…)`, which
+conflates the parse's *work* with the machine's *load*: under CPU contention
+(parallel CI/worktrees) a legit ~1 s parse can take many WALL seconds while
+burning the same ~1 s of CPU, so it **false-fired** on slow-but-legit imports
+(observed: `test_import_step_solid_round_trips_a_box_losslessly` +
+`…_is_deterministic` transiently failing on a loaded machine, green in
+isolation). Fix: the primary DoS bound is now a **CPU-time** ceiling
+(`RLIMIT_CPU` inside the worker, `step_import_timeout_seconds` /
+`STEP_IMPORT_TIMEOUT_SECONDS`, default **20 s of CPU-time** = ~20× a legit
+parse's ~1 s CPU) — invariant to machine load, so it never false-fires no matter
+how starved the wall-clock; plus a generous **wall-clock liveness backstop**
+(`step_import_wall_timeout_seconds` / `STEP_IMPORT_WALL_TIMEOUT_SECONDS`, default
+60 s) that only kills a *wedged* (blocked, not CPU-burning) child. On CPU
+exhaustion the kernel sends `SIGXCPU`/`SIGKILL`, which the parent maps to
+`import_parse_timeout`. Evidence: the two previously-flaky tests pass **8× under
+2× CPU oversubscription with zero false-timeouts**; the DoS guard is asserted to
+still FIRE (`test_cpu_limit_kills_a_real_cpu_burn_regardless_of_wall_clock`
+kills a real CPU burn via `RLIMIT_CPU`; `test_cpu_limit_signal_maps_to_import_parse_timeout`
+pins the `-SIGXCPU` → timeout taxonomy; the wall-backstop kill is gated by
+`test_import_parse_wall_backstop_fires_and_is_not_a_hang`). No schema/contract
+change.
 
 ### Gaps / coverage list for future passes
 
