@@ -2,22 +2,88 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: no single locked initiative — Phase 4b (Sheet metal v1)
-COMPLETE 2026-07-19, converging a run of six pillars** (Assemblies, Drawings
-+ server-composed export, Multi-body/booleans, Units, Undo/redo, Sheet
-metal), each independently reviewed + QA'd, each holding at ➖/✅ on the
-VISION.md scorecard with honest named residuals (full evidence:
-`CHANGELOG.md`, `docs/BACKLOG.md` Done archive). **No founder-directed
-initiative is currently in flight**; the autonomous loop pulls the top of
-`docs/BACKLOG.md` **Ready (top of queue)**, restocked 2026-07-19 by the
-backlog-groomer. Remaining VISION ❌ rows (Performance benchmarking,
-Collaboration/versioning, Extensibility/scripting+MCP) have no design doc yet.
-The Performance benchmark-suite INFRA step shipped 2026-07-19 (two-tier perf
-gate: generous asserted CI DoS/regression tripwires + an opt-in `-m benchmark`
-median/p95 baseline table; `just bench` / `docs/GEOMETRY-QA.md`) — this closes
-the benchmark-suite half of Performance ❌ but not the row (VISION also names
-"no real reference-part corpus yet"), so ❌ holds pending that corpus. See
-BACKLOG for the full ordering + rationale.
+**Current focus: FOUNDER-DIRECTED — Sheet metal → full incumbent parity
+(2026-07-19).** Founder's bar for VISION.md's Sheet metal row to flip ➖→✅ is
+explicit: **full parity with SolidWorks/Fusion 360 sheet-metal, not "good
+enough."** Sheet metal v1+v2 (below) already shipped a genuinely broad
+unfold (depth-1 stars, non-parallel trays/pans, depth-≥2 bend trees to
+box corners/returns), each independently reviewed + geometry-QA'd — but two
+gaps stood between that and daily-driver use: **no in-app authoring UI**
+(every sheet-metal feature was API-only) and **no corner relief** (closed
+box corners honestly reject rather than unfold). Founder also asked for the
+gap to be *measured*, not asserted: `docs/design/sheet-metal-parity.md`
+(vision-steward, 2026-07-19) is the sourced, evidence-first yardstick — a
+32-row matrix of every SolidWorks/Fusion sheet-metal capability vs. Loft's
+status, re-checked as each feature lands. **Do not flip the scorecard row
+until that matrix says so.**
+
+**In flight right now:** (1) feature-authoring UI (frontend-builder — Base
+Flange + Edge Flange toolbar actions, click-to-model), (2) corner relief
+(kernel-architect — design-note-first, the unlock for closed-box corners).
+Both territory-disjoint from the parity doc and each other.
+
+**Corrected campaign sequence** (parity doc's research corrected a few
+assumptions in the original founder-stated order — authoring UI → corner
+relief → hems → jogs → miters → tabs → gauge tables → DXF/nesting →
+convert-to-sheet-metal → forming tools; full rationale in
+`sheet-metal-parity.md` "Parity roadmap"):
+1. Authoring UI 🔨, 2. Corner relief 🔨 (both no correction — table-stakes
+first, highest-leverage kernel item second).
+3. **Hems** — sequence **closed hem first** (near-trivial edge-flange
+   specialization: angle=π, near-zero radius) as its own fast slice, THEN
+   open/teardrop/rolled (each a genuinely new curved cross-section, not one
+   monolithic "hems" item).
+4. **Jogs** — got EASIER since `sheet-metal.md` was written (it predates the
+   now-shipped depth-≥2 bend-tree unfold); a jog is a degenerate zero-length
+   two-bend chain. Verify the existing chain machinery handles that edge case
+   before assuming new kernel work.
+5. **Miters** — a corner-relief variant (zero-gap trim vs. cutout) at a
+   straight non-bent corner; shares machinery with #2.
+6. **Tabs** — not independent work: mechanically an edge flange with
+   `bend_angle_deg = 0`. Fast-follow of sketched-bend/fold, not its own slice.
+7. **Gauge/material bend TABLES** — re-framed: this is **documents-service
+   data modeling** (a reference-table schema + CRUD + lookup-override chain),
+   NOT kernel risk — the unfold already consumes a resolved K-factor
+   regardless of source. Can run **parallel** to the kernel items above
+   (independent territory), not strictly serial after miters.
+8. **Flat-pattern DXF / nesting** — re-scoped: **DXF export already ships at
+   genuine parity** (server-composed, byte-pinned, three formats); nesting is
+   correctly OUT of scope (neither incumbent ships it natively). What's
+   actually missing: bend-line-to-layer export options + grain direction —
+   small polish, not a DXF gap.
+9. **Convert-to-sheet-metal** — correctly last; a genuinely harder,
+   independent recognition problem needing its own design pass.
+10. **Forming tools** — split: countersink/counterbore-in-sheet (small, a
+    hole-feature variant, could land near gauge tables) vs. the general
+    forming-tool library (louvers/lances/dimples/gussets — large, correctly
+    last).
+
+**Explicitly deprioritized** (surfaced by the parity research, not in the
+founder's original campaign — flagged, not silently dropped): cross-breaks
+(cosmetic-only HVAC convention, low value outside that niche); lofted/swept
+flanges (real incumbent features, but the loft variant carries genuine new
+*kernel* risk — a developable-surface argument — and needs its own spike
+before commitment, same posture as the original unfold; slot late).
+
+Once the authoring UI + corner relief land (reviewed, QA'd against the
+incumbent bar per the design mandate), continue straight down the corrected
+sequence above — hems → jogs → miters → (tabs, gauge tables in parallel) →
+DXF/grain polish → convert-to-sheet-metal → forming tools — re-checking
+`sheet-metal-parity.md` after each slice, until the matrix supports ✅.
+
+**Prior state (superseded by the above, kept for continuity):** Phase 4b
+(Sheet metal v1) reached its v1 DoD 2026-07-19 ("one bracket → a flat blank
+a shop can cut"), converging alongside five other pillars (Assemblies,
+Drawings + server-composed export, Multi-body/booleans, Units, Undo/redo),
+each independently reviewed + QA'd. Remaining VISION ❌ rows (Performance
+benchmarking, Collaboration/versioning, Extensibility/scripting+MCP) have no
+design doc yet and are NOT the current focus — see BACKLOG for their
+ordering once the sheet-metal campaign converges. The Performance
+benchmark-suite INFRA step shipped 2026-07-19 (two-tier perf gate: generous
+asserted CI DoS/regression tripwires + an opt-in `-m benchmark` median/p95
+baseline table; `just bench` / `docs/GEOMETRY-QA.md`) — this closes the
+benchmark-suite half of Performance ❌ but not the row (VISION also names "no
+real reference-part corpus yet"), so ❌ holds pending that corpus.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
@@ -829,7 +895,8 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       window is CLOSED — the drawing-export initiative (DE-0…DE-3) is complete.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
-## Phase 4b — Sheet metal ✅ (v1 complete 2026-07-19)
+## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a
+founder-directed full-incumbent-parity campaign — see "Current focus" above)
 
 **v1 DoD MET, complete 2026-07-19** ("one bracket → a flat blank a shop can
 cut"; VISION scorecard ❌→➖, held short of ✅ on the depth-1-bend-star scope
