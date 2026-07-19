@@ -17,12 +17,14 @@ gap to be *measured*, not asserted: `docs/design/sheet-metal-parity.md`
 status, re-checked as each feature lands. **Do not flip the scorecard row
 until that matrix says so.**
 
-**In flight right now:** authoring UI ✅, corner relief ✅ (geometry **and**
-WIRED as an authorable `sheet_metal_corner_relief` feature end-to-end **and** the
-full 4-corner pan relieving cleanly, 2026-07-19), and closed hem ✅ all landed
+**In flight right now:** authoring UI ✅ (base + edge flange, **and now closed
+hem + corner relief editors 2026-07-19** — all four shipped sheet-metal features
+are click-drivable in-app), corner relief ✅ (geometry **and** WIRED as an
+authorable `sheet_metal_corner_relief` feature end-to-end **and** the full
+4-corner pan relieving cleanly, 2026-07-19), and closed hem ✅ all landed
 (2026-07-19). Next down the corrected sequence: the auto-relief policy layer (now
-genuinely unblocked) + a Corner-Relief/Hem authoring UI slice + open/teardrop/rolled
-hems, then jogs.
+genuinely unblocked) + open/teardrop/rolled hems + a viewport bend-face pick for
+corner relief, then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner
@@ -74,8 +76,14 @@ convert-to-sheet-metal → forming tools; full rationale in
    one shell, fold-back over all 8 flange notches) + `test_sheet_metal_four_corner_pan.py`;
    all existing goldens byte-unchanged. Follow-ons: obround/tear relief variants,
    **auto-relief policy layer** (walk the bend graph, synthesise a relief per shared-
-   flange corner — now GENUINELY unblocked, it's exactly this resolution), and a
-   Corner-Relief authoring UI (API-only today, like the flanges).
+   flange corner — now GENUINELY unblocked, it's exactly this resolution).
+   **Corner-Relief authoring UI ✅ SHIPPED 2026-07-19** (frontend-builder): a
+   `CornerReliefEditor` in the SHEET METAL toolbar group — references the two
+   edge-flange FEATURES via Bend A/Bend B selects (not an edge pick), ratio +
+   size-override fields, enabled only with ≥2 edge flanges, typed
+   `corner_relief_failed`/`reference_unresolved` surfaced in-editor; e2e clicks a
+   relieved tray, body + relieved flat pattern render (`sheet-metal-corner-relief-*.png`).
+   A direct viewport bend-face pick is a noted follow-up.
 3. **Hems** — **closed hem ✅ SHIPPED 2026-07-19** (kernel-architect). A
    first-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge +
    `length_mm` + optional radius/K, `hem_type="closed"`): a fixed 180° fold of
@@ -86,9 +94,13 @@ convert-to-sheet-metal → forming tools; full rationale in
    valid down to r=1e-6), so no guard/rescope was needed. Golden
    `closed-hem-plate`; honest degradation (zero-radius → typed schema reject,
    kernel fold failure → typed `edge_flange_failed`). All existing goldens
-   byte-unchanged. **Remaining:** a Hem authoring UI slice (closed hem is
-   API-only today) + open/teardrop/rolled (each a genuinely new curved
-   cross-section, separate fast-follows).
+   byte-unchanged. **Hem authoring UI ✅ SHIPPED 2026-07-19** (frontend-builder):
+   a `HemEditor` in the SHEET METAL toolbar group — single-select edge pick
+   (reuses the edge-flange overlay), brass `length_mm` handle, fixed "180°
+   (closed)" fold readout (no angle field), inherited radius/K overrides; e2e
+   clicks a plate with a closed hem, body + flat pattern render
+   (`sheet-metal-hem-*.png`). **Remaining:** open/teardrop/rolled (each a
+   genuinely new curved cross-section, separate fast-follows).
 4. **Jogs** — got EASIER since `sheet-metal.md` was written (it predates the
    now-shipped depth-≥2 bend-tree unfold); a jog is a degenerate zero-length
    two-bend chain. Verify the existing chain machinery handles that edge case

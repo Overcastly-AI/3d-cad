@@ -16,7 +16,9 @@
  *     slot (design §Decisions-3), so the set shrinks by one.
  *   - a `sheet_metal_base_flange` starts the sheet body (§4.1), honouring
  *     `merge` like an ADD; a `sheet_metal_edge_flange` folds onto the active
- *     body (§4.2) — no new body.
+ *     body (§4.2), a `sheet_metal_hem` folds an edge back (parity §2), and a
+ *     `sheet_metal_corner_relief` notches a corner (parity §4.4) — all MODIFY
+ *     the active sheet body, no new body.
  *   - every other feature (fillet/chamfer/shell/draft/pattern/datum/sketch)
  *     modifies the active body or is non-body — the set is unchanged.
  *

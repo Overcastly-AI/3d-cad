@@ -4,24 +4,40 @@ import type {
   EdgeSignature,
   FeatureResponse,
   SheetMetalBaseFlangeParams,
+  SheetMetalCornerReliefParams,
   SheetMetalEdgeFlangeParams,
+  SheetMetalHemParams,
 } from "../api/parts";
 import {
   bendAngleError,
   buildBaseFlangeParams,
+  buildCornerReliefParams,
   buildEdgeFlangeParams,
+  buildHemParams,
+  canAuthorCornerRelief,
   canSubmitBaseFlange,
+  canSubmitCornerRelief,
   canSubmitEdgeFlange,
+  canSubmitHem,
   defaultBaseFlangeForm,
+  defaultCornerReliefForm,
   defaultEdgeFlangeForm,
+  defaultHemForm,
+  edgeFlangeOptions,
   flangeLengthError,
   formFromBaseFlangeParams,
+  formFromCornerReliefParams,
   formFromEdgeFlangeParams,
+  formFromHemParams,
+  hemLengthError,
   isSheetMetalPart,
   kFactorError,
   parseBendAngleDeg,
   parseKFactor,
+  parseReliefRatio,
   pickedFromEdgeFlangeParams,
+  pickedFromHemParams,
+  reliefRatioError,
   SHEET_METAL_DEFAULT_K_FACTOR,
   sheetMetalDefaults,
   thicknessError,
@@ -245,6 +261,7 @@ describe("part sheet-metal state", () => {
       baseFlangeFeature({ bend_radius_mm: 3, k_factor: 0.44 }),
     ];
     expect(sheetMetalDefaults(features)).toEqual({
+      thicknessMm: 2,
       bendRadiusMm: 3,
       kFactor: 0.44,
     });
@@ -269,5 +286,171 @@ describe("part sheet-metal state", () => {
       }),
     ];
     expect(isSheetMetalPart(features)).toBe(false);
+  });
+});
+
+describe("closed hem form", () => {
+  it("defaults to a 6 mm folded-back return, defaults inherited", () => {
+    const form = defaultHemForm();
+    expect(form.lengthInput).toBe("6");
+    expect(form.overrideBendRadius).toBe(false);
+    expect(form.overrideKFactor).toBe(false);
+  });
+
+  it("needs exactly one picked edge and a body anchor", () => {
+    const form = defaultHemForm();
+    expect(canSubmitHem(form, [], "bf", "mm")).toBe(false);
+    expect(canSubmitHem(form, [SIG, SIG], "bf", "mm")).toBe(false);
+    expect(canSubmitHem(form, [SIG], null, "mm")).toBe(false);
+    expect(canSubmitHem(form, [SIG], "bf", "mm")).toBe(true);
+  });
+
+  it("builds a closed hem ref, omitting inherited defaults", () => {
+    const params = buildHemParams(defaultHemForm(), [SIG], "bf", "mm");
+    expect(params).not.toBe(null);
+    expect(params?.edge.feature_id).toBe("bf");
+    expect(params?.edge.selector.signature).toEqual(SIG);
+    expect(params?.length_mm).toBe(6);
+    expect(params?.hem_type).toBe("closed");
+    // Inherited defaults are omitted, not sent as null (the edge-flange idiom).
+    expect("bend_radius_mm" in (params as object)).toBe(false);
+    expect("k_factor" in (params as object)).toBe(false);
+  });
+
+  it("sends per-hem overrides only when enabled + valid", () => {
+    const form = {
+      ...defaultHemForm(),
+      overrideBendRadius: true,
+      bendRadiusInput: "1",
+      overrideKFactor: true,
+      kFactorInput: "0.4",
+    };
+    const params = buildHemParams(form, [SIG], "bf", "mm");
+    expect(params?.bend_radius_mm).toBe(1);
+    expect(params?.k_factor).toBe(0.4);
+    // An enabled-but-blank override blocks the build (honest, not silently 0).
+    expect(
+      buildHemParams({ ...form, bendRadiusInput: "" }, [SIG], "bf", "mm"),
+    ).toBe(null);
+    expect(hemLengthError("-3", "mm")).not.toBe(null);
+    expect(hemLengthError("", "mm")).toBe(null);
+  });
+
+  it("round-trips an override hem (edit seed)", () => {
+    const params: SheetMetalHemParams = {
+      edge: {
+        kind: "subshape",
+        feature_id: "bf",
+        subshape_type: "edge",
+        selector: { selector_version: 1, signature: SIG },
+      },
+      length_mm: 8,
+      hem_type: "closed",
+      bend_radius_mm: 1,
+      k_factor: 0.4,
+    };
+    const form = formFromHemParams(params, "mm");
+    expect(form.lengthInput).toBe("8");
+    expect(form.overrideBendRadius).toBe(true);
+    expect(form.overrideKFactor).toBe(true);
+    expect(pickedFromHemParams(params)).toEqual([SIG]);
+    expect(buildHemParams(form, [SIG], "bf", "mm")).toEqual(params);
+  });
+});
+
+describe("corner relief form", () => {
+  const edgeFlange = (id: string, rolled_back = false): FeatureResponse =>
+    feature(
+      id,
+      "sheet_metal_edge_flange",
+      {
+        edge: {
+          kind: "subshape",
+          feature_id: "bf",
+          subshape_type: "edge",
+          selector: { selector_version: 1, signature: SIG },
+        },
+        flange_length_mm: 20,
+        bend_angle_deg: 90,
+      },
+      rolled_back,
+    );
+
+  it("lists edge flanges by id + name and gates on two of them", () => {
+    const one = [
+      feature("bf", "sheet_metal_base_flange", {}),
+      edgeFlange("f1"),
+    ];
+    const two = [...one, edgeFlange("f2")];
+    expect(edgeFlangeOptions(one)).toEqual([{ id: "f1", name: "f1" }]);
+    expect(canAuthorCornerRelief(one)).toBe(false);
+    expect(canAuthorCornerRelief(two)).toBe(true);
+    // A rolled-back edge flange does not count toward the gate.
+    expect(canAuthorCornerRelief([...one, edgeFlange("f2", true)])).toBe(false);
+  });
+
+  it("needs two DISTINCT bends and a positive ratio", () => {
+    expect(canSubmitCornerRelief(defaultCornerReliefForm("a", "b"), "mm")).toBe(
+      true,
+    );
+    expect(canSubmitCornerRelief(defaultCornerReliefForm("a", "a"), "mm")).toBe(
+      false,
+    );
+    expect(canSubmitCornerRelief(defaultCornerReliefForm("", "b"), "mm")).toBe(
+      false,
+    );
+    expect(parseReliefRatio("1")).toBe(1);
+    expect(parseReliefRatio("0")).toBe(null);
+    expect(parseReliefRatio("-1")).toBe(null);
+    expect(reliefRatioError("0")).not.toBe(null);
+    expect(reliefRatioError("")).toBe(null);
+  });
+
+  it("builds two FeatureRefs + rectangular type, ratio by default", () => {
+    const params = buildCornerReliefParams(
+      defaultCornerReliefForm("a", "b"),
+      "mm",
+    );
+    expect(params).toEqual({
+      bend_a: { kind: "feature", feature_id: "a" },
+      bend_b: { kind: "feature", feature_id: "b" },
+      relief_ratio: 1,
+      relief_type: "rectangular",
+    });
+    // No size override → no size_mm on the wire (the ratio drives the notch).
+    expect("size_mm" in (params as object)).toBe(false);
+  });
+
+  it("sends an absolute size override only when enabled + valid", () => {
+    const form = {
+      ...defaultCornerReliefForm("a", "b"),
+      overrideSize: true,
+      sizeInput: "3",
+    };
+    const params = buildCornerReliefParams(form, "mm");
+    expect(params?.size_mm).toBe(3);
+    // relief_ratio still rides the wire (it has no null slot), ignored server-side.
+    expect(params?.relief_ratio).toBe(1);
+    // An enabled-but-blank override blocks the build.
+    expect(buildCornerReliefParams({ ...form, sizeInput: "" }, "mm")).toBe(
+      null,
+    );
+  });
+
+  it("round-trips a size-override corner relief (edit seed)", () => {
+    const params: SheetMetalCornerReliefParams = {
+      bend_a: { kind: "feature", feature_id: "a" },
+      bend_b: { kind: "feature", feature_id: "b" },
+      relief_ratio: 1.5,
+      relief_type: "rectangular",
+      size_mm: 4,
+    };
+    const form = formFromCornerReliefParams(params, "mm");
+    expect(form.bendAId).toBe("a");
+    expect(form.bendBId).toBe("b");
+    expect(form.reliefRatioInput).toBe("1.5");
+    expect(form.overrideSize).toBe(true);
+    expect(form.sizeInput).toBe("4");
+    expect(buildCornerReliefParams(form, "mm")).toEqual(params);
   });
 });

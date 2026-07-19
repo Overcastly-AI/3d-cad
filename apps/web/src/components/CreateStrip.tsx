@@ -17,12 +17,14 @@ import {
   BaseFlangeIcon,
   ChamferIcon,
   CombineIcon,
+  CornerReliefIcon,
   DatumIcon,
   DraftIcon,
   EdgeFlangeIcon,
   ExtrudeIcon,
   FilletIcon,
   FlatPatternIcon,
+  HemIcon,
   ImportStepIcon,
   LoftIcon,
   MeasureIcon,
@@ -125,6 +127,20 @@ export interface CreateStripProps {
   canEdgeFlange?: boolean;
   /** Fold a leg off a picked straight edge of the sheet body. */
   onNewEdgeFlange?: () => void;
+  /**
+   * The part is sheet metal (a base flange exists), so a closed hem can fold a
+   * picked straight edge 180° back onto the sheet — the same gate as edge flange.
+   */
+  canHem?: boolean;
+  /** Fold a picked straight edge 180° back onto the sheet (a closed hem). */
+  onNewHem?: () => void;
+  /**
+   * The part has ≥2 edge flanges whose bends can meet at a corner, so a corner
+   * relief can notch that corner. Below two edge flanges the tool disables.
+   */
+  canCornerRelief?: boolean;
+  /** Notch the shared corner of two adjacent edge flanges (corner relief). */
+  onNewCornerRelief?: () => void;
   /** The flat pattern can be unfolded (the part is sheet metal). */
   canFlatPattern?: boolean;
   /** A flat-pattern unfold is in flight (opening the drawing). */
@@ -191,6 +207,10 @@ export function CreateStrip({
   onNewBaseFlange,
   canEdgeFlange = false,
   onNewEdgeFlange,
+  canHem = false,
+  onNewHem,
+  canCornerRelief = false,
+  onNewCornerRelief,
   canFlatPattern = false,
   flatteningPattern = false,
   onFlatPattern,
@@ -220,6 +240,9 @@ export function CreateStrip({
     canBaseFlange && treeReady && onNewBaseFlange !== undefined;
   const edgeFlangeReady =
     canEdgeFlange && treeReady && onNewEdgeFlange !== undefined;
+  const hemReady = canHem && treeReady && onNewHem !== undefined;
+  const cornerReliefReady =
+    canCornerRelief && treeReady && onNewCornerRelief !== undefined;
   const flatPatternReady =
     canFlatPattern &&
     treeReady &&
@@ -566,6 +589,34 @@ export function CreateStrip({
             caption={captionFor(edgeFlangeReady, "Add a base flange first")}
             disabled={locked || !edgeFlangeReady}
             onClick={onNewEdgeFlange}
+          />
+          <ToolButton
+            icon={<HemIcon />}
+            showLabel
+            label="Hem"
+            data-testid="new-hem"
+            aria-label={
+              hemReady
+                ? "Hem — fold a straight edge of the sheet 180° back onto itself (a closed hem)"
+                : "Hem — add a base flange first"
+            }
+            caption={captionFor(hemReady, "Add a base flange first")}
+            disabled={locked || !hemReady}
+            onClick={onNewHem}
+          />
+          <ToolButton
+            icon={<CornerReliefIcon />}
+            showLabel
+            label="Corner relief"
+            data-testid="new-corner-relief"
+            aria-label={
+              cornerReliefReady
+                ? "Corner relief — notch the shared corner of two adjacent edge flanges"
+                : "Corner relief — add two edge flanges that meet at a corner first"
+            }
+            caption={captionFor(cornerReliefReady, "Needs two edge flanges")}
+            disabled={locked || !cornerReliefReady}
+            onClick={onNewCornerRelief}
           />
           <ToolButton
             icon={<FlatPatternIcon />}

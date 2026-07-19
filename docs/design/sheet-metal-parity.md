@@ -24,11 +24,11 @@ flight (another agent has code/design in progress right now, 2026-07-19) ·
 unfold,resolve,flat_pattern}.py`, `packages/py-kit/src/py_kit/schemas/
 features.py` + `drawings.py`, `docs/design/sheet-metal.md` (the shipped
 implementation notes through §10), `docs/GEOMETRY-QA.md`'s 2026-07-19
-entries, `docs/VISION.md`'s Sheet metal scorecard row, and a repo-wide grep
-confirming `apps/web/src` has **zero** sheet-metal feature-authoring UI
-(only drawing-side flat-pattern *rendering* in `DrawingPage.tsx`/
-`DrawingSheet.tsx`) — features are created purely via the documents/geometry
-API today, the same way goldens author them.
+entries, `docs/VISION.md`'s Sheet metal scorecard row.
+**UPDATE 2026-07-19:** the sheet-metal feature-authoring UI has since landed —
+base + edge flange (`47c88f4`), then closed hem + corner relief (this slice) —
+so `apps/web/src` now has a SHEET METAL toolbar group + editors and all four
+features are drivable in-app by clicking, not only via the documents/geometry API.
 
 ---
 
@@ -55,13 +55,13 @@ API today, the same way goldens author them.
 | **Fold** (fold a bent-line sketch on a flat face into a 3D bend — the authoring counterpart to Sketched Bend, §1) | Fusion ▸ Sheet Metal ▸ Create ▸ Fold — same doc as above | ❌ | Depends on Sketched Bend (§1) shipping first. | M (bundled with sketched bend) |
 | **Cross-breaks** (a cosmetic stiffening crease across a flat face — HVAC/duct convention; a graphical annotation, NOT a geometric bend) | Cross Break command inserts a graphical crease indicator; explicitly **does not alter part geometry** — [Cross Breaks](https://help.solidworks.com/2025/english/Solidworks/sldworks/c_cross_break.htm) | ❌ | No equivalent. Genuinely low-risk (it's cosmetic, not geometric — no unfold interaction) but also low-value outside HVAC/duct work; **candidate for explicit deprioritization**, see §Verdict. | S, low priority |
 | **Jog** (two bends with no length between — a stepped offset of a flat face) | Jog tool: sketch a single line, the tool inserts two bends (a "Z-step") to offset the face by a set distance while keeping it parallel — [Jogs](https://help.solidworks.com/2020/english/SolidWorks/sldworks/c_jogs.htm) | ❌ | Geometrically a **degenerate two-bend depth-1 chain with zero flange length between the bends** — since depth-≥2 bend-tree unfold now ships, a jog is much closer to reachable than it looked when `sheet-metal.md` was written (it predates depth-2). Needs: (a) a dedicated feature type (two coupled bend params, not two independent edge-flange authorings) or (b) confirmation the existing chain machinery composes correctly at zero intermediate length (an edge case worth a golden, not an assumption). | S–M — reassess priority now that depth-2 unfold exists |
-| **Hem** — open, closed, teardrop, rolled | Four hem types: **Closed** (bent 180° flat against the parent, zero inside radius, cheapest/most common), **Open** (curved outer edge, air gap — safe-to-touch edges/handles), **Teardrop** (rounded tear-shaped profile — brittle materials like aluminum), **Rolled** (full circular edge — eliminates raw edges, doors/furniture) — [SolidWorks hem tutorial summary](https://solidworkstutorialsforbeginners.com/solidworks-sheetmetal-hem/), [Approved Sheet Metal — hem types](https://www.approvedsheetmetal.com/blog/what-type-of-hem-does-your-custom-sheet-metal-part-need). Fusion's Hem tool: pick edge(s), flip fold direction, **Miter Corners** option, **Override Rules** per-feature — [Create hem](https://help.autodesk.com/view/fusion360/ENU/?contextId=SM-CREATE-HEM-FLANGE) | 🟡 **closed shipped** (2026-07-19, kernel-architect) | **CLOSED hem SHIPPED** as a first-class feature `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge ref + `length_mm` + optional `bend_radius_mm`/`k_factor`, `hem_type="closed"`) — kernel finding: the closed hem is even freer than predicted. `build_edge_flange` at `bend_angle_deg=180` with a small radius produces **ONE clean valid solid** (BRepCheck-valid, one shell) and `unfold_sheet_metal` develops it correctly (BA = π·(r+K·t)); the near-flat fold **cannot self-intersect** — the return sits ~2·radius above the base with an air gap, verified valid down to r=1e-6 — so no guard or rescope was needed, the hem reuses the edge-flange bend + unfold machinery verbatim (a fixed 180° fold, DRY-shared `_fold_flange_off_edge`). Golden `closed-hem-plate` (valid solid + analytic unfold + area conservation + byte-determinism). Honest degradation (parity §3): a zero-radius/zero-gap hem is a typed schema rejection; a kernel fold failure is a typed `edge_flange_failed`. **Deferred (each a separate fast-follow slice):** open / teardrop / rolled — each a genuinely different **curved cross-section profile** at the fold tip the exact-cross-section extrude does not build; and a **Hem authoring UI** (the next frontend slice — closed hem is API-only today, like the base/edge flange were). | S ✅ (closed) / M (open/teardrop/rolled — curved cross-section) + UI slice |
+| **Hem** — open, closed, teardrop, rolled | Four hem types: **Closed** (bent 180° flat against the parent, zero inside radius, cheapest/most common), **Open** (curved outer edge, air gap — safe-to-touch edges/handles), **Teardrop** (rounded tear-shaped profile — brittle materials like aluminum), **Rolled** (full circular edge — eliminates raw edges, doors/furniture) — [SolidWorks hem tutorial summary](https://solidworkstutorialsforbeginners.com/solidworks-sheetmetal-hem/), [Approved Sheet Metal — hem types](https://www.approvedsheetmetal.com/blog/what-type-of-hem-does-your-custom-sheet-metal-part-need). Fusion's Hem tool: pick edge(s), flip fold direction, **Miter Corners** option, **Override Rules** per-feature — [Create hem](https://help.autodesk.com/view/fusion360/ENU/?contextId=SM-CREATE-HEM-FLANGE) | 🟡 **closed shipped** (2026-07-19, kernel-architect) | **CLOSED hem SHIPPED** as a first-class feature `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge ref + `length_mm` + optional `bend_radius_mm`/`k_factor`, `hem_type="closed"`) — kernel finding: the closed hem is even freer than predicted. `build_edge_flange` at `bend_angle_deg=180` with a small radius produces **ONE clean valid solid** (BRepCheck-valid, one shell) and `unfold_sheet_metal` develops it correctly (BA = π·(r+K·t)); the near-flat fold **cannot self-intersect** — the return sits ~2·radius above the base with an air gap, verified valid down to r=1e-6 — so no guard or rescope was needed, the hem reuses the edge-flange bend + unfold machinery verbatim (a fixed 180° fold, DRY-shared `_fold_flange_off_edge`). Golden `closed-hem-plate` (valid solid + analytic unfold + area conservation + byte-determinism). Honest degradation (parity §3): a zero-radius/zero-gap hem is a typed schema rejection; a kernel fold failure is a typed `edge_flange_failed`. **Closed-hem authoring UI SHIPPED** (2026-07-19, frontend-builder): a `HemEditor` in the SHEET METAL toolbar group next to Base/Edge flange — single-select edge pick (reuses the edge-flange overlay), brass `length_mm` handle, a fixed "180° (closed)" fold readout (no angle field), inherited radius/K overrides; e2e models a plate with a closed hem by clicking, body + flat pattern render (`sheet-metal-hem-*.png`). **Deferred:** open / teardrop / rolled — each a genuinely different **curved cross-section profile** at the fold tip the exact-cross-section extrude does not build. | S ✅ (closed geom + UI) / M (open/teardrop/rolled — curved cross-section) |
 
 ## 3. Corners
 
 | Capability | Incumbent behavior (sourced) | Loft status | Gap / what parity needs | Size + priority |
 |---|---|---|---|---|
-| **Corner relief** (rectangular / round / tear / obround cutout at a bend intersection so the sheet doesn't tear/interfere when folded) | SolidWorks Corner Relief PropertyManager: choose relief type **Rectangular, Tear, or Obround** (a "Round" relief is documented under the closely-related Auto Relief options, sourced separately below); Tear reliefs are minimum-size, Rectangular/Obround take a **Relief Ratio** — [Corner Relief PropertyManager](https://help.solidworks.com/2022/english/SolidWorks/sldworks/hidd_sheet_metal_corner_relief.htm), [Adding a Corner Relief](https://help.solidworks.com/2024/English/SolidWorks/sldworks/t_adding_corner_relief.htm), [Corner Reliefs and Bend Transitions](https://help.solidworks.com/2025/english/Solidworks/sldworks/c_corner_reliefs_bend_transitions.htm). Fusion: corner relief is driven by the sheet-metal **rule** (thickness/bend-radius/corner-relief together), auto-applied where needed, overridable per-operation — [Sheet metal rule reference](https://help.autodesk.com/view/fusion360/ENU/?guid=SM-RULES-REF) | 🟡 **RECTANGULAR shipped + WIRED** (2026-07-19, kernel-architect) | Both halves ship AND are authorable end-to-end: the 3D notch (`apply_corner_relief`) + the relieved flat-pattern unfold (`unfold_sheet_metal(reliefs=...)`), driven by an EXPLICIT `sheet_metal_corner_relief` feature (`bend_a`/`bend_b` FeatureRefs + `relief_ratio`/`size_mm`, §4.4.2). A user models a tray with a relieved corner → the evaluated body has the 3D notch AND the flat pattern has the matching notch (fold-back invariant proven at the pipeline level, golden `corner-tray-relieved-feature`). **Still narrower than incumbents:** RECTANGULAR only (obround / round / tear deferred, §4.4.1); the fully-welded depth-2 box corner stays a typed reject (needs miter/closed-corner geometry). | S–M — obround/tear variants + welded-corner geometry remain |
+| **Corner relief** (rectangular / round / tear / obround cutout at a bend intersection so the sheet doesn't tear/interfere when folded) | SolidWorks Corner Relief PropertyManager: choose relief type **Rectangular, Tear, or Obround** (a "Round" relief is documented under the closely-related Auto Relief options, sourced separately below); Tear reliefs are minimum-size, Rectangular/Obround take a **Relief Ratio** — [Corner Relief PropertyManager](https://help.solidworks.com/2022/english/SolidWorks/sldworks/hidd_sheet_metal_corner_relief.htm), [Adding a Corner Relief](https://help.solidworks.com/2024/English/SolidWorks/sldworks/t_adding_corner_relief.htm), [Corner Reliefs and Bend Transitions](https://help.solidworks.com/2025/english/Solidworks/sldworks/c_corner_reliefs_bend_transitions.htm). Fusion: corner relief is driven by the sheet-metal **rule** (thickness/bend-radius/corner-relief together), auto-applied where needed, overridable per-operation — [Sheet metal rule reference](https://help.autodesk.com/view/fusion360/ENU/?guid=SM-RULES-REF) | 🟡 **RECTANGULAR shipped + WIRED** (2026-07-19, kernel-architect) | Both halves ship AND are authorable end-to-end: the 3D notch (`apply_corner_relief`) + the relieved flat-pattern unfold (`unfold_sheet_metal(reliefs=...)`), driven by an EXPLICIT `sheet_metal_corner_relief` feature (`bend_a`/`bend_b` FeatureRefs + `relief_ratio`/`size_mm`, §4.4.2). A user models a tray with a relieved corner → the evaluated body has the 3D notch AND the flat pattern has the matching notch (fold-back invariant proven at the pipeline level, golden `corner-tray-relieved-feature`). **Corner-relief authoring UI SHIPPED** (2026-07-19, frontend-builder): a `CornerReliefEditor` in the SHEET METAL toolbar group — NOT an edge pick, it references the two edge-flange FEATURES via two ruled selects (Bend A / Bend B, seeded with the part's edge flanges), with a `relief_ratio` field (gauge-sized notch previewed) + an absolute `size_mm` override; enabled only with ≥2 edge flanges; the typed `corner_relief_failed`/`reference_unresolved` surface in the editor. A direct viewport bend-face pick is a noted follow-up. e2e models a relieved tray by clicking, body + relieved flat pattern render (`sheet-metal-corner-relief-*.png`). **Still narrower than incumbents:** RECTANGULAR only (obround / round / tear deferred, §4.4.1); the fully-welded depth-2 box corner stays a typed reject (needs miter/closed-corner geometry). | S–M — obround/tear variants + welded-corner geometry remain |
 | **Auto relief** (default relief applied automatically wherever a bend needs it, without per-bend authoring) | Auto Reliefs: a document-level default so most bends don't need per-feature relief authoring — [Auto Reliefs](https://help.solidworks.com/2023/English/SolidWorks/sldworks/c_Auto_Reliefs.htm) | ❌ (UNBLOCKED — explicit relief now shipped) | The explicit per-corner primitive landed (above), so "auto" is now a pure POLICY layer over it: walk the bend graph, find every corner whose flanges collide/tear on unfold, synthesise an explicit `CornerRelief` per corner from a part-level default size. No new geometry risk — a clean fast-follow, the next corner-relief slice. | S, next |
 | **Closed corners** (bend-adjacent faces trimmed/extended to meet flush with no gap, vs. an open/gapped corner) | A documented corner-treatment option distinct from relief — controls whether adjoining bend faces are extended to close the gap — [Corner Reliefs and Bend Transitions](https://help.solidworks.com/2025/english/Solidworks/sldworks/c_corner_reliefs_bend_transitions.htm) | ❌ | Not started; likely rides the same corner-geometry work as corner relief/miter (all three are "what happens where two bend-adjacent faces meet" variants). | S–M, bundle with corner relief |
 | **Corner trim** (manual sketch-driven material removal at a corner, distinct from the automatic relief options) | Named alongside relief/closed-corner options in the same incumbent corner-treatment family — not independently deep-dived this pass. | ❌ | Same family as above. | S, bundle |
@@ -124,11 +124,11 @@ stated campaign (authoring UI → corner relief → hems → jogs → miters →
 metal → forming tools). Two corrections to that campaign surfaced by this
 research, called out inline.
 
-1. **Feature-authoring UI** (🔨 in flight). Table-stakes prerequisite for
-   everything below — today every sheet-metal feature (base flange, edge
-   flange) is API-only, with zero `apps/web/src` surface to create one
-   (verified by grep, §"Verified against the repo at HEAD" above). No
-   correction — this is correctly first.
+1. **Feature-authoring UI** (✅ base + edge flange `47c88f4`; closed hem +
+   corner relief 2026-07-19). Table-stakes prerequisite for everything below —
+   all four shipped sheet-metal features are now authorable in-app from the
+   SHEET METAL toolbar group (BaseFlange/EdgeFlange/Hem/CornerRelief editors +
+   the flat-pattern action), not only via the documents/geometry API.
 2. **Corner relief** (🟡 rectangular SHIPPED + WIRED + FULL-PAN 2026-07-19). The
    explicit `sheet_metal_corner_relief` feature is authorable end-to-end (3D notch +
    relieved flat pattern, fold-back-proven at the pipeline level), and the canonical
@@ -136,18 +136,20 @@ research, called out inline.
    now relieves cleanly (golden `pan-four-corner-relieved`): each relief resolves its
    bends against the clean un-notched reference, not the live notched body, so a
    shared flange no longer fails `subshape_unresolved`, and a flange authored AFTER a
-   relief still develops a correct flat pattern. Remaining: obround/tear relief
-   variants, the welded-depth-2 corner (miter/closed-corner geometry), and the
-   now-genuinely-unblocked **auto-relief policy layer** (next slice — it synthesises a
-   relief per shared-flange corner, exactly the resolution this fix cleared).
+   relief still develops a correct flat pattern. **Authoring UI SHIPPED 2026-07-19**
+   (a `CornerReliefEditor` — two-feature Bend A/Bend B selects, ratio + size override).
+   Remaining: obround/tear relief variants, the welded-depth-2 corner
+   (miter/closed-corner geometry), the now-unblocked **auto-relief policy layer**, and
+   a direct viewport bend-face pick (the editor references bends by feature today).
 3. **Hems** (🟡, §2). Research correction CONFIRMED and **closed hem SHIPPED**
    (2026-07-19): the closed hem is exactly the near-trivial specialization of
    the shipped edge-flange it was predicted to be — a fixed 180° fold at a small
    radius through `build_edge_flange` + the shipped unfold, no new kernel
-   geometry, no guard needed (the fold-back cannot self-intersect). Remaining:
+   geometry, no guard needed (the fold-back cannot self-intersect). **Hem authoring
+   UI SHIPPED 2026-07-19** (a `HemEditor` — single-select edge pick, brass length
+   handle, fixed 180° fold readout, inherited radius/K overrides). Remaining:
    **open / teardrop / rolled** (each a new curved cross-section profile — a
-   genuinely different geometry) and a **Hem authoring UI** slice, sequenced as
-   the predicted fast-follows.
+   genuinely different geometry), sequenced as the predicted fast-follows.
 4. **Jogs** (❌, §2). Research correction: **jogs got easier, not harder,
    since `sheet-metal.md` was written** — it predates the now-shipped
    depth-≥2 bend-tree unfold, and a jog is exactly a degenerate two-bend
@@ -224,17 +226,17 @@ day, not in an edge case.
 
 **The 3-5 features that most move the needle, in order:**
 
-1. **Feature-authoring UI** (🔨) — without it, nothing else in this doc is
-   reachable by an actual user; it's not a "feature" so much as the gate on
-   every other row's real-world value.
-2. **Corner relief** (🟡 rectangular SHIPPED + WIRED 2026-07-19) — the direct
-   unlock for tray/enclosure corners, now authorable as a feature end-to-end;
-   obround/tear variants, welded corners, and auto-relief remain the fast-follows.
-3. **Closed hem** (✅ SHIPPED 2026-07-19) — hems appear on a large fraction of
-   real sheet-metal parts (safety edges, stiffening) and this shape proved
+1. **Feature-authoring UI** (✅ base + edge flange, closed hem, corner relief) —
+   the gate on every other row's real-world value; all four shipped sheet-metal
+   features are now click-drivable in-app.
+2. **Corner relief** (🟡 rectangular SHIPPED + WIRED + UI 2026-07-19) — the direct
+   unlock for tray/enclosure corners, now authorable as a feature end-to-end AND
+   from a `CornerReliefEditor`; obround/tear variants, welded corners, auto-relief,
+   and a viewport bend-face pick remain the fast-follows.
+3. **Closed hem** (✅ geom + UI SHIPPED 2026-07-19) — hems appear on a large fraction
+   of real sheet-metal parts (safety edges, stiffening) and this shape proved
    nearly free given the shipped edge-flange machinery — a disproportionate
-   parity gain for the cost, now landed (open/teardrop/rolled + a Hem UI
-   remain as fast-follows).
+   parity gain, now landed with its authoring UI (open/teardrop/rolled remain).
 4. **Gauge/material bend tables** (❌) — not kernel risk, pure data
    modeling, and it's the gap `sheet-metal.md` calls out most consistently
    as the honest ceiling on "is this a real material" vs. "is this a demo

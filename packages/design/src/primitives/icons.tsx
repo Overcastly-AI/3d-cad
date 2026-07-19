@@ -456,6 +456,33 @@ export const EdgeFlangeIcon = (p: IconProps) => (
 );
 
 /**
+ * Closed hem = a sheet edge folded ~180° back FLAT onto itself. The parent
+ * plate runs in, makes a tight U-turn at the edge, and the return layer folds
+ * back over it a gauge-gap above — the doubled edge that reads "hemmed", not
+ * "flanged" (the edge-flange icon folds a leg UP; this folds one BACK).
+ */
+export const HemIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 15 H18 A2 2 0 0 0 18 11 H8" />
+    <path d="M3 15 V12" />
+  </Icon>
+);
+
+/**
+ * Corner relief = the shared corner of two adjacent flanges with a small square
+ * notch removed so the blank develops flat. Two solid flange legs meet at the
+ * corner; the removed notch is drawn as a dashed square (the cut material) —
+ * an engineering-drawing "this is taken away" reading, not a generic cutout.
+ */
+export const CornerReliefIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 10 V20 H4 V10 Z" />
+    <path d="M10 10 H20 V4 H10 Z" />
+    <path d="M4 4 H10 V10 H4 Z" strokeDasharray="2 1.5" />
+  </Icon>
+);
+
+/**
  * Pattern = the seed body copied into an array — a 2×2 grid of square cells,
  * the top-left one punched to mark the seed (instance 0). Reads as "repeat",
  * and its square cells tie it to the title-block grid rather than a generic

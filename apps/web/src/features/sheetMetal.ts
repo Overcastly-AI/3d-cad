@@ -17,7 +17,9 @@ import type {
   EdgeSignature,
   FeatureResponse,
   SheetMetalBaseFlangeParams,
+  SheetMetalCornerReliefParams,
   SheetMetalEdgeFlangeParams,
+  SheetMetalHemParams,
 } from "../api/parts";
 import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 import { edgeSubshapeRef } from "./edge";
@@ -290,18 +292,277 @@ export function canSubmitEdgeFlange(
 }
 
 // ---------------------------------------------------------------------------
+// Hem (closed) — parity §2
+// ---------------------------------------------------------------------------
+/**
+ * The editable closed-hem form. A closed hem is mechanically an edge flange
+ * folded 180° back onto the sheet, so it mirrors the edge-flange form MINUS the
+ * fold-angle field (the angle is always 180°): the return `length_mm` is the
+ * parametric handle; the bend radius and K-factor INHERIT the base-flange
+ * defaults unless their override toggle is on. The picked edge lives in the
+ * shared edge-pick store (with the viewport overlay), so the form stays
+ * serialisable — identical to the edge flange.
+ */
+export interface HemForm {
+  lengthInput: string;
+  overrideBendRadius: boolean;
+  bendRadiusInput: string;
+  overrideKFactor: boolean;
+  kFactorInput: string;
+}
+
+/** The default new-hem form: a 6 mm folded-back return, defaults inherited. */
+export function defaultHemForm(): HemForm {
+  return {
+    lengthInput: "6",
+    overrideBendRadius: false,
+    bendRadiusInput: "",
+    overrideKFactor: false,
+    kFactorInput: "",
+  };
+}
+
+/** Seed the form from an existing hem feature for editing (in `unit`). */
+export function formFromHemParams(
+  params: SheetMetalHemParams,
+  unit: LengthUnit,
+): HemForm {
+  const overrideBendRadius =
+    params.bend_radius_mm !== null && params.bend_radius_mm !== undefined;
+  const overrideKFactor =
+    params.k_factor !== null && params.k_factor !== undefined;
+  return {
+    lengthInput: lengthInputValue(params.length_mm, unit),
+    overrideBendRadius,
+    bendRadiusInput: overrideBendRadius
+      ? lengthInputValue(params.bend_radius_mm as number, unit)
+      : "",
+    overrideKFactor,
+    kFactorInput: overrideKFactor ? String(params.k_factor) : "",
+  };
+}
+
+/** The picked-edge signature of a persisted hem (its one folded edge). */
+export function pickedFromHemParams(
+  params: SheetMetalHemParams,
+): EdgeSignature[] {
+  return [params.edge.selector.signature];
+}
+
+/** Field-level hem-length message, or null when valid (empty is pending). */
+export function hemLengthError(input: string, unit: LengthUnit): string | null {
+  if (input.trim() === "") return null;
+  return parsePositiveLengthMm(input, unit) === null
+    ? "Return length must be a positive length."
+    : null;
+}
+
+/**
+ * Build `SheetMetalHemParamsV1` from the form + the ONE picked edge, or null
+ * when the length is invalid, exactly one straight edge is not picked, an
+ * enabled override is blank/invalid, or there is no sheet-body anchor. The fold
+ * angle is implicit (180°) and `hem_type` is fixed at `"closed"` in v1.
+ */
+export function buildHemParams(
+  form: HemForm,
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+): SheetMetalHemParams | null {
+  const length = parsePositiveLengthMm(form.lengthInput, unit);
+  if (length === null) return null;
+  // Exactly ONE straight edge is hemmed; the wire `edge` is a single ref.
+  if (picked.length !== 1 || bodyFeatureId === null) return null;
+  const signature = picked[0];
+  if (signature === undefined) return null;
+
+  let bendRadius: number | null = null;
+  if (form.overrideBendRadius) {
+    bendRadius = parsePositiveLengthMm(form.bendRadiusInput, unit);
+    if (bendRadius === null) return null;
+  }
+  let kFactor: number | null = null;
+  if (form.overrideKFactor) {
+    kFactor = parseKFactor(form.kFactorInput);
+    if (kFactor === null) return null;
+  }
+
+  const params: SheetMetalHemParams = {
+    edge: edgeSubshapeRef(bodyFeatureId, signature),
+    length_mm: length,
+    hem_type: "closed",
+  };
+  // Omit inherited defaults (null) so the wire falls back to the base flange's.
+  if (bendRadius !== null) params.bend_radius_mm = bendRadius;
+  if (kFactor !== null) params.k_factor = kFactor;
+  return params;
+}
+
+/** True when the hem form can be submitted (valid length + one edge). */
+export function canSubmitHem(
+  form: HemForm,
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+): boolean {
+  return buildHemParams(form, picked, bodyFeatureId, unit) !== null;
+}
+
+// ---------------------------------------------------------------------------
+// Corner relief (rectangular) — parity §4.4
+// ---------------------------------------------------------------------------
+/**
+ * The editable corner-relief form. Unlike a hem this is NOT an edge pick: it
+ * names the two edge-flange FEATURES whose bends meet at the corner (`bendAId` /
+ * `bendBId`, each a feature id resolved to a `FeatureRef`). The notch is sized
+ * as `relief_ratio × gauge` by default; an absolute `size_mm` override wins when
+ * its toggle is on (the authoring convenience the schema documents).
+ */
+export interface CornerReliefForm {
+  bendAId: string;
+  bendBId: string;
+  reliefRatioInput: string;
+  overrideSize: boolean;
+  sizeInput: string;
+}
+
+/** The v1 default relief ratio: one gauge thickness (the tear-safe default). */
+export const SHEET_METAL_DEFAULT_RELIEF_RATIO = 1;
+
+/** The default new-corner-relief form: the two given bends, ratio 1.0, no size override. */
+export function defaultCornerReliefForm(
+  bendAId: string,
+  bendBId: string,
+): CornerReliefForm {
+  return {
+    bendAId,
+    bendBId,
+    reliefRatioInput: String(SHEET_METAL_DEFAULT_RELIEF_RATIO),
+    overrideSize: false,
+    sizeInput: "",
+  };
+}
+
+/** Seed the form from an existing corner-relief feature for editing (in `unit`). */
+export function formFromCornerReliefParams(
+  params: SheetMetalCornerReliefParams,
+  unit: LengthUnit,
+): CornerReliefForm {
+  const overrideSize = params.size_mm !== null && params.size_mm !== undefined;
+  return {
+    bendAId: params.bend_a.feature_id,
+    bendBId: params.bend_b.feature_id,
+    reliefRatioInput: String(params.relief_ratio),
+    overrideSize,
+    sizeInput: overrideSize
+      ? lengthInputValue(params.size_mm as number, unit)
+      : "",
+  };
+}
+
+/** Parse the relief ratio to a positive multiple of gauge, or null when invalid. */
+export function parseReliefRatio(input: string): number | null {
+  const trimmed = input.trim();
+  if (trimmed === "") return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
+
+/** Field-level relief-ratio message, or null when valid (empty is pending). */
+export function reliefRatioError(input: string): string | null {
+  if (input.trim() === "") return null;
+  return parseReliefRatio(input) === null
+    ? "Relief ratio must be a positive multiple of the gauge."
+    : null;
+}
+
+/** Field-level relief-size message, or null when valid (empty is pending). */
+export function reliefSizeError(
+  input: string,
+  unit: LengthUnit,
+): string | null {
+  if (input.trim() === "") return null;
+  return parsePositiveLengthMm(input, unit) === null
+    ? "Notch size must be a positive length."
+    : null;
+}
+
+/** The edge-flange features (id + name) a corner relief can reference, in tree order. */
+export function edgeFlangeOptions(
+  features: readonly FeatureResponse[],
+): { id: string; name: string }[] {
+  return features
+    .filter(
+      (f) => !f.rolled_back && f.feature.type === "sheet_metal_edge_flange",
+    )
+    .map((f) => ({ id: f.id, name: f.name }));
+}
+
+/**
+ * Build `SheetMetalCornerReliefParamsV1` from the form, or null when the ratio
+ * is invalid, the two bends are unset or identical, or an enabled size override
+ * is blank/invalid. `relief_type` is fixed at `"rectangular"` in v1; the wire
+ * still carries `relief_ratio` even under a size override (it has no null slot).
+ */
+export function buildCornerReliefParams(
+  form: CornerReliefForm,
+  unit: LengthUnit,
+): SheetMetalCornerReliefParams | null {
+  const ratio = parseReliefRatio(form.reliefRatioInput);
+  if (ratio === null) return null;
+  if (
+    form.bendAId === "" ||
+    form.bendBId === "" ||
+    form.bendAId === form.bendBId
+  ) {
+    return null;
+  }
+  let size: number | null = null;
+  if (form.overrideSize) {
+    size = parsePositiveLengthMm(form.sizeInput, unit);
+    if (size === null) return null;
+  }
+  const params: SheetMetalCornerReliefParams = {
+    bend_a: { kind: "feature", feature_id: form.bendAId },
+    bend_b: { kind: "feature", feature_id: form.bendBId },
+    relief_ratio: ratio,
+    relief_type: "rectangular",
+  };
+  if (size !== null) params.size_mm = size;
+  return params;
+}
+
+/** True when the corner-relief form can be submitted (valid ratio + two distinct bends). */
+export function canSubmitCornerRelief(
+  form: CornerReliefForm,
+  unit: LengthUnit,
+): boolean {
+  return buildCornerReliefParams(form, unit) !== null;
+}
+
+/** True when the part has ≥2 edge flanges to relieve a corner between (the gate). */
+export function canAuthorCornerRelief(
+  features: readonly FeatureResponse[],
+): boolean {
+  return edgeFlangeOptions(features).length >= 2;
+}
+
+// ---------------------------------------------------------------------------
 // Part-level sheet-metal state
 // ---------------------------------------------------------------------------
 /** The part's sheet-metal defaults, read from its base flange (edge flanges inherit). */
 export interface SheetMetalDefaults {
+  thicknessMm: number;
   bendRadiusMm: number;
   kFactor: number;
 }
 
 /**
  * The part's sheet-metal defaults from the FIRST non-rolled-back base flange,
- * or null when the part is not sheet metal. Edge-flange editors show these as
- * the inherited values behind their per-bend overrides.
+ * or null when the part is not sheet metal. Edge-flange / hem editors show the
+ * radius + K as the inherited values behind their per-bend overrides; the
+ * corner-relief editor uses the gauge thickness to preview the ratio-sized notch.
  */
 export function sheetMetalDefaults(
   features: readonly FeatureResponse[],
@@ -311,6 +572,7 @@ export function sheetMetalDefaults(
     if (f.feature.type === "sheet_metal_base_flange") {
       const params = f.feature.params;
       return {
+        thicknessMm: params.thickness_mm,
         bendRadiusMm: params.bend_radius_mm,
         kFactor: params.k_factor ?? SHEET_METAL_DEFAULT_K_FACTOR,
       };

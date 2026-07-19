@@ -99,6 +99,14 @@ export type SheetMetalEdgeFlangeFeature =
   components["schemas"]["SheetMetalEdgeFlangeFeature"];
 export type SheetMetalEdgeFlangeParams =
   components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
+export type SheetMetalHemFeature =
+  components["schemas"]["SheetMetalHemFeature"];
+export type SheetMetalHemParams =
+  components["schemas"]["SheetMetalHemParamsV1"];
+export type SheetMetalCornerReliefFeature =
+  components["schemas"]["SheetMetalCornerReliefFeature"];
+export type SheetMetalCornerReliefParams =
+  components["schemas"]["SheetMetalCornerReliefParamsV1"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =
@@ -713,6 +721,78 @@ export function edgeFlangeFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: edgeFlangeFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by hem create/update. */
+function hemFeatureEnvelope(params: SheetMetalHemParams): SheetMetalHemFeature {
+  return { type: "sheet_metal_hem", version: 1, params };
+}
+
+/**
+ * The create payload for a closed-hem feature: the picked straight edge of the
+ * sheet folded ~180° back flat onto the parent face (sheet-metal parity §2 —
+ * mechanically an edge flange with the fold angle FIXED at 180°, a named
+ * `EdgeSubshapeRef` against the current sheet body, inheriting the part's gauge
+ * defaults). Pure — unit-tested against the generated types.
+ */
+export function hemFeatureCreate(
+  name: string,
+  params: SheetMetalHemParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: hemFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing hem (no rename). */
+export function hemFeatureUpdate(
+  params: SheetMetalHemParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: hemFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by corner-relief create/update. */
+function cornerReliefFeatureEnvelope(
+  params: SheetMetalCornerReliefParams,
+): SheetMetalCornerReliefFeature {
+  return { type: "sheet_metal_corner_relief", version: 1, params };
+}
+
+/**
+ * The create payload for a corner-relief feature: a rectangular notch cut at the
+ * shared corner of TWO adjacent edge flanges so the corner develops into a
+ * single non-overlapping flat blank (sheet-metal parity §4.4). Unlike an edge
+ * pick it names the two bends by `FeatureRef` (the earlier edge-flange features
+ * that created them). Pure — unit-tested against the generated types.
+ */
+export function cornerReliefFeatureCreate(
+  name: string,
+  params: SheetMetalCornerReliefParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: cornerReliefFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing corner relief (no rename). */
+export function cornerReliefFeatureUpdate(
+  params: SheetMetalCornerReliefParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: cornerReliefFeatureEnvelope(params),
   };
 }
 

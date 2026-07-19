@@ -58,6 +58,8 @@ const STATUS_LABEL: Record<string, string> = {
 const FEATURE_TYPE_LABEL: Record<string, string> = {
   sheet_metal_base_flange: "base flange",
   sheet_metal_edge_flange: "edge flange",
+  sheet_metal_hem: "hem",
+  sheet_metal_corner_relief: "corner relief",
 };
 
 /** The badge text for a feature type — a friendly label, else the raw type. */

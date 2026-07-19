@@ -20,8 +20,9 @@ duplication.
   collision/exploded views, recursive BOM, assembly-STEP, part-version
   pinning), Interop (no IGES/named-assembly-structure/healing), Drawings (no
   assembly drawings/section+detail views/GD&T), Sheet metal (bend chains +
-  corner relief + closed hem now shipped; still no open/teardrop/rolled hems,
-  miters, tabs, or gauge tables).
+  corner relief + closed hem shipped AND all four features now click-authorable
+  in-app — base/edge flange, hem, corner relief editors; still no open/teardrop/
+  rolled hems, miters, tabs, or gauge tables).
 - **❌ rows (untouched, no design doc yet):** Performance (no benchmark suite
   — the cheapest concrete next move, Ready #1), Collaboration & versioning
   (Phase 3, unstarted), Extensibility/scripting + MCP (Phase 5, unstarted).
@@ -272,6 +273,20 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P1, M) Sheet metal — closed-hem + corner-relief AUTHORING UI
+      (frontend-builder). **SHIPPED 2026-07-19.** Both API-only features made
+      click-drivable, mirroring the base/edge-flange pattern (`47c88f4`): a
+      `HemEditor` (single-select edge pick, brass `length_mm` handle, fixed
+      "180° (closed)" fold readout, inherited radius/K overrides) and a
+      `CornerReliefEditor` (references the two edge-flange FEATURES via Bend A/B
+      selects — not an edge pick — with ratio + size-override, gated on ≥2 edge
+      flanges, typed `corner_relief_failed`/`reference_unresolved` in-editor).
+      New SHEET METAL toolbar actions + Hem/CornerRelief icons; e2e models a
+      hemmed plate and a relieved tray by clicking (body + flat pattern render);
+      founder shots `sheet-metal-hem-*.png` + `sheet-metal-corner-relief-*.png`.
+      Design-system primitives only, WCAG-AA, keyboard-first. A viewport bend-
+      face pick for corner relief is a noted follow-up.
+      [src: design/sheet-metal-parity.md §2/§3]
 - [x] (P1, M) Sheet metal — FULL 4-CORNER PAN corner relief (geometry,
       kernel-architect). **SHIPPED 2026-07-19.** Closed two blocker gaps (code
       review) that stopped the canonical pan/box use case. (1) A relief SHARING a

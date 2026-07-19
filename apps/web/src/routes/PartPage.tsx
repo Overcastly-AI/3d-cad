@@ -69,6 +69,12 @@ import {
   type SheetMetalEdgeFlangeParams,
   edgeFlangeFeatureCreate,
   edgeFlangeFeatureUpdate,
+  type SheetMetalHemParams,
+  hemFeatureCreate,
+  hemFeatureUpdate,
+  type SheetMetalCornerReliefParams,
+  cornerReliefFeatureCreate,
+  cornerReliefFeatureUpdate,
   type SweepParams,
   sweepFeatureCreate,
   sweepFeatureUpdate,
@@ -92,6 +98,8 @@ import { DraftEditor } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
 import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
+import { HemEditor } from "../components/HemEditor";
+import { CornerReliefEditor } from "../components/CornerReliefEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
 import { LoftEditor } from "../components/LoftEditor";
@@ -144,13 +152,22 @@ import {
 import { computeBodies } from "../features/bodies";
 import {
   type BaseFlangeForm,
+  canAuthorCornerRelief,
+  type CornerReliefForm,
   defaultBaseFlangeForm,
+  defaultCornerReliefForm,
   defaultEdgeFlangeForm,
+  defaultHemForm,
   type EdgeFlangeForm,
+  edgeFlangeOptions,
   formFromBaseFlangeParams,
+  formFromCornerReliefParams,
   formFromEdgeFlangeParams,
+  formFromHemParams,
+  type HemForm,
   isSheetMetalPart,
   pickedFromEdgeFlangeParams,
+  pickedFromHemParams,
   sheetMetalDefaults,
 } from "../features/sheetMetal";
 import { type CombineForm, defaultCombineForm } from "../features/boolean";
@@ -307,6 +324,19 @@ type OpenEditor =
       featureId?: string;
     }
   | {
+      kind: "hem";
+      mode: "create" | "edit";
+      initial: HemForm;
+      initialPicked: EdgeSignature[];
+      featureId?: string;
+    }
+  | {
+      kind: "cornerRelief";
+      mode: "create" | "edit";
+      initial: CornerReliefForm;
+      featureId?: string;
+    }
+  | {
       kind: "combine";
       mode: "create";
       initial: CombineForm;
@@ -327,6 +357,8 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   datum: "Datum plane",
   baseFlange: "Base flange",
   edgeFlange: "Edge flange",
+  hem: "Hem",
+  cornerRelief: "Corner relief",
   combine: "Combine",
 };
 
@@ -1064,6 +1096,13 @@ export function PartPage() {
   // from `isSheetMetal`; the edge-flange editor shows `smDefaults`.
   const smDefaults = useMemo(() => sheetMetalDefaults(features), [features]);
   const isSheetMetal = useMemo(() => isSheetMetalPart(features), [features]);
+  // Corner relief references TWO edge-flange FEATURES (not an edge pick), so it
+  // lights up only with ≥2 edge flanges, and the editor lists them by name.
+  const edgeFlangeOpts = useMemo(() => edgeFlangeOptions(features), [features]);
+  const canCornerRelief = useMemo(
+    () => canAuthorCornerRelief(features),
+    [features],
+  );
   // Datum features already in the tree, offered as reusable sketch planes in
   // the plane picker (a standalone datum seats many sketches — DRY).
   const datumPlaneOptions = useMemo(
@@ -1566,6 +1605,39 @@ export function PartPage() {
     });
   }, []);
 
+  // A closed hem folds ONE picked straight edge 180° back onto the sheet
+  // (parity §2). It picks like an edge flange (single-select), so it only needs
+  // a sheet body to exist.
+  const openCreateHem = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "hem",
+      mode: "create",
+      initial: defaultHemForm(),
+      initialPicked: [],
+    });
+  }, []);
+
+  // A corner relief notches the shared corner of two edge flanges (parity §4.4).
+  // It references two edge-flange FEATURES (not an edge pick), so it seeds the
+  // first two edge flanges in tree order; the user retargets either in the form.
+  const openCreateCornerRelief = useCallback(() => {
+    const opts = edgeFlangeOptions(tree.data?.features ?? []);
+    const a = opts[0]?.id ?? "";
+    const b = opts[1]?.id ?? "";
+    if (a === "" || b === "") return;
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "cornerRelief",
+      mode: "create",
+      initial: defaultCornerReliefForm(a, b),
+    });
+  }, [tree.data]);
+
   // Flat pattern (sheet-metal.md §7): unfold the sheet body onto a lone drawing
   // sheet, so the model → flatten loop is click-through from the part. It
   // creates a drawing named after the part (a numeric suffix dodges a name
@@ -1730,6 +1802,24 @@ export function PartPage() {
           initial: formFromEdgeFlangeParams(feature.feature.params, lengthUnit),
           initialPicked: pickedFromEdgeFlangeParams(feature.feature.params),
         });
+      } else if (feature.feature.type === "sheet_metal_hem") {
+        setEditor({
+          kind: "hem",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromHemParams(feature.feature.params, lengthUnit),
+          initialPicked: pickedFromHemParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "sheet_metal_corner_relief") {
+        setEditor({
+          kind: "cornerRelief",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromCornerReliefParams(
+            feature.feature.params,
+            lengthUnit,
+          ),
+        });
       } else if (
         feature.feature.type === "datum" &&
         feature.feature.params.kind !== "on_face"
@@ -1765,9 +1855,12 @@ export function PartPage() {
       (editor.kind === "fillet" || editor.kind === "chamfer")
     ) {
       store.open(editor.initialPicked, editor.initial.mode === "pick");
-    } else if (editor !== null && editor.kind === "edgeFlange") {
-      // An edge flange always picks (a lone straight edge to fold off) — single-
-      // select: a click replaces the pick rather than accumulating a set.
+    } else if (
+      editor !== null &&
+      (editor.kind === "edgeFlange" || editor.kind === "hem")
+    ) {
+      // An edge flange / hem always picks (a lone straight edge to fold) —
+      // single-select: a click replaces the pick rather than accumulating a set.
       store.open(editor.initialPicked, true, true);
     } else {
       store.close();
@@ -2047,6 +2140,46 @@ export function PartPage() {
         current.mode === "create",
         current.featureId,
         "The edge flange could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitHem = useCallback(
+    (params: SheetMetalHemParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "hem") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sheet_metal_hem").length + 1;
+      runFeatureSave(
+        (version) => hemFeatureCreate(`Hem${nextIndex}`, params, version),
+        (version) => hemFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The hem could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitCornerRelief = useCallback(
+    (params: SheetMetalCornerReliefParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "cornerRelief") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sheet_metal_corner_relief")
+          .length + 1;
+      runFeatureSave(
+        (version) =>
+          cornerReliefFeatureCreate(
+            `Corner relief${nextIndex}`,
+            params,
+            version,
+          ),
+        (version) => cornerReliefFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The corner relief could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -2539,6 +2672,10 @@ export function PartPage() {
               onNewBaseFlange={openCreateBaseFlange}
               canEdgeFlange={isSheetMetal}
               onNewEdgeFlange={openCreateEdgeFlange}
+              canHem={isSheetMetal}
+              onNewHem={openCreateHem}
+              canCornerRelief={canCornerRelief}
+              onNewCornerRelief={openCreateCornerRelief}
               canFlatPattern={isSheetMetal}
               flatteningPattern={flatPatternBusy}
               onFlatPattern={openFlatPattern}
@@ -2719,6 +2856,28 @@ export function PartPage() {
                       bodyFeatureId={bodyFeatureId}
                       defaults={smDefaults}
                       onSubmit={submitEdgeFlange}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "hem" ? (
+                    <HemEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      bodyFeatureId={bodyFeatureId}
+                      defaults={smDefaults}
+                      onSubmit={submitHem}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "cornerRelief" ? (
+                    <CornerReliefEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      edgeFlanges={edgeFlangeOpts}
+                      defaults={smDefaults}
+                      onSubmit={submitCornerRelief}
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}

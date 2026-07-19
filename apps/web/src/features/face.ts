@@ -39,10 +39,13 @@ export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "draft",
   "pattern",
   "import",
-  // Sheet metal: the base flange produces the sheet body, an edge flange folds
-  // onto it (sheet-metal.md §4) — both anchor a later face/edge pick.
+  // Sheet metal: the base flange produces the sheet body; edge flange / hem /
+  // corner relief each MODIFY it (sheet-metal.md §4, parity §2/§4.4) — all
+  // anchor a later face/edge pick.
   "sheet_metal_base_flange",
   "sheet_metal_edge_flange",
+  "sheet_metal_hem",
+  "sheet_metal_corner_relief",
 ]);
 
 /**
