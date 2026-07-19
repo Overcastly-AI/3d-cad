@@ -1099,14 +1099,16 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
       (`docs/design/step-import.md` §2a); removes the inline
       `MAX_INLINE_STEP_CHARS` (16 MiB) cap for real-world assemblies-worth-
       of-geometry files. [src: roadmap, step-import.md]
-- [ ] (P3, L) STEP import v2: IGES, multi-solid/assembly, sew/repair healing
-      — the three deferred scope items from `4964fab`'s v1: (1) IGES as a
-      second import format alongside STEP; (2) multi-solid source files
-      (today: single-solid or a legible `import_not_single_solid` error) —
-      likely couples to the assemblies pillar rather than shipping
-      standalone; (3) a real sew/repair healing report beyond raw shape
-      stats. Split into independent slices when picked up. [src: roadmap,
-      geometry-qa, step-import.md]
+- [ ] (P3, L) STEP import v2: IGES, assembly product-structure, sew/repair
+      healing — the deferred scope from `4964fab`'s v1, minus multi-solid
+      GEOMETRY which shipped in MB-4b (a multi-solid STEP now imports as one
+      multi-lump body; `import_no_solid` rejects only the 0-solid case):
+      (1) IGES as a second import format alongside STEP; (2) named ASSEMBLY
+      product-structure (the STEP AP242 product hierarchy → an assembly of
+      instances, distinct from MB-4b's flatten-to-lumps) — couples to the
+      assemblies pillar; (3) a real sew/repair healing report beyond raw
+      shape stats. Split into independent slices when picked up. [src:
+      roadmap, geometry-qa, step-import.md]
 - [ ] (P3, S) py-kit: align FastAPI 422 OpenAPI schema with the py-kit error
       envelope (currently documents HTTPValidationError)
       [src: kernel-architect]

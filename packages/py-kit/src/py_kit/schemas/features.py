@@ -1214,7 +1214,8 @@ class ImportParamsV1(BaseModel):
         min_length=1,
         max_length=MAX_INLINE_STEP_CHARS,
         description="STEP AP214 part-21 file text (inline). Bounded/non-empty at "
-        "parse time (422); parsed to exactly one solid by the geometry service.",
+        "parse time (422); parsed to one or more solids by the geometry service "
+        "(multi-solid → one multi-lump body, MB-4b; 0 solids → import_no_solid).",
     )
 
 
