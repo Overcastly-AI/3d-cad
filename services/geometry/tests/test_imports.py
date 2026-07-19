@@ -1,11 +1,13 @@
 """STEP import — kernel reader + evaluate handler (docs/design/step-import.md).
 
 Covers the geometry-side import slice: the low-level ``import_step_solid``
-reader (single-solid happy path, parse failure, not-single-solid), and the
-``import`` feature handler through ``evaluate_tree`` (a base feature that SETS
-the body, the ``import_with_prior_body`` guard, and per-feature error mapping —
-never a 500). The round-trip *fidelity* proof (mass props / topology preserved)
-lives in the golden ``import-step-box-10x20x30`` and the golden runner; here we
+reader (single-solid happy path, MULTI-solid → a lump-sorted multi-lump Compound
+body §MB-4b, parse failure, the ZERO-solid ``import_no_solid`` rejection), and
+the ``import`` feature handler through ``evaluate_tree`` (a base feature that
+SETS the body, the second-body path, and per-feature error mapping — never a
+500). The round-trip *fidelity* proof (mass props / topology preserved) lives in
+the goldens ``import-step-box-10x20x30`` (single solid, byte-identical) and
+``import-step-two-disjoint-boxes`` (multi-lump) and the golden runner; here we
 exercise the code paths and error taxonomy.
 """
 
@@ -17,6 +19,7 @@ from typing import Any
 import pytest
 from build123d import (
     Compound,
+    Face,
     Location,
     Solid,
     export_step,  # pyright: ignore[reportUnknownVariableType]
@@ -24,13 +27,14 @@ from build123d import (
 from fastapi.testclient import TestClient
 from geometry.features import evaluate_tree
 from geometry.kernel import (
-    ImportNotSingleSolidError,
+    ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
     export_step_bytes,
     import_step_solid,
     measure_shape,
 )
+from geometry.kernel.lumps import lump_sort_key
 from geometry.main import app
 from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
 
@@ -100,16 +104,55 @@ def test_import_step_solid_rejects_empty() -> None:
         import_step_solid("   ")
 
 
-def test_import_step_solid_rejects_multi_solid_with_stats() -> None:
-    """A compound of two disjoint solids is import_not_single_solid, and the
-    message carries the honest shape stats (the v1 healing report)."""
-    far = Solid.make_box(5, 5, 5).located(Location((50, 0, 0)))
-    two = Compound([Solid.make_box(10, 10, 10), far])
+def test_import_step_multi_solid_is_one_lump_sorted_body() -> None:
+    """A STEP with >=2 solids imports as ONE multi-lump Compound (§MB-4b), the
+    lumps in the deterministic centroid/volume sort — NOT rejected, NOT N bodies.
+
+    The two cubes are authored REVERSED (B before A) in the compound so the
+    reader's solid order is the reverse of the sort; the imported body must still
+    order lump A (x-centroid 10) before lump B (x-centroid 40), proving the sort
+    makes import deterministic regardless of OCCT's traversal order."""
+    cube_a = Solid.make_box(20, 20, 20)  # x-centroid 10
+    cube_b = Solid.make_box(20, 20, 20).located(Location((30, 0, 0)))  # x-centroid 40
     buffer = io.BytesIO()
-    assert export_step(two, buffer)
-    with pytest.raises(ImportNotSingleSolidError) as excinfo:
+    assert export_step(Compound([cube_b, cube_a]), buffer)
+
+    body = import_step_solid(buffer.getvalue().decode("utf-8"))
+    assert isinstance(body, Compound)
+    lumps = body.solids()
+    assert len(lumps) == 2
+    # Lumps are in centroid-x order (A before B), not the authored (B, A) order.
+    xs = [lump_sort_key(s)[0] for s in lumps]
+    assert xs == sorted(xs)
+    assert xs[0] == pytest.approx(10.0, abs=1e-7)
+    assert xs[1] == pytest.approx(40.0, abs=1e-7)
+
+    measured = measure_shape(body)
+    assert measured.volume == pytest.approx(16000.0, abs=1e-7)
+    assert measured.topology.shells == 2
+
+
+def test_import_step_multi_solid_lump_order_is_deterministic() -> None:
+    """Re-importing the same multi-solid STEP yields the same lump order."""
+    cube_a = Solid.make_box(20, 20, 20)
+    cube_b = Solid.make_box(20, 20, 20).located(Location((30, 0, 0)))
+    buffer = io.BytesIO()
+    assert export_step(Compound([cube_b, cube_a]), buffer)
+    text = buffer.getvalue().decode("utf-8")
+
+    keys_a = [lump_sort_key(s) for s in import_step_solid(text).solids()]
+    keys_b = [lump_sort_key(s) for s in import_step_solid(text).solids()]
+    assert keys_a == keys_b
+
+
+def test_import_step_rejects_zero_solid_with_stats() -> None:
+    """A surfaces-only STEP (no solids) is import_no_solid, and the message
+    carries the honest shape stats. A file with >=1 solid is a SUCCESS."""
+    buffer = io.BytesIO()
+    assert export_step(Face.make_rect(10, 10), buffer)
+    with pytest.raises(ImportNoSolidError) as excinfo:
         import_step_solid(buffer.getvalue().decode("utf-8"))
-    assert "found 2" in str(excinfo.value)
+    assert "no solids" in str(excinfo.value)
 
 
 # --- hard wall-clock bound (design §6, BACKLOG P1) ------------------------------

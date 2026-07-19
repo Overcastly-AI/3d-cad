@@ -52,7 +52,7 @@ from geometry.kernel.faces import (
 )
 from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.imports import (
-    ImportNotSingleSolidError,
+    ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
     import_step_solid,
@@ -118,7 +118,7 @@ __all__ = [
     "EdgeRecord",
     "FaceResolutionError",
     "FilletError",
-    "ImportNotSingleSolidError",
+    "ImportNoSolidError",
     "ImportParseError",
     "ImportParseTimeoutError",
     "LoftError",

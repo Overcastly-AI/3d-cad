@@ -17,6 +17,8 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
     "These bodies don't overlap — or the subtract removes the whole body — so there's no solid left to keep.",
   boolean_disjoint:
     "This boolean splits the body into separate pieces, which isn't supported yet — a body must stay one connected solid.",
+  import_no_solid:
+    "This STEP file has no solid geometry to import — only surfaces, shells, or wireframe. Provide a file with at least one closed solid.",
 };
 
 /**

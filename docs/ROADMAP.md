@@ -13,8 +13,9 @@ pattern" editor action + founder screenshots) all landed. **v1 DoD MET:
 P3 polish closed 2026-07-19 (text-accessible `BendSchedulePanel`, token-driven
 fold-line legend dash, de-magic'd bend-table columns — UI-REVIEW 2026-07-19). The intervening
 pillars all shipped: **Assemblies** (Phase 3), **Drawings** (Phase 4a), and
-the **Multi-body** pillar through MB-4a (multi-lump bodies + opt-in disjoint
-union). The historical convergence notes below are retained as-is.
+the **Multi-body** pillar through MB-4b (multi-lump bodies, opt-in disjoint
+union, and multi-solid STEP import → ONE multi-lump body). The historical
+convergence notes below are retained as-is.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
@@ -22,7 +23,8 @@ last gaps to ✅ (sketch dimension expressions + driving/driven,
 constrainable spline fit points, and typed over-constraint diagnosis closed
 Sketching; multi-loop-cut + pattern-a-cut closed Part modeling, held under
 the showcase stress test). Interop stands at ➖ (STEP import shipped
-end-to-end; IGES/multi-solid deferred). The F7 gateway-auth security gap
+end-to-end, incl. multi-solid → one multi-lump body (MB-4b); IGES deferred).
+The F7 gateway-auth security gap
 closed the same day (`36dc3d9`). Full evidence: `CHANGELOG.md`.
 
 Both independent audits re-baselined 2026-07-15 and converge on the same
@@ -379,8 +381,16 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       → ONE multi-lump body via `allow_disjoint`, 16000 mm³, shells=2, 12/24) and
       `boolean-union-disjoint-then-fillet-lump2` (fillet lump 2's edge → 15920+20π
       mm³, 13/27/2 — cross-lump topo-naming to exactly one edge), byte-identical
-      GLB+STEP across restart; every existing golden unchanged. MB-4b (multi-solid
-      STEP import) + MB-4c (frontend `allow_disjoint` checkbox) next.
+      GLB+STEP across restart; every existing golden unchanged. **MB-4b SHIPPED
+      2026-07-19:** multi-solid STEP import → ONE multi-lump body
+      (`import_step_solid` returns `BodyShape` — one solid stays a bare `Solid`
+      byte-identically, ≥2 → a lump-sorted `Compound` preserved as authored, never
+      fused); `ImportNotSingleSolidError` → `ImportNoSolidError`
+      (`import_not_single_solid` → `import_no_solid`, rejects ONLY 0 solids), rippled
+      through contracts/ts-client/`featureErrors.ts`; golden
+      `import-step-two-disjoint-boxes` (2-solid STEP authored reversed → 16000 mm³,
+      shells=2, deterministic regardless of reader order). **Interop scorecard:
+      multi-solid STEP import ❌→✅.** MB-4c (frontend `allow_disjoint` checkbox) next.
 - ✅ **Units (length) v1 — `docs/design/units.md` (U1+U2 landed 2026-07-17).**
       Load-bearing rule: storage +
       kernel stay canonical mm forever; `length_unit` is display metadata only.

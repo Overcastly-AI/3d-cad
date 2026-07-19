@@ -152,25 +152,27 @@ inverse.
 ## 4. Decision 4 — healing report scope: v1 is "single solid or legible error"
 
 OCCT STEP read can yield a single solid, a compound of several solids, open
-shells, or non-solid geometry (surfaces/wireframe). v1 accepts **exactly one
-solid** and otherwise fails with a **legible, stats-bearing** per-feature error
-— it does **not** sew/heal/repair:
+shells, or non-solid geometry (surfaces/wireframe). Import accepts **one or more
+solids** and only rejects a **zero-solid** file, with a **legible, stats-bearing**
+per-feature error — it does **not** sew/heal/repair:
 
 - **Exactly one `TopAbs_SOLID`** in the transferred shape → wrap it as the body
-  (`ok`).
-- **Zero, or more than one, solids** → `import_not_single_solid`, whose message
-  carries the honest shape stats — *how many* solids/shells/faces were found and
-  whether a closed shell exists. That message **is** the v1 "healing report":
-  the shape's composition, surfaced honestly, so a user learns *why* their file
-  was rejected (e.g. "found 2 solids — multi-solid assemblies are not supported
-  yet" or "found 0 solids, 3 open shells — surface/wireframe STEP is not a
-  solid"). Verified: a compound of two disjoint boxes reads as a
-  `TopAbs_COMPOUND` with 2 solids → rejected with that count.
-- **Deferred, named not built:** IGES import; multi-solid → assembly / multi-body
-  parts; sewing open shells into a solid; surface repair / small-face removal;
-  a structured healing-report DTO across the boundary. Each is an additive
-  follow-up (a new `format` literal, a new error/report shape) that does not
-  reshape v1's params.
+  (`ok`), a bare `Solid`.
+- **Two or more solids** (SUPERSEDED 2026-07-19 by multi-body §MB-4b — see
+  `docs/design/multi-body.md`) → ONE multi-lump body, a lump-sorted `Compound`
+  of the file's solids preserved AS AUTHORED (not fused — import is not a
+  boolean), `ok`. This was formerly the `import_not_single_solid` rejection.
+- **Zero solids** → `import_no_solid`, whose message carries the honest shape
+  stats — *how many* shells/faces were found. That message **is** the "healing
+  report": the shape's composition, surfaced honestly, so a user learns *why*
+  their file has no importable body (e.g. "found no solids (shells=3) —
+  surface/wireframe STEP is not a solid"). Verified: a lone face reads as
+  `shells=1, faces=1`, 0 solids → rejected with that count.
+- **Deferred, named not built:** IGES import; splitting a multi-lump body into
+  independent bodies ("split bodies"); sewing open shells into a solid; surface
+  repair / small-face removal; a structured healing-report DTO across the
+  boundary. Each is an additive follow-up (a new `format` literal, a new
+  error/report shape) that does not reshape v1's params.
 
 The mass-properties/topology of the accepted body flow out through the standard
 `EvaluateTreeResult.properties` — when import is the last feature, those numbers
@@ -191,7 +193,8 @@ dispatcher's belt-and-braces `evaluation_failed` (never a tree-wide 500).
 |---|---|---|
 | STEP text OCCT cannot parse (`ReadFile` ≠ `RetDone`, or a transfer raise) | per-feature error, 200 | `import_parse_failed` |
 | Parse exceeds the wall-clock bound → killable subprocess SIGKILLed (§6) | per-feature error, 200 | `import_parse_timeout` |
-| Parsed but not exactly one solid (0, or ≥2; open shells; surfaces only) | per-feature error, 200 | `import_not_single_solid` |
+| Parsed but yielded ZERO solids (open shells; surfaces/wireframe only) | per-feature error, 200 | `import_no_solid` |
+| Parsed with ≥2 solids (multi-body §MB-4b) | **success**, one multi-lump `Compound` body | — |
 | Import with a body already present in the prefix | per-feature error, 200 | `import_with_prior_body` |
 | `data` empty or over the size bound (§6) | **request-validation 422** | pydantic `validation_error` |
 

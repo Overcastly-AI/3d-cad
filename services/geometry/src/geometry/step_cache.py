@@ -23,7 +23,7 @@ runs the UNCHANGED :func:`geometry.kernel.import_step_solid`, whose untrusted
 OCCT parse runs in the timeout-bounded, SIGKILL-able, subprocess-isolated
 worker. The 16 MiB size cap is enforced at request validation (a 422) BEFORE a
 feature is dispatched, so it is never bypassed either. Only a body that ALREADY
-parsed cleanly once (single solid, within the wall-clock bound) is ever cached,
+parsed cleanly once (one or more solids, within the wall-clock bound) is cached,
 so a hit is reached only for input that has already cleared every bound — a hit
 never short-circuits the timeout or the size cap.
 
@@ -43,13 +43,12 @@ import hashlib
 import threading
 from collections import OrderedDict
 
-from build123d import Solid
-
 from geometry.kernel import (
     import_step_solid,
     solid_from_brep_bytes,
     solid_to_brep_bytes,
 )
+from geometry.kernel.types import BodyShape
 
 #: Max cached parsed bodies. Small on purpose — the cache is a per-worker perf
 #: optimisation, not correctness, so a modest window covers a working session's
@@ -118,17 +117,22 @@ def reset_step_cache() -> None:
     _cache = StepParseCache(STEP_CACHE_CAPACITY)
 
 
-def import_step_solid_cached(step_text: str, *, timeout_s: float) -> Solid:
-    """Parse *step_text* into a single :class:`Solid`, caching the result.
+def import_step_solid_cached(step_text: str, *, timeout_s: float) -> BodyShape:
+    """Parse *step_text* into a :data:`BodyShape`, caching the result.
+
+    Returns a bare :class:`~build123d.Solid` for a single-solid file or a
+    lump-sorted :class:`~build123d.Compound` for a multi-solid one (§MB-4); the
+    cached BREP bytes round-trip either body type (see
+    :func:`~geometry.kernel.solid_from_brep_bytes`).
 
     The cached funnel the ``import`` evaluate handler calls instead of
     :func:`geometry.kernel.import_step_solid` directly. On a HIT, the parsed
     body is re-read from cached BREP bytes into a fresh shape and the killable
     subprocess parse is SKIPPED. On a MISS, the UNCHANGED bounded parse runs
     (preserving the timeout + subprocess isolation of design §6), and only its
-    successful result is cached — a raise (timeout / parse failure / not a
-    single solid) is never cached, so a rejected input re-enforces every bound
-    on the next attempt.
+    successful result is cached — a raise (timeout / parse failure / no solids)
+    is never cached, so a rejected input re-enforces every bound on the next
+    attempt.
 
     Raises exactly what :func:`import_step_solid` raises on a miss; a hit cannot
     raise those (only cleanly-parsed bodies are ever cached).
@@ -137,6 +141,6 @@ def import_step_solid_cached(step_text: str, *, timeout_s: float) -> Solid:
     cached = _cache.get(key)
     if cached is not None:
         return solid_from_brep_bytes(cached)
-    solid = import_step_solid(step_text, timeout_s=timeout_s)
-    _cache.put(key, solid_to_brep_bytes(solid))
-    return solid
+    body = import_step_solid(step_text, timeout_s=timeout_s)
+    _cache.put(key, solid_to_brep_bytes(body))
+    return body

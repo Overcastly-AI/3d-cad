@@ -1194,11 +1194,15 @@ class ImportParamsV1(BaseModel):
     ``STEPControl_Reader`` (units pinned to mm, RESEARCH §9): the same bytes yield
     a byte-identical body/mesh across rebuilds and interpreter restarts.
 
-    v1 accepts EXACTLY ONE solid; a compound / open shells / surfaces-only file
-    is an honest ``import_not_single_solid`` rebuild error whose message carries
-    the shape stats (the v1 "healing report" — §4), and unparseable bytes are
-    ``import_parse_failed`` (§5). Sewing/repair, multi-solid assemblies, IGES,
-    and a positioned insert against an existing body are deferred (§7).
+    A file with ONE solid becomes a bare solid body; a file with TWO OR MORE
+    solids becomes ONE multi-lump body — a lump-sorted compound of its disjoint
+    solids (docs/design/multi-body.md §MB-4), not several bodies. STEP import is
+    not a boolean: the file's solids are preserved AS AUTHORED (touching or
+    overlapping solids are kept as separate lumps, never silently fused). Only a
+    file that yields ZERO solids (open shells / surfaces-only / wireframe) is an
+    honest ``import_no_solid`` rebuild error whose message carries the shape
+    stats, and unparseable bytes are ``import_parse_failed`` (§5). Sewing/repair,
+    IGES, and a positioned insert against an existing body are deferred (§7).
 
     ``kind``/``format`` default so a future blob-ref source (§2a) and IGES join
     additively with no ``param_version`` bump.

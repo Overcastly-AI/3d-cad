@@ -1,10 +1,17 @@
-"""STEP import — read an external STEP part into a single build123d solid.
+"""STEP import — read an external STEP part into a build123d body.
 
 The inverse of :mod:`geometry.kernel.export` (docs/design/step-import.md): given
 the STEP AP214 part-21 TEXT of an external part, parse it into the part's base
-body. v1 accepts EXACTLY ONE solid and otherwise fails with a legible,
-stats-bearing error (§4) — it does not sew/heal/repair, and IGES / multi-solid
-assemblies are deferred (§7).
+body (:data:`~geometry.kernel.types.BodyShape`). A file with **exactly one
+solid** stays a bare :class:`~build123d.Solid` (byte-identical to the
+single-solid pipeline); a file with **two or more solids** becomes ONE
+multi-lump body — a lump-sorted :class:`~build123d.Compound` of its disjoint
+solids (docs/design/multi-body.md §MB-4), NOT N separate bodies and NOT a
+rejection. STEP import is not a boolean: the file's solids are preserved AS
+AUTHORED, each a separate lump, even if two solids happen to touch or overlap —
+we never silently fuse them. Only a file that yields **zero** solids
+(surfaces-only / open shells / wireframe / annotations) is an error. It does not
+sew/heal/repair, and IGES is deferred (§7).
 
 **Hard wall-clock bound (design §6, BACKLOG P1).** A STEP file is untrusted
 external input and OCCT's transfer is not guaranteed linear in input size, so a
@@ -49,13 +56,16 @@ import subprocess
 import sys
 import tempfile
 
-from build123d import Solid
+from build123d import Compound, Solid
 from OCP.BRep import BRep_Builder
 from OCP.BRepTools import BRepTools
-from OCP.TopAbs import TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID
+from OCP.TopAbs import TopAbs_COMPOUND, TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 from OCP.TopTools import TopTools_FormatVersion
+
+from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.types import BodyShape
 
 #: Default hard wall-clock bound (seconds) for the untrusted OCCT parse. A few
 #: seconds comfortably clears a real mechanical part's transfer while capping an
@@ -84,10 +94,11 @@ class ImportParseTimeoutError(Exception):
     no hang, no zombie, no 500."""
 
 
-class ImportNotSingleSolidError(Exception):
-    """The STEP parsed but did not yield exactly one solid — the v1 healing
-    report (maps to ``import_not_single_solid``). Carries the shape stats so a
-    rejection is legible."""
+class ImportNoSolidError(Exception):
+    """The STEP parsed but yielded ZERO solids — surfaces-only, open shells,
+    wireframe, or annotations (maps to ``import_no_solid``). Carries the shape
+    stats so a rejection is legible. A file with one OR MORE solids is a SUCCESS
+    (a single-lump or multi-lump body, §MB-4), never this error."""
 
 
 def _count(shape: object, kind: object) -> int:
@@ -107,8 +118,8 @@ def _read_brep(path: str) -> TopoDS_Shape:
     return shape
 
 
-def solid_to_brep_bytes(solid: Solid) -> bytes:
-    """Serialize *solid* to deterministic, geometry-only BREP bytes.
+def solid_to_brep_bytes(body: BodyShape) -> bytes:
+    """Serialize *body* to deterministic, geometry-only BREP bytes.
 
     OCCT's native lossless serialization — the SAME format the parse worker uses
     to cross the process boundary — written to an in-memory stream so the STEP
@@ -120,11 +131,14 @@ def solid_to_brep_bytes(solid: Solid) -> bytes:
     across interpreter restarts (RESEARCH §9). Because a fresh solid is
     round-tripped BEFORE any downstream op meshes it, and BREP write→read is
     idempotent on an already-BREP-read shape (the parse worker already returns
-    one), the cached body tessellates byte-identically to the direct parse.
+    one), the cached body tessellates byte-identically to the direct parse. A
+    multi-lump import body is a :class:`~build123d.Compound`; BREP write
+    serializes its lump order verbatim, so a cache round-trip preserves the
+    :func:`~geometry.kernel.lumps.assemble_lumps` sort (§MB-4).
     """
     stream = io.BytesIO()
     BRepTools.Write_s(
-        solid.wrapped,
+        body.wrapped,
         stream,
         False,  # theWithTriangles — geometry only, never a cached mesh
         False,  # theWithNormals
@@ -133,18 +147,23 @@ def solid_to_brep_bytes(solid: Solid) -> bytes:
     return stream.getvalue()
 
 
-def solid_from_brep_bytes(data: bytes) -> Solid:
-    """Deserialize BREP *data* into a FRESH :class:`Solid` (parent side).
+def solid_from_brep_bytes(data: bytes) -> BodyShape:
+    """Deserialize BREP *data* into a FRESH :data:`BodyShape` (parent side).
 
     Every call builds a brand-new :class:`~OCP.TopoDS.TopoDS_Shape` from the
     bytes, so a cache hit never shares a mutable OCCT shape across evaluations:
     downstream tessellation (which stores its triangulation INTO the shape's
     TShape) and the FastAPI threadpool can never race or interfere on a shared
     body — the exact hazard that makes caching a live shape unsafe. Re-reading
-    bytes is in-process and cheap versus re-spawning the OCCT parse worker.
+    bytes is in-process and cheap versus re-spawning the OCCT parse worker. A
+    compound-topology payload (a multi-lump import body, §MB-4) is re-wrapped as
+    a :class:`~build123d.Compound` — its lump order is exactly what was written —
+    so a cache hit returns the SAME body type the direct parse did.
     """
     shape = TopoDS_Shape()
     BRepTools.Read_s(shape, io.BytesIO(data), BRep_Builder())
+    if shape.ShapeType() == TopAbs_COMPOUND:
+        return Compound(shape)
     return Solid(shape)
 
 
@@ -195,14 +214,21 @@ def _run_parse_worker(step_text: str, timeout_s: float) -> TopoDS_Shape:
 
 def import_step_solid(
     step_text: str, *, timeout_s: float = DEFAULT_STEP_IMPORT_TIMEOUT_S
-) -> Solid:
-    """Parse STEP AP214 part-21 *step_text* into a single :class:`Solid`.
+) -> BodyShape:
+    """Parse STEP AP214 part-21 *step_text* into a :data:`BodyShape`.
 
-    Deterministic (units pinned to mm in the worker; see module docstring). The
-    untrusted OCCT parse runs in a subprocess bounded by *timeout_s* (design §6).
-    Raises rather than returning a sentinel so the evaluate handler maps each
-    failure to its per-feature error code — a geometry outcome is never a 500
-    (design §4.3).
+    One solid → a bare :class:`Solid` (byte-identical to the single-solid
+    pipeline); two or more solids → ONE lump-sorted :class:`~build123d.Compound`
+    (a multi-lump body, §MB-4). The file's solids are preserved AS AUTHORED —
+    each becomes a lump, and touching/overlapping solids are NOT fused (STEP
+    import is not a boolean). Determinism (units pinned to mm in the worker; see
+    module docstring): OCCT's solid-traversal order is not a contract, so the
+    lumps are put through :func:`~geometry.kernel.lumps.assemble_lumps`'s
+    explicit sort (centroid x/y/z, then volume), yielding a byte-identical body
+    regardless of the reader's order. The untrusted OCCT parse runs in a
+    subprocess bounded by *timeout_s* (design §6). Raises rather than returning a
+    sentinel so the evaluate handler maps each failure to its per-feature error
+    code — a geometry outcome is never a 500 (design §4.3).
 
     Args:
         step_text: the STEP AP214 part-21 text (already size-bounded upstream).
@@ -215,28 +241,33 @@ def import_step_solid(
         ImportParseError: OCCT could not read the payload (bad/empty/truncated
             STEP), or the worker exited non-zero for any other reason (maps to
             ``import_parse_failed``).
-        ImportNotSingleSolidError: the file parsed but yielded zero or more than
-            one solid (open shells, surfaces-only, or a multi-solid assembly).
-            The message carries the shape stats (v1 healing report).
+        ImportNoSolidError: the file parsed but yielded ZERO solids (surfaces
+            only, open shells, or wireframe). The message carries the shape stats.
     """
     shape = _run_parse_worker(step_text, timeout_s)
 
     if shape is None or shape.IsNull():
-        raise ImportNotSingleSolidError(
+        raise ImportNoSolidError(
             "The STEP file transferred no geometry (found 0 solids); it may "
             "contain only surfaces, wireframe, or annotations."
         )
 
-    solids = _count(shape, TopAbs_SOLID)
-    if solids != 1:
+    solid_count = _count(shape, TopAbs_SOLID)
+    if solid_count == 0:
         shells = _count(shape, TopAbs_SHELL)
         faces = _count(shape, TopAbs_FACE)
-        raise ImportNotSingleSolidError(
-            f"STEP import expects exactly one solid, but found {solids} "
-            f"(shells={shells}, faces={faces}). Multi-solid assemblies, open "
-            "shells, and surface/wireframe geometry are not supported yet; "
-            "provide a single closed solid."
+        raise ImportNoSolidError(
+            f"STEP import found no solids (shells={shells}, faces={faces}). "
+            "Open shells and surface/wireframe geometry are not supported; "
+            "provide a closed solid (or a file of several closed solids)."
         )
 
+    # One or more solids: preserve each as a lump AS AUTHORED (no fusing) and let
+    # assemble_lumps impose the deterministic order. A lone solid returns bare
+    # (byte-identical to today); >=2 return a lump-sorted Compound (§MB-4).
     explorer = TopExp_Explorer(shape, TopAbs_SOLID)
-    return Solid(TopoDS.Solid_s(explorer.Current()))
+    solids: list[Solid] = []
+    while explorer.More():
+        solids.append(Solid(TopoDS.Solid_s(explorer.Current())))
+        explorer.Next()
+    return assemble_lumps(solids)

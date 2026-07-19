@@ -21,8 +21,9 @@ duplication:
   under the showcase stress test the pass before. Residual, non-gating scope
   boundaries: multi-body boolean, spline tangency, expression functions/units.
 - **Interop — ➖.** STEP import shipped end-to-end (upload → sketch-on-it →
-  re-export), verified live by the product-auditor. IGES, multi-solid,
-  healing report deferred (Later).
+  re-export), verified live by the product-auditor. **Multi-solid STEP import
+  now lands as ONE multi-lump body (MB-4b, 2026-07-19)** — a multi-solid file is
+  no longer rejected. IGES and a structured healing report remain deferred (Later).
 - **Assemblies — ➖ (2026-07-15, flipped from ❌).** v1 MVP shipped
   end-to-end this batch (documents → solver → resolution → evaluation →
   gateway → viewport, all 6 Ready slices below), golden independently
@@ -1005,11 +1006,21 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
         `boolean-union-disjoint-then-fillet-lump2` (fillet lump 2 → 15920+20π mm³,
         13/27/2), byte-identical across restart; every existing golden unchanged;
         mate-against-multi-lump-face regression added. [kernel-architect]
-  - [ ] (P3, M) **MB-4b** — multi-solid STEP import → ONE multi-lump body
-        (`import_step_solid` returns `BodyShape`; a lone solid stays a bare
-        `Solid`, ≥2 lump-sorted `Compound`); rename `ImportNotSingleSolidError`
-        "not single" → reject only 0 solids (`import_no_solid`; ripples py-kit →
-        ts-client → `featureErrors.ts`). [src: docs/design/multi-body.md §MB-4]
+  - [x] (P3, M) **MB-4b — SHIPPED 2026-07-19.** Multi-solid STEP import → ONE
+        multi-lump body. `import_step_solid`/`import_step_solid_cached` return
+        `BodyShape`: one solid → a bare `Solid` (existing `import-step-box-10x20x30`
+        golden byte-identical); ≥2 solids → a lump-sorted `Compound` via
+        `lumps.assemble_lumps` (centroid x/y/z, volume — the SAME sort the disjoint
+        goldens use), preserved AS AUTHORED (touching/overlapping solids kept as
+        separate lumps, never fused — import is not a boolean). `step_cache` BREP
+        helpers widened to `BodyShape`. Renamed `ImportNotSingleSolidError` →
+        `ImportNoSolidError` (`import_not_single_solid` → `import_no_solid`, rejects
+        ONLY 0 solids); rippled py-kit docstring → contracts → ts-client →
+        `featureErrors.ts`. Golden `import-step-two-disjoint-boxes` (2-solid STEP
+        authored REVERSED → ONE 2-lump body, 16000 mm³, shells=2, 12/24/2, mesh
+        48/24, byte-identical GLB+STEP across restart — proves the sort makes import
+        deterministic regardless of reader order). Flips VISION Interop scorecard
+        "multi-solid STEP import" from ❌ (rejected) to ✅. [kernel-architect]
   - [ ] (P3, S) **MB-4c** — frontend `allow_disjoint` checkbox on the Combine
         editor + a multi-lump Bodies-panel row + `boolean_disjoint` error copy
         that offers "keep as one body". [src: docs/design/multi-body.md §MB-4]

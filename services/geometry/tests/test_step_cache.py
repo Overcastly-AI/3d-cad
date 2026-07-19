@@ -31,6 +31,7 @@ from geometry.kernel import (
     export_step_bytes,
     import_step_solid,
 )
+from geometry.kernel.types import BodyShape
 from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
 
 PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000000fc")
@@ -82,7 +83,7 @@ def _spy_parse(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     calls = 0
     real = import_step_solid
 
-    def counted(step_text: str, *, timeout_s: float) -> Solid:
+    def counted(step_text: str, *, timeout_s: float) -> BodyShape:
         nonlocal calls
         calls += 1
         return real(step_text, timeout_s=timeout_s)

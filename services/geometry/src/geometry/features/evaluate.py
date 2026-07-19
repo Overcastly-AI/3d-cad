@@ -108,7 +108,7 @@ from geometry.kernel import (
     ChamferError,
     DraftError,
     FilletError,
-    ImportNotSingleSolidError,
+    ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
     LoftError,
@@ -1470,30 +1470,32 @@ def _evaluate_import(
     or the upstream 16 MiB size cap. Kernel failures surface as per-feature
     errors pinned to this feature — ``import_parse_timeout`` (the parse exceeded
     the wall-clock bound and was killed), ``import_parse_failed`` (unparseable
-    bytes) or ``import_not_single_solid`` (zero / multiple solids; the message
-    carries the shape stats, the v1 healing report). the active body is only started
-    on success. Size/emptiness of ``data`` is a request-validation 422 upstream
-    (§6), so it never reaches here.
+    bytes) or ``import_no_solid`` (ZERO solids — surfaces/shells/wireframe only;
+    the message carries the shape stats). A file with ONE solid becomes a bare
+    Solid body and a file with TWO OR MORE becomes ONE lump-sorted Compound body
+    (§MB-4) — a multi-solid file is now a SUCCESS, not an error. The active body
+    is only started on success. Size/emptiness of ``data`` is a request-validation
+    422 upstream (§6), so it never reaches here.
     """
     feature = item.feature
     assert isinstance(feature, ImportFeature), "registry dispatches on type='import'"
     params = feature.params
 
     try:
-        solid = import_step_solid_cached(
-            params.data, timeout_s=_step_import_timeout_s()
-        )
+        body = import_step_solid_cached(params.data, timeout_s=_step_import_timeout_s())
     except ImportParseTimeoutError as exc:
         return FeatureError(code="import_parse_timeout", message=str(exc))
     except ImportParseError as exc:
         return FeatureError(code="import_parse_failed", message=str(exc))
-    except ImportNotSingleSolidError as exc:
-        return FeatureError(code="import_not_single_solid", message=str(exc))
+    except ImportNoSolidError as exc:
+        return FeatureError(code="import_no_solid", message=str(exc))
     # An import is a BODY-CREATING BASE feature: it STARTS a new active body
     # (keyed by its own id — §MB-0 Decision 1), whether or not a prior body
     # exists. Multi-body (§MB-0) retires the former ``import_with_prior_body``
-    # error — a part may now hold an imported body alongside a modelled one.
-    state.start_body(item.id, solid)
+    # error — a part may now hold an imported body alongside a modelled one. The
+    # imported body is a bare Solid (one solid) OR a lump-sorted Compound (a
+    # multi-solid file → ONE multi-lump body, §MB-4), never N bodies.
+    state.start_body(item.id, body)
     return None
 
 

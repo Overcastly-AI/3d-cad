@@ -165,6 +165,18 @@ is a pure OCCT function; byte-identical GLB+STEP across interpreter restarts;
     → `import_no_solid`; ripples py-kit → ts-client → `featureErrors.ts`). Widen
     `step_cache` (`solid_to/from_brep_bytes`). Splitting a multi-lump body into
     independent bodies is a later "split bodies" feature.
+    - **TOUCHING / OVERLAPPING solids (decided MB-4b 2026-07-19):** STEP import
+      is NOT a boolean, so a multi-solid file's solids are imported AS AUTHORED —
+      each `TopAbs_SOLID` becomes its own lump, even if two solids touch or
+      overlap in space. We never silently fuse them (that would be an unrequested
+      boolean, changing volume/topology behind the user's back and destroying the
+      as-supplied structure). A user who wants them merged applies a `boolean`
+      union afterward. Two coincident/overlapping lumps are an honest downstream
+      `subshape_ambiguous` on a shared face (the standing multi-lump limit,
+      documented on `BooleanParamsV1`); the import itself is lossless and
+      deterministic. The one case we cannot split — a STEP that transfers a single
+      compound/shell the reader will not resolve into ≥1 `TopAbs_SOLID` — reads as
+      0 solids → `import_no_solid` (we do not force it into a solid).
   - **Determinism — the one new knob:** an EXPLICIT lump sort (centroid x,y,z then
     volume) when assembling ANY multi-lump `Compound` (boolean result + import) —
     don't trust OCCT traversal order. Flatten the part roll-up
@@ -193,9 +205,24 @@ is a pure OCCT function; byte-identical GLB+STEP across interpreter restarts;
     naming to exactly one edge, 15920+20π mm³, 13/27/2); byte-identical GLB+STEP
     across restart; every existing golden unchanged; mate-against-a-multi-lump-face
     regression added. **The v1 coincident-lump `subshape_ambiguous` honesty is
-    documented in the `BooleanParamsV1` docstring.** → MB-4b (multi-solid STEP
-    import) → MB-4c (frontend `allow_disjoint` checkbox + error-code map). Per-lump
-    pick/highlight is the deferred tail.
+    documented in the `BooleanParamsV1` docstring.** → **MB-4b — SHIPPED
+    2026-07-19 (backend).** Multi-solid STEP import → ONE multi-lump body.
+    `import_step_solid`/`import_step_solid_cached` return `BodyShape`; one solid →
+    a bare `Solid` (the `import-step-box-10x20x30` golden stays byte-identical, k=1
+    proven), ≥2 → a lump-sorted `Compound` through the SAME `lumps.assemble_lumps`
+    sort the disjoint goldens use — so the imported body is byte-identical
+    regardless of OCCT's non-contractual solid-traversal order (proven by the golden
+    `import-step-two-disjoint-boxes`, whose STEP authors the two cubes REVERSED yet
+    imports them in sorted order). Solids preserved as authored (touching/overlapping
+    kept as separate lumps, never fused — see the touching-solids decision above).
+    `step_cache`'s BREP helpers widened to `BodyShape` (a compound payload re-wraps
+    as `Compound`, lump order verbatim). `ImportNotSingleSolidError` →
+    `ImportNoSolidError` (`import_not_single_solid` → `import_no_solid`, rejects ONLY
+    0 solids), rippled py-kit → contracts → ts-client → `featureErrors.ts`. Golden
+    `import-step-two-disjoint-boxes` (16000 mm³, shells=2, 12/24/2, mesh 48/24,
+    byte-identical GLB+STEP across an interpreter restart). Flips the VISION Interop
+    scorecard's multi-solid-import row ❌→✅. → MB-4c (frontend `allow_disjoint`
+    checkbox + error-code map). Per-lump pick/highlight is the deferred tail.
   - **Risks:** the lump-count guard (capture `k` from the INPUT body — a wrong guard
     crashes legit ops or silently accepts a merge; shell especially); nested
     Compounds if the roll-up isn't flattened; lump-order determinism (the explicit

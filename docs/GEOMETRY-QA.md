@@ -1048,12 +1048,15 @@ ceiling — measured 0.0). Through the shared golden runner this also proves
 byte-determinism in-process AND across an interpreter restart for free. This is
 the import counterpart to `test_step_roundtrip`'s export-direction 0.0 result.
 
-**Healing report scope (v1 = single solid or legible error).** Exactly one
-`TopAbs_SOLID` → accepted. Zero/multiple solids (open shells, surfaces-only, a
-multi-solid assembly) → `import_not_single_solid`, whose message carries the
-shape stats (solids/shells/faces) — the honest v1 healing report. Verified: a
-compound of two disjoint boxes reads as a `TopAbs_COMPOUND` with 2 solids and is
-rejected with that count. Sewing/repair, IGES, and multi-body are deferred.
+**Body scope (one or more solids; §MB-4b).** One `TopAbs_SOLID` → a bare `Solid`
+body (byte-identical to the single-solid pipeline). **Two or more** → ONE
+multi-lump body, a lump-sorted `Compound` of the file's solids preserved as
+authored (not fused — import is not a boolean; golden
+`import-step-two-disjoint-boxes`, 16000 mm³, shells=2). Only **zero** solids
+(open shells, surfaces-only, wireframe) → `import_no_solid`, whose message
+carries the shape stats (shells/faces) — the honest healing report. Verified: a
+lone face reads `shells=1, faces=1`, 0 solids and is rejected with that count.
+Sewing/repair, IGES, and splitting a multi-lump body are deferred.
 
 **Error taxonomy (per-feature, never a 500/hang; §4.3).** Garbage/empty/truncated
 bytes → OCCT `IFSelect_RetFail` → `import_parse_failed` (verified: no raise, no
