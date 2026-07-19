@@ -142,6 +142,22 @@ _BEND_TABLE_W = 92.0
 _BEND_TABLE_HEADER_H = 7.0
 _BEND_TABLE_ROW_H = 6.0
 
+# --- Bend-table CANONICAL FORMAT --------------------------------------------------
+# CANONICAL SPEC: apps/web/src/components/DrawingSheet.tsx `BendTable`. The on-screen
+# DOM table is the single reference; the server SVG/PDF/DXF serializers below MUST
+# render the SAME columns, captions, precision and layout so an exported DXF/PDF for
+# the shop matches what the engineer designed on screen (UI-REVIEW: the three-way
+# divergence this replaces). Python (server) and TS (DOM) can't share code, so the
+# parity is DRY-locked by (a) this one set of constants + `_bend_row_cells` feeding
+# all three server serializers, and (b) the cross-serializer consistency test in
+# tests/test_drawings_compose.py. If you touch these, update DrawingSheet.tsx to match.
+#: Column left-edge offsets (mm from the block's left) — mirror the DOM `col` map.
+_BEND_COL_DX: tuple[float, ...] = (3.0, 26.0, 43.0, 62.0, 77.0)
+#: Column captions (the header row) — the DOM caption <text> content, in column order.
+_BEND_TABLE_CAPTIONS: tuple[str, ...] = ("BEND", "ANGLE", "RADIUS", "DIR", "ALLOW mm")
+_BEND_TABLE_CAPTION_MM = 2.1  # design token bendTableCaptionMm (apps/web tokens.ts)
+_BEND_TABLE_TEXT_MM = 2.8  # design token bendTableTextMm
+
 # --- @loft/design `drawing` dimension tokens (tokens.ts) — ported values ---------
 _O = 11.0  # dimensionOffsetMm
 _GAP = 1.4  # dimensionGapMm
@@ -1177,7 +1193,8 @@ _INK = "#1B222B"
 _EDGE_VISIBLE = "#1B222B"
 _EDGE_HIDDEN = "#6E7A88"
 #: Flat-pattern fold-line stroke (sheet-metal.md §6/§7) — a distinct dashed-blue, NOT
-#: the visible/hidden body-edge styling. The SINGLE source is the frontend `drawing.bend`
+#: the visible/hidden body-edge styling. The SINGLE source is the frontend
+#: `drawing.bend`
 #: design token (packages/design/src/tokens.ts), which the on-screen sheet + SVG/PDF/DXF
 #: renderers all read; this constant is the byte-export twin (the cross-renderer token
 #: duplication the module header notes) — keep the two hexes in lock-step.
@@ -1229,19 +1246,30 @@ def _stroke_attrs(visible: bool) -> str:
     )
 
 
-def _bend_row_text(row: BendTableRow) -> str:
-    """One bend-table row as a single deterministic, monospace-friendly line.
+def _bend_row_cells(row: BendTableRow) -> tuple[str, str, str, str, str]:
+    """Canonical per-column cell strings for one bend-table row.
 
-    ``bend_id  <angle>°  R<radius>  <DIR>  BA<allowance>`` — the shop's fold line. The
-    angle is 1-dp (degrees), radius/allowance 3-dp (mm), matching the drafting precision
-    the on-screen dimensions use. Fixed-decimal formatting is byte-stable across an
-    interpreter restart (the §8.3 posture); there is no JS oracle to match here (the
-    bend table is server-composed), so plain fixed formatting is correct.
+    CANONICAL SPEC — mirrors apps/web/src/components/DrawingSheet.tsx `BendTable`
+    VERBATIM so every export format matches the on-screen table (see the
+    ``_BEND_TABLE_CAPTIONS`` note). Columns are ``(BEND, ANGLE, RADIUS, DIR, ALLOW)``::
+
+        BEND   = bend_id
+        ANGLE  = f"{angle_deg:.1f}°"          (1 dp + degree glyph)
+        RADIUS = f"R{radius_mm:.2f}"          (R-prefixed, 2 dp)
+        DIR    = "UP" | "DOWN"
+        ALLOW  = f"{bend_allowance_mm:.2f}"   (bare 2 dp mm — the caption carries "mm")
+
+    ONE format, shared by the SVG/PDF/DXF serializers (each is a pure layout pass
+    over these cells). Do NOT reformat per renderer — that DRY break is exactly what
+    let the PDF/DXF drift to a run-together 3-dp ``BA``-line diverging from the screen.
+    Fixed-decimal formatting is byte-stable across an interpreter restart (§8.3).
     """
     return (
-        f"{row.bend_id}  {row.angle_deg + 0.0:.1f}°  "
-        f"R{row.radius_mm + 0.0:.3f}  {row.direction.upper()}  "
-        f"BA{row.bend_allowance_mm + 0.0:.3f}"
+        row.bend_id,
+        f"{row.angle_deg + 0.0:.1f}°",
+        f"R{row.radius_mm + 0.0:.2f}",
+        "UP" if row.direction == "up" else "DOWN",
+        f"{row.bend_allowance_mm + 0.0:.2f}",
     )
 
 
@@ -1420,7 +1448,12 @@ def _emit_title_block(tb: ComposedTitleBlock, out: list[str]) -> None:
 
 
 def _emit_bend_table(bt: ComposedBendTable, out: list[str]) -> None:
-    """Render the flat-pattern bend-table block (sheet-metal.md §7) — box + rows."""
+    """Render the flat-pattern bend-table block (sheet-metal.md §7) — box + columns.
+
+    Columnar layout matching the on-screen DOM ``BendTable`` (the canonical spec at
+    ``_BEND_TABLE_CAPTIONS``): a caption row then one row per bend, every cell placed
+    at its column offset — byte-consistent with the PDF/DXF serializers (all three
+    read the SAME ``_bend_row_cells`` at the SAME ``_BEND_COL_DX``)."""
     x, y, w, h = bt.x, bt.y, bt.width, bt.height
     out.append('    <g data-testid="drawing-bend-table">')
     out.append(
@@ -1433,18 +1466,24 @@ def _emit_bend_table(bt: ComposedBendTable, out: list[str]) -> None:
         f'x2="{_fmt(x + w)}" y2="{_fmt(y + _BEND_TABLE_HEADER_H)}" '
         f'stroke="{_INK}" stroke-width="{_fmt(_HIDDEN_W)}"/>'
     )
-    out.append(
-        f'      <text x="{_fmt(x + 3)}" y="{_fmt(y + _BEND_TABLE_HEADER_H - 2)}" '
-        f'fill="{_LABEL}" font-family="{_FONT}" font-size="2.6" '
-        f'letter-spacing="0.5">BEND TABLE</text>'
-    )
+    cap_y = y + _BEND_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_BEND_COL_DX, _BEND_TABLE_CAPTIONS, strict=True):
+        out.append(
+            f'      <text x="{_fmt(x + dx)}" y="{_fmt(cap_y)}" '
+            f'fill="{_LABEL}" font-family="{_FONT}" '
+            f'font-size="{_BEND_TABLE_CAPTION_MM}" '
+            f'letter-spacing="0.4">{_esc(caption)}</text>'
+        )
     for i, row in enumerate(bt.rows):
         ry = y + _BEND_TABLE_HEADER_H + (i + 1) * _BEND_TABLE_ROW_H - 2
-        out.append(
-            f'      <text data-testid="drawing-bend-row" x="{_fmt(x + 3)}" '
-            f'y="{_fmt(ry)}" fill="{_INK}" font-family="{_FONT}" '
-            f'font-size="2.8">{_esc(_bend_row_text(row))}</text>'
-        )
+        out.append(f'      <g data-testid="drawing-bend-row" data-bend-index="{i}">')
+        for dx, cell in zip(_BEND_COL_DX, _bend_row_cells(row), strict=True):
+            out.append(
+                f'        <text x="{_fmt(x + dx)}" y="{_fmt(ry)}" '
+                f'fill="{_DIM_TEXT}" font-family="{_FONT}" '
+                f'font-size="{_BEND_TABLE_TEXT_MM}">{_esc(cell)}</text>'
+            )
+        out.append("      </g>")
     out.append("    </g>")
 
 
@@ -1689,7 +1728,12 @@ def _pdf_title_block(c: Canvas, tb: ComposedTitleBlock) -> None:
 
 
 def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
-    """Draw the flat-pattern bend-table block onto the PDF canvas (§7)."""
+    """Draw the flat-pattern bend-table block onto the PDF canvas (§7).
+
+    Columnar layout matching the DOM/SVG (canonical spec at ``_BEND_TABLE_CAPTIONS``):
+    each caption + cell is stamped at its ``_BEND_COL_DX`` column offset from the SAME
+    ``_bend_row_cells``, so the PDF table matches the screen. (Letter-spacing on the
+    captions is SVG/DOM-only cosmetics; base-14 Courier is dimensionally correct.)"""
     x, y, w, h = bt.x, bt.y, bt.width, bt.height
     c.setDash([])
     c.setFillColor(_hex(_PAPER))
@@ -1699,28 +1743,31 @@ def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
     c.setLineWidth(_HIDDEN_W * _MM)
     hy = (y + _BEND_TABLE_HEADER_H) * _MM
     c.line(x * _MM, hy, (x + w) * _MM, hy)
-    _pdf_text(
-        c,
-        x + 3,
-        y + _BEND_TABLE_HEADER_H - 2,
-        "BEND TABLE",
-        2.6,
-        _LABEL,
-        centred=False,
-        central=False,
-    )
-    for i, row in enumerate(bt.rows):
-        ry = y + _BEND_TABLE_HEADER_H + (i + 1) * _BEND_TABLE_ROW_H - 2
+    cap_y = y + _BEND_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_BEND_COL_DX, _BEND_TABLE_CAPTIONS, strict=True):
         _pdf_text(
             c,
-            x + 3,
-            ry,
-            _bend_row_text(row),
-            2.8,
-            _INK,
+            x + dx,
+            cap_y,
+            caption,
+            _BEND_TABLE_CAPTION_MM,
+            _LABEL,
             centred=False,
             central=False,
         )
+    for i, row in enumerate(bt.rows):
+        ry = y + _BEND_TABLE_HEADER_H + (i + 1) * _BEND_TABLE_ROW_H - 2
+        for dx, cell in zip(_BEND_COL_DX, _bend_row_cells(row), strict=True):
+            _pdf_text(
+                c,
+                x + dx,
+                ry,
+                cell,
+                _BEND_TABLE_TEXT_MM,
+                _DIM_TEXT,
+                centred=False,
+                central=False,
+            )
 
 
 def serialize_pdf(composed: ComposedSheet) -> bytes:
@@ -1960,34 +2007,44 @@ def _dxf_title_block(
 def _dxf_bend_table(
     msp: Modelspace, bt: ComposedBendTable, fy: Callable[[float], float]
 ) -> None:
-    """Emit the flat-pattern bend-table block as DXF entities (§7)."""
+    """Emit the flat-pattern bend-table block as DXF entities (§7).
+
+    Columnar layout matching the DOM/SVG/PDF (canonical spec at
+    ``_BEND_TABLE_CAPTIONS``): one TEXT entity per caption and per cell, each at its
+    ``_BEND_COL_DX`` column offset from the SAME ``_bend_row_cells``. DXF has no native
+    table primitive, so the "table" is a box + header rule + column-placed TEXT — the
+    columns line up because every renderer shares the offsets and cell strings, giving
+    the shop the SAME reading as the screen."""
     x, y, w, h = bt.x, bt.y, bt.width, bt.height
     box = [(x, fy(y)), (x + w, fy(y)), (x + w, fy(y + h)), (x, fy(y + h))]
     msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
     hy = y + _BEND_TABLE_HEADER_H
     _dxf_line(msp, x, fy(hy), x + w, fy(hy), _LYR_TITLE)
-    _dxf_text_entity(
-        msp,
-        "BEND TABLE",
-        x + 3,
-        fy(y + _BEND_TABLE_HEADER_H - 2),
-        2.6,
-        0.0,
-        _LYR_TITLE,
-        centred=False,
-    )
-    for i, row in enumerate(bt.rows):
-        ry = y + _BEND_TABLE_HEADER_H + (i + 1) * _BEND_TABLE_ROW_H - 2
+    cap_y = y + _BEND_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_BEND_COL_DX, _BEND_TABLE_CAPTIONS, strict=True):
         _dxf_text_entity(
             msp,
-            _bend_row_text(row),
-            x + 3,
-            fy(ry),
-            2.8,
+            caption,
+            x + dx,
+            fy(cap_y),
+            _BEND_TABLE_CAPTION_MM,
             0.0,
-            _LYR_BEND,
+            _LYR_TITLE,
             centred=False,
         )
+    for i, row in enumerate(bt.rows):
+        ry = y + _BEND_TABLE_HEADER_H + (i + 1) * _BEND_TABLE_ROW_H - 2
+        for dx, cell in zip(_BEND_COL_DX, _bend_row_cells(row), strict=True):
+            _dxf_text_entity(
+                msp,
+                cell,
+                x + dx,
+                fy(ry),
+                _BEND_TABLE_TEXT_MM,
+                0.0,
+                _LYR_BEND,
+                centred=False,
+            )
 
 
 def serialize_dxf(composed: ComposedSheet) -> bytes:

@@ -1,0 +1,28 @@
+{
+  "description": "NON-ORTHOGONAL bend regression golden (sheet-metal.md §1/§4.2/§9): an authored L-bracket (base flange + ONE edge flange) folded at 120 deg, unfolded by PROVENANCE. The sibling l-bracket-edge-flange golden folds at 90 deg; this one pins that the bend allowance SCALES with the MEASURED fold angle rather than a hardcoded pi/2 -- a future change that silently reintroduces a 90-degree hardcode in the unfold/BA path makes BA (and flat length/area) wrong here and fails. geometry-qa verified 45/60/120 deg BA are correct but no non-90 golden was committed; this is that pin.",
+  "tangent_line_convention": "Flat length is measured to the bend TANGENT LINES (§9 #1), angle-independent for the developed legs: base flange developed leg 50 mm (far edge to the bend tangent line), edge flange developed leg 30 mm. The bend allowance BA REPLACES the setback between the tangent lines and is the only angle-dependent term.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill). Dims: base flange 50 x 20 mm (developed leg 50, width 20), edge flange developed leg 30 mm, gauge t = 2 mm, inner bend radius r = 3 mm, bend angle 120 deg = 2*pi/3, K = 0.44 (v1 default).",
+    "Bend allowance (§1), angle-dependent: BA = angle_rad * (r + K*t) = (2*pi/3) * (3 + 0.44*2) = (2*pi/3) * 3.88 = 8.126252997285597 mm. Contrast the 90-degree sibling: (pi/2)*3.88 = 6.094689747964199 mm -- the 33% larger BA here is the regression signal a pi/2 hardcode would erase.",
+    "Flat length (§9 #1): flat_length = base_leg + BA + flange_leg = 50 + 8.126252997285597 + 30 = 88.1262529972856 mm. Measured kernel-side residual vs analytic: ~0 (BA residual 0, arc-fit inner radius resolves to exactly 3.0 here).",
+    "Developed area (§9 #2, neutral-surface conservation): flat_area = flat_length * width = 88.1262529972856 * 20 = 1762.525059945712 mm^2 (the blank is a rectangle). Measured residual vs analytic ~4.5e-13.",
+    "Fold direction is inferred from geometry (§5): the edge flange folds to the +normal side of the base, so direction = 'up'. Fold angle = 120 deg (measured 119.99999999999999).",
+    "Fused body volume (analytic): base plate (50*20*2 = 2000) + flange rect (30*2*20 = 1200) + bend sector solid ((theta/2)(Ro^2 - Ri^2)*width = (2*pi/3/2)(5^2-3^2)*20 = (pi/3)*16*20 = 335.1032163829112) = 3535.1032163829112 mm^3. Measured 3535.1032163829095 (residual ~1.7e-12).",
+    "content_hash is the sha256 of the provenance-driven FlatPattern.to_json_bytes() -- a DETERMINISM PIN (byte-identity), reproducible in-process AND across a fresh interpreter restart (§9 #4). Version-pinned to OCCT/build123d like the other flat-pattern goldens: an OCCT/build123d bump regenerates it; a change WITHOUT a kernel-version bump is a determinism regression (P0)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). BA is a four-term closed form and the developed legs are exact OCCT face extents. Measured residuals vs the hand-derived values (2026-07-19, build123d 0.11.1 / OCCT 7.9): flat_length 0, flat_area ~4.5e-13, BA 0 (arc-fit inner radius resolves to exactly 3.0 for this bend). Documented ceiling 1e-9 gives ample headroom over the observed worst case for platform FP variation while staying tighter than the standing kernel linear tolerance (1e-7 m). The volume tolerance (1e-6) absorbs the arc-fit noise scaled by the 20 mm width (observed ~1.7e-12).",
+  "bend_allowance_90_deg_mm": 6.094689747964199,
+  "bend_allowance_mm": 8.126252997285597,
+  "flat_length_mm": 88.1262529972856,
+  "flat_area_mm2": 1762.525059945712,
+  "bend_width_mm": 20.0,
+  "bend_count": 1,
+  "bend_angle_deg": 120.0,
+  "bend_radius_mm": 3.0,
+  "bend_direction": "up",
+  "volume_mm3": 3535.1032163829112,
+  "volume_tolerance": 1e-6,
+  "topology": {"faces": 10, "edges": 24, "shells": 1},
+  "content_hash": "05e7ddc440aa7ba3f36d3a8fafd1b388a1121f80787427f1ad9a6cc9ea3a59eb"
+}

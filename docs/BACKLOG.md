@@ -686,6 +686,16 @@ the part feature tree; assembly undo is the same-mechanism fast-follow (UR3).
 
 ## Next (P2)
 
+- [ ] (P2, S) SM-fmt-1 — bend-table ONE format, ONE layout pass (frontend + geometry)
+      — the deeper DRY the P2 export-consistency fix (2026-07-19) deferred. Today the
+      server serializers and the DOM `BendTable` each re-format the same numbers into
+      cells (kept in lock-step by a comment-anchored spec + a Python cross-serializer
+      test, but Python↔TS can still drift). Pre-format display-ready cell STRINGS into
+      `ComposedBendTable` server-side (e.g. a `cells: list[list[str]]` alongside the
+      numeric `rows`), so DrawingSheet.tsx and all serializers become a pure layout
+      pass over shared strings — no format duplication across the boundary. Spans
+      `apps/web` + wire schema, hence not done in the geometry-only fix.
+      [src: docs/UI-REVIEW.md 2026-07-19 P2]
 - [ ] (P2, M) Assemblies — RECURSIVE / indented BOM (documents) — the follow-up
       to the flat v1 BOM read-model (shipped 2026-07-18). Expand rigid
       sub-assembly instances into their own lines, rolling quantities through the
@@ -1179,6 +1189,12 @@ both audits re-baselined 2026-07-15. Full per-item evidence: `CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-07-19 — **Sheet-metal bend-table export consistency (P2, UI-REVIEW) fixed +
+  120° regression golden (kernel-architect):** server SVG/PDF/DXF now render the
+  bend table in the SAME 5-column layout/precision/labels as the on-screen DOM
+  (shared `_bend_row_cells`; cross-serializer consistency test; byte goldens
+  regenerated). New non-90° golden `l-bracket-120-flange` (BA 8.126 mm, pins BA
+  scales with measured angle, not a `pi/2` hardcode). Follow-up SM-fmt-1 filed.
 - 2026-07-18 — **MB-4a multi-lump bodies + opt-in disjoint union done (backend):**
   `bodies` widened to `BodyShape`; modifying ops relax to lump-count-preserving
   `== k` (k=1 byte-identical); `BooleanParamsV1.allow_disjoint` (no version bump)

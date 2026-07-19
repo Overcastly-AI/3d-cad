@@ -5,7 +5,7 @@ The flat-pattern-sheet golden (``tests/test_sheet_metal_flat_pattern_sheet.py``)
 pins the ``ComposedSheet`` JSON hash only — it proves placement + bend-table data
 are deterministic, but NOT that the SERIALIZED artifact bytes are stable. The
 serializers are where an encoding regression hides: the bend-table row stamps a
-degree symbol (``bend-1  90.0°  R3.000  UP  BA6.095``), and a serializer that
+degree symbol (the ANGLE cell ``90.0°``), and a serializer that
 emitted latin-1 / ASCII-escaped bytes instead of UTF-8, or a reportlab/ezdxf
 metadata drift, would still pass the JSON pin while shipping wrong bytes to the
 shop. This module byte-pins ``serialize_svg`` / ``serialize_pdf`` / ``serialize_dxf``
@@ -20,11 +20,18 @@ files (regenerate with ``_regenerate`` below); a byte change WITHOUT a kernel bu
 is a determinism/encoding regression (P0), never a quiet re-baseline.
 """
 
+# ezdxf's top-level `read` is public but not formally re-exported (pyright flags
+# reportPrivateImportUsage) — the same boundary compose.py suppresses file-wide.
+# pyright: reportPrivateImportUsage=false
+
 import hashlib
+import io
+import re
 import subprocess
 import sys
 from pathlib import Path
 
+import ezdxf
 import pytest
 from geometry.drawings import (
     evaluate_drawing_views,
@@ -32,6 +39,12 @@ from geometry.drawings import (
     serialize_dxf,
     serialize_pdf,
     serialize_svg,
+)
+from geometry.drawings.compose import (
+    _BEND_TABLE_CAPTIONS,  # pyright: ignore[reportPrivateUsage]
+    _LYR_BEND,  # pyright: ignore[reportPrivateUsage]
+    _bend_row_cells,  # pyright: ignore[reportPrivateUsage]
+    _esc,  # pyright: ignore[reportPrivateUsage]
 )
 from py_kit.schemas.drawings import (
     ComposeDrawingRequest,
@@ -95,9 +108,9 @@ def test_byte_golden_files_exist() -> None:
     """Discovery breakage (a missing byte golden) must fail, never skip silently."""
     for stem, _ in _CASES:
         for ext in ("svg", "pdf", "dxf"):
-            assert (
-                _BYTES_DIR / f"{stem}.{ext}"
-            ).exists(), f"missing byte golden {stem}.{ext}"
+            assert (_BYTES_DIR / f"{stem}.{ext}").exists(), (
+                f"missing byte golden {stem}.{ext}"
+            )
 
 
 @each_case
@@ -131,8 +144,64 @@ def test_bend_table_degree_symbol_is_utf8(stem: str, title: str) -> None:
     dxf = serialize_dxf(composed)
     assert "°" in svg, f"{stem}: no degree symbol in SVG bend table"
     assert b"\xc2\xb0" in dxf, f"{stem}: degree symbol not UTF-8 in DXF bytes"
-    # The exact stamped row (angle°  Rradius  DIR  BAallowance).
-    assert "90.0°  R3.000  UP  BA6.095" in svg
+    # The exact stamped ANGLE cell (columnar layout matching the on-screen DOM table).
+    assert ">90.0°</text>" in svg
+
+
+def _svg_bend_rows(svg: str) -> list[list[str]]:
+    """Ordered per-row cell strings extracted from the composed SVG bend-table rows."""
+    rows: list[list[str]] = []
+    for group in re.findall(
+        r'<g data-testid="drawing-bend-row"[^>]*>(.*?)</g>', svg, re.S
+    ):
+        cells = re.findall(r"<text [^>]*>([^<]*)</text>", group)
+        rows.append(cells)
+    return rows
+
+
+def _dxf_bend_rows(dxf: bytes, ncols: int) -> list[list[str]]:
+    """Ordered per-row cell strings from the DXF BEND-layer TEXT entities (chunked by
+    column count; only bend CELLS live on the BEND layer — captions are on TITLE)."""
+    # ezdxf.read is public but not formally re-exported (repo idiom — see compose.py's
+    # file-level reportPrivateImportUsage suppression).
+    doc = ezdxf.read(io.StringIO(dxf.decode("utf-8")))
+    texts = [
+        e.dxf.text for e in doc.modelspace().query("TEXT") if e.dxf.layer == _LYR_BEND
+    ]
+    return [texts[i : i + ncols] for i in range(0, len(texts), ncols)]
+
+
+@each_case
+def test_bend_table_text_consistent_across_serializers(stem: str, title: str) -> None:
+    """DRY-LOCK: the SVG / PDF / DXF serializers render the SAME bend-table cell
+    strings in the SAME order (the canonical `_bend_row_cells`, matching the on-screen
+    DOM `BendTable`) — the pin against the three formats silently re-diverging (the
+    run-together `BA`-line the PDF/DXF used to emit; docs/UI-REVIEW.md)."""
+    composed = _compose(stem, title)
+    bt = composed.bend_table
+    assert bt is not None and bt.rows, f"{stem}: composed sheet has no bend table"
+    canonical = [list(_bend_row_cells(row)) for row in bt.rows]
+
+    svg = serialize_svg(composed)
+    dxf = serialize_dxf(composed)
+    pdf = serialize_pdf(composed)
+
+    # SVG and DXF carry the cell text verbatim (UTF-8) — assert identical, same order.
+    assert _svg_bend_rows(svg) == canonical, f"{stem}: SVG bend cells drifted"
+    assert _dxf_bend_rows(dxf, len(_BEND_TABLE_CAPTIONS)) == canonical, (
+        f"{stem}: DXF bend cells drifted"
+    )
+    # The uncompressed PDF (pageCompression=0) stamps each cell literally; base-14
+    # Courier encodes the degree glyph as an octal escape, so check the ASCII portion.
+    for cell in (c for row in canonical for c in row):
+        assert cell.replace("°", "").encode("latin-1") in pdf, (
+            f"{stem}: PDF missing bend cell {cell!r}"
+        )
+    # Captions likewise land columnar in all three formats.
+    for cap in _BEND_TABLE_CAPTIONS:
+        assert f">{_esc(cap)}</text>" in svg, f"{stem}: SVG missing caption {cap}"
+        assert cap.encode("utf-8") in dxf, f"{stem}: DXF missing caption {cap}"
+        assert cap.encode("latin-1") in pdf, f"{stem}: PDF missing caption {cap}"
 
 
 _RESTART_PROBE = """\
@@ -179,15 +248,15 @@ def test_flat_pattern_bytes_deterministic_across_restart(stem: str, title: str) 
     )
     assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
     svg_h, pdf_h, dxf_h = result.stdout.splitlines()[:3]
-    assert svg_h == hashlib.sha256(
-        (_BYTES_DIR / f"{stem}.svg").read_bytes()
-    ).hexdigest()
-    assert pdf_h == hashlib.sha256(
-        (_BYTES_DIR / f"{stem}.pdf").read_bytes()
-    ).hexdigest()
-    assert dxf_h == hashlib.sha256(
-        (_BYTES_DIR / f"{stem}.dxf").read_bytes()
-    ).hexdigest()
+    assert (
+        svg_h == hashlib.sha256((_BYTES_DIR / f"{stem}.svg").read_bytes()).hexdigest()
+    )
+    assert (
+        pdf_h == hashlib.sha256((_BYTES_DIR / f"{stem}.pdf").read_bytes()).hexdigest()
+    )
+    assert (
+        dxf_h == hashlib.sha256((_BYTES_DIR / f"{stem}.dxf").read_bytes()).hexdigest()
+    )
 
 
 def _regenerate() -> None:  # pragma: no cover - operator tool, not a test

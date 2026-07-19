@@ -505,7 +505,7 @@ $SPLINESEGS
   9
 $HANDSEED
   5
-50
+5C
   9
 $SURFTAB1
  70
@@ -1631,7 +1631,7 @@ ACAD
   0
 APPID
   5
-4D
+59
 330
 3
 100
@@ -1645,7 +1645,7 @@ HATCHBACKGROUNDCOLOR
   0
 APPID
   5
-4E
+5A
 330
 3
 100
@@ -2523,19 +2523,19 @@ AcDbText
  10
 13.0
  20
-195.0
+195.4
  30
 0.0
  40
-2.6
+2.1
   1
-BEND TABLE
+BEND
   7
 LOFT_MONO
  11
 13.0
  21
-195.0
+195.4
  31
 0.0
 100
@@ -2544,6 +2544,134 @@ AcDbText
 TEXT
   5
 4B
+330
+17
+100
+AcDbEntity
+  8
+TITLE
+100
+AcDbText
+ 10
+36.0
+ 20
+195.4
+ 30
+0.0
+ 40
+2.1
+  1
+ANGLE
+  7
+LOFT_MONO
+ 11
+36.0
+ 21
+195.4
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+4C
+330
+17
+100
+AcDbEntity
+  8
+TITLE
+100
+AcDbText
+ 10
+53.0
+ 20
+195.4
+ 30
+0.0
+ 40
+2.1
+  1
+RADIUS
+  7
+LOFT_MONO
+ 11
+53.0
+ 21
+195.4
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+4D
+330
+17
+100
+AcDbEntity
+  8
+TITLE
+100
+AcDbText
+ 10
+72.0
+ 20
+195.4
+ 30
+0.0
+ 40
+2.1
+  1
+DIR
+  7
+LOFT_MONO
+ 11
+72.0
+ 21
+195.4
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+4E
+330
+17
+100
+AcDbEntity
+  8
+TITLE
+100
+AcDbText
+ 10
+87.0
+ 20
+195.4
+ 30
+0.0
+ 40
+2.1
+  1
+ALLOW mm
+  7
+LOFT_MONO
+ 11
+87.0
+ 21
+195.4
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+4F
 330
 17
 100
@@ -2561,7 +2689,7 @@ AcDbText
  40
 2.8
   1
-bend-1  90.0°  R3.000  UP  BA6.095
+bend-1
   7
 LOFT_MONO
  11
@@ -2575,7 +2703,135 @@ AcDbText
   0
 TEXT
   5
-4C
+50
+330
+17
+100
+AcDbEntity
+  8
+BEND
+100
+AcDbText
+ 10
+36.0
+ 20
+189.0
+ 30
+0.0
+ 40
+2.8
+  1
+90.0°
+  7
+LOFT_MONO
+ 11
+36.0
+ 21
+189.0
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+51
+330
+17
+100
+AcDbEntity
+  8
+BEND
+100
+AcDbText
+ 10
+53.0
+ 20
+189.0
+ 30
+0.0
+ 40
+2.8
+  1
+R3.00
+  7
+LOFT_MONO
+ 11
+53.0
+ 21
+189.0
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+52
+330
+17
+100
+AcDbEntity
+  8
+BEND
+100
+AcDbText
+ 10
+72.0
+ 20
+189.0
+ 30
+0.0
+ 40
+2.8
+  1
+UP
+  7
+LOFT_MONO
+ 11
+72.0
+ 21
+189.0
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+53
+330
+17
+100
+AcDbEntity
+  8
+BEND
+100
+AcDbText
+ 10
+87.0
+ 20
+189.0
+ 30
+0.0
+ 40
+2.8
+  1
+6.09
+  7
+LOFT_MONO
+ 11
+87.0
+ 21
+189.0
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+54
 330
 17
 100
@@ -2593,11 +2849,139 @@ AcDbText
  40
 2.8
   1
-bend-2  90.0°  R3.000  UP  BA6.095
+bend-2
   7
 LOFT_MONO
  11
 13.0
+ 21
+183.0
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+55
+330
+17
+100
+AcDbEntity
+  8
+BEND
+100
+AcDbText
+ 10
+36.0
+ 20
+183.0
+ 30
+0.0
+ 40
+2.8
+  1
+90.0°
+  7
+LOFT_MONO
+ 11
+36.0
+ 21
+183.0
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+56
+330
+17
+100
+AcDbEntity
+  8
+BEND
+100
+AcDbText
+ 10
+53.0
+ 20
+183.0
+ 30
+0.0
+ 40
+2.8
+  1
+R3.00
+  7
+LOFT_MONO
+ 11
+53.0
+ 21
+183.0
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+57
+330
+17
+100
+AcDbEntity
+  8
+BEND
+100
+AcDbText
+ 10
+72.0
+ 20
+183.0
+ 30
+0.0
+ 40
+2.8
+  1
+UP
+  7
+LOFT_MONO
+ 11
+72.0
+ 21
+183.0
+ 31
+0.0
+100
+AcDbText
+  0
+TEXT
+  5
+58
+330
+17
+100
+AcDbEntity
+  8
+BEND
+100
+AcDbText
+ 10
+87.0
+ 20
+183.0
+ 30
+0.0
+ 40
+2.8
+  1
+6.09
+  7
+LOFT_MONO
+ 11
+87.0
  21
 183.0
  31
@@ -3595,7 +3979,7 @@ CREATED_BY_EZDXF
   3
 WRITTEN_BY_EZDXF
 350
-4F
+5B
   0
 DICTIONARYVAR
   5
@@ -3611,7 +3995,7 @@ DictionaryVariables
   0
 DICTIONARYVAR
   5
-4F
+5B
 330
 2D
 100

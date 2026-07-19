@@ -26,8 +26,24 @@
     <g data-testid="drawing-bend-table">
       <rect x="10.0000" y="10.0000" width="92.0000" height="19.0000" fill="#ECEFF2" stroke="#1B222B" stroke-width="0.7000"/>
       <line x1="10.0000" y1="17.0000" x2="102.0000" y2="17.0000" stroke="#1B222B" stroke-width="0.3500"/>
-      <text x="13.0000" y="15.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.6" letter-spacing="0.5">BEND TABLE</text>
-      <text data-testid="drawing-bend-row" x="13.0000" y="21.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">bend-1  90.0°  R3.000  UP  BA6.095</text>
-      <text data-testid="drawing-bend-row" x="13.0000" y="27.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">bend-2  90.0°  R3.000  UP  BA6.095</text>
+      <text x="13.0000" y="14.6000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.1" letter-spacing="0.4">BEND</text>
+      <text x="36.0000" y="14.6000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.1" letter-spacing="0.4">ANGLE</text>
+      <text x="53.0000" y="14.6000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.1" letter-spacing="0.4">RADIUS</text>
+      <text x="72.0000" y="14.6000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.1" letter-spacing="0.4">DIR</text>
+      <text x="87.0000" y="14.6000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.1" letter-spacing="0.4">ALLOW mm</text>
+      <g data-testid="drawing-bend-row" data-bend-index="0">
+        <text x="13.0000" y="21.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">bend-1</text>
+        <text x="36.0000" y="21.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">90.0°</text>
+        <text x="53.0000" y="21.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">R3.00</text>
+        <text x="72.0000" y="21.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">UP</text>
+        <text x="87.0000" y="21.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">6.09</text>
+      </g>
+      <g data-testid="drawing-bend-row" data-bend-index="1">
+        <text x="13.0000" y="27.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">bend-2</text>
+        <text x="36.0000" y="27.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">90.0°</text>
+        <text x="53.0000" y="27.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">R3.00</text>
+        <text x="72.0000" y="27.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">UP</text>
+        <text x="87.0000" y="27.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.8">6.09</text>
+      </g>
     </g>
 </svg>

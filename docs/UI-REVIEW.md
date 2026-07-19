@@ -1267,7 +1267,23 @@ block the founder's morning review.
 ### Findings
 
 - **P2 — bend table — the three outputs of ONE sheet disagree; PDF/DXF (the shop
-  deliverables) don't match the screen.** The on-screen `BendTable`
+  deliverables) don't match the screen. ✅ RESOLVED 2026-07-19
+  (`services/geometry` — kernel-architect).** The server SVG/PDF/DXF serializers
+  now render the bend table in the SAME 5-column columnar layout, precision, and
+  labels as the on-screen DOM `BendTable`: captions BEND/ANGLE/RADIUS/DIR/ALLOW mm,
+  cells `bend-1 · 90.0° · R3.00 · UP · 6.09` (angle 1dp + °, radius 2dp `R2.00`,
+  allowance bare 2dp — the DOM's canonical format). One shared `_bend_row_cells`
+  helper + `_BEND_COL_DX`/`_BEND_TABLE_CAPTIONS` constants (comment-anchored to the
+  DrawingSheet.tsx canonical spec) feed all three server serializers, so they are
+  pure layout passes and can't re-format independently. DRY-locked by a new
+  cross-serializer consistency test (`test_bend_table_text_consistent_across_
+  serializers`) asserting SVG/DXF emit identical ordered cells + PDF contains them;
+  byte goldens regenerated to the unified format. **Follow-up (deeper DRY, spans
+  frontend — BACKLOG SM-fmt-1):** pre-format display-ready cells INTO
+  `ComposedBendTable` server-side so the DOM `BendTable` and all serializers become
+  a single layout pass over shared strings (kills the Python/TS format duplication
+  entirely). Not done here to stay in the `services/geometry` territory.
+  Original finding below for context. — The on-screen `BendTable`
   (`DrawingSheet.tsx:1011`) renders a proper 5-column grid with per-column
   captions (BEND/ANGLE/RADIUS/DIR/ALLOW mm), radius at 2dp (`R2.00`), allowance
   bare at 2dp (`3.14`). **Export SVG** serializes this DOM `<svg>` (WYSIWYG, so
@@ -1358,5 +1374,5 @@ block the founder's morning review.
 
 Running checklist: Flat-pattern sheet (screen) ✅ · Bend fold-line token ✅ ·
 Views legend ✅ · Flat-pattern action + F shortcut ✅ · flat_pattern_not_sheet_metal
-error ✅ · **Bend-table export fidelity (PDF/DXF) 🔴 (P2)** · Bend-table SR
-access 🔴 (P3).
+error ✅ · **Bend-table export fidelity (PDF/DXF) ✅ (P2 fixed 2026-07-19)** ·
+Bend-table SR access 🔴 (P3).
