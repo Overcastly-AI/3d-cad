@@ -70,19 +70,29 @@ class UnfoldScopeError(SheetMetalUnfoldError):
 
 
 class UnfoldStarError(SheetMetalUnfoldError):
-    """The body is outside the v1 depth-1 bend-star unfold scope
-    (docs/design/sheet-metal.md §4.3). v1 unfolds a depth-1 star of edge flanges
-    folded directly off ONE fixed base flange, either all-parallel (L-bracket /
-    U-channel — a 1D strip) or non-parallel off a **rectangular** base (a tray /
-    pan — a 2D plus/cross). Still outside scope and raised here: a non-rectangular
-    or angled base, a bend axis not aligned to the base rectangle, or **any**
-    depth >= 2 body — a flange folded off ANOTHER flange, whether its second bend
-    axis is perpendicular to the parent (a box corner) OR parallel to it (a box
-    lip / return). Depth-2 is rejected uniformly (a consistent "depth-1 only"
-    contract), even though the parallel sub-case happens to route through geometry
-    that would not crash: it is still the graph-relaxation problem (each child
-    bend's flattening transform composes with its already-moved parent's), which
-    v1 defers rather than validates (§2.2 / §7)."""
+    """The body is outside the supported sheet-metal unfold scope
+    (docs/design/sheet-metal.md §4.3). The unfold handles a depth-1 bend STAR (N
+    edge flanges folded directly off ONE fixed base — L-bracket / U-channel 1D
+    strip, or a tray / pan 2D plus off a rectangular base) AND a depth-≥2 bend TREE
+    (a flange folded off ANOTHER flange — a box corner / return / parallel Z-chain)
+    that develops without self-overlap. Still raised here (genuinely unsupported): a
+    non-rectangular or angled base, a bend axis not aligned to the base rectangle,
+    a bend set that is not a single tree rooted at one base flange (disconnected /
+    cyclic), or a NON-axis-aligned intermediate flange in a depth-≥2 tree (the
+    shipped emitter lays out axis-aligned rectangles only; the general 2D placement
+    is a documented follow-on, §4.3). A depth-≥2 development that self-OVERLAPS is
+    the sibling :class:`UnfoldOverlapError` (a shape needing corner relief, §7)."""
+
+
+class UnfoldOverlapError(SheetMetalUnfoldError):
+    """The developed flat pattern SELF-OVERLAPS — two flange regions collide in 2D
+    (docs/design/sheet-metal.md §4.3 / §7). This is the load-bearing correctness
+    gate for the depth-≥2 tree unfold: a full multi-sided box whose corners
+    geometrically require RELIEF (§7, deferred) develops into overlapping material
+    that cannot be cut as a single flat blank. Rather than emit a silently-wrong /
+    overlapping pattern, the unfold refuses with this typed error (the honest-
+    degradation contract, §5). Corner relief itself stays out of v1 scope; this
+    feature UNFOLDS a chain and REJECTS (typed) the cases that need relief."""
 
 
 def bend_allowance(
@@ -262,29 +272,25 @@ def unfold_sheet_metal(
     base_rec = resolved[0][0]
     base_normal = Vector(*base_rec.normal).normalized()
 
-    # DEPTH-1 CONTRACT (§4.3), enforced BEFORE any layout math: every bend must
-    # fold directly off the ONE shared base flange. A bend whose resolved base
-    # face is NOT that shared base is a flange folded off ANOTHER flange —
-    # depth >= 2 (a box corner or a box lip/return), the graph-relaxation case v1
-    # deliberately defers (§2.2 / §7). Rejecting HERE — ahead of both the parallel
-    # and non-parallel paths — is what keeps the honest-degradation contract (§5)
-    # true for EVERY authored depth-2 body: without this guard a perpendicular
-    # second bend axis reaches the `_unfold_nonparallel` cross-product below and
-    # leaks a raw kernel `Standard_ConstructionError` (zero-norm normalize), and a
-    # parallel second bend axis silently develops as if it folded off the base.
-    # Both are now one typed `UnfoldStarError`. (This never fires for a genuine
-    # depth-1 star — every edge flange there records the shared base's signature,
-    # so all bases match; the L-bracket / U-channel / tray goldens are unaffected.)
+    # DEPTH DISPATCH (§4.3): a depth-1 bend STAR — every bend folds directly off the
+    # ONE shared base flange — lays out with the pinned 1D-strip / 2D-plus special
+    # cases below (their committed goldens stay BYTE-IDENTICAL). A bend whose
+    # resolved base face is NOT that shared base is a flange folded off ANOTHER
+    # flange — depth >= 2 (a box corner / return / Z-chain) — which now routes to
+    # the general bend-TREE walk (:func:`_unfold_bend_tree`), graduated from the
+    # tractability spike (the uniform depth-2 rejection is LIFTED for the cases that
+    # develop without self-overlap; genuinely-unsupported depth-2 stays a typed
+    # `UnfoldStarError` / `UnfoldOverlapError`). This dispatch never fires the tree
+    # path for a genuine depth-1 star — every edge flange there records the shared
+    # base's signature, so all bases match and the L-bracket / U-channel / tray
+    # goldens are unaffected.
     base_sig = base_rec.signature
-    for other_base, _m, _axis, _a, _p in resolved[1:]:
-        if not planar_signatures_match(other_base.signature, base_sig):
-            raise UnfoldStarError(
-                "A bend does not fold off the shared base flange: its base face is "
-                "another flange (depth >= 2 — a box corner or lip/return). v1 unfolds "
-                "a depth-1 bend STAR — N flanges folded directly off ONE fixed base "
-                "(§4.3); a flange folded off another flange needs the graph-relaxation "
-                "unfold deferred to a later increment (§2.2 / §7)."
-            )
+    is_depth1 = all(
+        planar_signatures_match(other_base.signature, base_sig)
+        for other_base, _m, _axis, _a, _p in resolved[1:]
+    )
+    if not is_depth1:
+        return _unfold_bend_tree(body, bends, thickness_mm, default_k_factor)
 
     # A depth-1 star is PARALLEL (all bend axes share one direction → a 1D strip,
     # the L-bracket / U-channel) or NON-PARALLEL (flanges off perpendicular edges
@@ -826,6 +832,574 @@ def _emit_plus_pattern(
         flat_length_mm=max(xs) - min(xs),
         flat_area_mm2=flat_area,
         bend_width_mm=max(ys) - min(ys),
+        outline=tuple(outline),
+        bends=tuple(bend_lines),
+    )
+
+
+# --- Depth-≥2 bend TREE unfold (graduated from the tractability spike) -------------
+#
+# A depth-≥2 body — a flange folded off ANOTHER flange (a box corner / return / hat
+# channel / parallel Z-chain) — unfolds by a recursive-compositional tree walk (the
+# spike proved this TRACTABLE, docs/design/sheet-metal.md §4.3): build the bend tree
+# (each bend oriented parent→child by its recorded `base_face_signature`, §5), place
+# the base flange at identity, then walk outward placing each child flange IN ITS
+# PARENT'S ALREADY-FLATTENED 2D frame — `child_2d = parent_2d(cpP) + BA·w_parent_2d`.
+# Because the parent's map is already composed, the walk composes transforms EXACTLY
+# (no relaxation, no iteration, no error accumulation beyond FP). This is the frame
+# math the isolated `_spike_bend_chain` module validated, now folded into the shipped
+# path (DRY — one implementation) and extended with the two feature-level pieces the
+# spike deferred: (a) a SINGLE union outline (a closed rectilinear loop the way
+# `_emit_plus_pattern` builds the depth-1 plus, not per-flange rectangles), and
+# (b) a self-OVERLAP gate (`UnfoldOverlapError`) for developments that need corner
+# relief (§7). The depth-1 star keeps its own pinned layout above (byte-identical).
+
+Vec2 = tuple[float, float]
+#: A developed axis-aligned rectangle: (min_x, min_y, max_x, max_y).
+_Rect = tuple[float, float, float, float]
+
+#: A flat face's in-run identity key (outward normal + area centroid, rounded to the
+#: subshape linear tolerance) so the bend tree's nodes are stable and hashable — a
+#: depth-2 chain's middle flange is the SAME node across the two bends that share it.
+#: NOT a persisted identity (RESEARCH §9: never quantize a stored id) — an in-run
+#: graph key only.
+_KEY_NORMAL_DP = 6
+_KEY_CENTROID_DP = 4
+#: Axis-aligned-rectangle residual for a developed flange/strip (mm) — a mapped face
+#: whose vertices do not land on an axis-aligned box within this bound is a
+#: non-axis-aligned intermediate flange (out of the shipped emitter's scope, §4.3).
+_AXIS_RECT_TOL_MM = 1e-6
+#: Positive-area intersection floor for the self-overlap gate (mm). Two developed
+#: flange regions overlapping by more than this in BOTH axes is a self-overlap
+#: (touching edges — zero area — never count); tighter than the kernel linear tol.
+_OVERLAP_TOL_MM = 1e-6
+
+
+def _face_key(sig: PlanarFaceSignature) -> tuple[float, ...]:
+    """A hashable in-run identity for a flat face (normal + centroid, rounded)."""
+    return (
+        round(sig.normal.x, _KEY_NORMAL_DP),
+        round(sig.normal.y, _KEY_NORMAL_DP),
+        round(sig.normal.z, _KEY_NORMAL_DP),
+        round(sig.centroid.x, _KEY_CENTROID_DP),
+        round(sig.centroid.y, _KEY_CENTROID_DP),
+        round(sig.centroid.z, _KEY_CENTROID_DP),
+    )
+
+
+@dataclass(frozen=True)
+class _ChainBend:
+    """One resolved bend of the tree, oriented parent → child by provenance (§5)."""
+
+    parent: FlangeFaceRecord
+    child: FlangeFaceRecord
+    axis_origin: Vector
+    axis_dir: Vector
+    radius_mm: float
+    angle_rad: float
+    allowance_mm: float
+    k_factor: float
+    width_mm: float
+
+
+@dataclass(frozen=True)
+class _Placement:
+    """A flange's developed placement: an isometry from its own plane into the flat.
+
+    ``phi(p) = R·[(p - o)·e1, (p - o)·e2] + t`` maps a 3D point on the flange's plane
+    to its 2D developed coordinate. ``(e1, e2)`` is an orthonormal in-plane basis;
+    ``R`` (2x2) + ``t`` places the flange into the flat plane. The base flange is
+    placed at identity."""
+
+    o: Vector
+    e1: Vector
+    e2: Vector
+    r00: float
+    r01: float
+    r10: float
+    r11: float
+    tx: float
+    ty: float
+
+    def phi(self, p: Vector) -> Vec2:
+        d = p - self.o
+        a = d.dot(self.e1)
+        b = d.dot(self.e2)
+        return (
+            self.r00 * a + self.r01 * b + self.tx,
+            self.r10 * a + self.r11 * b + self.ty,
+        )
+
+
+def _perp(v: Vector, axis: Vector) -> Vector:
+    """The component of *v* perpendicular to unit *axis*."""
+    return v - axis * v.dot(axis)
+
+
+def _project_to_plane(point: Vector, plane_pt: Vector, normal: Vector) -> Vector:
+    """Orthogonal projection of *point* onto the plane through *plane_pt* with unit
+    *normal* — the bend axis projects onto a flange plane to that flange's tangent
+    contact line (the developable-surface tangent line, §9 #1)."""
+    return point - normal * (point - plane_pt).dot(normal)
+
+
+def _map_dir(pl: _Placement, v: Vector) -> Vec2:
+    """A 3D in-plane direction expressed in *pl*'s developed frame (no translation)."""
+    a = v.dot(pl.e1)
+    b = v.dot(pl.e2)
+    return (pl.r00 * a + pl.r01 * b, pl.r10 * a + pl.r11 * b)
+
+
+def _unit2(v: Vec2) -> Vec2:
+    length = math.hypot(v[0], v[1])
+    return (v[0] / length, v[1] / length)
+
+
+def _resolve_chain(
+    body: BodyShape, bends: list[BendProvenance], thickness_mm: float
+) -> list[_ChainBend]:
+    """Resolve every bend by provenance and orient it parent → child (§5).
+
+    The parent is the flanking flat matching the bend's recorded base-face signature;
+    the child is the other flat. Construction provenance alone orients the tree — a
+    depth-2 flange records its PARENT flange's signature, so no geometric guessing."""
+    out: list[_ChainBend] = []
+    for prov in bends:
+        inner = resolve_cylindrical_face(body, prov.cyl_signature)
+        rbf = resolve_bend_faces(body, inner)
+        a, b = rbf.flanges
+        if planar_signatures_match(a.signature, prov.base_face_signature):
+            parent, child = a, b
+        elif planar_signatures_match(b.signature, prov.base_face_signature):
+            parent, child = b, a
+        else:
+            raise UnfoldStarError(
+                "A bend's recorded base-face signature matches neither flanking flat; "
+                "the bend cannot be oriented parent → child by provenance (§5)."
+            )
+        out.append(
+            _ChainBend(
+                parent=parent,
+                child=child,
+                axis_origin=Vector(*rbf.axis_origin),
+                axis_dir=Vector(*rbf.axis_dir).normalized(),
+                radius_mm=inner.radius,
+                angle_rad=rbf.angle_rad,
+                allowance_mm=bend_allowance(
+                    rbf.angle_rad, inner.radius, prov.k_factor, thickness_mm
+                ),
+                k_factor=prov.k_factor,
+                width_mm=child.width_mm,
+            )
+        )
+    return out
+
+
+def _find_root(chain: list[_ChainBend]) -> tuple[float, ...]:
+    """The base-flange node: a bend parent that is never a bend child (the fixed
+    tree root). Exactly one — else the bends are not a single rooted tree."""
+    parents = {_face_key(b.parent.signature) for b in chain}
+    children = {_face_key(b.child.signature) for b in chain}
+    roots = parents - children
+    if len(roots) != 1:
+        raise UnfoldStarError(
+            f"The bends do not form a single tree rooted at one base flange "
+            f"(found {len(roots)} root candidates). The unfold handles a connected "
+            "bend tree off one base (docs/design/sheet-metal.md §4.3)."
+        )
+    return next(iter(roots))
+
+
+def _base_placement(root_rec: FlangeFaceRecord) -> _Placement:
+    """Place the base flange at identity: its own plane is the developed plane.
+
+    The in-plane basis is derived deterministically from the base normal (no face
+    iteration order dependence), so the whole developed layout is reproducible."""
+    n = Vector(*root_rec.normal).normalized()
+    seed = Vector(1.0, 0.0, 0.0) if abs(n.X) < 0.9 else Vector(0.0, 1.0, 0.0)
+    e1 = _perp(seed, n).normalized()
+    e2 = n.cross(e1).normalized()
+    return _Placement(
+        o=Vector(*root_rec.centroid),
+        e1=e1,
+        e2=e2,
+        r00=1.0,
+        r01=0.0,
+        r10=0.0,
+        r11=1.0,
+        tx=0.0,
+        ty=0.0,
+    )
+
+
+def _place_child(parent_pl: _Placement, bend: _ChainBend) -> _Placement:
+    """Compose the child's developed placement in the PARENT's flattened frame.
+
+    The depth-≥2 crux: the child folds off a parent that is ITSELF already developed,
+    so we express the bend's tangent line in the parent's 2D frame and place the child
+    across a ``BA``-wide strip beyond it. Pure composition — the parent's map is
+    applied to the shared tangent line, then offset by the bend allowance. No
+    relaxation, no iteration. ``e2 = w_c`` is explicitly the child-interior direction,
+    so its image ``wp2`` points OUTWARD across the strip regardless of the ``det=±1``
+    handedness of the fold-axis image (the developed side is correct by construction;
+    the overlap gate is the backstop for any residual misplacing)."""
+    axis = bend.axis_dir
+    o = bend.axis_origin
+    p_n = Vector(*bend.parent.normal).normalized()
+    c_n = Vector(*bend.child.normal).normalized()
+    p_c = Vector(*bend.parent.centroid)
+    c_c = Vector(*bend.child.centroid)
+
+    # Tangent-contact lines: the bend axis projected onto each flange plane. cpP and
+    # cpC share the bend's axial coordinate (projection removes only the normal
+    # component, perpendicular to the axis), so they are corresponding points.
+    cp_p = _project_to_plane(o, p_c, p_n)
+    cp_c = _project_to_plane(o, c_c, c_n)
+
+    # Fold-perpendicular directions (in-plane, perpendicular to the axis).
+    w_c = _perp(c_c - cp_c, axis).normalized()  # bend → child interior
+    w_p = _perp(cp_p - p_c, axis).normalized()  # parent interior → bend
+
+    # Parent-frame images of the axis + parent fold-perpendicular direction.
+    a2 = _unit2(_map_dir(parent_pl, axis))
+    wp2 = _unit2(_map_dir(parent_pl, w_p))
+
+    # Child placement: fold axis → a2; child interior → wp2 (continues outward across
+    # the strip). Origin at the child tangent contact, offset one BA beyond the parent
+    # tangent contact along wp2 (the developed bend strip).
+    q_parent = parent_pl.phi(cp_p)
+    tx = q_parent[0] + bend.allowance_mm * wp2[0]
+    ty = q_parent[1] + bend.allowance_mm * wp2[1]
+    return _Placement(
+        o=cp_c,
+        e1=axis,
+        e2=w_c,
+        r00=a2[0],
+        r01=wp2[0],
+        r10=a2[1],
+        r11=wp2[1],
+        tx=tx,
+        ty=ty,
+    )
+
+
+def _flange_dev_rect(rec: FlangeFaceRecord, pl: _Placement) -> _Rect:
+    """The flange's developed AXIS-ALIGNED rectangle (its mapped face vertices' bbox).
+
+    Guards the shipped emitter's axis-aligned assumption: a mapped vertex not on the
+    bbox corner grid means a non-axis-aligned flange (out of scope, §4.3) — a typed
+    ``UnfoldStarError``, never a silently mislaid rectangle."""
+    pts: list[Vec2] = []
+    for v in rec.face.vertices():
+        p = pl.phi(Vector(v.X, v.Y, v.Z))
+        if not any(math.dist(p, q) <= _AXIS_RECT_TOL_MM for q in pts):
+            pts.append(p)
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    min_x, max_x, min_y, max_y = min(xs), max(xs), min(ys), max(ys)
+    for p in pts:
+        on_x = (
+            abs(p[0] - min_x) <= _AXIS_RECT_TOL_MM
+            or abs(p[0] - max_x) <= _AXIS_RECT_TOL_MM
+        )
+        on_y = (
+            abs(p[1] - min_y) <= _AXIS_RECT_TOL_MM
+            or abs(p[1] - max_y) <= _AXIS_RECT_TOL_MM
+        )
+        if not (on_x and on_y):
+            raise UnfoldStarError(
+                "A developed flange is not an axis-aligned rectangle in the flat "
+                "frame (a non-axis-aligned intermediate flange). The shipped depth-≥2 "
+                "emitter lays out axis-aligned rectangles only (§4.3 follow-on)."
+            )
+    return (min_x, min_y, max_x, max_y)
+
+
+def _strip_dev_rect(
+    parent_pl: _Placement, child_pl: _Placement, bend: _ChainBend
+) -> _Rect:
+    """The bend's developed BA-strip rectangle: the axis-aligned bbox of the parent
+    and child tangent-contact lines (the strip bridges the two flange rectangles)."""
+    axis = bend.axis_dir
+    p_n = Vector(*bend.parent.normal).normalized()
+    cp_p = _project_to_plane(bend.axis_origin, Vector(*bend.parent.centroid), p_n)
+    cp_c = child_pl.o
+    along = [
+        (Vector(v.X, v.Y, v.Z) - cp_c).dot(axis) for v in bend.child.face.vertices()
+    ]
+    s0, s1 = min(along), max(along)
+    corners: list[Vec2] = []
+    for s in (s0, s1):
+        corners.append(parent_pl.phi(cp_p + axis * s))
+        corners.append(child_pl.phi(cp_c + axis * s))
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _rects_overlap(a: _Rect, b: _Rect) -> bool:
+    """True if two developed rectangles intersect with POSITIVE area (touching edges
+    — zero area — never count) — the self-overlap predicate (§7)."""
+    ix = min(a[2], b[2]) - max(a[0], b[0])
+    iy = min(a[3], b[3]) - max(a[1], b[1])
+    return ix > _OVERLAP_TOL_MM and iy > _OVERLAP_TOL_MM
+
+
+def _cluster(values: list[float]) -> dict[float, float]:
+    """Snap near-coincident coordinates (independently-computed flange vs. BA-strip
+    interfaces coincide only to FP scale) to a shared representative, so the union
+    grid has no spurious slivers. Real distinct coordinates (BA vs. leg lengths) are
+    far apart (≫ tol); this only collapses the ≈1e-13 interface jitter."""
+    out: dict[float, float] = {}
+    reps: list[float] = []
+    for v in sorted(values):
+        if reps and v - reps[-1] <= _LOOP_TOL_MM:
+            out[v] = reps[-1]
+        else:
+            reps.append(v)
+            out[v] = v
+    return out
+
+
+def _snap_rects(rects: list[_Rect]) -> list[_Rect]:
+    """Snap every rectangle's coordinates onto a shared clustered grid (per axis)."""
+    xm = _cluster([r[i] for r in rects for i in (0, 2)])
+    ym = _cluster([r[i] for r in rects for i in (1, 3)])
+    return [(xm[r[0]], ym[r[1]], xm[r[2]], ym[r[3]]) for r in rects]
+
+
+def _rectilinear_union_loop(rects: list[_Rect]) -> list[Vec2]:
+    """The boundary of a union of axis-aligned rectangles as ONE closed CCW vertex
+    loop (collinear runs merged). Raises ``UnfoldStarError`` if the boundary is not a
+    single simple loop — a gap / hole / non-manifold junction (a partial-width flange
+    would leave one), the depth-≥2 analogue of `_body_outline_is_closed_loop`."""
+    xs = sorted({c for r in rects for c in (r[0], r[2])})
+    ys = sorted({c for r in rects for c in (r[1], r[3])})
+
+    def covered(cx: float, cy: float) -> bool:
+        return any(r[0] <= cx <= r[2] and r[1] <= cy <= r[3] for r in rects)
+
+    inside: set[tuple[int, int]] = set()
+    for i in range(len(xs) - 1):
+        cx = (xs[i] + xs[i + 1]) / 2.0
+        for j in range(len(ys) - 1):
+            cy = (ys[j] + ys[j + 1]) / 2.0
+            if covered(cx, cy):
+                inside.add((i, j))
+
+    # Directed boundary segments, oriented CCW (interior on the left) so head→tail
+    # chaining is unambiguous. A cell side is boundary iff the neighbour across it is
+    # outside the union.
+    adj: dict[Vec2, Vec2] = {}
+    for i, j in inside:
+        x0, x1, y0, y1 = xs[i], xs[i + 1], ys[j], ys[j + 1]
+        edges: list[tuple[Vec2, Vec2]] = []
+        if (i, j - 1) not in inside:
+            edges.append(((x0, y0), (x1, y0)))  # bottom, +x
+        if (i, j + 1) not in inside:
+            edges.append(((x1, y1), (x0, y1)))  # top, -x
+        if (i - 1, j) not in inside:
+            edges.append(((x0, y1), (x0, y0)))  # left, -y
+        if (i + 1, j) not in inside:
+            edges.append(((x1, y0), (x1, y1)))  # right, +y
+        for s, e in edges:
+            if s in adj:
+                raise UnfoldStarError(
+                    "The developed outline is non-manifold (a boundary vertex has two "
+                    "outgoing edges); the flange layout does not tile a single blank."
+                )
+            adj[s] = e
+
+    if not adj:
+        raise UnfoldStarError("The developed outline is empty (no flange regions).")
+
+    start = min(adj)
+    loop: list[Vec2] = [start]
+    cur = adj[start]
+    while cur != start:
+        loop.append(cur)
+        nxt = adj.get(cur)
+        if nxt is None:
+            raise UnfoldStarError("The developed outline is not a closed loop (a gap).")
+        cur = nxt
+    if len(loop) != len(adj):
+        raise UnfoldStarError(
+            "The developed outline is more than one closed loop (a hole / detached "
+            "region) — the flange layout does not tile a single blank (§4.3 / §7)."
+        )
+    return _merge_collinear(loop)
+
+
+def _merge_collinear(loop: list[Vec2]) -> list[Vec2]:
+    """Drop vertices interior to a straight run (the union grid emits unit edges)."""
+    n = len(loop)
+    out: list[Vec2] = []
+    for k in range(n):
+        a = loop[(k - 1) % n]
+        b = loop[k]
+        c = loop[(k + 1) % n]
+        cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        if abs(cross) > _LOOP_TOL_MM:
+            out.append(b)
+    return out
+
+
+def _unfold_bend_tree(
+    body: BodyShape,
+    bends: list[BendProvenance],
+    thickness_mm: float,
+    default_k_factor: float,
+) -> FlatPattern:
+    """Unfold a depth-≥2 bend TREE into a single-outline :class:`FlatPattern`.
+
+    Resolves each bend by provenance, builds the bend tree, walks it from the base
+    outward composing each flange's developed placement in its parent's already-flat
+    frame (the spike's exact frame math), then assembles the ONE union outline and
+    gates a self-overlapping development with a typed :class:`UnfoldOverlapError`.
+    Byte-deterministic (§9 #4): every value flows from a deterministic OCCT
+    measurement + closed-form allowance + a coordinate-sorted assembly.
+
+    Raises:
+        SubshapeUnresolvedError / SubshapeAmbiguousError: a bend signature no longer
+            resolves against *body* (honest degradation, §5).
+        UnfoldStarError: the bends are not a single rooted tree, or a developed
+            flange / outline is not an axis-aligned single-loop layout (§4.3).
+        UnfoldOverlapError: the development self-overlaps (needs corner relief, §7).
+    """
+    chain = _resolve_chain(body, bends, thickness_mm)
+    root_key = _find_root(chain)
+    root_rec = next(
+        b.parent for b in chain if _face_key(b.parent.signature) == root_key
+    )
+
+    placements: dict[tuple[float, ...], _Placement] = {
+        root_key: _base_placement(root_rec)
+    }
+    # BFS: place a bend's child once its parent is placed. Deterministic order —
+    # bends sorted by a canonical geometric key, independent of the input order (§9).
+    pending = sorted(
+        chain,
+        key=lambda b: (_face_key(b.parent.signature), _face_key(b.child.signature)),
+    )
+    placed_order: list[_ChainBend] = []
+    guard = 0
+    while pending:
+        guard += 1
+        if guard > len(chain) + 1:
+            raise UnfoldStarError(
+                "The bend tree is disconnected or cyclic — a child was never reached "
+                "from the base flange (docs/design/sheet-metal.md §4.3)."
+            )
+        progressed = False
+        for bend in list(pending):
+            pk = _face_key(bend.parent.signature)
+            ck = _face_key(bend.child.signature)
+            if pk in placements and ck not in placements:
+                placements[ck] = _place_child(placements[pk], bend)
+                placed_order.append(bend)
+                pending.remove(bend)
+                progressed = True
+        if not progressed:
+            raise UnfoldStarError(
+                "The bend tree is disconnected — a flange never chains back to the "
+                "base (docs/design/sheet-metal.md §4.3)."
+            )
+
+    # Every flange record, keyed, base first.
+    recs: dict[tuple[float, ...], FlangeFaceRecord] = {root_key: root_rec}
+    for b in chain:
+        recs[_face_key(b.child.signature)] = b.child
+
+    # Developed flange rectangles (raw), and the SELF-OVERLAP gate (§7): two flange
+    # regions colliding with positive area is a shape needing corner relief.
+    flange_rects = {k: _flange_dev_rect(recs[k], placements[k]) for k in recs}
+    ordered_keys = sorted(flange_rects)
+    for i in range(len(ordered_keys)):
+        for j in range(i + 1, len(ordered_keys)):
+            if _rects_overlap(
+                flange_rects[ordered_keys[i]], flange_rects[ordered_keys[j]]
+            ):
+                raise UnfoldOverlapError(
+                    "The developed flat pattern self-overlaps: two flange regions "
+                    "collide in 2D. This shape needs corner relief (§7, deferred); "
+                    "the unfold refuses rather than emit an overlapping blank (§5)."
+                )
+
+    # BA-strip rectangles (one per bend), then snap flange+strip coords onto a shared
+    # grid (independently-computed interfaces coincide only to FP scale).
+    strip_rects = [
+        _strip_dev_rect(
+            placements[_face_key(b.parent.signature)],
+            placements[_face_key(b.child.signature)],
+            b,
+        )
+        for b in placed_order
+    ]
+    n_flange = len(ordered_keys)
+    snapped = _snap_rects([flange_rects[k] for k in ordered_keys] + strip_rects)
+    snapped_strips = snapped[n_flange:]
+
+    loop = _rectilinear_union_loop(snapped)
+    dx = min(p[0] for p in loop)
+    dy = min(p[1] for p in loop)
+    loop = [(p[0] - dx, p[1] - dy) for p in loop]
+
+    all_x = [p[0] for p in loop]
+    all_y = [p[1] for p in loop]
+
+    outline: list[FlatEdge2D] = []
+    n = len(loop)
+    for i in range(n):
+        x1, y1 = loop[i]
+        x2, y2 = loop[(i + 1) % n]
+        outline.append(FlatEdge2D(kind="line", x1=x1, y1=y1, x2=x2, y2=y2, role="body"))
+
+    bend_lines: list[BendLine] = []
+    for i, bend in enumerate(placed_order, start=1):
+        sx0, sy0, sx1, sy1 = snapped_strips[i - 1]
+        sx0, sx1 = sx0 - dx, sx1 - dx
+        sy0, sy1 = sy0 - dy, sy1 - dy
+        if (sx1 - sx0) <= (sy1 - sy0):  # strip thin in x → vertical fold centerline
+            xm = (sx0 + sx1) / 2.0
+            outline.append(
+                FlatEdge2D(kind="line", x1=xm, y1=sy0, x2=xm, y2=sy1, role="bend")
+            )
+        else:  # strip thin in y → horizontal fold centerline
+            ym = (sy0 + sy1) / 2.0
+            outline.append(
+                FlatEdge2D(kind="line", x1=sx0, y1=ym, x2=sx1, y2=ym, role="bend")
+            )
+        # Fold sense: child centroid on the +parent-normal side → "up".
+        p_n = Vector(*bend.parent.normal).normalized()
+        along_n = (Vector(*bend.child.centroid) - Vector(*bend.parent.centroid)).dot(
+            p_n
+        )
+        bend_lines.append(
+            BendLine(
+                bend_id=f"bend-{i}",
+                angle_deg=math.degrees(bend.angle_rad),
+                radius_mm=bend.radius_mm,
+                k_factor=bend.k_factor,
+                allowance_mm=bend.allowance_mm,
+                width_mm=bend.width_mm,
+                direction="up" if along_n >= 0.0 else "down",
+                flat_start_mm=0.0,
+                flat_end_mm=bend.allowance_mm,
+            )
+        )
+
+    outline.sort(key=lambda e: (e.role, e.x1, e.y1, e.x2, e.y2))
+    bend_lines.sort(key=lambda bl: bl.bend_id)
+
+    flat_area = sum(rec.area_mm2 for rec in recs.values()) + sum(
+        b.allowance_mm * b.width_mm for b in chain
+    )
+    return FlatPattern(
+        thickness_mm=thickness_mm,
+        k_factor=default_k_factor,
+        flat_length_mm=max(all_x) - min(all_x),
+        flat_area_mm2=flat_area,
+        bend_width_mm=max(all_y) - min(all_y),
         outline=tuple(outline),
         bends=tuple(bend_lines),
     )

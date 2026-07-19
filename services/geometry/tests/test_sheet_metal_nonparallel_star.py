@@ -239,12 +239,15 @@ def test_unfold_is_deterministic_across_interpreter_restart(golden_dir: Path) ->
 
 
 # --------------------------------------------------------------------------- #
-# Depth-2 rejection — a flange folded off ANOTHER flange (§4.3 / §7 deferred).  #
-# The v1 contract is depth-1 ONLY; depth-2 is rejected UNIFORMLY (both a        #
-# perpendicular second bend axis — a box corner — and a parallel one — a box    #
-# lip/return). The perpendicular case is the reachable-crash regression: before #
-# the guard it leaked a raw kernel Standard_ConstructionError (zero-norm cross   #
-# product) through the public unfold API. It MUST now be a typed UnfoldStarError.#
+# Depth-2 SUCCESS — a flange folded off ANOTHER flange (§4.3 follow-on).        #
+# The uniform depth-2 rejection is LIFTED: a single-return depth-2 body (an     #
+# L-with-return / box corner, OR a parallel Z-chain box lip) now UNFOLDS via    #
+# the bend-TREE path. Both bodies previously raised the uniform UnfoldStarError; #
+# the perpendicular case was also the reachable-crash regression (it used to    #
+# leak a raw kernel Standard_ConstructionError before the guard) — proven here  #
+# to now produce a valid single-outline flat pattern, no raw kernel exception.  #
+# The full depth-2 golden gates (area / determinism) live in                    #
+# test_sheet_metal_bend_tree.py; these assert the LIFT on a second body shape.  #
 # --------------------------------------------------------------------------- #
 
 
@@ -297,34 +300,37 @@ def _build_depth2(second_axis: str) -> tuple[BodyShape, list[BendProvenance]]:
     return r2.body, provs
 
 
-def test_depth2_box_corner_is_typed_unfold_star_error_not_kernel_crash() -> None:
-    """THE regression: a depth-2 box corner (flange folded off a flange, second bend
-    axis perpendicular/vertical) must raise a TYPED UnfoldStarError — never leak the
-    raw kernel Standard_ConstructionError (zero-norm normalize) it did before the
-    guard. No raw kernel exception may escape the public API for an authored body."""
-    from geometry.sheet_metal.unfold import UnfoldStarError
+def _is_single_closed_loop(pattern: FlatPattern) -> bool:
+    body = [e for e in pattern.outline if e.role == "body"]
+    return _chain_loop(body) is not None
 
+
+def test_depth2_box_corner_now_unfolds_not_kernel_crash() -> None:
+    """THE lift: a depth-2 box corner (flange folded off a flange, perpendicular
+    second bend axis — an L-with-return) now UNFOLDS via the bend-tree path. It must
+    produce a valid single-outline flat pattern whose enclosed area equals the
+    reported blank area — and NEVER leak the raw kernel Standard_ConstructionError
+    (zero-norm normalize) the perpendicular case did before the depth-2 guard."""
     body, provs = _build_depth2("perp")
-    with pytest.raises(UnfoldStarError, match="depth >= 2"):
-        unfold_sheet_metal(body, provs, 2.0, 0.44)
-    # Belt-and-suspenders: prove the escaping type is OUR typed error, not the OCP
-    # Standard_ConstructionError (whose name would appear on a raw-kernel leak).
-    try:
-        unfold_sheet_metal(body, provs, 2.0, 0.44)
-    except UnfoldStarError as exc:
-        assert "Standard_ConstructionError" not in type(exc).__name__
+    pattern = unfold_sheet_metal(body, provs, 2.0, 0.44)
+    assert _is_single_closed_loop(pattern)
+    assert _outline_enclosed_area(pattern) == pytest.approx(
+        pattern.flat_area_mm2, abs=1e-6
+    )
+    assert len(pattern.bends) == 2
 
 
-def test_depth2_box_lip_parallel_axis_is_also_rejected() -> None:
-    """The DECIDED depth-2 contract (§4.3): the parallel-second-axis box lip — which
-    does NOT crash and would develop a geometrically-plausible strip — is rejected
-    too, for a consistent 'depth-1 only' contract (it is still the graph-relaxation
-    case v1 defers, §2.2 / §7), matching the corrected docstring/design."""
-    from geometry.sheet_metal.unfold import UnfoldStarError
-
+def test_depth2_box_lip_parallel_axis_now_unfolds() -> None:
+    """The parallel-second-axis box lip (a Z-chain) also unfolds via the bend-tree
+    path, developing a single 1D-strip rectangle — the parallel depth-2 case the
+    uniform rejection used to defer (§4.3 follow-on)."""
     body, provs = _build_depth2("parallel")
-    with pytest.raises(UnfoldStarError, match="depth >= 2"):
-        unfold_sheet_metal(body, provs, 2.0, 0.44)
+    pattern = unfold_sheet_metal(body, provs, 2.0, 0.44)
+    assert _is_single_closed_loop(pattern)
+    assert _outline_enclosed_area(pattern) == pytest.approx(
+        pattern.flat_area_mm2, abs=1e-6
+    )
+    assert len(pattern.bends) == 2
 
 
 # --------------------------------------------------------------------------- #

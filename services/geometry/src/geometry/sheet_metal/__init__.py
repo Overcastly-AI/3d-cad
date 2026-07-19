@@ -33,6 +33,7 @@ from geometry.sheet_metal.resolve import (
 )
 from geometry.sheet_metal.unfold import (
     BendProvenance,
+    UnfoldOverlapError,
     UnfoldScopeError,
     UnfoldStarError,
     bend_allowance,
@@ -56,6 +57,7 @@ __all__ = [
     "ResolvedFlange",
     "SheetMetalDefaults",
     "SheetMetalUnfoldError",
+    "UnfoldOverlapError",
     "UnfoldScopeError",
     "UnfoldStarError",
     "bend_allowance",

@@ -846,18 +846,23 @@ off another flange (author-reachable) is now a UNIFORM typed `UnfoldStarError`
 and a parallel box lip), guarded before the layout cross-product; the plus-pattern
 assembler guards its full-width-flange assumption (closed-loop or typed error);
 new N=4 full-pan golden `pan-four-flange-perp-unfold` (exactly-additive volume,
-closed 12-edge outline, byte-determinism). **Bend-chain (depth≥2) SPIKE landed
-2026-07-19 — VERDICT: TRACTABLE, no wall:** a flange folded off ANOTHER flange
-(box corner / return / hat channel — the graph-relaxation case v1 defers) unfolds
-with a clean recursive-compositional tree walk (each child placed in its parent's
-already-flattened frame — no relaxation, no error accumulation beyond FP). Proven
-on a perpendicular box corner + a parallel chain (isolated `_spike_bend_chain.py`,
-goldens `spike-bend-chain-corner`/`-parallel`; BA-strip residual ~3e-15, isometry
-residual 0.0, exact area conservation, byte-deterministic); shipped depth-1 unfold
-byte-UNCHANGED. Depth≥2 is now a scoped FEATURE (lift the rejection + generalize
-the layout + overlap-guard the full box), not an open kernel risk. Remaining v2
-increments (hems/miters/tabs/gauge-tables) are tracked in BACKLOG, not an active
-roadmap phase. A pillar the vision-steward
+closed 12-edge outline, byte-determinism). **Bend-TREE (depth≥2) unfold FEATURE — SHIPPED
+2026-07-19** (kernel-architect): the spike graduated into `unfold_sheet_metal`. A
+flange folded off ANOTHER flange (box corner / return / parallel Z-chain) now
+unfolds via a recursive-compositional tree walk (each child placed in its parent's
+already-flattened frame — no relaxation, no error accumulation beyond FP), with the
+per-flange rectangles chained into ONE union outline (a reentrant L / a rectangle).
+`unfold_sheet_metal` dispatches by tree depth so **depth-1 goldens stay
+byte-identical** (pinned content hashes green); depth-2 goldens
+`bend-chain-corner-unfold` (L-with-return) + `bend-chain-parallel-unfold` (Z),
+authored through two shipped `build_edge_flange` folds, gate area-conservation +
+exact outline-tiling + byte-determinism. Self-overlapping developments (full-box
+corners needing relief, §7) degrade to a typed `UnfoldOverlapError`; non-axis-aligned
+/ cyclic bend sets to a typed `UnfoldStarError` — never a crash or a wrong blank. The
+isolated `_spike_bend_chain` module + `spike-bend-chain-*` goldens are RETIRED (DRY —
+frame math folded in). Remaining v2 increments (corner RELIEF geometry itself,
+hems/miters/tabs/gauge-tables, the non-axis-aligned emitter) are tracked in BACKLOG,
+not an active roadmap phase. A pillar the vision-steward
 scoped 2026-07-17 in response to a founder ask ("anything for sheet metal?").
 Architecture decision: `docs/design/sheet-metal.md` (design doc corrected
 2026-07-19 before the first build slice — new additive `CylindricalFaceSignature`,

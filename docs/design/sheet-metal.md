@@ -359,21 +359,39 @@ interpreter (goldens `spike-bend-chain-corner` / `spike-bend-chain-parallel`). T
 three flanges occupy **disjoint 2D regions** (no overlap → the idealised zero-relief
 blank is valid for a single L-with-return; corner relief stays a §7 deferral).
 
-**Follow-on FEATURE slices (the spike being green, the schema already supports it —
-an edge flange's `edge` ref accepts a `sheet_metal_edge_flange` base per the
-registry):** (1) **Lift the uniform depth-2 rejection** in `unfold_sheet_metal` and
-generalize its layout from the depth-1 star's 1D-strip / 2D-plus special cases to the
-general tree walk the spike validated (the spike's `_spike_bend_chain` module is the
-reference implementation; the feature merges it into the shipped path behind the
-`FlatPattern` DTO). (2) **Assemble the single union outline** with reentrant corner
-notches (the spike emits per-flange rectangles + fold lines; the feature must chain
-them into one closed boundary the way `_emit_plus_pattern` does for the depth-1
-plus). (3) **Residual risk to gate in the feature, NOT hit by the spike:** a
-**self-overlapping** development (two returns colliding in the flat — a full 4-sided
-box's corners, where relief IS geometrically required, §7) needs an overlap check that
-degrades to a typed error, and a **non-axis-aligned / non-rectangular** intermediate
-flange needs the general (not axis-aligned) 2D placement the spike's frame math
-already supports but the shipped emitter does not.
+**Depth-≥2 bend-TREE unfold — SHIPPED (2026-07-19, kernel-architect).** The spike
+graduated into the real `unfold_sheet_metal`: the uniform depth-2 rejection is
+LIFTED for the cases that develop without self-overlap. `unfold_sheet_metal` now
+DISPATCHES by tree depth — a depth-1 star keeps its pinned 1D-strip / 2D-plus layout
+(the L-bracket / U-channel / corner-tray / N=4-pan goldens stay **byte-identical**,
+proven by their pinned content hashes) — and a depth-≥2 body routes to
+`_unfold_bend_tree`, the spike's recursive-compositional frame math folded IN (the
+`_spike_bend_chain` module + its `spike-bend-chain-*` goldens are **retired**; DRY —
+one implementation). What the feature added over the spike: (1) the per-flange
+rectangles + BA-strips are chained into **ONE union outline** — a single closed
+rectilinear loop via a grid-cell union (a reentrant L for the box corner, a
+rectangle for the parallel Z), guarded to be exactly one loop (the depth-≥2 analogue
+of `_body_outline_is_closed_loop`); (2) a **self-OVERLAP gate** — pairwise
+developed-flange-rectangle intersection raises the new typed `UnfoldOverlapError`
+(the §7 corner-relief case: a shape whose development collides degrades typed, never
+a wrong / overlapping blank); (3) an **axis-aligned guard** — a non-axis-aligned
+intermediate flange (out of the shipped emitter's scope) is a typed `UnfoldStarError`
+(the spike's frame math supports general placement; the emitter is axis-aligned only,
+a documented follow-on). New feature goldens: `bend-chain-corner-unfold` (depth-2
+L-with-return) + `bend-chain-parallel-unfold` (depth-2 Z), both authored through two
+shipped `build_edge_flange` folds with real provenance.
+
+**Finding — real self-overlap is CYCLIC, caught before the overlap gate.** A valid
+bend TREE of axis-aligned rectangular flanges essentially never self-overlaps in
+development (the BA-strip offset keeps each depth-2 flange in its parent's leg band,
+disjoint from the base band; overlap requires two branches wrapping to the same
+region). The genuinely-unfoldable-only-with-relief shape — a full box corner whose
+adjacent-wall returns must CONNECT — is a *cyclic* connectivity in this feature's
+tree model (a flange linking two branches), rejected as a typed `UnfoldStarError`
+by the tree/BFS build BEFORE layout. So both honest-degradation paths are exercised
+by tests; the `UnfoldOverlapError` gate is the belt-and-suspenders backstop that
+guarantees a valid-tree development which *did* collide (e.g. from a future
+placement bug or unusual geometry) degrades typed, never emits a wrong blank.
 
 ## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
 
@@ -717,14 +735,19 @@ blank a shop can cut":**
 **Explicitly deferred (each a later, independently shippable loop item,
 listed in rough incumbent-parity order):**
 
-- **Multi-bend / bend-graph flattening** (boxes, hat channels with a
-  flange folded off ANOTHER flange to close a corner — depth ≥ 2) — the
-  real graph-relaxation problem §2.2 names; the depth-1-bend-star v1
-  deliberately avoids it (§4.3). **SPIKE COMPLETE — VERDICT: TRACTABLE
-  (2026-07-19, §4.3):** the recursive-compositional tree walk unfolds a box
-  corner with no relaxation and no error accumulation beyond FP; this is now a
-  scoped FEATURE (lift the depth-2 rejection + generalize the layout +
-  overlap-guard the full-box case), not an open kernel risk.
+- **Multi-bend / bend-TREE flattening** (a flange folded off ANOTHER flange —
+  a box corner / return / hat channel / parallel Z-chain, depth ≥ 2) —
+  **SHIPPED (2026-07-19, §4.3).** The spike's recursive-compositional tree walk
+  graduated into `unfold_sheet_metal`: a depth-≥2 body unfolds into a single
+  union outline; a self-overlapping development (full-box corners needing
+  relief) degrades to a typed `UnfoldOverlapError`, a non-axis-aligned
+  intermediate flange or a cyclic bend set to a typed `UnfoldStarError`. Depth-1
+  goldens byte-unchanged. **Still deferred here:** corner-RELIEF geometry itself
+  (this feature UNFOLDS a chain and REJECTS the cases that need relief; it does
+  not ADD relief), the general non-axis-aligned intermediate-flange emitter, and
+  a full EvaluateTreeRequest-JSON depth-2 golden (the shipped goldens author via
+  `build_edge_flange` — the real feature builder — which needs the intermediate
+  edge signature computed, a declarative-authoring convenience deferred).
 - **Miter flanges, hems, jogs, tabs, corner reliefs** (§1) — each is more
   bend-graph and corner-case geometry on the same primitive, not new kernel
   risk, but real authoring + reconstruction work.

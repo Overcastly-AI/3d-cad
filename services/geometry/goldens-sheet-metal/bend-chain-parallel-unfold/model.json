@@ -1,0 +1,11 @@
+{
+  "description": "Depth-2 PARALLEL chain (a Z / offset). Same 40x30 base + F1 (leg 25) as the corner case, but F2 (leg 15) folds off F1's TOP FREE edge (bend axis +X, PARALLEL to B1) rather than a side edge. Still depth 2 (F2 folds off the already-moved F1, not the base) but develops as a 1D strip. Built via two shipped build_edge_flange folds (tests/_bend_chain_builder.py, kind='parallel'). Unfolds via the SHIPPED geometry.sheet_metal.unfold_sheet_metal bend-tree path (docs/design/sheet-metal.md sec 4.3).",
+  "base_x_mm": 40.0,
+  "base_y_mm": 30.0,
+  "thickness_mm": 2.0,
+  "bend_radius_mm": 3.0,
+  "leg1_mm": 25.0,
+  "leg2_mm": 15.0,
+  "k_factor": 0.44,
+  "kind": "parallel"
+}

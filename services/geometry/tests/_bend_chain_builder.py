@@ -1,8 +1,8 @@
-"""Test-local depth->=2 bend-chain body builder (sheet-metal bend-chain SPIKE).
+"""Test-local depth->=2 bend-chain body builder (sheet-metal bend-TREE feature).
 
-NOT a test module (leading underscore -> not collected). The spike proves the
-depth->=2 unfold (a flange folded off ANOTHER flange — a box corner / return), so
-this helper builds that body through the SHIPPED edge-flange feature path
+NOT a test module (leading underscore -> not collected). The feature unfolds a
+depth->=2 bend chain (a flange folded off ANOTHER flange — a box corner / return),
+so this helper builds that body through the SHIPPED edge-flange feature path
 (:func:`geometry.sheet_metal.edge_flange.build_edge_flange`) applied TWICE:
 
     base plate  --B1-->  edge flange F1 (depth 1)  --B2-->  return flange F2 (depth 2)
@@ -23,9 +23,9 @@ Two axis relationships are exercised:
   unfold defers.
 
 Single source of the builder (CLAUDE.md DRY): imported by
-``tests/test_sheet_metal_bend_chain.py`` via importlib file-path loading AND run as
+``tests/test_sheet_metal_bend_tree.py`` via importlib file-path loading AND run as
 ``__main__`` for the cross-process determinism leg, so both unfold the byte-identical
-body + provenance.
+body + provenance through the SHIPPED ``unfold_sheet_metal``.
 
 The OCP wheel ships no type stubs, so the raw build123d calls are opaque to pyright;
 the directive scopes that relaxation to this file only.
@@ -164,12 +164,12 @@ def build_bend_chain(
 
 def _main() -> None:
     """CLI: ``python _bend_chain_builder.py <model.json>`` -> print the unfold's
-    content hash + JSON (the cross-process determinism leg of the spike golden)."""
+    content hash + JSON (the cross-process determinism leg of the bend-tree golden)."""
     import json
     import sys
     from pathlib import Path
 
-    from geometry.sheet_metal._spike_bend_chain import unfold_bend_chain
+    from geometry.sheet_metal import unfold_sheet_metal
 
     model = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     built = build_bend_chain(
@@ -182,11 +182,11 @@ def _main() -> None:
         k_factor=model["k_factor"],
         kind=model["kind"],
     )
-    result = unfold_bend_chain(
+    pattern = unfold_sheet_metal(
         built.body, built.bends, model["thickness_mm"], model["k_factor"]
     )
-    sys.stdout.write(result.pattern.content_hash() + "\n")
-    sys.stdout.write(result.pattern.to_json_bytes().decode("utf-8") + "\n")
+    sys.stdout.write(pattern.content_hash() + "\n")
+    sys.stdout.write(pattern.to_json_bytes().decode("utf-8") + "\n")
 
 
 if __name__ == "__main__":

@@ -261,6 +261,24 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P2, M) Sheet metal v2 #2 — depth-≥2 bend-TREE unfold FEATURE (geometry,
+      kernel-architect). **SHIPPED** — the spike graduated into the real
+      `unfold_sheet_metal`: the uniform depth-2 rejection is LIFTED for cases that
+      develop without self-overlap. Dispatches by tree depth → **depth-1 goldens
+      byte-identical** (pinned hashes green); depth-≥2 routes to `_unfold_bend_tree`
+      (spike frame math folded IN; `_spike_bend_chain` + `spike-bend-chain-*`
+      RETIRED — DRY). Adds: ONE union outline (grid-cell rectilinear union, single
+      closed loop; reentrant-L box corner / rectangle Z), a self-OVERLAP gate
+      (typed `UnfoldOverlapError`, §7 relief case), an axis-aligned guard (typed
+      `UnfoldStarError`). New goldens `bend-chain-corner-unfold` (L-with-return) +
+      `bend-chain-parallel-unfold` (Z), authored via two shipped `build_edge_flange`
+      folds: hand-derived area-conservation + exact outline-tiling (shoelace area ==
+      flat_area) + byte-determinism. Negative: full box corner (cyclic returns
+      needing relief) → typed, no crash. **Finding:** valid-tree axis-aligned
+      developments don't self-overlap (real relief cases are cyclic, caught earlier);
+      overlap gate is defense-in-depth. Deferred: corner RELIEF geometry, the
+      non-axis-aligned emitter, a declarative depth-2 EvaluateTreeRequest golden.
+      [src: design/sheet-metal.md §4.3, §10]
 - [x] (P2, M) Sheet metal v2 Spike — bend-chain (depth ≥2) unfold tractability
       proof (geometry, kernel-architect). **VERDICT: TRACTABLE, no wall.** A
       flange folded off ANOTHER flange (box corner / return / hat channel) —
@@ -425,6 +443,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-19 — **Sheet-metal depth-≥2 bend-TREE unfold FEATURE (kernel-architect):**
+  spike graduated into `unfold_sheet_metal`; depth-2 (box corner / return / Z) now
+  unfolds to ONE union outline, self-overlap → typed `UnfoldOverlapError`. Depth-1
+  goldens byte-identical; new `bend-chain-{corner,parallel}-unfold`; spike retired.
 - 2026-07-19 — **Sheet-metal depth-≥2 bend-chain unfold SPIKE (kernel-architect):**
   VERDICT **TRACTABLE, no wall.** Recursive-compositional tree walk unfolds a
   box corner (flange off a flange) — each child placed in its parent's already-

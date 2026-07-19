@@ -7,6 +7,40 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-19 — Sheet-metal depth-≥2 bend-TREE unfold FEATURE (kernel-architect self-report)
+
+**SHIPPED — the spike graduated into `unfold_sheet_metal`.** Depth-2 is no longer
+rejected: a flange folded off ANOTHER flange (box corner / return / parallel Z)
+unfolds through the real path. Evidence:
+
+- **Depth-1 goldens BYTE-UNCHANGED** (the load-bearing regression gate). `just`
+  `pytest tests/` green; the L-bracket / U-channel / `corner-tray-perp-unfold` /
+  `pan-four-flange-perp-unfold` pinned content-hash tests pass unchanged —
+  `unfold_sheet_metal` dispatches by tree depth, so the depth-1 star runs the exact
+  pinned 1D-strip / 2D-plus layout as before.
+- **Depth-2 unfolds correctly**, authored through two shipped `build_edge_flange`
+  folds (real provenance), new goldens:
+  - `bend-chain-corner-unfold` (depth-2 L-with-return, F2 ⟂ F1): flat_area
+    2971.154834 mm² = base 1200 + F1 1000 + F2 375 + Σ(BA·width) (hand-derived,
+    independently recomputed in-test); the per-flange rectangles chain into ONE
+    reentrant-L union outline (6 body edges + 2 fold lines) whose **shoelace-enclosed
+    area equals flat_area exactly** (the layout tiles the blank); content_hash pinned,
+    byte-deterministic in-process + fresh-restart; fused body volume 5966.814 mm³
+    exactly additive (no 3D overlap).
+  - `bend-chain-parallel-unfold` (depth-2 Z): flat_area 3287.575 mm², single 40×82.19
+    rectangle (4 body edges), area-tiling + determinism witnessed the same way.
+- **Honest degradation, all typed (no crash, no wrong blank):** empty bend set +
+  unresolvable provenance → typed; a **full box corner needing relief** (two
+  adjacent-wall returns closing the corner) → typed `UnfoldStarError` (cyclic
+  connectivity, rejected before layout); the `_rects_overlap` self-overlap gate +
+  `UnfoldOverlapError` are the backstop for any valid-tree development that collides.
+- **Finding (recorded):** a valid bend TREE of axis-aligned rectangular flanges does
+  not self-overlap in development — real "needs-relief" shapes are *cyclic* and
+  caught earlier. The overlap gate stays as defense-in-depth (unit-tested predicate +
+  the corner-box integration test prove both the gate and the earlier cyclic reject).
+- DRY: the isolated `_spike_bend_chain` module + `spike-bend-chain-*` goldens are
+  RETIRED; the frame math lives once in `unfold._unfold_bend_tree`.
+
 ## 2026-07-19 — Sheet-metal depth-≥2 bend-chain unfold SPIKE (kernel-architect self-report)
 
 **VERDICT: TRACTABLE, no wall.** The next flagged sheet-metal risk (design §4.3/§10,
