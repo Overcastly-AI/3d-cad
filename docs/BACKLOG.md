@@ -94,6 +94,34 @@ scorecard impact → core capability → polish).
       silently-wrong flange; worked e2e + refresh the missing CornerReliefEditor
       editor-open screenshot (`UPDATE_SCREENSHOTS=1`). [src: docs/UI-REVIEW.md
       2026-07-19 frontend-qa]
+- [ ] (P2, S) Drawings: note annotations persist but NEVER render (founder
+      dogfooding 2026-07-20, WB-64 bottle build). `NoteAnnotationParams` + the
+      full CRUD (POST/DELETE `/drawings/{id}/sheets/{sid}/annotations`) ship, but
+      neither the DOM sheet nor any of the three composed serializers draws them
+      (`compose.py` has no `note` handling) — the dead-capability defect class
+      (same as the corner-relief precedent). A GA sheet can't carry material/
+      capacity/gasket notes, which real manufacturing sheets need. Acceptance:
+      an authored note renders on the DOM sheet AND in SVG/PDF/DXF at its
+      `SheetPoint`, byte-goldened; annotations panel lists/deletes it. [src:
+      founder dogfooding — WB-64]
+- [ ] (P2, S) Drawings: auto-layout neither fit-scales nor respects view
+      extents (founder dogfooding 2026-07-20). `handleLayout` hardcodes A4 +
+      fixed `standardLayout` anchors; a 258 mm part at the default 1:1 puts
+      views off-sheet and overlapping, and there's no sheet-size control in the
+      UI (size is API-only via sheet PATCH). Fit-scaling by hand (1:2 select +
+      API re-place onto A3) produced a clean sheet, so the composer itself is
+      fine — it's the defaults. Acceptance: auto-layout picks the largest
+      standard scale whose four views fit the chosen sheet with margins, and
+      the sheet size is editable in the command band. [src: founder dogfooding
+      — WB-64]
+- [ ] (P3, S) Drawings: projected-coincident circle edges create ambiguous
+      pick targets + duplicate dims (founder dogfooding 2026-07-20). A cylinder
+      with several same-Ø edges (body + band edges all Ø120) projects stacked
+      circles in the top view; each gets its own pick target, "the mouth circle"
+      is hard to hit, and the same Ø can be dimensioned twice (coincident,
+      invisible on the sheet, visible in the panel). Dedupe projection-coincident
+      pick targets (prefer the visible edge) and warn on an exact-duplicate
+      dimension. [src: founder dogfooding — WB-64]
 - [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
       trap, product audit #4) — marking the on-axis edge `construction: true`
       (the natural SolidWorks/Fusion idiom) excludes it from the profile wire
@@ -570,6 +598,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-20 — **Founder dogfooding — WB-64 64 oz bottle (full product pass):**
+  bottle/cap/assembly/GA modeled + verified in-app (cavity kernel-vs-analytic
+  Δ=2 mm³ in 2.11 L); 3 drawing findings filed (Ready), no geometry defects.
 - 2026-07-19 — **Sheet-metal CLOSED HEM (kernel-architect):** first-class
   `sheet_metal_hem` feature — a fixed 180° fold reusing `build_edge_flange` + the
   shipped unfold verbatim. Finding: the near-flat fold cannot self-intersect
