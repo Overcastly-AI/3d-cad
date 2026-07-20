@@ -137,6 +137,21 @@ scorecard impact → core capability → polish).
       size the feature slice (params: pitch, turns, profile, handedness,
       taper). Sequence AFTER the current sheet-metal campaign commitments.
       [src: WB-64 retro]
+- [ ] (P2, M) Sheet metal: hem on a FLANGE top edge cannot flat-pattern
+      (founder dogfooding 2026-07-20, TB-1 toolbox). The 3D fold is perfect —
+      a tray with 4 walls + closed hems on both long flange tops + 4 corner
+      reliefs evaluates to one valid shell (first-ever hem+relief coexistence,
+      12 features OK) — but the unfold rejects typed: `flat_pattern_failed`,
+      "Bend (radius 1 mm) is flanked by 4 planar faces tangent to its inner
+      surface; a v1 edge flange has…". The hem bend's inner surface is tangent
+      to more planar neighbours than the bend-wall resolution can rank. The
+      shipped `closed-hem-plate` golden only hems a BASE-PLATE edge (depth-1);
+      hemming a wall's top rim — the single most common real hem placement —
+      can't produce a shop blank. Fix: teach the bend-tree walk to disambiguate
+      hem-bend walls (parent wall vs return leg) by fold provenance, not
+      tangency count; golden: hemmed-wall tray unfold with fold-back invariant.
+      Also (b): the failed-view box overlaps its error text with the "FLAT
+      PATTERN" caption — small compose polish. [src: founder dogfooding — TB-1]
 - [ ] (P2, S) Drawings: note annotations persist but NEVER render (founder
       dogfooding 2026-07-20, WB-64 bottle build). `NoteAnnotationParams` + the
       full CRUD (POST/DELETE `/drawings/{id}/sheets/{sid}/annotations`) ship, but
@@ -641,6 +656,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-20 — **Founder dogfooding pass #2 — TB-1 site toolbox (all queued
+  scenarios, one assembly):** tray (4 walls + 2 hems + 4 reliefs — first
+  coexistence, 12 features OK), pattern ×4 (exact to 0.01 mm³), spline-loft
+  grip, 8-instance assembly + BOM, authz probes clean. ONE new kernel finding:
+  hem-on-flange-top can't flat-pattern (typed reject, filed P2).
 - 2026-07-20 — **Drawings auto-layout FIT-SCALE (from WB-64 findings):**
   `fitScale` picks the largest standard scale fitting the quadrant cells
   (user's pick = ceiling); 6 unit cases, drawings e2e green. Sheet-size
