@@ -19,7 +19,7 @@ import {
   evaluateDrawingViews,
   fetchDrawing,
 } from "../api/drawings";
-import { fetchFeatureTree, fetchParts } from "../api/parts";
+import { evaluatePart, fetchFeatureTree, fetchParts } from "../api/parts";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DimensionAuthorMenu } from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
@@ -55,6 +55,7 @@ import {
   SCALE_OPTIONS,
   STANDARD_VIEWS,
   VIEW_LABEL,
+  fitScale,
   sheetDimensions,
   standardLayout,
 } from "../drawing/layout";
@@ -256,7 +257,31 @@ export function DrawingPage() {
         }
         const dims = sheetDimensions("A4", "landscape");
         const anchors = standardLayout(dims);
-        const scale = scaleFromValue(scaleValue);
+        // Fit-scale: never lay out views that overflow their cells — evaluate
+        // the part's bbox and reduce the scale until the four standard views
+        // fit (the user's picked scale is a ceiling; see fitScale). A part
+        // that fails to evaluate keeps the picked scale — the layout still
+        // lands, just unfitted, and the sheet surfaces the eval error.
+        let scale = scaleFromValue(scaleValue);
+        try {
+          const evaluated = await evaluatePart(selectedPartId);
+          const box = evaluated.properties?.bounding_box;
+          if (box) {
+            const fitted = fitScale(
+              {
+                x: box.max.x - box.min.x,
+                y: box.max.y - box.min.y,
+                z: box.max.z - box.min.z,
+              },
+              dims,
+              scaleValue,
+            );
+            if (fitted.value !== scaleValue) setScaleValue(fitted.value);
+            scale = scaleFromValue(fitted.value);
+          }
+        } catch {
+          // keep the picked scale
+        }
         for (const projection of STANDARD_VIEWS) {
           const anchor = anchors[projection];
           const created = await createView(drawingId, sheetId, {

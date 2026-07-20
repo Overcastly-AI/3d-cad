@@ -225,3 +225,62 @@ export const SCALE_OPTIONS: readonly {
   { value: "1:5", label: "1:5", numerator: 1, denominator: 5 },
   { value: "1:10", label: "1:10", numerator: 1, denominator: 10 },
 ];
+
+/** Model-space bbox extents (mm) along the world axes. */
+export interface ModelExtents {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Margin (sheet mm) kept between a view's footprint and its cell edge. */
+const FIT_MARGIN_MM = 6;
+
+/**
+ * The largest standard scale whose four auto-layout views fit their quadrant
+ * cells on `dims`, never exceeding `chosenValue` (a user's explicit pick is a
+ * ceiling, not a suggestion — auto-fit only ever *reduces*). This is the
+ * fit-scale half of the auto-layout fix (BACKLOG 2026-07-20, WB-64 dogfooding:
+ * a 258 mm part at the 1:1 default rendered views off-sheet and overlapping).
+ *
+ * Cells come from the {@link standardLayout} anchor scheme (columns at
+ * 0.32/0.68 × rows at 0.36/0.70): a view's usable width is bounded by the
+ * 0.18·w half-gap to the column boundary, its height by the 0.17·h half-gap to
+ * the row boundary, each less {@link FIT_MARGIN_MM} per side. Footprints are
+ * the exact ortho projections (front x·z, right y·z, top x·y) plus an
+ * isometric bound (w = 0.87·(x+y), h = 0.82·z + 0.3·(x+y) — the true-iso box
+ * extents, slightly over). If even the smallest option cannot fit, that
+ * smallest option is returned (a too-small view beats an unusable overlap, and
+ * the server's bounds-aware composer still draws it).
+ */
+export function fitScale(
+  extents: ModelExtents,
+  dims: SheetDims,
+  chosenValue: string,
+): (typeof SCALE_OPTIONS)[number] {
+  const cellW = 2 * Math.min(0.32, 0.18) * dims.width - 2 * FIT_MARGIN_MM;
+  const cellH = 2 * Math.min(0.36, 0.17) * dims.height - 2 * FIT_MARGIN_MM;
+  const footprints: readonly [number, number][] = [
+    [extents.x, extents.z], // front
+    [extents.y, extents.z], // right
+    [extents.x, extents.y], // top
+    [
+      0.87 * (extents.x + extents.y),
+      0.82 * extents.z + 0.3 * (extents.x + extents.y),
+    ], // iso
+  ];
+  const ratio = (o: { numerator: number; denominator: number }) =>
+    o.numerator / o.denominator;
+  const chosen = SCALE_OPTIONS.find((o) => o.value === chosenValue);
+  const ceiling = chosen ? ratio(chosen) : 1;
+  const candidates = SCALE_OPTIONS.filter((o) => ratio(o) <= ceiling).sort(
+    (a, b) => ratio(b) - ratio(a),
+  );
+  for (const option of candidates) {
+    const s = ratio(option);
+    if (footprints.every(([w, h]) => w * s <= cellW && h * s <= cellH)) {
+      return option;
+    }
+  }
+  return candidates[candidates.length - 1] ?? SCALE_OPTIONS[0]!;
+}

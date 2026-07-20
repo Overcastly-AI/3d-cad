@@ -94,6 +94,49 @@ scorecard impact → core capability → polish).
       silently-wrong flange; worked e2e + refresh the missing CornerReliefEditor
       editor-open screenshot (`UPDATE_SCREENSHOTS=1`). [src: docs/UI-REVIEW.md
       2026-07-19 frontend-qa]
+- [ ] (P1, M) Drawings — incumbent-parity matrix + usability campaign
+      (vision-steward research, then slices). The WB-64 dogfooding pass showed
+      Drawings has the disease Sheet metal had pre-campaign: real capability
+      (HLR views, click-dimensioning, 3-format export) undermined by dead
+      capabilities (annotations, below) and hostile defaults (auto-layout,
+      below). Commission the same sourced SolidWorks/Fusion matrix
+      sheet-metal-parity.md set the pattern for — rows at minimum: section +
+      detail + broken-out views, ordinate/baseline dims, GD&T/tolerances,
+      centerlines/centermarks, hole callouts + tables, BOM/balloons on assembly
+      drawings, title-block templates/auto-fill, multi-sheet, revision blocks.
+      Score honestly, then sequence slices off the matrix — do not flip the
+      VISION Drawings row until the matrix says so. [src: founder dogfooding —
+      WB-64 + retro]
+- [ ] (P2, M) Engineering audit — DEAD-CAPABILITY sweep (engineering-auditor,
+      read-only + audit doc). Third instance of the same defect class found
+      case-by-case (corner relief pre-ad5e819, drawing annotations, gauge-table
+      fields TBD): schema + CRUD + storage exist, but NO user-visible surface
+      consumes them. One systematic pass: walk every persisted py-kit schema
+      and route, ask "where does a user SEE/DRIVE this?", table the orphans in
+      AUDIT-ENGINEERING.md with a wire-it/delete-it verdict each. Cheap
+      insurance against shipping API surface that demos as capability but
+      isn't. [src: WB-64 retro]
+- [ ] (P2, M, recurring) Model-a-REAL-part dogfooding gate — once per phase
+      (or ~quarterly), an agent models a complete real product end-to-end
+      through the actual app + APIs, verifies against closed-form analytics
+      (the WB-64 harness pattern: per-step kernel-vs-analytic volume asserts,
+      1 ppm bar), ships the full package (screenshots, drawing, STEP/STL), and
+      files every friction point. Scenario queue (one per pass, rotate):
+      sheet-metal enclosure (hems + reliefs + flat DXF), prismatic bracket
+      (patterns + holes + dimensioned drawing), imported-STEP remix (interop),
+      bolted assembly (mates + BOM), spline/loft ergonomic handle (surfacing).
+      WB-64 (revolve/shell/booleans/assembly/drawing) = pass #1, 2026-07-20:
+      geometry clean, 3 drawing findings. [src: WB-64 retro]
+- [ ] (P2, L — spike first, S) Kernel: helical sweep → threads. Any screw
+      closure (the default cap fastening for bottles/jars/enclosures) is
+      unbuildable today — WB-64 shipped a snap bead legitimately, but threads
+      are the incumbent-standard path (SolidWorks Thread feature / Fusion Coil).
+      Spike: OCCT helix wire (`Geom_CylindricalSurface` + 2D line → curve-on-
+      surface) swept via the shipped profile-along-path machinery; assess
+      robustness + cost on a real M-profile and a bottle-neck thread. Then
+      size the feature slice (params: pitch, turns, profile, handedness,
+      taper). Sequence AFTER the current sheet-metal campaign commitments.
+      [src: WB-64 retro]
 - [ ] (P2, S) Drawings: note annotations persist but NEVER render (founder
       dogfooding 2026-07-20, WB-64 bottle build). `NoteAnnotationParams` + the
       full CRUD (POST/DELETE `/drawings/{id}/sheets/{sid}/annotations`) ship, but
@@ -104,16 +147,16 @@ scorecard impact → core capability → polish).
       an authored note renders on the DOM sheet AND in SVG/PDF/DXF at its
       `SheetPoint`, byte-goldened; annotations panel lists/deletes it. [src:
       founder dogfooding — WB-64]
-- [ ] (P2, S) Drawings: auto-layout neither fit-scales nor respects view
-      extents (founder dogfooding 2026-07-20). `handleLayout` hardcodes A4 +
-      fixed `standardLayout` anchors; a 258 mm part at the default 1:1 puts
-      views off-sheet and overlapping, and there's no sheet-size control in the
-      UI (size is API-only via sheet PATCH). Fit-scaling by hand (1:2 select +
-      API re-place onto A3) produced a clean sheet, so the composer itself is
-      fine — it's the defaults. Acceptance: auto-layout picks the largest
-      standard scale whose four views fit the chosen sheet with margins, and
-      the sheet size is editable in the command band. [src: founder dogfooding
-      — WB-64]
+- [ ] (P3, S) Drawings: auto-layout sheet-size control + flat-pattern fit
+      (remaining tail of the WB-64 auto-layout finding; the FIT-SCALE half
+      SHIPPED 2026-07-20 — `fitScale` in `drawing/layout.ts` picks the largest
+      standard scale whose four view footprints, iso bounded analytically, fit
+      the quadrant cells, with the user's picked scale as a ceiling; wired into
+      `handleLayout` via a pre-layout evaluate, 6 unit cases + drawings e2e
+      green). Remaining: a sheet-size select in the command band (size is
+      API-only via sheet PATCH today; a 258 mm part now fits A4 at 1:5 —
+      correct but small, A3 would give 1:2) and the same fit for the lone
+      `flat_pattern` layout path. [src: founder dogfooding — WB-64]
 - [ ] (P3, S) Drawings: projected-coincident circle edges create ambiguous
       pick targets + duplicate dims (founder dogfooding 2026-07-20). A cylinder
       with several same-Ø edges (body + band edges all Ø120) projects stacked
@@ -598,6 +641,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-20 — **Drawings auto-layout FIT-SCALE (from WB-64 findings):**
+  `fitScale` picks the largest standard scale fitting the quadrant cells
+  (user's pick = ceiling); 6 unit cases, drawings e2e green. Sheet-size
+  select + flat-pattern fit remain (P3). Retro items filed: Drawings parity
+  campaign (P1), dead-capability sweep, recurring dogfooding gate, threads.
 - 2026-07-20 — **Founder dogfooding — WB-64 64 oz bottle (full product pass):**
   bottle/cap/assembly/GA modeled + verified in-app (cavity kernel-vs-analytic
   Δ=2 mm³ in 2.11 L); 3 drawing findings filed (Ready), no geometry defects.

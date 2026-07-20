@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
   endpointHandlesForEdge,
+  fitScale,
   sheetDimensions,
   standardLayout,
 } from "./layout";
@@ -17,6 +18,39 @@ describe("sheetDimensions", () => {
       width: 210,
       height: 297,
     });
+  });
+});
+
+describe("fitScale (auto-layout fit — WB-64 dogfooding fix)", () => {
+  const a4 = sheetDimensions("A4", "landscape");
+
+  it("keeps 1:1 for a part whose views fit their cells (the plate)", () => {
+    expect(fitScale({ x: 40, y: 25, z: 10 }, a4, "1:1").value).toBe("1:1");
+  });
+
+  it("reduces a 258 mm bottle to 1:5 on A4 (1:1 and 1:2 overflow)", () => {
+    expect(fitScale({ x: 120, y: 120, z: 258 }, a4, "1:1").value).toBe("1:5");
+  });
+
+  it("treats the user's picked scale as a ceiling, never upscaling", () => {
+    // A tiny part at an explicit 1:10 stays 1:10 — fit only ever reduces.
+    expect(fitScale({ x: 10, y: 10, z: 5 }, a4, "1:10").value).toBe("1:10");
+  });
+
+  it("respects an explicit magnification when it fits", () => {
+    expect(fitScale({ x: 8, y: 8, z: 4 }, a4, "5:1").value).toBe("5:1");
+  });
+
+  it("falls back to the smallest option when nothing fits (never throws)", () => {
+    expect(fitScale({ x: 5000, y: 5000, z: 5000 }, a4, "1:1").value).toBe(
+      "1:10",
+    );
+  });
+
+  it("a magnified choice that overflows steps DOWN through the options", () => {
+    // 5:1 on a 100 mm part overflows; the fit walks down to what fits.
+    const fitted = fitScale({ x: 100, y: 100, z: 50 }, a4, "5:1");
+    expect(fitted.value).toBe("1:2");
   });
 });
 
