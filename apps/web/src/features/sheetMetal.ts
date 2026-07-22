@@ -13,6 +13,7 @@
  */
 import type { LengthUnit } from "@loft/design";
 
+import type { Vec3 } from "../api/measure";
 import type {
   EdgeSignature,
   FeatureResponse,
@@ -21,7 +22,11 @@ import type {
   SheetMetalEdgeFlangeParams,
   SheetMetalHemParams,
 } from "../api/parts";
-import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
+import {
+  lengthInputValue,
+  parsePositiveLengthMm,
+  parseSignedLengthMm,
+} from "../units/length";
 import { edgeSubshapeRef } from "./edge";
 
 /** The v1 pinned default neutral-axis fraction (air-bent mild steel, §1). */
@@ -163,17 +168,37 @@ export function canSubmitBaseFlange(
 export interface EdgeFlangeForm {
   flangeLengthInput: string;
   bendAngleInput: string;
+  /** How the flange spans the picked edge (§4.5.1) — see `WidthExtent`. */
+  widthExtent: WidthExtent;
+  /** Flange width along the edge (centered / offset extents). */
+  widthInput: string;
+  /** Span offset from the edge's canonical start (offset extent only). */
+  offsetInput: string;
   overrideBendRadius: boolean;
   bendRadiusInput: string;
   overrideKFactor: boolean;
   kFactorInput: string;
 }
 
-/** The default new-edge-flange form: a 20 mm leg folded to 90°, defaults inherited. */
+/**
+ * How an edge flange spans its picked edge (Fusion-style width extents, §4.5.1):
+ * - `full` — the flange covers the whole edge (sends NEITHER width nor offset,
+ *   the verbatim legacy path — every existing feature stays byte-identical).
+ * - `centered` — a `width`-wide flange centered on the edge; the offset is
+ *   computed as `(edge_length − width) / 2` and BOTH params are sent.
+ * - `offset` — an explicit `width` starting `offset` from the edge's canonical
+ *   start (its `EdgeSignature.end_a`, the lexicographically smaller endpoint).
+ */
+export type WidthExtent = "full" | "centered" | "offset";
+
+/** The default new-edge-flange form: a 20 mm leg folded to 90°, full width, defaults inherited. */
 export function defaultEdgeFlangeForm(): EdgeFlangeForm {
   return {
     flangeLengthInput: "20",
     bendAngleInput: "90",
+    widthExtent: "full",
+    widthInput: "",
+    offsetInput: "0",
     overrideBendRadius: false,
     bendRadiusInput: "",
     overrideKFactor: false,
@@ -190,9 +215,23 @@ export function formFromEdgeFlangeParams(
     params.bend_radius_mm !== null && params.bend_radius_mm !== undefined;
   const overrideKFactor =
     params.k_factor !== null && params.k_factor !== undefined;
+  // Width extents (§4.5.1): both absent ⇒ Full width (legacy features round-trip
+  // absent). A width and/or offset ⇒ the explicit offset extent, seeded from the
+  // stored values (a stored `centered` is indistinguishable from its equivalent
+  // offset, so it shows the resolved offset — honest, and rebuilds identically).
+  const hasWidth = params.width_mm !== null && params.width_mm !== undefined;
+  const hasOffset = params.offset_mm !== null && params.offset_mm !== undefined;
+  const widthExtent: WidthExtent = hasWidth || hasOffset ? "offset" : "full";
   return {
     flangeLengthInput: lengthInputValue(params.flange_length_mm, unit),
     bendAngleInput: String(params.bend_angle_deg),
+    widthExtent,
+    widthInput: hasWidth
+      ? lengthInputValue(params.width_mm as number, unit)
+      : "",
+    offsetInput: hasOffset
+      ? lengthInputValue(params.offset_mm as number, unit)
+      : "0",
     overrideBendRadius,
     bendRadiusInput: overrideBendRadius
       ? lengthInputValue(params.bend_radius_mm as number, unit)
@@ -240,10 +279,60 @@ export function bendAngleError(input: string): string | null {
     : null;
 }
 
+/** Field-level flange-width message, or null when valid (empty is pending). */
+export function flangeWidthError(
+  input: string,
+  unit: LengthUnit,
+): string | null {
+  if (input.trim() === "") return null;
+  return parsePositiveLengthMm(input, unit) === null
+    ? "Flange width must be a positive length."
+    : null;
+}
+
+/** Field-level span-offset message, or null when valid (empty/0 is fine). */
+export function flangeOffsetError(
+  input: string,
+  unit: LengthUnit,
+): string | null {
+  if (input.trim() === "") return null;
+  const mm = parseSignedLengthMm(input, unit);
+  return mm === null || mm < 0 ? "Offset can't be negative." : null;
+}
+
+/**
+ * The wire width/offset for the chosen extent, resolved against the picked
+ * edge's length (§4.5.1), or null when the extent's fields are invalid. `full`
+ * sends NEITHER param (both null — the verbatim legacy path); `centered`
+ * computes the offset that centers `width` on the edge; `offset` reads both
+ * fields. An offset that pushes the span off the START of the edge (negative)
+ * is rejected here; the `offset + width ≤ edge_length` overflow is the kernel's
+ * typed `edge_flange_failed` (it needs the RESOLVED edge, §4.5.1).
+ */
+export function resolveEdgeFlangeExtent(
+  form: EdgeFlangeForm,
+  edgeLengthMm: number,
+  unit: LengthUnit,
+): { widthMm: number | null; offsetMm: number | null } | null {
+  if (form.widthExtent === "full") return { widthMm: null, offsetMm: null };
+  const width = parsePositiveLengthMm(form.widthInput, unit);
+  if (width === null) return null;
+  if (form.widthExtent === "centered") {
+    const offset = (edgeLengthMm - width) / 2;
+    if (offset < 0) return null;
+    return { widthMm: width, offsetMm: offset };
+  }
+  // offset extent: an explicit start offset from the canonical edge start.
+  const offset = parseSignedLengthMm(form.offsetInput, unit);
+  if (offset === null || offset < 0) return null;
+  return { widthMm: width, offsetMm: offset };
+}
+
 /**
  * Build `SheetMetalEdgeFlangeParamsV1` from the form + the ONE picked edge, or
  * null when a field is invalid, exactly one straight edge is not picked, an
- * enabled override is blank/invalid, or there is no sheet-body anchor.
+ * enabled override is blank/invalid, a width extent's fields are invalid, or
+ * there is no sheet-body anchor.
  */
 export function buildEdgeFlangeParams(
   form: EdgeFlangeForm,
@@ -258,6 +347,9 @@ export function buildEdgeFlangeParams(
   if (picked.length !== 1 || bodyFeatureId === null) return null;
   const signature = picked[0];
   if (signature === undefined) return null;
+
+  const extent = resolveEdgeFlangeExtent(form, signature.length_mm, unit);
+  if (extent === null) return null;
 
   let bendRadius: number | null = null;
   if (form.overrideBendRadius) {
@@ -275,10 +367,66 @@ export function buildEdgeFlangeParams(
     flange_length_mm: flangeLength,
     bend_angle_deg: bendAngle,
   };
+  // Absent width/offset (Full width) fall through to the base flange's verbatim
+  // legacy path; a 0 offset reads the same as absent so it stays off the wire.
+  if (extent.widthMm !== null) params.width_mm = extent.widthMm;
+  if (extent.offsetMm !== null && extent.offsetMm > 0) {
+    params.offset_mm = extent.offsetMm;
+  }
   // Omit inherited defaults (null) so the wire falls back to the base flange's.
   if (bendRadius !== null) params.bend_radius_mm = bendRadius;
   if (kFactor !== null) params.k_factor = kFactor;
   return params;
+}
+
+/**
+ * The chosen span drawn ON the picked edge in the viewport (§4.5.1) — the
+ * `[offset, offset + width]` segment measured from the edge's canonical start
+ * (`end_a`), in OCCT world-mm. Null until exactly one edge is picked or when the
+ * extent's fields are invalid (nothing to preview). `full` previews the whole
+ * edge; `centered`/`offset` preview the sub-span so the notched extent is
+ * legible before commit.
+ */
+export interface EdgeFlangeSpanPreview {
+  /** Span start (OCCT world-mm) — `end_a + offset·dir`. */
+  start: Vec3;
+  /** Span end (OCCT world-mm) — `start + width·dir`. */
+  end: Vec3;
+  /** The span width (mm) — the caption numeral. */
+  spanMm: number;
+}
+
+export function edgeFlangeSpanPreview(
+  form: EdgeFlangeForm,
+  picked: readonly EdgeSignature[],
+  unit: LengthUnit,
+): EdgeFlangeSpanPreview | null {
+  if (picked.length !== 1) return null;
+  const sig = picked[0];
+  if (sig === undefined) return null;
+  const length = sig.length_mm;
+  if (!(length > 0)) return null;
+  const extent = resolveEdgeFlangeExtent(form, length, unit);
+  if (extent === null) return null;
+  const offset = extent.offsetMm ?? 0;
+  const width = extent.widthMm ?? length - offset;
+  const { end_a: a, end_b: b } = sig;
+  const dir = {
+    x: (b.x - a.x) / length,
+    y: (b.y - a.y) / length,
+    z: (b.z - a.z) / length,
+  };
+  const start = {
+    x: a.x + dir.x * offset,
+    y: a.y + dir.y * offset,
+    z: a.z + dir.z * offset,
+  };
+  const end = {
+    x: start.x + dir.x * width,
+    y: start.y + dir.y * width,
+    z: start.z + dir.z * width,
+  };
+  return { start, end, spanMm: width };
 }
 
 /** True when the edge-flange form can be submitted (valid fields + one edge). */

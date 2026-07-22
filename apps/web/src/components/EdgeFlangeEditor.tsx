@@ -9,8 +9,20 @@
  * an override toggle that reveals a per-bend field, so the common case (accept
  * the sheet's radius/K) stays one glance while an override is one click away.
  */
-import { Checkbox, NumberField, Panel, PanelActionCell } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import {
+  Checkbox,
+  NumberField,
+  Panel,
+  PanelActionCell,
+  SegmentedControl,
+} from "@loft/design";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import type { SheetMetalEdgeFlangeParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
@@ -21,9 +33,14 @@ import {
   buildEdgeFlangeParams,
   canSubmitEdgeFlange,
   type EdgeFlangeForm,
+  type EdgeFlangeSpanPreview,
+  edgeFlangeSpanPreview,
   flangeLengthError,
+  flangeOffsetError,
+  flangeWidthError,
   kFactorError,
   type SheetMetalDefaults,
+  type WidthExtent,
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 
@@ -38,7 +55,33 @@ export interface EdgeFlangeEditorProps {
   onCancel: () => void;
   saving: boolean;
   error: string | null;
+  /**
+   * Reports the CURRENT chosen span (on every field/extent change, and null when
+   * no edge is picked or the extent's fields are invalid) so the workspace can
+   * draw it ON the picked edge in the viewport — the in-scene answer to the
+   * Full / Centered / Offset choice (`FlangeSpanOverlay`).
+   */
+  onSpanChange?: (span: EdgeFlangeSpanPreview | null) => void;
 }
+
+/** The width-extent choices, in the SegmentedControl's order. */
+const WIDTH_EXTENTS: readonly {
+  value: WidthExtent;
+  label: string;
+  "data-testid": string;
+}[] = [
+  { value: "full", label: "Full", "data-testid": "edge-flange-extent-full" },
+  {
+    value: "centered",
+    label: "Centered",
+    "data-testid": "edge-flange-extent-centered",
+  },
+  {
+    value: "offset",
+    label: "Offset",
+    "data-testid": "edge-flange-extent-offset",
+  },
+];
 
 export function EdgeFlangeEditor({
   mode,
@@ -49,6 +92,7 @@ export function EdgeFlangeEditor({
   onCancel,
   saving,
   error,
+  onSpanChange,
 }: EdgeFlangeEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<EdgeFlangeForm>(initial);
@@ -57,6 +101,16 @@ export function EdgeFlangeEditor({
   const picked = useEdgePickStore((s) => s.picked);
   const overlayError = useEdgePickStore((s) => s.overlayError);
   const clearPicks = useEdgePickStore((s) => s.clearPicks);
+
+  // Mirror the live span up for the viewport preview, and clear it on unmount.
+  const span = useMemo(
+    () => edgeFlangeSpanPreview(form, picked, unit),
+    [form, picked, unit],
+  );
+  useEffect(() => {
+    onSpanChange?.(span);
+  }, [span, onSpanChange]);
+  useEffect(() => () => onSpanChange?.(null), [onSpanChange]);
 
   const submit = useCallback(() => {
     const params = buildEdgeFlangeParams(form, picked, bodyFeatureId, unit);
@@ -144,6 +198,62 @@ export function EdgeFlangeEditor({
               }
               onFocus={(e) => e.currentTarget.select()}
             />
+
+            {/* Width extents (§4.5.1): Full spans the edge; Centered/Offset fold a
+                narrower flange, with an auto bend-end relief at interior ends. */}
+            <div className="flex flex-col gap-1.5">
+              <SegmentedControl<WidthExtent>
+                label="Width"
+                value={form.widthExtent}
+                options={WIDTH_EXTENTS}
+                onChange={(widthExtent) =>
+                  setForm((f) => ({ ...f, widthExtent }))
+                }
+              />
+              {form.widthExtent !== "full" ? (
+                <NumberField
+                  label="Flange width"
+                  unit={unit}
+                  data-testid="edge-flange-width"
+                  value={form.widthInput}
+                  error={flangeWidthError(form.widthInput, unit)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, widthInput: e.target.value }))
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              ) : null}
+              {form.widthExtent === "offset" ? (
+                <NumberField
+                  label="Offset from edge start"
+                  unit={unit}
+                  data-testid="edge-flange-offset"
+                  value={form.offsetInput}
+                  error={flangeOffsetError(form.offsetInput, unit)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, offsetInput: e.target.value }))
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              ) : null}
+              {form.widthExtent === "centered" ? (
+                <p
+                  data-testid="edge-flange-extent-hint"
+                  className="font-body text-xs text-gauge"
+                >
+                  Centered on the edge — the offset is set for you.
+                </p>
+              ) : null}
+              {form.widthExtent !== "full" ? (
+                <p
+                  data-testid="edge-flange-relief-note"
+                  className="font-body text-xs text-gauge"
+                >
+                  A rectangular relief notch (1 × gauge) is cut into the base at
+                  each interior span end so the fold won't tear.
+                </p>
+              ) : null}
+            </div>
 
             <NumberField
               label="Bend angle"

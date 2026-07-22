@@ -68,12 +68,14 @@ scorecard impact → core capability → polish).
       misses every bend (hole in a flat) still develops without it; hem width
       extents out of scope; partial + corner-relief combo typed-rejects.
       [src: founder dogfooding — WF-1; layers 1+2 2026-07-22]
-- [ ] (P2, S) Sheet metal: width-extents EDITOR UI (apps/web) — the layer-2
-      params are API-only today (exactly as base/edge flange started). Edge
-      Flange editor gains width/offset fields (full/centered/offset presets à
-      la Fusion) + an in-scene span preview off the picked edge's `end_a`;
-      wire to `width_mm`/`offset_mm` (contracts already regenerated).
-      [src: WF-1 layer 2 follow-on 2026-07-22]
+- [x] (P2, S) Sheet metal: width-extents EDITOR UI (apps/web) — DONE
+      2026-07-22 (frontend-builder). Edge Flange editor gains a Full / Centered
+      / Offset extent choice (`SegmentedControl`) + width/offset fields wired to
+      `width_mm`/`offset_mm` (absent ⇒ Full; legacy features round-trip absent),
+      an in-scene brass span preview off the picked edge's `end_a`
+      (`FlangeSpanOverlay`, reusing `Segments`/`measure`), a bend-end relief
+      caption, and client-side width/offset validation. Founder case authored by
+      clicking (e2e sheet-metal-authoring + 3 founder shots).
 - [ ] (P1, S) e2e: make the 6 raster-fragile specs container-robust
       (qa-tester). The 2026-07-22 batch-end sweep went red on 5 measure specs
       (real-pointer vertex/corner picks — the readout never appears) + the

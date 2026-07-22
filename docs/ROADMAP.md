@@ -52,11 +52,17 @@ volume/area to 1e-9/1e-6, hash + restart determinism pins), and **PB-1 fell
 out of the same machinery** (a flange on a notch-split edge segment now
 flat-patterns — golden-free test with exact closed-form asserts). Cut-after-fold
 stays typed-rejected by the layer-1 invariant — by design, the width extents
-make the cut hack unnecessary. Contracts + ts-client regenerated. Next down the
-corrected sequence: the **edge-flange width-extents editor UI** (the params are
-API-only today, exactly as base/edge flange started), the auto-relief policy
-layer + open/teardrop/rolled hems + the full viewport bend-face pick for corner
-relief, then jogs.
+make the cut hack unnecessary. Contracts + ts-client regenerated. **WIDTH-EXTENTS
+EDITOR UI ✅ SHIPPED 2026-07-22** (frontend-builder): the Edge Flange editor
+gains a Fusion-style Full / Centered / Offset extent choice (`SegmentedControl`)
++ width/offset fields wired to `width_mm`/`offset_mm` (absent ⇒ Full, legacy
+features round-trip absent), an in-scene brass span preview off the picked edge's
+`end_a` (`FlangeSpanOverlay`, reusing the `Segments`/`measure` machinery), a quiet
+bend-end relief caption, and client-side width/offset validation (kernel overflow
+surfaces via `envelopeMessage`). The founder case is authored by clicking (e2e +
+founder shots). Next down the corrected sequence: the auto-relief policy layer +
+open/teardrop/rolled hems + the full viewport bend-face pick for corner relief,
+then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner

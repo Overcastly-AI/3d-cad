@@ -1,4 +1,4 @@
-import { Panel } from "@loft/design";
+import { formatLength, Panel } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -160,6 +160,7 @@ import {
   defaultEdgeFlangeForm,
   defaultHemForm,
   type EdgeFlangeForm,
+  type EdgeFlangeSpanPreview,
   edgeFlangeOptions,
   formFromBaseFlangeParams,
   formFromCornerReliefParams,
@@ -172,6 +173,7 @@ import {
   sheetMetalDefaults,
 } from "../features/sheetMetal";
 import { BendHighlightOverlay } from "../viewport/BendHighlightOverlay";
+import { FlangeSpanOverlay } from "../viewport/FlangeSpanOverlay";
 import { type CombineForm, defaultCombineForm } from "../features/boolean";
 import {
   type ChamferForm,
@@ -1894,6 +1896,27 @@ export function PartPage() {
     return cornerReliefBendHighlights(features, reliefBends.a, reliefBends.b);
   }, [editor, reliefBends, features]);
 
+  // Edge-flange width-extent preview (§4.5.1): the editor mirrors its live
+  // Full / Centered / Offset span up, and the viewport draws it ON the picked
+  // edge (`FlangeSpanOverlay`) — the in-scene answer to the chosen extent.
+  // Cleared whenever the edge-flange editor closes.
+  const [edgeFlangeSpan, setEdgeFlangeSpan] =
+    useState<EdgeFlangeSpanPreview | null>(null);
+  const onEdgeFlangeSpanChange = useCallback(
+    (span: EdgeFlangeSpanPreview | null) => setEdgeFlangeSpan(span),
+    [],
+  );
+  useEffect(() => {
+    if (editor?.kind !== "edgeFlange") setEdgeFlangeSpan(null);
+  }, [editor]);
+  const edgeFlangeSpanLabel = useMemo(
+    () =>
+      edgeFlangeSpan === null
+        ? ""
+        : formatLength(edgeFlangeSpan.spanMm, lengthUnit, { unitSuffix: true }),
+    [edgeFlangeSpan, lengthUnit],
+  );
+
   // Face-pick session lifecycle: a shell OR draft editor opens a session
   // (seeded with its persisted picked faces), anything else closes it. Keyed on
   // `editor` identity (only changes on open/select/close), so the store never
@@ -2884,6 +2907,7 @@ export function PartPage() {
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}
+                      onSpanChange={onEdgeFlangeSpanChange}
                     />
                   ) : editor.kind === "hem" ? (
                     <HemEditor
@@ -3045,6 +3069,14 @@ export function PartPage() {
             {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
             {mode === "off" && reliefBendHighlights.length > 0 ? (
               <BendHighlightOverlay bends={reliefBendHighlights} />
+            ) : null}
+            {mode === "off" &&
+            editor?.kind === "edgeFlange" &&
+            edgeFlangeSpan !== null ? (
+              <FlangeSpanOverlay
+                span={edgeFlangeSpan}
+                label={edgeFlangeSpanLabel}
+              />
             ) : null}
             {mode === "off" && shellPicking ? (
               <ShellFaceOverlay

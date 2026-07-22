@@ -25,7 +25,10 @@ import {
   defaultEdgeFlangeForm,
   defaultHemForm,
   edgeFlangeOptions,
+  edgeFlangeSpanPreview,
   flangeLengthError,
+  flangeOffsetError,
+  flangeWidthError,
   formFromBaseFlangeParams,
   formFromCornerReliefParams,
   formFromEdgeFlangeParams,
@@ -253,6 +256,153 @@ describe("edge flange form", () => {
     expect(form.overrideKFactor).toBe(true);
     expect(pickedFromEdgeFlangeParams(params)).toEqual([SIG]);
     expect(buildEdgeFlangeParams(form, [SIG], "bf", "mm")).toEqual(params);
+  });
+});
+
+describe("edge flange width extents (§4.5.1)", () => {
+  // A 100 mm edge from end_a (0,0,2) to end_b (0,100,2) — the founder case's edge.
+  const EDGE: EdgeSignature = {
+    curve: "line",
+    end_a: { x: 0, y: 0, z: 2 },
+    end_b: { x: 0, y: 100, z: 2 },
+    midpoint: { x: 0, y: 50, z: 2 },
+    length_mm: 100,
+    subshape_type: "edge",
+  };
+
+  it("full width (the default) sends NEITHER width nor offset — legacy byte-identity", () => {
+    const params = buildEdgeFlangeParams(
+      defaultEdgeFlangeForm(),
+      [EDGE],
+      "bf",
+      "mm",
+    );
+    expect(params).not.toBe(null);
+    expect("width_mm" in (params as object)).toBe(false);
+    expect("offset_mm" in (params as object)).toBe(false);
+  });
+
+  it("the founder case (offset 0 + width 50) sends width, omits the 0 offset", () => {
+    const form = {
+      ...defaultEdgeFlangeForm(),
+      flangeLengthInput: "50",
+      widthExtent: "offset" as const,
+      widthInput: "50",
+      offsetInput: "0",
+    };
+    const params = buildEdgeFlangeParams(form, [EDGE], "bf", "mm");
+    expect(params?.width_mm).toBe(50);
+    expect("offset_mm" in (params as object)).toBe(false);
+  });
+
+  it("an explicit non-zero offset is sent", () => {
+    const form = {
+      ...defaultEdgeFlangeForm(),
+      widthExtent: "offset" as const,
+      widthInput: "40",
+      offsetInput: "10",
+    };
+    const params = buildEdgeFlangeParams(form, [EDGE], "bf", "mm");
+    expect(params?.width_mm).toBe(40);
+    expect(params?.offset_mm).toBe(10);
+  });
+
+  it("centered computes the offset that centers width on the edge", () => {
+    const form = {
+      ...defaultEdgeFlangeForm(),
+      widthExtent: "centered" as const,
+      widthInput: "50",
+    };
+    const params = buildEdgeFlangeParams(form, [EDGE], "bf", "mm");
+    // (100 − 50) / 2 = 25.
+    expect(params?.width_mm).toBe(50);
+    expect(params?.offset_mm).toBe(25);
+  });
+
+  it("blocks submit on a non-positive width or a width wider than the edge", () => {
+    const zero = {
+      ...defaultEdgeFlangeForm(),
+      widthExtent: "offset" as const,
+      widthInput: "0",
+      offsetInput: "0",
+    };
+    expect(canSubmitEdgeFlange(zero, [EDGE], "bf", "mm")).toBe(false);
+    // Centered wider than the edge → the computed offset would be negative.
+    const tooWide = {
+      ...defaultEdgeFlangeForm(),
+      widthExtent: "centered" as const,
+      widthInput: "120",
+    };
+    expect(canSubmitEdgeFlange(tooWide, [EDGE], "bf", "mm")).toBe(false);
+  });
+
+  it("blocks submit on a negative offset (schema bound, client-side)", () => {
+    const form = {
+      ...defaultEdgeFlangeForm(),
+      widthExtent: "offset" as const,
+      widthInput: "40",
+      offsetInput: "-5",
+    };
+    expect(canSubmitEdgeFlange(form, [EDGE], "bf", "mm")).toBe(false);
+    expect(flangeOffsetError("-5", "mm")).not.toBe(null);
+    expect(flangeOffsetError("0", "mm")).toBe(null);
+    expect(flangeWidthError("0", "mm")).not.toBe(null);
+    expect(flangeWidthError("40", "mm")).toBe(null);
+  });
+
+  it("round-trips an offset-extent flange (edit seed)", () => {
+    const params: SheetMetalEdgeFlangeParams = {
+      edge: {
+        kind: "subshape",
+        feature_id: "bf",
+        subshape_type: "edge",
+        selector: { selector_version: 1, signature: EDGE },
+      },
+      flange_length_mm: 50,
+      bend_angle_deg: 90,
+      width_mm: 40,
+      offset_mm: 10,
+    };
+    const form = formFromEdgeFlangeParams(params, "mm");
+    expect(form.widthExtent).toBe("offset");
+    expect(form.widthInput).toBe("40");
+    expect(form.offsetInput).toBe("10");
+    expect(buildEdgeFlangeParams(form, [EDGE], "bf", "mm")).toEqual(params);
+  });
+
+  it("a legacy flange (no width/offset) round-trips to Full width", () => {
+    const params: SheetMetalEdgeFlangeParams = {
+      edge: {
+        kind: "subshape",
+        feature_id: "bf",
+        subshape_type: "edge",
+        selector: { selector_version: 1, signature: EDGE },
+      },
+      flange_length_mm: 30,
+      bend_angle_deg: 90,
+    };
+    const form = formFromEdgeFlangeParams(params, "mm");
+    expect(form.widthExtent).toBe("full");
+    expect(buildEdgeFlangeParams(form, [EDGE], "bf", "mm")).toEqual(params);
+  });
+
+  it("previews the chosen span ON the edge, measured from end_a", () => {
+    const form = {
+      ...defaultEdgeFlangeForm(),
+      widthExtent: "offset" as const,
+      widthInput: "50",
+      offsetInput: "0",
+    };
+    const span = edgeFlangeSpanPreview(form, [EDGE], "mm");
+    // [0, 50] from end_a along +y.
+    expect(span?.start).toEqual({ x: 0, y: 0, z: 2 });
+    expect(span?.end).toEqual({ x: 0, y: 50, z: 2 });
+    expect(span?.spanMm).toBe(50);
+    // Full width spans the whole edge.
+    const full = edgeFlangeSpanPreview(defaultEdgeFlangeForm(), [EDGE], "mm");
+    expect(full?.spanMm).toBe(100);
+    // No preview without exactly one picked edge.
+    expect(edgeFlangeSpanPreview(form, [], "mm")).toBe(null);
   });
 });
 

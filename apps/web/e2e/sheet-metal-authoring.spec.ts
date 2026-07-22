@@ -118,14 +118,18 @@ async function pickSideEdge(page: Page, side: "left" | "right"): Promise<void> {
 }
 
 /** Author the base flange from the seeded sketch by clicking its editor. */
-async function authorBaseFlange(page: Page): Promise<void> {
+async function authorBaseFlange(
+  page: Page,
+  gauge = "2",
+  bendRadius = "3",
+): Promise<void> {
   await expect(page.getByTestId("new-base-flange")).toBeEnabled({
     timeout: 30_000,
   });
   await page.getByTestId("new-base-flange").click();
   await expect(page.getByTestId("base-flange-editor")).toBeVisible();
-  await page.getByTestId("base-flange-thickness").fill("2");
-  await page.getByTestId("base-flange-bend-radius").fill("3");
+  await page.getByTestId("base-flange-thickness").fill(gauge);
+  await page.getByTestId("base-flange-bend-radius").fill(bendRadius);
   await page.getByTestId("base-flange-submit").click();
   await expect(page.getByTestId("base-flange-editor")).toBeHidden();
   // The sheet body renders (a flat plate is a six-faced box).
@@ -244,6 +248,76 @@ test("model a U-channel by clicking: two edge flanges → two-bend flat pattern"
     await view.locator('[data-edge-role="bend"]').count(),
   ).toBeGreaterThanOrEqual(2);
   await expect(page.getByTestId("drawing-bend-row")).toHaveCount(2);
+});
+
+test("model the founder's width-extent flange by clicking: 50-wide × 50-tall on a 100 mm edge → notched flat pattern", async ({
+  page,
+}) => {
+  // §4.5 acceptance case: a 100×100 base (t=1.5, r=2) with a 90° flange 50 mm
+  // WIDE × 50 mm tall on the full 100 mm edge — entirely by clicking, no cut.
+  const partId = await seedSketchPart(page, "Width-extent flange", 100, 100);
+  await page.goto(`/parts/${partId}`);
+  await expect(page.getByTestId("feature-row")).toHaveCount(1);
+
+  await authorBaseFlange(page, "1.5", "2");
+  await expect(page.getByTestId("feature-row")).toHaveCount(2);
+
+  // Fold a PARTIAL flange off the right (100 mm) edge via the width extents.
+  await page.getByTestId("new-edge-flange").click();
+  await expect(page.getByTestId("edge-flange-editor")).toBeVisible();
+  await pickSideEdge(page, "right");
+  await expect(page.getByTestId("edge-flange-pick-count")).toHaveText(
+    "1 edge picked",
+  );
+
+  // Choose the offset extent, 50 wide from the edge start (offset 0), 50 tall.
+  await page.getByTestId("edge-flange-extent-offset").click();
+  await page.getByTestId("edge-flange-width").fill("50");
+  await page.getByTestId("edge-flange-offset").fill("0");
+  await page.getByTestId("edge-flange-length").fill("50");
+  // The auto bend-end relief note + the in-scene span preview are surfaced.
+  await expect(page.getByTestId("edge-flange-relief-note")).toBeVisible();
+  await expect(page.getByTestId("edge-flange-span-tag")).toBeVisible();
+
+  // Founder frame of the editor-open state (span preview + relief note).
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.mouse.move(700, 450);
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/sheet-metal-width-extent-editor-1440.png`,
+  });
+
+  await page.getByTestId("edge-flange-submit").click();
+  await expect(page.getByTestId("edge-flange-editor")).toBeHidden({
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("feature-row")).toHaveCount(3);
+  // The fold + auto bend-end relief add material + faces beyond the flat plate.
+  await expect
+    .poll(() => faceCount(page), { timeout: 30_000 })
+    .toBeGreaterThan(6);
+
+  // Founder frame of the authored body.
+  await page.mouse.move(700, 450);
+  await expect(page.getByTestId("viewport")).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/sheet-metal-width-extent-body-1440.png`,
+  });
+
+  // Flat pattern — the notched blank develops with one bend, no error.
+  await openFlatPattern(page);
+  const view = page.locator(
+    '[data-testid="drawing-view"][data-view="flat_pattern"]',
+  );
+  await expect(view).toHaveAttribute("data-view-error", "false");
+  // The notched blank outline carries more than a plain rectangle's 4 edges.
+  expect(await view.locator("[data-edge]").count()).toBeGreaterThanOrEqual(5);
+  await expect(page.getByTestId("drawing-bend-row")).toHaveCount(1);
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/sheet-metal-width-extent-flat-1440.png`,
+  });
 });
 
 test.describe("small laptop (1280×800)", () => {
