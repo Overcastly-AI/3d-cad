@@ -27,9 +27,20 @@ authorable `sheet_metal_corner_relief` feature end-to-end **and** the full
 corner-relief editor's Bend A/B selection now draws brass bend lines + "Bend A/B"
 callouts in-scene (interim for the still-deferred viewport bend-face pick), plus
 the bundled nits — autofocus on Bend A, an unresolvable-stored-ref guard, and an
-`aria-live` notch preview. Next down the corrected sequence: the auto-relief
-policy layer (now genuinely unblocked) + open/teardrop/rolled hems + the full
-viewport bend-face pick for corner relief, then jogs.
+`aria-live` notch preview. **WF-1 cut-after-fold flat pattern is HONEST again ✅
+LAYER 1 SHIPPED 2026-07-22** (kernel-architect; the P0 from founder dogfooding —
+the only dishonest failure found in four passes): `unfold_sheet_metal` now runs
+the goldens' fold-back invariant AT RUNTIME against the LIVE evaluated body —
+every developed fold width must equal a live cylindrical bend-face width on that
+bend's axis (centroid-agnostic coaxial measurement, so a trimmed bend is
+measured, not lost) — mismatch → typed `flat_pattern_failed` naming the fold and
+both widths. The WF-1 repro (100-wide flange cut to 50) now typed-rejects
+instead of emitting the full-width blank; all existing goldens byte-unchanged
+(`test_sheet_metal_cut_after_fold.py`, 4 tests). Layer 2 (developing the trimmed
+fold correctly + edge-flange width-extent params) stays open in BACKLOG. Next
+down the corrected sequence: the auto-relief policy layer (now genuinely
+unblocked) + open/teardrop/rolled hems + the full viewport bend-face pick for
+corner relief, then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner

@@ -51,28 +51,29 @@ item is archived below (Done, one line each — full evidence in
 this restock orders by the standing rules (P0 wrong-geometry/security →
 scorecard impact → core capability → polish).
 
-- [ ] (P0, M) Sheet metal: cut-after-fold produces a SILENTLY WRONG flat
-      pattern (founder dogfooding 2026-07-22, WF-1). Repro: 100×100 base,
-      full-width 90° edge flange leg 50, then an extrude CUT trimming the
-      flange (and its bend) to 50 wide. 3D is perfect (kernel volume = closed
-      form exactly, 19,073.98). The flat pattern **succeeds** — 5 edges, 1
-      bend row, no error — but the blank is the FULL-WIDTH development: a
-      clean 154.2×100 rectangle with a full-width fold line, no trace of the
-      trim. A shop folding this blank produces a 100-wide wall. This is the
-      first DISHONEST failure found (PB-1's partial flange correctly typed-
-      rejects; this slips every guard) and violates sheet-metal.md §5/§7
-      "never a silently-wrong blank". Fix in two layers: (1) IMMEDIATELY make
-      the unfold cross-check developed wall/bend extents against the LIVE
-      resolved faces (the fold-back invariant the goldens assert, applied at
-      runtime) → mismatch = typed `flat_pattern_failed`, honest again; this
-      also subsumes the P3 "runtime shoelace-area invariant" hardening item —
-      pull it in. (2) Then develop trimmed folds correctly (shares the
-      multi-segment-outline machinery with the partial-width P2 below, and
-      with the real feature ask: EDGE-FLANGE WIDTH EXTENTS — Fusion-style
-      full/centered/offset width params on `SheetMetalEdgeFlangeParamsV1` so
-      a 50-wide flange on a 100 mm edge is authorable directly, no cut).
-      Goldens: trimmed-fold reject (layer 1), then trimmed + width-extent
-      unfolds with fold-back (layer 2). [src: founder dogfooding — WF-1]
+- [ ] (P0→P2, M) Sheet metal: cut-after-fold flat pattern — **layer 1 (honesty)
+      ✅ SHIPPED 2026-07-22** (kernel-architect); layer 2 (correct trimmed
+      development) remains. Original repro (WF-1): 100×100 base, full-width 90°
+      edge flange leg 50, extrude CUT trimming flange+bend to 50 wide — 3D
+      exact (19,073.98) but the flat pattern silently succeeded with the
+      FULL-WIDTH 154.2×100 development. **Layer 1 done:** `unfold_sheet_metal`
+      now applies the goldens' fold-back invariant at runtime against the LIVE
+      body (per-bend coaxial cylindrical-face widths, centroid-agnostic so a
+      trimmed bend is measured; grouped by bend radius exactly like the golden
+      assertions) → count/width mismatch = typed `flat_pattern_failed` naming
+      the fold + both widths. WF-1 + whole-fold-removed variants typed-reject;
+      all goldens byte-unchanged (`test_sheet_metal_cut_after_fold.py`).
+      NOTE: the P3 "runtime shoelace-area invariant" is NOT subsumed by layer 1
+      (deliberately scoped out — the bend-width check alone closes the WF-1
+      hole); a cut that misses every bend (e.g. a hole in a flange flat) still
+      develops without it — fold that area check into layer 2. **Layer 2
+      (open):** develop trimmed folds correctly (shares the multi-segment-
+      outline machinery with the partial-width P2 below, and with the real
+      feature ask: EDGE-FLANGE WIDTH EXTENTS — Fusion-style full/centered/
+      offset width params on `SheetMetalEdgeFlangeParamsV1` so a 50-wide
+      flange on a 100 mm edge is authorable directly, no cut). Goldens:
+      trimmed + width-extent unfolds with fold-back. [src: founder dogfooding
+      — WF-1; layer 1 commit 2026-07-22]
 - [ ] (P1, S) e2e: make the 6 raster-fragile specs container-robust
       (qa-tester). The 2026-07-22 batch-end sweep went red on 5 measure specs
       (real-pointer vertex/corner picks — the readout never appears) + the
@@ -719,6 +720,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-22 — **WF-1 layer 1 (kernel-architect):** runtime fold-back invariant
+  in `unfold_sheet_metal` — live coaxial bend widths vs developed fold widths;
+  cut-after-fold now typed-rejects. Goldens byte-unchanged; layer 2 stays open.
 - 2026-07-22 — **Founder dogfooding — WF-1 (50-wide flange on a 100 mm edge
   via fold-then-trim):** 3D exact; flat pattern SILENTLY WRONG (full-width
   blank, no error) — the first dishonest failure found. Filed P0 (runtime

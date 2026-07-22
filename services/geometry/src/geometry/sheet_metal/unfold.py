@@ -47,6 +47,8 @@ from geometry.sheet_metal.flat_pattern import BendLine, FlatEdge2D, FlatPattern
 from geometry.sheet_metal.resolve import (
     FlangeFaceRecord,
     SheetMetalUnfoldError,
+    bend_radii_match,
+    coaxial_cylindrical_face_widths,
     resolve_bend_faces,
     resolve_bends,
     resolve_cylindrical_face,
@@ -101,6 +103,18 @@ class UnfoldOverlapError(SheetMetalUnfoldError):
     overlapping pattern, the unfold refuses with this typed error (the honest-
     degradation contract, §5). Corner relief itself stays out of v1 scope; this
     feature UNFOLDS a chain and REJECTS (typed) the cases that need relief."""
+
+
+class UnfoldFoldBackError(SheetMetalUnfoldError):
+    """The developed flat pattern would NOT fold back to the current body — a
+    feature AFTER the folds (an ordinary cut, WF-1 founder dogfooding 2026-07-22)
+    trimmed, split, or removed a bend, and the development (which resolves against
+    the clean fold reference, §4.4.4) no longer matches the live part. This is the
+    runtime form of the goldens' fold-back invariant (§9 / §4.4.4: live cylindrical
+    bend-face widths == developed fold widths), applied on every unfold so a
+    cut-after-fold can never ship a silently full-width blank (§5 "never a
+    silently-wrong blank"). Trimmed-fold development is the documented layer-2
+    follow-on (BACKLOG WF-1); until it lands the unfold refuses, typed."""
 
 
 def bend_allowance(
@@ -258,6 +272,7 @@ def unfold_sheet_metal(
     thickness_mm: float,
     default_k_factor: float,
     reliefs: list[CornerRelief] | None = None,
+    live_body: BodyShape | None = None,
 ) -> FlatPattern:
     """Unfold an authored depth-1 bend star into its :class:`FlatPattern`.
 
@@ -270,6 +285,15 @@ def unfold_sheet_metal(
     rectangular base develop as a 2D plus/cross (a tray / pan). Byte-deterministic
     (§9 #4): every value flows from a deterministic OCCT measurement + closed form.
 
+    *live_body*, when supplied (the flat-pattern pipeline always passes the LIVE
+    evaluated body — which may carry post-fold modifications the clean unfold
+    reference *body* does not, §4.4.4), turns on the runtime FOLD-BACK cross-check
+    (WF-1): every developed fold width must equal a live cylindrical bend-face
+    width on that bend's axis, else the blank would not fold back to the part and
+    the unfold refuses with :class:`UnfoldFoldBackError` rather than emit a
+    silently-wrong development (§5). The check reads the live body only — the
+    development itself is byte-identical with or without it.
+
     Raises:
         SubshapeUnresolvedError / SubshapeAmbiguousError: a bend signature no longer
             resolves against *body* (a dangling bend — §5 honest degradation).
@@ -278,7 +302,27 @@ def unfold_sheet_metal(
             flange), rejected uniformly ahead of layout so no authored body leaks a
             raw kernel exception — or a non-rectangular / axis-unaligned base
             (outside v1 scope, §4.3).
+        UnfoldFoldBackError: *live_body* was supplied and a developed fold does not
+            match the live body's bend faces (a cut/modification altered a fold
+            after it was authored — the WF-1 honest reject).
     """
+    pattern = _develop_flat_pattern(
+        body, bends, thickness_mm, default_k_factor, reliefs
+    )
+    if live_body is not None:
+        _check_live_fold_back(live_body, bends, pattern)
+    return pattern
+
+
+def _develop_flat_pattern(
+    body: BodyShape,
+    bends: list[BendProvenance],
+    thickness_mm: float,
+    default_k_factor: float,
+    reliefs: list[CornerRelief] | None,
+) -> FlatPattern:
+    """Resolve + dispatch + lay out (the pre-WF-1 ``unfold_sheet_metal`` verbatim,
+    so every committed golden stays byte-identical); see the public wrapper."""
     if not bends:
         raise UnfoldStarError("An unfold needs at least one bend (edge flange).")
 
@@ -378,6 +422,87 @@ def unfold_sheet_metal(
     return _unfold_nonparallel(
         resolved, base_rec, base_normal, thickness_mm, default_k_factor
     )
+
+
+#: Fold-back width tolerance (mm) — documented, NOT ad-hoc (§9). Live bend-face
+#: widths and developed fold widths are the SAME measurement class (vertex extents
+#: along the bend axis; the relieved paths subtract exact closed-form notch sizes),
+#: so residuals across the whole golden set measure <= 5.3e-10 mm (the hemmed-wall
+#: golden's tolerance_rationale, 2026-07-22). 1e-6 mm matches the subshape linear
+#: tolerance class (``_CENTROID_TOL_MM``) — ample FP headroom, yet 4+ orders below
+#: any real trim (a cut moves a fold width by >= a kerf, never nanometres).
+_FOLD_BACK_WIDTH_TOL_MM = 1e-6
+
+
+def _check_live_fold_back(
+    live_body: BodyShape, bends: list[BendProvenance], pattern: FlatPattern
+) -> None:
+    """Cross-check the developed pattern against the LIVE body (WF-1, §4.4.4/§9).
+
+    The runtime form of the goldens' fold-back invariant: grouped by bend radius,
+    the sorted live cylindrical bend-face widths (measured on each bend's own axis
+    line, :func:`coaxial_cylindrical_face_widths` — centroid ignored so a TRIMMED
+    bend is still found and measured) must equal the sorted developed fold widths
+    (``BendLine.width_mm``). Any count or width disagreement means a feature after
+    the folds (an ordinary cut) altered a bend the development knows nothing about
+    — a full-width blank for a trimmed fold, the WF-1 silent wrongness — so the
+    unfold refuses, typed (:class:`UnfoldFoldBackError`), naming the fold and both
+    widths. Grouping mirrors the offline golden assertions exactly (compare the
+    hemmed-wall / four-corner-pan suites), so no in-scope development — depth-1
+    stars, non-parallel trays, bend trees, hems, relieved + hemmed trays (whose
+    notched developed widths equal the live notched faces BY DESIGN) — can trip it.
+    """
+    radii: list[float] = []
+    live_widths: dict[int, list[float]] = {}
+    for prov in bends:
+        r = prov.cyl_signature.radius_mm
+        gi = next((i for i, r0 in enumerate(radii) if bend_radii_match(r0, r)), None)
+        if gi is None:
+            gi = len(radii)
+            radii.append(r)
+            live_widths[gi] = []
+        live_widths[gi].extend(
+            coaxial_cylindrical_face_widths(live_body, prov.cyl_signature)
+        )
+    developed: dict[int, list[tuple[float, str]]] = {i: [] for i in range(len(radii))}
+    for bl in pattern.bends:
+        gi = next(
+            (i for i, r0 in enumerate(radii) if bend_radii_match(r0, bl.radius_mm)),
+            None,
+        )
+        if gi is None:  # unreachable: every BendLine radius comes from a provenance
+            raise UnfoldFoldBackError(
+                f"Developed fold {bl.bend_id} (radius {bl.radius_mm:g} mm) matches "
+                "no authored bend radius; the development disagrees with the "
+                "part's folds."
+            )
+        developed[gi].append((bl.width_mm, bl.bend_id))
+    for gi, radius in enumerate(radii):
+        live = sorted(live_widths[gi])
+        dev = sorted(developed[gi])
+        if len(live) != len(dev):
+            raise UnfoldFoldBackError(
+                f"The flat pattern would not fold back to the current body: "
+                f"{len(dev)} fold line(s) at bend radius {radius:g} mm were "
+                f"developed, but the body has {len(live)} cylindrical bend "
+                f"face(s) on those bend axes. A feature after the fold (e.g. a "
+                "cut) removed or split a bend, and developing the original fold "
+                "would produce a wrong blank — refusing instead (sheet-metal §5). "
+                "Trimmed-fold development is a planned follow-on; until then, "
+                "model the flange at its final extent."
+            )
+        for (dev_w, bend_id), live_w in zip(dev, live, strict=True):
+            if abs(dev_w - live_w) > _FOLD_BACK_WIDTH_TOL_MM:
+                raise UnfoldFoldBackError(
+                    f"The flat pattern would not fold back to the current body: "
+                    f"fold {bend_id} (bend radius {radius:g} mm) develops "
+                    f"{dev_w:.6g} mm wide, but the body's cylindrical bend face "
+                    f"is {live_w:.6g} mm wide. A feature after the fold (e.g. a "
+                    "cut) trimmed the bend, and the development would emit the "
+                    "untrimmed blank — refusing instead (sheet-metal §5). "
+                    "Trimmed-fold development is a planned follow-on; until "
+                    "then, model the flange at its final width."
+                )
 
 
 #: Type alias for a resolved bend: (base_rec, moving_rec, axis_dir, angle_rad, prov).

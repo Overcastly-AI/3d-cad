@@ -154,6 +154,53 @@ def cylindrical_face_widths(body: BodyShape, radius_mm: float) -> list[float]:
     return sorted(widths)
 
 
+def bend_radii_match(a_mm: float, b_mm: float) -> bool:
+    """True if two bend radii agree within the cylindrical-signature relative radius
+    tolerance (``_RADIUS_REL_TOL``) — the ONE radius-grouping rule shared by the
+    signature matchers and the runtime fold-back cross-check
+    (:func:`geometry.sheet_metal.unfold.unfold_sheet_metal`), so a developed fold
+    line groups with its live bend face exactly when the matchers would pair them."""
+    return abs(a_mm - b_mm) / max(abs(a_mm), abs(b_mm), 1.0) <= _RADIUS_REL_TOL
+
+
+def coaxial_cylindrical_face_widths(
+    body: BodyShape, signature: CylindricalFaceSignature
+) -> list[float]:
+    """The along-axis extents (mm), sorted, of *body*'s cylindrical faces on the
+    signature's axis LINE at its radius — centroid deliberately IGNORED.
+
+    The live-body measurement arm of the runtime fold-back cross-check (WF-1,
+    BACKLOG 2026-07-22): unlike :func:`resolve_cylindrical_face` (whose centroid
+    term makes a trimmed bend an unresolvable dangling reference), this finds a
+    bend face that a LATER feature (an ordinary cut) shortened or shifted along
+    its axis, so the check can MEASURE the modified fold and compare it to the
+    developed width instead of losing it. Axis-line + radius matching (the same
+    ``_PARALLEL_TOL`` / ``_AXIS_COINCIDENT_TOL_MM`` / ``_RADIUS_REL_TOL`` rules
+    the matchers use) keeps unrelated cylinders — a drilled hole whose radius
+    happens to equal the bend radius sits on a DIFFERENT axis — out of the
+    measurement. Zero matches (the fold was cut away entirely) is an empty list,
+    a MULTI-face return means the bend was split — both honest mismatches for
+    the caller to surface, never a guess."""
+    target_dir = Vector(
+        signature.axis_dir.x, signature.axis_dir.y, signature.axis_dir.z
+    ).normalized()
+    target_origin = Vector(
+        signature.axis_origin.x, signature.axis_origin.y, signature.axis_origin.z
+    )
+    widths: list[float] = []
+    for cf in _cylindrical_faces(body):
+        if 1.0 - abs(cf.axis_dir.dot(target_dir)) > _PARALLEL_TOL:
+            continue
+        delta = target_origin - cf.axis_origin
+        if _perp_distance(delta, cf.axis_dir) > _AXIS_COINCIDENT_TOL_MM:
+            continue
+        if not bend_radii_match(cf.radius, signature.radius_mm):
+            continue
+        proj = [Vector(v.X, v.Y, v.Z).dot(cf.axis_dir) for v in cf.face.vertices()]
+        widths.append(max(proj) - min(proj))
+    return sorted(widths)
+
+
 def _shares_edge_with(face: Face, bend_edges: list[Edge]) -> bool:
     """True if *face* shares a topological edge with the bend's inner face.
 

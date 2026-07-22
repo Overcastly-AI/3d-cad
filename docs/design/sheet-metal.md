@@ -734,6 +734,29 @@ never a wrong flat-pattern length), inheriting the same residual stage-1
 hole (`topological-naming.md` §7.3) every other consumer already carries,
 with no new mechanism beyond the one new signature type.
 
+**Implementation note (2026-07-22, WF-1 layer 1 — runtime fold-back
+invariant).** Founder dogfooding found the ONE dishonest gap in this posture:
+the clean-reference machinery (§4.4.4 — the unfold resolves its bends against
+the un-notched fold reference, maintained by the folds) means an ordinary
+extrude CUT after a fold never reaches the unfold at all — the signatures
+resolve fine against the pre-cut reference and the development silently emits
+the UNTRIMMED blank (WF-1: a flange cut to 50 wide flat-patterned full-width,
+no error). Fix: `unfold_sheet_metal` now takes the LIVE evaluated body
+(`live_body`, always passed by the flat-pattern pipeline) and applies the
+goldens' fold-back invariant at runtime — grouped by bend radius, the sorted
+live cylindrical bend-face widths (measured per-bend on the bend's own axis
+LINE at its radius, centroid deliberately ignored so a trimmed/shifted bend
+face is MEASURED rather than lost — `resolve.coaxial_cylindrical_face_widths`)
+must equal the sorted developed fold widths (`BendLine.width_mm`, tolerance
+1e-6 mm, measured residuals ≤ 5.3e-10 across the golden set). Any count or
+width mismatch is a typed `UnfoldFoldBackError` → `flat_pattern_failed`
+naming the fold and both widths. Relieved/hemmed developments cannot trip it:
+their notched developed widths equal the live notched faces BY DESIGN (the
+§4.4.4 fold-back gate the goldens assert offline). Developing the trimmed
+fold correctly (+ edge-flange width extents) is WF-1 layer 2 (BACKLOG); a cut
+that misses every bend (a hole in a flat) is still undeveloped and awaits the
+layer-2 area invariant.
+
 ## 6. The unfold algorithm (v1 scope) and its output
 
 `geometry.sheet_metal.unfold(body, base_flange_faces, bend_refs) →
