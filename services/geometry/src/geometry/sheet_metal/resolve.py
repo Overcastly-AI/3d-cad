@@ -29,6 +29,7 @@ fully-typed dataclasses below keep the boundary honest.
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import CenterOf, Edge, Face, GeomType, Vector
@@ -163,42 +164,93 @@ def bend_radii_match(a_mm: float, b_mm: float) -> bool:
     return abs(a_mm - b_mm) / max(abs(a_mm), abs(b_mm), 1.0) <= _RADIUS_REL_TOL
 
 
+def _axis_extent(cf: _CylFace) -> float:
+    """The along-axis extent (mm) of a cylindrical face — its vertex projections on
+    its OWN axis direction, max minus min. The one width measurement shared by the
+    coaxial measurers so a face is measured identically however it is reached."""
+    proj = [Vector(v.X, v.Y, v.Z).dot(cf.axis_dir) for v in cf.face.vertices()]
+    return max(proj) - min(proj)
+
+
+def _on_signature_axis(cf: _CylFace, signature: CylindricalFaceSignature) -> bool:
+    """True if *cf* lies on the signature's axis LINE at its radius — centroid
+    deliberately IGNORED (unlike :func:`_cyl_matches`).
+
+    The axis-line + radius selection shared by the coaxial fold-back measurers
+    (:func:`coaxial_cylindrical_face_widths` / :func:`live_bend_face_widths`): a
+    face that a LATER feature (an ordinary cut) shortened or shifted ALONG its axis
+    still matches (its centroid moved but its axis line + radius did not), so the
+    fold-back check can MEASURE the modified fold rather than lose it. The same
+    ``_PARALLEL_TOL`` / ``_AXIS_COINCIDENT_TOL_MM`` / ``_RADIUS_REL_TOL`` rules the
+    signature matchers use keep unrelated cylinders — a drilled hole whose radius
+    happens to equal the bend radius sits on a DIFFERENT axis — out of the match."""
+    target_dir = Vector(
+        signature.axis_dir.x, signature.axis_dir.y, signature.axis_dir.z
+    ).normalized()
+    if 1.0 - abs(cf.axis_dir.dot(target_dir)) > _PARALLEL_TOL:
+        return False
+    target_origin = Vector(
+        signature.axis_origin.x, signature.axis_origin.y, signature.axis_origin.z
+    )
+    delta = target_origin - cf.axis_origin
+    if _perp_distance(delta, cf.axis_dir) > _AXIS_COINCIDENT_TOL_MM:
+        return False
+    return bend_radii_match(cf.radius, signature.radius_mm)
+
+
 def coaxial_cylindrical_face_widths(
     body: BodyShape, signature: CylindricalFaceSignature
 ) -> list[float]:
     """The along-axis extents (mm), sorted, of *body*'s cylindrical faces on the
     signature's axis LINE at its radius — centroid deliberately IGNORED.
 
-    The live-body measurement arm of the runtime fold-back cross-check (WF-1,
-    BACKLOG 2026-07-22): unlike :func:`resolve_cylindrical_face` (whose centroid
-    term makes a trimmed bend an unresolvable dangling reference), this finds a
-    bend face that a LATER feature (an ordinary cut) shortened or shifted along
-    its axis, so the check can MEASURE the modified fold and compare it to the
-    developed width instead of losing it. Axis-line + radius matching (the same
-    ``_PARALLEL_TOL`` / ``_AXIS_COINCIDENT_TOL_MM`` / ``_RADIUS_REL_TOL`` rules
-    the matchers use) keeps unrelated cylinders — a drilled hole whose radius
-    happens to equal the bend radius sits on a DIFFERENT axis — out of the
-    measurement. Zero matches (the fold was cut away entirely) is an empty list,
-    a MULTI-face return means the bend was split — both honest mismatches for
-    the caller to surface, never a guess."""
-    target_dir = Vector(
-        signature.axis_dir.x, signature.axis_dir.y, signature.axis_dir.z
-    ).normalized()
-    target_origin = Vector(
-        signature.axis_origin.x, signature.axis_origin.y, signature.axis_origin.z
+    The single-bend measurement helper (§4.4.4 fold-back witness): finds a bend
+    face a later cut shortened/shifted along its axis so the check MEASURES the
+    modified fold instead of losing it (contrast :func:`resolve_cylindrical_face`,
+    whose centroid term drops a trimmed bend). Zero matches (the fold was cut away
+    entirely) is an empty list; a MULTI-face return means TWO COAXIAL bends share
+    this axis line + radius — so the runtime fold-back check across *several* bends
+    must not sum these per-signature lists (each returns every coaxial face, N^2
+    over N collinear folds); it uses :func:`live_bend_face_widths`, which measures
+    each distinct face ONCE. Both a zero and a multi-face return are honest
+    mismatches for the caller to surface, never a guess."""
+    return sorted(
+        _axis_extent(cf)
+        for cf in _cylindrical_faces(body)
+        if _on_signature_axis(cf, signature)
     )
-    widths: list[float] = []
-    for cf in _cylindrical_faces(body):
-        if 1.0 - abs(cf.axis_dir.dot(target_dir)) > _PARALLEL_TOL:
-            continue
-        delta = target_origin - cf.axis_origin
-        if _perp_distance(delta, cf.axis_dir) > _AXIS_COINCIDENT_TOL_MM:
-            continue
-        if not bend_radii_match(cf.radius, signature.radius_mm):
-            continue
-        proj = [Vector(v.X, v.Y, v.Z).dot(cf.axis_dir) for v in cf.face.vertices()]
-        widths.append(max(proj) - min(proj))
-    return sorted(widths)
+
+
+def live_bend_face_widths(
+    body: BodyShape, signatures: Sequence[CylindricalFaceSignature]
+) -> list[tuple[float, float]]:
+    """``(radius_mm, along-axis width_mm)`` for each DISTINCT cylindrical bend face
+    of *body* lying on ANY signature's axis LINE at its radius, measured ONCE.
+
+    The live-body measurement arm of the runtime fold-back cross-check
+    (:func:`geometry.sheet_metal.unfold._check_live_fold_back`, WF-1 code-review
+    2026-07-22). Two distinct bends that share the SAME axis line AND radius — two
+    edge flanges on COLLINEAR segments of one base edge (a notch-split edge, PB-1;
+    or two tabs off one edge) — each match BOTH faces under the centroid-ignoring
+    axis-line+radius selection, so calling :func:`coaxial_cylindrical_face_widths`
+    once per signature double-counts (``[wA, wB, wA, wB]`` for two folds, an N^2
+    count mismatch that FALSE-REJECTS a correctly-developed body). Deduping by
+    TopoDS identity (``TopoDS_Shape.IsSame`` — NOT by width value, so two genuinely
+    equal-width folds still count as two) measures each face exactly once: N coaxial
+    equal-radius folds yield N widths. Centroid stays IGNORED (unlike
+    :func:`resolve_cylindrical_face`) so a TRIMMED bend whose centroid shifted is
+    still MEASURED — the WF-1 cut-after-fold reject depends on it. The faces are
+    enumerated ONCE (:func:`_cylindrical_faces`) so identity comparisons are over a
+    single wrapper set; the result is sorted for a deterministic, order-free return."""
+    faces = _cylindrical_faces(body)
+    unique: list[_CylFace] = []
+    for signature in signatures:
+        for cf in faces:
+            if not _on_signature_axis(cf, signature):
+                continue
+            if not any(cf.face.wrapped.IsSame(u.face.wrapped) for u in unique):
+                unique.append(cf)
+    return sorted((cf.radius, _axis_extent(cf)) for cf in unique)
 
 
 def shares_edge_with(face: Face, bend_edges: list[Edge]) -> bool:
@@ -555,19 +607,42 @@ def _flanking_face_records(
     return records[0], records[1]
 
 
+#: Along-axis span-match tolerance (mm) — documented, NOT ad-hoc (§9). The
+#: constructed bend face's along-axis extent is the flange's authored span to FP
+#: (same ``p0``/``v``/``span`` the geometry was extruded from), so residuals are
+#: ulp-scale; loose enough for fuse/clean vertex jitter, far tighter than the gap
+#: between two collinear flanges' spans on one edge.
+_SPAN_MATCH_TOL_MM = 1e-6
+
+
 def find_cylindrical_face(
-    body: BodyShape, axis_origin: Vec3f, axis_dir: Vec3f, radius_mm: float
+    body: BodyShape,
+    axis_origin: Vec3f,
+    axis_dir: Vec3f,
+    radius_mm: float,
+    axis_span: tuple[float, float] | None = None,
 ) -> Face:
     """The one cylindrical face of *body* on a KNOWN axis line at a known radius.
 
     Used at edge-flange construction time to locate the bend's inner cylindrical
     face (whose axis + radius the feature computed exactly) so its
     :class:`CylindricalFaceSignature` can be emitted. Exactly one or a raise (a
-    construction invariant — the feature just created this face)."""
+    construction invariant — the feature just created this face).
+
+    *axis_span* — the constructed bend face's expected ``(min, max)`` projection on
+    ``axis_dir`` (world mm) — disambiguates COAXIAL equal-radius bends: two edge
+    flanges on collinear segments of one base edge (a notch-split edge, PB-1) share
+    the SAME axis line AND radius, so axis+radius alone matches BOTH the earlier
+    flange's bend and the one just built (WF-1 code-review 2026-07-22). The span
+    (an exact closed form from the flange's ``[span0, span1]``) selects the face
+    whose own along-axis extent matches, so the second collinear flange resolves to
+    ITS bend, not the first's. Only applied when more than one candidate matches
+    (single-bend construction is the verbatim legacy path — committed goldens
+    byte-unchanged); omitted (``None``) keeps the strict exactly-one contract."""
     want_dir = Vector(*axis_dir).normalized()
     want_origin = Vector(*axis_origin)
     radius_ref = max(abs(radius_mm), 1.0)
-    matches: list[Face] = []
+    matches: list[_CylFace] = []
     for cand in _cylindrical_faces(body):
         if 1.0 - abs(cand.axis_dir.dot(want_dir)) > _PARALLEL_TOL:
             continue
@@ -576,13 +651,29 @@ def find_cylindrical_face(
             continue
         if abs(cand.radius - radius_mm) / radius_ref > _RADIUS_REL_TOL:
             continue
-        matches.append(cand.face)
+        matches.append(cand)
+    if len(matches) > 1 and axis_span is not None:
+        lo, hi = min(axis_span), max(axis_span)
+        matches = [c for c in matches if _axis_span_matches(c, want_dir, lo, hi)]
     if len(matches) != 1:
         raise NoBendFoundError(
             f"Expected exactly one cylindrical face on the constructed bend axis "
             f"at radius {radius_mm:.4g} mm, found {len(matches)}."
         )
-    return matches[0]
+    return matches[0].face
+
+
+def _axis_span_matches(cf: _CylFace, want_dir: Vector, lo: float, hi: float) -> bool:
+    """True if *cf*'s vertex extent along *want_dir* matches ``[lo, hi]`` (mm).
+
+    Projects onto the CALLER's ``want_dir`` (not ``cf.axis_dir``, which OCCT may
+    orient oppositely) so the compared range is sign-consistent with the expected
+    span the feature computed from ``p0``/``v``/``span``."""
+    proj = [Vector(v.X, v.Y, v.Z).dot(want_dir) for v in cf.face.vertices()]
+    return (
+        abs(min(proj) - lo) <= _SPAN_MATCH_TOL_MM
+        and abs(max(proj) - hi) <= _SPAN_MATCH_TOL_MM
+    )
 
 
 def resolve_bend_faces(body: BodyShape, inner: _CylFace) -> ResolvedBendFaces:

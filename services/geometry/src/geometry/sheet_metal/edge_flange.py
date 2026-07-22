@@ -306,8 +306,17 @@ def build_edge_flange(
     # feature degrades to `edge_flange_failed`, never the generic `evaluation_failed`
     # bucket (the honest-degradation contract; the try/except above only covers
     # construction+fuse, this covers provenance resolution).
+    # The bend face's along-axis extent is the flange span projected onto the edge
+    # line (v is unit, so a point p0 + v*s projects to p0·v + s). Passing it lets
+    # `find_cylindrical_face` disambiguate a SECOND flange on a COLLINEAR segment of
+    # the same edge — same axis line + radius as the first flange's bend — by its
+    # own span, not just the axis line (§4.5.3 / WF-1 code-review 2026-07-22).
+    p0_axis = p0.dot(v)
+    axis_span = (p0_axis + span0, p0_axis + span1)
     try:
-        inner_face = find_cylindrical_face(result_body, axis_origin, axis_dir, r)
+        inner_face = find_cylindrical_face(
+            result_body, axis_origin, axis_dir, r, axis_span=axis_span
+        )
         cyl_signature = cylindrical_face_signature(inner_face)
     except EdgeFlangeError:
         raise

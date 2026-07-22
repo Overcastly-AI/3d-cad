@@ -862,20 +862,38 @@ the UNTRIMMED blank (WF-1: a flange cut to 50 wide flat-patterned full-width,
 no error). Fix: `unfold_sheet_metal` now takes the LIVE evaluated body
 (`live_body`, always passed by the flat-pattern pipeline) and applies the
 goldens' fold-back invariant at runtime — grouped by bend radius, the sorted
-live cylindrical bend-face widths (measured per-bend on the bend's own axis
-LINE at its radius, centroid deliberately ignored so a trimmed/shifted bend
-face is MEASURED rather than lost — `resolve.coaxial_cylindrical_face_widths`)
-must equal the sorted developed fold widths (`BendLine.width_mm`, tolerance
-1e-6 mm, measured residuals ≤ 5.3e-10 across the golden set). Any count or
-width mismatch is a typed `UnfoldFoldBackError` → `flat_pattern_failed`
-naming the fold and both widths. Relieved/hemmed developments cannot trip it:
-their notched developed widths equal the live notched faces BY DESIGN (the
-§4.4.4 fold-back gate the goldens assert offline). WF-1 layer 2 SHIPPED as
-edge-flange WIDTH EXTENTS + partial-width development (§4.5, 2026-07-22): the
-narrow flange is now directly authorable, so the cut hack is unnecessary and
-cut-after-fold REMAINS a typed reject by this invariant (by design, not as a
-stopgap). A cut that misses every bend (a hole in a flat) still develops
-without the hole and awaits the deferred runtime area invariant (BACKLOG).
+live cylindrical bend-face widths must equal the sorted developed fold widths
+(`BendLine.width_mm`, tolerance 1e-6 mm, measured residuals ≤ 5.3e-10 across
+the golden set). Any count or width mismatch is a typed `UnfoldFoldBackError`
+→ `flat_pattern_failed` naming the fold and both widths.
+
+The invariant is **per bend FACE once, deduped by identity** — NOT per
+provenance. The live widths come from `resolve.live_bend_face_widths`, which
+collects the DISTINCT cylindrical bend faces lying on any bend's axis LINE at
+its radius (centroid deliberately ignored so a trimmed/shifted bend face is
+MEASURED rather than lost) and measures each exactly once (`TopoDS_Shape.IsSame`
+dedup). This correction (2026-07-22 code review) fixes an overclaim in the
+first cut, which called `coaxial_cylindrical_face_widths` once PER provenance
+and summed: two **coaxial equal-radius bends** — two edge flanges on collinear
+segments of one base edge (a notch-split edge, the natural PB-1 extension) share
+the same axis line and radius, so each per-provenance scan returned BOTH faces,
+yielding an N² live count (`[wA, wB, wA, wB]`) against the N developed widths
+(`[wA, wB]`) and FALSE-REJECTING a perfectly valid, correctly-developed body.
+Deduping by face identity (not by width value, so two genuinely-equal widths
+still count as two) makes N coaxial folds yield N live widths, so the coaxial
+depth-1 partial star (golden `coaxial-two-segment-flange-unfold`) passes. The
+same coaxial ambiguity is disambiguated at CONSTRUCTION too:
+`find_cylindrical_face` takes the flange's along-axis SPAN so the second
+collinear flange resolves to ITS bend, not the first's. With those two fixes
+**no in-scope development — depth-1 stars (including coaxial multi-flange
+partial stars), non-parallel trays, bend trees, hems, relieved + hemmed trays,
+whose notched developed widths equal the live notched faces BY DESIGN — trips
+the invariant**. WF-1 layer 2 SHIPPED as edge-flange WIDTH EXTENTS +
+partial-width development (§4.5, 2026-07-22): the narrow flange is now directly
+authorable, so the cut hack is unnecessary and cut-after-fold REMAINS a typed
+reject by this invariant (by design, not as a stopgap). A cut that misses every
+bend (a hole in a flat) still develops without the hole and awaits the deferred
+runtime area invariant (BACKLOG).
 
 ## 6. The unfold algorithm (v1 scope) and its output
 

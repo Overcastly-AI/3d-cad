@@ -36,7 +36,12 @@ bend's axis (centroid-agnostic coaxial measurement, so a trimmed bend is
 measured, not lost) — mismatch → typed `flat_pattern_failed` naming the fold and
 both widths. The WF-1 repro (100-wide flange cut to 50) now typed-rejects
 instead of emitting the full-width blank; all existing goldens byte-unchanged
-(`test_sheet_metal_cut_after_fold.py`, 4 tests). **WF-1 LAYER 2 ✅ SHIPPED
+(`test_sheet_metal_cut_after_fold.py`, 4 tests). **Code-review follow-up
+2026-07-22:** the fold-back check now measures each bend FACE once (dedup by
+identity, `resolve.live_bend_face_widths`) and `find_cylindrical_face`
+disambiguates coaxial bends by span, so two equal-radius flanges on collinear
+segments of one edge DEVELOP instead of false-rejecting (golden
+`coaxial-two-segment-flange-unfold`). **WF-1 LAYER 2 ✅ SHIPPED
 2026-07-22** (kernel-architect; founder-directed "fix everything" for narrow
 flanges — design §4.5 written first): `SheetMetalEdgeFlangeParamsV1` gains
 optional `width_mm`/`offset_mm` (offset from the edge's canonical `end_a`;

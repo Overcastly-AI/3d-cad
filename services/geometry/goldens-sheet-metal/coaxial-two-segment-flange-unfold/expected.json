@@ -1,0 +1,33 @@
+{
+  "description": "WF-1 code-review adversarial golden (docs/design/sheet-metal.md §4.5.3 / §5): a 200 x 100 base (t = 1.5, r = 2, K = 0.44) with a 40 x 10 notch cut through the MIDDLE of the y=0 edge BEFORE folding, splitting it into two collinear segments x in [0, 80] and x in [120, 200]; a full-width 90-deg edge flange (leg 40) is folded off EACH surviving segment. The two bends are COAXIAL (the same y=0 bend axis line) AND equal-radius, differing only in along-axis extent/centroid — the natural extension of PB-1. It must DEVELOP (not false-reject): the construction disambiguates the second collinear flange's bend by its span, the development emits TWO BendLines, and the runtime fold-back cross-check measures each distinct bend face ONCE (deduped by TopoDS identity), so live widths [80, 80] == developed widths [80, 80] instead of the buggy [80, 80, 80, 80] N^2 count.",
+  "tangent_line_convention": "Each leg is measured to its bend TANGENT LINE (§9 #1): the base develops to its notched 200 x 100 flat top face; each flange leg develops to 40 mm beyond a BA-length strip replacing its bend.",
+  "derivation": [
+    "HAND-DERIVED analytic values (geometry-gates skill). Base 200 x 100 x t=1.5; notch 40 (x in [80,120]) x 10 (y in [0,10]) cut through the y=0 edge; two full-width flanges leg=40, width=80 each on the [0,80] and [120,200] segments. No auto bend-end relief: each flange spans its whole segment (blank corner + notch boundary, §4.5.2).",
+    "Bend allowance (§1): BA = (pi/2) * (2 + 0.44 * 1.5) = 4.178318229274425 mm (per bend).",
+    "3D volume = base(200*100*1.5) - notch(40*10*1.5) + 2 bends((pi/4)*((3.5^2 - 2^2))*80) + 2 walls(40*1.5*80) = 30000 - 600 + 330*pi + 9600 = 39000 + 330*pi = 40036.72557568463 mm^3.",
+    "Developed area (§9 #2): flat_area = base_flat(200*100 - 40*10 = 19600) + 2*(leg 40*80 = 3200) + 2*(BA*80) = 19600 + 6400 + 160*BA = 26668.530916683907 mm^2.",
+    "Envelope: 200 mm along the fold direction (base x-extent) x (100 + BA + 40) = 144.17831822927442 mm perpendicular. The emitter's canonical base frame maps the perpendicular extent to flat_length_mm and the along-fold extent to bend_width_mm.",
+    "Outline: ONE closed loop, 8 body edges (a comb: the base rectangle with a bottom-middle reentrant notch and two downward flange legs) + 2 fold lines, each spanning exactly one segment's 80 mm width at its strip midline.",
+    "Fold-back invariant: the two DISTINCT live inner bend faces each measure 80 mm == their developed width == authored segment width; live_bend_face_widths dedupes them to [80, 80] (the buggy per-signature scan would return [80, 80, 80, 80]), so the pipeline cross-check succeeds.",
+    "content_hash is the sha256 of FlatPattern.to_json_bytes() — determinism pin."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (2026-07-22, build123d 0.11.1 / OCCT 7.9): flat_area residual 1 ulp, envelope exact, BA residual 1 ulp. 1e-9 ceiling matches the sibling partial-flange goldens; 1e-6 mm^3 volume tolerance (measured residual ~1e-11) matches the sheet-metal volume tolerance family.",
+  "bend_allowance_mm": 4.178318229274425,
+  "flat_area_mm2": 26668.530916683907,
+  "flat_length_mm": 144.17831822927442,
+  "bend_width_mm": 200.0,
+  "bend_count": 2,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 2.0,
+  "bend_direction": "up",
+  "bend_widths_mm": [80.0, 80.0],
+  "live_bend_face_widths_deduped": [80.0, 80.0],
+  "live_bend_face_widths_naive_double_counted": [80.0, 80.0, 80.0, 80.0],
+  "body_edge_count": 8,
+  "bend_edge_count": 2,
+  "volume_mm3": 40036.72557568463,
+  "volume_tolerance": 1e-6,
+  "topology": { "faces": 18, "edges": 48, "shells": 1 },
+  "content_hash": "9be9c90a8c29290ab2ca474c48148494d6ee3193137359a8f75616d3c67a20b3"
+}

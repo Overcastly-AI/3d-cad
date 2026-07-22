@@ -48,7 +48,7 @@ from geometry.sheet_metal.resolve import (
     FlangeFaceRecord,
     SheetMetalUnfoldError,
     bend_radii_match,
-    coaxial_cylindrical_face_widths,
+    live_bend_face_widths,
     resolve_bend_faces,
     resolve_bends,
     resolve_cylindrical_face,
@@ -457,30 +457,45 @@ def _check_live_fold_back(
     """Cross-check the developed pattern against the LIVE body (WF-1, §4.4.4/§9).
 
     The runtime form of the goldens' fold-back invariant: grouped by bend radius,
-    the sorted live cylindrical bend-face widths (measured on each bend's own axis
-    line, :func:`coaxial_cylindrical_face_widths` — centroid ignored so a TRIMMED
-    bend is still found and measured) must equal the sorted developed fold widths
-    (``BendLine.width_mm``). Any count or width disagreement means a feature after
-    the folds (an ordinary cut) altered a bend the development knows nothing about
-    — a full-width blank for a trimmed fold, the WF-1 silent wrongness — so the
-    unfold refuses, typed (:class:`UnfoldFoldBackError`), naming the fold and both
-    widths. Grouping mirrors the offline golden assertions exactly (compare the
-    hemmed-wall / four-corner-pan suites), so no in-scope development — depth-1
-    stars, non-parallel trays, bend trees, hems, relieved + hemmed trays (whose
-    notched developed widths equal the live notched faces BY DESIGN) — can trip it.
+    the sorted live cylindrical bend-face widths (each DISTINCT bend face measured
+    ONCE across all bends, :func:`live_bend_face_widths` — centroid ignored so a
+    TRIMMED bend is still found and measured, deduped by TopoDS identity so two
+    COAXIAL equal-radius folds on collinear segments of one edge do not double-count
+    into an N^2 false reject, WF-1 code-review 2026-07-22) must equal the sorted
+    developed fold widths (``BendLine.width_mm``). Any count or width disagreement
+    means a feature after the folds (an ordinary cut) altered a bend the development
+    knows nothing about — a full-width blank for a trimmed fold, the WF-1 silent
+    wrongness — so the unfold refuses, typed (:class:`UnfoldFoldBackError`), naming
+    the fold and both widths. Grouping mirrors the offline golden assertions exactly
+    (compare the hemmed-wall / four-corner-pan suites), so no in-scope development —
+    depth-1 stars (incl. coaxial multi-flange partial stars), non-parallel trays,
+    bend trees, hems, relieved + hemmed trays (whose notched developed widths equal
+    the live notched faces BY DESIGN) — can trip it.
     """
+    # Seed a radius group per authored bend FIRST, so a fold whose live face was cut
+    # away entirely still has a group to mismatch against (the count arm).
     radii: list[float] = []
     live_widths: dict[int, list[float]] = {}
+
+    def _group_index(r: float) -> int:
+        for i, r0 in enumerate(radii):
+            if bend_radii_match(r0, r):
+                return i
+        radii.append(r)
+        live_widths[len(radii) - 1] = []
+        return len(radii) - 1
+
     for prov in bends:
-        r = prov.cyl_signature.radius_mm
-        gi = next((i for i, r0 in enumerate(radii) if bend_radii_match(r0, r)), None)
-        if gi is None:
-            gi = len(radii)
-            radii.append(r)
-            live_widths[gi] = []
-        live_widths[gi].extend(
-            coaxial_cylindrical_face_widths(live_body, prov.cyl_signature)
-        )
+        _group_index(prov.cyl_signature.radius_mm)
+    # Live faces: each DISTINCT bend face measured ONCE across all bends (deduped by
+    # identity), then bucketed into its seeded radius group. Every returned face's
+    # radius matches some authored signature radius (the selection requires it), so
+    # no live face creates a new group — the group set stays exactly the authored
+    # radii, and a coaxial multi-flange star yields N widths, never N^2.
+    for radius, width in live_bend_face_widths(
+        live_body, [prov.cyl_signature for prov in bends]
+    ):
+        live_widths[_group_index(radius)].append(width)
     developed: dict[int, list[tuple[float, str]]] = {i: [] for i in range(len(radii))}
     for bl in pattern.bends:
         gi = next(

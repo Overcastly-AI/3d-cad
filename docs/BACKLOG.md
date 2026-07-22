@@ -718,6 +718,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-22 — **WF-1 fold-back coaxial fix (kernel-architect, code review):**
+  fold-back invariant now measures each bend FACE once (dedup by identity,
+  `resolve.live_bend_face_widths`) + `find_cylindrical_face` disambiguates by span;
+  two coaxial equal-radius flanges on collinear segments develop instead of
+  false-rejecting. Golden `coaxial-two-segment-flange-unfold`; §5 note corrected.
 - 2026-07-22 — **WF-1 layer 2 + PB-1 (kernel-architect):** edge-flange width
   extents (`width_mm`/`offset_mm`) + auto bend-end relief + partial-width
   development (design §4.5); founder 50×50-flange case golden-gated; PB-1 fell out.
