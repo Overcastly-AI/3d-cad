@@ -68,6 +68,19 @@ scorecard impact → core capability → polish).
       pre-restart-green commits (no behavior loosened — a genuinely missed
       pick/overflow must still fail). [src: orchestrator bisect 2026-07-22,
       CLAUDE.md environment recipe]
+- [ ] (P2, M) Sheet metal: PARTIAL-WIDTH flange flat pattern (founder
+      dogfooding 2026-07-22, PB-1 bracket). A flange on a notch-split edge
+      segment (70 mm fold on a 200 mm base) builds a PERFECT 3D body — every
+      evaluate green, kernel volume = closed-form exactly (60,127.0) — but the
+      unfold is a typed reject: "The developed outline is not a single closed
+      loop — a flange does not span its full base edge" (the `_emit_plus_pattern`
+      guard, exactly as the parity matrix's bend-relief row predicted). Real
+      parts (tabs, staggered flanges, notched brackets) need this. Fix: develop
+      a multi-segment base outline (flange strips replace only their SPAN of the
+      edge, base outline keeps the notch), which is also where bend-END relief
+      first becomes load-bearing — design the two together (parity §3 bend
+      relief). Golden: notched-base partial-flange unfold + fold-back invariant.
+      [src: founder dogfooding — PB-1; sheet-metal-parity.md §3]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
       mesh_store/S3 seam (§8.3). The last open Drawings v1 tail — SVG/PDF/DXF
       compose today re-renders on every request; store the composed bytes
@@ -684,6 +697,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-22 — **Founder dogfooding — PB-1 (partial folds + viewport
+  rotation):** 3 fold widths (70 partial / 200 / 120) on a notched base — 3D
+  exact to closed form; flat pattern typed-rejects (filed P2, matrix row
+  upgraded). Snap views, real-pointer orbit, pick-after-rotate all pass.
 - 2026-07-20 — **Founder dogfooding pass #2 — TB-1 site toolbox (all queued
   scenarios, one assembly):** tray (4 walls + 2 hems + 4 reliefs — first
   coexistence, 12 features OK), pattern ×4 (exact to 0.01 mm³), spline-loft
