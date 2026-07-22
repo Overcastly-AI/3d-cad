@@ -51,6 +51,23 @@ item is archived below (Done, one line each — full evidence in
 this restock orders by the standing rules (P0 wrong-geometry/security →
 scorecard impact → core capability → polish).
 
+- [ ] (P1, S) e2e: make the 6 raster-fragile specs container-robust
+      (qa-tester). The 2026-07-22 batch-end sweep went red on 5 measure specs
+      (real-pointer vertex/corner picks — the readout never appears) + the
+      undo-redo 1280 command-band ≤0px fit ("Received: 1"). Four-point bisect
+      (HEAD → `0c10265` → `47c88f4` → `24b1c53`) proved ENVIRONMENT, not code:
+      the same failures reproduce at a commit that was full-suite green in the
+      pre-restart container — the 2026-07-19 container restart shifted
+      Chromium/GL raster + font metrics sub-pixel, and these specs compute
+      click coordinates from live canvas geometry / assert a 0px fit.
+      P1 because every batch-end `just e2e` is red until fixed ("never push a
+      red build" needs a trustworthy gate). Acceptance: picks target
+      data-driven overlay nodes or search a small px neighbourhood (no raw
+      sub-pixel canvas coords); the band-fit assert takes a documented ≤2px
+      tolerance; the 6 specs pass in THIS container AND stay green on the
+      pre-restart-green commits (no behavior loosened — a genuinely missed
+      pick/overflow must still fail). [src: orchestrator bisect 2026-07-22,
+      CLAUDE.md environment recipe]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
       mesh_store/S3 seam (§8.3). The last open Drawings v1 tail — SVG/PDF/DXF
       compose today re-renders on every request; store the composed bytes
