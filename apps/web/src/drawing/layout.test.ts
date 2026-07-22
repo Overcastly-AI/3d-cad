@@ -52,6 +52,23 @@ describe("fitScale (auto-layout fit — WB-64 dogfooding fix)", () => {
     const fitted = fitScale({ x: 100, y: 100, z: 50 }, a4, "5:1");
     expect(fitted.value).toBe("1:2");
   });
+
+  it("pancake iso-height bound is honoured (review 2026-07-22 regression)", () => {
+    // A flat, wide part whose ORTHO views all fit at 1:1 but whose iso view is
+    // HEIGHT-dominated by the xy term: true iso height 0.8165·30 + 0.4082·109
+    // ≈ 69.0 mm > the 63.4 mm A4 cell, so 1:1 must be rejected. The previous
+    // 0.3 xy-coefficient accepted exactly this shape at 1:1 (its over-wide
+    // 0.87 width bound sat just inside the old cell, masking nothing here).
+    expect(fitScale({ x: 95, y: 14, z: 30 }, a4, "1:1").value).toBe("1:2");
+  });
+
+  it("portrait sheet swaps the cell aspect", () => {
+    const portrait = sheetDimensions("A4", "portrait");
+    // 210 wide → columns narrow to ~63.6 mm: a 90 mm-wide part no longer fits
+    // its column at 1:1 even though it does on landscape.
+    expect(fitScale({ x: 90, y: 5, z: 20 }, portrait, "1:1").value).toBe("1:2");
+    expect(fitScale({ x: 90, y: 5, z: 20 }, a4, "1:1").value).toBe("1:1");
+  });
 });
 
 describe("standardLayout (third-angle create-flow seed)", () => {

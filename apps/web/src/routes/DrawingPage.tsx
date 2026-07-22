@@ -262,12 +262,12 @@ export function DrawingPage() {
         // fit (the user's picked scale is a ceiling; see fitScale). A part
         // that fails to evaluate keeps the picked scale — the layout still
         // lands, just unfitted, and the sheet surfaces the eval error.
-        let scale = scaleFromValue(scaleValue);
+        let fittedValue = scaleValue;
         try {
           const evaluated = await evaluatePart(selectedPartId);
           const box = evaluated.properties?.bounding_box;
           if (box) {
-            const fitted = fitScale(
+            fittedValue = fitScale(
               {
                 x: box.max.x - box.min.x,
                 y: box.max.y - box.min.y,
@@ -275,13 +275,12 @@ export function DrawingPage() {
               },
               dims,
               scaleValue,
-            );
-            if (fitted.value !== scaleValue) setScaleValue(fitted.value);
-            scale = scaleFromValue(fitted.value);
+            ).value;
           }
         } catch {
           // keep the picked scale
         }
+        const scale = scaleFromValue(fittedValue);
         for (const projection of STANDARD_VIEWS) {
           const anchor = anchors[projection];
           const created = await createView(drawingId, sheetId, {
@@ -294,6 +293,11 @@ export function DrawingPage() {
           });
           version = created.doc_version;
         }
+        // Only after every view landed: reflect the substitution in the picker
+        // state (a FAILED layout must not mutate the user's pick — review
+        // 2026-07-22), and post-layout the band's scale readout derives from
+        // the stored views either way.
+        if (fittedValue !== scaleValue) setScaleValue(fittedValue);
         await queryClient.invalidateQueries({
           queryKey: ["drawing", drawingId],
         });

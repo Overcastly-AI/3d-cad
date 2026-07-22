@@ -233,8 +233,34 @@ export interface ModelExtents {
   z: number;
 }
 
-/** Margin (sheet mm) kept between a view's footprint and its cell edge. */
-const FIT_MARGIN_MM = 6;
+/** Margin (sheet mm) kept between a view's footprint and its cell edge.
+ * Calibrated, not padded: the SERVER's bounds-aware composer is the real
+ * collision guarantee — this client cell model is a pre-flight estimate, and
+ * 4 mm keeps the empirically-verified clean layouts acceptable (the WB-64
+ * bottle's true iso height at 1:5 is 61.7 mm — a 6 mm margin would push it to
+ * an unnecessarily tiny 1:10) while the exact projection coefficients below
+ * keep the estimate honest. */
+const FIT_MARGIN_MM = 4;
+
+// Anchor-derived half-gaps, kept in lock-step with standardLayout's 0.32/0.68
+// columns and 0.36/0.70 rows: a view's usable half-width is the smaller of its
+// column's edge distance (0.32) and the mid-gap to the other column (0.18);
+// half-height likewise (bottom row edge 0.36, top row edge 0.30, row mid-gap
+// 0.17). If the anchors move, these must move with them.
+const CELL_HALF_W_FRACTION = Math.min(0.32, 0.18);
+const CELL_HALF_H_FRACTION = Math.min(0.36, 0.3, 0.17);
+
+// EXACT true-isometric projection coefficients of the SERVER's iso frame
+// (geometry.drawings.project: N = normalize(−1,−1,1), X = normalize(Z×N)):
+// world x → (0.7071, 0.4082), y → (−0.7071, 0.4082), z → (0, 0.8165), so an
+// axis-aligned box projects to exactly w = 0.7071·(x+y),
+// h = 0.8165·z + 0.4082·(x+y). Code-review 2026-07-22: the previous hand
+// coefficients (0.87 / 0.82 / 0.3) mislabelled themselves an over-approx —
+// the width was 23% over while the xy-height term UNDER-approximated by 27%,
+// letting flat/pancake parts accept a scale whose iso view overflows its cell.
+const ISO_W_XY = 0.7071;
+const ISO_H_Z = 0.8165;
+const ISO_H_XY = 0.4082;
 
 /**
  * The largest standard scale whose four auto-layout views fit their quadrant
@@ -243,30 +269,27 @@ const FIT_MARGIN_MM = 6;
  * fit-scale half of the auto-layout fix (BACKLOG 2026-07-20, WB-64 dogfooding:
  * a 258 mm part at the 1:1 default rendered views off-sheet and overlapping).
  *
- * Cells come from the {@link standardLayout} anchor scheme (columns at
- * 0.32/0.68 × rows at 0.36/0.70): a view's usable width is bounded by the
- * 0.18·w half-gap to the column boundary, its height by the 0.17·h half-gap to
- * the row boundary, each less {@link FIT_MARGIN_MM} per side. Footprints are
- * the exact ortho projections (front x·z, right y·z, top x·y) plus an
- * isometric bound (w = 0.87·(x+y), h = 0.82·z + 0.3·(x+y) — the true-iso box
- * extents, slightly over). If even the smallest option cannot fit, that
- * smallest option is returned (a too-small view beats an unusable overlap, and
- * the server's bounds-aware composer still draws it).
+ * Cells come from the {@link standardLayout} anchor scheme (see the fraction
+ * constants above), each less {@link FIT_MARGIN_MM} per side. Footprints are
+ * the exact ortho projections (front x·z, right y·z, top x·y) plus the
+ * true-iso bound (constants above). If even the smallest option cannot fit,
+ * that smallest option is returned (a too-small view beats an unusable
+ * overlap, and the server's bounds-aware composer still draws it).
  */
 export function fitScale(
   extents: ModelExtents,
   dims: SheetDims,
   chosenValue: string,
 ): (typeof SCALE_OPTIONS)[number] {
-  const cellW = 2 * Math.min(0.32, 0.18) * dims.width - 2 * FIT_MARGIN_MM;
-  const cellH = 2 * Math.min(0.36, 0.17) * dims.height - 2 * FIT_MARGIN_MM;
+  const cellW = 2 * CELL_HALF_W_FRACTION * dims.width - 2 * FIT_MARGIN_MM;
+  const cellH = 2 * CELL_HALF_H_FRACTION * dims.height - 2 * FIT_MARGIN_MM;
   const footprints: readonly [number, number][] = [
     [extents.x, extents.z], // front
     [extents.y, extents.z], // right
     [extents.x, extents.y], // top
     [
-      0.87 * (extents.x + extents.y),
-      0.82 * extents.z + 0.3 * (extents.x + extents.y),
+      ISO_W_XY * (extents.x + extents.y),
+      ISO_H_Z * extents.z + ISO_H_XY * (extents.x + extents.y),
     ], // iso
   ];
   const ratio = (o: { numerator: number; denominator: number }) =>
