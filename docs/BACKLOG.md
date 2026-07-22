@@ -94,19 +94,26 @@ scorecard impact → core capability → polish).
       silently-wrong flange; worked e2e + refresh the missing CornerReliefEditor
       editor-open screenshot (`UPDATE_SCREENSHOTS=1`). [src: docs/UI-REVIEW.md
       2026-07-19 frontend-qa]
-- [ ] (P1, M) Drawings — incumbent-parity matrix + usability campaign
-      (vision-steward research, then slices). The WB-64 dogfooding pass showed
-      Drawings has the disease Sheet metal had pre-campaign: real capability
-      (HLR views, click-dimensioning, 3-format export) undermined by dead
-      capabilities (annotations, below) and hostile defaults (auto-layout,
-      below). Commission the same sourced SolidWorks/Fusion matrix
-      sheet-metal-parity.md set the pattern for — rows at minimum: section +
-      detail + broken-out views, ordinate/baseline dims, GD&T/tolerances,
-      centerlines/centermarks, hole callouts + tables, BOM/balloons on assembly
-      drawings, title-block templates/auto-fill, multi-sheet, revision blocks.
-      Score honestly, then sequence slices off the matrix — do not flip the
-      VISION Drawings row until the matrix says so. [src: founder dogfooding —
-      WB-64 + retro]
+- [x] (P1, S) Drawings — incumbent-parity matrix (vision-steward RESEARCH
+      half, done — campaign slicing left for the groomer). **SHIPPED
+      2026-07-22:** `docs/design/drawings-parity.md` — full sourced
+      SolidWorks/Fusion matrix (§1 Views, §2 Dimensioning, §3
+      Annotations/callouts, §4 Assembly drawings/BOM, §5 Sheet/document
+      infra, §6 Export), same pattern `sheet-metal-parity.md` set. Verdict:
+      ➖ HOLDS (not moved to ✅ by this research alone) — VISION's residual
+      list was incomplete on two fronts the matrix corrects: note
+      annotations are a DEAD capability (schema+CRUD ship, nothing renders
+      them — same defect class as pre-`ad5e819` corner relief; the existing
+      WB-64 note-render item below is this row's #1) and multi-sheet/
+      sheet-size are BACKEND-READY but UI-blocked (zero DB/kernel work
+      needed — `sheets.order_index` already supports N sheets,
+      `DrawingPage.tsx` just never offers "add a sheet"). Full ordered
+      campaign (12 items, highest value first: note render → multi-sheet UI
+      → section view → assembly views/BOM/balloons → detail view +
+      centerlines → tolerances → ordinate dims → auxiliary view → hole
+      callouts/tables → GD&T → title-block/revision infra) lives in the
+      matrix's §Parity roadmap — groomer restocks Ready from there. [src:
+      founder dogfooding — WB-64 + retro]
 - [ ] (P2, M) Engineering audit — DEAD-CAPABILITY sweep (engineering-auditor,
       read-only + audit doc). Third instance of the same defect class found
       case-by-case (corner relief pre-ad5e819, drawing annotations, gauge-table
