@@ -154,6 +154,7 @@ import {
   type BaseFlangeForm,
   canAuthorCornerRelief,
   type CornerReliefForm,
+  cornerReliefBendHighlights,
   defaultBaseFlangeForm,
   defaultCornerReliefForm,
   defaultEdgeFlangeForm,
@@ -170,6 +171,7 @@ import {
   pickedFromHemParams,
   sheetMetalDefaults,
 } from "../features/sheetMetal";
+import { BendHighlightOverlay } from "../viewport/BendHighlightOverlay";
 import { type CombineForm, defaultCombineForm } from "../features/boolean";
 import {
   type ChamferForm,
@@ -1869,6 +1871,29 @@ export function PartPage() {
   // Leaving the workspace tears the edge-pick session down.
   useEffect(() => () => useEdgePickStore.getState().close(), []);
 
+  // Corner-relief bend highlight (SM-relief-ui-1): the editor mirrors its live
+  // Bend A / Bend B selection up, PartPage resolves each id to its flange's
+  // stored fold-edge signature, and the viewport draws the bend line + tag
+  // (`BendHighlightOverlay`) — the in-scene answer to which select option is
+  // which physical corner. Cleared whenever the corner-relief editor closes.
+  const [reliefBends, setReliefBends] = useState<{
+    a: string;
+    b: string;
+  } | null>(null);
+  const onReliefBendsChange = useCallback(
+    (a: string, b: string) => setReliefBends({ a, b }),
+    [],
+  );
+  useEffect(() => {
+    if (editor === null || editor.kind !== "cornerRelief") {
+      setReliefBends(null);
+    }
+  }, [editor]);
+  const reliefBendHighlights = useMemo(() => {
+    if (editor?.kind !== "cornerRelief" || reliefBends === null) return [];
+    return cornerReliefBendHighlights(features, reliefBends.a, reliefBends.b);
+  }, [editor, reliefBends, features]);
+
   // Face-pick session lifecycle: a shell OR draft editor opens a session
   // (seeded with its persisted picked faces), anything else closes it. Keyed on
   // `editor` identity (only changes on open/select/close), so the store never
@@ -2881,6 +2906,7 @@ export function PartPage() {
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}
+                      onBendsChange={onReliefBendsChange}
                     />
                   ) : editor.kind === "datum" ? (
                     <DatumEditor
@@ -3017,6 +3043,9 @@ export function PartPage() {
             <SketchScene solved={solvedLayers} facePicking={facePicking} />
             <MeasureOverlay />
             {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
+            {mode === "off" && reliefBendHighlights.length > 0 ? (
+              <BendHighlightOverlay bends={reliefBendHighlights} />
+            ) : null}
             {mode === "off" && shellPicking ? (
               <ShellFaceOverlay
                 testIdPrefix={

@@ -548,6 +548,64 @@ export function canAuthorCornerRelief(
   return edgeFlangeOptions(features).length >= 2;
 }
 
+/**
+ * True when a stored bend ref no longer resolves to a live edge flange (the
+ * flange was rolled back or removed since the relief was authored). The native
+ * `<select>` would otherwise silently display the WRONG flange while the form
+ * holds the stale id — the editor shows a guard instead.
+ */
+export function unresolvedBendRef(
+  edgeFlanges: readonly { id: string }[],
+  bendId: string,
+): boolean {
+  return bendId !== "" && !edgeFlanges.some((f) => f.id === bendId);
+}
+
+/** One highlighted bend in the viewport: its tag ("A" / "B") + its bend line. */
+export interface CornerReliefBendHighlight {
+  /** The select it answers for — "A", "B", or "A · B" when both name one bend. */
+  tag: string;
+  /** The flange's stored fold-edge signature — the physical bend line. */
+  signature: EdgeSignature;
+}
+
+/**
+ * The in-scene highlights for the corner-relief editor's current Bend A / B
+ * selection: each id resolved to its live edge-flange feature's stored
+ * fold-edge signature (the bend line the flange was folded along). Unresolved
+ * or empty refs yield NO entry (the guard handles them); the same flange picked
+ * twice collapses to one entry tagged "A · B" (the same-bend form error still
+ * shows — the scene never draws two stacked tags).
+ */
+export function cornerReliefBendHighlights(
+  features: readonly FeatureResponse[],
+  bendAId: string,
+  bendBId: string,
+): CornerReliefBendHighlight[] {
+  const resolve = (id: string): EdgeSignature | null => {
+    if (id === "") return null;
+    for (const f of features) {
+      if (
+        f.id === id &&
+        !f.rolled_back &&
+        f.feature.type === "sheet_metal_edge_flange"
+      ) {
+        return f.feature.params.edge.selector.signature;
+      }
+    }
+    return null;
+  };
+  const a = resolve(bendAId);
+  const b = resolve(bendBId);
+  if (a !== null && b !== null && bendAId === bendBId) {
+    return [{ tag: "A · B", signature: a }];
+  }
+  const out: CornerReliefBendHighlight[] = [];
+  if (a !== null) out.push({ tag: "A", signature: a });
+  if (b !== null) out.push({ tag: "B", signature: b });
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Part-level sheet-metal state
 // ---------------------------------------------------------------------------

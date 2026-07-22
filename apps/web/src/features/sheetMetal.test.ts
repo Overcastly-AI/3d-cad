@@ -19,6 +19,7 @@ import {
   canSubmitCornerRelief,
   canSubmitEdgeFlange,
   canSubmitHem,
+  cornerReliefBendHighlights,
   defaultBaseFlangeForm,
   defaultCornerReliefForm,
   defaultEdgeFlangeForm,
@@ -41,6 +42,7 @@ import {
   SHEET_METAL_DEFAULT_K_FACTOR,
   sheetMetalDefaults,
   thicknessError,
+  unresolvedBendRef,
 } from "./sheetMetal";
 
 const SIG: EdgeSignature = {
@@ -452,5 +454,72 @@ describe("corner relief form", () => {
     expect(form.overrideSize).toBe(true);
     expect(form.sizeInput).toBe("4");
     expect(buildCornerReliefParams(form, "mm")).toEqual(params);
+  });
+});
+
+describe("corner relief bend refs + viewport highlight", () => {
+  const sig = (y: number): EdgeSignature => ({
+    ...SIG,
+    end_b: { x: 50, y, z: 2 },
+    midpoint: { x: 50, y: y / 2, z: 2 },
+    length_mm: y,
+  });
+  const edgeFlange = (
+    id: string,
+    signature: EdgeSignature,
+    rolled_back = false,
+  ): FeatureResponse =>
+    feature(
+      id,
+      "sheet_metal_edge_flange",
+      {
+        edge: {
+          kind: "subshape",
+          feature_id: "bf",
+          subshape_type: "edge",
+          selector: { selector_version: 1, signature },
+        },
+        flange_length_mm: 20,
+        bend_angle_deg: 90,
+      },
+      rolled_back,
+    );
+  const tree = [
+    feature("bf", "sheet_metal_base_flange", {}),
+    edgeFlange("f1", sig(20)),
+    edgeFlange("f2", sig(30)),
+    edgeFlange("gone", sig(40), true),
+  ];
+
+  it("flags a stored bend ref that no longer resolves to a live flange", () => {
+    const options = edgeFlangeOptions(tree);
+    expect(unresolvedBendRef(options, "f1")).toBe(false);
+    // A rolled-back flange is filtered from the options → its ref is stale.
+    expect(unresolvedBendRef(options, "gone")).toBe(true);
+    expect(unresolvedBendRef(options, "deleted")).toBe(true);
+    // Empty is "not selected yet", never a stale ref.
+    expect(unresolvedBendRef(options, "")).toBe(false);
+  });
+
+  it("resolves the selected bends to tagged fold-edge signatures", () => {
+    expect(cornerReliefBendHighlights(tree, "f1", "f2")).toEqual([
+      { tag: "A", signature: sig(20) },
+      { tag: "B", signature: sig(30) },
+    ]);
+  });
+
+  it("drops unresolved / empty refs instead of guessing a flange", () => {
+    // The rolled-back flange and an unknown id yield NO highlight (the select
+    // guard owns that state); the live pick still draws.
+    expect(cornerReliefBendHighlights(tree, "gone", "f2")).toEqual([
+      { tag: "B", signature: sig(30) },
+    ]);
+    expect(cornerReliefBendHighlights(tree, "", "deleted")).toEqual([]);
+  });
+
+  it("collapses the same flange picked twice into one A · B tag", () => {
+    expect(cornerReliefBendHighlights(tree, "f1", "f1")).toEqual([
+      { tag: "A · B", signature: sig(20) },
+    ]);
   });
 });

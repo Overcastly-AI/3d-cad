@@ -78,22 +78,20 @@ scorecard impact → core capability → polish).
       SVG/PDF/DXF render identical cell text from the same server strings;
       byte goldens updated + the cross-serializer consistency test still
       passes. [src: docs/UI-REVIEW.md 2026-07-19 P2]
-- [ ] (P2, S) SM-relief-ui-1 — CornerReliefEditor: highlight the picked flange
-      in the viewport on Bend A/B select (frontend). frontend-qa spot-check
-      2026-07-19 verdict is SHIP IT on both new editors, with one real fast-follow:
-      with 3+ edge flanges the Bend A/Bend B `<select>`s are "blind" — nothing ties
-      option "Edge flange3" to a physical corner in the scene. The cheap interim
-      (NOT the full viewport corner-pick, which stays a validated roadmap follow-up):
-      on Bend A/B change, highlight that flange's bend in the r3f viewport reusing
-      the existing feature/edge highlight machinery. Bundle the 3× P3 nits from the
-      same pass: autofocus should land on Bend A not Relief ratio; edit-mode needs a
-      placeholder/guard for an unresolvable stored bend ref (native `<select>`
-      silently shows the wrong flange today); the notch preview needs `aria-live`
-      like its sibling readouts. Acceptance: selecting a bend highlights it in-scene;
-      autofocus lands on Bend A; a stale/unresolvable stored ref shows a guard, not a
-      silently-wrong flange; worked e2e + refresh the missing CornerReliefEditor
-      editor-open screenshot (`UPDATE_SCREENSHOTS=1`). [src: docs/UI-REVIEW.md
-      2026-07-19 frontend-qa]
+- [x] (P2, S) SM-relief-ui-1 — CornerReliefEditor: highlight the picked flange
+      in the viewport on Bend A/B select (frontend). **SHIPPED 2026-07-22:**
+      `BendHighlightOverlay` draws each selected flange's stored fold-edge as a
+      brass line (shared `Segments` + `measure` tokens, dimension-line
+      depth-test idiom) with a `Chip` "Bend A"/"Bend B" callout at mid-span
+      (drei Html, e2e-assertable); editor mirrors selection up via
+      `onBendsChange`. Bundled nits all in: autofocus on Bend A; edit-mode
+      guard for an unresolvable stored ref (disabled "Missing edge flange"
+      option + error + submit off — SelectField gained per-option `disabled`);
+      `aria-live="polite"` notch preview. Full viewport bend-face pick stays a
+      roadmap follow-up. Evidence: 718 web unit tests, sheet-metal e2e extended
+      (tags, A·B collapse, rollback-staleness guard) 3/3 green on native stack,
+      new founder shot `sheet-metal-corner-relief-editor-1440.png`. [src:
+      docs/UI-REVIEW.md 2026-07-19 frontend-qa]
 - [x] (P1, S) Drawings — incumbent-parity matrix (vision-steward RESEARCH
       half, done — campaign slicing left for the groomer). **SHIPPED
       2026-07-22:** `docs/design/drawings-parity.md` — full sourced

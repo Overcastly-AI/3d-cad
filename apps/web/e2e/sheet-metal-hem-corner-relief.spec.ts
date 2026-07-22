@@ -269,9 +269,46 @@ test("model a tray with a relieved corner by clicking: two edge flanges → corn
   await expect(page.getByTestId("new-corner-relief")).toBeEnabled();
   await page.getByTestId("new-corner-relief").click();
   await expect(page.getByTestId("corner-relief-editor")).toBeVisible();
+  // The references are the risky guess (the seeds are just tree order), so
+  // keyboard focus opens on Bend A — not the safe-defaulted ratio.
+  await expect(page.getByTestId("corner-relief-bend-a")).toBeFocused();
   // The two selects are pre-seeded with the two edge flanges, in tree order.
-  await expect(page.getByTestId("corner-relief-bend-a")).toHaveValue(/.+/);
-  await expect(page.getByTestId("corner-relief-bend-b")).toHaveValue(/.+/);
+  const bendA = page.getByTestId("corner-relief-bend-a");
+  const bendB = page.getByTestId("corner-relief-bend-b");
+  await expect(bendA).toHaveValue(/.+/);
+  await expect(bendB).toHaveValue(/.+/);
+  // The selection is highlighted IN-SCENE: each picked flange's bend line is
+  // drawn brass and tagged at its mid-span, so "Edge flange1 / Edge flange2"
+  // map to physical corners (SM-relief-ui-1).
+  await expect(page.getByTestId("corner-relief-bend-tag-a")).toBeVisible();
+  await expect(page.getByTestId("corner-relief-bend-tag-b")).toBeVisible();
+  await expect(page.getByTestId("corner-relief-bend-tag-a")).toHaveText(
+    "Bend A",
+  );
+
+  // Founder frame of the OPEN editor with both bends tagged in the viewport
+  // (the editor-open evidence the 2026-07-19 UI review flagged as missing).
+  await page.mouse.move(700, 450);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/sheet-metal-corner-relief-editor-1440.png`,
+  });
+
+  // Changing a bend re-targets the highlight: picking the SAME flange for both
+  // collapses the tags into one "A · B" callout (plus the same-bend error) —
+  // the scene always mirrors the current selection.
+  const bendAValue = await bendA.inputValue();
+  const bendBValue = await bendB.inputValue();
+  await bendA.selectOption(bendBValue);
+  await expect(page.getByTestId("corner-relief-bend-tag-ab")).toBeVisible();
+  await expect(page.getByTestId("corner-relief-bend-tag-a")).toHaveCount(0);
+  await expect(
+    page.getByText("Pick two different edge flanges", { exact: false }),
+  ).toBeVisible();
+  await bendA.selectOption(bendAValue);
+  await expect(page.getByTestId("corner-relief-bend-tag-a")).toBeVisible();
+  await expect(page.getByTestId("corner-relief-bend-tag-b")).toBeVisible();
+
   // The ratio-sized notch is previewed from the part gauge (ratio × 2 mm).
   await expect(page.getByTestId("corner-relief-size-preview")).toContainText(
     "mm",
@@ -304,6 +341,41 @@ test("model a tray with a relieved corner by clicking: two edge flanges → corn
   await expect(page.getByTestId("viewport")).toBeVisible();
   await page.screenshot({
     path: `${SCREENSHOT_DIR}/sheet-metal-corner-relief-body-1440.png`,
+  });
+
+  // EDIT-MODE GUARD: roll back past the second flange so the relief's stored
+  // Bend B ref no longer resolves. Re-opening the editor must show an explicit
+  // guard — never silently display the wrong flange — and submit stays off.
+  await page.getByTestId("rollback-slot-2").click();
+  await expect(page.getByTestId("feature-row").nth(3)).toHaveAttribute(
+    "data-rolled-back",
+    "true",
+    { timeout: 30_000 },
+  );
+  await page.getByTestId("feature-select-4").click();
+  await expect(page.getByTestId("corner-relief-editor")).toBeVisible();
+  await expect(bendB.locator("option:checked")).toHaveText(
+    "Missing edge flange",
+  );
+  await expect(
+    page.getByText("This bend no longer exists. Pick an edge flange."),
+  ).toBeVisible();
+  await expect(page.getByTestId("corner-relief-submit")).toBeDisabled();
+  // The still-live Bend A keeps its in-scene tag; the stale ref draws nothing
+  // (the guard owns that state — the scene never guesses a bend).
+  await expect(page.getByTestId("corner-relief-bend-tag-a")).toBeVisible();
+  await expect(page.getByTestId("corner-relief-bend-tag-b")).toHaveCount(0);
+  await page.getByTestId("corner-relief-cancel").click();
+  await expect(page.getByTestId("corner-relief-editor")).toBeHidden();
+  // Roll forward to the tip so the flat pattern develops the full tray.
+  await page.getByTestId("rollback-slot-4").click();
+  await expect(page.getByTestId("feature-row").nth(4)).not.toHaveAttribute(
+    "data-rolled-back",
+    "true",
+    { timeout: 30_000 },
+  );
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
   });
 
   // The relief develops into the flat pattern — a two-bend blank with the notch.

@@ -6,6 +6,11 @@ import { cx } from "../cx";
 export interface SelectFieldOption {
   value: string;
   label: string;
+  /**
+   * Displayed but not choosable — a guard entry (e.g. an unresolvable stored
+   * reference) the select can SHOW without letting the user re-pick it.
+   */
+  disabled?: boolean;
 }
 
 export interface SelectFieldProps extends Omit<
@@ -61,6 +66,7 @@ export function SelectField({
             <option
               key={option.value}
               value={option.value}
+              disabled={option.disabled}
               className="bg-anvil"
             >
               {option.label}

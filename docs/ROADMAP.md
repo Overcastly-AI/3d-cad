@@ -23,10 +23,13 @@ are click-drivable in-app, **hem + corner-relief editors frontend-qa spot-checke
 SHIP IT / tool-grade 2026-07-19**), corner relief ✅ (geometry **and** WIRED as an
 authorable `sheet_metal_corner_relief` feature end-to-end **and** the full
 4-corner pan relieving cleanly, 2026-07-19), and closed hem ✅ all landed
-(2026-07-19). Next down the corrected sequence: the auto-relief policy layer (now
-genuinely unblocked) + open/teardrop/rolled hems + a viewport bend-face pick for
-corner relief (P2 interim `SM-relief-ui-1` — highlight the picked flange in-scene
-on select — filed first), then jogs.
+(2026-07-19). `SM-relief-ui-1` ✅ **SHIPPED 2026-07-22** (frontend-builder): the
+corner-relief editor's Bend A/B selection now draws brass bend lines + "Bend A/B"
+callouts in-scene (interim for the still-deferred viewport bend-face pick), plus
+the bundled nits — autofocus on Bend A, an unresolvable-stored-ref guard, and an
+`aria-live` notch preview. Next down the corrected sequence: the auto-relief
+policy layer (now genuinely unblocked) + open/teardrop/rolled hems + the full
+viewport bend-face pick for corner relief, then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner

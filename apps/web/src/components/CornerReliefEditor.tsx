@@ -7,7 +7,9 @@
  * Unlike a hem this is NOT an edge pick — it references two existing edge-flange
  * FEATURES by id. With today's pick infrastructure the cleanest, fully
  * keyboard-reachable affordance is two ruled selects (Bend A / Bend B) listing
- * the part's edge flanges by name; a direct viewport bend-face pick is a
+ * the part's edge flanges by name; the current selection is mirrored up
+ * (`onBendsChange`) so the workspace highlights + tags those bends in the
+ * viewport (`BendHighlightOverlay`), and a direct viewport bend-face pick is a
  * follow-up (docs/design/sheet-metal-parity.md). The corner/perpendicular check
  * is the kernel's — a parallel or non-touching pair comes back as the typed
  * `corner_relief_failed` / `reference_unresolved`, surfaced verbatim below.
@@ -36,6 +38,7 @@ import {
   reliefRatioError,
   reliefSizeError,
   type SheetMetalDefaults,
+  unresolvedBendRef,
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 
@@ -50,6 +53,12 @@ export interface CornerReliefEditorProps {
   onCancel: () => void;
   saving: boolean;
   error: string | null;
+  /**
+   * Reports the CURRENT Bend A / Bend B selection (on open and on every
+   * change) so the workspace can highlight those flanges' bends in the
+   * viewport — the in-scene answer to which option is which corner.
+   */
+  onBendsChange?: (bendAId: string, bendBId: string) => void;
 }
 
 export function CornerReliefEditor({
@@ -61,10 +70,16 @@ export function CornerReliefEditor({
   onCancel,
   saving,
   error,
+  onBendsChange,
 }: CornerReliefEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<CornerReliefForm>(initial);
   useEffect(() => setForm(initial), [initial]);
+
+  // Mirror the live bend selection up for the viewport highlight.
+  useEffect(() => {
+    onBendsChange?.(form.bendAId, form.bendBId);
+  }, [form.bendAId, form.bendBId, onBendsChange]);
 
   const submit = useCallback(() => {
     const params = buildCornerReliefParams(form, unit);
@@ -85,10 +100,27 @@ export function CornerReliefEditor({
     [saving, submit, onCancel],
   );
 
-  const canSubmit = canSubmitCornerRelief(form, unit) && !saving;
+  // Edit-mode guard: a stored bend whose flange was rolled back or removed no
+  // longer resolves — the select shows an explicit (disabled) guard entry
+  // instead of silently displaying the wrong flange, and submit stays off
+  // until a live flange is picked.
+  const unresolvedA = unresolvedBendRef(edgeFlanges, form.bendAId);
+  const unresolvedB = unresolvedBendRef(edgeFlanges, form.bendBId);
+
+  const canSubmit =
+    canSubmitCornerRelief(form, unit) &&
+    !unresolvedA &&
+    !unresolvedB &&
+    !saving;
   useCommandBridge(submit, canSubmit);
 
   const options = edgeFlanges.map((f) => ({ value: f.id, label: f.name }));
+  const guardOptions = (unresolved: boolean, value: string) =>
+    unresolved
+      ? [{ value, label: "Missing edge flange", disabled: true }, ...options]
+      : options;
+  const guardError = (unresolved: boolean) =>
+    unresolved ? "This bend no longer exists. Pick an edge flange." : null;
   const sameBend =
     form.bendAId !== "" && form.bendAId === form.bendBId
       ? "Pick two different edge flanges — the two bends that meet at the corner."
@@ -115,8 +147,10 @@ export function CornerReliefEditor({
             <SelectField
               label="Bend A"
               data-testid="corner-relief-bend-a"
+              autoFocus
               value={form.bendAId}
-              options={options}
+              error={guardError(unresolvedA)}
+              options={guardOptions(unresolvedA, form.bendAId)}
               onChange={(e) =>
                 setForm((f) => ({ ...f, bendAId: e.target.value }))
               }
@@ -125,21 +159,21 @@ export function CornerReliefEditor({
               label="Bend B"
               data-testid="corner-relief-bend-b"
               value={form.bendBId}
-              error={sameBend}
-              options={options}
+              error={guardError(unresolvedB) ?? sameBend}
+              options={guardOptions(unresolvedB, form.bendBId)}
               onChange={(e) =>
                 setForm((f) => ({ ...f, bendBId: e.target.value }))
               }
             />
             <p className="font-body text-xs text-gauge">
               The two edge flanges whose bends meet at the corner to relieve.
+              Each pick is tagged on its bend in the viewport.
             </p>
 
             <NumberField
               label="Relief ratio"
               unit="× gauge"
               data-testid="corner-relief-ratio"
-              autoFocus
               value={form.reliefRatioInput}
               error={reliefRatioError(form.reliefRatioInput)}
               onChange={(e) =>
@@ -150,6 +184,7 @@ export function CornerReliefEditor({
             {notchPreview ? (
               <p
                 data-testid="corner-relief-size-preview"
+                aria-live="polite"
                 className="font-data text-2xs text-gauge"
               >
                 Notch {notchPreview}
