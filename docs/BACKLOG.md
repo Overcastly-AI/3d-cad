@@ -51,29 +51,29 @@ item is archived below (Done, one line each — full evidence in
 this restock orders by the standing rules (P0 wrong-geometry/security →
 scorecard impact → core capability → polish).
 
-- [ ] (P0→P2, M) Sheet metal: cut-after-fold flat pattern — **layer 1 (honesty)
-      ✅ SHIPPED 2026-07-22** (kernel-architect); layer 2 (correct trimmed
-      development) remains. Original repro (WF-1): 100×100 base, full-width 90°
-      edge flange leg 50, extrude CUT trimming flange+bend to 50 wide — 3D
-      exact (19,073.98) but the flat pattern silently succeeded with the
-      FULL-WIDTH 154.2×100 development. **Layer 1 done:** `unfold_sheet_metal`
-      now applies the goldens' fold-back invariant at runtime against the LIVE
-      body (per-bend coaxial cylindrical-face widths, centroid-agnostic so a
-      trimmed bend is measured; grouped by bend radius exactly like the golden
-      assertions) → count/width mismatch = typed `flat_pattern_failed` naming
-      the fold + both widths. WF-1 + whole-fold-removed variants typed-reject;
-      all goldens byte-unchanged (`test_sheet_metal_cut_after_fold.py`).
-      NOTE: the P3 "runtime shoelace-area invariant" is NOT subsumed by layer 1
-      (deliberately scoped out — the bend-width check alone closes the WF-1
-      hole); a cut that misses every bend (e.g. a hole in a flange flat) still
-      develops without it — fold that area check into layer 2. **Layer 2
-      (open):** develop trimmed folds correctly (shares the multi-segment-
-      outline machinery with the partial-width P2 below, and with the real
-      feature ask: EDGE-FLANGE WIDTH EXTENTS — Fusion-style full/centered/
-      offset width params on `SheetMetalEdgeFlangeParamsV1` so a 50-wide
-      flange on a 100 mm edge is authorable directly, no cut). Goldens:
-      trimmed + width-extent unfolds with fold-back. [src: founder dogfooding
-      — WF-1; layer 1 commit 2026-07-22]
+- [x] (P0, M) Sheet metal: cut-after-fold flat pattern (WF-1) — **BOTH layers
+      SHIPPED 2026-07-22** (kernel-architect). Layer 1: runtime fold-back
+      invariant (live coaxial bend widths vs developed fold widths) →
+      cut-after-fold typed-rejects. **Layer 2 (design §4.5): EDGE-FLANGE WIDTH
+      EXTENTS** — optional `width_mm`/`offset_mm` (offset from canonical
+      `end_a`; absent = full width, goldens byte-identical), auto rectangular
+      bend-END relief at interior span ends (1×gauge, cut into the base flat →
+      fold-back exact by construction), and a partial-star emitter developing
+      the base's TRUE outline + per-span strips into one closed loop. Founder
+      case (50-wide × 50-tall flange on a 100 mm edge) directly authorable —
+      goldens `partial-flange-founder-unfold` / `-centered-` (analytic
+      volume/area, hash + restart pins) + schema/feature rejects. Cut-after-fold
+      stays typed-rejected BY DESIGN (width extents replace the cut hack).
+      RESIDUALS (open, folded into the P3 area-invariant item): a cut that
+      misses every bend (hole in a flat) still develops without it; hem width
+      extents out of scope; partial + corner-relief combo typed-rejects.
+      [src: founder dogfooding — WF-1; layers 1+2 2026-07-22]
+- [ ] (P2, S) Sheet metal: width-extents EDITOR UI (apps/web) — the layer-2
+      params are API-only today (exactly as base/edge flange started). Edge
+      Flange editor gains width/offset fields (full/centered/offset presets à
+      la Fusion) + an in-scene span preview off the picked edge's `end_a`;
+      wire to `width_mm`/`offset_mm` (contracts already regenerated).
+      [src: WF-1 layer 2 follow-on 2026-07-22]
 - [ ] (P1, S) e2e: make the 6 raster-fragile specs container-robust
       (qa-tester). The 2026-07-22 batch-end sweep went red on 5 measure specs
       (real-pointer vertex/corner picks — the readout never appears) + the
@@ -91,18 +91,14 @@ scorecard impact → core capability → polish).
       pre-restart-green commits (no behavior loosened — a genuinely missed
       pick/overflow must still fail). [src: orchestrator bisect 2026-07-22,
       CLAUDE.md environment recipe]
-- [ ] (P2, M) Sheet metal: PARTIAL-WIDTH flange flat pattern (founder
-      dogfooding 2026-07-22, PB-1 bracket). A flange on a notch-split edge
-      segment (70 mm fold on a 200 mm base) builds a PERFECT 3D body — every
-      evaluate green, kernel volume = closed-form exactly (60,127.0) — but the
-      unfold is a typed reject: "The developed outline is not a single closed
-      loop — a flange does not span its full base edge" (the `_emit_plus_pattern`
-      guard, exactly as the parity matrix's bend-relief row predicted). Real
-      parts (tabs, staggered flanges, notched brackets) need this. Fix: develop
-      a multi-segment base outline (flange strips replace only their SPAN of the
-      edge, base outline keeps the notch), which is also where bend-END relief
-      first becomes load-bearing — design the two together (parity §3 bend
-      relief). Golden: notched-base partial-flange unfold + fold-back invariant.
+- [x] (P2, M) Sheet metal: PARTIAL-WIDTH flange flat pattern (PB-1) — **SHIPPED
+      2026-07-22, fell out of the WF-1 layer-2 outline machinery** (design
+      §4.5.3, as hoped, verified not assumed): a full-width flange on a
+      notch-split edge segment now develops — base keeps its notch, the
+      [BA][leg] strip replaces only its span, single closed union loop, exact
+      closed-form volume/area, fold-back green through the pipeline
+      (`test_sheet_metal_width_extents.py::test_pb1_*`). Bend-END relief was
+      designed together with it (§4.5.2) exactly as this item asked.
       [src: founder dogfooding — PB-1; sheet-metal-parity.md §3]
 - [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
       mesh_store/S3 seam (§8.3). The last open Drawings v1 tail — SVG/PDF/DXF
@@ -720,6 +716,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-22 — **WF-1 layer 2 + PB-1 (kernel-architect):** edge-flange width
+  extents (`width_mm`/`offset_mm`) + auto bend-end relief + partial-width
+  development (design §4.5); founder 50×50-flange case golden-gated; PB-1 fell out.
 - 2026-07-22 — **WF-1 layer 1 (kernel-architect):** runtime fold-back invariant
   in `unfold_sheet_metal` — live coaxial bend widths vs developed fold widths;
   cut-after-fold now typed-rejects. Goldens byte-unchanged; layer 2 stays open.

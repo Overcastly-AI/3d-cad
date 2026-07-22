@@ -38,7 +38,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from build123d import Vector
+from build123d import GeomType, Vector
 from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
 
 from geometry.kernel.faces import planar_signatures_match
@@ -403,6 +403,23 @@ def _develop_flat_pattern(
         return _unfold_nonparallel_relieved(
             resolved, base_rec, thickness_mm, default_k_factor, reliefs
         )
+
+    # WIDTH EXTENTS (§4.5.3): a depth-1 star with a PARTIAL-width flange (one that
+    # does not span the base's full extent along its own bend axis), or a base
+    # whose outer outline is not a plain rectangle (PB-1: a flange on a notch-split
+    # edge segment), develops through the general partial-star emitter — the
+    # base's TRUE rectilinear outline + per-span [BA][leg] strips, one rectilinear
+    # union. Full-width rectangular stars keep the verbatim pinned layouts below
+    # (their committed goldens stay byte-identical). An unframeable (angled /
+    # >2-direction) base with all-full-width flanges keeps today's legacy behavior.
+    partial = any(not _flange_spans_full_base(entry, base_rec) for entry in resolved)
+    if not partial:
+        try:
+            partial = not _base_outline_is_plain_rectangle(base_rec)
+        except UnfoldStarError:
+            partial = False  # unframeable base: the legacy paths own the outcome
+    if partial:
+        return _unfold_partial_star(resolved, base_rec, thickness_mm, default_k_factor)
 
     # A depth-1 star is PARALLEL (all bend axes share one direction → a 1D strip,
     # the L-bracket / U-channel) or NON-PARALLEL (flanges off perpendicular edges
@@ -1241,6 +1258,19 @@ def _unfold_nonparallel_relieved(
     frame, arms = _build_arms(resolved, base_rec, thickness_mm)
     wx, wy = frame.wx, frame.wy
 
+    # Corner relief scopes to FULL-width tray arms (§4.4.4): the notch math below
+    # assumes each arm's span reaches the shared base corners. A PARTIAL-width arm
+    # (width extents, §4.5) composed with a corner relief is a typed reject, never
+    # a silently mis-notched blank (§5). Bend-END relief for partial arms is
+    # automatic and orthogonal (§4.5.2).
+    for a in arms:
+        side_extent = wy if a.axis == 0 else wx
+        if a.span0 > _LOOP_TOL_MM or a.span1 < side_extent - _LOOP_TOL_MM:
+            raise UnfoldStarError(
+                "A corner relief names a tray with a PARTIAL-width flange; corner "
+                "relief scopes to full-width tray arms (§4.4.4 / §4.5.3)."
+            )
+
     # Returns (hems / lips) as per-arm extensions, keyed by their parent arm index
     # (the arms list is in `resolved` order, the SAME order `_partition_arm_returns`
     # indexed). Span is the return's own extent along the fold-edge direction, in
@@ -2014,6 +2044,315 @@ def _unfold_bend_tree(
 
     flat_area = sum(rec.area_mm2 for rec in recs.values()) + sum(
         b.allowance_mm * b.width_mm for b in chain
+    )
+    return FlatPattern(
+        thickness_mm=thickness_mm,
+        k_factor=default_k_factor,
+        flat_length_mm=max(all_x) - min(all_x),
+        flat_area_mm2=flat_area,
+        bend_width_mm=max(all_y) - min(all_y),
+        outline=tuple(outline),
+        bends=tuple(bend_lines),
+    )
+
+
+# --- Partial-width depth-1 star (§4.5.3, WF-1 layer 2 / PB-1) ----------------------
+#
+# A depth-1 star whose flange(s) do NOT span the base's full extent along their own
+# bend axes — the width-extent feature (§4.5.1), or a flange on a notch-split edge
+# segment (PB-1) — develops through a GENERAL emitter: the base's TRUE rectilinear
+# outer outline (grid-cell decomposition of its outer-wire segments — pure 2D closed
+# form, no kernel wire reconstruction, §2.2's MakeFace risk stays sidestepped) plus
+# per-arm [BA strip][leg] rectangles over each arm's OWN span, with the fold
+# coordinate taken from the bend's projected tangent line (not a bbox side, so a
+# flange on a RECESSED edge segment also lands correctly). The rects union into ONE
+# closed loop via the shipped `_snap_rects` / `_rectilinear_union_loop`. Because the
+# auto bend-end relief notches (§4.5.2) were cut into the base FLAT in 3D, the base
+# face's own outline already carries them — the blank shows them for free, never
+# re-derived from the spec. Full-width rectangular stars never reach this path
+# (dispatch in `_develop_flat_pattern`), so every committed golden is byte-identical.
+
+
+def _flange_spans_full_base(entry: _Resolved, base_rec: FlangeFaceRecord) -> bool:
+    """True if the bend's moving flange spans the base's FULL extent along the
+    bend's own axis (within ``_LOOP_TOL_MM``) — the full-width dispatch test
+    (§4.5.3). Frame-free (pure axis projections), so it also classifies parallel
+    1D-strip stars and angled bases without needing a base frame."""
+    axis = entry[2]
+    base_proj = [
+        Vector(v.X, v.Y, v.Z).dot(axis) for v in base_rec.face.outer_wire().vertices()
+    ]
+    moving_proj = [Vector(v.X, v.Y, v.Z).dot(axis) for v in entry[1].face.vertices()]
+    return (
+        abs(min(base_proj) - min(moving_proj)) <= _LOOP_TOL_MM
+        and abs(max(base_proj) - max(moving_proj)) <= _LOOP_TOL_MM
+    )
+
+
+def _base_outline_is_plain_rectangle(base_rec: FlangeFaceRecord) -> bool:
+    """True if every OUTER-wire vertex of the base flat sits on its bounding
+    rectangle's corners (within ``_LOOP_TOL_MM``) — i.e. the outline is a plain
+    rectangle with no notch / step (§4.5.3). Outer wire only: an interior hole
+    keeps today's legacy full-width behavior (the hole-in-blank gap rides the
+    deferred runtime area invariant, BACKLOG). Raises ``UnfoldStarError`` (via
+    ``_base_frame``) for an unframeable base — the caller decides the outcome."""
+    frame = _base_frame(base_rec)
+    for vtx in base_rec.face.outer_wire().vertices():
+        x, y = frame.to2d((vtx.X, vtx.Y, vtx.Z))
+        on_x = min(abs(x), abs(x - frame.wx)) <= _LOOP_TOL_MM
+        on_y = min(abs(y), abs(y - frame.wy)) <= _LOOP_TOL_MM
+        if not (on_x and on_y):
+            return False
+    return True
+
+
+def _base_outline_segments_2d(
+    base_rec: FlangeFaceRecord, frame: _BaseFrame
+) -> list[tuple[Vec2, Vec2]]:
+    """The base flat's OUTER outline as 2D frame-coordinate segments (§4.5.3).
+
+    Every outline edge must be a straight line, axis-aligned in the base frame
+    (a rectilinear outline — the partial emitter's scope); a curved or angled
+    outline edge is a typed ``UnfoldStarError``, never a silently mislaid blank."""
+    segs: list[tuple[Vec2, Vec2]] = []
+    for edge in base_rec.face.outer_wire().edges():
+        if edge.geom_type != GeomType.LINE:
+            raise UnfoldStarError(
+                "The base flat's outline has a non-straight edge; partial-width "
+                "development scopes to a rectilinear base outline (§4.5.3)."
+            )
+        a = edge @ 0.0
+        b = edge @ 1.0
+        pa = frame.to2d((a.X, a.Y, a.Z))
+        pb = frame.to2d((b.X, b.Y, b.Z))
+        if math.dist(pa, pb) <= _LOOP_TOL_MM:
+            continue  # degenerate sliver edge
+        if abs(pa[0] - pb[0]) > _LOOP_TOL_MM and abs(pa[1] - pb[1]) > _LOOP_TOL_MM:
+            raise UnfoldStarError(
+                "The base flat's outline has an edge not aligned to the base "
+                "rectangle frame; partial-width development scopes to an "
+                "axis-aligned rectilinear base outline (§4.5.3)."
+            )
+        segs.append((pa, pb))
+    if not segs:
+        raise UnfoldStarError("The base flat has an empty outline (§4.5.3).")
+    return segs
+
+
+def _polygon_cells(segs: list[tuple[Vec2, Vec2]]) -> list[_Rect]:
+    """Decompose the rectilinear polygon bounded by *segs* into grid-cell rects.
+
+    Coordinates are snapped onto a shared clustered grid (``_cluster`` — the FP
+    interface jitter rule), then each grid cell is kept iff its centre is INSIDE
+    the polygon by crossing count (a horizontal +x ray against the VERTICAL
+    segments; centres sit strictly between distinct grid lines, so no ray ever
+    grazes an endpoint). The kept cells feed the same rectilinear union the arm
+    rects do — the union re-merges them, so no spurious internal seams."""
+    xmap = _cluster([p[0] for s in segs for p in s])
+    ymap = _cluster([p[1] for s in segs for p in s])
+    snapped = [
+        ((xmap[s[0][0]], ymap[s[0][1]]), (xmap[s[1][0]], ymap[s[1][1]])) for s in segs
+    ]
+    verticals = [
+        (a[0], min(a[1], b[1]), max(a[1], b[1]))
+        for a, b in snapped
+        if a[0] == b[0] and a[1] != b[1]
+    ]
+    xs = sorted({p[0] for s in snapped for p in s})
+    ys = sorted({p[1] for s in snapped for p in s})
+    cells: list[_Rect] = []
+    for i in range(len(xs) - 1):
+        cx = (xs[i] + xs[i + 1]) / 2.0
+        for j in range(len(ys) - 1):
+            cy = (ys[j] + ys[j + 1]) / 2.0
+            crossings = sum(1 for x, y0, y1 in verticals if x > cx and y0 < cy < y1)
+            if crossings % 2 == 1:
+                cells.append((xs[i], ys[j], xs[i + 1], ys[j + 1]))
+    if not cells:
+        raise UnfoldStarError(
+            "The base flat's outline encloses no area in the developed frame "
+            "(§4.5.3) — the outline segments do not bound a polygon."
+        )
+    return cells
+
+
+def _build_partial_arms(
+    resolved: list[_Resolved],
+    base_rec: FlangeFaceRecord,
+    frame: _BaseFrame,
+    thickness_mm: float,
+) -> list[_Arm]:
+    """Place each depth-1 flange as an axis-aligned arm at its OWN span (§4.5.3).
+
+    The partial-star sibling of :func:`_build_arms`, kept SEPARATE deliberately:
+    the pinned full-width paths derive the fold coordinate from the base bbox side
+    (``frame.wx``/``wy``/``0``), and swapping that for the tangent-line projection
+    below — equal analytically but not bitwise — would perturb the committed
+    goldens' content hashes. Here the fold coordinate is the bend's tangent line
+    projected onto the base plane (exact closed form from the recorded §5
+    signature), which also places a flange folded off a RECESSED edge segment."""
+    base_c = Vector(*base_rec.centroid)
+    arms: list[_Arm] = []
+    for _brec, moving_rec, axis_dir, angle_rad, prov in resolved:
+        e = axis_dir.normalized()
+        radius = prov.cyl_signature.radius_mm
+        ba = bend_allowance(angle_rad, radius, prov.k_factor, thickness_mm)
+        # Belt-and-suspenders (the shared-base dispatch already rejects depth-2):
+        # a depth-1 bend axis lies in the base plane.
+        if abs(e.dot(frame.normal)) > _ALIGN_TOL:
+            raise UnfoldStarError(
+                "A bend axis is not perpendicular to the base flange normal (a "
+                "flange folded off another flange — depth >= 2); partial-width "
+                "development scopes to depth-1 bends off the shared base (§4.5.3)."
+            )
+        outward = e.cross(frame.normal).normalized()
+        if (Vector(*moving_rec.centroid) - base_c).dot(outward) < 0.0:
+            outward = outward * -1.0
+        ox, oy = outward.dot(frame.x2), outward.dot(frame.y2)
+        if abs(abs(ox) - 1.0) <= _ALIGN_TOL and abs(oy) <= _ALIGN_TOL:
+            axis, sign = 0, 1 if ox > 0 else -1
+            edge_dir = frame.y2
+        elif abs(abs(oy) - 1.0) <= _ALIGN_TOL and abs(ox) <= _ALIGN_TOL:
+            axis, sign = 1, 1 if oy > 0 else -1
+            edge_dir = frame.x2
+        else:
+            raise UnfoldStarError(
+                "A bend axis is not aligned to the base rectangle frame (an angled "
+                "flange); partial-width development scopes to axis-aligned bends "
+                "(§4.5.3)."
+            )
+        # Fold coordinate: the bend axis (recorded at construction, §5) projected
+        # onto the base plane is the fold's tangent line; its perpendicular frame
+        # coordinate is where the arm attaches.
+        ao = prov.cyl_signature.axis_origin
+        fold_pt = _project_to_plane(
+            Vector(ao.x, ao.y, ao.z), base_c, Vector(*base_rec.normal).normalized()
+        )
+        fold2d = frame.to2d((fold_pt.X, fold_pt.Y, fold_pt.Z))
+        fold = fold2d[0] if axis == 0 else fold2d[1]
+        edge_min = frame.x_min if axis == 1 else frame.y_min
+        proj = [
+            Vector(v.X, v.Y, v.Z).dot(edge_dir) - edge_min
+            for v in moving_rec.face.vertices()
+        ]
+        along_n = (Vector(*moving_rec.centroid) - base_c).dot(frame.normal)
+        arms.append(
+            _Arm(
+                axis=axis,
+                sign=sign,
+                fold=fold,
+                span0=min(proj),
+                span1=max(proj),
+                allowance_mm=ba,
+                leg_mm=moving_rec.developed_length_mm,
+                area_mm2=moving_rec.area_mm2,
+                width_mm=max(proj) - min(proj),
+                radius_mm=radius,
+                angle_rad=angle_rad,
+                k_factor=prov.k_factor,
+                direction="up" if along_n >= 0.0 else "down",
+            )
+        )
+    return arms
+
+
+def _unfold_partial_star(
+    resolved: list[_Resolved],
+    base_rec: FlangeFaceRecord,
+    thickness_mm: float,
+    default_k_factor: float,
+) -> FlatPattern:
+    """Develop a depth-1 star with PARTIAL-width flange(s) / a non-rectangular
+    rectilinear base into its :class:`FlatPattern` (§4.5.3).
+
+    The base develops as its TRUE outer outline (grid cells); each flange
+    contributes ``[BA strip][leg]`` rects over its own span at its tangent-line
+    fold coordinate; the union must be ONE closed loop (typed reject otherwise).
+    Auto bend-end relief notches (§4.5.2) live in the base flat, so they appear in
+    the blank via the outline itself — fold-back consistent by construction (the
+    developed fold width IS the authored span, equal to the live bend face width).
+    Byte-deterministic (§9 #4): closed-form coordinates + coordinate-sorted
+    assembly, no unordered iteration.
+
+    Raises:
+        UnfoldStarError: an angled / non-rectilinear-outline base, a base flat
+            with interior holes, a non-axis-aligned bend, or a development that
+            does not tile a single closed blank (§4.5.3 typed rejects).
+    """
+    frame = _base_frame(base_rec)
+    if base_rec.face.inner_wires():
+        raise UnfoldStarError(
+            "The base flat has interior holes; partial-width development of a "
+            "holed base is a documented follow-on (§4.5.3 — the blank outline "
+            "machinery develops the OUTER outline only)."
+        )
+    segs = _base_outline_segments_2d(base_rec, frame)
+    arms = _build_partial_arms(resolved, base_rec, frame, thickness_mm)
+    arms.sort(key=lambda a: (a.axis, a.sign, a.fold, a.span0, a.span1))
+
+    rects: list[_Rect] = _polygon_cells(segs)
+    for a in arms:
+        strip_far = a.fold + a.sign * a.allowance_mm
+        leg_far = a.fold + a.sign * (a.allowance_mm + a.leg_mm)
+        if a.axis == 0:  # arm extends along frame X; spans [span0, span1] in Y
+            rects.append(_rect_from_ranges(a.fold, strip_far, a.span0, a.span1))
+            rects.append(_rect_from_ranges(strip_far, leg_far, a.span0, a.span1))
+        else:  # arm extends along frame Y; spans [span0, span1] in X
+            rects.append(_rect_from_ranges(a.span0, a.span1, a.fold, strip_far))
+            rects.append(_rect_from_ranges(a.span0, a.span1, strip_far, leg_far))
+
+    snapped = _snap_rects(rects)
+    loop = _rectilinear_union_loop(snapped)
+    dx = min(p[0] for p in loop)
+    dy = min(p[1] for p in loop)
+    loop = [(p[0] - dx, p[1] - dy) for p in loop]
+    all_x = [p[0] for p in loop]
+    all_y = [p[1] for p in loop]
+
+    outline: list[FlatEdge2D] = []
+    n = len(loop)
+    for k in range(n):
+        x1, y1 = loop[k]
+        x2, y2 = loop[(k + 1) % n]
+        outline.append(FlatEdge2D(kind="line", x1=x1, y1=y1, x2=x2, y2=y2, role="body"))
+
+    bend_lines: list[BendLine] = []
+    for idx, a in enumerate(arms, start=1):
+        span_shift = dx if a.axis == 1 else dy
+        lo, hi = a.span0 - span_shift, a.span1 - span_shift
+        fold_c = a.fold + a.sign * (a.allowance_mm / 2.0)
+        if a.axis == 0:  # vertical fold centerline at X=fold_c, over the Y span
+            xm = fold_c - dx
+            outline.append(
+                FlatEdge2D(kind="line", x1=xm, y1=lo, x2=xm, y2=hi, role="bend")
+            )
+        else:  # horizontal fold centerline at Y=fold_c, over the X span
+            ym = fold_c - dy
+            outline.append(
+                FlatEdge2D(kind="line", x1=lo, y1=ym, x2=hi, y2=ym, role="bend")
+            )
+        bend_lines.append(
+            BendLine(
+                bend_id=f"bend-{idx}",
+                angle_deg=math.degrees(a.angle_rad),
+                radius_mm=a.radius_mm,
+                k_factor=a.k_factor,
+                allowance_mm=a.allowance_mm,
+                width_mm=a.width_mm,
+                direction=a.direction,
+                flat_start_mm=0.0,
+                flat_end_mm=a.allowance_mm,
+            )
+        )
+
+    outline.sort(key=lambda e: (e.role, e.x1, e.y1, e.x2, e.y2))
+    bend_lines.sort(key=lambda bl: bl.bend_id)
+
+    # §9 #2 area invariant: the TRUE base flat area (the resolved face already
+    # carries the end-relief notches / the PB-1 edge notch) + each arm's leg area
+    # + its BA strip over the authored span.
+    flat_area = base_rec.area_mm2 + sum(
+        a.area_mm2 + a.allowance_mm * a.width_mm for a in arms
     )
     return FlatPattern(
         thickness_mm=thickness_mm,

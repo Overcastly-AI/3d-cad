@@ -1479,6 +1479,28 @@ class SheetMetalEdgeFlangeParamsV1(BaseModel):
         "(§1). Omitted (None) inherits the part's base-flange default `k_factor` "
         "(0.44 v1 baseline); a value overrides it per-bend.",
     )
+    # WIDTH EXTENTS (design §4.5, WF-1 layer 2) — additive, no param_version bump.
+    # Absent (None width, 0 offset) = full edge width, byte-identical legacy build.
+    width_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description="Flange WIDTH (mm) along the picked edge (design §4.5.1). "
+        "Omitted (None) spans the full edge (or the remainder past `offset_mm`). "
+        "The span [offset, offset + width] is measured from the edge's CANONICAL "
+        "start (the lexicographically smaller endpoint — the stored EdgeSignature's "
+        "`end_a`). `offset + width` must fit the resolved edge length (a typed "
+        "feature error otherwise). Each span end INTERIOR to the edge gets an "
+        "automatic rectangular bend-end relief notch, size = 1 x gauge (§4.5.2).",
+    )
+    offset_mm: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Span OFFSET (mm) from the picked edge's canonical start "
+        "(its EdgeSignature `end_a`, design §4.5.1). Omitted (None) reads 0 — "
+        "the span starts at `end_a`. With `width_mm` omitted the flange spans "
+        "[offset, edge_length]. Nullable-optional (like `width_mm`) so existing "
+        "clients that never send it stay valid — the additive-field rule.",
+    )
 
 
 # --- Sheet-metal hem — a ~180 deg fold-back of an edge (v1: CLOSED) ---------------

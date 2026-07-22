@@ -201,7 +201,7 @@ def coaxial_cylindrical_face_widths(
     return sorted(widths)
 
 
-def _shares_edge_with(face: Face, bend_edges: list[Edge]) -> bool:
+def shares_edge_with(face: Face, bend_edges: list[Edge]) -> bool:
     """True if *face* shares a topological edge with the bend's inner face.
 
     The flank test that makes bend resolution TOPOLOGICAL, not merely metric: a
@@ -243,7 +243,7 @@ def _flanking_flanges(
 
     A flange face is planar, parallel to the bend axis (``normal ⟂ axis_dir``),
     tangent to the inner cylinder (its plane sits ``radius`` from the axis), and
-    **topologically adjacent** to the bend face (:func:`_shares_edge_with` — it
+    **topologically adjacent** to the bend face (:func:`shares_edge_with` — it
     meets the cylinder at a tangent seam line; a face merely coplanar with a
     tangent plane is a bystander, never a flange).
     Its **developed length** is its extent perpendicular to the axis — which runs
@@ -266,7 +266,7 @@ def _flanking_flanges(
         dist = abs((point - origin).dot(normal))
         if abs(dist - inner.radius) > _TANGENT_DIST_TOL_MM:
             continue  # not tangent to the INNER surface (skips outer flange faces)
-        if not _shares_edge_with(face, bend_edges):
+        if not shares_edge_with(face, bend_edges):
             continue  # coplanar bystander, not a flange across a tangent seam
         # In-plane direction perpendicular to the axis: developed-length axis.
         u = axis_dir.cross(normal).normalized()
@@ -506,7 +506,7 @@ def _flanking_face_records(
     """The two flat flanges of a bend, as full :class:`FlangeFaceRecord`s.
 
     The provenance-unfold sibling of :func:`_flanking_flanges`: same adjacent +
-    tangent-to-inner-surface selection (:func:`_shares_edge_with` keeps coplanar
+    tangent-to-inner-surface selection (:func:`shares_edge_with` keeps coplanar
     bystanders — e.g. a perpendicular wall's end face in a hem's return plane —
     out of the flank count), but keeps each :class:`Face` + its
     :class:`PlanarFaceSignature` + world centroid so the star unfold can identify
@@ -526,7 +526,7 @@ def _flanking_face_records(
         dist = abs((point - origin).dot(normal))
         if abs(dist - inner.radius) > _TANGENT_DIST_TOL_MM:
             continue
-        if not _shares_edge_with(face, bend_edges):
+        if not shares_edge_with(face, bend_edges):
             continue
         u = axis_dir.cross(normal).normalized()
         verts = [Vector(v.X, v.Y, v.Z) for v in face.vertices()]

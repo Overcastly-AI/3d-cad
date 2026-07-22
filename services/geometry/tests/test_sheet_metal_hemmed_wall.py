@@ -9,7 +9,7 @@ return's tangent plane), so flank resolution — which counted every tangent pla
 raised the typed ``BendFlankingFacesError`` ("flanked by 4 planar faces"). Two
 fixes, both gated here against the ``hemmed-wall-tray-unfold`` golden:
 
-* **Topological flank resolution** (``resolve._shares_edge_with``): a bend's
+* **Topological flank resolution** (``resolve.shares_edge_with``): a bend's
   flanges must SHARE AN EDGE with the bend cylinder (the tangent seam), so a
   merely-coplanar bystander can never masquerade as a flange. Without this fix
   every flat-pattern of this golden fails typed at resolve.

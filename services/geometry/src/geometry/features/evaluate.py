@@ -844,6 +844,8 @@ def _fold_flange_off_edge(
     override_radius_mm: float | None,
     override_k_factor: float | None,
     subject: str,
+    width_mm: float | None = None,
+    offset_mm: float = 0.0,
 ) -> FeatureError | None:
     """Shared bend machinery for the edge-flange (§4.2) and hem (parity §2) folds.
 
@@ -902,6 +904,8 @@ def _fold_flange_off_edge(
             bend_angle_deg=bend_angle_deg,
             bend_radius_mm=radius,
             thickness_mm=defaults.thickness_mm,
+            width_mm=width_mm,
+            offset_mm=offset_mm,
         )
     except EdgeFlangeEdgeError as exc:
         return FeatureError(code="edge_flange_bad_edge", message=str(exc))
@@ -934,6 +938,8 @@ def _fold_flange_off_edge(
                 bend_angle_deg=bend_angle_deg,
                 bend_radius_mm=radius,
                 thickness_mm=defaults.thickness_mm,
+                width_mm=width_mm,
+                offset_mm=offset_mm,
             )
             state.sheet_metal_unfold_body = clean_result.body
         except (
@@ -980,6 +986,8 @@ def _evaluate_sheet_metal_edge_flange(
         override_radius_mm=params.bend_radius_mm,
         override_k_factor=params.k_factor,
         subject="An edge flange",
+        width_mm=params.width_mm,
+        offset_mm=params.offset_mm if params.offset_mm is not None else 0.0,
     )
 
 

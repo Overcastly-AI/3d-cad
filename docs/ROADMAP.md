@@ -36,11 +36,27 @@ bend's axis (centroid-agnostic coaxial measurement, so a trimmed bend is
 measured, not lost) — mismatch → typed `flat_pattern_failed` naming the fold and
 both widths. The WF-1 repro (100-wide flange cut to 50) now typed-rejects
 instead of emitting the full-width blank; all existing goldens byte-unchanged
-(`test_sheet_metal_cut_after_fold.py`, 4 tests). Layer 2 (developing the trimmed
-fold correctly + edge-flange width-extent params) stays open in BACKLOG. Next
-down the corrected sequence: the auto-relief policy layer (now genuinely
-unblocked) + open/teardrop/rolled hems + the full viewport bend-face pick for
-corner relief, then jogs.
+(`test_sheet_metal_cut_after_fold.py`, 4 tests). **WF-1 LAYER 2 ✅ SHIPPED
+2026-07-22** (kernel-architect; founder-directed "fix everything" for narrow
+flanges — design §4.5 written first): `SheetMetalEdgeFlangeParamsV1` gains
+optional `width_mm`/`offset_mm` (offset from the edge's canonical `end_a`;
+absent = full width, all goldens byte-identical), `build_edge_flange` sweeps
+only the authored span and auto-cuts a **rectangular bend-end relief** notch at
+each interior span end (size = 1×gauge, the §4.4.3 sizing family; cut into the
+base flat so the flat notch IS the 3D notch — fold-back exact by construction),
+and a new partial-star emitter develops the base's TRUE outline + per-span
+[BA][leg] strips into one closed union loop. The founder case (100×100 t=1.5
+r=2 + a 50-wide × 50-tall flange on the full edge) is directly authorable and
+golden-gated (`partial-flange-founder-unfold` + `-centered-`, analytic
+volume/area to 1e-9/1e-6, hash + restart determinism pins), and **PB-1 fell
+out of the same machinery** (a flange on a notch-split edge segment now
+flat-patterns — golden-free test with exact closed-form asserts). Cut-after-fold
+stays typed-rejected by the layer-1 invariant — by design, the width extents
+make the cut hack unnecessary. Contracts + ts-client regenerated. Next down the
+corrected sequence: the **edge-flange width-extents editor UI** (the params are
+API-only today, exactly as base/edge flange started), the auto-relief policy
+layer + open/teardrop/rolled hems + the full viewport bend-face pick for corner
+relief, then jogs.
 
 **Corrected campaign sequence** (parity doc's research corrected a few
 assumptions in the original founder-stated order — authoring UI → corner

@@ -1,0 +1,33 @@
+{
+  "description": "WF-1 LAYER 2 centered-extents golden (docs/design/sheet-metal.md §4.5): the founder base (100 x 100, t = 1.5, r = 2, K = 0.44) with the same 50-wide x 50-tall 90-deg flange CENTERED on the 100 mm y=0 edge (width_mm = 50, offset_mm = 25). BOTH span ends (x = 25 and x = 75) are INTERIOR to the edge, so the build cuts TWO automatic rectangular bend-end relief notches into the base flat (§4.5.2: size = 1 x gauge = 1.5 mm, on the blank side of each end, 1.5 mm deep beyond the tangent line, through-thickness). Develops via the §4.5.3 partial-star emitter: the doubly-notched base outline + the [BA][leg] strip over x in [25, 75], one closed rectilinear union.",
+  "tangent_line_convention": "Each leg is measured to its bend TANGENT LINE (§9 #1). The base develops to its 100 x 100 flat top face; the flange leg develops to 50 mm beyond a BA-length strip replacing the bend.",
+  "derivation": [
+    "HAND-DERIVED analytic values (geometry-gates skill). Dims as the founder golden; span x in [25, 75] (offset 25, width 50). Relief size = 1 x t = 1.5 mm; two interior ends -> notches at x in [23.5, 25] and x in [75, 76.5], each y in [0, 1.5], through-thickness.",
+    "Bend allowance (§1): BA = (pi/2) * (2 + 0.44 * 1.5) = 4.178318229274425 mm (identical bend params to the founder golden).",
+    "3D volume = 15000 - 2 * 3.375 + 103.125*pi + 3750 = 19067.22674240145 mm^3 (the founder volume minus one more notch).",
+    "Developed area (§9 #2): flat_area = (100*100 - 2 * 1.5^2 = 9995.5) + BA*50 + 2500 = 12704.41591146372 mm^2. Both flat notches ARE the 3D notches (base-flat only, never crossing the bend, §4.5.2).",
+    "Envelope: identical to the founder golden — 154.17831822927442 x 100 mm (the offset moves the arm along the edge, not the envelope).",
+    "Outline: ONE closed loop, 12 body edges (each interior end contributes a reentrant notch step; each notch's flange-side edge merges collinearly with the arm side) + 1 fold line spanning exactly x in [25, 75] (width 50) at the strip midline.",
+    "Fold-back invariant: the live inner bend face measures exactly 50 mm == developed width == width_mm; the flat-pattern pipeline (live body cross-check) succeeds.",
+    "content_hash is the sha256 of FlatPattern.to_json_bytes() — determinism pin, same terms as the founder golden."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (2026-07-22, build123d 0.11.1 / OCCT 7.9): flat_area residual 2e-12, envelope exact, BA residual 1 ulp. Same 1e-9 ceiling and 1e-6 mm^3 volume tolerance as the founder golden (measured volume residual 2.3e-11).",
+  "bend_allowance_mm": 4.178318229274425,
+  "flat_area_mm2": 12704.41591146372,
+  "flat_length_mm": 154.17831822927442,
+  "bend_width_mm": 100.0,
+  "bend_count": 1,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 2.0,
+  "bend_direction": "up",
+  "bend_widths_mm": [50.0],
+  "relief_notch_size_mm": 1.5,
+  "relief_notch_count": 2,
+  "body_edge_count": 12,
+  "bend_edge_count": 1,
+  "volume_mm3": 19067.22674240145,
+  "volume_tolerance": 1e-6,
+  "topology": { "faces": 18, "edges": 48, "shells": 1 },
+  "content_hash": "e32391ba27c47f2de4c10afe6aa05af1b0a52c9a2485620fc73f019dd8629ee4"
+}

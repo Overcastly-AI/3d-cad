@@ -664,6 +664,124 @@ both long-wall rims + 4 corner reliefs — the founder's TB-1 tray):
    reject** (the miter/closed-corner boundary above is unchanged). Without
    reliefs a hemmed tray routes through the §4.3 bend-TREE path as before.
 
+## 4.5 Edge-flange WIDTH EXTENTS + auto bend-END relief + partial-width development — SHIPPED (2026-07-22, kernel-architect, WF-1 layer 2 / PB-1)
+
+Founder-directed layer 2 of WF-1 (BACKLOG P0 open half + the PB-1 P2): a flange
+narrower than its edge must be **directly authorable** (Fusion-style width
+extents), correct in 3D **including bend-end relief**, and correct in the flat
+pattern. Acceptance case: a 100×100 base (t=1.5, r=2) with a 90° flange 50 mm
+WIDE × 50 mm tall on the full 100 mm edge. Three coupled decisions, recorded
+before implementation:
+
+### 4.5.1 Schema — optional `width_mm` / `offset_mm`, additive, offset from the canonical edge start
+
+`SheetMetalEdgeFlangeParamsV1` gains OPTIONAL `width_mm` (> 0) and `offset_mm`
+(≥ 0) — both NULLABLE-optional on the wire (`None` = absent; a required-with-
+default field would generate as required in the TS client and break existing
+constructors, the recurring defaulted-field finding). **Absent ⇒ full width,
+and the build path is the verbatim
+legacy path — every committed golden stays byte-identical** (the additive-field
+rule; no `param_version` bump, no registration change — all six arms already
+exist). Semantics:
+
+- The span is `[offset, offset + width]` measured along the picked edge **from
+  its CANONICAL start** — the lexicographically smaller endpoint, i.e. exactly
+  the `end_a` the stored `EdgeSignature` already canonicalises
+  (`geometry.kernel.edges._canonical_endpoints`). This makes the offset's
+  meaning independent of kernel edge orientation (deterministic across rebuilds
+  AND stable for the authoring UI, which shows `end_a`).
+- `width_mm = None` with `offset_mm > 0` means "the remainder of the edge"
+  (`[offset, edge_length]`) — the natural Fusion-style gesture.
+- Validation: `width > 0` / `offset ≥ 0` are schema bounds (422);
+  `offset + width ≤ edge_length` can only be checked against the RESOLVED edge,
+  so it is a feature-side typed `edge_flange_failed` (tolerance
+  `1e-6 · max(L, 1)` — the module's existing subshape linear class, not a new
+  epsilon).
+- **The hem is deliberately NOT extended** (out of scope, recorded): a partial-
+  width hem is a real ask but a separate slice — the hem's schema stays
+  full-width-only, and the width-extent machinery below is hem-agnostic (a
+  future `width_mm` on the hem rides the same `_fold_flange_off_edge` seam).
+
+### 4.5.2 Auto bend-END relief — rectangular, `size = 1.0 × thickness`, cut into the BASE, part of the flange build
+
+Where a bend-line END is INTERIOR to the parent edge (`offset > 0`, or
+`offset + width < edge_length`), the fold physically tears the adjacent flat
+when formed; incumbents cut an **auto relief** notch there. A blank-corner end
+(the span reaching the edge's own end) needs NO relief. Decisions:
+
+- **Rectangular only** (v1), the §4.4.1 rationale verbatim: the only purely
+  rectilinear developable notch, composing with the rectilinear-union outline
+  machinery with no curved-outline emitter. Obround/tear stay deferred.
+- **Sizing: `size = 1.0 × thickness`** — the corner-relief §4.4.3 sizing family
+  (`relief_ratio × thickness`) at its tear-safe default ratio 1.0, so END and
+  CORNER relief share ONE gauge-multiple convention. No per-feature override in
+  v1 (a `relief_ratio`/`size_mm` param is an additive follow-on; auto relief is
+  a default policy, and defaulting is the whole point — §4.4.2's layering
+  argument in reverse: here the AUTO layer ships first because a partial flange
+  without end relief is not manufacturable at all).
+- **Geometry: the notch is cut into the BASE flat, beside the bend end** — a
+  box of width `size` along the edge axis on the far side of the interior end
+  (outside the flange span), depth `size` INTO the base beyond the bend tangent
+  line, through the full gauge. It is cut by `build_edge_flange` itself (auto —
+  the 3D body carries the notch exactly as incumbents' auto-relief does), after
+  the fuse, with the one-solid invariant re-checked (a notch that severs the
+  sheet is a typed `edge_flange_failed`).
+- **Fold-back consistency is trivial by construction**: the notch lies entirely
+  in the base flat and never crosses the bend, so the live bend cylindrical-face
+  width equals the developed fold width equals the authored `width_mm` — the
+  §4.4.4/WF-1 invariant holds with no correction term, and the flat notch IS
+  the 3D notch (same rectangle, no developed-depth term — contrast the corner
+  relief's `BA + size` notch, which must cross its bend).
+- Provenance nuance: the base-face `PlanarFaceSignature` is emitted from the
+  POST-notch body (located by the bend's tangent-seam adjacency + the reference
+  normal/plane), so the unfold's base matching sees the notched flat. Absent
+  width params keep the legacy pre-fuse emission verbatim (byte-identity).
+
+### 4.5.3 Partial-width development — the base's TRUE outline + per-span strips, one rectilinear union
+
+`unfold_sheet_metal`'s depth-1 dispatch gains a **full-width test**: every
+bend's moving-flange span along its own bend axis must cover the base's full
+extent on that axis (tolerance `_LOOP_TOL_MM`), AND the base's outer wire must
+be a plain rectangle (all outer-wire vertices on the 4 bbox corners). Full-width
+rectangular stars keep the verbatim pinned 1D-strip / 2D-plus layouts (goldens
+byte-identical). Anything else routes to the new **partial-star emitter**:
+
+1. The base develops as its TRUE rectilinear outline — the outer wire's line
+   segments in the deterministic base frame, decomposed into grid cells
+   (crossing-count containment; pure closed-form 2D, no kernel reconstruction —
+   §2.2's MakeFace risk stays sidestepped). Because the end-relief notches were
+   cut into the base flat in 3D, **they appear in the blank for free** — the
+   development never re-derives them from the spec.
+2. Each flange contributes `[BA strip][leg]` rectangles over ITS OWN span
+   `[offset, offset+width]`, with the fold coordinate taken from the bend's
+   projected tangent line (not the bbox side — so a flange on a RECESSED edge
+   segment also lands correctly). Fold line + bend-table row span exactly the
+   authored width.
+3. The rects union into ONE closed loop via the shipped `_snap_rects` /
+   `_rectilinear_union_loop` (§4.3); a development that does not tile a single
+   blank is the same typed reject as everywhere else.
+
+**PB-1 falls out of this machinery** (verified by test, not assumed): a
+full-width flange on a notch-split edge SEGMENT is simply a partial span of the
+base side — the base keeps its notch, the strip attaches over the segment, the
+union closes. The `_emit_plus_pattern` single-closed-loop guard now only ever
+fires for genuinely out-of-scope layouts. Typed rejects (honest degradation,
+§5): a partial flange on an angled / non-rectilinear-outline base, a base flat
+with interior HOLES (the partial path refuses; the legacy full-width path keeps
+today's behavior — the hole-in-blank gap rides the still-deferred runtime area
+invariant, BACKLOG), corner reliefs combined with a partial-width arm, and a
+depth-≥2 partial flange whose auto end-notches break the tree emitter's
+axis-rect guard. **Cut-after-fold stays typed-rejected** by the layer-1
+fold-back invariant (§5 note) — width extents are the correct authoring path
+that makes the cut hack unnecessary; the invariant remains the guard, not the
+feature.
+
+Goldens (§9 pattern, hand-derived analytics + byte-determinism pins):
+`partial-flange-founder-unfold` (the acceptance case — one interior end, one
+notch), `partial-flange-centered-unfold` (offset 25, width 50 — two notches),
+plus schema-reject and PB-1 notch-split tests
+(`test_sheet_metal_width_extents.py`).
+
 ## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
 
 **Correction from an earlier draft of this doc:** a bend region is a
@@ -752,10 +870,12 @@ must equal the sorted developed fold widths (`BendLine.width_mm`, tolerance
 width mismatch is a typed `UnfoldFoldBackError` → `flat_pattern_failed`
 naming the fold and both widths. Relieved/hemmed developments cannot trip it:
 their notched developed widths equal the live notched faces BY DESIGN (the
-§4.4.4 fold-back gate the goldens assert offline). Developing the trimmed
-fold correctly (+ edge-flange width extents) is WF-1 layer 2 (BACKLOG); a cut
-that misses every bend (a hole in a flat) is still undeveloped and awaits the
-layer-2 area invariant.
+§4.4.4 fold-back gate the goldens assert offline). WF-1 layer 2 SHIPPED as
+edge-flange WIDTH EXTENTS + partial-width development (§4.5, 2026-07-22): the
+narrow flange is now directly authorable, so the cut hack is unnecessary and
+cut-after-fold REMAINS a typed reject by this invariant (by design, not as a
+stopgap). A cut that misses every bend (a hole in a flat) still develops
+without the hole and awaits the deferred runtime area invariant (BACKLOG).
 
 ## 6. The unfold algorithm (v1 scope) and its output
 
