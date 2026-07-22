@@ -104,7 +104,18 @@ convert-to-sheet-metal → forming tools; full rationale in
    (reuses the edge-flange overlay), brass `length_mm` handle, fixed "180°
    (closed)" fold readout (no angle field), inherited radius/K overrides; e2e
    clicks a plate with a closed hem, body + flat pattern render
-   (`sheet-metal-hem-*.png`). **Remaining:** open/teardrop/rolled (each a
+   (`sheet-metal-hem-*.png`). **Hem on a FLANGE rim flat-patterns ✅ FIXED
+   2026-07-22** (kernel-architect; TB-1 founder-dogfooding P2): bend flank
+   resolution is now TOPOLOGICAL (flanges must share an edge with the bend
+   cylinder — coplanar bystanders like a perpendicular wall's end face in the
+   return's tangent plane no longer inflate the flank count), and the relieved
+   unfold accepts axis-parallel returns off depth-1 arms by fold provenance
+   (`_partition_arm_returns` → arm extension `[BA][return leg]`). The full
+   TB-1 tray (4 walls + 2 hems + 4 reliefs) and the minimal wall+hem part now
+   produce correct blanks; new golden `hemmed-wall-tray-unfold` with the
+   fold-back invariant; perpendicular-axis depth-2 + reliefs stays a typed
+   reject; all existing goldens byte-unchanged (sheet-metal.md §4.4.4 update).
+   **Remaining:** open/teardrop/rolled (each a
    genuinely new curved cross-section, separate fast-follows).
 4. **Jogs** — got EASIER since `sheet-metal.md` was written (it predates the
    now-shipped depth-≥2 bend-tree unfold); a jog is a degenerate zero-length

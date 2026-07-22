@@ -635,6 +635,35 @@ The **fully-welded depth-2 box corner remains a typed reject** pending
 miter/closed-corner geometry — a clear, evidence-backed boundary, not a silent
 gap.
 
+**Update 2026-07-22 — hem on a FLANGE rim flat-patterns (TB-1 dogfooding fix,
+kernel-architect).** Two scope corrections, gated by the
+`hemmed-wall-tray-unfold` golden (base 300×180 t=1.5 + 4 walls + closed hems on
+both long-wall rims + 4 corner reliefs — the founder's TB-1 tray):
+
+1. **Flank resolution is topological, not merely metric.** A bend's two flat
+   flanges must **share a topological edge with the bend cylinder** (the tangent
+   seam — `resolve._shares_edge_with`, exact `TopoDS_Shape.IsSame`, no
+   tolerance) in addition to the tangency/perpendicularity tests. Root cause of
+   the filed `flat_pattern_failed`: with TB-1's numbers the hem's return
+   tangent plane (wall inner plane + `2·r_hem` = base-edge plane − `r_base` +
+   `2·r_hem`, and `2·1 = 2 = r_base`) lands exactly in the plane of the
+   perpendicular walls' END faces, so the metric-only flank scan counted 4
+   "flanges" and refused. Coplanar bystanders can never be adjacent to the bend
+   face, so the topological rule restores exactly-two everywhere a real fold
+   exists; all prior goldens are byte-unchanged (their flanges were always
+   adjacent).
+2. **Reliefs now compose with axis-parallel returns (hems/lips) off depth-1
+   arms.** `_partition_arm_returns` splits the resolved bends **by fold
+   provenance** (§5): a bend whose recorded `base_face_signature` names a
+   depth-1 arm's *moving* flange, folding about an axis **parallel** to that
+   arm's bend axis, is a return and develops as a pure arm extension
+   `[BA strip][return leg]` beyond the arm's rim (never interacting with the
+   root-corner notches; fold line + bend-table row emitted, area exactly
+   additive). Everything else at depth ≥ 2 with reliefs — a perpendicular
+   second axis (welded box corner) or a deeper chain — **stays a typed
+   reject** (the miter/closed-corner boundary above is unchanged). Without
+   reliefs a hemmed tray routes through the §4.3 bend-TREE path as before.
+
 ## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
 
 **Correction from an earlier draft of this doc:** a bend region is a

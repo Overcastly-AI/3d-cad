@@ -319,16 +319,35 @@ def unfold_sheet_metal(
     )
     if not is_depth1:
         if reliefs:
-            # v1 corner relief scopes to the depth-1 adjacent-flange tray corner
-            # (§4.4.4). A depth-≥2 (welded / returns) box corner is a cyclic /
-            # coplanar degeneracy a rectangular notch does NOT lift — that needs
-            # miter / closed-corner geometry (deferred) — so it stays a typed
-            # reject rather than a silently-wrong relieved blank.
-            raise UnfoldStarError(
-                "Corner relief v1 applies to a depth-1 adjacent-flange tray corner; "
-                "the body is depth >= 2 (a flange folded off another flange). A "
-                "rectangular notch does not make a fully-welded box corner "
-                "developable — that needs miter / closed-corner geometry (§4.4.4)."
+            # Corner relief scopes to the depth-1 adjacent-flange tray corner
+            # (§4.4.4) PLUS axis-parallel returns off those flanges (a hem / lip on
+            # a wall's top rim — the TB-1 hemmed tray, BACKLOG 2026-07-20): such a
+            # return develops as a pure EXTENSION of its parent arm ([BA strip]
+            # [return leg] beyond the arm's far edge, the same closed-form strip
+            # any bend produces) and never interacts with the root-corner notches.
+            # Every OTHER depth-≥2 body — a perpendicular second axis (a welded /
+            # returns box corner, a cyclic / coplanar degeneracy a rectangular
+            # notch does NOT lift; that needs miter / closed-corner geometry,
+            # deferred) or a deeper chain — stays a typed reject rather than a
+            # silently-wrong relieved blank.
+            partitioned = _partition_arm_returns(resolved, base_sig)
+            if partitioned is None:
+                raise UnfoldStarError(
+                    "Corner relief applies to a depth-1 adjacent-flange tray "
+                    "corner, plus axis-parallel returns (hems) folded off those "
+                    "flanges' rims; the body has a deeper or perpendicular-axis "
+                    "flange-off-flange fold. A rectangular notch does not make a "
+                    "fully-welded box corner developable — that needs miter / "
+                    "closed-corner geometry (§4.4.4)."
+                )
+            star, returns = partitioned
+            return _unfold_nonparallel_relieved(
+                star,
+                base_rec,
+                thickness_mm,
+                default_k_factor,
+                reliefs,
+                returns=returns,
             )
         return _unfold_bend_tree(body, bends, thickness_mm, default_k_factor)
 
@@ -951,6 +970,62 @@ def _rect_from_ranges(x0: float, x1: float, y0: float, y1: float) -> _Rect:
     return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
 
 
+def _partition_arm_returns(
+    resolved: list[_Resolved], base_sig: PlanarFaceSignature
+) -> tuple[list[_Resolved], list[tuple[int, _Resolved]]] | None:
+    """Split *resolved* into the depth-1 star + axis-parallel returns off its arms.
+
+    FOLD PROVENANCE does the splitting (§5, BACKLOG 2026-07-20): each bend's
+    recorded base-face signature names its parent — the shared base flange for a
+    depth-1 arm, or an arm's own MOVING flange for a return folded off that arm's
+    rim (a hem / lip; the evaluator records the parent relationship at
+    construction, so no geometric guessing). A return additionally must fold about
+    an axis PARALLEL to its parent arm's bend axis: that is exactly the fold that
+    develops as a pure extension of the arm ([BA strip][return leg] beyond the
+    arm's far edge). Returns ``None`` — the caller's typed reject — when any bend
+    is neither a depth-1 arm nor such a return (a perpendicular-axis box corner, a
+    depth-3 chain, or a dangling parent), keeping the honest-degradation contract
+    for the sub-cases this path does not develop.
+    """
+    star: list[_Resolved] = []
+    deeper: list[_Resolved] = []
+    for entry in resolved:
+        if planar_signatures_match(entry[0].signature, base_sig):
+            star.append(entry)
+        else:
+            deeper.append(entry)
+    returns: list[tuple[int, _Resolved]] = []
+    for entry in deeper:
+        parent_idx: int | None = None
+        for i, arm_entry in enumerate(star):
+            if planar_signatures_match(entry[0].signature, arm_entry[1].signature):
+                parent_idx = i
+                break
+        if parent_idx is None:
+            return None  # parent is not a depth-1 arm (deeper chain / dangling)
+        if 1.0 - abs(entry[2].dot(star[parent_idx][2])) > _PARALLEL_TOL:
+            return None  # perpendicular second axis (a box corner, §4.4.4)
+        returns.append((parent_idx, entry))
+    return star, returns
+
+
+@dataclass(frozen=True)
+class _ArmExtension:
+    """A return (hem / lip) developed as a pure extension of its parent arm:
+    ``[BA strip][return leg]`` beyond the arm's far edge, spanning the return's
+    own extent along the fold-edge direction (frame coords, like ``_Arm.span``)."""
+
+    allowance_mm: float
+    leg_mm: float
+    area_mm2: float
+    span0: float
+    span1: float
+    radius_mm: float
+    angle_rad: float
+    k_factor: float
+    direction: Literal["up", "down"]
+
+
 def _base_minus_notches_rects(
     wx: float, wy: float, notches: list[_Rect]
 ) -> list[_Rect]:
@@ -1008,6 +1083,7 @@ def _unfold_nonparallel_relieved(
     thickness_mm: float,
     default_k_factor: float,
     reliefs: list[CornerRelief],
+    returns: list[tuple[int, _Resolved]] | None = None,
 ) -> FlatPattern:
     """Lay out a RELIEVED depth-1 tray (§4.4): the plus-pattern with corner notches.
 
@@ -1025,12 +1101,55 @@ def _unfold_nonparallel_relieved(
     deterministic OCCT measurement + closed-form allowance + a coordinate-sorted
     assembly.
 
+    *returns* (from :func:`_partition_arm_returns`) are axis-parallel folds off an
+    arm's rim (a hem / lip on a wall's top edge — the TB-1 hemmed tray): each
+    develops as a pure EXTENSION of its parent arm — ``[BA strip][return leg]``
+    beyond the arm's far edge, the same closed-form strip any bend produces
+    (``BA = angle_rad * (r + K * t)``, §1) — never interacting with the root-corner
+    notches, and contributes its own fold line + bend-table row.
+
     Raises:
         UnfoldStarError: a relief names a bend not on this tray, names two parallel
-            (non-adjacent) flanges, or the relieved outline is not a single loop
-            (§4.4 v1 scope: rectangular relief at an adjacent-flange corner)."""
+            (non-adjacent) flanges, two returns fold off the same arm, or the
+            relieved outline is not a single loop (§4.4 v1 scope: rectangular
+            relief at an adjacent-flange corner)."""
     frame, arms = _build_arms(resolved, base_rec, thickness_mm)
     wx, wy = frame.wx, frame.wy
+
+    # Returns (hems / lips) as per-arm extensions, keyed by their parent arm index
+    # (the arms list is in `resolved` order, the SAME order `_partition_arm_returns`
+    # indexed). Span is the return's own extent along the fold-edge direction, in
+    # the same frame coordinate `_Arm.span0/span1` uses; fold sense is the child
+    # centroid's side of the parent flange plane (the bend-tree convention).
+    extensions: dict[int, _ArmExtension] = {}
+    for parent_idx, (parent_rec, moving_rec, _axis, angle_rad, prov) in returns or []:
+        if parent_idx in extensions:
+            raise UnfoldStarError(
+                "Two returns (hems) fold off the same tray flange; one return per "
+                "flange rim is the supported development (§4.4.4)."
+            )
+        arm = arms[parent_idx]
+        radius = prov.cyl_signature.radius_mm
+        edge_dir = frame.y2 if arm.axis == 0 else frame.x2
+        edge_min = frame.y_min if arm.axis == 0 else frame.x_min
+        proj = [
+            Vector(v.X, v.Y, v.Z).dot(edge_dir) - edge_min
+            for v in moving_rec.face.vertices()
+        ]
+        along_p = (Vector(*moving_rec.centroid) - Vector(*parent_rec.centroid)).dot(
+            Vector(*parent_rec.normal).normalized()
+        )
+        extensions[parent_idx] = _ArmExtension(
+            allowance_mm=bend_allowance(angle_rad, radius, prov.k_factor, thickness_mm),
+            leg_mm=moving_rec.developed_length_mm,
+            area_mm2=moving_rec.area_mm2,
+            span0=min(proj),
+            span1=max(proj),
+            radius_mm=radius,
+            angle_rad=angle_rad,
+            k_factor=prov.k_factor,
+            direction="up" if along_p >= 0.0 else "down",
+        )
 
     arm_notches: list[list[_ArmNotch]] = [[] for _ in arms]
     notches: list[_Rect] = []
@@ -1071,7 +1190,7 @@ def _unfold_nonparallel_relieved(
     # local notch; an unrelieved arm is the verbatim full-width BA-strip + leg.
     rects: list[_Rect] = _base_minus_notches_rects(wx, wy, notches)
     bend_spans: list[Vec2] = []
-    for a, nlist in zip(arms, arm_notches, strict=True):
+    for ai, (a, nlist) in enumerate(zip(arms, arm_notches, strict=True)):
         lo, hi = a.span0, a.span1
         near = a.fold
         leg_far = near + a.sign * (a.allowance_mm + a.leg_mm)
@@ -1095,6 +1214,18 @@ def _unfold_nonparallel_relieved(
                 rects.append(_rect_from_ranges(lo, hi, near, strip_far))
                 rects.append(_rect_from_ranges(lo, hi, strip_far, leg_far))
             bend_spans.append((lo, hi))
+        ext = extensions.get(ai)
+        if ext is not None:
+            # The return's BA strip + leg extend the arm beyond its far edge; the
+            # arm stays full width at that rim (the relief notch is at the ROOT).
+            ext_far = leg_far + a.sign * ext.allowance_mm
+            ret_far = ext_far + a.sign * ext.leg_mm
+            if a.axis == 0:
+                rects.append(_rect_from_ranges(leg_far, ext_far, ext.span0, ext.span1))
+                rects.append(_rect_from_ranges(ext_far, ret_far, ext.span0, ext.span1))
+            else:
+                rects.append(_rect_from_ranges(ext.span0, ext.span1, leg_far, ext_far))
+                rects.append(_rect_from_ranges(ext.span0, ext.span1, ext_far, ret_far))
 
     snapped = _snap_rects(rects)
     loop = _rectilinear_union_loop(snapped)
@@ -1141,17 +1272,59 @@ def _unfold_nonparallel_relieved(
             )
         )
 
+    # Return (hem / lip) fold lines: one per extension, continuing the bend index,
+    # in deterministic parent-arm order. The fold centerline sits mid-BA beyond the
+    # parent arm's far edge, over the return's own span.
+    idx = len(arms)
+    for ai in sorted(extensions):
+        idx += 1
+        a = arms[ai]
+        ext = extensions[ai]
+        span_shift = dx if a.axis == 1 else dy
+        lo, hi = ext.span0 - span_shift, ext.span1 - span_shift
+        leg_far = a.fold + a.sign * (a.allowance_mm + a.leg_mm)
+        fold_c = leg_far + a.sign * (ext.allowance_mm / 2.0)
+        if a.axis == 0:
+            xm = fold_c - dx
+            outline.append(
+                FlatEdge2D(kind="line", x1=xm, y1=lo, x2=xm, y2=hi, role="bend")
+            )
+        else:
+            ym = fold_c - dy
+            outline.append(
+                FlatEdge2D(kind="line", x1=lo, y1=ym, x2=hi, y2=ym, role="bend")
+            )
+        bend_lines.append(
+            BendLine(
+                bend_id=f"bend-{idx}",
+                angle_deg=math.degrees(ext.angle_rad),
+                radius_mm=ext.radius_mm,
+                k_factor=ext.k_factor,
+                allowance_mm=ext.allowance_mm,
+                width_mm=abs(hi - lo),
+                direction=ext.direction,
+                flat_start_mm=0.0,
+                flat_end_mm=ext.allowance_mm,
+            )
+        )
+
     outline.sort(key=lambda e: (e.role, e.x1, e.y1, e.x2, e.y2))
     bend_lines.sort(key=lambda bl: bl.bend_id)
 
     # Area (§9 #2): base (minus corner squares) + each arm's FULL developed area
     # minus its local corner notch(es) — width `size` x developed depth (BA + size),
-    # the two-region tiling above removes exactly this from the full arm.
+    # the two-region tiling above removes exactly this from the full arm — plus each
+    # return's own leg + BA strip (the arm rim stays full width, so the extension is
+    # exactly additive).
     base_area = wx * wy - sum((rr[2] - rr[0]) * (rr[3] - rr[1]) for rr in notches)
     flat_area = base_area + sum(
         (a.span1 - a.span0) * (a.leg_mm + a.allowance_mm)
         - sum(nt.size * (a.allowance_mm + nt.size) for nt in nlist)
         for a, nlist in zip(arms, arm_notches, strict=True)
+    )
+    flat_area += sum(
+        ext.area_mm2 + ext.allowance_mm * (ext.span1 - ext.span0)
+        for ext in extensions.values()
     )
     return FlatPattern(
         thickness_mm=thickness_mm,

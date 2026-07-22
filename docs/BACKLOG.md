@@ -142,21 +142,6 @@ scorecard impact → core capability → polish).
       size the feature slice (params: pitch, turns, profile, handedness,
       taper). Sequence AFTER the current sheet-metal campaign commitments.
       [src: WB-64 retro]
-- [ ] (P2, M) Sheet metal: hem on a FLANGE top edge cannot flat-pattern
-      (founder dogfooding 2026-07-20, TB-1 toolbox). The 3D fold is perfect —
-      a tray with 4 walls + closed hems on both long flange tops + 4 corner
-      reliefs evaluates to one valid shell (first-ever hem+relief coexistence,
-      12 features OK) — but the unfold rejects typed: `flat_pattern_failed`,
-      "Bend (radius 1 mm) is flanked by 4 planar faces tangent to its inner
-      surface; a v1 edge flange has…". The hem bend's inner surface is tangent
-      to more planar neighbours than the bend-wall resolution can rank. The
-      shipped `closed-hem-plate` golden only hems a BASE-PLATE edge (depth-1);
-      hemming a wall's top rim — the single most common real hem placement —
-      can't produce a shop blank. Fix: teach the bend-tree walk to disambiguate
-      hem-bend walls (parent wall vs return leg) by fold provenance, not
-      tangency count; golden: hemmed-wall tray unfold with fold-back invariant.
-      Also (b): the failed-view box overlaps its error text with the "FLAT
-      PATTERN" caption — small compose polish. [src: founder dogfooding — TB-1]
 - [ ] (P2, S) Drawings: note annotations persist but NEVER render (founder
       dogfooding 2026-07-20, WB-64 bottle build). `NoteAnnotationParams` + the
       full CRUD (POST/DELETE `/drawings/{id}/sheets/{sid}/annotations`) ship, but
@@ -259,6 +244,11 @@ scorecard impact → core capability → polish).
 
 ## Later (P3)
 
+- [ ] (P3, S) Drawings compose: the failed-view dashed box overlaps its error
+      text with the view caption (e.g. "FLAT PATTERN") — small `_emit_view`
+      polish; changes byte-pinned compose goldens, so it rides its own slice.
+      Split from the shipped hem-on-flange flat-pattern fix (2026-07-22).
+      [src: founder dogfooding — TB-1]
 - [ ] (P3, S) STEP import parse-worker — cap parse WORKING-SET memory + config
       hardening (code-review 🟢 on `f5a9038`): the STEP subprocess now bounds CPU
       time (`RLIMIT_CPU`) but NOT resident memory — only the 16 MiB _input_ is
@@ -394,6 +384,22 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P2, M) Sheet metal: hem on a FLANGE top edge cannot flat-pattern
+      (kernel-architect). **SHIPPED 2026-07-22.** Root cause: bend flank
+      resolution counted every planar face COPLANAR with a tangent plane of the
+      hem's inner cylinder — with TB-1's numbers (2·r_hem = base radius) the
+      perpendicular walls' end faces land exactly in the return's tangent plane
+      → "flanked by 4 planar faces" typed reject. Fix (a): flanks must SHARE an
+      edge with the bend cylinder (`resolve._shares_edge_with`, topological);
+      (b): with reliefs present, axis-parallel returns off depth-1 arms are
+      split out BY FOLD PROVENANCE (`_partition_arm_returns`) and develop as
+      arm extensions `[BA][return leg]`; perpendicular-axis depth-2 + reliefs
+      stays a typed reject. New golden `hemmed-wall-tray-unfold` (full TB-1
+      tray: 4 walls + 2 hems + 4 reliefs; fold-back invariant on the REAL
+      bodies — cyl-face widths + volume witnesses; minimal plate+wall+hem and
+      unrelieved tree variants; restart determinism). All existing goldens
+      byte-unchanged. Residual (failed-view caption overlap) split to P3.
+      [src: founder dogfooding — TB-1]
 - [x] (P1, M) Sheet metal — closed-hem + corner-relief AUTHORING UI
       (frontend-builder). **SHIPPED 2026-07-19.** Both API-only features made
       click-drivable, mirroring the base/edge-flange pattern (`47c88f4`): a

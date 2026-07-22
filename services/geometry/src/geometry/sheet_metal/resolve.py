@@ -31,7 +31,7 @@ fully-typed dataclasses below keep the boundary honest.
 import math
 from dataclasses import dataclass
 
-from build123d import CenterOf, Face, GeomType, Vector
+from build123d import CenterOf, Edge, Face, GeomType, Vector
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Cylinder
 from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
@@ -68,9 +68,9 @@ class NoBendFoundError(SheetMetalUnfoldError):
 
 
 class BendFlankingFacesError(SheetMetalUnfoldError):
-    """A bend cylinder was found but not exactly two planar faces tangent to its
-    inner surface (the two flat flanges) — the bend geometry is unexpected for a
-    v1 depth-1 edge flange."""
+    """A bend cylinder was found but not exactly two planar faces adjacent AND
+    tangent to its inner surface (the two flat flanges) — the bend geometry is
+    unexpected for a v1 edge flange."""
 
 
 @dataclass(frozen=True)
@@ -154,6 +154,25 @@ def cylindrical_face_widths(body: BodyShape, radius_mm: float) -> list[float]:
     return sorted(widths)
 
 
+def _shares_edge_with(face: Face, bend_edges: list[Edge]) -> bool:
+    """True if *face* shares a topological edge with the bend's inner face.
+
+    The flank test that makes bend resolution TOPOLOGICAL, not merely metric: a
+    bend's two flat flanges are its NEIGHBOURS across the tangent seam lines (the
+    sheet is one shell, so the parent flat, the bend cylinder, and the moving flat
+    share those exact edges — ``TopoDS_Shape.IsSame`` identity, no tolerance). A
+    face that is merely COPLANAR with a tangent plane of the cylinder — e.g. a
+    perpendicular wall's end face lying exactly in the plane a hem's return leg
+    folds onto (the TB-1 hemmed-tray dogfooding failure, BACKLOG 2026-07-20) —
+    passes the metric tangency test but never this adjacency test, so it can no
+    longer masquerade as a flange and inflate the flank count past two."""
+    for edge in face.edges():
+        for bend_edge in bend_edges:
+            if edge.wrapped.IsSame(bend_edge.wrapped):
+                return True
+    return False
+
+
 def _perp_distance(delta: Vector, axis_dir: Vector) -> float:
     """Distance from a point at offset *delta* to a line through the origin along
     *axis_dir* — ``|delta - (delta·dir) dir|``. The one place the axis-line
@@ -173,10 +192,13 @@ def _axes_coincident(a: _CylFace, b: _CylFace) -> bool:
 def _flanking_flanges(
     body: BodyShape, inner: _CylFace
 ) -> tuple[ResolvedFlange, ResolvedFlange]:
-    """The two flat flanges tangent to the bend's INNER surface.
+    """The two flat flanges adjacent + tangent to the bend's INNER surface.
 
     A flange face is planar, parallel to the bend axis (``normal ⟂ axis_dir``),
-    and tangent to the inner cylinder (its plane sits ``radius`` from the axis).
+    tangent to the inner cylinder (its plane sits ``radius`` from the axis), and
+    **topologically adjacent** to the bend face (:func:`_shares_edge_with` — it
+    meets the cylinder at a tangent seam line; a face merely coplanar with a
+    tangent plane is a bystander, never a flange).
     Its **developed length** is its extent perpendicular to the axis — which runs
     exactly from the bend tangent line to the flange's free edge (§9 golden #1's
     tangent-line convention: the flat portion of a flange ends where it meets the
@@ -184,6 +206,7 @@ def _flanking_flanges(
     """
     axis_dir = inner.axis_dir
     origin = inner.axis_origin
+    bend_edges = inner.face.edges()
     flanges: list[ResolvedFlange] = []
     for face in body.faces():
         if face.geom_type != GeomType.PLANE:
@@ -196,6 +219,8 @@ def _flanking_flanges(
         dist = abs((point - origin).dot(normal))
         if abs(dist - inner.radius) > _TANGENT_DIST_TOL_MM:
             continue  # not tangent to the INNER surface (skips outer flange faces)
+        if not _shares_edge_with(face, bend_edges):
+            continue  # coplanar bystander, not a flange across a tangent seam
         # In-plane direction perpendicular to the axis: developed-length axis.
         u = axis_dir.cross(normal).normalized()
         verts = [Vector(v.X, v.Y, v.Z) for v in face.vertices()]
@@ -211,8 +236,8 @@ def _flanking_flanges(
     if len(flanges) != 2:
         raise BendFlankingFacesError(
             f"Bend (radius {inner.radius:.4g} mm) is flanked by {len(flanges)} "
-            "planar faces tangent to its inner surface; a v1 edge flange has "
-            "exactly two flat flanges."
+            "planar faces adjacent and tangent to its inner surface; a v1 edge "
+            "flange has exactly two flat flanges."
         )
     # Deterministic order: base flange (longer developed length) first, tie-broken
     # by outward normal so the layout origin never depends on face iteration order.
@@ -433,12 +458,15 @@ def _flanking_face_records(
 ) -> tuple[FlangeFaceRecord, FlangeFaceRecord]:
     """The two flat flanges of a bend, as full :class:`FlangeFaceRecord`s.
 
-    The provenance-unfold sibling of :func:`_flanking_flanges`: same tangent-to-
-    inner-surface selection, but keeps each :class:`Face` + its
+    The provenance-unfold sibling of :func:`_flanking_flanges`: same adjacent +
+    tangent-to-inner-surface selection (:func:`_shares_edge_with` keeps coplanar
+    bystanders — e.g. a perpendicular wall's end face in a hem's return plane —
+    out of the flank count), but keeps each :class:`Face` + its
     :class:`PlanarFaceSignature` + world centroid so the star unfold can identify
     the shared base face and lay flanges out on the correct side."""
     axis_dir = inner.axis_dir
     origin = inner.axis_origin
+    bend_edges = inner.face.edges()
     records: list[FlangeFaceRecord] = []
     for face in body.faces():
         if face.geom_type != GeomType.PLANE:
@@ -450,6 +478,8 @@ def _flanking_face_records(
         point = Vector(centroid.X, centroid.Y, centroid.Z)
         dist = abs((point - origin).dot(normal))
         if abs(dist - inner.radius) > _TANGENT_DIST_TOL_MM:
+            continue
+        if not _shares_edge_with(face, bend_edges):
             continue
         u = axis_dir.cross(normal).normalized()
         verts = [Vector(v.X, v.Y, v.Z) for v in face.vertices()]
@@ -471,8 +501,8 @@ def _flanking_face_records(
     if len(records) != 2:
         raise BendFlankingFacesError(
             f"Bend (radius {inner.radius:.4g} mm) is flanked by {len(records)} "
-            "planar faces tangent to its inner surface; a v1 edge flange has "
-            "exactly two flat flanges."
+            "planar faces adjacent and tangent to its inner surface; a v1 edge "
+            "flange has exactly two flat flanges."
         )
     records.sort(key=lambda f: (-f.developed_length_mm, f.normal))
     return records[0], records[1]
