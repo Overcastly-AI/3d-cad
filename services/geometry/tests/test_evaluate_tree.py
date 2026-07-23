@@ -1231,3 +1231,332 @@ def test_suppressed_tree_is_byte_deterministic() -> None:
     first = client.post("/api/v1/evaluate", json=payload).json()
     second = client.post("/api/v1/evaluate", json=payload).json()
     assert first == second
+
+
+# --- Feature suppress: adversarial edge guards (geometry-QA 2026-07-23) --------------
+#
+# The happy-path suppress tests above cover suppress-fillet, middle-suppress and
+# a direct ref-to-suppressed. These guards push the edges those miss: suppressing
+# the BASE/every feature (no phantom body, no raise), an INDIRECT
+# datum->sketch->extrude chain, a boolean operand, a source-less pattern/mirror,
+# and a topology-changing suppress whose downstream must re-evaluate off the
+# CHANGED body (byte-identical to the never-built variant).
+
+GUARD_SA = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+GUARD_EA = uuid.UUID("00000000-0000-0000-0000-0000000000f2")
+GUARD_SB = uuid.UUID("00000000-0000-0000-0000-0000000000f3")
+GUARD_EB = uuid.UUID("00000000-0000-0000-0000-0000000000f4")
+GUARD_TAIL = uuid.UUID("00000000-0000-0000-0000-0000000000f5")
+GUARD_SP = uuid.UUID("00000000-0000-0000-0000-0000000000f6")
+GUARD_EP = uuid.UUID("00000000-0000-0000-0000-0000000000f7")
+
+#: One overlapping-box UNION volume (mm^3): A at x[0,40] + B at x[20,60], both
+#: 25 x 10, overlap x[20,40] -> 10000 + 10000 - 5000. Exact by construction.
+UNION_OVERLAP_VOLUME_MM3 = 15000.0
+#: Mirror of the 40 x 25 x 10 box about YZ -> two disjoint lumps, one body.
+MIRROR_VOLUME_MM3 = 2.0 * BOX_VOLUME_MM3
+
+
+def _cut_extrude_input(feature_id: uuid.UUID, profile_id: uuid.UUID) -> dict[str, Any]:
+    """A through-cut extrude of *profile* (subtractive), 10 mm deep on XY."""
+    d = _extrude_input(feature_id, profile_id)
+    d["feature"]["params"]["operation"] = "cut"
+    return d
+
+
+def _extrude_merge(
+    feature_id: uuid.UUID, profile_id: uuid.UUID, *, merge: bool
+) -> dict[str, Any]:
+    d = _extrude_input(feature_id, profile_id)
+    d["feature"]["params"]["merge"] = merge
+    return d
+
+
+def _shifted_rect_params(dx: float, *, width_mm: float = 40.0) -> dict[str, Any]:
+    """The worked-example rectangle translated +dx in x (a second-body profile)."""
+    params = rectangle_params()
+    for entity in params["entities"]:
+        entity["start"]["x"] += dx
+        entity["end"]["x"] += dx
+    if width_mm != 40.0:
+        for constraint in params["constraints"]:
+            if constraint.get("kind") == "distance" and constraint["entity"] == "e1":
+                constraint["value_mm"] = width_mm
+    return params
+
+
+def _small_rect_params() -> dict[str, Any]:
+    """A 10 x 8 mm interior pocket profile (an ordinary through-cut tool)."""
+    params = rectangle_params()
+    for constraint in params["constraints"]:
+        if constraint.get("kind") == "distance" and constraint["entity"] == "e1":
+            constraint["value_mm"] = 10.0
+        if constraint.get("kind") == "distance" and constraint["entity"] == "e2":
+            constraint["value_mm"] = 8.0
+    return params
+
+
+def _boolean_input(
+    feature_id: uuid.UUID, operation: str, target: uuid.UUID, tool: uuid.UUID
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "boolean",
+            "version": 1,
+            "params": {
+                "operation": operation,
+                "target": {"kind": "feature", "feature_id": str(target)},
+                "tool": {"kind": "feature", "feature_id": str(tool)},
+            },
+        },
+    }
+
+
+def _mirror_input(feature_id: uuid.UUID, plane: str) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "mirror",
+            "version": 1,
+            "params": {"plane": {"kind": "datum_plane", "plane": plane}},
+        },
+    }
+
+
+def _linear_pattern_input(feature_id: uuid.UUID) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "pattern",
+            "version": 1,
+            "params": {
+                "pattern": {
+                    "kind": "linear",
+                    "direction": {"x": 1.0, "y": 0.0, "z": 0.0},
+                    "spacing_mm": 60.0,
+                    "count": 2,
+                }
+            },
+        },
+    }
+
+
+def test_suppressing_the_base_feature_yields_no_phantom_body() -> None:
+    """Guard 1 (§4.3a): suppressing the FIRST body-creating feature leaves NO
+    prior body, so a downstream modifier is an HONEST typed ``no_target_body``
+    error (200, strict prefix) — never a crash and never a phantom body built
+    off nothing. `[sketch, extrude(suppressed), fillet]`: the sketch solves, the
+    extrude is skipped, and the fillet reports no body to round."""
+    result = _post(
+        _request(
+            [
+                _sketch_input(GUARD_SA, rectangle_params()),
+                _suppress(_extrude_input(GUARD_EA, GUARD_SA)),
+                _fillet_input(GUARD_TAIL, 2.0),
+            ]
+        )
+    )
+    sketch_r, extrude_r, fillet_r = result.features
+    assert (sketch_r.feature_id, sketch_r.status) == (GUARD_SA, "ok")
+    assert extrude_r.status == "suppressed"
+    assert fillet_r.status == "error"
+    assert fillet_r.error is not None
+    assert fillet_r.error.code == "no_target_body"
+    # No body was ever built: the artifact fields are honestly null (§6 flavour).
+    assert result.mesh_glb_id is None
+    assert result.properties is None
+    assert result.bodies == []
+
+
+def test_suppressing_every_feature_is_an_empty_deterministic_result() -> None:
+    """Guard 2 (§4.3a): a tree with EVERY feature suppressed evaluates to an
+    honest empty result — every row ``suppressed``, no body, no ``last_good``,
+    no raise — and is byte-deterministic across repeats (RESEARCH §9)."""
+    payload = _request(
+        [
+            _suppress(_sketch_input(GUARD_SA, rectangle_params())),
+            _suppress(_extrude_input(GUARD_EA, GUARD_SA)),
+            _suppress(_fillet_input(GUARD_TAIL, 2.0)),
+        ]
+    )
+    result = _post(payload)
+    assert [r.status for r in result.features] == ["suppressed"] * 3
+    assert result.last_good_feature_id is None
+    assert result.mesh_glb_id is None
+    assert result.properties is None
+    assert result.bodies == []
+    # Determinism: the same all-suppressed request is byte-identical on repeat.
+    first = client.post("/api/v1/evaluate", json=payload).json()
+    second = client.post("/api/v1/evaluate", json=payload).json()
+    assert first == second
+
+
+def test_indirect_datum_sketch_extrude_chain_catches_the_suppressed_datum() -> None:
+    """Guard 3 (§4.3a): a SUPPRESSED datum that a later sketch sits on is caught
+    by the reference walk — the sketch reports ``references_suppressed`` pinned to
+    the datum (NOT a silent resolve against a stale origin plane), and the
+    strict-prefix rule skips the extrude that depends on that sketch. The
+    datum->sketch->extrude chain therefore builds NO body: the wrong-geometry
+    hazard (an extrude on a phantom plane) cannot occur."""
+    result = _post(
+        _request(
+            [
+                _suppress(_datum_input(SUP_DATUM_ID, "XY", 10.0)),
+                _sketch_on(SUP_SKETCHB_ID, _feature_ref(SUP_DATUM_ID)),
+                _extrude_input(SUP_EXTRUDEB_ID, SUP_SKETCHB_ID),
+            ]
+        )
+    )
+    datum_r, sketch_r, extrude_r = result.features
+    assert datum_r.status == "suppressed"
+    assert sketch_r.status == "error"
+    assert sketch_r.error is not None
+    assert sketch_r.error.code == "references_suppressed"
+    assert sketch_r.error.upstream_feature_id == SUP_DATUM_ID
+    # Downstream extrude is skipped (strict prefix) and no body was built —
+    # nothing resolved against a stale plane.
+    assert extrude_r.status == "skipped"
+    assert result.mesh_glb_id is None
+    assert result.properties is None
+
+
+def test_boolean_operand_suppressed_is_typed_not_a_half_union() -> None:
+    """Guard 4 (§MB-1/§4.3a): suppressing ONE operand of a boolean makes the
+    boolean reference a suppressed body -> ``references_suppressed`` pinned to it,
+    NOT a half-union or a silent single-body pass. The last-good body is operand A
+    alone (its exact box volume); operand B contributed nothing. The control
+    (both operands present) unions cleanly to the overlap volume, proving the
+    suppress flag alone flipped the outcome."""
+    suppressed = _post(
+        _request(
+            [
+                _sketch_input(GUARD_SA, rectangle_params()),
+                _extrude_input(GUARD_EA, GUARD_SA),  # body A (first)
+                _sketch_input(GUARD_SB, _shifted_rect_params(20.0)),
+                _suppress(_extrude_merge(GUARD_EB, GUARD_SB, merge=False)),  # B off
+                _boolean_input(GUARD_TAIL, "union", GUARD_EA, GUARD_EB),
+            ]
+        )
+    )
+    bool_r = suppressed.features[-1]
+    assert bool_r.status == "error"
+    assert bool_r.error is not None
+    assert bool_r.error.code == "references_suppressed"
+    assert bool_r.error.upstream_feature_id == GUARD_EB
+    # Last-good body is A ALONE — no partial union, exactly one body.
+    assert len(suppressed.bodies) == 1
+    assert suppressed.properties is not None
+    assert suppressed.properties.volume == pytest.approx(
+        BOX_VOLUME_MM3, abs=BOX_VOLUME_TOLERANCE_MM3
+    )
+
+    control = _post(
+        _request(
+            [
+                _sketch_input(GUARD_SA, rectangle_params()),
+                _extrude_input(GUARD_EA, GUARD_SA),
+                _sketch_input(GUARD_SB, _shifted_rect_params(20.0)),
+                _extrude_merge(GUARD_EB, GUARD_SB, merge=False),
+                _boolean_input(GUARD_TAIL, "union", GUARD_EA, GUARD_EB),
+            ]
+        )
+    )
+    assert [r.status for r in control.features] == ["ok"] * 5
+    assert control.properties is not None
+    assert control.properties.volume == pytest.approx(
+        UNION_OVERLAP_VOLUME_MM3, abs=BOX_VOLUME_TOLERANCE_MM3
+    )
+
+
+def test_source_less_pattern_and_mirror_never_phantom_on_suppressed_body() -> None:
+    """Guard 5 (§4.3a): a v1 pattern/mirror has NO explicit source FeatureRef —
+    it arrays/reflects the ACTIVE body. So suppressing the sole body creator does
+    not raise ``references_suppressed`` (there is no ref to walk); it correctly
+    degrades to a typed ``no_target_body`` — never a phantom pattern/mirror built
+    off nothing. Both the pattern and the mirror variant are guarded."""
+    for tail in (
+        _mirror_input(GUARD_TAIL, "YZ"),
+        _linear_pattern_input(GUARD_TAIL),
+    ):
+        result = _post(
+            _request(
+                [
+                    _sketch_input(GUARD_SA, rectangle_params()),
+                    _suppress(_extrude_input(GUARD_EA, GUARD_SA)),
+                    tail,
+                ]
+            )
+        )
+        tail_r = result.features[-1]
+        assert tail_r.status == "error", tail
+        assert tail_r.error is not None
+        assert tail_r.error.code == "no_target_body"
+        assert result.mesh_glb_id is None
+
+
+def test_mirror_rebuilds_off_the_reduced_body_when_a_modifier_is_suppressed() -> None:
+    """Guard 5b (§4.3a): with a valid body still present, a source-less mirror
+    honestly rebuilds off the REDUCED body. `[sketch, extrude, fillet(suppressed),
+    mirror(YZ)]`: the fillet is skipped, so the mirror reflects the UN-filleted
+    box -> two disjoint 10000 mm^3 lumps in one body (exact 20000 mm^3), proving
+    the mirror took the last non-suppressed body, not a cached filleted one."""
+    result = _post(
+        _request(
+            [
+                _sketch_input(GUARD_SA, rectangle_params()),
+                _extrude_input(GUARD_EA, GUARD_SA),
+                _suppress(_fillet_input(GUARD_TAIL, 2.0)),
+                _mirror_input(GUARD_SP, "YZ"),
+            ]
+        )
+    )
+    assert [r.status for r in result.features] == ["ok", "ok", "suppressed", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        MIRROR_VOLUME_MM3, abs=BOX_VOLUME_TOLERANCE_MM3
+    )
+
+
+def test_topology_changing_suppress_reevaluates_downstream_off_changed_body() -> None:
+    """Guard 7 (§4.3a): suppressing a feature that CHANGES topology forces the
+    downstream to re-evaluate off the changed body — not a cached one. A pocket
+    through-cut suppressed in `[box, cut, fillet]` makes the fillet round the
+    UN-cut box, byte-identical (same ``mesh_glb_id``, same analytic volume) to the
+    never-cut `[box, fillet]`. Byte identity proves the downstream body genuinely
+    lost the cut's contribution, not merely matched on mass properties."""
+    no_pocket = _post(
+        _request(
+            [
+                _sketch_input(GUARD_SA, rectangle_params()),
+                _extrude_input(GUARD_EA, GUARD_SA),
+                _fillet_input(GUARD_TAIL, 2.0),
+            ]
+        )
+    )
+    pocket_suppressed = _post(
+        _request(
+            [
+                _sketch_input(GUARD_SA, rectangle_params()),
+                _extrude_input(GUARD_EA, GUARD_SA),
+                _sketch_input(GUARD_SP, _small_rect_params()),
+                _suppress(_cut_extrude_input(GUARD_EP, GUARD_SP)),
+                _fillet_input(GUARD_TAIL, 2.0),
+            ]
+        )
+    )
+    assert [r.status for r in pocket_suppressed.features] == [
+        "ok",  # sketch
+        "ok",  # extrude (box)
+        "ok",  # pocket sketch (solves; its cut is suppressed)
+        "suppressed",  # pocket cut
+        "ok",  # fillet on the un-cut box
+    ]
+    assert no_pocket.properties is not None and pocket_suppressed.properties is not None
+    assert pocket_suppressed.properties.volume == pytest.approx(
+        no_pocket.properties.volume, abs=BOX_VOLUME_TOLERANCE_MM3
+    )
+    # Byte identity: the fillet re-evaluated off the un-cut box, so the GLB (hence
+    # its content hash) matches the never-cut variant exactly.
+    assert pocket_suppressed.mesh_glb_id == no_pocket.mesh_glb_id
+    assert pocket_suppressed.mesh_glb_id is not None

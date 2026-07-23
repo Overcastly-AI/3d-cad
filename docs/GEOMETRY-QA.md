@@ -4288,3 +4288,97 @@ unions subtract the overlap (192, 1 shell) and never double-count; symmetric sou
 a clean no-op (144, no sliver); multi-lump sources reflect every lump and double the
 count (2→4); reflected lumps are valid positive-volume solids (OCCT `is_valid`); results
 are byte-deterministic. Only a 🟡 golden-coverage extension is recommended.
+
+---
+
+## 2026-07-23 — Feature suppress slice 1 (`7e20880`) — adversarial correctness QA
+
+Adversarial review of the evaluate-tree suppress control-flow
+(`services/geometry/src/geometry/features/evaluate.py`: `_suppressed_reference_error`
++ the `evaluate_tree` skip/ref-walk). Pushed the seven edges the happy-path tests
+(suppress-fillet, middle-suppress, direct-ref-to-suppressed) miss. All evidence is
+numbers from the real evaluator via `TestClient`; guards added to
+`services/geometry/tests/test_evaluate_tree.py` (7 new, all PASS; full file 48 passed;
+`ruff check`/`ruff format --check`/`pyright` clean).
+
+### 1. Suppress the BASE / first body-creating feature — PASS
+`[sketch, extrude(suppressed), fillet]` → sketch `ok`, extrude `suppressed`, fillet
+`error` code **`no_target_body`** (200, strict prefix). No prior body ⇒ artifact fields
+honestly null (`mesh_glb_id`/`properties` = None, `bodies == []`). No crash, no phantom
+body. Guard: `test_suppressing_the_base_feature_yields_no_phantom_body`.
+
+### 2. Suppress EVERY feature — PASS
+All three rows `suppressed`, `last_good_feature_id` None, no body, no raise, and
+byte-identical across repeat posts. Guard:
+`test_suppressing_every_feature_is_an_empty_deterministic_result`.
+
+### 3. Indirect datum→sketch→extrude, datum suppressed — PASS (no wrong-geometry hazard)
+`[datum(suppressed), sketch-on-datum, extrude]`: the sketch's plane FeatureRef is walked
+by `iter_feature_refs`, so the sketch reports **`references_suppressed`** pinned to the
+datum id — NOT a silent resolve against a stale origin plane. Strict prefix then skips the
+extrude, so the chain builds **no body** (`mesh_glb_id`/`properties` = None). The
+wrong-geometry hazard (an extrude on a phantom plane) cannot occur; the walk catches the
+datum even though the extrude only references it transitively via the sketch. Guard:
+`test_indirect_datum_sketch_extrude_chain_catches_the_suppressed_datum`.
+
+### 4. Suppress one boolean operand — PASS
+`[A, B(suppressed), boolean(union, A, B)]`: the boolean's operand FeatureRef to B →
+**`references_suppressed`** pinned to B. Last-good body is A ALONE — exactly one body,
+V **10000.0** mm³ (the bare box), NOT a half-union or a silent single-body pass. Control
+(both present, overlapping boxes) unions cleanly to V **15000.0** mm³, proving the suppress
+flag alone flipped the outcome. Guard:
+`test_boolean_operand_suppressed_is_typed_not_a_half_union`.
+
+### 5. Suppress a pattern/mirror SOURCE — PASS (design note, not a defect)
+The task expected a `references_suppressed` here, but the **v1 pattern/mirror design is
+source-less**: it arrays/reflects the ACTIVE body via world-space vectors, with NO explicit
+source FeatureRef (`_evaluate_pattern`/`_evaluate_mirror` read `state.active_body`; the
+pattern cut-vs-union mode is inferred from `state.prev_body_feature`, which is advanced
+ONLY on ok body-affecting features, never on a suppressed one). So "suppress the source"
+correctly degrades to a typed **`no_target_body`** when no body remains (no phantom
+pattern/mirror), or an honest rebuild off the REDUCED body when one does: mirror of a
+fillet-suppressed box → un-filleted box reflected about YZ = two disjoint 10000 mm³ lumps
+in one body, V **20000.0** mm³ (proving it took the last non-suppressed body, not a cached
+filleted one). Guards: `test_source_less_pattern_and_mirror_never_phantom_on_suppressed_body`,
+`test_mirror_rebuilds_off_the_reduced_body_when_a_modifier_is_suppressed`.
+
+### 6. Un-suppress round-trip / determinism — PASS
+A suppressed fillet yields geometry byte-identical to the fillet's absence: `[box, extrude]`
+and `[box, extrude, fillet(suppressed)]` share the same `mesh_glb_id`. The suppressed tree
+is byte-deterministic on repeat (existing `test_suppressed_tree_is_byte_deterministic`), and
+the probe hashes reproduced identically across fresh interpreter processes
+(`sha256:e33338…` for the guard-7 body twice, cold-start). No cross-restart drift.
+
+### 7. Volume analytic on a topology-changing suppress — PASS
+`[box, pocket-through-cut(suppressed), fillet]`: the fillet re-evaluates off the UN-cut box,
+producing a GLB **byte-identical** (`mesh_glb_id` `sha256:e33338f1…`, V **9753.19167034292**
+mm³) to the never-cut `[box, fillet]`. Byte identity — not just matching mass properties —
+proves the downstream body genuinely lost the cut's contribution (re-evaluated off the
+changed body, not a cached holed one). Guard:
+`test_topology_changing_suppress_reevaluates_downstream_off_changed_body`.
+
+### Findings filed
+- 🟢 **No defects.** Suppress control flow is correct across all seven edges. A suppressed
+  feature is skipped with no body mutation and no `prev_body_feature`/`last_good` advance;
+  every downstream dependency degrades to a typed per-feature error (`references_suppressed`
+  for a direct/indirect ref, `no_target_body`/`no_prior_body` for a source-less modifier
+  with no body) — never a raise, a phantom body, or wrong geometry. `iter_feature_refs`
+  walks the sketch-plane FeatureRef and both boolean operand refs, so datum and boolean
+  edges are covered without per-feature-type code.
+- 🟡 **Design observation (not a defect), for slice-2/builder awareness** — because v1
+  pattern/mirror are source-less (array/reflect the active body), suppressing an
+  *intermediate* body-affecting feature can silently change a pattern's inferred combine
+  mode: with the immediately-preceding feature suppressed, `state.prev_body_feature` points
+  further back, so a pattern that would have array-CUT (source = a suppressed extrude-cut)
+  instead array-UNIONS whole-body copies (or vice-versa). This follows the documented
+  "infer mode from the immediately-preceding body-affecting feature" rule consistently and
+  deterministically, so it is honest — but it is a non-obvious interaction the slice-2 web
+  toggle UX and any future golden should be aware of. No wrong geometry; flagging for docs.
+
+### VERDICT: SUPPRESS SLICE 1 IS GEOMETRICALLY SOUND — no P0/P1/P2/P3 defects
+Suppressed features are honestly skipped; downstream rebuilds off the last non-suppressed
+body; every broken dependency is a typed 200 error pinned to the suppressed upstream, never
+a crash or a phantom/wrong body; topology-changing suppress re-evaluates downstream
+byte-identically to the never-built variant; results are byte-deterministic including
+`mesh_glb_id`. One 🟡 design observation on source-less pattern combine-mode inference under
+intermediate suppress — behaviour is correct and deterministic, flagged for slice-2 docs/UX.
