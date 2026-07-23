@@ -342,6 +342,26 @@ recipe here in the same commit as the fix.**
   Playwright boots a fresh Vite proxying to the :8000 gateway `just e2e`
   starts. Agents booting an isolated frontend MUST kill their Vite in teardown,
   not just their uvicorns.
+- **Run the batch-end `just e2e` in a QUIET window — never concurrent with
+  heavy agents — and treat a red sweep run under CPU load as UNCONFIRMED.**
+  Seen 2026-07-23: a batch-end sweep kicked off while 2-3 kernel agents were
+  running geometry pytest + booting isolated stacks came back 2 failed / 188
+  passed; both failures were 5s-timeout UI-state waits in the heaviest specs
+  (`full-flow.spec.ts` register→sketch→extrude→export, `sketch-on-face.spec.ts`)
+  — `new-extrude` "solve a sketch first" still disabled, `sketch-strip`
+  toHaveCount(0) got 1. The discriminator that proves FLAKE not regression: the
+  failure POINT MOVED between runs (extrude-enable one run, sketch-strip-dismiss
+  the next) — a real code regression fails identically every time; a
+  contention flake wanders to whichever 5s-gated step loses the CPU race that
+  run. The diff under test (`beb3a21`, drawings-only) didn't touch the
+  sketch/extrude path, and 188 specs passed. Procedure: (a) don't overlap the
+  gate with agent load; (b) if it happens, reconfirm the specific failures by
+  an isolated rerun in a QUIET window before concluding regression — but a
+  moving failure point is already a flake tell; (c) the heavy founder-flow
+  specs' intermediate waits use the default 5s (the `eval-status` wait already
+  uses 30s) — bump the solve/UI-state-gated ones to a generous timeout so the
+  gate is contention-robust (filed as a spec-hardening item, same class as the
+  raster tolerance fix).
 - **A bisect that reproduces a failure at an "earlier green" commit proves the
   failure is NOT in the diff under test — but it does NOT prove "environment."
   Confirm the actual assertion before naming a cause.** Cautionary tale
