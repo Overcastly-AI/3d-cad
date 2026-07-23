@@ -1531,3 +1531,82 @@ Running checklist: `HemEditor` ✅ (edge-flange twin, byte-consistent) ·
 `aria-live`) + P3 gate copy + P3 editor-open screenshot · SHEET METAL group
 Hem/Corner-relief buttons ✅ (honest gating, engraved shortcuts) · full
 viewport corner/bend pick = validated deferred follow-up (roadmap).
+
+---
+
+## 2026-07-23 — SPOT-CHECK: assembly export + clash inspector (`49f01ba`) · section-view author (`06fc019`)
+
+**Method.** Audited the **committed** source (working tree held by concurrent
+agents) + the founder shots `assembly-{export,clash-found,clash-empty}-*`,
+`assembly-clash-found-laptop` (1280), `drawings-section-{before,author,after}-*`
+(1280 + 1440). Cross-referenced `packages/design/tokens.ts` (`assembly.clash`
+/`clashTint`, `drawing.hatch`), `FloatingPanel` (overflow), `ToolButton`
+(`active`→`aria-pressed`).
+
+### Executive verdict — both surfaces are TOOL-GRADE. Ship.
+
+Both new surfaces read as the app's existing quiet precision instruments, not
+bolted-on. **Design-system adherence is clean:** zero raw hex in either
+component; both alarm/hatch inks come from named shared tokens
+(`assembly.clash`=`color.flag`, `clashTint` #F2C9C9, `drawing.hatch` #7A8695)
+consumed by both renderers — the clash flag is one language across DOM tree
+badge + WebGL edge/tint + balloon, and the on-screen hatch reads from the same
+token the server serializer emits. Composed entirely from `Panel`/
+`PanelSection`/`SegmentedControl`/`ToolButton`/`ToolGroup` primitives. **A11y
+floor holds:** `text-flag` (6.5:1 on anvil) clears AA even at `text-2xs`; hatch
+4.0:1 clears the 3:1 graphical-object floor and is `aria-hidden` (decorative
+fill, meaning carried by the "SECTION A-A" caption); async states carry
+`aria-live`/`role="alert"`; visible brass focus on every control; `active`→
+`aria-pressed` on the plane picker; `prefers-reduced-motion` snaps the
+snap-on-solve lerp. **Every chrome element is functional** (rule 3c): the
+clash schedule, export strip, plane picker, and Near/Far toggle all drive real
+state — no decorative readouts. **Empty/error/loading complete:** clash has
+distinct idle ("Run Check interference…"), busy ("Scanning for overlaps…"),
+empty ("No interferences found…"), and error branches; section has
+loading-datums, the client-side not-principal precondition alert (before
+persist), and typed server `failed-view` guidance (`section_plane_not_*`).
+**Responsive:** FloatingPanel caps height + `overflow-y-auto`, so the clash
+schedule and BOM scroll rather than overflow; laptop 1280 shot shows the
+inspector + schedule non-overflowing; the section author is `w-editor
+max-w-full` and clears the 1280 sheet.
+
+### Findings (all polish — none block)
+
+- **P3 — assembly clash schedule — `AssemblyClashPanel.tsx` — pair rows are
+  static, don't navigate.** A machinist reading an interference report expects
+  to click a pair and have the viewport isolate/frame it; today all clashing
+  bodies flush red at once and rows are read-only. Fine for the shipped 2-body
+  case, but with many pairs you can't map a schedule row to its bodies. Not a
+  rule-3c defect (rows reflect real state). *System fix:* make a clash row a
+  selectable control that sets a "focused clash pair" (frame + solo-tint that
+  pair), mirroring the tree's `onSelectInstance` idiom. Screenshot ref:
+  `assembly-clash-found-desktop.png`.
+- **P3 — clash + mate rows — `AssemblyClashPanel.tsx` / `AssemblyTreePanel.tsx`
+  — the `①{n} ✕ ②{n}` glyph double-encodes.** Renders literally as "①1 ✕ ②2":
+  the circled-digit `①`/`②` is used as an A/B slot marker, then the real
+  balloon number follows, so when slot and balloon coincide it reads as a
+  duplicated "①1". First-time-legible only once you know `①`=slot-A. It is
+  *consistent* with the existing mate-row idiom (so not new), but the fix is
+  system-level: extract a shared balloon token/`<Balloon>` element (the same
+  drawn circle the tree/viewport use) instead of the unicode circled-digit as a
+  slot prefix. Screenshot ref: `assembly-clash-found-desktop.png`.
+- **P3 — assembly clash — `AssemblyClashPanel.tsx` comment vs. render.** The
+  panel doc says "flag red is spent on the count + each row's balloons," but
+  the `Interference · N` count sits in the `PanelSection` eyebrow (gauge gray)
+  — only the row balloons are red. Cosmetic/comment drift; either redden the
+  count or fix the comment. Screenshot ref: `assembly-clash-found-desktop.png`.
+- **P3 — assembly export strip — `AssemblyInspectorPanel.tsx` — strip scrolls
+  with a long schedule.** The always-present EXPORT strip sits below the view
+  inside the FloatingPanel scroll area, so a long clash/BOM list scrolls the
+  strip out of the fold. Acceptable (it's reachable), but a sticky-footer strip
+  would keep "the whole solved assembly writes to STEP/STL" always in reach.
+
+Running checklist: `AssemblyClashPanel` ✅ · `AssemblyInspectorPanel`
+(Solve/Parts/Clash toggle + export strip) ✅ · `AssemblyCommandBand`
+(Check-interference, honest `I` gating + "Scanning…" busy caption) ✅ ·
+`AssemblyTreePanel` CLASH badge ✅ · `AssemblyScene`/`InstanceMesh` clash
+edge+tint (shared token, reduced-motion snap) ✅ · `SectionAuthorPanel`
+(plane picker reuses sketch vocabulary, Near/Far, pre-checked precondition,
+`aria-pressed`) ✅ · `DrawingCommandBand` Section action ✅ · `DrawingSheet`
+`SectionHatch` (token-matched ink, `aria-hidden`, typed failed-view guidance)
+✅. 4× P3 polish, zero blockers.
