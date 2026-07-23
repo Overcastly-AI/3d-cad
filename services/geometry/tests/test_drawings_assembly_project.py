@@ -27,6 +27,8 @@ yield a byte-identical result for the same request — asserted here.
 from __future__ import annotations
 
 import math
+import subprocess
+import sys
 import uuid
 from typing import Any
 
@@ -408,3 +410,441 @@ def test_assembly_projection_is_deterministic_in_process() -> None:
     first = evaluate_assembly_drawing_views(req)
     second = evaluate_assembly_drawing_views(req)
     assert first.model_dump_json() == second.model_dump_json()
+
+
+# ============================================================================
+# geometry-qa adversarial guards (2026-07-23, commit 8be617e) — push past the
+# golden per docs/GEOMETRY-QA.md. Each guard is analytically derived; numbers
+# are the observed-and-verified values, not fitted epsilons.
+# ============================================================================
+
+
+def _rect(pfx: str, x0: float, y0: float, x1: float, y1: float) -> list[dict[str, Any]]:
+    """A CCW axis-aligned rectangle as four sketch lines (id-prefixed *pfx*)."""
+    c = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    return [_line(f"{pfx}{i}", c[i], c[(i + 1) % 4]) for i in range(4)]
+
+
+def _two_lump_features() -> list[dict[str, Any]]:
+    """A single PART whose body is a two-solid Compound (multi-lump): two DISJOINT
+    rectangles extruded, the second ``merge=False`` so it starts a second body
+    (an in-chain disjoint ``add`` is rejected by the boolean guard — the merge=False
+    seam is how a part legitimately becomes multi-lump, cf. tests/test_multibody).
+    Lump A world X[-10,-2] Y[-10,10]; lump B world X[2,10] Y[-6,6]; both Z[0,10]."""
+    return [
+        {
+            "id": _uid(201),
+            "feature": {
+                "type": "sketch",
+                "version": 1,
+                "params": {
+                    "plane": {"kind": "datum_plane", "plane": "XY"},
+                    "entities": _rect("a", -10.0, -10.0, -2.0, 10.0),
+                    "constraints": [],
+                },
+            },
+        },
+        {
+            "id": _uid(202),
+            "feature": {
+                "type": "extrude",
+                "version": 1,
+                "params": {
+                    "profile": {"kind": "feature", "feature_id": _uid(201)},
+                    "distance_mm": 10.0,
+                    "operation": "add",
+                    "direction": "normal",
+                },
+            },
+        },
+        {
+            "id": _uid(203),
+            "feature": {
+                "type": "sketch",
+                "version": 1,
+                "params": {
+                    "plane": {"kind": "datum_plane", "plane": "XY"},
+                    "entities": _rect("b", 2.0, -6.0, 10.0, 6.0),
+                    "constraints": [],
+                },
+            },
+        },
+        {
+            "id": _uid(204),
+            "feature": {
+                "type": "extrude",
+                "version": 1,
+                "params": {
+                    "profile": {"kind": "feature", "feature_id": _uid(203)},
+                    "distance_mm": 10.0,
+                    "operation": "add",
+                    "direction": "normal",
+                    "merge": False,
+                },
+            },
+        },
+    ]
+
+
+# --- Off-axis (non-principal) rotation: silhouette matches the analytic extents -
+
+
+def test_off_axis_rotated_instance_matches_analytic_extents() -> None:
+    """A 10(X)x30(Y)x10(Z) box rotated 30° about the WORLD X axis (a non-principal,
+    off-90° pose), projected FRONT and TOP: the projected silhouette extents match
+    the analytic rotated-corner extents to the model tolerance. Proves the placement
+    quaternion flows through ``place_body`` into HLR for an arbitrary angle, not just
+    the 90° swap the existing golden covers.
+
+    Analytic: local corners X in {-5,5} Y in {-15,15} Z in {0,10} rotated about +X
+    by 30deg: y' = y*cos - z*sin, z' = y*sin + z*cos (x' = x). FRONT maps (x, z');
+    TOP maps (x, y')."""
+    ang = math.radians(30.0)
+    c, s = math.cos(ang), math.sin(ang)
+    corners = [
+        (x, y * c - z * s, y * s + z * c)
+        for x in (-5.0, 5.0)
+        for y in (-15.0, 15.0)
+        for z in (0.0, 10.0)
+    ]
+    quat = (math.sin(ang / 2.0), 0.0, 0.0, math.cos(ang / 2.0))
+    inst = _instance(
+        1, "bar@1", _box_features(_uid(31), _uid(32), 10.0, 30.0, 10.0), quat=quat
+    )
+    result = evaluate_assembly_drawing_views(
+        _assembly_request([inst], ["front", "top"])
+    )
+    by_view = {v.view: v for v in result.views}
+    # FRONT view plane axes are world (x, z'); TOP view plane axes are (x, y').
+    for view_name, axis_idx in (("front", 2), ("top", 1)):
+        view = by_view[view_name]
+        assert view.error is None, view.error
+        vis = [e for e in view.edges if e.visible]
+        xs = [c for e in vis for c in (e.start.x_mm, e.end.x_mm)]
+        ys = [c for e in vis for c in (e.start.y_mm, e.end.y_mm)]
+        ax = [p[0] for p in corners]
+        ay = [p[axis_idx] for p in corners]
+        assert min(xs) == pytest.approx(min(ax), abs=COORD_TOL_MM)
+        assert max(xs) == pytest.approx(max(ax), abs=COORD_TOL_MM)
+        assert min(ys) == pytest.approx(min(ay), abs=COORD_TOL_MM)
+        assert max(ys) == pytest.approx(max(ay), abs=COORD_TOL_MM)
+
+
+# --- Iso view is a first-class assembly view (extends the front/top/right golden) -
+
+
+def test_single_instance_assembly_projects_identically_to_the_part_iso() -> None:
+    """The single-instance == part consistency contract, EXTENDED to the iso view
+    (the existing golden proves front/top/right only). A one-instance assembly at
+    identity must project the iso view byte-for-byte the same as the standalone
+    part — the compound-of-one is the bare placed body, and iso is just another
+    frame."""
+    features = _box_features(_uid(41), _uid(42), 30.0, 20.0, 10.0)
+    part = evaluate_drawing_views(
+        EvaluateDrawingViewsRequest.model_validate(
+            {
+                "part_id": _uid(7),
+                "tree_version": 1,
+                "features": features,
+                "views": ["iso"],
+                "scale": {"numerator": 1, "denominator": 1},
+            }
+        )
+    )
+    assembly = evaluate_assembly_drawing_views(
+        _assembly_request([_instance(1, "one@1", features)], ["iso"])
+    )
+    assert part.part_error is None
+    assert assembly.assembly_error is None
+    assert assembly.views[0].error is None
+    assert assembly.views[0].edges == part.views[0].edges, (
+        "single-instance assembly iso view diverged from the standalone part"
+    )
+
+
+def test_two_box_assembly_iso_is_the_union_of_both_cube_silhouettes() -> None:
+    """ISO of the two-box golden assembly: the big 20-cube and the small 8-cube are
+    disjoint in the iso direction too (small offset +40 in Y), so the iso projection
+    is the CLEAN UNION of each cube's own iso silhouette — a lone cube in iso is
+    9 visible + 3 hidden (the classic three-near-faces / one-far-corner), so two
+    non-occluding cubes are 18 visible + 6 hidden with no cross-instance culling."""
+    result = evaluate_assembly_drawing_views(
+        _assembly_request([_big_cube_instance(), _small_cube_instance()], ["iso"])
+    )
+    view = result.views[0]
+    assert view.error is None, view.error
+    visible = [e for e in view.edges if e.visible]
+    hidden = [e for e in view.edges if not e.visible]
+    # A single cube in iso: 9 visible + 3 hidden. Two disjoint cubes = the sum.
+    big_only = evaluate_assembly_drawing_views(
+        _assembly_request([_big_cube_instance()], ["iso"])
+    ).views[0]
+    assert len([e for e in big_only.edges if e.visible]) == 9
+    assert len([e for e in big_only.edges if not e.visible]) == 3
+    assert len(visible) == 18, (
+        f"two disjoint cubes = 18 visible iso edges, got {len(visible)}"
+    )
+    assert len(hidden) == 6, (
+        f"two disjoint cubes = 6 hidden iso edges, got {len(hidden)}"
+    )
+
+
+# --- Multi-lump instance: every lump projected -------------------------------
+
+
+def test_multi_lump_instance_projects_every_lump() -> None:
+    """An instance whose PART body is a two-solid Compound (multi-lump) must project
+    EVERY lump, not just the first. TOP view (maps world x,y): lump A rectangle
+    X[-10,-2] Y[-10,10] and lump B rectangle X[2,10] Y[-6,6] both appear → 8 visible
+    lines, 0 hidden (the lumps are disjoint in the view). A regression that dropped a
+    lump (an ``.solids()[0]`` shortcut somewhere in the compose/HLR path) would fail
+    here — the golden's single-solid instances cannot catch it."""
+    result = evaluate_assembly_drawing_views(
+        _assembly_request([_instance(1, "ML@1", _two_lump_features())], ["top"])
+    )
+    view = result.views[0]
+    assert view.error is None, view.error
+    visible = [e for e in view.edges if e.visible]
+    assert len(visible) == 8, (
+        f"two disjoint lumps = 8 visible lines, got {len(visible)}"
+    )
+    _rect_sides(visible, -10.0, -10.0, -2.0, 10.0)  # lump A
+    _rect_sides(visible, 2.0, -6.0, 10.0, 6.0)  # lump B
+
+
+# --- Deep instance stack: far instances fully hidden -------------------------
+
+
+def test_deep_stack_far_instances_are_all_hidden_nested() -> None:
+    """A big 20-cube in FRONT plus four progressively smaller cubes STACKED behind
+    it (increasing +Y), each strictly inside the big silhouette: the front cube is
+    4 visible, and every behind cube contributes exactly its 4-line rectangle as
+    HIDDEN (dashed) — 4 visible + 16 hidden, no missing and no extra edge. Occlusion
+    ordering across a 5-deep stack, resolved on the whole compound."""
+    instances = [
+        _instance(
+            1,
+            "big@1",
+            _box_features(_uid(11), _uid(12), 20.0, 20.0, 20.0),
+            pos=(0.0, 0.0, -10.0),
+        )
+    ]
+    half = [4.0, 3.5, 3.0, 2.5]  # shrinking, all inside the big X/Z[-10,10] silhouette
+    for i, h in enumerate(half):
+        size = 2.0 * h
+        instances.append(
+            _instance(
+                2 + i,
+                f"in{i}@1",
+                _box_features(_uid(20 + 2 * i), _uid(21 + 2 * i), size, 4.0, size),
+                pos=(0.0, 40.0 + i * 20.0, -h),
+            )
+        )
+    result = evaluate_assembly_drawing_views(_assembly_request(instances, ["front"]))
+    view = result.views[0]
+    assert view.error is None, view.error
+    visible = [e for e in view.edges if e.visible]
+    hidden = [e for e in view.edges if not e.visible]
+    assert len(visible) == 4, f"only the front cube is visible, got {len(visible)}"
+    assert len(hidden) == 16, f"four hidden cubes = 16 dashed lines, got {len(hidden)}"
+    _rect_sides(visible, -10.0, -10.0, 10.0, 10.0)
+    for h in half:
+        _rect_sides(hidden, -h, -h, h, h)  # each behind cube, dashed
+
+
+def test_identical_aligned_stack_culls_to_a_single_silhouette() -> None:
+    """Six IDENTICAL cubes stacked directly behind one another (same x/z extents,
+    increasing +Y): every behind cube projects EXACTLY onto the front cube's visible
+    silhouette, so visible-wins culls all the coincident hidden copies → 4 visible,
+    0 hidden. A stack of aligned identical parts reads as one square (correct), never
+    a pile of overlaid dashed rectangles."""
+    instances = [
+        _instance(
+            i + 1,
+            f"cube{i}@1",
+            _box_features(_uid(100 + 2 * i), _uid(101 + 2 * i), 10.0, 10.0, 10.0),
+            pos=(0.0, i * 20.0, -5.0),
+        )
+        for i in range(6)
+    ]
+    result = evaluate_assembly_drawing_views(_assembly_request(instances, ["front"]))
+    view = result.views[0]
+    assert view.error is None, view.error
+    assert len([e for e in view.edges if e.visible]) == 4
+    assert [e for e in view.edges if not e.visible] == []
+    _rect_sides([e for e in view.edges if e.visible], -5.0, -5.0, 5.0, 5.0)
+
+
+# --- Coincident-face (flush) pair: shared edge once, no doubled line ----------
+
+
+def test_two_flush_boxes_share_one_edge_no_doubling() -> None:
+    """Two boxes FLUSH on a common plane x=0 (C world X[-10,0], D world X[0,10],
+    both Y[-10,10] Z[-10,10]) — a same-plane coincident-face pair. FRONT view: the
+    outer 20x20 silhouette PLUS the single shared boundary line x=0, and the shared
+    line appears EXACTLY ONCE (the two coincident face edges de-dup), never doubled.
+    7 visible lines, 0 hidden."""
+    flush_c = _instance(
+        1,
+        "C@1",
+        _box_features(_uid(51), _uid(52), 10.0, 20.0, 20.0),
+        pos=(-5.0, 0.0, -10.0),
+    )
+    flush_d = _instance(
+        2,
+        "D@1",
+        _box_features(_uid(53), _uid(54), 10.0, 20.0, 20.0),
+        pos=(5.0, 0.0, -10.0),
+    )
+    result = evaluate_assembly_drawing_views(
+        _assembly_request([flush_c, flush_d], ["front"])
+    )
+    view = result.views[0]
+    assert view.error is None, view.error
+    visible = [e for e in view.edges if e.visible]
+    assert [e for e in view.edges if not e.visible] == [], "flush faces are not hidden"
+    assert len(visible) == 7, (
+        f"outer rect (split at x=0) + one shared line = 7, got {len(visible)}"
+    )
+    # The shared boundary line x=0 (Z[-10,10]) is present EXACTLY once.
+    shared = [
+        e
+        for e in _lines(visible)
+        if e.start.x_mm == pytest.approx(0.0, abs=COORD_TOL_MM)
+        and e.end.x_mm == pytest.approx(0.0, abs=COORD_TOL_MM)
+    ]
+    assert len(shared) == 1, f"shared flush edge must appear once, got {len(shared)}"
+
+
+# --- Cross-interpreter determinism of the compound HLR (RESEARCH §9) ----------
+
+_RESTART_PROBE = """
+import sys, uuid
+from geometry.drawings import evaluate_assembly_drawing_views
+from py_kit.schemas.drawings import EvaluateAssemblyDrawingViewsRequest
+def U(n):
+    return str(uuid.UUID(int=n))
+def L(i, a, b):
+    return {"id": i, "kind": "line",
+            "start": {"x": a[0], "y": a[1]}, "end": {"x": b[0], "y": b[1]}}
+def box(sk, ex, sx, sy, sz):
+    hx, hy = sx / 2, sy / 2
+    e = [L("e1", (-hx, -hy), (hx, -hy)), L("e2", (hx, -hy), (hx, hy)),
+         L("e3", (hx, hy), (-hx, hy)), L("e4", (-hx, hy), (-hx, -hy))]
+    sketch = {"id": sk, "feature": {"type": "sketch", "version": 1, "params": {
+        "plane": {"kind": "datum_plane", "plane": "XY"},
+        "entities": e, "constraints": []}}}
+    extrude = {"id": ex, "feature": {"type": "extrude", "version": 1, "params": {
+        "profile": {"kind": "feature", "feature_id": sk},
+        "distance_mm": sz, "operation": "add", "direction": "normal"}}}
+    return [sketch, extrude]
+def inst(n, k, f, p):
+    return {"instance_id": U(n), "part_key": k, "features": f, "placement": {
+        "position": {"x": p[0], "y": p[1], "z": p[2]},
+        "orientation": {"x": 0, "y": 0, "z": 0, "w": 1}}, "grounded": True}
+instances = [
+    inst(1, "big@1", box(U(11), U(12), 20, 20, 20), (0, 0, -10)),
+    inst(2, "small@1", box(U(21), U(22), 8, 8, 8), (0, 40, -4)),
+]
+req = EvaluateAssemblyDrawingViewsRequest.model_validate({
+    "assembly": {"assembly_id": U(9000), "version": 1,
+                 "instances": instances, "mates": []},
+    "views": ["front", "top", "right", "iso"],
+    "scale": {"numerator": 1, "denominator": 1}})
+sys.stdout.write(evaluate_assembly_drawing_views(req).model_dump_json())
+"""
+
+
+def test_assembly_projection_is_deterministic_across_interpreter_restart() -> None:
+    """The compound HLR reproduces byte-for-byte in a FRESH interpreter (worker
+    restart, §8.2 / RESEARCH §9). HLR edge enumeration is construction-history
+    ordered, and the compound children order is request-instance order — a fresh
+    process must yield identical bytes for all four views. A flake here is a P0."""
+    local = evaluate_assembly_drawing_views(
+        _assembly_request(
+            [_big_cube_instance(), _small_cube_instance()],
+            ["front", "top", "right", "iso"],
+        )
+    ).model_dump_json()
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "compound HLR bytes differ across interpreter restart"
+    )
+
+
+# --- KNOWN DEFECT guard (P3, PRE-EXISTING in the shared HLR post-processing) --
+
+
+@pytest.mark.xfail(
+    reason=(
+        "PRE-EXISTING shared-HLR defect (geometry.drawings.project._canonicalize): "
+        "visible-wins culling only drops a hidden edge EXACTLY coincident with a "
+        "visible one, not a hidden edge that PARTIALLY overlaps a collinear visible "
+        "segment. Under partial cross-instance occlusion a body's coincident "
+        "front/back face edge splits into hidden+visible on the near copy while the "
+        "far copy stays a full-length hidden edge, so a segment is emitted BOTH "
+        "dashed and solid. Reproduces on the single-part multi-lump path too (not "
+        "introduced by the assembly slice 8be617e). Filed 2026-07-23; strict=False "
+        "so it flips to XPASS when the shared canonicalize is fixed."
+    ),
+    strict=False,
+)
+def test_partial_occlusion_emits_no_hidden_over_visible_overlap() -> None:
+    """Partial cross-instance occlusion: box A (front slab, world X[-10,10] Y[-5,0]
+    Z[-10,10]) partially occludes box B behind it (world X[0,20] Y[10,15] Z[-5,5]).
+    B's bottom/top edges (Z=±5) should each read HIDDEN over X[0,10] (behind A) and
+    VISIBLE over X[10,20] (clear of A). CORRECT output draws each segment once; the
+    defect additionally emits the FULL-length hidden edge, so X[10,20] is drawn both
+    dashed and solid. This guard asserts the CORRECT invariant: no hidden line
+    collinearly overlaps a visible line."""
+    box_a = _instance(
+        1,
+        "A@1",
+        _box_features(_uid(11), _uid(12), 20.0, 5.0, 20.0),
+        pos=(0.0, -5.0, -10.0),
+    )
+    box_b = _instance(
+        2,
+        "B@1",
+        _box_features(_uid(21), _uid(22), 20.0, 5.0, 10.0),
+        pos=(10.0, 10.0, -5.0),
+    )
+    result = evaluate_assembly_drawing_views(
+        _assembly_request([box_a, box_b], ["front"])
+    )
+    view = result.views[0]
+    assert view.error is None, view.error
+    vis = [
+        ((e.start.x_mm, e.start.y_mm), (e.end.x_mm, e.end.y_mm))
+        for e in _lines(view.edges)
+        if e.visible
+    ]
+    hid = [
+        ((e.start.x_mm, e.start.y_mm), (e.end.x_mm, e.end.y_mm))
+        for e in _lines(view.edges)
+        if not e.visible
+    ]
+
+    def _overlap(seg_h: Any, seg_v: Any) -> bool:
+        (hx0, hy0), (hx1, hy1) = seg_h
+        (vx0, vy0), (vx1, vy1) = seg_v
+        if abs(hy0 - hy1) < 1e-9 and abs(vy0 - vy1) < 1e-9 and abs(hy0 - vy0) < 1e-9:
+            lo = max(min(hx0, hx1), min(vx0, vx1))
+            hi = min(max(hx0, hx1), max(vx0, vx1))
+            return hi - lo > 1e-6
+        if abs(hx0 - hx1) < 1e-9 and abs(vx0 - vx1) < 1e-9 and abs(hx0 - vx0) < 1e-9:
+            lo = max(min(hy0, hy1), min(vy0, vy1))
+            hi = min(max(hy0, hy1), max(vy0, vy1))
+            return hi - lo > 1e-6
+        return False
+
+    overlaps = [(h, v) for h in hid for v in vis if _overlap(h, v)]
+    assert overlaps == [], (
+        f"a hidden (dashed) line overlaps a visible (solid) line: {overlaps}"
+    )

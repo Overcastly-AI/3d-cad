@@ -7,6 +7,113 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — Drawings assembly views slice 1 (`8be617e`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the assembly-drawing projection
+core (`services/geometry/src/geometry/drawings/assembly_project.py`) past its shipped
+golden (big+small cube full-occlusion + union + 90° rotation). The slice solves the
+assembly once, composes every placed instance body into ONE `Compound`
+(`compose_assembly_body`), and runs the SHARED exact HLR (`project_view`) per view.
+I pushed the seven attack families in the brief. **VERDICT: the assembly compose +
+HLR path is GEOMETRICALLY CORRECT — no P0/P1/P2 defect introduced by this slice.**
+One genuine defect exists but is **PRE-EXISTING in the shared HLR post-processing**
+(`project.py::_canonicalize`), reproduces on the single-part drawing path, and is
+merely made *common* by assemblies — filed P3. Added **9 guard tests**
+(`services/geometry/tests/test_drawings_assembly_project.py`, 9→18 passing + 1 xfail;
+ruff format+check + pyright clean).
+
+### 1. Off-axis (non-principal) rotation — CORRECT
+A 10(X)x30(Y)x10(Z) box rotated **30° about world X** (not the golden's 90° swap),
+FRONT + TOP. Projected silhouette extents match the analytic rotated-corner extents
+to displayed precision: FRONT z'∈[-7.5000, 16.1603], TOP y'∈[-17.9904, 12.9904] —
+exactly `y·cos∓z·sin` / `y·sin+z·cos` over the 8 corners. The placement quaternion
+flows through `place_body` into HLR for an arbitrary angle. Guard
+`test_off_axis_rotated_instance_matches_analytic_extents`.
+
+### 2. Iso is a first-class assembly view — CORRECT
+Golden covers front/top/right only. (a) Single-instance == part invariant EXTENDED
+to iso: a one-instance assembly at identity projects the iso view **byte-for-byte**
+equal to the standalone part (12 edges). (b) Two-box golden in iso = clean union of
+each cube's own iso silhouette (a lone cube iso = 9 visible + 3 hidden), so the two
+disjoint cubes = **18 visible + 6 hidden** with zero cross-instance culling. Guards
+`test_single_instance_assembly_projects_identically_to_the_part_iso`,
+`test_two_box_assembly_iso_is_the_union_of_both_cube_silhouettes`.
+
+### 3. Multi-lump instance — CORRECT
+An instance whose PART body is a two-solid `Compound` (built via a `merge=False`
+second extrude — an in-chain disjoint `add` is rejected by the boolean lump guard).
+TOP view projects **both** lumps: X[-10,-2]Y[-10,10] and X[2,10]Y[-6,6] → 8 visible,
+0 hidden. No `.solids()[0]` shortcut drops a lump anywhere in compose/HLR. Guard
+`test_multi_lump_instance_projects_every_lump`.
+
+### 4. Deep instance stack (depth ordering) — CORRECT
+(a) Big front 20-cube + **four** progressively smaller cubes stacked behind it, each
+strictly inside the big silhouette → 4 visible (front cube) + **16 hidden** (four
+nested dashed rectangles at half-extents 4.0/3.5/3.0/2.5), no missing/extra edge.
+(b) **Six identical aligned** cubes stacked in depth → every behind copy projects
+exactly onto the front silhouette, visible-wins culls all coincident hidden copies →
+4 visible, 0 hidden (reads as one square, correct). Guards
+`test_deep_stack_far_instances_are_all_hidden_nested`,
+`test_identical_aligned_stack_culls_to_a_single_silhouette`.
+
+### 5. Coincident-face (flush) pair — CORRECT, no doubled line
+Two boxes flush on x=0 (C world X[-10,0], D X[0,10]) FRONT → outer 20x20 silhouette
+split at x=0 PLUS the single shared boundary line, which appears **exactly once**
+(the two coincident face edges de-dup): 7 visible, 0 hidden. Guard
+`test_two_flush_boxes_share_one_edge_no_doubling`.
+
+### 6. Determinism — CORRECT (in-process + cross-interpreter)
+The compound HLR is byte-identical across repeated in-process eval (existing) AND
+across a **fresh interpreter** (subprocess restart probe over all four views —
+compound-children order is request-instance order, HLR + canonical sort pin the rest):
+`sha256(model_dump_json)` identical across 3 independent processes (`c8460174…`).
+Guard `test_assembly_projection_is_deterministic_across_interpreter_restart`.
+
+### 7. Interpenetrating (volume-overlapping) instances — SAFE, honest limitation
+Two boxes sharing volume (A [-10,10]³, B offset (10,10,0)) project without a crash and
+with correct mutual occlusion (FRONT 8V/4H, ISO 16V/3H). NB the true *intersection
+seam* between two interpenetrating solids is NOT drawn — a `Compound` is not a boolean
+union, so no such topological edge exists. This is honest, matches the module's stated
+contract ("occlusion resolved ACROSS instances," not boolean seams), and mirrors how
+every kernel drawing/interference path treats a compound. Observation, not a defect.
+
+### 🟠 P3 (PRE-EXISTING, shared HLR) — partial occlusion emits a dashed line over a solid line
+**Evidence.** Box A (front slab, world X[-10,10] Y[-5,0] Z[-10,10]) *partially*
+occludes box B behind it (world X[0,20] Y[10,15] Z[-5,5]). FRONT view — B's bottom
+edge at z=-5 (analytically: hidden over X[0,10], visible over X[10,20]) is emitted as
+**three** edges:
+```
+H (0,-5)->(10,-5)     # correct dashed portion, behind A
+V (10,-5)->(20,-5)    # correct solid portion, clear of A
+H (0,-5)->(20,-5)     # SPURIOUS full-length hidden edge  <-- defect
+```
+so segment X[10,20] is drawn **both dashed and solid**, and X[0,10] is drawn dashed
+twice (same for the z=+5 edge → 2 hidden-over-visible overlaps).
+**Root cause.** `geometry.drawings.project._canonicalize` visible-wins culling drops a
+hidden edge only when it is EXACTLY coincident with a visible one; it does not resolve
+a hidden edge that *partially* overlaps a collinear visible segment. B's coincident
+front/back bottom face edges: HLR splits the near copy into H+V at the occlusion
+boundary while the far copy stays a single full-length hidden edge; the two are not
+key-equal, so neither de-dup nor visible-wins removes the redundant dashed run.
+**Attribution.** NOT introduced by `8be617e` — reproduces identically on the SINGLE
+PART drawing path (`evaluate_drawing_views` on a `merge=False` multi-lump part), so it
+lives in the shared `project.py`, not the assembly compose. The assembly slice only
+makes it *common* (partial inter-part occlusion is the norm in assemblies) and its
+golden (full occlusion only) cannot catch it.
+**Severity P3:** all edge COORDINATES are correct and occlusion assignment is correct;
+this is a redundant/contradictory *visibility* classification (a dashed line bleeding
+over a solid one) — not wrong geometry, mass, topology, or a crash. Reachable in the
+UI wherever one part partially occludes another. Guard (asserts the correct invariant,
+`xfail(strict=False)` so it flips to XPASS on fix):
+`test_partial_occlusion_emits_no_hidden_over_visible_overlap`.
+
+### VERDICT: ASSEMBLY-DRAWING SLICE 1 IS GEOMETRICALLY SOUND
+Off-axis rotation, iso, multi-lump, deep-depth occlusion, flush coincident faces, and
+determinism (incl. cross-interpreter) all hold to analytic tolerance. The one real
+defect is a pre-existing shared-HLR visible-wins gap (P3), filed against
+`drawings/project.py`, not this slice. Coverage extended 9→18 goldens + 1 documenting
+xfail.
+
 ## 2026-07-23 — Hole slice 2: counterbore + countersink (`d82cd27`) — adversarial geometry QA (geometry-qa)
 
 **Scope.** Independent adversarial verification of the counterbore/countersink
