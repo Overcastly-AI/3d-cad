@@ -342,19 +342,29 @@ recipe here in the same commit as the fix.**
   Playwright boots a fresh Vite proxying to the :8000 gateway `just e2e`
   starts. Agents booting an isolated frontend MUST kill their Vite in teardown,
   not just their uvicorns.
-- **After a CONTAINER RESTART, real-pointer pick specs + pixel-fit asserts can
-  go red ENVIRONMENTALLY — bisect against a pre-restart-green commit before
-  blaming code.** Seen 2026-07-22: the batch-end `just e2e` failed 6 specs (5
-  measure vertex/corner picks — readout never appears — + undo-redo's 1280
-  command-band ≤0px fit, "Received: 1"). Four-point bisect (HEAD → `0c10265` →
-  `47c88f4` → `24b1c53`) reproduced the SAME failures at a commit that was
-  full-suite green in the pre-restart container: the restart's Chromium/GL
-  raster + font metrics shifted sub-pixel, real-pointer pick coordinates
-  computed from live canvas geometry now miss, and a 1px band measurement
-  drifted. Verdict procedure: rerun the failures in ISOLATION first (flake
-  check), then bisect to a known-green-in-a-previous-container commit — same
-  failures there = environment. Fix is spec robustness (tracked in BACKLOG:
-  raster-tolerant picks + toleranced px asserts), not code reverts.
+- **A bisect that reproduces a failure at an "earlier green" commit proves the
+  failure is NOT in the diff under test — but it does NOT prove "environment."
+  Confirm the actual assertion before naming a cause.** Cautionary tale
+  (2026-07-22): a batch-end `just e2e` failed 6 specs; a four-point bisect (HEAD
+  → `0c10265` → `47c88f4` → `24b1c53`) reproduced them all at a commit believed
+  green, and the orchestrator concluded "container-restart raster drift" and
+  filed it as such. A qa-tester then read the specs and found the real cause: 5
+  of the 6 (the measure specs) asserted the STALE pre-units-convention readout
+  string `"37.42"`, but the units change (`70ce39d`, 2026-07-17) switched the
+  readout to `formatLength` → `"37.4166 mm"` — and that commit is an ANCESTOR of
+  all three bisect points, so they were deterministically red there too, for a
+  code/assertion reason, not the environment. The `toHaveText("37.42")` timeout
+  was misread as "the readout never appears" when it appears with the correct
+  value in a new format. Only the undo-redo 1280 band-fit (`≤0px` → `Received:
+  1`) was genuine sub-pixel raster drift (fixed with a documented ≤2px
+  tolerance). Lessons: (a) the "green" end of a bisect must be a commit you have
+  actually seen pass, not one assumed to; a shared ancestor bug hides from every
+  bisect point below it. (b) Before concluding "environment," open the spec and
+  read the EXACT expected-vs-received — a stale golden/format string and a raster
+  miss look identical through a `toHaveText` timeout. (c) DOM-overlay picks
+  (`getByTestId("measure-vertex-N")`) are already raster-independent, so "pick
+  coords drifted" was never even applicable to those specs. Measure/undo-redo
+  specs are container-robust as of `1e1395d`.
 - **Founder screenshots are refresh-on-demand, not a per-run output.** `just
   e2e` used to rewrite ~90 PNGs under `docs/screenshots/` every run, forcing a
   noise commit. Two churn sources: (1) the per-run random session email in the
