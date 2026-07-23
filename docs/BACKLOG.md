@@ -26,10 +26,11 @@ duplication.
   STEP **export** now real, **import** still missing — the one-way gap narrowed
   to inbound-only). Drawings (dead-capability drain
   mostly closed this batch — title-block/first-angle/dimension-placement/notes
-  all wired; section-view KERNEL OP shipped + geometry-verified 2026-07-23 but
-  NOT end-to-end — the gateway compose path never threads persisted
-  `section_params`, so a stored section renders empty [E1, P1 below]; still no
-  detail views, assembly views/BOM/balloons, GD&T). Sheet
+  all wired; section views now END-TO-END (E1a shipped 2026-07-23 — the wire
+  carries per-view `section_params` and the gateway threads each persisted
+  view's datum, so a stored section actually cuts + hatches; web authoring of
+  the datum+offset is the E1b follow-up); still no detail views, assembly
+  views/BOM/balloons, GD&T). Sheet
   metal (bend chains + corner relief + closed hem + edge-flange WIDTH EXTENTS
   + auto bend-end relief shipped, all click-authorable in-app; still no open/
   teardrop/rolled hems, miters, tabs, or gauge tables).
@@ -72,25 +73,28 @@ frame refactor are v2/§11. Spike de-collected.
       canonicalised NAUO occurrence ids); worked export→re-import→placement
       round-trip + PRODUCT-name traceability + no-body 422 over the bolted
       goldens. See Done archive.
-- [ ] (P1, M) **E1 — Section views END-TO-END wire (make the shipped kernel op a
-      real capability).** The section-view kernel op (`drawings/section.py`) is
-      shipped + geometry-QA-verified, but the capability is DEAD end-to-end: the
-      gateway compose path `_compose_request` (`services/gateway/src/gateway/
-      drawings.py`) never threads the persisted `section_params` (`grep section`
-      there → 0 hits), so a stored `section` view composes with
-      `section_params=None` → geometry `section_params_missing`; and documents
-      persists `section_params` PER-VIEW while the compose/evaluate wire carries it
-      at a mismatched level (`py_kit/schemas/drawings.py:564/604/1005`) — the wire
-      can't represent >1 section view. Acceptance: thread each persisted view's
-      `section_params` through gateway compose → geometry; the wire represents
-      per-view section params (fix the level mismatch); a stored section view
-      composes to a real hatched section in SVG/PDF/DXF; a **guard golden/e2e that
-      authors→persists→composes a section end-to-end** (not a unit test that
-      injects the param directly — that's the dead-capability tell); a minimal web
-      authoring surface to set a view's section datum+offset (or an explicit
-      "authoring is a follow-up slice" note if split). This is the same
-      dead-capability class as the drawings D1-D4 drain. [src: AUDIT-ENGINEERING.md
-      E1 2026-07-23]
+- [x] (P1, M) **E1a — Section views END-TO-END wire (make the shipped kernel op a
+      real capability). Shipped 2026-07-23.** Reshaped the geometry evaluate +
+      compose wire so `section_params` is PER-VIEW — replaced the single
+      request-level field with a map keyed by the section view's INDEX into `views`
+      (`EvaluateDrawingViewsRequest.section_params: dict[int, SectionViewParams]`,
+      `py_kit/schemas/drawings.py`), fixing the level mismatch and making >1 section
+      view representable; a non-section request carries an empty map and composes
+      byte-identically. geometry now consumes each section view's own params
+      (`drawings/evaluate.py`), and the gateway `_compose_request` threads each
+      persisted `ViewResponse.section_params` into that map (`grep section
+      services/gateway/src/gateway/drawings.py` → 9 hits, was 0). Guards: a geometry
+      end-to-end test composes a stored section (multi-view sheet: front + section)
+      to a REAL hatched-section SVG — not `section_params_missing` — with a contrast
+      test proving the empty-map path is the dead capability E1 replaced
+      (`test_drawings_section.py`); the gateway half asserts `_compose_request`
+      threads the persisted per-view params (`test_drawing_export_proxy.py`). Existing
+      section/compose goldens byte-stable; contracts + ts-client regenerated.
+- [ ] (P2, S) **E1b — Section-view web authoring surface (apps/web).** E1a made a
+      stored section view compose end-to-end; the remaining half is a minimal
+      frontend surface to SET a view's section datum + offset/flip (currently only
+      settable via the documents view-create API). Invokes the `frontend-design`
+      skill. [src: AUDIT-ENGINEERING.md E1 2026-07-23]
 - [x] (P1, M) Assembly interference/collision detection. **Shipped 2026-07-23**
       — `POST /api/v1/assembly/interference` (geometry) + auth'd/rate-limited
       gateway proxy; reuses `EvaluateAssemblyRequest` input + new
@@ -642,6 +646,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-23 — **E1a — Section views END-TO-END wire (kernel-architect):**
+  per-view `section_params` map (`dict[int, SectionViewParams]`) on the geometry
+  evaluate/compose wire; gateway `_compose_request` threads each persisted view's
+  datum; geometry end-to-end + gateway-threading guard tests; E1b (web authoring)
+  deferred. Non-section sheets byte-identical.
 - 2026-07-23 — **Groom + restock (backlog-groomer):** reconciled BACKLOG +
   ROADMAP against `a6a5814..0ed9f74` (18 Ready items archived as one-liners);
   formalized the fresh product-audit findings into 3 P0/P1 assembly-interop

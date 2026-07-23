@@ -1004,21 +1004,23 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       the real stack — lay out + dimension, click Export DXF, catch the download,
       assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
       **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
-      pillar: detail/assembly views (section-view KERNEL OP shipped + verified, but
-      end-to-end wire is PENDING as E1/P1 — see below; DE-1c client-placement
-      cutover DONE — see below).
-      **Drawings SECTION VIEWS v1 — KERNEL OP SHIPPED + GEOMETRY-VERIFIED; END-TO-END
-      WIRE PENDING (E1, P1) (2026-07-23, `137a929`→`57dca7a`).** HONESTY CORRECTION
-      (engineering audit `d980764`): the kernel op below is real and adversarially
-      QA-verified, but the capability is **not yet end-to-end** — the gateway
-      compose path (`_compose_request`, `services/gateway/src/gateway/drawings.py`)
-      **never threads the persisted `section_params`** (`grep section` there → 0
-      hits), so a stored `section` view composes with `section_params=None` →
-      geometry returns `section_params_missing`; there is also no web authoring
-      surface, and the per-view persistence vs. request-level compose field is a
-      wire mismatch. Tracked as **E1 (P1)** in BACKLOG — do NOT call the drawings
-      section-view row ✅ on the scorecard until E1 lands. What IS shipped +
-      verified:
+      pillar: detail/assembly views (section-view now END-TO-END — E1a done 2026-07-23,
+      see below; web authoring of the section datum is the E1b follow-up; DE-1c
+      client-placement cutover DONE — see below).
+      **Drawings SECTION VIEWS v1 — NOW END-TO-END (E1a SHIPPED 2026-07-23).** The
+      kernel op below (shipped + adversarially geometry-QA-verified 2026-07-23,
+      `137a929`→`57dca7a`) is now a REAL capability: the geometry evaluate/compose
+      wire carries `section_params` PER-VIEW (a `dict[int, SectionViewParams]` keyed
+      by the section view's index into `views`, replacing the level-mismatched single
+      request field — non-section sheets stay byte-identical), geometry consumes each
+      section view's own params, and the gateway `_compose_request` threads each
+      persisted `ViewResponse.section_params` into that map (`grep section` in
+      `services/gateway/src/gateway/drawings.py` → hits, was 0). A geometry
+      end-to-end guard composes a stored section (multi-view front+section sheet) to a
+      real hatched-section SVG (never `section_params_missing`) + a gateway test guards
+      the threading. Remaining: **E1b (P2)** — a web surface to author a view's section
+      datum+offset (currently API-only). The scorecard section-view row can move toward
+      ✅ for export; the on-screen authoring surface is E1b. What is shipped + verified:
       single planar full section of a single-body part by
       principal / axis-aligned-offset datum reference — `drawings/section.py`
       half-space cut (`boolean_bodies(allow_disjoint=True)`), exact coplanar

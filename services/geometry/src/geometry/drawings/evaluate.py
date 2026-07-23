@@ -305,7 +305,7 @@ def evaluate_drawing_views(
 
     body = evaluation.body
     views: list[DrawingViewResult] = []
-    for view in request.views:
+    for index, view in enumerate(request.views):
         if view == FLAT_PATTERN_VIEW:
             # A flat_pattern view SKIPS HLR (sheet-metal.md §7): it unfolds the
             # sheet-metal body and feeds the edge_role-tagged outline + bend table
@@ -317,10 +317,17 @@ def evaluate_drawing_views(
             # A section view (drawings-section.md §2) resolves its cutting plane, cuts
             # the eye-side half, then projects the behind-geometry through the SAME HLR
             # seam with the derived standard direction (no frame refactor, §3) — its
-            # own evaluate arm, mirroring flat_pattern. Handled entirely inside.
+            # own evaluate arm, mirroring flat_pattern. Handled entirely inside. Each
+            # section view reads ITS OWN params from the per-view `section_params` map
+            # (keyed by this view's index into `views`, §1) — the level-correct wire
+            # that binds params to a specific view; a section view with no entry is a
+            # typed `section_params_missing` inside `section_view_result`.
             views.append(
                 section_view_result(
-                    evaluation, request.section_params, request.scale, scale_value
+                    evaluation,
+                    request.section_params.get(index),
+                    request.scale,
+                    scale_value,
                 )
             )
             continue

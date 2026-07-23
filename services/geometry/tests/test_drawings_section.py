@@ -44,6 +44,9 @@ from py_kit.schemas.drawings import (
     ProjectedViewEdge,
     SectionFaceLoop,
     SectionViewParams,
+    SheetLayout,
+    SheetPoint,
+    SheetViewPlacement,
     ViewScale,
 )
 from py_kit.schemas.features import (
@@ -79,7 +82,7 @@ def _section(model: str, ref: GeomRef, flip: bool) -> DrawingViewResult:
         tree_version=1,
         features=feats,
         views=["section"],
-        section_params=SectionViewParams(plane=ref, flip=flip),
+        section_params={0: SectionViewParams(plane=ref, flip=flip)},
         scale=ViewScale(numerator=1, denominator=1),
     )
     result = evaluate_drawing_views(request)
@@ -304,9 +307,110 @@ def test_missing_section_params_is_typed() -> None:
         tree_version=1,
         features=_features("bored_model.json"),
         views=["section"],
-        section_params=None,
+        section_params={},
         scale=ViewScale(numerator=1, denominator=1),
     )
     view = next(v for v in evaluate_drawing_views(request).views if v.view == "section")
     assert view.error is not None
     assert view.error.code == "section_params_missing"
+
+
+# --- gate 5: END-TO-END per-view section wire (engineering audit E1a) ------------
+# The load-bearing guard that the shipped section KERNEL op is a REAL end-to-end
+# capability, not dead behind an unwired gateway (audit E1). The params here ride the
+# LEVEL-CORRECT per-view `section_params` map (keyed by the section view's INDEX into
+# `views`) — the exact shape the gateway's `_compose_request` now threads from each
+# persisted `ViewResponse.section_params`; that gateway-threading half is guarded by
+# `services/gateway/tests/test_drawing_export_proxy.py::
+# test_section_view_threads_persisted_params_into_compose`. A MULTI-view sheet (a plain
+# `front` HLR view + a `section` view) exercises the per-view association: the section's
+# datum binds to the SECTION view only, never the front. `views[1]` is the section view.
+_SECTION_INDEX = 1
+
+
+def _multiview_section_request(
+    section_params: dict[int, SectionViewParams],
+) -> ComposeDrawingRequest:
+    """A front + section compose request for the bored plate, params keyed PER-VIEW.
+
+    Mirrors what the gateway assembles from persisted drawing state: ``views`` names the
+    two projections in order and ``section_params`` binds the cutting datum to the
+    section view BY INDEX. An empty map reproduces the pre-fix DEAD path (a stored
+    section view whose params never reached geometry → ``section_params_missing``).
+    """
+    scale = ViewScale(numerator=1, denominator=1)
+
+    def placement(projection: str, x: float) -> SheetViewPlacement:
+        return SheetViewPlacement(
+            projection=projection,  # type: ignore[arg-type]
+            position=SheetPoint(x_mm=x, y_mm=105.0),
+            scale=scale,
+        )
+
+    return ComposeDrawingRequest(
+        part_id=UUID(int=7),
+        tree_version=1,
+        features=_features("bored_model.json"),
+        views=["front", "section"],
+        section_params=section_params,
+        scale=scale,
+        dimensions=[],
+        layout=SheetLayout(
+            size="A4",
+            orientation="landscape",
+            projection="third_angle",
+            title="Section E2E",
+            title_block=None,
+            views=[placement("front", 90.0), placement("section", 210.0)],
+        ),
+        annotations=[],
+        format="svg",
+    )
+
+
+def _compose_multiview(
+    request: ComposeDrawingRequest,
+) -> tuple[DrawingViewResult, DrawingViewResult, str]:
+    evaluation = evaluate_drawing_views(request)
+    front = next(v for v in evaluation.views if v.view == "front")
+    section = next(v for v in evaluation.views if v.view == "section")
+    svg = serialize_svg(
+        place_sheet(evaluation, request.dimensions, request.layout, request.annotations)
+    )
+    return front, section, svg
+
+
+def test_stored_section_view_composes_a_hatched_section_end_to_end() -> None:
+    """E1a: a section view whose params ride the per-view ``section_params`` map cuts +
+    hatches for REAL through the whole persist→compose wire — the composed SVG carries
+    the section's crosshatch and the view errors NOWHERE. On a multi-view sheet the
+    front view is a plain HLR view (no cut, no hatch), proving the per-view binding."""
+    front, section, svg = _compose_multiview(
+        _multiview_section_request(
+            {
+                _SECTION_INDEX: SectionViewParams(
+                    plane=FeatureRef(kind="feature", feature_id=_BORED_DATUM),
+                    flip=False,
+                )
+            }
+        )
+    )
+    assert section.error is None, "the threaded section view must compose cleanly"
+    assert section.section_faces, "a real cross-section face must be produced"
+    assert len(section.section_faces[0].holes) == 2, "the two bores carve the section"
+    assert 'data-testid="drawing-hatch"' in svg, "the section renders its crosshatch"
+    # Per-view association: the datum bound to the SECTION view, not the plain front.
+    assert front.error is None
+    assert not front.section_faces, "the front view is a plain HLR view — no section"
+
+
+def test_unwired_section_params_reproduces_the_dead_capability_e1_fixes() -> None:
+    """The exact defect E1 fixes: WITHOUT a per-view entry the SAME stored section view
+    composes EMPTY — a typed ``section_params_missing`` and NO crosshatch in the SVG.
+    Threading the params (the test above) is the only thing that flips it to a real
+    section, so this guards against the wire silently reverting to dead."""
+    _front, section, svg = _compose_multiview(_multiview_section_request({}))
+    assert section.error is not None
+    assert section.error.code == "section_params_missing"
+    assert not section.section_faces
+    assert 'data-testid="drawing-hatch"' not in svg, "no params → no rendered section"

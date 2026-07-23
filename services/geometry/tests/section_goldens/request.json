@@ -128,11 +128,13 @@
   },
   "dimensions": [],
   "section_params": {
-    "plane": {
-      "kind": "feature",
-      "feature_id": "00000000-0000-0000-0000-0000000000c1"
-    },
-    "flip": false
+    "0": {
+      "plane": {
+        "kind": "feature",
+        "feature_id": "00000000-0000-0000-0000-0000000000c1"
+      },
+      "flip": false
+    }
   },
   "layout": {
     "size": "A4",

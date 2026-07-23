@@ -3560,8 +3560,13 @@ export interface components {
              *     }
              */
             scale: components["schemas"]["ViewScale"];
-            /** @description The cutting plane + flip for a `section` view (drawings-section.md §1). Required iff `views` contains `section`; ignored otherwise. Null (the default) → no section view, byte-for-byte the pre-section state. */
-            section_params?: components["schemas"]["SectionViewParams"] | null;
+            /**
+             * Section Params
+             * @description Per-view section parameters, keyed by the INDEX into `views` of each `section` view (drawings-section.md §1). The `section` view at `views[i]` takes its cutting plane + flip from `section_params[i]`; a `section` view with no matching entry resolves to a typed `section_params_missing` (never a crash). Keyed PER-VIEW (not a single request-level value) so params bind to a SPECIFIC view and more than one section view is representable. Empty (the default) → no section view: a non-section request carries an empty map and behaves byte-for-byte as the pre-section state.
+             */
+            section_params?: {
+                [key: string]: components["schemas"]["SectionViewParams"];
+            };
             /**
              * Tree Version
              * @description Echoed back; cache/correlation key

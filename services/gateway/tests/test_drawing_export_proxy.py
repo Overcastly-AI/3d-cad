@@ -35,12 +35,14 @@ from py_kit.schemas.drawings import (
     DrawingTreeResponse,
     LinearDimensionParams,
     PointToPointMeasurement,
+    SectionViewParams,
     SheetContent,
     SheetResponse,
     ViewResponse,
     ViewScale,
 )
 from py_kit.schemas.features import (
+    DatumPlaneRef,
     EdgeSignature,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
@@ -58,6 +60,7 @@ PART = uuid.UUID("00000000-0000-0000-0000-0000000000fa")
 SHEET = uuid.UUID("00000000-0000-0000-0000-0000000000a0")
 FRONT_VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000b0")
 TOP_VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+SECTION_VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 DIM = uuid.UUID("00000000-0000-0000-0000-0000000000c0")
 SKETCH = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 
@@ -170,6 +173,49 @@ def _assembly_drawing_tree() -> DrawingTreeResponse:
     view = tree.sheets[0].views[0]
     view.ref_document_kind = "assembly"
     tree.sheets[0].views = [view]
+    return tree
+
+
+def _section_drawing_tree() -> DrawingTreeResponse:
+    """A one-sheet drawing: a plain FRONT view + a SECTION view whose cutting datum is
+    persisted PER-VIEW on the view (`ViewResponse.section_params`), exactly as documents
+    stores it. The gateway must thread the section view's params into the relayed
+    compose request; the front view carries none (audit E1a)."""
+    tree = _drawing_tree()
+
+    def view(
+        view_id: uuid.UUID,
+        projection: str,
+        order: int,
+        section_params: SectionViewParams | None = None,
+    ) -> ViewResponse:
+        return ViewResponse(
+            id=view_id,
+            sheet_id=SHEET,
+            ref_document_id=PART,
+            ref_document_kind="part",
+            ref_pinned_version=None,
+            projection=projection,  # type: ignore[arg-type]
+            scale=ViewScale(numerator=1, denominator=1),
+            position={"x_mm": 50.0 + order * 120.0, "y_mm": 105.0},  # type: ignore[arg-type]
+            section_params=section_params,
+            order_index=order,
+            created_at=NOW,  # type: ignore[arg-type]
+            updated_at=NOW,  # type: ignore[arg-type]
+        )
+
+    tree.sheets[0].views = [
+        view(FRONT_VIEW, "front", 0),
+        view(
+            SECTION_VIEW,
+            "section",
+            1,
+            SectionViewParams(
+                plane=DatumPlaneRef(kind="datum_plane", plane="XY"), flip=False
+            ),
+        ),
+    ]
+    tree.sheets[0].dimensions = []
     return tree
 
 
@@ -615,6 +661,66 @@ def test_sheet_aggregates_and_returns_composed_sheet_model(db_url: str) -> None:
     assert relayed.views == ["front", "top"]
     assert [d.view for d in relayed.dimensions] == ["front"]
     assert relayed.layout.title == "Bracket — Detail"
+
+
+def test_section_view_threads_persisted_params_into_compose(db_url: str) -> None:
+    """E1a (the gateway half of the end-to-end section guard): a stored SECTION view's
+    per-view ``ViewResponse.section_params`` is threaded into the relayed
+    ``ComposeDrawingRequest.section_params`` map, keyed by the section view's INDEX in
+    ``views`` — so a stored section actually cuts + hatches downstream instead of
+    composing empty with ``section_params_missing`` (the dead-capability audit E1). The
+    plain front view (index 0) contributes NO entry. The render half — that this
+    threaded map produces a real hatched section SVG — is guarded geometry-side by
+    ``services/geometry/tests/test_drawings_section.py::
+    test_stored_section_view_composes_a_hatched_section_end_to_end``."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_section(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        if request.url.path == f"/api/v1/drawings/{DRAWING}":
+            return httpx.Response(
+                200, content=_section_drawing_tree().model_dump_json()
+            )
+        if request.url.path == f"/api/v1/parts/{PART}/evaluation-request":
+            return httpx.Response(200, content=_evaluation_request().model_dump_json())
+        raise AssertionError(f"unexpected documents path {request.url.path}")
+
+    with make_client(
+        db_url, documents_section, _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.views == ["front", "section"]
+    # The section view is index 1; its persisted datum is threaded there and nowhere
+    # else — the front view (index 0) has no entry.
+    assert set(relayed.section_params) == {1}
+    assert relayed.section_params[1] == SectionViewParams(
+        plane=DatumPlaneRef(kind="datum_plane", plane="XY"), flip=False
+    )
+    assert [v.projection for v in relayed.layout.views] == ["front", "section"]
+
+
+def test_non_section_sheet_relays_an_empty_section_params_map(db_url: str) -> None:
+    """Backward-compat: a sheet with no section view threads an EMPTY per-view
+    ``section_params`` map, so a non-section drawing composes byte-for-byte as before
+    the per-view wire landed."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.section_params == {}
 
 
 def test_sheet_missing_or_foreign_drawing_is_404(db_url: str) -> None:

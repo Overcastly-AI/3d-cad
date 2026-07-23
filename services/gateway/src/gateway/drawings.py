@@ -452,6 +452,18 @@ def _compose_request(
         tree_version=evaluation_request.tree_version,
         features=evaluation_request.features,
         views=[v.projection for v in views],
+        # Thread each persisted view's section datum + flip into the per-view
+        # `section_params` map (keyed by the view's INDEX into `views`, mirroring the
+        # `views` comprehension above), so a stored `section` view actually cuts +
+        # hatches instead of composing empty with `section_params_missing` (audit E1).
+        # documents persists `section_params` PER-VIEW (`ViewResponse.section_params`,
+        # NULL for every non-section view), so a non-section sheet yields an empty map
+        # and composes byte-identically.
+        section_params={
+            index: view.section_params
+            for index, view in enumerate(views)
+            if view.section_params is not None
+        },
         # v1 drafts a single shared scale across the standard views (the frontend's
         # `effectiveScaleValue`) — the first placed view carries it.
         scale=views[0].scale,
