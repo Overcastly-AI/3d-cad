@@ -202,17 +202,21 @@ scorecard impact → core capability → polish).
       point in all three formats + byte-determinism across restart; a note-free
       sheet stays byte-identical (additive). The paired DOM-sheet render is the
       follow-on below. [src: founder dogfooding — WB-64]
-- [ ] (P2, S) Drawings: note render — DOM sheet half (paired follow-on to the
-      export half shipped 2026-07-23). The server-composed SVG/PDF/DXF now draw
-      notes at their `SheetPoint`, but the on-screen `DrawingSheet.tsx` still does
-      NOT render authored notes, so a note is visible in the export yet invisible
-      while editing. Acceptance: an authored note renders on the DOM sheet at its
-      `SheetPoint` (mirroring the composed `ComposedNote`: left-anchored ink text,
-      same height — add the matching `drawing.noteTextMm` design token so the DOM
-      note and the exported note are one height); the annotations panel lists/
-      deletes it. Kernel contract is fixed: `ComposedSheet.notes[]` (x/y in final
-      sheet-SVG space + text) is served by `/drawing/compose/sheet`; the DOM sheet
-      renders from it. [src: founder dogfooding — WB-64]
+- [x] (P2, S) Drawings: note render — DOM sheet half. **SHIPPED 2026-07-23:**
+      `DrawingSheet.tsx` now draws `composed.notes` as `<text data-testid=
+      "drawing-note">` verbatim at each note's final-sheet-mm point (left-anchored
+      graphite, `drawing.noteTextMm` = 3.2 matching the server `_NOTE_TEXT_MM`).
+      Also built the MISSING authoring surface the export half assumed: a Notes
+      panel (add/list/delete) in `DrawingPage.tsx` + `createAnnotation`/
+      `deleteAnnotation` in `api/drawings.ts`, invalidating the tree+compose so a
+      new note appears live. **Found+fixed a real gap:** the gateway `_compose_
+      request` never threaded persisted `sheet.annotations` into the compose
+      request, so `ComposedSheet.notes` was ALWAYS empty — the export half was
+      itself non-functional from persisted state. Wired `annotations=[a.annotation
+      for a in sheet_content.annotations]` (1 line, gateway). New drawings e2e
+      authors a note and asserts `drawing-note` at (16,22) on the DOM sheet, then
+      deletes it. Founder shot: `docs/screenshots/drawings-note-1440.png`.
+      [src: founder dogfooding — WB-64]
 - [x] (P3, S) Drawings: auto-layout sheet-size control. **SHIPPED 2026-07-23:**
       a sheet-SIZE picker (`SHEET_SIZE_OPTIONS`, A4→A0 + ANSI, labels carry the
       landscape mm extents) in the drawing command band, the SAME `SelectField`

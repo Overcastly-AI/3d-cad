@@ -527,6 +527,49 @@ test("author a point-to-point linear between two picked vertices", async ({
 });
 
 /**
+ * WB-64 — free-text note annotations, DOM sheet half. The export half draws
+ * notes in the composed SVG/PDF/DXF; this drives the on-screen path end to end:
+ * author a note via the Notes panel, then assert it renders on the DOM sheet as
+ * a `drawing-note` at its authored sheet point (the same `ComposedSheet.notes`
+ * the serializers read), and that deleting it removes it from the sheet.
+ */
+test("author a free-text note and see it on the sheet", async ({ page }) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // The Notes panel is a quiet precision instrument beside the Dimensions panel.
+  const noteText = "MATERIAL 6061-T6 — BREAK SHARP EDGES";
+  await page.getByTestId("note-input").fill(noteText);
+  await page.getByTestId("note-add").click();
+
+  // It lands in the panel list…
+  const row = page.getByTestId("note-row");
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId("note-row-text")).toHaveText(noteText);
+
+  // …and the re-composed sheet draws it as a `drawing-note` at its authored
+  // point (top-left, just inside the border: margin 10 + 6 = 16, 10 + 12 = 22).
+  const note = page.locator('[data-testid="drawing-note"]');
+  await expect(note).toHaveCount(1, { timeout: 30_000 });
+  await expect(note).toHaveText(noteText);
+  await expect(note).toHaveAttribute("x", "16");
+  await expect(note).toHaveAttribute("y", "22");
+
+  // Founder frame — a sheet carrying a visible note.
+  const sheet = page.getByTestId("drawing-sheet");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(sheet).toBeVisible();
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/drawings-note-1440.png` });
+
+  // Delete it → it disappears from the sheet (and the panel).
+  await row.getByTestId("note-delete").click();
+  await expect(page.locator('[data-testid="drawing-note"]')).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("note-row")).toHaveCount(0);
+});
+
+/**
  * Drawings v1 #5 — SVG export. The shipped `DrawingSheet` renderer IS the
  * export: the laid-out sheet's `<svg>` (edges, dimensions, title block, inline
  * token colours) is serialized to a standalone, self-contained `.svg` and

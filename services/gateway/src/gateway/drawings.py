@@ -456,6 +456,12 @@ def _compose_request(
         # `effectiveScaleValue`) — the first placed view carries it.
         scale=views[0].scale,
         dimensions=dimension_inputs,
+        # The sheet's authored free-text notes (design §2.2), in stored order — placed
+        # verbatim at their sheet points by `place_sheet` and drawn by every serializer
+        # AND the on-screen DrawingSheet (which reads the same `ComposedSheet.notes`).
+        # Without this the composed sheet carries no notes, so an authored note is
+        # invisible in every export and on screen (WB-64 export-half left this unwired).
+        annotations=[a.annotation for a in sheet_content.annotations],
         layout=layout,
         format=artifact_format,
     )

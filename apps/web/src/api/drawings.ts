@@ -33,6 +33,11 @@ export type DimensionResponse = components["schemas"]["DimensionResponse"];
 /** The discriminated dimension params union (linear | diameter | radius | angular). */
 export type DimensionParams = DimensionResponse["dimension"];
 export type DimensionCreate = components["schemas"]["DimensionCreate"];
+export type AnnotationResponse = components["schemas"]["AnnotationResponse"];
+/** The v1 annotation params (a free-text note: text + sheet point). */
+export type NoteAnnotationParams =
+  components["schemas"]["NoteAnnotationParams"];
+export type AnnotationCreate = components["schemas"]["AnnotationCreate"];
 export type DrawingDimensionInput =
   components["schemas"]["DrawingDimensionInput"];
 export type MeasuredDimension = components["schemas"]["MeasuredDimension"];
@@ -58,6 +63,8 @@ export type ComposedEdge =
 /** A flat-pattern sheet's placed bend-table block — anchor rect + per-bend rows
  * (sheet-metal.md §7). Null for every standard (HLR) sheet. */
 export type ComposedBendTable = components["schemas"]["ComposedBendTable"];
+/** A placed free-text note annotation — text at a sheet point (design §2.2). */
+export type ComposedNote = components["schemas"]["ComposedNote"];
 /** One bend-table fold row (bend id, angle, radius, direction, allowance). */
 export type BendTableRow = components["schemas"]["BendTableRow"];
 /** The typed per-view/-feature error envelope (code + human message). */
@@ -239,6 +246,56 @@ export async function deleteDimension(
     throw new Error(
       envelopeMessage(error, "The dimension could not be deleted."),
     );
+  }
+  return data;
+}
+
+/**
+ * Add an annotation (v1: a free-text note) to a sheet (append at the tip; 201
+ * with the new note + bumped `doc_version`). `expected_version` guards the
+ * optimistic-concurrency counter. The note is placed at its authored sheet
+ * point by the composer and drawn on the DOM sheet from `ComposedSheet.notes`.
+ */
+export async function createAnnotation(
+  drawingId: string,
+  sheetId: string,
+  body: AnnotationCreate,
+  client: GatewayClient = gatewayClient,
+): Promise<components["schemas"]["AnnotationMutationResponse"]> {
+  const { data, error } = await client.POST(
+    "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}/annotations",
+    {
+      params: { path: { drawing_id: drawingId, sheet_id: sheetId } },
+      body,
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The note could not be added."));
+  }
+  return data;
+}
+
+/**
+ * Delete an annotation (200 with the updated tree; the delete bumps
+ * `doc_version`). `expectedVersion` guards the optimistic-concurrency counter.
+ */
+export async function deleteAnnotation(
+  drawingId: string,
+  annotationId: string,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingTreeResponse> {
+  const { data, error } = await client.DELETE(
+    "/api/v1/drawings/{drawing_id}/annotations/{annotation_id}",
+    {
+      params: {
+        path: { drawing_id: drawingId, annotation_id: annotationId },
+        query: { expected_version: expectedVersion },
+      },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The note could not be deleted."));
   }
   return data;
 }

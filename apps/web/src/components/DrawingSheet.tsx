@@ -26,6 +26,7 @@ import type {
   ComposedBendTable,
   ComposedDimension,
   ComposedEdge,
+  ComposedNote,
   ComposedPoint,
   ComposedSheet,
   ComposedTitleBlock,
@@ -1099,6 +1100,29 @@ function BendTable({ table }: { table: ComposedBendTable }) {
   );
 }
 
+/** A free-text note stamped on the sheet at its authored point (design §2.2) —
+ * left-anchored graphite ink, a sibling of the title-block value stamp. Drawn
+ * VERBATIM from the composed model: the anchor (`x`/`y`) is already in final
+ * sheet-mm SVG space, so no transform. Mirrors the server SVG serializer exactly
+ * (`data-testid="drawing-note"`, start-anchored, baseline at `y`, `noteTextMm`
+ * height, 0.1 letter-spacing) so the on-screen note and the exported note read
+ * identically — one placement, one palette, two renderers. */
+function SheetNote({ note }: { note: ComposedNote }) {
+  return (
+    <text
+      data-testid="drawing-note"
+      x={note.x}
+      y={note.y}
+      fill={drawing.dimensionText}
+      fontFamily={font.data}
+      fontSize={drawing.noteTextMm}
+      letterSpacing={0.1}
+    >
+      {note.text}
+    </text>
+  );
+}
+
 export function DrawingSheet({
   composed,
   views,
@@ -1170,6 +1194,9 @@ export function DrawingSheet({
       ))}
       <TitleBlock block={composed.title_block} />
       {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
+      {(composed.notes ?? []).map((note, i) => (
+        <SheetNote key={i} note={note} />
+      ))}
     </svg>
   );
 }

@@ -1054,7 +1054,20 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       sheet stays byte-identical (additive — empty `notes` emits nothing). Contracts
       regenerated (`ComposedNote` + `ComposedSheet.notes[]` + request `annotations`).
       Geometry pytest + all pre-existing goldens byte-unchanged + `just lint` green.
-      Paired DOM-sheet render (`DrawingSheet.tsx`) is a discrete BACKLOG follow-on.
+      **Drawings note annotations — DOM-sheet half SHIPPED** (2026-07-23): the
+      paired follow-on. `DrawingSheet.tsx` draws `composed.notes` as `<text
+      data-testid="drawing-note">` verbatim at each final-sheet-mm point
+      (left-anchored graphite, new `drawing.noteTextMm` = 3.2 token matching the
+      server `_NOTE_TEXT_MM`). Built the authoring surface the export half assumed
+      but that did NOT exist in `apps/web`: a Notes panel (add/list/delete) +
+      `createAnnotation`/`deleteAnnotation` (`api/drawings.ts`), invalidating tree +
+      compose so a note appears live. Fixed a real gap the export half left: the
+      gateway `_compose_request` never threaded persisted `sheet.annotations`, so
+      `ComposedSheet.notes` was ALWAYS empty (export half non-functional from
+      persisted state) — now wired (1 line). New drawings e2e authors a note and
+      asserts `drawing-note` on the DOM sheet + delete; founder shot
+      `docs/screenshots/drawings-note-1440.png`. WB-64 note capability now COMPLETE
+      end-to-end (author → screen → SVG/PDF/DXF).
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a

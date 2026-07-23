@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { drawing } from "@loft/design";
+import { Button, TextField, drawing } from "@loft/design";
 
 import {
+  type AnnotationResponse,
   type BendTableRow,
   type DimensionResponse,
   type DrawingDimensionInput,
@@ -13,9 +14,11 @@ import {
   type SheetSize,
   type ViewProjection,
   composeDrawingSheet,
+  createAnnotation,
   createDimension,
   createSheet,
   createView,
+  deleteAnnotation,
   deleteDimension,
   evaluateDrawingViews,
   fetchDrawing,
@@ -110,6 +113,10 @@ export function DrawingPage() {
   const isFlatPatternSheet = requestedViews.includes("flat_pattern");
   const dimensions = useMemo<readonly DimensionResponse[]>(
     () => tree?.sheets[0]?.dimensions ?? [],
+    [tree],
+  );
+  const annotations = useMemo<readonly AnnotationResponse[]>(
+    () => tree?.sheets[0]?.annotations ?? [],
     [tree],
   );
   const hasLayout = sheet !== null && views.length > 0;
@@ -580,6 +587,89 @@ export function DrawingPage() {
     [dimBusy, drawingId, docVersion, queryClient],
   );
 
+  // ---------------------------------------------------------------------
+  // Note annotations: author a free-text note → persist it (CRUD) → the
+  // re-compose places it at its sheet point and the sheet draws it from
+  // `ComposedSheet.notes` (design §2.2). A note bumps `doc_version`, so the
+  // compose query (keyed on it) refetches with the note — one placement source.
+  // ---------------------------------------------------------------------
+  const [noteBusy, setNoteBusy] = useState(false);
+
+  const refetchDrawingAndSheet = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["drawing", drawingId] });
+    // The composed sheet is keyed on `doc_version` (bumped by the write) so it
+    // refetches on its own, but invalidate it too so the note appears at once.
+    void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
+  }, [queryClient, drawingId]);
+
+  const handleAddNote = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (trimmed.length === 0 || noteBusy || sheet === null) return;
+      setNoteBusy(true);
+      setActionError(null);
+      // A default anchor just inside the top-left border, each new note stacked
+      // below the last so they never land on top of one another (v1 has no
+      // drag-to-place yet — the note is placed verbatim in final sheet-mm space).
+      const margin = composed?.margin_mm ?? 10;
+      const x = margin + 6;
+      const y = margin + 12 + annotations.length * (drawing.noteTextMm + 3);
+      void (async () => {
+        try {
+          await createAnnotation(drawingId, sheet.id, {
+            annotation: {
+              type: "note",
+              text: trimmed,
+              position: { x_mm: x, y_mm: y },
+            },
+            expected_version: docVersion,
+          });
+          await refetchDrawingAndSheet();
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The note could not be added.",
+          );
+        } finally {
+          setNoteBusy(false);
+        }
+      })();
+    },
+    [
+      noteBusy,
+      sheet,
+      composed,
+      annotations.length,
+      drawingId,
+      docVersion,
+      refetchDrawingAndSheet,
+    ],
+  );
+
+  const handleDeleteNote = useCallback(
+    (annotationId: string) => {
+      if (noteBusy) return;
+      setNoteBusy(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await deleteAnnotation(drawingId, annotationId, docVersion);
+          await refetchDrawingAndSheet();
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The note could not be deleted.",
+          );
+        } finally {
+          setNoteBusy(false);
+        }
+      })();
+    },
+    [noteBusy, drawingId, docVersion, refetchDrawingAndSheet],
+  );
+
   // Keyboard-first: L lays out (or re-projects once laid out).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -799,6 +889,12 @@ export function DrawingPage() {
                 measuredById={measuredById}
                 busy={dimBusy}
                 onDelete={handleDeleteDimension}
+              />
+              <NotesPanel
+                annotations={annotations}
+                busy={noteBusy}
+                onAdd={handleAddNote}
+                onDelete={handleDeleteNote}
               />
             </div>
           </FloatingPanel>
@@ -1146,6 +1242,105 @@ function BendSchedulePanel({ rows }: { rows: readonly BendTableRow[] }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * The Notes panel — author a free-text note and manage the sheet's notes (design
+ * §2.2). Adding a note persists it (CRUD) and re-composes the sheet, which draws
+ * it at its authored point from `ComposedSheet.notes`; the list is the keyboard/
+ * touch path to removing one. A quiet precision instrument, sibling of the
+ * Dimensions panel — the sheet stays the hero.
+ */
+function NotesPanel({
+  annotations,
+  busy,
+  onAdd,
+  onDelete,
+}: {
+  annotations: readonly AnnotationResponse[];
+  busy: boolean;
+  onAdd: (text: string) => void;
+  onDelete: (annotationId: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const canAdd = text.trim().length > 0 && !busy;
+  const submit = () => {
+    if (!canAdd) return;
+    onAdd(text);
+    setText("");
+  };
+  return (
+    <div className="border border-hairline bg-anvil" data-testid="notes-panel">
+      <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
+        <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+          Notes
+        </h2>
+        <span className="grow" />
+        <span className="font-data text-2xs tabular-nums text-gauge">
+          {annotations.length}
+        </span>
+      </header>
+      <form
+        className="flex items-end gap-2 border-b border-hairline px-3 py-2.5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <TextField
+          label="Add a note"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder="e.g. Break all sharp edges"
+          className="grow"
+          data-testid="note-input"
+        />
+        <Button
+          type="submit"
+          variant="ghost"
+          disabled={!canAdd}
+          data-testid="note-add"
+          aria-label="Add note"
+        >
+          Add
+        </Button>
+      </form>
+      {annotations.length === 0 ? (
+        <p className="px-3 py-2.5 font-body text-2xs text-gauge">
+          Notes print on the sheet at the top-left — material callouts, finish,
+          or shop instructions.
+        </p>
+      ) : (
+        <ul className="divide-y divide-hairline">
+          {annotations.map((entry) => (
+            <li
+              key={entry.id}
+              className="flex items-center gap-2 px-3 py-1.5"
+              data-testid="note-row"
+            >
+              <span
+                data-testid="note-row-text"
+                className="grow truncate font-body text-2xs text-mist"
+                title={entry.annotation.text}
+              >
+                {entry.annotation.text}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                data-testid="note-delete"
+                aria-label={`Delete note "${entry.annotation.text}"`}
+                onClick={() => onDelete(entry.id)}
+                className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge transition-colors duration-fast hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+              >
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

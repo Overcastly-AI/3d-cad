@@ -289,6 +289,14 @@ export const drawing = {
    * edges. Sized to clear the vertex yet read as a distinct annotation layer. */
   dimensionArcRadiusMm: 13,
 
+  // --- Free-text notes — the sheet's plain-language annotation layer (§2.2). ---
+  // A note is ordinary sheet body text: left-anchored graphite ink at its
+  // authored sheet point, a sibling of the dimension/title-block value stamp.
+  /** Free-text note height (mm) — MATCHES the server composer's `_NOTE_TEXT_MM`,
+   *  so the on-screen note and the exported SVG/PDF/DXF note are ONE height (the
+   *  cross-renderer token duplication drawing-export.md notes; one source here). */
+  noteTextMm: 3.2,
+
   // --- Vertex handles — the endpoint pick affordance for point-to-point. ---
   // A point-to-point dimension names two edge ENDPOINTS (design §3.3), so a
   // straight edge's ends get small square handles: precise vertex picking, the
