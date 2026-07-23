@@ -24,7 +24,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from build123d import Edge, Face, Plane, Solid, Vector, Wire
 from fastapi.testclient import TestClient
+from geometry.kernel.mirror import mirror_union
 from geometry.main import app
 from py_kit.schemas.features import EvaluateTreeResult
 
@@ -123,6 +125,41 @@ def datum_offset_input(
             "params": {"base": base, "offset_mm": offset_mm, "flip": False},
         },
     }
+
+
+def datum_midplane_input(
+    feature_id: uuid.UUID, a: str, b: str, flip: bool = False
+) -> dict[str, Any]:
+    """A midplane datum between two ORIGIN datum planes (angular bisector for a
+    non-parallel pair). Used to author a TILTED, non-principal mirror plane."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "datum",
+            "version": 1,
+            "params": {
+                "kind": "midplane",
+                "a": {"kind": "datum_plane", "plane": a},
+                "b": {"kind": "datum_plane", "plane": b},
+                "flip": flip,
+            },
+        },
+    }
+
+
+def _reflect_point(
+    p: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    normal: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Independent reflection-matrix oracle: reflect *p* across the plane through
+    *origin* with unit *normal*. reflect(x) = x - 2((x-o)·n) n. No build123d — a
+    pure-Python check the kernel reflection is compared against."""
+    ox, oy, oz = origin
+    nx, ny, nz = normal
+    dx, dy, dz = p[0] - ox, p[1] - oy, p[2] - oz
+    d = dx * nx + dy * ny + dz * nz
+    return (p[0] - 2 * d * nx, p[1] - 2 * d * ny, p[2] - 2 * d * nz)
 
 
 def _request(features: list[dict[str, Any]]) -> dict[str, Any]:
@@ -310,6 +347,166 @@ def test_mirror_about_an_offset_datum_feature_plane() -> None:
     assert result.properties.volume == pytest.approx(192.0, abs=MIRROR_TOL)
     assert result.properties.centroid.y == pytest.approx(-8.0, abs=MIRROR_TOL)
     assert result.properties.topology.shells == 2
+
+
+# --- ADVERSARIAL GUARDS (geometry-qa 2026-07-23, commit 1497bac) ---------------------
+# Push past the single axis-aligned-origin-plane golden: a TILTED datum, a
+# multi-lump source, and mirrored-lump chirality/validity. See docs/GEOMETRY-QA.md.
+
+
+def test_mirror_about_a_tilted_non_principal_midplane_datum() -> None:
+    """PROBE 1 — mirror about a TILTED (non-principal) datum plane.
+
+    The single mirror golden mirrors about an axis-aligned ORIGIN plane (YZ),
+    and the offset-datum test uses an axis-PARALLEL plane; neither would catch a
+    plane-resolution bug that mirrors about a principal plane / the origin
+    instead of an arbitrarily-oriented datum. Here the mirror plane is a MIDPLANE
+    datum between the XZ and YZ origin datums: their angular bisector is the plane
+    x = y (normal (1,-1,0)/sqrt2 through the world origin), which reflects every
+    point (x,y,z) -> (y,x,z) — an x<->y SWAP, a genuinely tilted 45deg reflection
+    no principal-plane mirror reproduces.
+
+    Source: a box x in [2,5], y in [0,1], z in [0,3] (V = 3*1*3 = 9), which clears
+    the x=y plane (min x = 2 > max y = 1). Its reflection swaps x<->y to x in
+    [0,1], y in [2,5], z in [0,3] — DISJOINT (source x>=2, reflection x<=1), so
+    the union is a two-lump body of 2V = 18 mm^3, 2 shells, 12 faces.
+
+    INDEPENDENT ORACLE (pure-Python _reflect_point, no build123d): the union of
+    two equal-volume disjoint lumps is centred at midpoint(c, reflect(c)) where
+    c = (3.5,0.5,1.5) is the source centroid. That midpoint is (2,2,1.5), which
+    lies ON the x=y plane. A plane-resolution bug mirroring about YZ (x=0) instead
+    would put the reflection at x in [-5,-2] -> centroid (0, 0.5, 1.5), FAILING
+    this assert by 2 mm in x — the discriminator that a tilted datum resolved.
+    """
+    plane_origin = (0.0, 0.0, 0.0)
+    inv_sqrt2 = 2.0**-0.5
+    plane_normal = (inv_sqrt2, -inv_sqrt2, 0.0)
+    source_centroid = (3.5, 0.5, 1.5)
+    reflected = _reflect_point(source_centroid, plane_origin, plane_normal)
+    # Oracle: reflection swaps x<->y exactly.
+    assert reflected == pytest.approx((0.5, 3.5, 1.5), abs=MIRROR_TOL)
+    expected_centroid = tuple(
+        (source_centroid[i] + reflected[i]) / 2 for i in range(3)
+    )  # (2.0, 2.0, 1.5), on the mirror plane
+
+    result = _post(
+        _request(
+            [
+                datum_midplane_input(DATUM_ID, "XZ", "YZ"),
+                rect_sketch(SKETCH_ID, 2.0, 0.0, 5.0, 1.0),
+                extrude_input(BODY_ID, SKETCH_ID, distance_mm=3.0),
+                mirror_input(
+                    MIRROR_ID, {"kind": "feature", "feature_id": str(DATUM_ID)}
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "ok"]
+    assert result.properties is not None
+    c = result.properties.centroid
+    assert (c.x, c.y, c.z) == pytest.approx(expected_centroid, abs=MIRROR_TOL)
+    # Centroid lies ON the tilted plane: n . (c - o) == 0 (the reflection oracle).
+    signed = (
+        (c.x - plane_origin[0]) * plane_normal[0]
+        + (c.y - plane_origin[1]) * plane_normal[1]
+        + (c.z - plane_origin[2]) * plane_normal[2]
+    )
+    assert signed == pytest.approx(0.0, abs=MIRROR_TOL)
+    assert result.properties.volume == pytest.approx(18.0, abs=MIRROR_TOL)
+    assert result.properties.topology.shells == 2
+    assert result.properties.topology.faces == 12
+
+
+def test_mirror_of_a_multi_lump_source_doubles_every_lump() -> None:
+    """PROBE 4 — mirror a source that is ALREADY a multi-lump compound.
+
+    Every existing mirror test feeds a single-lump source. Here the source of the
+    SECOND mirror is itself a disjoint TWO-lump body (the output of the first
+    mirror), so the feature must reflect EVERY lump and union them, doubling the
+    count 2 -> 4 (not reflecting only one lump, not collapsing to a single solid).
+
+    Tree: chiral triangular prism (V = 36, x in [2,5], y in [0,4], z in [0,6])
+    -> mirror about YZ -> two disjoint lumps at x in [2,5] and x in [-5,-2]
+    (V = 72) -> mirror about an XZ-offset datum at y = -8 (XZ.z_dir = -Y, offset
+    +8) -> reflects BOTH lumps from y in [0,4] to y in [-20,-16], all four
+    disjoint. Union V = 4*36 = 144, centroid (0, -8, 3) (x-symmetric about x=0
+    and y-symmetric about y=-8), 4 shells, 20 faces (4 prisms * 5)."""
+    tri = [
+        _line("e1", (2.0, 0.0), (5.0, 0.0)),
+        _line("e2", (5.0, 0.0), (2.0, 4.0)),
+        _line("e3", (2.0, 4.0), (2.0, 0.0)),
+    ]
+    second_mirror = uuid.UUID("00000000-0000-0000-0000-00000000ceee")
+    result = _post(
+        _request(
+            [
+                {
+                    "id": str(SKETCH_ID),
+                    "feature": {
+                        "type": "sketch",
+                        "version": 1,
+                        "params": {
+                            "plane": dict(XY_PLANE),
+                            "entities": tri,
+                            "constraints": [],
+                        },
+                    },
+                },
+                extrude_input(BODY_ID, SKETCH_ID),
+                mirror_input(MIRROR_ID, {"kind": "datum_plane", "plane": "YZ"}),
+                datum_offset_input(DATUM_ID, "XZ", 8.0),
+                mirror_input(
+                    second_mirror, {"kind": "feature", "feature_id": str(DATUM_ID)}
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(144.0, abs=MIRROR_TOL)
+    assert result.properties.centroid.x == pytest.approx(0.0, abs=MIRROR_TOL)
+    assert result.properties.centroid.y == pytest.approx(-8.0, abs=MIRROR_TOL)
+    # Count DOUBLED from the two-lump source, not stuck at 2 and not merged to 1.
+    assert result.properties.topology.shells == 4
+    assert result.properties.topology.faces == 20
+    bbox = result.properties.bounding_box
+    assert bbox.min.x == pytest.approx(-5.0, abs=MIRROR_TOL)
+    assert bbox.max.x == pytest.approx(5.0, abs=MIRROR_TOL)
+    assert bbox.min.y == pytest.approx(-20.0, abs=MIRROR_TOL)
+    assert bbox.max.y == pytest.approx(4.0, abs=MIRROR_TOL)
+
+
+def test_mirrored_lump_is_a_valid_positive_volume_solid() -> None:
+    """PROBE 3 — chirality: a mirror flips handedness; the reflected solid must
+    stay a VALID, OUTWARD, POSITIVE-volume solid (not inside-out / negative).
+
+    A kernel-level check (the HTTP wire exposes only aggregate mass properties):
+    build a CHIRAL right-triangle prism, reflect it with Shape.mirror, and assert
+    the reflected lump ALONE has positive volume equal to the source and passes
+    OCCT's own validity check (Shape.is_valid, the BRepCheck_Analyzer verdict —
+    it fails a solid whose faces face inward or whose shell is not closed).
+    Then confirm mirror_union's disjoint two-lump result is likewise valid."""
+    pts = [Vector(2, 0, 0), Vector(5, 0, 0), Vector(2, 4, 0), Vector(2, 0, 0)]
+    face = Face(Wire([Edge.make_line(pts[i], pts[i + 1]) for i in range(3)]))
+    prism = Solid.extrude(face, Vector(0, 0, 6))
+    assert prism.volume == pytest.approx(36.0, abs=MIRROR_TOL)
+    assert prism.is_valid
+
+    reflected = prism.mirror(Plane.YZ)
+    # Handedness-reversed but a PROPER solid: positive volume, not a negated one.
+    assert reflected.volume == pytest.approx(36.0, abs=MIRROR_TOL)
+    assert reflected.volume > 0.0
+    assert reflected.is_valid
+    # Reflected right angle lands at x=-2 (nearest the plane) -> centroid x=-3.
+    rc = reflected.center()
+    rc_xyz = (rc.X, rc.Y, rc.Z)
+    assert rc_xyz == pytest.approx((-3.0, 4.0 / 3.0, 3.0), abs=MIRROR_TOL)
+
+    union = mirror_union(prism, Plane.YZ)
+    assert union.volume == pytest.approx(72.0, abs=MIRROR_TOL)
+    assert union.is_valid
 
 
 # --- Error paths are per-feature values, never transport failures ---------------------

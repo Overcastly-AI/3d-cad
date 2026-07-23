@@ -4212,3 +4212,79 @@ breakouts and stepped-body through-alls match analytic volume exactly (removed =
 segments only, never the air gap), blind bottoms sit at the exact depth, oversize/zero
 diameters degrade to typed errors, and results are byte-deterministic across restart.
 The only blemish is an unreachable negative-diameter raw raise (🟢 P3 defence-in-depth).
+
+## 2026-07-23 — Mirror feature (`1497bac`) adversarial geometry QA (geometry-qa)
+
+Adversarial correctness probe of the mirror feature (`kernel/mirror.py::mirror_union`),
+pushing past the single axis-aligned-origin-plane golden `mirror-triangle-prism-2x`
+(YZ, disjoint 2V=72). Env: build123d 0.11.1 / OCCT 7.9, native geometry service via
+`TestClient`. Pre-existing suite (`tests/test_mirror.py`) already covered: golden 2V,
+reflection-vs-translation proof, overlap merge (192 mm³, 1 shell), symmetric no-op
+(144 mm³), offset-datum-FEATURE plane (axis-parallel), byte determinism, error paths.
+Three real coverage GAPS found and closed with guard tests (all analytic, oracle-first).
+
+### 1. Mirror about a TILTED (non-principal) datum plane — PASS
+Every prior mirror test uses a principal (YZ) or axis-PARALLEL (XZ-offset) plane; none
+would catch a resolution bug that mirrors about a principal plane / the origin instead
+of an arbitrarily-oriented datum. Authored a **midplane datum between XZ and YZ** — its
+angular bisector is the plane **x = y** (normal `(1,-1,0)/√2` through the world origin),
+which reflects `(x,y,z) → (y,x,z)` (a 45° x↔y SWAP). Source box x∈[2,5], y∈[0,1],
+z∈[0,3] (V=9) clears the plane (min x=2 > max y=1) → disjoint 2V union.
+- Independent pure-Python reflection-matrix oracle (`_reflect_point`, no build123d):
+  reflect((3.5,0.5,1.5)) across x=y = **(0.5,3.5,1.5)** exact (x↔y swap confirmed);
+  union centroid = midpoint = **(2,2,1.5)**, which lies ON the plane (`n·(c−o)=0`).
+- Measured: V **18.0**, centroid **(2.0, 2.0, 1.5)** (residual ≤9e-16), shells **2**,
+  faces **12**, bbox x[≈0,5] y[0,5] z[0,3]. A YZ-plane bug would give centroid
+  (0, 0.5, 1.5) — FAILS by 2 mm in x. The tilted datum resolved correctly.
+- Guard: `test_mirror_about_a_tilted_non_principal_midplane_datum`.
+
+### 2. Overlap-with-plane union volume — PASS (pre-existing, re-verified)
+`test_overlapping_mirror_merges_to_one_solid`: box x∈[−1,4] (V=120) mirrored about YZ
+→ reflected x∈[−4,1], overlap x∈[−1,1] (V=48). Union = 120+120−48 = **192 mm³**, exactly
+**1 shell** (merged, not naive 2V=240, not double-counted). Confirmed sound; no gap.
+
+### 3. Chirality / validity — PASS
+A mirror flips handedness; the reflected solid must stay a VALID, OUTWARD, POSITIVE-
+volume solid (not inside-out / negative). Kernel-level (the HTTP wire exposes only
+aggregate mass props): chiral right-triangle prism (V=36) reflected via `Shape.mirror`:
+- reflected lump ALONE: volume **36.0 > 0** (not negated), `is_valid` **True**
+  (OCCT `BRepCheck_Analyzer` verdict — rejects inward-facing / unclosed shells),
+  centroid **(−3, 4/3, 3)** (right angle lands at x=−2, nearest the plane).
+- `mirror_union` disjoint result: V **72.0**, `is_valid` **True**.
+- Guard: `test_mirrored_lump_is_a_valid_positive_volume_solid`.
+
+### 4. Multi-lump / multi-body source — PASS
+Every prior test feeds a single-lump source. Fed the SECOND mirror a source that is
+already a disjoint TWO-lump body: chiral prism (V=36) → mirror YZ → 2 lumps (V=72) →
+mirror about XZ-offset datum at y=−8 → reflects BOTH lumps y∈[0,4] → y∈[−20,−16].
+- Measured: V **144.0** (4×36), centroid **(0, −8, 3)**, shells **4** (count DOUBLED
+  2→4, not stuck at 2, not merged to 1), faces **20** (4 prisms × 5), bbox x[−5,5]
+  y[−20,4] z[0,6]. Every lump reflected, union correct.
+- Guard: `test_mirror_of_a_multi_lump_source_doubles_every_lump`.
+
+### 5. Symmetric source about the plane — PASS (pre-existing, re-verified)
+`test_symmetric_body_mirror_is_a_no_op`: box x∈[−3,3] mirrored about YZ → union == source,
+V **144** unchanged (not 2V), **1 shell**, 6 faces (no sliver / double-face at the plane —
+`clean()` collapses the coincident geometry). Sound; no gap.
+
+### 6. Determinism — PASS (pre-existing)
+`test_evaluate_response_is_byte_deterministic`: same mirror tree → byte-identical response
+INCLUDING `mesh_glb_id`. Backed by `assemble_lumps`' explicit centroid-then-volume lump
+ordering (never OCCT traversal order) + the golden harness's cross-restart gate.
+
+### Findings filed
+- 🟡 **Coverage note (builder item, kernel-architect)** — the shipped mirror capability
+  ships ONE committed golden (`mirror-triangle-prism-2x`: axis-aligned YZ, disjoint 2V).
+  The tilted-midplane, multi-lump-source, and chirality/validity cases are now guarded
+  at the test level but NO committed golden exercises a non-principal mirror plane or a
+  multi-lump-source mirror through the mass-property/topology golden harness. Suggest a
+  "mirror about a tilted midplane datum" golden and a "mirror of a two-lump body" golden
+  next cycle to lock these into the harness. Not a defect — coverage extension.
+
+### VERDICT: MIRROR FEATURE IS GEOMETRICALLY SOUND — no P0/P1/P2/P3 defects
+The reflection is a true handedness-reversing isometry about the RESOLVED plane, tilted
+or principal (tilted-midplane centroid on-plane to ≤9e-16, x↔y swap exact); overlap
+unions subtract the overlap (192, 1 shell) and never double-count; symmetric sources are
+a clean no-op (144, no sliver); multi-lump sources reflect every lump and double the
+count (2→4); reflected lumps are valid positive-volume solids (OCCT `is_valid`); results
+are byte-deterministic. Only a 🟡 golden-coverage extension is recommended.
