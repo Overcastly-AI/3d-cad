@@ -356,6 +356,13 @@ item:
       intersect between independently-built bodies, multi-lump bodies, opt-in
       disjoint union, multi-solid STEP import — geometry-QA'd PASS twice;
       VISION Part modeling row Notes corrected same pass, score unchanged).
+- ✅ Dedicated Hole feature — SLICE 1 (simple hole, 2026-07-23): first-class
+      `HoleFeature` (face-placed point + diameter + through-all|blind, auto inward
+      cut direction), NOT a sketched circle. Analytic + sketch-cut-parity golden
+      (`hole-through-r5-40x25x10`); typed degradation (off-body / over-deep).
+      Slice 2 (counterbore/countersink/tapped + drill tables) + web authoring
+      remain (BACKLOG P2). Erases the highest-frequency everyday modeling friction
+      and seeds Drawings hole callouts.
 - ✅ STEP import v1 — kernel (`4964fab`) → gateway upload → UI file-picker,
       with a P1 security bound on the untrusted parse. **Interop row flips
       ❌→➖.** Parse bound hardened 2026-07-19: wall-clock → contention-invariant

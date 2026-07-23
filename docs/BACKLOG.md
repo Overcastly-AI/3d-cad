@@ -217,16 +217,25 @@ frame refactor are v2/§11. Spike de-collected.
       authoring/compose. Removes the `assembly_views_unsupported` gate in
       `gateway/drawings.py` once landed. Supervised M feature (kernel + gateway
       + documents + web). [src: AUDIT-ENGINEERING.md D4 follow-on]
-- [ ] (P2, M) Dedicated Hole feature — through/blind depth, counterbore/
-      countersink/tapped, standard drill sizes, auto-through-all + correct cut
-      direction; face-based placement (point on a face + depth), distinct from a
-      sketched-circle cut. Erases the highest-frequency everyday modeling
-      friction and seeds Drawings hole callouts (blocked on this today).
-      Acceptance: `HoleFeature`/`HoleParamsV1` registered across all feature-
-      registry arms; a simple through-hole matches a hand-built sketch+extrude-cut
-      golden (analytic volume parity); typed degradation for an over-deep/off-body
-      hole; worked e2e. Split into S slices (simple hole, then
-      counterbore/countersink) if M proves too coarse for one pass. [src:
+- [x] (P2, S) Dedicated Hole feature — SLICE 1 (simple hole): `HoleFeature`/
+      `HoleParamsV1` registered across ALL feature-registry arms (Feature union,
+      FeatureEnvelope, FEATURE_REGISTRY, BODY_AFFECTING_FEATURE_TYPES,
+      feature_references, evaluate handler + dispatch + _BODY_AFFECTING_TYPES);
+      face-based placement (a planar-face `SubshapeRef` — the SAME grammar the
+      on_face datum uses — + a world point projected onto the face) with
+      diameter + through-all|blind depth; auto correct cut direction (into the
+      solid, opposite the face normal). Golden `hole-through-r5-40x25x10`:
+      analytic volume parity (block − π·r²·h) AND parity vs a hand-built
+      sketch+extrude-cut (identical volume/area/topology/mesh). Typed
+      degradation: `hole_off_body` / `hole_too_deep` / `subshape_unresolved` /
+      `no_prior_body` (never-500). documents picks it up centrally (shared
+      registry). [done 2026-07-23]
+- [ ] (P2, M) Dedicated Hole feature — SLICE 2 + web: counterbore / countersink
+      / tapped hole types, standard drill-size tables; PLUS a web authoring slice
+      (pick a face + point in the viewport, hole dialog — the DTO is ready, only
+      the frontend surface + a follow-up MCP/scripting exposure remain). Seeds
+      Drawings hole callouts. Slice-2 hole types join `HoleParamsV1` as an
+      additive `HoleType`-discriminated member (no `param_version` bump). [src:
       AUDIT-PRODUCT.md 2026-07-23; roadmap, product-auditor, competitive]
 - [ ] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
@@ -760,6 +769,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   single-body `import` feature ingests verbatim) + `body_step_id` (content-address
   dedup key). Slice 2b (documents assembly creation + gateway upload) can now land
   on a proven-safe reader.
+- 2026-07-23 — **Dedicated Hole feature SLICE 1 (kernel-architect):** first-class
+  `HoleFeature`/`HoleParamsV1` (face `SubshapeRef` + world point + diameter +
+  through-all|blind) wired across every registry arm + `kernel/hole.py`
+  (`bore_hole`, auto inward cut direction); golden `hole-through-r5-40x25x10`
+  proves analytic volume parity (10000−250π) AND sketch+extrude-cut parity; typed
+  degradation (`hole_off_body`/`hole_too_deep`). Slice 2 (counterbore/countersink/
+  tapped + drill tables) + web authoring remain.
 - 2026-07-23 — **Assembly STEP import SLICE 1 — geometry XCAF reader
   (kernel-architect):** `POST /api/v1/assembly/import` + `kernel/step_assembly.py`
   (XDE `STEPCAFControl_Reader` walk, mirror of the export composer) →

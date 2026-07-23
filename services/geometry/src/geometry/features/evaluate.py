@@ -84,6 +84,8 @@ from py_kit.schemas.features import (
     FeatureRef,
     FeatureResult,
     FilletFeature,
+    HoleBlindDepth,
+    HoleFeature,
     ImportFeature,
     LinearPatternParamsV1,
     LoftFeature,
@@ -112,6 +114,8 @@ from geometry.kernel import (
     ChamferError,
     DraftError,
     FilletError,
+    HoleOffBodyError,
+    HoleTooDeepError,
     ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
@@ -137,6 +141,7 @@ from geometry.kernel import (
     SubshapeUnresolvedError,
     SweepError,
     boolean_bodies,
+    bore_hole,
     build_datum_plane,
     build_loft_section,
     build_path_wire,
@@ -1607,6 +1612,69 @@ def _evaluate_draft(
     return None
 
 
+def _evaluate_hole(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Drill a cylindrical hole into the current body at a point on a face (§4.3).
+
+    The dedicated Hole feature (BACKLOG P2, slice 1 — the simple hole). Like
+    fillet/shell/draft it modifies the implicit single body chain (design §7.6),
+    so it needs a prior body-affecting feature (``no_prior_body`` otherwise). The
+    placement FACE is resolved by the SAME stage-1 planar-face signature the
+    ``on_face`` datum / shell openings use (:func:`resolve_face_plane`, via
+    :func:`_resolve_face_datum_plane` — offset 0): a ref that no longer resolves
+    is ``subshape_unresolved``, a congruent twin ``subshape_ambiguous``, a
+    non-planar / missing face likewise (planar faces only carry a signature). The
+    drill cuts INTO the material (opposite the face's outward normal — the correct
+    direction, automatically) through the shared cut boolean; failures degrade to
+    typed per-feature errors, never a 500 or a silently wrong body:
+    ``hole_off_body`` (the point is off the face / the direction is wrong — no
+    material removed), ``hole_too_deep`` (a blind depth exceeds the available
+    material / overhangs the face edge), or ``boolean_failed`` (a kernel cut
+    failure / lump-count change). The active body is only replaced on success
+    (strict-prefix rule tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, HoleFeature), "registry dispatches on type='hole'"
+    params = feature.params
+
+    active = state.active_body
+    if active is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "Hole requires an existing body, but no body-affecting feature "
+                "precedes this one; add a feature that creates a body first."
+            ),
+        )
+
+    plane = _resolve_face_datum_plane(params.face, 0.0, state)
+    if isinstance(plane, FeatureError):
+        return plane
+
+    blind = isinstance(params.depth, HoleBlindDepth)
+    depth_mm = (
+        params.depth.depth_mm if isinstance(params.depth, HoleBlindDepth) else None
+    )
+    try:
+        drilled = bore_hole(
+            active,
+            plane,
+            (params.position.x, params.position.y, params.position.z),
+            params.diameter_mm,
+            through_all=not blind,
+            depth_mm=depth_mm,
+        )
+    except HoleOffBodyError as exc:
+        return FeatureError(code="hole_off_body", message=str(exc))
+    except HoleTooDeepError as exc:
+        return FeatureError(code="hole_too_deep", message=str(exc))
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+    state.set_active_body(drilled)
+    return None
+
+
 def _pattern_cut_tools(state: EvaluationState) -> list[Solid] | None:
     """The removal tools to array-cut, or ``None`` to array-union (BACKLOG #3).
 
@@ -1899,6 +1967,7 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "chamfer",
         "shell",
         "draft",
+        "hole",
         "pattern",
         "import",
         "sheet_metal_base_flange",
@@ -1924,6 +1993,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "chamfer": _evaluate_chamfer,
     "shell": _evaluate_shell,
     "draft": _evaluate_draft,
+    "hole": _evaluate_hole,
     "pattern": _evaluate_pattern,
     "import": _evaluate_import,
     "sheet_metal_base_flange": _evaluate_sheet_metal_base_flange,

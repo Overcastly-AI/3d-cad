@@ -1033,6 +1033,107 @@ class DraftParamsV1(BaseModel):
     )
 
 
+# --- Hole params — a first-class face-placed drill (slice 1: the simple hole) ----
+#
+# A dedicated HOLE feature, NOT a hand-sketched circle cut: pick a planar face,
+# a point on it, a diameter, and a depth (through-all or blind), and the geometry
+# service drills a cylinder INTO the material (opposite the face's outward normal
+# — the correct cut direction, automatically). This erases the highest-frequency
+# everyday-modeling friction (sketch a circle → constrain → extrude-cut, every
+# time) and later seeds drawing hole callouts.
+#
+# The placement REUSES the existing face-reference grammar, not a new taxonomy:
+# `face` is the SAME stage-1 planar-face :class:`SubshapeRef` the `on_face` datum,
+# the shell openings, and the sketch-on-a-face path already resolve (topo-naming
+# §4) — a pick UI echoes a `/overlay` face signature straight in. So a hole is
+# body-MODIFYING off the implicit single body chain (design §7.6, like fillet/
+# shell/draft) AND names a face reference that materialises into
+# feature_dependencies (deleting the placement-face's feature is a write-time
+# 409-with-dependents; a reorder re-checks strict-backward).
+#
+# v1 SCOPE (slice 1): a SIMPLE straight drilled hole — through-all OR a blind
+# depth. Counterbore / countersink / tapped (a `HoleType`-discriminated member)
+# and standard drill-size tables are slice 2 — additive members with NO
+# `param_version` bump (the RevolveAxis / DatumParams idiom).
+
+
+class HoleThroughAll(BaseModel):
+    """A hole that cuts fully THROUGH the body (``kind: "through_all"``).
+
+    No depth to specify — the drill clears the body on both sides regardless of
+    the local wall thickness (the geometry service spans the bounding box). The
+    default ``kind`` makes ``{"kind": "through_all"}`` explicit while a future
+    additive depth mode joins the discriminated union without a bump.
+    """
+
+    kind: Literal["through_all"] = "through_all"
+
+
+class HoleBlindDepth(BaseModel):
+    """A blind hole drilled ``depth_mm`` into the material (``kind: "blind"``).
+
+    ``depth_mm`` is measured from the placement face INTO the solid along the
+    (inward) drill axis. A depth that exceeds the available material — the drill
+    would break through the far side — is a per-feature ``hole_too_deep`` rebuild
+    error (use a through-all hole instead), never a silently wrong body.
+    """
+
+    kind: Literal["blind"]
+    depth_mm: float = Field(
+        gt=0,
+        description="Depth of the blind hole from the face into the material (mm)",
+    )
+
+
+#: A hole's depth mode — cut fully through, or a blind pocket — discriminated on
+#: ``kind``. A future ``counterbore`` / ``countersink`` shape is a SEPARATE param
+#: (the hole TYPE), not a depth mode; this union stays through-all|blind.
+HoleDepth = Annotated[HoleThroughAll | HoleBlindDepth, Field(discriminator="kind")]
+
+
+class HoleParamsV1(BaseModel):
+    """A face-placed cylindrical hole — through-all or blind (slice 1).
+
+    The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
+    ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
+    cutting INTO the material (opposite the face's outward normal — the correct
+    direction, chosen automatically, no direction knob to get wrong). Like a
+    fillet/shell/draft it modifies the implicit single body chain (design §7.6),
+    so it carries no whole-feature ``FeatureRef`` — its dependency on the prior
+    body-affecting feature is tree order. The placement face IS a named reference,
+    though: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the
+    ``on_face`` datum / shell openings resolve, so it materialises into
+    ``feature_dependencies`` (deleting that body feature is a 409-with-dependents;
+    a reorder re-checks strict-backward).
+
+    ``position`` is a WORLD-space point; the geometry service projects it onto the
+    resolved face plane to fix the drill axis (a pick that lands a hair off-plane
+    still drills clean and perpendicular). A point that projects OUTSIDE the body
+    — or a resolved direction into empty space — removes no material and is a
+    ``hole_off_body`` rebuild error, never a silent no-op.
+
+    ``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;
+    ``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the
+    available material is ``hole_too_deep``. A non-planar / missing / congruent
+    face reference degrades exactly as the ``on_face`` datum does
+    (``subshape_unresolved`` / ``subshape_ambiguous``) — planar faces only carry a
+    signature, so a non-planar pick cannot be authored.
+    """
+
+    face: SubshapeRef = Field(
+        description="Planar face of an earlier body-affecting feature to drill "
+        "into (the SAME stage-1 signature reference the on_face datum uses)"
+    )
+    position: Vec3 = Field(
+        description="World-space placement point, projected onto the face plane "
+        "to fix the drill axis (mm)"
+    )
+    diameter_mm: float = Field(gt=0, description="Hole diameter (mm)")
+    depth: HoleDepth = Field(
+        description="Through-all, or a blind pocket depth (:data:`HoleDepth`)"
+    )
+
+
 # --- Pattern params (linear / circular) -----------------------------------------
 #
 # DESIGN DECISION (v1, BACKLOG #7 — recorded in docs/GEOMETRY-QA.md 2026-07-12):
@@ -1808,6 +1909,19 @@ class DraftFeature(BaseModel):
     params: DraftParamsV1
 
 
+class HoleFeature(BaseModel):
+    """``{"type": "hole", "version": 1, "params": {...}}`` envelope.
+
+    A body-MODIFYING feature (design §7.6): it drills a cylinder into the current
+    body at a point on a picked planar face (through-all or blind). ``params`` is
+    :class:`HoleParamsV1`.
+    """
+
+    type: Literal["hole"]
+    version: Literal[1]
+    params: HoleParamsV1
+
+
 class PatternFeature(BaseModel):
     """``{"type": "pattern", "version": 1, "params": {...}}`` envelope."""
 
@@ -1919,6 +2033,7 @@ Feature = Annotated[
     | ChamferFeature
     | ShellFeature
     | DraftFeature
+    | HoleFeature
     | PatternFeature
     | ImportFeature
     | SheetMetalBaseFlangeFeature
@@ -1941,6 +2056,7 @@ FeatureEnvelope = (
     | ChamferFeature
     | ShellFeature
     | DraftFeature
+    | HoleFeature
     | PatternFeature
     | ImportFeature
     | SheetMetalBaseFlangeFeature
@@ -2100,6 +2216,7 @@ FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.register(ChamferFeature)
 FEATURE_REGISTRY.register(ShellFeature)
 FEATURE_REGISTRY.register(DraftFeature)
+FEATURE_REGISTRY.register(HoleFeature)
 FEATURE_REGISTRY.register(PatternFeature)
 FEATURE_REGISTRY.register(ImportFeature)
 FEATURE_REGISTRY.register(SheetMetalBaseFlangeFeature)
@@ -2126,6 +2243,10 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         "chamfer",
         "shell",
         "draft",
+        # `hole` drills a cylinder into the body (a body-affecting modifier like
+        # fillet/shell/draft), so its result faces/edges are nameable by a later
+        # SubshapeRef (a datum on the new bore face, a hole near an earlier hole).
+        "hole",
         "pattern",
         # `import` produces the base body (step-import.md §1), so its faces/edges
         # are nameable by a later SubshapeRef — "sketch on an imported part's face".
@@ -2365,6 +2486,18 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                         f"faces[{index}]", ref, BODY_AFFECTING_FEATURE_TYPES
                     )
                 )
+        case HoleFeature():
+            # A hole drills the implicit single body chain (design §7.6) at a point
+            # on a picked planar FACE. That face is a stage-1 SubshapeRef (the SAME
+            # signature the on_face datum / shell openings resolve): its feature_id
+            # materialises into feature_dependencies, so deleting the placement
+            # face's body feature is a 409-with-dependents and a reorder re-checks
+            # strict-backward. diameter/position/depth are scalars, not refs.
+            references.append(
+                FeatureReference(
+                    "face", feature.params.face, BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
         case PatternFeature():
             # A pattern replicates the implicit body about world-space direction/
             # axis vectors (no picked sub-geometry — independent of #1); its

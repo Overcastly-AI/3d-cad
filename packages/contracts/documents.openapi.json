@@ -1772,6 +1772,7 @@
                 "draft": "#/components/schemas/DraftFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
+                "hole": "#/components/schemas/HoleFeature",
                 "import": "#/components/schemas/ImportFeature",
                 "loft": "#/components/schemas/LoftFeature",
                 "pattern": "#/components/schemas/PatternFeature",
@@ -1816,6 +1817,9 @@
               },
               {
                 "$ref": "#/components/schemas/DraftFeature"
+              },
+              {
+                "$ref": "#/components/schemas/HoleFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -1966,6 +1970,7 @@
                 "draft": "#/components/schemas/DraftFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
+                "hole": "#/components/schemas/HoleFeature",
                 "import": "#/components/schemas/ImportFeature",
                 "loft": "#/components/schemas/LoftFeature",
                 "pattern": "#/components/schemas/PatternFeature",
@@ -2010,6 +2015,9 @@
               },
               {
                 "$ref": "#/components/schemas/DraftFeature"
+              },
+              {
+                "$ref": "#/components/schemas/HoleFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -2132,6 +2140,7 @@
                 "draft": "#/components/schemas/DraftFeature",
                 "extrude": "#/components/schemas/ExtrudeFeature",
                 "fillet": "#/components/schemas/FilletFeature",
+                "hole": "#/components/schemas/HoleFeature",
                 "import": "#/components/schemas/ImportFeature",
                 "loft": "#/components/schemas/LoftFeature",
                 "pattern": "#/components/schemas/PatternFeature",
@@ -2176,6 +2185,9 @@
               },
               {
                 "$ref": "#/components/schemas/DraftFeature"
+              },
+              {
+                "$ref": "#/components/schemas/HoleFeature"
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
@@ -2317,6 +2329,7 @@
                     "draft": "#/components/schemas/DraftFeature",
                     "extrude": "#/components/schemas/ExtrudeFeature",
                     "fillet": "#/components/schemas/FilletFeature",
+                    "hole": "#/components/schemas/HoleFeature",
                     "import": "#/components/schemas/ImportFeature",
                     "loft": "#/components/schemas/LoftFeature",
                     "pattern": "#/components/schemas/PatternFeature",
@@ -2361,6 +2374,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/DraftFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/HoleFeature"
                   },
                   {
                     "$ref": "#/components/schemas/PatternFeature"
@@ -2506,6 +2522,112 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HoleBlindDepth": {
+        "description": "A blind hole drilled ``depth_mm`` into the material (``kind: \"blind\"``).\n\n``depth_mm`` is measured from the placement face INTO the solid along the\n(inward) drill axis. A depth that exceeds the available material \u2014 the drill\nwould break through the far side \u2014 is a per-feature ``hole_too_deep`` rebuild\nerror (use a through-all hole instead), never a silently wrong body.",
+        "properties": {
+          "depth_mm": {
+            "description": "Depth of the blind hole from the face into the material (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Depth Mm",
+            "type": "number"
+          },
+          "kind": {
+            "const": "blind",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "depth_mm"
+        ],
+        "title": "HoleBlindDepth",
+        "type": "object"
+      },
+      "HoleFeature": {
+        "description": "``{\"type\": \"hole\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-MODIFYING feature (design \u00a77.6): it drills a cylinder into the current\nbody at a point on a picked planar face (through-all or blind). ``params`` is\n:class:`HoleParamsV1`.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/HoleParamsV1"
+          },
+          "type": {
+            "const": "hole",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "HoleFeature",
+        "type": "object"
+      },
+      "HoleParamsV1": {
+        "description": "A face-placed cylindrical hole \u2014 through-all or blind (slice 1).\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the current body at ``position`` on the planar ``face``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD-space point; the geometry service projects it onto the\nresolved face plane to fix the drill axis (a pick that lands a hair off-plane\nstill drills clean and perpendicular). A point that projects OUTSIDE the body\n\u2014 or a resolved direction into empty space \u2014 removes no material and is a\n``hole_off_body`` rebuild error, never a silent no-op.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.",
+        "properties": {
+          "depth": {
+            "description": "Through-all, or a blind pocket depth (:data:`HoleDepth`)",
+            "discriminator": {
+              "mapping": {
+                "blind": "#/components/schemas/HoleBlindDepth",
+                "through_all": "#/components/schemas/HoleThroughAll"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HoleThroughAll"
+              },
+              {
+                "$ref": "#/components/schemas/HoleBlindDepth"
+              }
+            ],
+            "title": "Depth"
+          },
+          "diameter_mm": {
+            "description": "Hole diameter (mm)",
+            "exclusiveMinimum": 0.0,
+            "title": "Diameter Mm",
+            "type": "number"
+          },
+          "face": {
+            "$ref": "#/components/schemas/SubshapeRef",
+            "description": "Planar face of an earlier body-affecting feature to drill into (the SAME stage-1 signature reference the on_face datum uses)"
+          },
+          "position": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "World-space placement point, projected onto the face plane to fix the drill axis (mm)"
+          }
+        },
+        "required": [
+          "face",
+          "position",
+          "diameter_mm",
+          "depth"
+        ],
+        "title": "HoleParamsV1",
+        "type": "object"
+      },
+      "HoleThroughAll": {
+        "description": "A hole that cuts fully THROUGH the body (``kind: \"through_all\"``).\n\nNo depth to specify \u2014 the drill clears the body on both sides regardless of\nthe local wall thickness (the geometry service spans the bounding box). The\ndefault ``kind`` makes ``{\"kind\": \"through_all\"}`` explicit while a future\nadditive depth mode joins the discriminated union without a bump.",
+        "properties": {
+          "kind": {
+            "const": "through_all",
+            "default": "through_all",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "HoleThroughAll",
         "type": "object"
       },
       "HorizontalConstraint": {

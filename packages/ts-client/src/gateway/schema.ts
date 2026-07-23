@@ -3765,7 +3765,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -4040,7 +4040,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -4123,7 +4123,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -4212,7 +4212,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -4275,6 +4275,109 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HoleBlindDepth
+         * @description A blind hole drilled ``depth_mm`` into the material (``kind: "blind"``).
+         *
+         *     ``depth_mm`` is measured from the placement face INTO the solid along the
+         *     (inward) drill axis. A depth that exceeds the available material — the drill
+         *     would break through the far side — is a per-feature ``hole_too_deep`` rebuild
+         *     error (use a through-all hole instead), never a silently wrong body.
+         */
+        HoleBlindDepth: {
+            /**
+             * Depth Mm
+             * @description Depth of the blind hole from the face into the material (mm)
+             */
+            depth_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "blind";
+        };
+        /**
+         * HoleFeature
+         * @description ``{"type": "hole", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-MODIFYING feature (design §7.6): it drills a cylinder into the current
+         *     body at a point on a picked planar face (through-all or blind). ``params`` is
+         *     :class:`HoleParamsV1`.
+         */
+        HoleFeature: {
+            params: components["schemas"]["HoleParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "hole";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * HoleParamsV1
+         * @description A face-placed cylindrical hole — through-all or blind (slice 1).
+         *
+         *     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
+         *     ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
+         *     cutting INTO the material (opposite the face's outward normal — the correct
+         *     direction, chosen automatically, no direction knob to get wrong). Like a
+         *     fillet/shell/draft it modifies the implicit single body chain (design §7.6),
+         *     so it carries no whole-feature ``FeatureRef`` — its dependency on the prior
+         *     body-affecting feature is tree order. The placement face IS a named reference,
+         *     though: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the
+         *     ``on_face`` datum / shell openings resolve, so it materialises into
+         *     ``feature_dependencies`` (deleting that body feature is a 409-with-dependents;
+         *     a reorder re-checks strict-backward).
+         *
+         *     ``position`` is a WORLD-space point; the geometry service projects it onto the
+         *     resolved face plane to fix the drill axis (a pick that lands a hair off-plane
+         *     still drills clean and perpendicular). A point that projects OUTSIDE the body
+         *     — or a resolved direction into empty space — removes no material and is a
+         *     ``hole_off_body`` rebuild error, never a silent no-op.
+         *
+         *     ``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;
+         *     ``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the
+         *     available material is ``hole_too_deep``. A non-planar / missing / congruent
+         *     face reference degrades exactly as the ``on_face`` datum does
+         *     (``subshape_unresolved`` / ``subshape_ambiguous``) — planar faces only carry a
+         *     signature, so a non-planar pick cannot be authored.
+         */
+        HoleParamsV1: {
+            /**
+             * Depth
+             * @description Through-all, or a blind pocket depth (:data:`HoleDepth`)
+             */
+            depth: components["schemas"]["HoleThroughAll"] | components["schemas"]["HoleBlindDepth"];
+            /**
+             * Diameter Mm
+             * @description Hole diameter (mm)
+             */
+            diameter_mm: number;
+            /** @description Planar face of an earlier body-affecting feature to drill into (the SAME stage-1 signature reference the on_face datum uses) */
+            face: components["schemas"]["SubshapeRef"];
+            /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
+            position: components["schemas"]["Vec3"];
+        };
+        /**
+         * HoleThroughAll
+         * @description A hole that cuts fully THROUGH the body (``kind: "through_all"``).
+         *
+         *     No depth to specify — the drill clears the body on both sides regardless of
+         *     the local wall thickness (the geometry service spans the bounding box). The
+         *     default ``kind`` makes ``{"kind": "through_all"}`` explicit while a future
+         *     additive depth mode joins the discriminated union without a bump.
+         */
+        HoleThroughAll: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "through_all";
         };
         /**
          * HorizontalConstraint

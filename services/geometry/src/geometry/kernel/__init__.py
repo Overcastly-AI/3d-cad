@@ -58,6 +58,12 @@ from geometry.kernel.faces import (
     resolve_faces,
 )
 from geometry.kernel.fillet import FilletError, fillet_body
+from geometry.kernel.hole import (
+    HoleError,
+    HoleOffBodyError,
+    HoleTooDeepError,
+    bore_hole,
+)
 from geometry.kernel.imports import (
     ImportNoSolidError,
     ImportParseError,
@@ -140,6 +146,9 @@ __all__ = [
     "EdgeRecord",
     "FaceResolutionError",
     "FilletError",
+    "HoleError",
+    "HoleOffBodyError",
+    "HoleTooDeepError",
     "ImportNoSolidError",
     "ImportParseError",
     "ImportParseTimeoutError",
@@ -172,6 +181,7 @@ __all__ = [
     "SubshapeUnresolvedError",
     "SweepError",
     "boolean_bodies",
+    "bore_hole",
     "build_box",
     "build_cylinder",
     "build_datum_plane",
