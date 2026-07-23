@@ -150,6 +150,7 @@ from geometry.kernel import (
     build_path_wire,
     build_profile_face,
     build_profile_faces,
+    build_revolve_profile_face,
     chamfer_body,
     check_axis_clears_profile,
     circular_pattern,
@@ -1198,20 +1199,32 @@ def _evaluate_revolve(
     assert isinstance(feature, RevolveFeature), "registry dispatches on type='revolve'"
     params = feature.params
 
-    resolved = _resolve_profile_face(params.profile, state)
+    # Resolve the solved sketch, then the axis, THEN build the profile face:
+    # the axis is resolved first so a construction centerline can close a
+    # half-profile open only along the axis (build_revolve_profile_face), the
+    # natural SolidWorks/Fusion idiom. A profile already closed by real edges
+    # (offset washer, real on-axis edge) builds byte-identically.
+    resolved = _resolve_solved_profile(params.profile, state)
     if isinstance(resolved, FeatureError):
         return resolved
-    face, plane, solved = resolved
+    plane, solved = resolved
 
     try:
         axis_line = resolve_axis_line(solved.entities, params.axis.entity)
-        check_axis_clears_profile(axis_line, solved.entities)
     except NoAxisError as exc:
         return FeatureError(
             code="no_axis",
             message=str(exc),
             upstream_feature_id=params.profile.feature_id,
         )
+
+    try:
+        face = build_revolve_profile_face(plane, solved.entities, axis_line)
+    except (ProfileNotClosedError, ProfileUnsupportedError) as exc:
+        return _profile_build_error(exc, params.profile.feature_id)
+
+    try:
+        check_axis_clears_profile(axis_line, solved.entities)
     except AxisIntersectsProfileError as exc:
         return FeatureError(
             code="axis_intersects_profile",

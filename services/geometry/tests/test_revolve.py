@@ -115,6 +115,46 @@ def profile_sketch(
     }
 
 
+def half_profile_sketch(
+    feature_id: uuid.UUID,
+    radius: float,
+    height: float,
+    *,
+    axis_gap: float = 0.0,
+) -> dict[str, Any]:
+    """A HALF-profile OPEN along the axis + a construction centerline on it.
+
+    Three REAL edges of a rectangle r in [0, radius], y in [0, height] — the
+    on-axis (x=0) edge is OMITTED — plus a ``construction`` centerline 'axis'
+    along x=0 that closes the loop. This is the SolidWorks/Fusion idiom: marking
+    the on-axis edge construction opens the profile wire, and the revolve closes
+    it about the centerline.
+
+    ``axis_gap > 0`` shifts the whole real profile to x in [axis_gap, radius],
+    leaving it open along x=axis_gap (NOT the axis) — a genuinely open profile
+    the centerline cannot close (over-acceptance guard).
+    """
+    x0 = axis_gap
+    entities: list[dict[str, Any]] = [
+        _line("e1", (x0, 0.0), (radius, 0.0)),
+        _line("e2", (radius, 0.0), (radius, height)),
+        _line("e3", (radius, height), (x0, height)),
+        _line("axis", (0.0, height), (0.0, 0.0), construction=True),
+    ]
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(XY_PLANE),
+                "entities": entities,
+                "constraints": [],
+            },
+        },
+    }
+
+
 def revolve_input(
     feature_id: uuid.UUID,
     profile_id: uuid.UUID,
@@ -249,6 +289,69 @@ def test_revolve_cut_removes_a_revolved_pocket() -> None:
     assert result.properties.volume == pytest.approx(
         math.pi * (400.0 - 100.0) * 15.0, abs=REVOLVE_TOL
     )
+
+
+# --- Construction-centerline axis closes a half-profile (BACKLOG P2) ------------------
+
+
+def test_construction_centerline_closes_open_half_profile() -> None:
+    """The SolidWorks/Fusion idiom: a half-profile OPEN along the axis (its
+    on-axis edge is a construction centerline, excluded from the wire) revolves
+    360 deg about that centerline into a solid cylinder, V = pi*r^2*h — the
+    centerline closes the open profile (was 422 profile_not_closed before)."""
+    result = _post(
+        _request(
+            [
+                half_profile_sketch(SKETCH_ID, 12.0, 20.0),
+                revolve_input(REVOLVE_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        math.pi * 144.0 * 20.0, abs=REVOLVE_TOL
+    )
+
+
+def test_construction_centerline_partial_angle() -> None:
+    """A 90 deg revolve of the same open half-profile about its construction
+    centerline sweeps a quarter of the full solid: V = 0.25 * pi*r^2*h."""
+    result = _post(
+        _request(
+            [
+                half_profile_sketch(SKETCH_ID, 12.0, 20.0),
+                revolve_input(REVOLVE_ID, SKETCH_ID, angle_deg=90.0),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        0.25 * math.pi * 144.0 * 20.0, abs=REVOLVE_TOL
+    )
+
+
+def test_profile_open_away_from_axis_still_profile_not_closed() -> None:
+    """Over-acceptance guard: a profile open along x=5 (NOT the axis) is a
+    GENUINELY open profile — the construction centerline at x=0 cannot close it,
+    so it stays profile_not_closed (the fallback supplies only the axis edge)."""
+    result = _post(
+        _request(
+            [
+                half_profile_sketch(SKETCH_ID, 12.0, 20.0, axis_gap=5.0),
+                revolve_input(REVOLVE_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_not_closed"
+    assert error.upstream_feature_id == SKETCH_ID
 
 
 # --- Error paths are per-feature values, never transport failures ---------------------

@@ -332,14 +332,21 @@ frame refactor are v2/§11. Spike de-collected.
       repeated-part / non-identity-rotation assembly as a committed golden so the
       "green suite, wrong rotated geometry" hazard is a permanent gate, not a
       synthetic one. [src: GEOMETRY-QA.md 2026-07-23 assembly-export QA]
-- [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
-      trap — named independently in three product-audit passes, 07-12/07-15/
-      07-23) — marking the on-axis edge `construction: true` (the natural
-      SolidWorks/Fusion idiom) excludes it from the profile wire → `422
-      profile_not_closed`; today only a real profile-boundary edge used *as*
-      the axis works. Acceptance: sketch a half-profile + a construction
-      centerline on the axis → revolve succeeds using the centerline; existing
-      real-edge-as-axis path unaffected; worked e2e. [src: product-auditor]
+- [x] (P2, S) Revolve: construction-centerline axis opens the profile —
+      SHIPPED 2026-07-23 (kernel-architect). A half-profile OPEN only along the
+      axis (the on-axis edge is a `construction` centerline, excluded from the
+      wire) now revolves about that centerline: `build_revolve_profile_face`
+      first tries the SHARED `build_profile_face` (existing real-edge / offset-
+      washer paths byte-identical), and on `profile_not_closed` retries with the
+      axis line promoted to a real closing edge — closing exactly the face a real
+      on-axis edge would give. A profile open somewhere OTHER than the axis stays
+      `profile_not_closed` (over-acceptance guard test). New golden
+      `revolve-centerline-cylinder-r12-h20` (analytic V=2880π, all gates +
+      cross-process determinism + STEP round-trip green); revolve-annulus golden
+      byte-identical. WEB FOLLOW-UP (not this commit): the revolve editor's axis
+      picker should allow selecting a construction line as the axis (the sketcher
+      already authors construction lines; verify the pick filter doesn't exclude
+      them). [src: product-auditor]
 - [x] (P2, S) Datum editor: midplane FACE-sides + `on_face` authoring —
       SHIPPED 2026-07-23 (frontend-builder). The `FacePickOverlay` is wired into
       the standalone `DatumEditor`: an `on_face` kind and midplane FACE-sides
@@ -590,6 +597,10 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-23 batch)
 
+- [x] (P2, S) Revolve construction-centerline axis closes an open half-profile
+      (`build_revolve_profile_face`; new `revolve-centerline-cylinder-r12-h20`
+      golden V=2880π; annulus golden byte-identical). Web follow-up: revolve
+      editor axis-pick should allow construction lines. [src: product-auditor]
 - [x] (P1, M) Assembly interference/collision detection. `POST /api/v1/assembly/
       interference` (geometry) + auth'd/rate-limited gateway proxy; reuses
       `EvaluateAssemblyRequest`, adds `InterferenceResult`/`ClashPair`. Reuses

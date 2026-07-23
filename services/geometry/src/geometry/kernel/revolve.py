@@ -45,7 +45,12 @@ from py_kit.schemas.sketch import (
     SketchLine,
 )
 
-from geometry.kernel.extrude import plane_point_to_world
+from geometry.kernel.extrude import (
+    ProfileNotClosedError,
+    ProfileUnsupportedError,
+    build_profile_face,
+    plane_point_to_world,
+)
 
 #: Clearance tolerance (mm) for the axis-vs-profile side test, aligned with the
 #: kernel linear tolerance (1e-7 m; model units are mm). A profile point within
@@ -103,6 +108,47 @@ def resolve_axis_line(
             "coincide); it has no direction to revolve about."
         )
     return match
+
+
+def build_revolve_profile_face(
+    plane: Plane, entities: Sequence[SketchEntity], axis: SketchLine
+) -> Face:
+    """Build the revolve profile face, closing a half-profile along the axis.
+
+    First the SHARED :func:`geometry.kernel.extrude.build_profile_face`
+    (construction geometry excluded there) — the existing real-edge and
+    offset-profile paths return here **byte-identical**: a profile already
+    closed by real edges (a shaft with a real on-axis edge, a washer offset
+    from the axis) never touches the fallback below.
+
+    A half-profile whose only open side lies ON the axis is the natural
+    SolidWorks/Fusion idiom: draw three real edges of an L / rectangle plus a
+    **construction centerline** on the axis, and revolve about that centerline.
+    Marking the on-axis edge ``construction`` correctly excludes it from the
+    profile wire, so the first attempt raises
+    :class:`~geometry.kernel.extrude.ProfileNotClosedError`. The fallback then
+    retries with the AXIS line promoted to a real closing edge: the profile
+    closes into exactly the face a real on-axis edge would give, and revolving
+    it fills the solid of revolution.
+
+    A profile open somewhere OTHER than the axis stays open even with the axis
+    edge added (its free endpoints are not the axis endpoints), so the ORIGINAL
+    ``ProfileNotClosedError`` re-raises — a genuinely open profile is never
+    masked (design §4.3; the axis is the only edge the fallback will supply).
+    """
+    try:
+        return build_profile_face(plane, entities)
+    except ProfileNotClosedError as original:
+        # Retry with the construction axis promoted to a real profile edge: it
+        # closes a half-profile open ONLY along the axis, and nothing else.
+        closed_axis = axis.model_copy(update={"construction": False})
+        entities_with_axis = [closed_axis if e is axis else e for e in entities]
+        try:
+            return build_profile_face(plane, entities_with_axis)
+        except (ProfileNotClosedError, ProfileUnsupportedError):
+            # Still open (or malformed) even with the axis edge → the profile is
+            # open away from the axis. Report the honest original diagnosis.
+            raise original from None
 
 
 def _axis_side_bounds(
