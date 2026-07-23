@@ -408,7 +408,11 @@ pairwise `BRepAlgoAPI_Common` over the solved world-placed bodies →
 `clashes: [{instance_a, instance_b, overlap_volume_mm3}]`; principled volume
 floor = one kernel-tolerance cube so a coincident-face touch is no clash; N²
 over bodied instances = accepted v1 bound; analytic 2500 mm³ overlap verified
-to 4.5e-13). Still deferred past v1 (design doc §5): exploded views, BOM
+to 4.5e-13). **Gateway proxy boundary tests for both routes landed 2026-07-23**
+(E2 test-half — `test_assembly_export_proxy.py` + `test_assembly_interference_
+proxy.py`: auth/rate-limit/identity-free-upstream/pass-through/error-resurface;
+the web "Export STEP" consumer is the concurrent frontend half). Still deferred
+past v1 (design doc §5): exploded views, BOM
 formatting, flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
