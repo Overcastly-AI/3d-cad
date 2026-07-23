@@ -230,13 +230,25 @@ frame refactor are v2/§11. Spike de-collected.
       degradation: `hole_off_body` / `hole_too_deep` / `subshape_unresolved` /
       `no_prior_body` (never-500). documents picks it up centrally (shared
       registry). [done 2026-07-23]
-- [ ] (P2, M) Dedicated Hole feature — SLICE 2 + web: counterbore / countersink
-      / tapped hole types, standard drill-size tables; PLUS a web authoring slice
-      (pick a face + point in the viewport, hole dialog — the DTO is ready, only
-      the frontend surface + a follow-up MCP/scripting exposure remain). Seeds
-      Drawings hole callouts. Slice-2 hole types join `HoleParamsV1` as an
-      additive `HoleType`-discriminated member (no `param_version` bump). [src:
-      AUDIT-PRODUCT.md 2026-07-23; roadmap, product-auditor, competitive]
+- [x] (P2, S) Dedicated Hole feature — SLICE 1 WEB authoring: a Hole command
+      (band action in Modify + `O` shortcut) hangs a `HoleEditor` like the
+      extrude/section editors — pick a face (REUSES `FacePickOverlay`, the SAME
+      stage-1 signature the on_face datum / sketch-on-face flows echo), pick a
+      point ON it (`HolePointOverlay` — the measure overlay's DOM-in-canvas
+      `PickNode`, offering the face centre + its coplanar corner snaps; a face
+      pick seeds the point to the centroid so the form is immediately valid), set
+      Ø + through-all|blind depth, drill via the shared feature-create path. Typed
+      rebuild errors (`hole_off_body`/`hole_too_deep`/`subshape_unresolved`/
+      `no_prior_body`) read as guidance through `friendlyFeatureError`. e2e drills
+      a through-all + a blind hole in the UI on the real isolated stack (feature
+      lands + body re-renders + reload holds); 13 `hole.test.ts` units; founder
+      shots (1440 + 1280×800). [done 2026-07-23]
+- [ ] (P2, M) Dedicated Hole feature — SLICE 2: counterbore / countersink /
+      tapped hole types, standard drill-size tables (+ a follow-up MCP/scripting
+      exposure). Seeds Drawings hole callouts. Slice-2 hole types join
+      `HoleParamsV1` as an additive `HoleType`-discriminated member (no
+      `param_version` bump); the `HoleEditor` grows a type select + the tables.
+      [src: AUDIT-PRODUCT.md 2026-07-23; roadmap, product-auditor, competitive]
 - [ ] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
       state (or typed-fail if they reference the suppressed feature directly). A
@@ -776,6 +788,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   proves analytic volume parity (10000−250π) AND sketch+extrude-cut parity; typed
   degradation (`hole_off_body`/`hole_too_deep`). Slice 2 (counterbore/countersink/
   tapped + drill tables) + web authoring remain.
+- 2026-07-23 — **Hole SLICE 1 WEB authoring (frontend-builder):** Hole command
+  (Modify band + `O`) → `HoleEditor`; face pick REUSES `FacePickOverlay`, point
+  pick REUSES the measure `PickNode` affordance (`HolePointOverlay` — centre +
+  coplanar corners), Ø + through-all|blind. Typed rebuild errors → guidance
+  (`friendlyFeatureError`). e2e drills through-all + blind in the UI; 13 units.
+  Hole slice 1 is now end-to-end; slice 2 (counterbore/countersink) remains.
 - 2026-07-23 — **Assembly STEP import SLICE 1 — geometry XCAF reader
   (kernel-architect):** `POST /api/v1/assembly/import` + `kernel/step_assembly.py`
   (XDE `STEPCAFControl_Reader` walk, mirror of the export composer) →

@@ -433,6 +433,25 @@ export const DraftIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Hole = a drilled cylindrical bore into a face. An iso plate (the placement
+ * face) carries a round bore MOUTH (the ellipse — a circle seen at an angle),
+ * and the drill axis descends INTO the material with an arrowhead (the cut
+ * direction, opposite the outward face normal). The round mouth + downward axis
+ * is the thing no other feature glyph shows, so it reads as "drill a hole",
+ * never a pocket (extrude-cut) or a hollow (shell).
+ */
+export const HoleIcon = (p: IconProps) => (
+  <Icon {...p}>
+    {/* The placement face the hole is drilled into (iso top). */}
+    <path d="M4 7 L12 3 L20 7 L12 11 Z" />
+    {/* The bore mouth — a round opening seen at an angle. */}
+    <ellipse cx="12" cy="7" rx="2.6" ry="1.3" />
+    {/* The drill axis into the solid (down, with the cut-direction arrow). */}
+    <path d="M12 8.4 V19 M12 19 L10.6 17.3 M12 19 L13.4 17.3" />
+  </Icon>
+);
+
 // --- Sheet metal features ---------------------------------------------------
 
 /**

@@ -24,6 +24,17 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
     "This boolean makes separate pieces that don't form one connected solid. Turn on “Keep as one body” to combine them into a single multi-lump body.",
   import_no_solid:
     "This STEP file has no solid geometry to import — only surfaces, shells, or wireframe. Provide a file with at least one closed solid.",
+  // Hole (slice 1) rebuild errors — readable guidance, not bare codes.
+  hole_off_body:
+    "The hole misses the body — no material is removed. Move the point onto solid material on the face.",
+  hole_too_deep:
+    "This blind hole would break through the far side of the body. Reduce the depth, or switch to Through all.",
+  no_prior_body:
+    "There's no body to modify yet. Add a feature that creates a body before this one.",
+  subshape_unresolved:
+    "The referenced face can no longer be found — an earlier edit changed the body. Re-pick the face.",
+  subshape_ambiguous:
+    "The referenced face matches more than one face now. Re-pick a distinct face.",
 };
 
 /**

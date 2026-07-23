@@ -25,6 +25,7 @@ import {
   FilletIcon,
   FlatPatternIcon,
   HemIcon,
+  HoleIcon,
   ImportStepIcon,
   LoftIcon,
   MeasureIcon,
@@ -113,6 +114,8 @@ export interface CreateStripProps {
   onShell?: () => void;
   /** Taper picked faces for mold release about a neutral plane (D). */
   onDraft?: () => void;
+  /** Drill a cylindrical hole into the current body at a point on a face (O). */
+  onHole?: () => void;
   /**
    * A solved sketch exists to thicken into a sheet-metal base flange (the same
    * gate as Extrude — a base flange consumes a sketch profile).
@@ -203,6 +206,7 @@ export function CreateStrip({
   onPattern,
   onShell,
   onDraft,
+  onHole,
   canBaseFlange = false,
   onNewBaseFlange,
   canEdgeFlange = false,
@@ -235,6 +239,7 @@ export function CreateStrip({
   const patternReady = canModify && treeReady && onPattern !== undefined;
   const shellReady = canModify && treeReady && onShell !== undefined;
   const draftReady = canModify && treeReady && onDraft !== undefined;
+  const holeReady = canModify && treeReady && onHole !== undefined;
   const combineReady = canCombine && treeReady && onCombine !== undefined;
   const baseFlangeReady =
     canBaseFlange && treeReady && onNewBaseFlange !== undefined;
@@ -544,6 +549,21 @@ export function CreateStrip({
             caption={captionFor(draftReady, "Create a body first")}
             disabled={locked || !draftReady}
             onClick={onDraft}
+          />
+          <ToolButton
+            icon={<HoleIcon />}
+            showLabel
+            label="Hole"
+            shortcut="O"
+            data-testid="new-hole"
+            aria-label={
+              holeReady
+                ? "Hole — drill a cylinder into the body at a point on a face (O)"
+                : "Hole — create a body first"
+            }
+            caption={captionFor(holeReady, "Create a body first")}
+            disabled={locked || !holeReady}
+            onClick={onHole}
           />
           <ToolButton
             icon={<CombineIcon />}

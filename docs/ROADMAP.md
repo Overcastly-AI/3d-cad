@@ -356,13 +356,20 @@ item:
       intersect between independently-built bodies, multi-lump bodies, opt-in
       disjoint union, multi-solid STEP import — geometry-QA'd PASS twice;
       VISION Part modeling row Notes corrected same pass, score unchanged).
-- ✅ Dedicated Hole feature — SLICE 1 (simple hole, 2026-07-23): first-class
+- ✅ Dedicated Hole feature — SLICE 1 END-TO-END (2026-07-23): first-class
       `HoleFeature` (face-placed point + diameter + through-all|blind, auto inward
       cut direction), NOT a sketched circle. Analytic + sketch-cut-parity golden
-      (`hole-through-r5-40x25x10`); typed degradation (off-body / over-deep).
-      Slice 2 (counterbore/countersink/tapped + drill tables) + web authoring
-      remain (BACKLOG P2). Erases the highest-frequency everyday modeling friction
-      and seeds Drawings hole callouts.
+      (`hole-through-r5-40x25x10`); typed degradation (off-body / over-deep). WEB
+      authoring shipped (frontend-builder): a Hole command (band action + `O`)
+      hangs a `HoleEditor` like extrude/section — pick a face (the SAME
+      `FacePickOverlay` the on_face datum/sketch-on-face use), pick a point ON it
+      (the measure overlay's DOM-in-canvas point affordance; centre + face-corner
+      snaps via `HolePointOverlay`), set Ø + through-all|blind, drill; typed
+      rebuild errors read as guidance via `friendlyFeatureError`. e2e drills a
+      through-all + a blind hole in the UI on the real stack; 13 `hole.test.ts`
+      units. Slice 2 (counterbore/countersink/tapped + drill tables) remains
+      (BACKLOG P2). Erases the highest-frequency everyday modeling friction and
+      seeds Drawings hole callouts.
 - ✅ STEP import v1 — kernel (`4964fab`) → gateway upload → UI file-picker,
       with a P1 security bound on the untrusted parse. **Interop row flips
       ❌→➖.** Parse bound hardened 2026-07-19: wall-clock → contention-invariant

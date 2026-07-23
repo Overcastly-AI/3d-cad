@@ -79,6 +79,11 @@ export type PickedEdgesSelector = components["schemas"]["PickedEdgesSelector"];
 export type EdgeSubshapeRef = components["schemas"]["EdgeSubshapeRef"];
 /** The stage-1 geometric fingerprint an overlay edge carries and a ref echoes. */
 export type EdgeSignature = components["schemas"]["EdgeSignature"];
+export type HoleFeature = components["schemas"]["HoleFeature"];
+/** A face-placed cylindrical hole — through-all or blind (slice 1). */
+export type HoleParams = components["schemas"]["HoleParamsV1"];
+/** The hole `depth` slot on the wire: through-all, or a blind pocket depth. */
+export type HoleDepth = HoleParams["depth"];
 export type ShellFeature = components["schemas"]["ShellFeature"];
 export type ShellParams = components["schemas"]["ShellParamsV1"];
 /** The shell's picked-face selector: the faces to leave OPEN (empty = sealed). */
@@ -613,6 +618,42 @@ export function shellFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: shellFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by hole create and update. */
+function holeFeatureEnvelope(params: HoleParams): HoleFeature {
+  return { type: "hole", version: 1, params };
+}
+
+/**
+ * The create payload for a hole feature: drill a cylinder of `diameter_mm` into
+ * the current body at a point on a picked planar face, through-all or blind
+ * (design §7.6, the shell/draft sibling — no whole-feature `FeatureRef`, it acts
+ * on the implicit body chain at its point in the tree; the placement face IS a
+ * named stage-1 `SubshapeRef`, the SAME the on_face datum / shell openings use).
+ * Pure — unit-tested against the generated types.
+ */
+export function holeFeatureCreate(
+  name: string,
+  params: HoleParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: holeFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing hole (no rename). */
+export function holeFeatureUpdate(
+  params: HoleParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: holeFeatureEnvelope(params),
   };
 }
 

@@ -47,6 +47,10 @@ import {
   type FilletParams,
   filletFeatureCreate,
   filletFeatureUpdate,
+  type HoleParams,
+  holeFeatureCreate,
+  holeFeatureUpdate,
+  type Vec3,
   type LoftParams,
   loftFeatureCreate,
   loftFeatureUpdate,
@@ -96,6 +100,7 @@ import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
 import { DraftEditor } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
+import { HoleEditor } from "../components/HoleEditor";
 import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
 import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
 import { HemEditor } from "../components/HemEditor";
@@ -204,6 +209,16 @@ import {
 } from "../features/draft";
 import { useFacePickStore } from "../features/facePickStore";
 import { ShellFaceOverlay } from "../viewport/ShellFaceOverlay";
+import { HolePointOverlay } from "../viewport/HolePointOverlay";
+import {
+  defaultHoleForm,
+  formFromHoleParams,
+  type HoleFacePick,
+  type HoleForm,
+  type HolePickTarget,
+  type HolePointPick,
+  type HolePreview,
+} from "../features/hole";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -312,6 +327,12 @@ type OpenEditor =
       featureId?: string;
     }
   | {
+      kind: "hole";
+      mode: "create" | "edit";
+      initial: HoleForm;
+      featureId?: string;
+    }
+  | {
       kind: "datum";
       mode: "create" | "edit";
       initial: DatumForm;
@@ -361,6 +382,7 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   chamfer: "Chamfer",
   shell: "Shell",
   draft: "Draft",
+  hole: "Hole",
   datum: "Datum plane",
   baseFlange: "Base flange",
   edgeFlange: "Edge flange",
@@ -492,6 +514,22 @@ export function PartPage() {
     null,
   );
   const datumFacePickNonce = useRef(0);
+
+  // Hole authoring pick session: the HoleEditor arms a FACE pick (the planar
+  // placement face) then a POINT pick (a point ON it). Both reuse the SAME
+  // overlay fetch + DOM-in-canvas pick affordances the datum/measure flows use
+  // — one enumeration, pick side and resolve side. `holePreview` mirrors the
+  // editor's live face + position up so the point overlay draws ON the face.
+  const [holePick, setHolePick] = useState<HolePickTarget | null>(null);
+  const [holeFacePicked, setHoleFacePicked] = useState<HoleFacePick | null>(
+    null,
+  );
+  const [holePointPicked, setHolePointPicked] = useState<HolePointPick | null>(
+    null,
+  );
+  const [holePickError, setHolePickError] = useState<string | null>(null);
+  const [holePreview, setHolePreview] = useState<HolePreview | null>(null);
+  const holePickNonce = useRef(0);
 
   // ---------------------------------------------------------------------
   // Measurement (inspect mode). The tool fetches the pickable overlay for the
@@ -1229,6 +1267,23 @@ export function PartPage() {
   const datumPickableFaces =
     datumFacePick !== null ? (datumFacesQuery.data?.faces ?? null) : null;
 
+  // The pickable overlay while the hole editor is armed for a face OR point —
+  // same request/key as every other overlay (one cache entry, faces + vertices
+  // line up with the rendered body). `.faces` feeds the face pick; `.vertices`
+  // feed the point pick's face-corner snaps.
+  const holePicking = editor?.kind === "hole" && holePick !== null;
+  const holeOverlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: holePicking && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const holePickableFaces =
+    holePick === "face" ? (holeOverlayQuery.data?.faces ?? null) : null;
+  const holeOverlayVertices = holeOverlayQuery.data?.vertices ?? null;
+
   // ---------------------------------------------------------------------
   // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
   // is the last body-affecting feature (the body the edges belong to) — the
@@ -1586,6 +1641,16 @@ export function PartPage() {
     });
   }, []);
 
+  // A hole, like fillet/shell/draft, modifies the current BODY (no sketch
+  // profile) — it only needs a solid to exist (canModify), so it mirrors their
+  // guard. It opens with no face/point chosen; the pick session authors both.
+  const openCreateHole = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({ kind: "hole", mode: "create", initial: defaultHoleForm() });
+  }, []);
+
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
   const openCreateDatum = useCallback(() => {
@@ -1807,6 +1872,13 @@ export function PartPage() {
           initialPickedFaces: pickedFacesFromDraftParams(
             feature.feature.params,
           ),
+        });
+      } else if (feature.feature.type === "hole") {
+        setEditor({
+          kind: "hole",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromHoleParams(feature.feature.params, lengthUnit),
         });
       } else if (feature.feature.type === "sheet_metal_base_flange") {
         setEditor({
@@ -2149,6 +2221,23 @@ export function PartPage() {
         current.mode === "create",
         current.featureId,
         "The draft could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitHole = useCallback(
+    (params: HoleParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "hole") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "hole").length + 1;
+      runFeatureSave(
+        (version) => holeFeatureCreate(`Hole${nextIndex}`, params, version),
+        (version) => holeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The hole could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -2502,6 +2591,85 @@ export function PartPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [datumFacePick]);
 
+  // Hole authoring picks. Arming a target highlights the body (faces for the
+  // placement face, points on the face for the drill point); a click resolves
+  // to a full-precision signature / world point the editor folds in. The face
+  // anchor is the last body-affecting feature — the same rule sketch-on-face and
+  // the datum picker use.
+  const toggleHolePick = useCallback(
+    (target: HolePickTarget) => {
+      if (!hasBody) {
+        setHolePickError(
+          "Add a feature that creates a body before drilling a hole.",
+        );
+        return;
+      }
+      setHolePickError(null);
+      setHolePick((current) => (current === target ? null : target));
+    },
+    [hasBody],
+  );
+
+  const pickHoleFace = useCallback(
+    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+      const anchorId = lastBodyFeatureId(tree.data?.features ?? []);
+      if (anchorId === null) {
+        setHolePickError(
+          "Add a feature that creates a body before drilling a hole.",
+        );
+        setHolePick(null);
+        return;
+      }
+      holePickNonce.current += 1;
+      setHoleFacePicked({
+        nonce: holePickNonce.current,
+        face: { signature: face.signature, anchorId },
+      });
+      // A face chosen → disarm (the editor seeds the point to the centre); the
+      // user arms the POINT pick next to refine the placement.
+      setHolePick(null);
+    },
+    [tree.data],
+  );
+
+  const pickHolePoint = useCallback((point: Vec3) => {
+    holePickNonce.current += 1;
+    setHolePointPicked({ nonce: holePickNonce.current, position: point });
+    setHolePick(null);
+  }, []);
+
+  const onHolePreviewChange = useCallback(
+    (preview: HolePreview | null) => setHolePreview(preview),
+    [],
+  );
+
+  // The hole pick session ends whenever the hole editor closes (or the seat
+  // holds a different editor) — drop the armed target, pending picks, preview,
+  // and any error so a reopened editor starts clean.
+  useEffect(() => {
+    if (editor?.kind !== "hole") {
+      setHolePick(null);
+      setHoleFacePicked(null);
+      setHolePointPicked(null);
+      setHolePickError(null);
+      setHolePreview(null);
+    }
+  }, [editor]);
+
+  // Escape disarms an armed hole pick (staying in the editor) — the most local
+  // cancel, mirroring the datum face pick. Registered only while a pick is armed.
+  useEffect(() => {
+    if (holePick === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setHolePick(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [holePick]);
+
   // ---------------------------------------------------------------------
   // Undo/redo (docs/design/undo-redo.md §UR2). History is SERVER-side snapshot
   // state: the tree GET's can_undo/can_redo gate the controls, and a step is a
@@ -2666,6 +2834,9 @@ export function PartPage() {
       } else if (key === "d" && hasBody) {
         event.preventDefault();
         openCreateDraft();
+      } else if (key === "o" && hasBody) {
+        event.preventDefault();
+        openCreateHole();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -2681,6 +2852,7 @@ export function PartPage() {
     openCreateLoft,
     openCreateShell,
     openCreateDraft,
+    openCreateHole,
   ]);
 
   // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — model idle
@@ -2800,6 +2972,7 @@ export function PartPage() {
               onPattern={openCreatePattern}
               onShell={openCreateShell}
               onDraft={openCreateDraft}
+              onHole={openCreateHole}
               canBaseFlange={hasSolvedSketch}
               onNewBaseFlange={openCreateBaseFlange}
               canEdgeFlange={isSheetMetal}
@@ -2970,6 +3143,22 @@ export function PartPage() {
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}
+                    />
+                  ) : editor.kind === "hole" ? (
+                    <HoleEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      onSubmit={submitHole}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                      canPickFace={hasBody}
+                      activePick={holePick}
+                      onTogglePick={toggleHolePick}
+                      facePick={holeFacePicked}
+                      pointPick={holePointPicked}
+                      pickError={holePickError}
+                      onPreviewChange={onHolePreviewChange}
                     />
                   ) : editor.kind === "baseFlange" ? (
                     <BaseFlangeEditor
@@ -3188,6 +3377,25 @@ export function PartPage() {
                 faces={datumPickableFaces}
                 onPick={pickDatumFace}
                 pendingIndex={null}
+              />
+            ) : null}
+            {mode === "off" &&
+            editor?.kind === "hole" &&
+            holePick === "face" ? (
+              <FacePickOverlay
+                faces={holePickableFaces}
+                onPick={pickHoleFace}
+                pendingIndex={null}
+              />
+            ) : null}
+            {mode === "off" &&
+            editor?.kind === "hole" &&
+            holePick === "point" ? (
+              <HolePointOverlay
+                signature={holePreview?.signature ?? null}
+                vertices={holeOverlayVertices}
+                position={holePreview?.position ?? null}
+                onPick={pickHolePoint}
               />
             ) : null}
           </Viewport>
