@@ -7,8 +7,16 @@
  */
 import type { components, GatewayClient } from "@loft/ts-client/gateway";
 
-import { gatewayClient } from "./client";
+import {
+  gatewayClient,
+  MESH_ANGULAR_DEFLECTION_RAD,
+  MESH_LINEAR_DEFLECTION_MM,
+} from "./client";
 import { envelopeCode, envelopeMessage } from "./envelope";
+import {
+  type ExportedFile,
+  parseContentDispositionFilename,
+} from "./exportPart";
 
 export type AssemblyResponse = components["schemas"]["AssemblyResponse"];
 /** Document display unit — the single source is the generated contract. */
@@ -41,6 +49,11 @@ export type AssemblySolveDiagnosis =
   components["schemas"]["AssemblySolveDiagnosis"];
 export type MateEvaluationError = components["schemas"]["MateEvaluationError"];
 export type AssemblyStatus = EvaluateAssemblyResult["status"];
+export type ExportAssemblyRequest =
+  components["schemas"]["ExportAssemblyRequest"];
+export type AssemblyExportFormat = ExportAssemblyRequest["format"];
+export type InterferenceResult = components["schemas"]["InterferenceResult"];
+export type ClashPair = components["schemas"]["ClashPair"];
 
 /**
  * The chosen name already belongs to another of the caller's assemblies
@@ -345,6 +358,76 @@ export async function evaluateAssembly(
   if (error !== undefined) {
     throw new Error(
       envelopeMessage(error, "The assembly could not be evaluated."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Export the whole assembly as ONE multi-instance CAD file via the gateway.
+ * Geometry runs the identical evaluate solve, then composes every instance at
+ * its solved world placement into one STEP (AP214 product structure) or STL
+ * (baked compound). The `request` is the evaluate request plus a `format`; the
+ * file bytes stream back with a `Content-Disposition` filename (server is
+ * authoritative). `client` is injectable for tests.
+ */
+export async function exportAssembly(
+  request: EvaluateAssemblyRequest,
+  format: AssemblyExportFormat,
+  client: GatewayClient = gatewayClient,
+): Promise<ExportedFile> {
+  const { data, error, response } = await client.POST(
+    "/api/v1/geometry/assembly/export",
+    {
+      body: {
+        ...request,
+        format,
+        angular_deflection: MESH_ANGULAR_DEFLECTION_RAD,
+        linear_deflection: MESH_LINEAR_DEFLECTION_MM,
+      },
+      parseAs: "blob",
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(
+        error,
+        `The geometry service rejected the ${format.toUpperCase()} export`,
+      ),
+    );
+  }
+  if (data === undefined) {
+    throw new Error(`${format.toUpperCase()} export returned no file`);
+  }
+  // parseAs:"blob" makes the runtime payload a Blob (openapi-fetch pass-through);
+  // the OpenAPI schema types binary content as string.
+  const blob = data as unknown as Blob;
+  const filename = parseContentDispositionFilename(
+    response.headers.get("Content-Disposition"),
+    `assembly.${format}`,
+  );
+  return { blob, filename };
+}
+
+/**
+ * Interference (clash) check: geometry runs the SAME solve as
+ * {@link evaluateAssembly}, then reports every unordered instance pair whose
+ * solved-world bodies overlap with non-trivial volume (a merely-touching pair
+ * is NO clash). A clash-free assembly is `clashes: []`; a bad part/mate/solve
+ * is a 200 with a typed status + (possibly empty) clash list, never a 4xx/5xx
+ * from the check itself — the envelope stays reserved for transport failures.
+ */
+export async function checkInterference(
+  request: EvaluateAssemblyRequest,
+  client: GatewayClient = gatewayClient,
+): Promise<InterferenceResult> {
+  const { data, error } = await client.POST(
+    "/api/v1/geometry/assembly/interference",
+    { body: request },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The interference check could not be run."),
     );
   }
   return data;

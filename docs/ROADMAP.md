@@ -410,8 +410,13 @@ floor = one kernel-tolerance cube so a coincident-face touch is no clash; N²
 over bodied instances = accepted v1 bound; analytic 2500 mm³ overlap verified
 to 4.5e-13). **Gateway proxy boundary tests for both routes landed 2026-07-23**
 (E2 test-half — `test_assembly_export_proxy.py` + `test_assembly_interference_
-proxy.py`: auth/rate-limit/identity-free-upstream/pass-through/error-resurface;
-the web "Export STEP" consumer is the concurrent frontend half). Still deferred
+proxy.py`: auth/rate-limit/identity-free-upstream/pass-through/error-resurface).
+**E2 web consumers landed 2026-07-23** — the assembly page now exports the
+solved assembly to STEP/STL (shared `ExportRow`) and runs an in-app
+interference check surfaced as a "Clash" inspector view (per-pair overlap
+volumes + "No interferences found" empty state) with clashing instances
+flagged red across the tree + viewport; e2e `assembly-inspect.spec.ts` green
+on the real stack. This closes E2 (both halves). Still deferred
 past v1 (design doc §5): exploded views, BOM
 formatting, flexible sub-assemblies, part-version pinning-as-default.
 

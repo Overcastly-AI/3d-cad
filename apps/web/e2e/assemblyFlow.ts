@@ -146,9 +146,13 @@ export async function pickDispatch(
  * instances (A auto-grounded, B seeded apart at x ≈ 80). Shared by every mate
  * flow so each test only authors its own mate.
  */
-export async function setupTwoInstances(
-  page: Page,
-): Promise<{ idA: string; idB: string; seedX: number }> {
+export async function setupTwoInstances(page: Page): Promise<{
+  idA: string;
+  idB: string;
+  seedX: number;
+  token: string;
+  assemblyId: string;
+}> {
   const account = await seedSession(page);
   const part = await createPlateWithHoleViaApi(
     page,
@@ -203,7 +207,9 @@ export async function setupTwoInstances(
   const seedX = await balloonX(page, idB);
   expect(seedX).toBeGreaterThan(60);
 
-  return { idA, idB, seedX };
+  const assemblyId = page.url().split("/").pop() ?? "";
+
+  return { idA, idB, seedX, token: account.token, assemblyId };
 }
 
 /**

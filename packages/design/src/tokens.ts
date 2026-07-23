@@ -221,6 +221,17 @@ export const assembly = {
   restTint: viewport.restSurfaceTint,
   /** Hovered instance / mate pick — brass-hover. */
   hover: color.brassHover,
+  /**
+   * An interfering (clashing) instance — flag red, matching the DOM clash
+   * schedule + tree badge, so the WebGL edge and the panel read one alarm.
+   */
+  clash: color.flag,
+  /**
+   * Surface tint of a clashing instance — multiplies the studio matcap toward
+   * a warm red (matcaps carry no emissive channel), so an interfering body
+   * reads red-flushed but still metal. Shares the flag hue with `clash`.
+   */
+  clashTint: "#F2C9C9",
 } as const;
 
 /**

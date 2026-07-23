@@ -151,15 +151,17 @@ frame refactor are v2/§11. Spike de-collected.
       (D3), and dimension-placement (D2) goldens all landed this batch; only the
       D5 orientation (portrait) golden remains once D5 authoring ships. [src:
       AUDIT-ENGINEERING.md cross-cutting]
-- [ ] (P2, S) E2 — gateway `assembly/export` + `assembly/interference` web
-      consumer. **Proxy-test half landed 2026-07-23** — `test_assembly_export_
-      proxy.py` + `test_assembly_interference_proxy.py` assert auth (401) +
-      rate-limit (COMPUTE_RATE_LIMIT → 429, nothing forwarded) + identity-free
-      upstream + byte/JSON pass-through + upstream-envelope re-surfacing (mirror
-      `test_drawing_export_proxy.py` / `test_assembly_evaluate_proxy.py`). Remaining:
-      nothing in `apps/web/src` builds an `ExportAssemblyRequest` (no client consumer
-      → the export button doesn't exist in-app yet) — a minimal web "Export STEP"
-      action on an assembly (concurrent frontend task). [src:
+- [x] (P2, S) E2 — gateway `assembly/export` + `assembly/interference` web
+      consumer. **CLOSED 2026-07-23** — web half landed: `exportAssembly` +
+      `checkInterference` (`api/assemblies.ts`, generated client only) drive an
+      assembly Export strip (STEP/STL via the shared `ExportRow`) and a third
+      "Clash" inspector view — a ruled interference schedule (each pair's
+      balloons + exact `overlap_volume_mm3`), an explicit "No interferences
+      found" empty state, and clashing instances flagged red across DOM (tree
+      `CLASH` badge) + WebGL (edge/surface + balloon, shared `assembly.clash`
+      token). Command-band "Check interference" (shortcut I). e2e
+      `assembly-inspect.spec.ts` (STEP download + populated/empty clash) green
+      on the real stack. Proxy-test half landed earlier same day. [src:
       AUDIT-ENGINEERING.md E2 2026-07-23]
 - [ ] (P2, S) Assembly export — persistent ROTATED multi-instance golden under
       `goldens-assembly/`. Both shipped export goldens

@@ -6,13 +6,16 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  checkInterference,
   createInstance,
   createMate,
   deleteInstance,
   deleteMate,
   evaluateAssembly,
+  exportAssembly,
   fetchAssemblyGraph,
   type InstanceResponse,
+  type InterferenceResult,
   type LengthUnit,
   type Mate,
   type MateResponse,
@@ -22,6 +25,7 @@ import {
   updateAssemblyUnit,
   updateInstance,
 } from "../api/assemblies";
+import type { ExportFormat } from "../api/exportPart";
 import { fetchAssemblyBom } from "../api/bom";
 import { MeshNotFoundError, fetchBodyMesh } from "../api/mesh";
 import { fetchOverlay, type OverlayResult } from "../api/measure";
@@ -149,6 +153,88 @@ export function AssemblyPage() {
     placeholderData: keepPreviousData,
   });
   const evaluation = evalQuery.data;
+
+  // The evaluate request — the shared input to evaluate, export, and the
+  // interference check (all three solve the identical world). Null until the
+  // graph and every referenced part's tree have loaded.
+  const evaluateRequest = useMemo(
+    () =>
+      graph !== undefined && partTrees !== undefined
+        ? buildEvaluateAssemblyRequest(graph, partTrees)
+        : null,
+    [graph, partTrees],
+  );
+
+  // ---------------------------------------------------------------------
+  // Interference (clash) check — the same solve as evaluate, scanned for
+  // overlapping instance pairs. Held on the workspace so the result also drives
+  // the tree badge + viewport highlight, not just the CLASH panel.
+  // ---------------------------------------------------------------------
+  const [clashResult, setClashResult] = useState<InterferenceResult | null>(
+    null,
+  );
+  const [clashBusy, setClashBusy] = useState(false);
+  const [clashError, setClashError] = useState<string | null>(null);
+
+  // Any graph edit re-solves the assembly, so a prior clash report (and its
+  // highlight) is stale — drop it on every doc_version change.
+  useEffect(() => {
+    setClashResult(null);
+    setClashError(null);
+  }, [docVersion]);
+
+  const runInterference = useCallback(() => {
+    if (evaluateRequest === null || clashBusy) return;
+    setInspectorView("clash");
+    setClashBusy(true);
+    setClashError(null);
+    void (async () => {
+      try {
+        setClashResult(await checkInterference(evaluateRequest));
+      } catch (error) {
+        setClashError(
+          error instanceof Error
+            ? error.message
+            : "The interference check could not be run.",
+        );
+      } finally {
+        setClashBusy(false);
+      }
+    })();
+  }, [evaluateRequest, clashBusy]);
+
+  // The instances flagged by the last check — badged in the tree and edge-lit
+  // red in the viewport (one clash language across DOM + WebGL).
+  const clashingInstanceIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const clash of clashResult?.clashes ?? []) {
+      set.add(clash.instance_a);
+      set.add(clash.instance_b);
+    }
+    return set;
+  }, [clashResult]);
+
+  // Export the WHOLE solved assembly as one STEP/STL file. Bound to the shared
+  // ExportRow (the same strip the part page exports from). Disabled until a
+  // request exists and at least one instance produced a body.
+  const exporter = useCallback(
+    (format: ExportFormat) => {
+      if (evaluateRequest === null) {
+        return Promise.reject(new Error("The assembly is still loading."));
+      }
+      return exportAssembly(evaluateRequest, format);
+    },
+    [evaluateRequest],
+  );
+  const hasExportableBody = (evaluation?.instances ?? []).some(
+    (instance) => instance.part_mesh_glb_id !== null,
+  );
+  const exportDisabledReason =
+    evaluateRequest === null
+      ? "No assembly"
+      : hasExportableBody
+        ? undefined
+        : "No body";
 
   // Fetch each UNIQUE solved mesh once (dedup by content address); shared
   // instances reuse the one fetch. Keyed on the sorted id set so it only
@@ -532,9 +618,10 @@ export function AssemblyPage() {
     if (canRedo) runHistoryStep("redo");
   }, [canRedo, runHistoryStep]);
 
-  // Keyboard-first: A opens the picker; F/N/K arm the mate tools; Escape
-  // disarms the tool / closes the picker.
+  // Keyboard-first: A opens the picker; I runs the clash check; F/N/K arm the
+  // mate tools; Escape disarms the tool / closes the picker.
   const canMate = instances.length >= 2;
+  const canCheckInterference = evaluateRequest !== null && canMate;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -555,6 +642,11 @@ export function AssemblyPage() {
         setAddOpen((open) => !open);
         return;
       }
+      if (key === "i" && canCheckInterference) {
+        event.preventDefault();
+        runInterference();
+        return;
+      }
       if (!canMate) return;
       const map: Record<string, MateTool> = {
         f: "coincident",
@@ -571,7 +663,14 @@ export function AssemblyPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canMate, addOpen, setTool, toggleTool]);
+  }, [
+    canMate,
+    canCheckInterference,
+    runInterference,
+    addOpen,
+    setTool,
+    toggleTool,
+  ]);
 
   // One predicate owns "who holds Ctrl+Z right now": an armed mate tool or the
   // open part picker. Both the keyboard effect below and the band's disabled
@@ -663,6 +762,9 @@ export function AssemblyPage() {
             canMate={canMate}
             activeTool={tool}
             onToggleTool={toggleTool}
+            canCheckInterference={canCheckInterference}
+            interferenceBusy={clashBusy}
+            onCheckInterference={runInterference}
           />
         </TopToolbar>
         {/* Full-bleed scene; tree + inspector float over it (Batch 1, P0-4). */}
@@ -734,6 +836,7 @@ export function AssemblyPage() {
               selectedInstanceId={selectedInstanceId}
               onSelectInstance={selectInstance}
               overlaysByInstance={overlaysByInstance}
+              clashingInstanceIds={clashingInstanceIds}
             />
           </Viewport>
           <FloatingPanel side="left" title="Components" id="tree">
@@ -742,6 +845,7 @@ export function AssemblyPage() {
               graphError={graphQuery.error}
               evaluation={evaluation}
               selectedInstanceId={selectedInstanceId}
+              clashingInstanceIds={clashingInstanceIds}
               onSelectInstance={selectInstance}
               onToggleGrounded={handleToggleGrounded}
               onDeleteInstance={handleDeleteInstance}
@@ -761,6 +865,12 @@ export function AssemblyPage() {
               bom={bomQuery.data}
               bomLoading={bomQuery.isLoading}
               bomError={bomQuery.error}
+              instances={instances}
+              clashResult={clashResult}
+              clashBusy={clashBusy}
+              clashError={clashError}
+              exporter={exporter}
+              exportDisabledReason={exportDisabledReason}
             />
           </FloatingPanel>
         </main>

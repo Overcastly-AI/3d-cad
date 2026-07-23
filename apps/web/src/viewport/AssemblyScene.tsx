@@ -38,6 +38,8 @@ export interface AssemblySceneProps {
   onSelectInstance: (instanceId: string) => void;
   /** Part overlays by instance id — present only while a face/axis tool is armed. */
   overlaysByInstance: ReadonlyMap<string, OverlayResult>;
+  /** Instances flagged by the last interference check — edge-lit + balloon red. */
+  clashingInstanceIds: ReadonlySet<string>;
 }
 
 const CORNER = new Vector3();
@@ -82,10 +84,12 @@ export function assemblyBounds(
 function Balloon({
   instance,
   selected,
+  clashing,
   onSelect,
 }: {
   instance: SceneInstance;
   selected: boolean;
+  clashing: boolean;
   onSelect: () => void;
 }) {
   // Anchor at the top-centre of the instance's transformed bounds.
@@ -116,15 +120,20 @@ function Balloon({
         data-solved-y={instance.transform.position[1].toFixed(4)}
         data-solved-z={instance.transform.position[2].toFixed(4)}
         data-grounded={instance.grounded ? "true" : "false"}
-        aria-label={`${instance.name}${instance.grounded ? ", grounded" : ""}`}
+        data-clashing={clashing ? "true" : "false"}
+        aria-label={`${instance.name}${instance.grounded ? ", grounded" : ""}${
+          clashing ? ", interfering" : ""
+        }`}
         className={[
           "flex h-6 w-6 items-center justify-center rounded-full border font-display text-2xs tabular-nums",
           "transition-colors duration-fast outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brass",
           selected
             ? "border-brass bg-brass text-carbide"
-            : instance.grounded
-              ? "border-brass bg-anvil text-brass"
-              : "border-etch bg-anvil text-mist hover:border-brass hover:text-brass",
+            : clashing
+              ? "border-flag bg-anvil text-flag hover:border-flag"
+              : instance.grounded
+                ? "border-brass bg-anvil text-brass"
+                : "border-etch bg-anvil text-mist hover:border-brass hover:text-brass",
         ].join(" ")}
       >
         {instance.grounded ? "⏚" : instance.balloon}
@@ -139,6 +148,7 @@ export function AssemblyScene({
   selectedInstanceId,
   onSelectInstance,
   overlaysByInstance,
+  clashingInstanceIds,
 }: AssemblySceneProps) {
   const tool = useMateAuthoringStore((s) => s.tool);
   const picks = useMateAuthoringStore((s) => s.picks);
@@ -173,6 +183,7 @@ export function AssemblyScene({
             geometry={inst.geometry}
             transform={inst.transform}
             selected={selectedInstanceId === inst.id}
+            clashing={clashingInstanceIds.has(inst.id)}
             reducedMotion={reducedMotion}
             onSelect={() =>
               tool === "lock"
@@ -211,6 +222,7 @@ export function AssemblyScene({
           key={`b-${inst.id}`}
           instance={inst}
           selected={selectedInstanceId === inst.id}
+          clashing={clashingInstanceIds.has(inst.id)}
           onSelect={() =>
             tool === "lock" ? pickInstance(inst.id) : onSelectInstance(inst.id)
           }

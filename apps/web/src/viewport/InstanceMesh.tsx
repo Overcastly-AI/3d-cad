@@ -31,6 +31,8 @@ export interface InstanceMeshProps {
   /** The SOLVED scene-space transform (target of the snap transition). */
   transform: SceneTransform;
   selected: boolean;
+  /** Flagged by the last interference check — edge + surface flush red. */
+  clashing?: boolean;
   reducedMotion: boolean;
   onSelect?: () => void;
 }
@@ -42,6 +44,7 @@ export function InstanceMesh({
   geometry,
   transform,
   selected,
+  clashing = false,
   reducedMotion,
   onSelect,
 }: InstanceMeshProps) {
@@ -71,15 +74,23 @@ export function InstanceMesh({
   // Selection cue: brass edges + a warm surface tint (matcaps have no
   // emissive channel; the tint multiplies the studio sphere toward brass,
   // so the machined read is preserved — boldness stays on the balloon/snap).
+  // An interference flag flushes the body red instead — the alarm reads over
+  // the rest state but yields to an explicit selection (the user's pick wins).
   useEffect(() => {
-    edgeMaterial.color.set(
-      selected ? assemblyTokens.selected : assemblyTokens.instanceEdge,
-    );
-    surfaceMaterial.color.set(
-      selected ? assemblyTokens.selectedTint : assemblyTokens.restTint,
-    );
+    const edge = selected
+      ? assemblyTokens.selected
+      : clashing
+        ? assemblyTokens.clash
+        : assemblyTokens.instanceEdge;
+    const tint = selected
+      ? assemblyTokens.selectedTint
+      : clashing
+        ? assemblyTokens.clashTint
+        : assemblyTokens.restTint;
+    edgeMaterial.color.set(edge);
+    surfaceMaterial.color.set(tint);
     invalidate();
-  }, [selected, edgeMaterial, surfaceMaterial, invalidate]);
+  }, [selected, clashing, edgeMaterial, surfaceMaterial, invalidate]);
 
   // Adopt a new solved transform. First mount snaps to place (no fly-in from
   // the origin); later changes animate (unless reduced motion is requested).
