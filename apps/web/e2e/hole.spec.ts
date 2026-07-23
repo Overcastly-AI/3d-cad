@@ -183,6 +183,54 @@ test.describe("hole — drill a through-all hole in the UI", () => {
     });
   });
 
+  test("a face-based feature AFTER the hole anchors to the hole body", async ({
+    page,
+  }) => {
+    // The mis-anchor guard: `lastBodyFeatureId` must return the HOLE (not the
+    // pre-hole extrude) as the anchor for the next face pick. A through-all hole
+    // reshapes the top face into an annulus, so a datum on that face carries the
+    // HOLE body's signature — anchored to the hole it resolves; anchored to the
+    // extrude (the bug this fixes) it would be `subshape_unresolved` → "Failed".
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Anchor check");
+    await page.goto(`/parts/${part.id}`);
+
+    await buildBaseBox(page);
+
+    // Drill a through-all hole (Ø6, centre of the top face).
+    await page.getByTestId("new-hole").click();
+    await page.getByTestId("hole-face-pick").click();
+    await clickTopFace(page);
+    await expect(page.getByTestId("hole-face")).toContainText("10");
+    await page.getByTestId("hole-submit").click();
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Hole1" }),
+    ).toBeVisible();
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+
+    // Now author a datum ON the (reshaped) top face — its pick anchors to the
+    // last body-affecting feature, which MUST be the hole.
+    await page.getByTestId("tool-datum").click();
+    await page.getByTestId("datum-kind").selectOption("on_face");
+    await page.getByTestId("datum-on-face-pick").click();
+    await clickTopFace(page);
+    await expect(page.getByTestId("datum-on-face")).toContainText("10");
+    await page.getByTestId("datum-submit").click();
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Plane1" }),
+    ).toBeVisible();
+
+    // THE PROOF: the datum resolved against the HOLE body (correct anchor) — the
+    // tree stays Solved and the datum row (index 3: sketch, extrude, hole, datum)
+    // carries no error. A mis-anchor to the extrude would fail this row.
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-3")).toHaveCount(0);
+  });
+
   test("blind depth field appears and drills", async ({ page }) => {
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Blind hole");

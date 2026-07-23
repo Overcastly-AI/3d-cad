@@ -37,6 +37,12 @@ export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "chamfer",
   "shell",
   "draft",
+  // `hole` drills a cylinder into the body (a body-affecting modifier like
+  // fillet/shell/draft), so its result faces/edges anchor a later SubshapeRef —
+  // a datum on the new bore face, a hole near an earlier hole. Its ABSENCE would
+  // make `lastBodyFeatureId` skip a just-drilled hole and mis-anchor the next
+  // face/edge pick to the pre-hole body (subshape_unresolved / wrong dependency).
+  "hole",
   "pattern",
   "import",
   // Sheet metal: the base flange produces the sheet body; edge flange / hem /
@@ -46,6 +52,9 @@ export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "sheet_metal_edge_flange",
   "sheet_metal_hem",
   "sheet_metal_corner_relief",
+  // `boolean` produces a combined body (multi-body §Decisions-3), so its result
+  // faces/edges are nameable by a later SubshapeRef (a fillet on a boolean seam).
+  "boolean",
 ]);
 
 /**

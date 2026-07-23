@@ -6,6 +6,7 @@ import type {
   PlanarFaceSignature,
 } from "../api/parts";
 import {
+  BODY_AFFECTING_FEATURE_TYPES,
   faceLabel,
   faceSignatureKey,
   faceSubshapeRef,
@@ -15,6 +16,38 @@ import {
   onFaceDatumParams,
   toggleFace,
 } from "./face";
+
+/**
+ * The EXACT membership of `py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES`
+ * (`packages/py-kit/src/py_kit/schemas/features.py`) — hand-mirrored so a single-
+ * side edit (add a body-affecting feature server-side, forget the client) fails
+ * this guard loudly. `datum`/`sketch` are NOT body-affecting and must stay out.
+ * The set anchors EVERY face/edge pick (`lastBodyFeatureId`), so a missing entry
+ * mis-anchors a later pick to the wrong body (subshape_unresolved / bad dep).
+ *
+ * Follow-up (true DRY): the OpenAPI schema can't express the "body-affecting"
+ * subset (it's a semantic flag, not a field), so this can't be derived from the
+ * generated contract today. Exposing the set as a generated enum in
+ * `packages/contracts` would kill the drift class — filed as a follow-up.
+ */
+const EXPECTED_BODY_AFFECTING = [
+  "extrude",
+  "revolve",
+  "sweep",
+  "loft",
+  "fillet",
+  "chamfer",
+  "shell",
+  "draft",
+  "hole",
+  "pattern",
+  "import",
+  "sheet_metal_base_flange",
+  "sheet_metal_edge_flange",
+  "sheet_metal_hem",
+  "sheet_metal_corner_relief",
+  "boolean",
+] as const;
 
 /**
  * A minimal feature row whose `feature.type` is set from `type` — the ONLY
@@ -112,20 +145,28 @@ describe("lastBodyFeatureId", () => {
   });
 
   it("recognises every body-affecting op", () => {
-    for (const type of [
-      "extrude",
-      "revolve",
-      "sweep",
-      "loft",
-      "fillet",
-      "chamfer",
-      "shell",
-      "draft",
-      "pattern",
-      "import",
-    ]) {
+    for (const type of EXPECTED_BODY_AFFECTING) {
       expect(lastBodyFeatureId([typed("x", type)])).toBe("x");
     }
+  });
+});
+
+describe("BODY_AFFECTING_FEATURE_TYPES — backend drift guard", () => {
+  it("mirrors py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES exactly", () => {
+    // Order-independent set equality: a member added on ONE side fails here.
+    expect([...BODY_AFFECTING_FEATURE_TYPES].sort()).toEqual(
+      [...EXPECTED_BODY_AFFECTING].sort(),
+    );
+  });
+
+  it("excludes the non-body-affecting types", () => {
+    expect(BODY_AFFECTING_FEATURE_TYPES.has("sketch")).toBe(false);
+    expect(BODY_AFFECTING_FEATURE_TYPES.has("datum")).toBe(false);
+  });
+
+  it("includes hole + boolean (the just-fixed drift)", () => {
+    expect(BODY_AFFECTING_FEATURE_TYPES.has("hole")).toBe(true);
+    expect(BODY_AFFECTING_FEATURE_TYPES.has("boolean")).toBe(true);
   });
 });
 
