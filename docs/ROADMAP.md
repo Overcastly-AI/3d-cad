@@ -2,20 +2,29 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: FOUNDER-DIRECTED — Sheet metal → full incumbent parity
-(2026-07-19).** Founder's bar for VISION.md's Sheet metal row to flip ➖→✅ is
-explicit: **full parity with SolidWorks/Fusion 360 sheet-metal, not "good
-enough."** Sheet metal v1+v2 (below) already shipped a genuinely broad
-unfold (depth-1 stars, non-parallel trays/pans, depth-≥2 bend trees to
-box corners/returns), each independently reviewed + geometry-QA'd — but two
-gaps stood between that and daily-driver use: **no in-app authoring UI**
-(every sheet-metal feature was API-only) and **no corner relief** (closed
-box corners honestly reject rather than unfold). Founder also asked for the
-gap to be *measured*, not asserted: `docs/design/sheet-metal-parity.md`
-(vision-steward, 2026-07-19) is the sourced, evidence-first yardstick — a
-32-row matrix of every SolidWorks/Fusion sheet-metal capability vs. Loft's
-status, re-checked as each feature lands. **Do not flip the scorecard row
-until that matrix says so.**
+**Current focus: FOUNDER-DIRECTED — daily-driver depth (2026-07-23 product
+audit).** The 2026-07-23 audit re-pointed the queue from the sheet-metal
+parity campaign (below, PAUSED — not abandoned) to closing the assembly
+"one-way street" plus the everyday modeling verbs a working engineer reaches
+for. Shipped this batch, each through the full implement→review→geometry-QA→
+in-app-authoring→batch-sweep loop and certified green (geometry gates 178 /
+Playwright 223): **assembly interop is now BIDIRECTIONAL** (STEP export ✅ +
+interference/clash ✅ + STEP import ✅, DoS-bounded upload), **section views**
+end-to-end ✅ (kernel + wire + web authoring), and four daily-driver features —
+**Hole** (simple + counterbore + countersink) ✅, **Mirror** ✅, **Feature
+suppress** ✅, **Revolve construction-centerline** ✅ — all with in-app
+authoring. **Next in the Ready queue: Drawings assembly views + BOM/balloons**
+(the drawings pillar's assembly gap), then the small tonight-follow-ups.
+
+**Sheet metal → full incumbent parity (PAUSED 2026-07-23, resumed on founder
+call).** The bar remains **full parity with SolidWorks/Fusion 360, not "good
+enough"**; `docs/design/sheet-metal-parity.md` (vision-steward, 2026-07-19) is
+the sourced 32-row yardstick — **do not flip the VISION Sheet-metal row until
+that matrix says so.** Sheet metal v1+v2 shipped a broad unfold (depth-1 stars,
+non-parallel trays/pans, depth-≥2 bend trees to box corners/returns) + in-app
+authoring UI + corner relief, each reviewed + geometry-QA'd. Remaining parity
+gaps (open/teardrop/rolled hems, miters, tabs, gauge tables) resume when the
+founder re-prioritizes sheet metal over the daily-driver depth above.
 
 **Groomer note (2026-07-23):** the sheet-metal campaign's WF-1/PB-1 layer +
 the drawings dead-capability drain (D1-D4) both converged this batch (see
