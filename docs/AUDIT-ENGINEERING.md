@@ -446,3 +446,144 @@ same "golden that would have gone red" the notes fix should have carried.
 - **Process (P2).** Institutionalize the guard above: a non-default-value compose
   golden per optional authored drawing field. This converts the whole
   dead-capability class from case-by-case discovery into a standing gate.
+
+---
+
+## 2026-07-23 — Pass: assembly + section-view + sheet-metal batch (post-product-audit restock)
+
+**Scope.** Branch `claude/open-source-3d-cad-o7hl49`, HEAD `d980764`; batch
+`0ed9f74..d980764` (26 commits, +5972/-1003): assembly STEP/STL export
+(`b7408fd`) + the `solve_assembly` refactor, section views v1
+(`137a929`→`57dca7a`→`b895f73`), datum on-face face-picks (`26f9bc1`/`d45ea5c`),
+drawings placement/projection wiring (`822b3a9`/`9207e3c`). A kernel-architect
+is concurrently editing `services/geometry` for interference; audited the
+COMMITTED HEAD via git — in-flight working-tree files ignored.
+
+### Gate re-verification (ran myself)
+
+| Gate | Result | Evidence |
+|------|--------|----------|
+| `just lint` | **green** | exit 0 (`scratchpad/lint.log`) |
+| `just gen-check` | **green** | `contracts + ts-client match generated output` — no contract drift |
+| geometry pytest (assembly export + section + section-audit) | **green** | `42 passed` (`test_assembly_export.py` + `test_drawings_section.py` + `test_drawings_section_audit.py`) |
+| Dependency manifests in batch | **zero changes** | `git diff 0ed9f74..d980764 -- '**/pyproject.toml' '**/package.json' uv.lock pnpm-lock.yaml` empty → **no new deps, no GPL/AGPL exposure this pass** |
+
+### What is genuinely solid (verified)
+
+- **`solve_assembly` refactor is a clean shared core, no kernel-type leak.**
+  `assembly/evaluate.py:347` extracts `SolvedAssembly` (holds kernel `BodyShape`
+  solids) as the shared spine of `evaluate_assembly` (serialises to DTO) and
+  `assembly/export.py:77` (composes bodies to bytes). Both stay in
+  `services/geometry`; `export.py` returns `bytes`, `AssemblyComponent`
+  (`kernel/export.py:136`) is the only new kernel struct and never crosses a
+  boundary. No OCP/build123d import outside `geometry.kernel`; gateway proxies
+  `ExportAssemblyRequest`/`EvaluateAssemblyResult` via the shared py-kit DTOs
+  (`gateway/geometry.py:16-20`), not hand-duplicated types.
+- **`section.py` boundary + tolerance discipline is correct.** The wrong-half
+  bug (`57dca7a`) is fixed by single-sourcing `remove_dir` off the EYE
+  (`resolve_section_frame`, section.py:152-194) rather than the datum's arbitrary
+  `z_dir` sign; all epsilons are the documented kernel 1e-7/1e-6 pair
+  (section.py:56-84), not ad-hoc. The adversarial audit suite
+  (`test_drawings_section_audit.py`, 14 tests) is real geometry coverage.
+- **Rotated-placement guard added (`d980764`).** The self-acknowledged gap
+  (both export goldens solve to identity, so `gp_Quaternion` placement was
+  untested) is now covered by a Rodrigues world-centroid roundtrip oracle
+  (`test_assembly_export.py`).
+- **Datum on-face authoring (`26f9bc1`) is genuinely end-to-end** — `on_face`
+  was already a kernel-consumed basis (`kernel/datum.py:23,115`); the web work
+  only added the face-pick UI. Not a dead capability.
+
+### Findings
+
+#### E1 — Section views v1 marked "SHIPPED" but there is NO author→persist→compose path; the gateway drops per-view `section_params` · Severity High (dead capability + false roadmap ✅) · Likelihood: certain (no path exists) · P1
+
+The exact D-class shape the prior pass named, now in the **section** surface and
+marked **SHIPPED** in `docs/ROADMAP.md:1149`. Traced end to end:
+
+- **Persisted (documents):** `views.section_params` JSONB (migration `0008`,
+  `documents/db.py:658`), round-tripped in `ViewResponse` (`documents/drawings.py:257`).
+- **Consumed (geometry):** `section_cut` + `section_view_result` +
+  compose hatch are fully implemented and unit-green.
+- **NOT threaded (gateway):** `_compose_request` (`gateway/drawings.py:437-467`)
+  builds the `ComposeDrawingRequest` from persisted state but **never reads
+  `v.section_params`** — it sets `views=[v.projection for v in views]`
+  (`:454`) only. `grep -n section services/gateway/src/gateway/drawings.py` →
+  **zero hits.** So a persisted `section` view composes with
+  `section_params=None` → geometry returns the typed `section_params_missing`
+  per-view error (`drawings/evaluate.py:213`) → the section renders as an error,
+  never a cut. Even the EXPORT path cannot produce a section from stored state.
+- **No authoring (web):** no surface creates a `section` view or authors
+  `section_params` (grep across `apps/web/src` → only static `"Section A-A"`
+  labels in `drawing/layout.ts:47,147`).
+- **Structural cardinality mismatch (worse):** documents persists
+  `section_params` **per View** (`drawings.py` schema `:564`, `:604`), but the
+  evaluate/compose wire carries a **single** request-level `section_params`
+  (`:1005`). Even if the gateway threaded it, the wire can represent only ONE
+  section view per drawing — two section views (A-A + B-B) is unrepresentable.
+  The wire was never designed to carry persisted per-view section params.
+
+Only `test_drawings_section.py` exercises it — by feeding `section_params`
+directly into the request (the note-annotation dead-capability shape: golden
+injects the value the real path drops). A user cannot produce a section view
+through the product at all.
+**Recommend:** thread `section_params` from the persisted section view into
+`_compose_request` AND reconcile the per-view↔per-request cardinality (either
+promote the wire to per-view section params, or gate to a single section view
+with a documents-side constraint) + add ONE compose/export golden that composes
+a PERSISTED section view (not an injected param); OR downgrade the ROADMAP
+`SHIPPED` claim to "kernel-only, not yet wired" until the compose path lands.
+Shipping a roadmap ✅ with no product path is the process-rot class.
+
+#### E2 — Assembly STEP/STL export ships as a gateway route + kernel impl with NO client consumer and NO gateway proxy test · Severity Med · Likelihood: high (untested seam) · P2
+
+`b7408fd` added `POST /api/v1/geometry/assembly/export`
+(`gateway/geometry.py:241`) + `assembly/export.py` + `kernel/export.py`
+assembly writers. But:
+
+- **No web consumer:** grep `assembly/export|ExportAssembly` across
+  `apps/web/src` → 0 hits (only the type alias). Nothing builds an
+  `ExportAssemblyRequest` or calls the route — consistent with the product
+  audit's "one-way street," but from the engineering lens it is a route with no
+  caller. (Note the route also takes the FULL graph from the client — there is
+  no documents-aggregation hop as `drawing/export` has — so a future consumer
+  must reconstruct the whole assembly client-side.)
+- **No gateway test:** every other geometry proxy route has a `*_proxy.py`
+  (evaluate, drawing_evaluate, export, measure, overlay, sketch, assembly_**evaluate**)
+  — `assembly/export` is the sole addition with none (`grep -rc "assembly/export"
+  services/gateway/tests` → nothing). The proxy's status/header/content-disposition
+  passthrough + the `assembly_export_no_body` 422 re-surface are unverified at
+  the boundary.
+
+**Recommend:** add a `test_assembly_export_proxy.py` mirroring
+`test_drawing_export_proxy.py` (transport failure → 502, upstream 422
+re-surface, content-disposition passthrough) now; wire a web export action when
+the assembly surface earns one, else note the API-only status in the route
+docstring.
+
+#### E3 — Assembly export stored goldens are identity-orientation only · Severity Low (determinism-gate completeness) · Likelihood: low · P3
+
+Self-acknowledged in `d980764`: both stored export goldens solve to identity
+orientation, so the byte-stable STORED golden never exercises a rotated
+placement; rotation correctness is guarded by a computed Rodrigues roundtrip
+oracle (good) but NOT by a byte-identity golden, so a determinism regression on
+the rotated `gp_Trsf`/canonicalisation path (in-proc vs fresh-interpreter)
+would not be caught by the golden gate. A BACKLOG follow-up is already filed.
+**Recommend:** add a rotated-placement STEP export golden with the standard
+in-proc + fresh-interpreter byte-identity assertion (the existing golden
+harness), closing the determinism gate to match the correctness gate.
+
+### Prioritized recommendations for the groomer
+
+- **P1 — E1 (section views not wired / false ROADMAP ✅).** Highest severity:
+  a capability marked SHIPPED with no product path and a per-view↔per-request
+  cardinality mismatch that blocks even wiring it naively. Thread + reconcile +
+  persisted-view golden, OR correct the roadmap claim. This is the exact
+  dead-capability class the prior pass institutionalized a guard for — the guard
+  (a non-default-value compose golden from PERSISTED state) would have caught it.
+- **P2 — E2 (assembly export: no caller, no gateway test).** Add the missing
+  proxy test now (cheap, closes an untested boundary); wire or document-as-API-only.
+- **P3 — E3 (identity-only export goldens).** Add a rotated-placement byte-identity
+  golden to match the correctness oracle.
+- **Clean this pass:** lint / gen-check / targeted geometry gates green; zero new
+  dependencies (no license exposure); `solve_assembly` refactor and `section.py`
+  are boundary- and tolerance-clean; datum on-face is genuinely end-to-end.
