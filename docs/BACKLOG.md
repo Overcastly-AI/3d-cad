@@ -256,18 +256,20 @@ frame refactor are v2/§11. Spike de-collected.
       Acceptance: toggle in the feature tree; suppressing a fillet re-evaluates to
       the un-filleted body; un-suppressing restores it; worked e2e. [src:
       AUDIT-PRODUCT.md 2026-07-23]
-- [~] (P2, S) Mirror feature — mirror a feature/body about a plane (origin/datum),
-      one op in every incumbent. **GEOMETRY + DTO SHIPPED 2026-07-23** (kernel-
-      architect): `MirrorFeature`/`MirrorParamsV1` (plane = the SAME `GeomRef` a
-      sketch uses — origin datum or `datum` feature) reflects the current body and
-      unions the reflection into the chain (pattern-feature semantics; a disjoint
-      reflection is a valid 2-lump body, not a `pattern_disjoint`). Golden
-      `mirror-triangle-prism-2x` (analytic 2V + centroid-on-plane reflection proof);
-      typed degradation (`no_target_body` / `reference_unresolved` / `mirror_failed`).
-      Wired across ALL feature-registry arms. **Remaining: web-authoring slice**
-      (apps/web mirror command + plane picker; `BODY_AFFECTING_FEATURE_TYPES`
-      frontend mirror set + drift-guard test gains `mirror`). [src: AUDIT-PRODUCT.md
-      2026-07-23]
+- [x] (P2, S) Mirror feature — mirror a feature/body about a plane (origin/datum),
+      one op in every incumbent. **END-TO-END 2026-07-23** (geometry+DTO
+      kernel-architect; web authoring frontend-builder): `MirrorFeature`/
+      `MirrorParamsV1` (plane = the SAME `GeomRef` a sketch uses — origin datum or
+      `datum` feature) reflects the current body and unions the reflection into the
+      chain (pattern-feature semantics; a disjoint reflection is a valid 2-lump
+      body, not a `pattern_disjoint`). Golden `mirror-triangle-prism-2x` (analytic
+      2V + centroid-on-plane reflection proof); typed degradation
+      (`no_target_body` / `reference_unresolved` / `mirror_failed`). WEB: Modify-band
+      Mirror command (shortcut I) + `MirrorEditor` in the shared editor seat,
+      reusing the sketch/section plane picker (`resolveDatumPlaneOptions`);
+      `mirror` added to frontend `BODY_AFFECTING_FEATURE_TYPES` + drift guard; e2e
+      `mirror.spec.ts` mirrors a real body (Z-extent + volume double about XY).
+      [src: AUDIT-PRODUCT.md 2026-07-23]
 - [ ] (P2, S) Drawings — PROCESS GUARD: a non-default-value compose golden per
       optional authored field. **Nearly closed** — title-block (D1), first-angle
       (D3), and dimension-placement (D2) goldens all landed this batch; only the
@@ -770,6 +772,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-23 — **Mirror feature WEB AUTHORING (frontend-builder):** Modify-band
+  Mirror command (shortcut I) + `MirrorEditor` in the shared editor seat, reusing
+  the sketch/section plane picker (origin XY/XZ/YZ radios + datum FeatureRef);
+  `mirror` added to frontend `BODY_AFFECTING_FEATURE_TYPES` + drift guard;
+  `friendlyFeatureError` gains the mirror codes; e2e `mirror.spec.ts` mirrors a
+  real body (Z-extent + volume double about XY, `MirrorN` Solved). Mirror is now
+  end-to-end.
 - 2026-07-23 — **Mirror feature GEOMETRY + DTO (kernel-architect):**
   `MirrorFeature`/`MirrorParamsV1` reflect the current body about a plane (origin
   datum or `datum` feature — the SAME `GeomRef` a sketch uses) and union the

@@ -17,6 +17,18 @@ describe("friendlyFeatureError", () => {
     );
   });
 
+  it("humanises the mirror rebuild codes", () => {
+    expect(friendlyFeatureError("no_target_body", "raw")).toMatch(
+      /no body to mirror/i,
+    );
+    expect(friendlyFeatureError("reference_unresolved", "raw")).toMatch(
+      /mirror plane can no longer be found/i,
+    );
+    expect(friendlyFeatureError("mirror_failed", "raw")).toMatch(
+      /reflection couldn't be joined/i,
+    );
+  });
+
   it("falls back to the server message for unmapped codes", () => {
     expect(friendlyFeatureError("axis_intersects_profile", "server msg")).toBe(
       "server msg",

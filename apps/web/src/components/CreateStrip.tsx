@@ -29,6 +29,7 @@ import {
   ImportStepIcon,
   LoftIcon,
   MeasureIcon,
+  MirrorIcon,
   PatternIcon,
   RevolveIcon,
   ShellIcon,
@@ -116,6 +117,8 @@ export interface CreateStripProps {
   onDraft?: () => void;
   /** Drill a cylindrical hole into the current body at a point on a face (O). */
   onHole?: () => void;
+  /** Reflect the current body about a plane and union the reflection in (I). */
+  onMirror?: () => void;
   /**
    * A solved sketch exists to thicken into a sheet-metal base flange (the same
    * gate as Extrude — a base flange consumes a sketch profile).
@@ -207,6 +210,7 @@ export function CreateStrip({
   onShell,
   onDraft,
   onHole,
+  onMirror,
   canBaseFlange = false,
   onNewBaseFlange,
   canEdgeFlange = false,
@@ -240,6 +244,7 @@ export function CreateStrip({
   const shellReady = canModify && treeReady && onShell !== undefined;
   const draftReady = canModify && treeReady && onDraft !== undefined;
   const holeReady = canModify && treeReady && onHole !== undefined;
+  const mirrorReady = canModify && treeReady && onMirror !== undefined;
   const combineReady = canCombine && treeReady && onCombine !== undefined;
   const baseFlangeReady =
     canBaseFlange && treeReady && onNewBaseFlange !== undefined;
@@ -564,6 +569,21 @@ export function CreateStrip({
             caption={captionFor(holeReady, "Create a body first")}
             disabled={locked || !holeReady}
             onClick={onHole}
+          />
+          <ToolButton
+            icon={<MirrorIcon />}
+            showLabel
+            label="Mirror"
+            shortcut="I"
+            data-testid="new-mirror"
+            aria-label={
+              mirrorReady
+                ? "Mirror — reflect the body about a plane and union the copy in (I)"
+                : "Mirror — create a body first"
+            }
+            caption={captionFor(mirrorReady, "Create a body first")}
+            disabled={locked || !mirrorReady}
+            onClick={onMirror}
           />
           <ToolButton
             icon={<CombineIcon />}

@@ -35,6 +35,13 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
     "The referenced face can no longer be found — an earlier edit changed the body. Re-pick the face.",
   subshape_ambiguous:
     "The referenced face matches more than one face now. Re-pick a distinct face.",
+  // Mirror (§7.6) rebuild errors — readable guidance, not bare codes.
+  no_target_body:
+    "There's no body to mirror yet. Add a feature that creates a body before this one.",
+  reference_unresolved:
+    "The mirror plane can no longer be found — its datum was removed or changed. Choose another plane.",
+  mirror_failed:
+    "The reflection couldn't be joined to the body — the mirrored copy doesn't meet the original across this plane. Choose a plane the body straddles.",
 };
 
 /**

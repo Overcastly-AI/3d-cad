@@ -112,6 +112,15 @@ export type SheetMetalCornerReliefFeature =
   components["schemas"]["SheetMetalCornerReliefFeature"];
 export type SheetMetalCornerReliefParams =
   components["schemas"]["SheetMetalCornerReliefParamsV1"];
+export type MirrorFeature = components["schemas"]["MirrorFeature"];
+/** Reflect the current body about a plane and union the reflection in (§7.6). */
+export type MirrorParams = components["schemas"]["MirrorParamsV1"];
+/**
+ * The mirror `plane` slot on the wire: an origin `DatumPlaneRef` (XY/XZ/YZ) or a
+ * `FeatureRef` to an earlier datum feature — the SAME `GeomRef` union a sketch's
+ * plane uses (CLAUDE.md DRY rule), so the mirror reuses the plane vocabulary.
+ */
+export type MirrorPlaneRef = MirrorParams["plane"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =
@@ -834,6 +843,41 @@ export function cornerReliefFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: cornerReliefFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by mirror create and update. */
+function mirrorFeatureEnvelope(params: MirrorParams): MirrorFeature {
+  return { type: "mirror", version: 1, params };
+}
+
+/**
+ * The create payload for a mirror feature: reflect the current body chain about
+ * `plane` and boolean-union the reflection back in — the reflective sibling of
+ * pattern (design §7.6, acting on the implicit body chain at its point in the
+ * tree, no whole-feature `FeatureRef`). `plane` is the SAME `GeomRef` a sketch's
+ * plane uses. Pure — unit-tested against the generated types.
+ */
+export function mirrorFeatureCreate(
+  name: string,
+  params: MirrorParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: mirrorFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing mirror (no rename). */
+export function mirrorFeatureUpdate(
+  params: MirrorParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: mirrorFeatureEnvelope(params),
   };
 }
 

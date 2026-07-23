@@ -54,6 +54,9 @@ import {
   type LoftParams,
   loftFeatureCreate,
   loftFeatureUpdate,
+  type MirrorParams,
+  mirrorFeatureCreate,
+  mirrorFeatureUpdate,
   moveRollbackBar,
   redoPart,
   StaleTreeVersionError,
@@ -108,6 +111,7 @@ import { CornerReliefEditor } from "../components/CornerReliefEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
 import { LoftEditor } from "../components/LoftEditor";
+import { MirrorEditor } from "../components/MirrorEditor";
 import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
 import { RevolveEditor } from "../components/RevolveEditor";
@@ -182,6 +186,11 @@ import {
 import { BendHighlightOverlay } from "../viewport/BendHighlightOverlay";
 import { FlangeSpanOverlay } from "../viewport/FlangeSpanOverlay";
 import { type CombineForm, defaultCombineForm } from "../features/boolean";
+import {
+  defaultMirrorForm,
+  formFromMirrorParams,
+  type MirrorForm,
+} from "../features/mirror";
 import {
   type ChamferForm,
   defaultChamferForm,
@@ -333,6 +342,12 @@ type OpenEditor =
       featureId?: string;
     }
   | {
+      kind: "mirror";
+      mode: "create" | "edit";
+      initial: MirrorForm;
+      featureId?: string;
+    }
+  | {
       kind: "datum";
       mode: "create" | "edit";
       initial: DatumForm;
@@ -383,6 +398,7 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   shell: "Shell",
   draft: "Draft",
   hole: "Hole",
+  mirror: "Mirror",
   datum: "Datum plane",
   baseFlange: "Base flange",
   edgeFlange: "Edge flange",
@@ -1651,6 +1667,16 @@ export function PartPage() {
     setEditor({ kind: "hole", mode: "create", initial: defaultHoleForm() });
   }, []);
 
+  // A mirror, like pattern/fillet/shell, reflects the current BODY about a
+  // plane (no sketch profile) — it only needs a solid to exist (canModify), so
+  // it mirrors those guards. v1 needs only a plane choice: no face/point pick.
+  const openCreateMirror = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({ kind: "mirror", mode: "create", initial: defaultMirrorForm() });
+  }, []);
+
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
   const openCreateDatum = useCallback(() => {
@@ -1879,6 +1905,13 @@ export function PartPage() {
           mode: "edit",
           featureId: feature.id,
           initial: formFromHoleParams(feature.feature.params, lengthUnit),
+        });
+      } else if (feature.feature.type === "mirror") {
+        setEditor({
+          kind: "mirror",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromMirrorParams(feature.feature.params),
         });
       } else if (feature.feature.type === "sheet_metal_base_flange") {
         setEditor({
@@ -2152,6 +2185,23 @@ export function PartPage() {
         current.mode === "create",
         current.featureId,
         "The pattern could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitMirror = useCallback(
+    (params: MirrorParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "mirror") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "mirror").length + 1;
+      runFeatureSave(
+        (version) => mirrorFeatureCreate(`Mirror${nextIndex}`, params, version),
+        (version) => mirrorFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The mirror could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -2837,6 +2887,9 @@ export function PartPage() {
       } else if (key === "o" && hasBody) {
         event.preventDefault();
         openCreateHole();
+      } else if (key === "i" && hasBody) {
+        event.preventDefault();
+        openCreateMirror();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -2853,6 +2906,7 @@ export function PartPage() {
     openCreateShell,
     openCreateDraft,
     openCreateHole,
+    openCreateMirror,
   ]);
 
   // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — model idle
@@ -2973,6 +3027,7 @@ export function PartPage() {
               onShell={openCreateShell}
               onDraft={openCreateDraft}
               onHole={openCreateHole}
+              onMirror={openCreateMirror}
               canBaseFlange={hasSolvedSketch}
               onNewBaseFlange={openCreateBaseFlange}
               canEdgeFlange={isSheetMetal}
@@ -3204,6 +3259,16 @@ export function PartPage() {
                       saving={editorSaving}
                       error={editorError}
                       onBendsChange={onReliefBendsChange}
+                    />
+                  ) : editor.kind === "mirror" ? (
+                    <MirrorEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      datumPlanes={datumPlaneOptions}
+                      onSubmit={submitMirror}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
                     />
                   ) : editor.kind === "datum" ? (
                     <DatumEditor

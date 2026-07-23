@@ -370,16 +370,21 @@ item:
       units. Slice 2 (counterbore/countersink/tapped + drill tables) remains
       (BACKLOG P2). Erases the highest-frequency everyday modeling friction and
       seeds Drawings hole callouts.
-- ◐ Mirror feature — GEOMETRY + DTO END-TO-END (2026-07-23): `MirrorFeature`/
-      `MirrorParamsV1` reflect the current body about a plane (origin datum XY/XZ/YZ
-      or a `datum` feature — the SAME `GeomRef` a sketch uses) and union the
-      reflection into the chain (the reflective sibling of the pattern feature;
-      unlike a pattern, a disjoint reflection is a valid 2-lump body). Golden
-      `mirror-triangle-prism-2x` (analytic 2V + centroid-on-plane reflection proof);
-      typed degradation (`no_target_body` / `reference_unresolved` / `mirror_failed`).
-      Wired across every feature-registry arm + contracts/ts-client. WEB AUTHORING
-      REMAINS (apps/web mirror command + plane picker; frontend `BODY_AFFECTING`
-      mirror set + drift-guard test gains `mirror`).
+- ✅ Mirror feature — END-TO-END (geometry+DTO 2026-07-23; web authoring
+      2026-07-23): `MirrorFeature`/`MirrorParamsV1` reflect the current body about a
+      plane (origin datum XY/XZ/YZ or a `datum` feature — the SAME `GeomRef` a
+      sketch uses) and union the reflection into the chain (the reflective sibling
+      of the pattern feature; unlike a pattern, a disjoint reflection is a valid
+      2-lump body). Golden `mirror-triangle-prism-2x` (analytic 2V +
+      centroid-on-plane reflection proof); typed degradation (`no_target_body` /
+      `reference_unresolved` / `mirror_failed`) surfaced through the shared
+      `friendlyFeatureError`. WEB: a Modify-band Mirror command (shortcut I) hangs
+      a `MirrorEditor` in the extrude/hole editor seat, reusing the sketch-plane /
+      section-author plane picker (`resolveDatumPlaneOptions`) — origin radios +
+      datum FeatureRef choices, live readout, Enter/Esc; `mirror` added to the
+      frontend `BODY_AFFECTING_FEATURE_TYPES` set + drift-guard test. e2e
+      `mirror.spec.ts` mirrors a real body in the browser (Z-extent + volume
+      double about XY, `MirrorN` Solved in the tree).
 - ✅ STEP import v1 — kernel (`4964fab`) → gateway upload → UI file-picker,
       with a P1 security bound on the untrusted parse. **Interop row flips
       ❌→➖.** Parse bound hardened 2026-07-19: wall-clock → contention-invariant

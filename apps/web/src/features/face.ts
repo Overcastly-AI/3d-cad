@@ -44,6 +44,12 @@ export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   // face/edge pick to the pre-hole body (subshape_unresolved / wrong dependency).
   "hole",
   "pattern",
+  // `mirror` reflects the current body about a plane and boolean-unions the
+  // reflection back in (a body-affecting modifier like pattern/boolean), so its
+  // result faces/edges anchor a later SubshapeRef. Its ABSENCE would make
+  // `lastBodyFeatureId` skip a just-created mirror and mis-anchor the next
+  // face/edge pick to the pre-mirror body (subshape_unresolved / wrong dep).
+  "mirror",
   "import",
   // Sheet metal: the base flange produces the sheet body; edge flange / hem /
   // corner relief each MODIFY it (sheet-metal.md §4, parity §2/§4.4) — all

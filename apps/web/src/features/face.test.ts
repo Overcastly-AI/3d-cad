@@ -41,6 +41,7 @@ const EXPECTED_BODY_AFFECTING = [
   "draft",
   "hole",
   "pattern",
+  "mirror",
   "import",
   "sheet_metal_base_flange",
   "sheet_metal_edge_flange",
@@ -167,6 +168,10 @@ describe("BODY_AFFECTING_FEATURE_TYPES — backend drift guard", () => {
   it("includes hole + boolean (the just-fixed drift)", () => {
     expect(BODY_AFFECTING_FEATURE_TYPES.has("hole")).toBe(true);
     expect(BODY_AFFECTING_FEATURE_TYPES.has("boolean")).toBe(true);
+  });
+
+  it("includes mirror (body-affecting — reflection unioned into the chain)", () => {
+    expect(BODY_AFFECTING_FEATURE_TYPES.has("mirror")).toBe(true);
   });
 });
 
