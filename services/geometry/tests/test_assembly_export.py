@@ -58,6 +58,7 @@ from py_kit.schemas.assemblies import (
     Quat,
     assembly_export_filename,
 )
+from py_kit.schemas.features import EvaluatedFeatureInput
 from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, Vec3
 
 client = TestClient(app)
@@ -367,7 +368,7 @@ def _axis_angle_quat(
     return (float(v[0]), float(v[1]), float(v[2]), float(math.cos(th / 2)))
 
 
-def _plate_features() -> list[EvaluatedInstance]:
+def _plate_features() -> list[EvaluatedFeatureInput]:
     bolted = GOLDENS_DIR / "assembly-two-plates-bolted" / "model.json"
     return _load_request(bolted).instances[0].features
 

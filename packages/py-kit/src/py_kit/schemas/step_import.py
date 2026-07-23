@@ -53,6 +53,25 @@ from py_kit.schemas.parts import PartResponse
 #: while bounding the fan-out (slice-2a security review, 2026-07-23).
 MAX_IMPORT_ASSEMBLY_PRODUCTS = 500
 
+#: Absolute ceiling (bytes) on the TOTAL ``body_step`` payload the geometry read
+#: may emit across all products — a response-amplification DoS bound (slice-2b
+#: security review, 2026-07-23). The occurrence-count cap
+#: (:data:`MAX_IMPORT_ASSEMBLY_PRODUCTS`) alone does NOT bound the response size:
+#: because the result carries ``body_step`` once per occurrence, ONE large body
+#: (near the 16 MiB single-body ingest cap) instanced up to the occurrence cap can
+#: still amplify into a multi-GB response the gateway buffers whole. The geometry
+#: service tracks the running total of emitted ``body_step`` bytes and rejects
+#: (``import_response_too_large``, a typed 422) before materialising a product past
+#: this ceiling, so the amplification is bounded ABSOLUTELY regardless of
+#: occurrence count or body repetition. Sized at 2x
+#: :data:`~py_kit.schemas.features.MAX_INLINE_STEP_CHARS` (== 32 MiB): a single
+#: product body is bounded by that 16 MiB inline cap, and 2x leaves headroom for a
+#: real assembly of several distinct large-ish part bodies while capping the
+#: buffered response at a defensible ceiling. (The P2 follow-up that carries
+#: ``body_step`` once per ``body_step_id`` — a cross-service DTO reshape — makes
+#: the shape efficient; this byte cap makes the CURRENT shape safe without it.)
+MAX_IMPORT_RESPONSE_BYTES = 2 * MAX_INLINE_STEP_CHARS
+
 
 class StepAssemblyImportRequest(BaseModel):
     """Read an assembly STEP into its structured product list (geometry-side).

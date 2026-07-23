@@ -88,6 +88,8 @@ from geometry.kernel import (
     ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
+    ImportResponseTooLargeError,
+    ImportTooManyProductsError,
     evaluate_export,
     evaluate_tessellation,
     export_solid,
@@ -275,11 +277,21 @@ def import_assembly_route(
     (``import_parse_failed`` / ``import_no_solid`` / ``import_parse_timeout`` — the
     untrusted XCAF read runs under the SAME killable CPU/wall DoS bound as the
     single-body import, design §6), never a 500 — the same typed taxonomy the
-    single-body import uses (design §5); the py-kit error envelope stays reserved
-    for transport/validation failures of this call itself.
+    single-body import uses (design §5). The parse's OUTPUT is bounded too, against
+    response amplification (slice-2b security review): ``import_too_many_products``
+    (leaf-occurrence count over ``MAX_IMPORT_ASSEMBLY_PRODUCTS``, rejected inside
+    the CPU-bounded child) and ``import_response_too_large`` (total emitted
+    ``body_step`` bytes over ``MAX_IMPORT_RESPONSE_BYTES``, the absolute bound that
+    also catches one large body instanced many times) — both clean 422s. The
+    py-kit error envelope stays reserved for transport/validation failures of this
+    call itself.
     """
     try:
         return import_step_assembly(request)
+    except ImportTooManyProductsError as exc:
+        raise ValidationApiError(str(exc), code="import_too_many_products") from exc
+    except ImportResponseTooLargeError as exc:
+        raise ValidationApiError(str(exc), code="import_response_too_large") from exc
     except ImportParseTimeoutError as exc:
         raise ValidationApiError(str(exc), code="import_parse_timeout") from exc
     except ImportNoSolidError as exc:

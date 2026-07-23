@@ -182,6 +182,34 @@ frame refactor are v2/§11. Spike de-collected.
       `StepImportResponse` (`AssemblyImportResult` | `SingleBodyImportResult`);
       contracts + ts-client regenerated. The true STEP-bytes round-trip
       (`export_step_assembly_bytes` → reader → documents) is a geometry/e2e gate.
+      **AMPLIFICATION-DoS CLOSED 2026-07-23 (kernel-architect):** the untrusted
+      parse's OUTPUT is now bounded AT THE GEOMETRY SOURCE, not only by the
+      gateway's post-buffer count cap. An occurrence-count cap aborts the XDE walk
+      inside the CPU-bounded child once leaf occurrences exceed
+      `MAX_IMPORT_ASSEMBLY_PRODUCTS` (`import_too_many_products`, 422); a
+      total-`body_step`-byte cap (`MAX_IMPORT_RESPONSE_BYTES` = 2x
+      `MAX_INLINE_STEP_CHARS` = 32 MiB) rejects one large body instanced many
+      times before the response is materialised past the ceiling
+      (`import_response_too_large`, 422). Both typed, never a buffered multi-GB
+      response or a 500.
+- [ ] (P2, S) Assembly import: carry `body_step` ONCE per `body_step_id`
+      (transport efficiency + defense-in-depth). Today `StepAssemblyImportResult`
+      repeats the full `body_step` text on every `ImportedProduct`, so a part
+      instanced N times ships its B-rep fragment N times; the
+      `MAX_IMPORT_RESPONSE_BYTES` byte cap makes the current shape SAFE, but a
+      reshape (a shared `bodies: {body_step_id -> body_step}` map + products
+      referencing by id) removes the amplification at the source and shrinks the
+      transport. Cross-service DTO change (py-kit + geometry emit + documents
+      consume + gateway forward + contracts/ts-client regen) — hence P2, not
+      folded into the byte-cap slice. [src: slice-2b security review 2026-07-23]
+- [ ] (P2, S) Assembly import: permanent 3-service HTTP integration test. The
+      shipped unit suites cover geometry-read and documents-creation in ISOLATION
+      but never the real gateway → geometry → documents HTTP chain. Port the
+      qa-tester's full-chain harness (`scratchpad/assembly_import_roundtrip.py`)
+      to a permanent, marked integration test so the untrusted-upload path
+      (auth + byte cap + occurrence/response caps + atomic doc creation) is
+      exercised end-to-end in CI/e2e, not just the two halves. [src: slice-2b
+      security review 2026-07-23]
 - [ ] (P2, M) Drawings parity #4 — assembly drawing views + BOM/balloons (WIRE).
       The real capability behind the D4 gate: compose a drawing view that
       projects an ASSEMBLY (not a single part) — an assembly-side
@@ -716,6 +744,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-23 — **Assembly import response-amplification DoS CLOSED
+  (kernel-architect):** bounded the untrusted parse's OUTPUT at the geometry
+  source — occurrence-count cap aborts the walk in the CPU-bounded child
+  (`import_too_many_products`), total-`body_step`-byte cap (32 MiB) rejects a big
+  body instanced many times before materialisation (`import_response_too_large`);
+  both typed 422s. Filed P2 follow-ups: body_step-once-per-id reshape + permanent
+  3-service integration test.
 - 2026-07-23 — **Assembly STEP import SLICE 2a — reader hardened + editable body
   (kernel-architect):** DoS parse-bound WIRED to the XCAF reader (untrusted
   `ReadFile`/`Transfer` + walk now in the single-body reader's killable

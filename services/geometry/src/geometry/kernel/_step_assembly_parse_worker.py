@@ -68,7 +68,18 @@ assert _spec is not None and _spec.loader is not None
 _helper = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_helper)
 EXIT_PARSE_FAILED: int = _helper.EXIT_PARSE_FAILED
+EXIT_TOO_MANY_PRODUCTS: int = _helper.EXIT_TOO_MANY_PRODUCTS
 _apply_cpu_limit = _helper._apply_cpu_limit
+
+
+class _TooManyProducts(Exception):
+    """Internal signal: the leaf-occurrence count exceeded the import ceiling.
+
+    Raised the moment the walk emits one product past ``max_products`` so the
+    child ABORTS before writing a per-occurrence BREP for every occurrence — the
+    response-amplification count cap enforced inside the CPU-bounded child
+    (slice-2b DoS hardening). :func:`_walk` maps it to
+    :data:`EXIT_TOO_MANY_PRODUCTS`, which the parent turns into a typed 422."""
 
 
 def _label_name(label: object) -> str | None:
@@ -104,12 +115,21 @@ def _emit(
     location: object,
     out_dir: str,
     products: list[dict[str, object]],
+    max_products: int,
 ) -> None:
-    """Serialise one leaf occurrence's LOCAL shape as BREP + append its manifest row."""
+    """Serialise one leaf occurrence's LOCAL shape as BREP + append its manifest row.
+
+    Enforces the occurrence-count cap in-child: once appending would push the
+    leaf-occurrence count past *max_products*, raise :class:`_TooManyProducts`
+    (before writing the offending BREP) so the walk aborts rather than expanding a
+    pathological occurrence count into a giant response (slice-2b DoS bound).
+    """
     from OCP.BRepTools import BRepTools
 
     if shape.IsNull():  # type: ignore[attr-defined]
         return
+    if len(products) >= max_products:
+        raise _TooManyProducts
     translation, quaternion = _placement_of(location)
     brep = f"p{len(products)}.brep"
     BRepTools.Write_s(shape, os.path.join(out_dir, brep))
@@ -130,6 +150,7 @@ def _collect_leaf(
     name: str | None,
     out_dir: str,
     products: list[dict[str, object]],
+    max_products: int,
 ) -> None:
     """Emit one product for a leaf occurrence, recursing into a sub-assembly.
 
@@ -140,7 +161,9 @@ def _collect_leaf(
     dropped (the parent drops non-solid products after normalisation).
     """
     if shape_tool.IsAssembly_s(ref_label):  # type: ignore[attr-defined]
-        _collect_components(shape_tool, ref_label, world_location, out_dir, products)
+        _collect_components(
+            shape_tool, ref_label, world_location, out_dir, products, max_products
+        )
         return
     _emit(
         shape_tool.GetShape_s(ref_label),  # type: ignore[attr-defined]
@@ -148,6 +171,7 @@ def _collect_leaf(
         world_location,
         out_dir,
         products,
+        max_products,
     )
 
 
@@ -157,6 +181,7 @@ def _collect_components(
     parent_location: object,
     out_dir: str,
     products: list[dict[str, object]],
+    max_products: int,
 ) -> None:
     """Walk every component (NAUO occurrence) of an assembly label.
 
@@ -177,11 +202,24 @@ def _collect_components(
         if not shape_tool.GetReferredShape_s(component, referred):  # type: ignore[attr-defined]
             continue
         name = _label_name(referred) or _label_name(component)
-        _collect_leaf(shape_tool, referred, world_location, name, out_dir, products)
+        _collect_leaf(
+            shape_tool,
+            referred,
+            world_location,
+            name,
+            out_dir,
+            products,
+            max_products,
+        )
 
 
-def _walk(in_path: str, out_dir: str) -> int:
-    """Read the assembly STEP, walk the XDE tree, write manifest + BREPs."""
+def _walk(in_path: str, out_dir: str, max_products: int) -> int:
+    """Read the assembly STEP, walk the XDE tree, write manifest + BREPs.
+
+    Aborts with :data:`EXIT_TOO_MANY_PRODUCTS` if the leaf-occurrence count
+    exceeds *max_products* — the response-amplification count cap, enforced inside
+    this CPU-bounded child so the accumulation itself is bounded (slice-2b).
+    """
     from OCP.IFSelect import IFSelect_ReturnStatus
     from OCP.Interface import Interface_Static
     from OCP.STEPCAFControl import STEPCAFControl_Reader
@@ -210,22 +248,28 @@ def _walk(in_path: str, out_dir: str) -> int:
 
     has_assembly_structure = False
     products: list[dict[str, object]] = []
-    for index in range(1, free.Length() + 1):
-        root = free.Value(index)
-        root_location = shape_tool.GetLocation_s(root)
-        if shape_tool.IsAssembly_s(root):
-            has_assembly_structure = True
-            _collect_components(shape_tool, root, root_location, out_dir, products)
-        else:
-            # Flat / single-body free shape: surface the whole located shape as
-            # one product at identity — the single-body MB-4b fallback signal.
-            _emit(
-                shape_tool.GetShape_s(root),
-                _label_name(root),
-                root_location,
-                out_dir,
-                products,
-            )
+    try:
+        for index in range(1, free.Length() + 1):
+            root = free.Value(index)
+            root_location = shape_tool.GetLocation_s(root)
+            if shape_tool.IsAssembly_s(root):
+                has_assembly_structure = True
+                _collect_components(
+                    shape_tool, root, root_location, out_dir, products, max_products
+                )
+            else:
+                # Flat / single-body free shape: surface the whole located shape as
+                # one product at identity — the single-body MB-4b fallback signal.
+                _emit(
+                    shape_tool.GetShape_s(root),
+                    _label_name(root),
+                    root_location,
+                    out_dir,
+                    products,
+                    max_products,
+                )
+    except _TooManyProducts:
+        return EXIT_TOO_MANY_PRODUCTS
 
     with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as handle:
         json.dump(
@@ -236,18 +280,20 @@ def _walk(in_path: str, out_dir: str) -> int:
 
 
 def main(argv: list[str]) -> int:
-    # argv: <prog> <in_path> <out_dir> <cpu_seconds>. The CPU ceiling is applied
-    # BEFORE OCCT is imported/run so the ~0.9 s OCP cold-import also counts toward
-    # (and is bounded by) the budget.
-    if len(argv) != 4:
+    # argv: <prog> <in_path> <out_dir> <cpu_seconds> <max_products>. The CPU
+    # ceiling is applied BEFORE OCCT is imported/run so the ~0.9 s OCP cold-import
+    # also counts toward (and is bounded by) the budget. <max_products> is the
+    # occurrence-count cap enforced during the walk (slice-2b DoS bound).
+    if len(argv) != 5:
         return EXIT_PARSE_FAILED
     try:
         cpu_seconds = float(argv[3])
+        max_products = int(argv[4])
     except ValueError:
         return EXIT_PARSE_FAILED
     _apply_cpu_limit(cpu_seconds)
     try:
-        return _walk(argv[1], argv[2])
+        return _walk(argv[1], argv[2], max_products)
     except Exception:  # any OCCT read/transfer/walk raise → a parse failure
         return EXIT_PARSE_FAILED
 

@@ -44,6 +44,8 @@ from geometry.kernel import (
     ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
+    ImportResponseTooLargeError,
+    ImportTooManyProductsError,
     import_step_solid,
 )
 from geometry.kernel.export import (
@@ -57,6 +59,7 @@ from geometry.kernel.types import BodyShape
 from geometry.main import app
 from py_kit.schemas.assemblies import Placement
 from py_kit.schemas.step_import import (
+    ImportedProduct,
     StepAssemblyImportRequest,
     StepAssemblyImportResult,
 )
@@ -320,6 +323,129 @@ def test_service_tessellate_phase_failure_wraps_typed_not_raw(
     data = export_step_bytes(Solid.make_box(3, 4, 5))
     with pytest.raises(ImportParseError):
         import_step_assembly(StepAssemblyImportRequest(data=data.decode("utf-8")))
+
+
+# --- slice-2b: response-amplification DoS bounds (SECURITY hard gate) ------------
+# The parse's OUTPUT is now bounded at the geometry source, not just the gateway's
+# post-buffer count cap: (1) an occurrence-count cap aborts the walk inside the
+# CPU-bounded child before it fans a pathological NAUO count into a giant
+# response; (2) a total-body_step-byte cap rejects one large body instanced many
+# times (the amplification the count cap cannot see) before the response is
+# materialised past the ceiling. Both are typed 422s, never a buffered multi-GB
+# body or a 500.
+
+
+def _dup_box_assembly(names: list[str]) -> bytes:
+    """An assembly of N occurrences of the SAME box at DISTINCT placements.
+
+    Repeated occurrences share ONE local body (dedup), so every product's
+    ``body_step`` is byte-identical — the exact amplification shape the byte cap
+    must bound (one body, many instances).
+    """
+    components = [
+        AssemblyComponent(
+            name=name,
+            body=_BOX,
+            translation=(50.0 * i, 0.0, 0.0),
+            quaternion=(0, 0, 0, 1),
+        )
+        for i, name in enumerate(names)
+    ]
+    return export_step_assembly_bytes("amp-asm", components)
+
+
+def test_occurrence_count_over_cap_rejects_before_large_response() -> None:
+    """A leaf-occurrence count over the cap is a typed ``ImportTooManyProductsError``
+    raised INSIDE the CPU-bounded child — before the parent builds a product (and
+    its full body_step) per occurrence — and returns promptly (bound + reap)."""
+    import time
+
+    data = _dup_box_assembly(["a", "b", "c"])
+    start = time.monotonic()
+    with pytest.raises(ImportTooManyProductsError):
+        read_step_assembly(data.decode("utf-8"), max_products=2)
+    assert time.monotonic() - start < 10.0
+
+
+def test_occurrence_count_at_cap_is_accepted() -> None:
+    """The cap is INCLUSIVE — exactly ``max_products`` occurrences import fine
+    (only strictly-more is rejected), so a real assembly at the ceiling works."""
+    data = _dup_box_assembly(["a", "b", "c"])
+    read = read_step_assembly(data.decode("utf-8"), max_products=3)
+    assert read.has_assembly_structure is True
+    assert len(read.products) == 3
+
+
+def test_route_maps_too_many_products_to_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The over-cap read surfaces at the HTTP route as a clean 422
+    ``import_too_many_products`` (not a 500), exercising the REAL worker cap +
+    the api.py mapping end-to-end."""
+    real_read = read_step_assembly
+
+    def capped(text: str, **kwargs: object) -> StepAssemblyRead:
+        return real_read(text, **{**kwargs, "max_products": 2})  # type: ignore[arg-type]
+
+    monkeypatch.setattr("geometry.assembly.import_step.read_step_assembly", capped)
+    data = _dup_box_assembly(["a", "b", "c"])
+    response = client.post(
+        "/api/v1/assembly/import", json={"data": data.decode("utf-8")}
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "import_too_many_products"
+
+
+def test_response_byte_cap_rejects_before_full_materialisation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The absolute bound: one body instanced many times (each occurrence carrying
+    an identical body_step) is rejected once the RUNNING emitted-byte total would
+    exceed the ceiling — and the response is NOT materialised past the cap. With a
+    ceiling admitting exactly the first product, the second trips it, so exactly
+    ONE product was constructed (not all three)."""
+    import geometry.assembly.import_step as mod
+
+    data = _dup_box_assembly(["a", "b", "c"])
+    req = StepAssemblyImportRequest(data=data.decode("utf-8"))
+
+    # Normal-assembly-unaffected baseline (default 32 MiB ceiling): all 3 import,
+    # and every occurrence shares one identical-length body_step (the dedup shape).
+    baseline = import_step_assembly(req)
+    assert len(baseline.products) == 3
+    assert baseline.products[0].body_step is not None
+    body_len = len(baseline.products[0].body_step.encode("utf-8"))
+    assert len({len(p.body_step.encode()) for p in baseline.products}) == 1  # type: ignore[union-attr]
+
+    # A ceiling == one body's bytes: product 1 (== ceiling) is admitted, product 2
+    # (2x) exceeds it and is rejected BEFORE it is appended. `mod.ImportedProduct`
+    # is the same class re-imported from py_kit, so count its constructions.
+    constructed = {"n": 0}
+
+    def counting(*args: object, **kwargs: object) -> ImportedProduct:
+        constructed["n"] += 1
+        return ImportedProduct(*args, **kwargs)
+
+    monkeypatch.setattr(mod, "ImportedProduct", counting)
+    monkeypatch.setattr(mod, "MAX_IMPORT_RESPONSE_BYTES", body_len)
+    with pytest.raises(ImportResponseTooLargeError):
+        import_step_assembly(req)
+    assert constructed["n"] == 1, (
+        "response materialised past the byte cap: "
+        f"{constructed['n']} products built before rejection"
+    )
+
+
+def test_route_maps_response_too_large_to_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The byte-cap rejection surfaces at the HTTP route as a clean 422
+    ``import_response_too_large`` (not a 500)."""
+    monkeypatch.setattr("geometry.assembly.import_step.MAX_IMPORT_RESPONSE_BYTES", 1)
+    data = _dup_box_assembly(["a", "b"])
+    response = client.post(
+        "/api/v1/assembly/import", json={"data": data.decode("utf-8")}
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "import_response_too_large"
 
 
 # --- slice 2a: per-product LOCAL B-rep (editable body for documents) -------------

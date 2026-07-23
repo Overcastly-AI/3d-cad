@@ -43,6 +43,7 @@ import hashlib
 from py_kit.schemas.assemblies import Placement, Quat
 from py_kit.schemas.geometry import ShapeProperties, Vec3
 from py_kit.schemas.step_import import (
+    MAX_IMPORT_RESPONSE_BYTES,
     ImportedProduct,
     StepAssemblyImportRequest,
     StepAssemblyImportResult,
@@ -54,7 +55,11 @@ from geometry.kernel import (
     solid_to_brep_bytes,
     tessellate_glb,
 )
-from geometry.kernel.imports import ImportNoSolidError, ImportParseError
+from geometry.kernel.imports import (
+    ImportNoSolidError,
+    ImportParseError,
+    ImportResponseTooLargeError,
+)
 from geometry.kernel.step_assembly import ReadProduct, read_step_assembly
 from geometry.mesh_store import mesh_glb_key, store_mesh_glb
 
@@ -103,6 +108,17 @@ def import_step_assembly(
     per-product export/tessellate/measure here is wrapped into an
     :class:`~geometry.kernel.imports.ImportParseError` (design §5). Deterministic
     (RESEARCH §9; module docstring).
+
+    Two response-amplification bounds keep an untrusted parse's OUTPUT bounded
+    (slice-2b security review), both surfacing as typed 422s at the API layer:
+    the reader rejects a file whose leaf-occurrence count exceeds
+    :data:`~py_kit.schemas.step_import.MAX_IMPORT_ASSEMBLY_PRODUCTS`
+    (:class:`~geometry.kernel.imports.ImportTooManyProductsError`, inside the
+    CPU-bounded child), and this service rejects once the running total of emitted
+    ``body_step`` bytes would exceed
+    :data:`~py_kit.schemas.step_import.MAX_IMPORT_RESPONSE_BYTES`
+    (:class:`~geometry.kernel.imports.ImportResponseTooLargeError`), the absolute
+    bound that also catches one large body instanced many times.
     """
     cpu_timeout_s, wall_timeout_s = _step_import_bounds()
     read = read_step_assembly(
@@ -115,8 +131,17 @@ def import_step_assembly(
     # content-addressed mesh store makes the mesh sharing automatic; the STEP
     # fragment + its id are shared explicitly so the caller (slice 2b) groups
     # repeated products into ONE part + N instances by body_step_id.
-    cache: dict[str, tuple[str, str, str, ShapeProperties]] = {}
+    # The running total of emitted body_step bytes, checked against
+    # MAX_IMPORT_RESPONSE_BYTES BEFORE materialising each product. This is the
+    # ABSOLUTE amplification bound the occurrence-count cap cannot catch: the
+    # result carries body_step once PER occurrence, so one large body instanced
+    # many times (under both the occurrence cap and the 16 MiB upload cap) would
+    # still amplify — this rejects it as a typed 422 (slice-2b security review).
+    # The cached tuple carries the body_step byte length so a repeated occurrence
+    # (cache hit) still adds its emitted bytes to the total without a re-encode.
+    cache: dict[str, tuple[str, str, str, ShapeProperties, int]] = {}
     products: list[ImportedProduct] = []
+    emitted_bytes = 0
     for product in read.products:
         try:
             body_key = mesh_glb_key(solid_to_brep_bytes(product.body))
@@ -128,7 +153,7 @@ def import_step_assembly(
                 glb, _stats = tessellate_glb(product.body, request.linear_deflection)
                 mesh_id = store_mesh_glb(glb)
                 properties = measure_shape(product.body)
-                cached = (body_step, body_step_id, mesh_id, properties)
+                cached = (body_step, body_step_id, mesh_id, properties, len(step_bytes))
                 cache[body_key] = cached
         except (ImportParseError, ImportNoSolidError):
             raise
@@ -138,7 +163,16 @@ def import_step_assembly(
                 "meshed, measured, or re-exported; it may be geometrically "
                 "degenerate."
             ) from exc
-        body_step, body_step_id, mesh_id, properties = cached
+        body_step, body_step_id, mesh_id, properties, body_step_len = cached
+        emitted_bytes += body_step_len
+        if emitted_bytes > MAX_IMPORT_RESPONSE_BYTES:
+            # Reject BEFORE appending this product, so the response is never
+            # materialised past the ceiling regardless of occurrence count.
+            raise ImportResponseTooLargeError(
+                "The assembly STEP would produce more editable-body data than the "
+                "import limit allows. Split it into smaller sub-assemblies and try "
+                "again."
+            )
         products.append(
             ImportedProduct(
                 name=product.name,

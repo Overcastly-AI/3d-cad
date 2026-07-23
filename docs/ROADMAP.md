@@ -453,8 +453,14 @@ created ATOMICALLY (a rejected import leaves no orphan docs); gateway
 rate-limited with a streamed byte cap BEFORE forwarding and a product-count cap
 (`MAX_IMPORT_ASSEMBLY_PRODUCTS=500`) enforced on the read BEFORE documents (bounds
 the post-transfer fan-out a small STEP could encode). The "assembly is a one-way
-street" gap is CLOSED. Still deferred past v1 (design doc §5): exploded views, BOM
-formatting, flexible sub-assemblies, part-version pinning-as-default.
+street" gap is CLOSED. **Response-amplification DoS hardened 2026-07-23**: the
+geometry read now bounds its OWN output — an occurrence-count cap aborts the walk
+inside the CPU-bounded child (`import_too_many_products`), and a total-`body_step`-
+byte cap (`MAX_IMPORT_RESPONSE_BYTES`=32 MiB) rejects a big body instanced many
+times before materialisation (`import_response_too_large`), so a small STEP can no
+longer make geometry emit a multi-GB response the gateway buffers whole; both typed
+422s. Still deferred past v1 (design doc §5): exploded views, BOM formatting,
+flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
       items, backend→gateway→frontend); "bolt two parts together and see it" is

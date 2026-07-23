@@ -51,6 +51,16 @@ import sys
 #: maps any non-zero, non-timeout exit to a parse failure regardless).
 EXIT_PARSE_FAILED = 2
 
+#: Exit code when the ASSEMBLY parse worker aborts because the file's leaf
+#: occurrence count exceeds the import ceiling (→ ``ImportTooManyProductsError``).
+#: This module is the shared exit-code protocol both parse workers reference (the
+#: assembly worker loads it by path for ``_apply_cpu_limit``/``EXIT_PARSE_FAILED``),
+#: so the response-amplification count cap lives here as one source of truth. The
+#: single-body worker never emits it; the parent maps it to a distinct typed 422
+#: so an over-large assembly is rejected INSIDE the CPU-bounded child before it
+#: writes a per-occurrence BREP for every occurrence (slice-2b DoS hardening).
+EXIT_TOO_MANY_PRODUCTS = 3
+
 
 def _apply_cpu_limit(cpu_seconds: float) -> None:
     """Cap this process's CPU time (and disable core dumps) before OCCT work.

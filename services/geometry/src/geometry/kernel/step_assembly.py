@@ -83,6 +83,7 @@ from build123d import Solid
 from OCP.TopAbs import TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
+from py_kit.schemas.step_import import MAX_IMPORT_ASSEMBLY_PRODUCTS
 
 from geometry.kernel.imports import (
     DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S,
@@ -167,6 +168,7 @@ def read_step_assembly(
     *,
     cpu_timeout_s: float = DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S,
     wall_timeout_s: float = DEFAULT_STEP_IMPORT_WALL_TIMEOUT_S,
+    max_products: int = MAX_IMPORT_ASSEMBLY_PRODUCTS,
 ) -> StepAssemblyRead:
     """Parse *step_text* into a structured, positioned, named product list.
 
@@ -178,9 +180,16 @@ def read_step_assembly(
     subprocess bounded by a CPU-time ceiling (*cpu_timeout_s*, the primary DoS
     bound, invariant to machine load) and a wall-clock liveness backstop
     (*wall_timeout_s*) — design §6, the SAME bound the single-body reader applies.
-    Deterministic (units pinned to mm in the worker; RESEARCH §9).
+    The walk also aborts inside that CPU-bounded child once the leaf-occurrence
+    count exceeds *max_products* — the response-amplification count cap (slice-2b),
+    so a file with thousands of tiny ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` lines is
+    rejected before the parent builds a product for each. Deterministic (units
+    pinned to mm in the worker; RESEARCH §9).
 
     Raises:
+        ImportTooManyProductsError: the file's leaf-occurrence count exceeded
+            *max_products* (``import_too_many_products``) — a response-amplification
+            DoS bound, rejected inside the CPU-bounded child.
         ImportParseTimeoutError: the read exceeded its CPU-time ceiling or the
             wall-clock backstop and the worker was killed (``import_parse_timeout``).
         ImportParseError: OCCT could not read/transfer/walk the payload (bad/empty/
@@ -203,6 +212,7 @@ def read_step_assembly(
                 in_path,
                 out_dir,
                 repr(cpu_timeout_s),
+                str(max_products),
             ],
             cpu_timeout_s=cpu_timeout_s,
             wall_timeout_s=wall_timeout_s,

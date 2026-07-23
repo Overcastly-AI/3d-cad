@@ -137,6 +137,36 @@ class ImportNoSolidError(Exception):
     (a single-lump or multi-lump body, §MB-4), never this error."""
 
 
+class ImportTooManyProductsError(Exception):
+    """The assembly STEP has more leaf occurrences than the import ceiling
+    (maps to ``import_too_many_products``).
+
+    A response-amplification DoS bound (slice-2b security review): a small STEP
+    (under the 16 MiB upload cap) can encode thousands of tiny
+    ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` lines, each of which the reader would
+    otherwise expand into a full per-product ``body_step`` — a multi-GB response
+    the gateway buffers before its own count cap can reject it. The assembly parse
+    worker aborts the XDE walk once the leaf-occurrence count exceeds
+    :data:`~py_kit.schemas.step_import.MAX_IMPORT_ASSEMBLY_PRODUCTS`, INSIDE the
+    CPU-bounded child (so even the accumulation is bounded), and the parent maps
+    that worker exit code here — a rejection BEFORE the per-occurrence product
+    build, never a 500."""
+
+
+class ImportResponseTooLargeError(Exception):
+    """The structured read's emitted ``body_step`` bytes would exceed the response
+    ceiling (maps to ``import_response_too_large``).
+
+    The ABSOLUTE amplification bound the occurrence-count cap cannot catch: one
+    large body instanced many times (still under both the occurrence cap and the
+    16 MiB upload cap) can still amplify into a giant response, because the current
+    result shape carries ``body_step`` once per occurrence. The service layer
+    tracks the running total of emitted ``body_step`` bytes and rejects here before
+    materialising a product past
+    :data:`~py_kit.schemas.step_import.MAX_IMPORT_RESPONSE_BYTES` — a clean 422,
+    never a 500, regardless of occurrence count or body repetition."""
+
+
 def _count(shape: object, kind: object) -> int:
     """Number of sub-shapes of *kind* reachable in *shape* (deterministic)."""
     explorer = TopExp_Explorer(shape, kind)
@@ -241,6 +271,10 @@ def run_bounded_parse_worker(
     never a 500:
 
     * a CPU-limit or wall-clock kill → :class:`ImportParseTimeoutError`;
+    * the assembly worker's ``EXIT_TOO_MANY_PRODUCTS`` (the file's leaf-occurrence
+      count exceeded the import ceiling) → :class:`ImportTooManyProductsError`
+      (the single-body worker never emits this code, so this mapping is inert for
+      it — the shared exit-code protocol simply reserves it);
     * any other non-zero exit (``EXIT_PARSE_FAILED``, a crash) →
       :class:`ImportParseError`.
 
@@ -270,6 +304,18 @@ def run_bounded_parse_worker(
             f"{cpu_timeout_s:g}s CPU-time limit and was aborted; the file may "
             "be pathologically large or geometrically degenerate. Simplify "
             "or repair the part and try again."
+        )
+    # The assembly worker aborts the walk with this code once the leaf-occurrence
+    # count exceeds the import ceiling — a rejection inside the CPU-bounded child,
+    # before it emits a per-occurrence BREP for every occurrence. Imported lazily
+    # (the constant lives in the shared exit-code protocol module, which imports
+    # only math/sys) to keep this generic runner decoupled from OCP/build123d.
+    from geometry.kernel._step_parse_worker import EXIT_TOO_MANY_PRODUCTS
+
+    if completed.returncode == EXIT_TOO_MANY_PRODUCTS:
+        raise ImportTooManyProductsError(
+            "The assembly STEP contains more part occurrences than the import "
+            "limit allows. Split it into smaller sub-assemblies and try again."
         )
     if completed.returncode != 0:
         # EXIT_PARSE_FAILED, a crash, or any non-timeout non-zero exit: the
