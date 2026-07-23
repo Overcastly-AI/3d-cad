@@ -386,3 +386,161 @@ assemblies. I call **assemblies**, narrowly.
   Sketching/Part/Interop solid, these two ❌ rows are what the operating
   question fails on. The next scorecard flip that matters most to the
   daily-driver verdict is one of these two, not another part-modeling nicety.
+
+---
+
+## Pass 2026-07-23 — post assemblies+drawings+sheet-metal batch (HEAD `f6c325c`)
+
+**Verdict: YES for a single part, YES for a small bolted assembly to *build* —
+but the assembly is a *dead-end you can't get out of, validate, or document*.**
+The prior two passes named Assemblies (#1) and Drawings (#2) as the headline
+gaps; both shipped and are real. A working engineer can now sketch → extrude →
+fillet → export STEP, bolt a few parts together with mates and pull a flat BOM,
+and hand a machinist a server-composed PDF/DXF of one part. That clears the
+daily-driver bar for the single-part make-loop and the simple assembly. The
+next wall is not *inside* a part — it is everything that happens *after* you
+have an assembly: you cannot export it, nothing checks the parts don't clash,
+and you cannot receive a supplier assembly as positioned named components. The
+interop wedge (Loft's own #1 structural advantage — "STEP-first, your data, no
+lock-in") is **fully delivered for a part and completely absent for an
+assembly**, which is the majority of real mechanical work.
+
+### How this pass was run (evidence basis)
+
+Full native stack booted per the CLAUDE.md container-free recipe: geometry
+(:8002, in-proc LRU mesh store), documents (:8001, SQLite), gateway (:8000,
+SQLite + `LOFT_ENV=dev`, fail-open rate limiter) — all three `/healthz` 200.
+Drove the **real REST modeling loop** through the gateway with a registered
+user and a JWT (not the geometry service in isolation):
+
+- **Core loop works end-to-end.** Register → create part → add sketch (XY,
+  4-line rect) → add extrude → `POST /parts/{id}/evaluate` (200, volume + mass
+  props + topology) → `POST /parts/{id}/export?format=step` (200, 16 KB valid
+  `ISO-10303-21` AP214) → `?format=stl` (200). Edit a driving dimension via
+  `PATCH .../features/{id}` → re-evaluate rebuilds. Evaluate is ~50–60 ms warm
+  on a primitive; export ~10 ms.
+- **Error legibility is good.** Editing a driving dimension on an
+  *under-constrained* rectangle opened the profile; the extrude returned a
+  typed per-feature `profile_not_closed` (200 with per-feature error, not a
+  500) carrying a helpful hint ("close the boundary … before extruding") and
+  the `upstream_feature_id`. The sketch solve surfaces `dof` (=4 for my
+  under-pinned rect) and a typed `diagnosis` field in the evaluate payload, so
+  the UI's DOF readout is the safety net against silently-skewed geometry.
+- **Assembly / interop gaps confirmed in code, not assumed:** grepped
+  `services/{geometry,documents,gateway}` — **no** assembly STEP export/import
+  path, **no** interference/collision code, **no** exploded-view code, BOM is
+  flat (`documents/assemblies.py` `_bom_response` is explicitly "NOT recursive
+  into rigid sub-assemblies"). STEP import stores the full part-21 **text
+  inline** in the feature params (`ImportParamsV1.data`, 16 MiB cap) — travels
+  documents→gateway→geometry on every evaluate.
+- **Tool feel: genuinely tool-grade.** Reviewed current viewport shots
+  (`sheet-metal-width-extent-body-1440`, `multibody-lump-badge-desktop`):
+  atmospheric gradient background, grid reading to the horizon, warm matcap
+  shading (not debug-gray), a persistent ViewCube (FRONT/RIGHT/TOP) + a bottom
+  view-nav toolbar, dense legible instrument panels, honest badges ("2 SOLIDS",
+  "Solved", ROLLBACK). This is close to the Fusion/Plasticity bar. One minor
+  feel gap only: bodies float with no contact/ground shadow, so depth reads
+  slightly flatter than Plasticity's grounded studio look — polish, not a
+  daily-driver blocker.
+
+### The gap now: the assembly is a one-way street
+
+Assemblies v1 lets you *build* a bolted assembly and see it solve. But an
+assembly a working engineer builds is immediately needed as an artifact they
+can **move, trust, and document** — and all three are missing:
+
+1. **Can't get it out.** A single part exports STEP; an assembly has **no
+   export path at all**. You bolt parts, then cannot hand the result to a
+   vendor, a CAM shop, or another CAD seat — you'd export each part
+   individually and lose every mate/position. This betrays Loft's *own* #1
+   structural wedge (STEP-first interop, your data) exactly where most real
+   work lives. The machinery is largely present: `evaluate_assembly` already
+   resolves each instance to a solved world `Placement` and evaluates each
+   unique part to a body, and the multi-body path already writes a `Compound`
+   of solids to AP214 — assembly STEP export is composing solved-transformed
+   part bodies into one product-structure STEP, not net-new kernel work.
+2. **Nothing checks it fits.** No interference/collision detection. You can
+   mate two parts into a physically-overlapping invalid state and Loft says
+   nothing. This is a core daily assembly-validation task; OCCT
+   `BRepAlgoAPI_Common` between instance-pair bodies (already available in the
+   geometry service) yields an overlap volume — a clash list is a bounded add.
+3. **Can't take a supplier assembly in.** A multi-solid STEP imports as ONE
+   anonymous multi-lump body (MB-4b), not an assembly of positioned, named
+   instances. Engineers receive supplier assembly STEPs constantly (a gearbox,
+   a purchased actuator); today they arrive as a fused blob with no product
+   structure. This is the intake half of the same interop wedge as (1); larger
+   (needs reading AP214 PRODUCT/NEXT_ASSEMBLY_USAGE structure).
+
+### Everyday history-tree ergonomics still missing
+
+Independent of assemblies, the core modeling loop is missing incumbent muscle
+memory that a returning engineer reaches for constantly:
+
+- **No feature suppress** (`grep suppress` across schemas/services → empty). No
+  way to temporarily disable a feature to test a variant or isolate a rebuild
+  failure — a daily incumbent verb.
+- **No mirror feature.** Patterns are linear/circular only
+  (`PatternGeometry` union has no mirror member; the schema comment even
+  reserves "a future `path`/`mirror` variant"). Mirroring a feature/body about
+  a plane is a one-op in every incumbent and genuinely absent.
+- **No dedicated Hole feature.** The most common feature after extrude is done
+  the hard way — sketch a circle (or a multi-loop bolt pattern) and cut. No
+  through/blind/counterbore/countersink/tapped wizard, no standard drill sizes,
+  no auto-through-all. High-frequency friction, and it also blocks proper hole
+  callouts/notes in the freshly-advanced Drawings pillar.
+- Reorder exists as a backend endpoint (`PUT .../features/order`) but
+  insert-earlier / drag-reorder ergonomics in the tree are the everyday shape
+  of it.
+
+### Interop scaling caveat (noted, not top-5)
+
+STEP import is inline-text in the feature JSON (16 MiB cap), re-sent on every
+evaluate and stored in the part row. A real supplier part (a casting, a
+purchased component) is easily multi-MB; an assembly of them bloats badly. The
+team has scoped the blob-backed successor (`step-import.md` §2a) — a real
+engineering/scaling concern, more engineering-auditor territory than a
+daily-driver product blocker for typical hand-modeled parts.
+
+### Scorecard rows that look stale / should be checked
+
+- **Assemblies & mates ➖ — accurate, but the Notes' residual list is now the
+  *headline*, not a footnote.** With Assemblies v1 shipped, "no assembly STEP
+  IO," "no interference detection," and "no exploded views" are exactly what
+  stops an engineer from using a *built* assembly. The ➖ is honest; the next
+  flip toward ✅ is assembly-STEP-out + a clash check, not another mate type.
+- **Interop ➖ — accurate but should read as "part-only."** The row credits
+  STEP two-way for a *part*; there is **no** assembly-level STEP either
+  direction. Worth stating the part/assembly split explicitly in the Notes so
+  the wedge gap is visible.
+- **Part modeling ✅ — accurate for a single connected solid.** Verified the
+  core loop live. Suppress / mirror-feature / dedicated-Hole are parity-plus
+  ergonomics, not a hole in the ✅ — but they are the most-reached-for missing
+  everyday verbs.
+- **Drawings ➖, Sheet metal ➖ — freshly advanced this batch; not re-audited
+  here (in-flight / just-shipped), deferred to the next pass per brief.**
+
+### Prioritized recommendations (P0–P3, one line each)
+
+- **P0 — Assembly STEP export (AP214 product structure):** compose solved-
+  transformed part bodies from `evaluate_assembly` into one multi-instance
+  STEP — completes the make-loop for multi-part work and delivers Loft's own
+  interop wedge where it currently fails. *(#1 do-this-next)*
+- **P1 — Assembly interference/collision detection:** pairwise
+  `BRepAlgoAPI_Common` over solved instance bodies → a typed clash list with
+  overlap volume; the core "does it actually fit" assembly check.
+- **P1 — Assembly STEP import with product structure:** read PRODUCT/
+  NEXT_ASSEMBLY_USAGE into positioned, named Loft instances (not one anonymous
+  multi-lump body) — the intake half of the interop wedge for supplier assemblies.
+- **P2 — Dedicated Hole feature:** through/blind/counterbore/countersink/tapped
+  with standard sizes + auto-through + correct cut direction — erases the
+  highest-frequency modeling friction and seeds Drawings hole callouts.
+- **P2 — History-tree ergonomics: feature suppress + mirror-feature:** suppress
+  a feature to test a variant/isolate a rebuild break, and mirror a feature/
+  body about a plane (one-op in every incumbent, currently absent).
+- **P3 — Exploded views + assembly drawings:** the presentation half of the
+  assembly (drawings pillar is fresh; sequence after its own parity work).
+- **P3 — Part-version pinning for assemblies:** instances track a part's live
+  tip today; immutable part versions give deterministic, frozen assemblies.
+- **P3 — Blob-backed STEP import storage:** move inline part-21 text out of the
+  feature JSON (scoped `step-import.md` §2a) before imported-part assemblies
+  bloat the tree.
