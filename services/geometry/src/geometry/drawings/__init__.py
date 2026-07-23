@@ -20,7 +20,11 @@ from geometry.drawings.compose import (
     serialize_pdf,
     serialize_svg,
 )
-from geometry.drawings.evaluate import evaluate_drawing_views
+from geometry.drawings.evaluate import (
+    SECTION_VIEW,
+    evaluate_drawing_views,
+    section_view_result,
+)
 from geometry.drawings.flat_pattern import (
     FLAT_PATTERN_VIEW,
     flat_pattern_view_result,
@@ -41,13 +45,27 @@ from geometry.drawings.project import (
     project_view,
     view_normal,
 )
+from geometry.drawings.section import (
+    SectionCut,
+    SectionEmptyError,
+    SectionError,
+    SectionMissesBodyError,
+    SectionPlaneNotPrincipalError,
+    section_cut,
+)
 
 __all__ = [
     "FLAT_PATTERN_VIEW",
+    "SECTION_VIEW",
     "DimensionTypeError",
     "DimensionValue",
     "Point2D",
     "ProjectedEdge",
+    "SectionCut",
+    "SectionEmptyError",
+    "SectionError",
+    "SectionMissesBodyError",
+    "SectionPlaneNotPrincipalError",
     "ViewDirection",
     "ViewProjection",
     "ViewProjectionError",
@@ -58,6 +76,8 @@ __all__ = [
     "measure_dimension_dto",
     "place_sheet",
     "project_view",
+    "section_cut",
+    "section_view_result",
     "serialize_dxf",
     "serialize_pdf",
     "serialize_svg",

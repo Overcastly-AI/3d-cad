@@ -424,6 +424,41 @@ def view_normal(view: ViewDirection) -> tuple[float, float, float]:
     return _VIEW_FRAMES[view][0]
 
 
+def view_frame_axes(
+    view: ViewDirection,
+) -> tuple[
+    tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]
+]:
+    """The (outward normal N, in-plane +x, in-plane +y) of a standard view frame.
+
+    The EXACT triple the HLR projector uses (``_VIEW_FRAMES`` + ``N x x_dir``),
+    exposed so the section layer (:mod:`geometry.drawings.section`) projects a cut
+    face's boundary loops into the SAME view plane as the HLR edges — so the hatch
+    lands on the geometry (drawings-section.md §3/§5), with no parallel frame table.
+    """
+    normal, x_dir = _VIEW_FRAMES[view]
+    return normal, x_dir, _cross(normal, x_dir)
+
+
+def project_point(
+    view: ViewDirection,
+    point: tuple[float, float, float],
+    scale: float = 1.0,
+) -> Point2D:
+    """Project a MODEL-space point (world mm) into a standard view plane (view mm).
+
+    The affine half of :func:`project_view`'s per-edge map (``x = p . x_dir``,
+    ``y = p . y_dir``, times *scale*) applied to a bare point — the seam the section
+    loop projection (drawings-section.md §5/§6) rides so a cut face's projected
+    boundary is byte-for-byte in the frame of the HLR-projected behind-geometry.
+    """
+    _, x_dir, y_dir = view_frame_axes(view)
+    px, py, pz = point
+    x = px * x_dir[0] + py * x_dir[1] + pz * x_dir[2]
+    y = px * y_dir[0] + py * y_dir[1] + pz * y_dir[2]
+    return Point2D(x * scale, y * scale)
+
+
 @dataclass
 class _ModelEdgeProjection:
     """One model edge's projected identity for provenance (design §3.3).

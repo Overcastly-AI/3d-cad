@@ -3376,6 +3376,34 @@ export interface components {
             rollback_feature_id: string | null;
         };
         /**
+         * SectionViewParams
+         * @description The cutting plane + half selection of a section view (drawings-section.md §1).
+         *
+         *     v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
+         *     line (§1): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`
+         *     (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
+         *     an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
+         *     EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
+         *     introduced (DRY). The geometry service resolves it, checks the v1 axis-aligned
+         *     precondition (a non-principal normal is a typed ``section_plane_not_principal``,
+         *     §7), cuts, and hatches. ``flip`` chooses which half is removed (§4): ``false``
+         *     (default) removes the eye-side material (the standard "cut away what is between
+         *     you and the plane"), ``true`` the far side.
+         */
+        SectionViewParams: {
+            /**
+             * Flip
+             * @description Which half is removed (§4): false (default) removes the eye-side material; true the far side.
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * Plane
+             * @description The cutting plane, as a datum reference (reused GeomRef): a DatumPlaneRef (XY/XZ/YZ) or a FeatureRef to an axis-aligned offset/midplane datum. A non-principal-axis normal is out of v1 (typed error, §7).
+             */
+            plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
+        };
+        /**
          * SelectorV1
          * @description Stage-1 selector payload: the geometric signature alone (§3, §4).
          *
@@ -4389,10 +4417,10 @@ export interface components {
             position: components["schemas"]["SheetPoint"];
             /**
              * Projection
-             * @description Projection direction (front / top / right / iso)
+             * @description Projection direction (front / top / right / iso / flat_pattern / section)
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
             /**
              * Ref Document Id
              * Format: uuid
@@ -4414,6 +4442,8 @@ export interface components {
              *     }
              */
             scale: components["schemas"]["ViewScale"];
+            /** @description The cutting plane + flip for a `section` view (drawings-section.md §1); required iff `projection == 'section'`, NULL for every other view. Documents validates the ref shape and persists it as JSONB (the geometry service resolves + cuts). */
+            section_params?: components["schemas"]["SectionViewParams"] | null;
         };
         /**
          * ViewMutationResponse
@@ -4449,7 +4479,7 @@ export interface components {
              * Projection
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
             /**
              * Ref Document Id
              * Format: uuid
@@ -4466,6 +4496,8 @@ export interface components {
              */
             ref_pinned_version: number | null;
             scale: components["schemas"]["ViewScale"];
+            /** @description The section view's cutting plane + flip (drawings-section.md §1); NULL for every non-section view */
+            section_params?: components["schemas"]["SectionViewParams"] | null;
             /**
              * Sheet Id
              * Format: uuid
@@ -4513,7 +4545,7 @@ export interface components {
             expected_version: number;
             position?: components["schemas"]["SheetPoint"] | null;
             /** Projection */
-            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern") | null;
+            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section") | null;
             scale?: components["schemas"]["ViewScale"] | null;
         };
     };

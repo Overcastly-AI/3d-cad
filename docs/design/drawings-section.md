@@ -1,6 +1,8 @@
 # Design — Drawing Section Views (v1: single planar full section, principal/offset plane)
 
-Status: **proposed, audit folded in** (2026-07-23, kernel-architect). Design-first +
+Status: **SHIPPED** (2026-07-23, kernel-architect) — v1 built exactly to this design;
+the throwaway spike/probes are de-collected per the §9 greenlight note (their content
+is reproduced as the `test_drawings_section.py` gates). Design-first +
 feasibility spike per CLAUDE.md ("Hard problems — design doc first"): a section view
 is genuinely new kernel work (a cutting-plane boolean ahead of HLR) layered on the
 shipped projection seam, so it gets a reviewed design + a throwaway spike before

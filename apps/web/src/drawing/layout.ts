@@ -44,6 +44,7 @@ export const VIEW_LABEL: Record<ViewProjection, string> = {
   right: "Right",
   iso: "Isometric",
   flat_pattern: "Flat Pattern",
+  section: "Section A-A",
 };
 
 type SheetSize = SheetResponse["size"];
@@ -139,6 +140,11 @@ export function standardLayout(
     // centred as a lone-view placeholder so the map stays total. Its real
     // placement + bend-table render is the next frontend slice (sheet-metal.md §7).
     flat_pattern: { x: dims.width / 2, y: dims.height / 2 },
+    // A section view (drawings-section.md) is likewise a lone centred view, not part
+    // of the third-angle seed; the on-screen crosshatch is export-only in v1 (§5), so
+    // the DOM sheet renders its edges + cut-face outline here and the hatch ports in a
+    // fast-follow. Centred placeholder keeps the map total.
+    section: { x: dims.width / 2, y: dims.height / 2 },
   };
 }
 

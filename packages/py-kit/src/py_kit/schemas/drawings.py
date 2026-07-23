@@ -38,6 +38,7 @@ from py_kit.schemas.features import (
     EdgeSignature,
     EvaluatedFeatureInput,
     FeatureError,
+    GeomRef,
 )
 
 #: Upper bound for a user-facing drawing name ("Bracket — Detail").
@@ -106,7 +107,13 @@ SheetProjectionConvention = Literal["third_angle", "first_angle"]
 #: projection ENUM is ALL documents persists — mapping a standard direction to a 3D
 #: frame + running HLR (or, for ``flat_pattern``, running the unfold) is the
 #: geometry service's job (design §1.2 / sheet-metal.md §6/§7), never here.
-ViewProjection = Literal["front", "top", "right", "iso", "flat_pattern"]
+#:
+#: ``section`` is a full PLANAR section of a single-body part (drawings-section.md v1):
+#: like ``flat_pattern`` it is NOT one of the third-angle quartet — it is placed by its
+#: OWN evaluate + compose branch, and the cutting plane rides in a sibling
+#: :class:`SectionViewParams` (the projection enum stays a pure direction; the plane is
+#: geometry-resolved, never here).
+ViewProjection = Literal["front", "top", "right", "iso", "flat_pattern", "section"]
 
 #: An unfolded flat-pattern edge's ROLE (sheet-metal.md §6): a ``body`` edge is a
 #: real cut outline; a ``bend`` edge is a fold line (rendered as its own dashed-blue
@@ -117,6 +124,34 @@ EdgeRole = Literal["body", "bend"]
 
 #: A bend's fold sense in a flat pattern's bend table (sheet-metal.md §1/§6).
 BendDirection = Literal["up", "down"]
+
+
+class SectionViewParams(BaseModel):
+    """The cutting plane + half selection of a section view (drawings-section.md §1).
+
+    v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
+    line (§1): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`
+    (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
+    an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
+    EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
+    introduced (DRY). The geometry service resolves it, checks the v1 axis-aligned
+    precondition (a non-principal normal is a typed ``section_plane_not_principal``,
+    §7), cuts, and hatches. ``flip`` chooses which half is removed (§4): ``false``
+    (default) removes the eye-side material (the standard "cut away what is between
+    you and the plane"), ``true`` the far side.
+    """
+
+    plane: GeomRef = Field(
+        description="The cutting plane, as a datum reference (reused GeomRef): a "
+        "DatumPlaneRef (XY/XZ/YZ) or a FeatureRef to an axis-aligned offset/midplane "
+        "datum. A non-principal-axis normal is out of v1 (typed error, §7)."
+    )
+    flip: bool = Field(
+        default=False,
+        description="Which half is removed (§4): false (default) removes the eye-side "
+        "material; true the far side.",
+    )
+
 
 #: The v1 dimension set (design §3.1).
 DimensionType = Literal["linear", "diameter", "radius", "angular"]
@@ -519,12 +554,21 @@ class ViewCreate(BaseModel):
         "design §7)",
     )
     projection: ViewProjection = Field(
-        description="Projection direction (front / top / right / iso)"
+        description="Projection direction (front / top / right / iso / flat_pattern / "
+        "section)"
     )
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE, description="Drawing scale (rational; 1:1 default)"
     )
     position: SheetPoint = Field(description="View placement on the sheet (mm)")
+    section_params: SectionViewParams | None = Field(
+        default=None,
+        description="The cutting plane + flip for a `section` view (drawings-"
+        "section.md §1); required iff `projection == 'section'`, NULL for every "
+        "other view. "
+        "Documents validates the ref shape and persists it as JSONB (the geometry "
+        "service resolves + cuts).",
+    )
 
 
 class ViewUpdate(BaseModel):
@@ -557,6 +601,11 @@ class ViewResponse(BaseModel):
     projection: ViewProjection
     scale: ViewScale
     position: SheetPoint
+    section_params: SectionViewParams | None = Field(
+        default=None,
+        description="The section view's cutting plane + flip (drawings-section.md §1); "
+        "NULL for every non-section view",
+    )
     order_index: int = Field(
         description="Stable view order on the sheet (dense 0..n-1)"
     )
@@ -693,6 +742,29 @@ class ProjectedPoint(BaseModel):
     y_mm: float = Field(description="Y in the view plane (mm, model-mm x scale)")
 
 
+class SectionFaceLoop(BaseModel):
+    """One section cross-section face as canonical projected boundary loops (§5/§6).
+
+    A section view's cut face, projected into the view plane (view mm at the view's
+    scale — the SAME frame as the view's ``edges``, so the hatch lands on the drawn
+    outline). ``outer`` is the face's outer boundary; ``holes`` are its interior (bore)
+    boundaries. Each loop is a closed polyline pinned to a deterministic start vertex
+    and winding (outer CCW, holes CW in the view frame, drawings-section.md §6) so the
+    payload is byte-stable regardless of OCCT's edge order. The compose layer generates
+    the crosshatch from these loops (even-odd scanline clip: holes carve gaps); the
+    projection layer stays purely geometry. Empty for every non-section view — additive,
+    so existing views are unaffected (the ``bend_table`` pattern).
+    """
+
+    outer: list[ProjectedPoint] = Field(
+        description="The face's outer boundary as a closed projected polyline"
+    )
+    holes: list[list[ProjectedPoint]] = Field(
+        default_factory=list["list[ProjectedPoint]"],
+        description="Interior (bore) boundaries, each a closed projected polyline",
+    )
+
+
 class ProjectedViewEdge(BaseModel):
     """One classified 2D edge of a projected view (design §1.3) — a neutral
     primitive, never a kernel handle (the boundary twin of
@@ -827,11 +899,19 @@ class DrawingViewResult(BaseModel):
         description="Per-bend fold rows for a flat_pattern view (sheet-metal.md §6/"
         "§7); empty for every standard HLR view and on error",
     )
+    section_faces: list[SectionFaceLoop] = Field(
+        default_factory=list["SectionFaceLoop"],
+        description="Cross-section boundary loops for a `section` view (drawings-"
+        "section.md §5) — the region the compose layer hatches; empty for every "
+        "standard HLR / flat_pattern view and on error (additive, existing views "
+        "unaffected — the `bend_table` pattern).",
+    )
     error: FeatureError | None = Field(
         default=None,
         description="Typed per-view failure (`view_projection_failed` for HLR, "
-        "`flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern), "
-        "or null on success (design §1.5 / sheet-metal.md §7)",
+        "`flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern, "
+        "`section_plane_not_principal` / `section_plane_misses_body` / `section_empty` "
+        "for a section), or null on success (design §1.5 / §7)",
     )
 
 
@@ -921,6 +1001,12 @@ class EvaluateDrawingViewsRequest(BaseModel):
         "with its view (design §3/§5). Empty (the default) → no measurement and the "
         "response is projected edges only, byte-for-byte the slice-#3 behaviour "
         "(fully backward-compatible).",
+    )
+    section_params: SectionViewParams | None = Field(
+        default=None,
+        description="The cutting plane + flip for a `section` view (drawings-"
+        "section.md §1). Required iff `views` contains `section`; ignored otherwise. "
+        "Null (the default) → no section view, byte-for-byte the pre-section state.",
     )
 
 
@@ -1144,6 +1230,35 @@ ComposedEdge = Annotated[
 ]
 
 
+class ComposedHatchLine(BaseModel):
+    """One crosshatch stroke of a placed section face (final sheet-SVG space)."""
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+class ComposedHatch(BaseModel):
+    """A section view's placed crosshatch (drawings-section.md §5) — the parallel
+    fill strokes of every cross-section face.
+
+    Generated by :func:`geometry.drawings.compose.place_sheet`'s section branch: a set
+    of parallel lines at the ANSI 45° angle and a fixed sheet-mm spacing, analytically
+    clipped (even-odd scanline) to each face's outer loop minus its interior loops — so
+    the hole is left blank. Every coordinate is in FINAL sheet-SVG space (mm, y-DOWN,
+    top-left origin — the same space every other placed primitive uses), so a
+    serializer draws each ``lines`` segment verbatim. Deterministic (§6): the loops,
+    angle, spacing, and clip origin are pure functions of the projected geometry, so
+    the same section ⇒ byte-identical strokes. Export-only in v1 (§5): the DOM sheet
+    shows the section's edges + cut-face outline but no on-screen crosshatch.
+    """
+
+    lines: list[ComposedHatchLine] = Field(
+        description="Clipped 45° crosshatch strokes (sheet-SVG space), scanline order"
+    )
+
+
 class ComposedDimLine(BaseModel):
     """One straight rule of a placed dimension (extension or dimension line)."""
 
@@ -1227,6 +1342,12 @@ class ComposedView(BaseModel):
     )
     dimensions: list[ComposedDimension] = Field(
         default_factory=list["ComposedDimension"], description="Placed dimensions"
+    )
+    hatch: ComposedHatch | None = Field(
+        default=None,
+        description="A section view's placed crosshatch (drawings-section.md §5); null "
+        "for every non-section view — additive, so a standard/flat-pattern view "
+        "composes byte-identically (the `bend_table` pattern).",
     )
 
 

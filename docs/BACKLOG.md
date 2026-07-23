@@ -52,9 +52,12 @@ MB-4c wire+frontend, e2e hardening) — all archived below (Done, one line
 each). Fresh product-audit pass (2026-07-23) reframes assemblies as **"a
 one-way street"** — buildable and solvable, but no export, no collision
 check, no import — that gap now leads the queue (P0/P1). **Section views v1
-is IN FLIGHT right now** (kernel-architect, uncommitted
-`services/geometry/src/geometry/drawings/section.py` + spike design landed
-`f75214b` — do not re-file; next groom ticks + archives it once committed).
+SHIPPED** (kernel-architect, 2026-07-23): single planar full section of a
+single-body part by principal / axis-aligned-offset datum reference —
+`drawings/section.py` half-space cut + coplanar loops + `ComposedHatch` (ANSI-45°
+even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
+wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
+frame refactor are v2/§11. Spike de-collected.
 
 - [ ] (P0, M) Assembly STEP export — AP214 product structure. `evaluate_assembly`
       already resolves each instance to a solved world `Placement` + a solved

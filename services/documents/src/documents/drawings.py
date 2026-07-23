@@ -41,6 +41,7 @@ from py_kit.schemas.drawings import (
     DrawingTreeResponse,
     DrawingUpdate,
     RadiusDimensionParams,
+    SectionViewParams,
     SheetContent,
     SheetCreate,
     SheetMutationResponse,
@@ -253,6 +254,11 @@ def _view_response(view: db.View) -> ViewResponse:
         projection=view.projection,  # type: ignore[arg-type]
         scale=ViewScale(numerator=view.scale_num, denominator=view.scale_den),
         position=SheetPointDTO(x_mm=view.pos_x_mm, y_mm=view.pos_y_mm),
+        section_params=(
+            SectionViewParams.model_validate(view.section_params)
+            if view.section_params is not None
+            else None
+        ),
         order_index=view.order_index,
         created_at=view.created_at,
         updated_at=view.updated_at,
@@ -575,6 +581,11 @@ async def create_view(
         scale_den=request.scale.denominator,
         pos_x_mm=request.position.x_mm,
         pos_y_mm=request.position.y_mm,
+        section_params=(
+            request.section_params.model_dump(mode="json")
+            if request.section_params is not None
+            else None
+        ),
         order_index=position,
     )
     session.add(view)

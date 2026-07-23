@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 297.0000 210.0000" width="297.0000mm" height="210.0000mm" preserveAspectRatio="xMidYMid meet">
+  <rect x="0" y="0" width="297.0000" height="210.0000" fill="#ECEFF2" stroke="#C9CFD7" stroke-width="0.6000"/>
+  <rect data-testid="drawing-border" x="10.0000" y="10.0000" width="277.0000" height="190.0000" fill="none" stroke="#1B222B" stroke-width="0.7000"/>
+    <g data-testid="drawing-view" data-view="section" data-view-error="false">
+      <g data-testid="drawing-hatch">
+        <line x1="166.7462" y1="92.5000" x2="168.5000" y2="94.2538" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="163.2107" y1="92.5000" x2="168.5000" y2="97.7893" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="159.6751" y1="92.5000" x2="168.5000" y2="101.3249" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="156.1396" y1="92.5000" x2="168.5000" y2="104.8604" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="152.6041" y1="92.5000" x2="168.5000" y2="108.3959" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="149.0685" y1="92.5000" x2="156.5703" y2="100.0017" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="161.4983" y1="104.9297" x2="168.5000" y2="111.9315" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="145.5330" y1="92.5000" x2="153.8161" y2="100.7831" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="160.7169" y1="107.6839" x2="168.5000" y2="115.4670" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="141.9975" y1="92.5000" x2="152.1085" y2="102.6110" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="158.8890" y1="109.3915" x2="166.9975" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="138.4619" y1="92.5000" x2="151.5342" y2="105.5723" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="155.9277" y1="109.9658" x2="163.4619" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="134.9264" y1="92.5000" x2="143.2539" y2="100.8275" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="144.6725" y1="102.2461" x2="159.9264" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="131.3909" y1="92.5000" x2="139.0937" y2="100.2028" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="145.2972" y1="106.4063" x2="156.3909" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="128.5000" y1="93.1447" x2="136.8939" y2="101.5386" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="143.9614" y1="108.6061" x2="152.8553" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="128.5000" y1="96.6802" x2="135.6416" y2="103.8218" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="141.6782" y1="109.8584" x2="149.3198" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="128.5000" y1="100.2157" x2="145.7843" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="128.5000" y1="103.7513" x2="142.2487" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="128.5000" y1="107.2868" x2="138.7132" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="128.5000" y1="110.8223" x2="135.1777" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+        <line x1="128.5000" y1="114.3579" x2="131.6421" y2="117.5000" stroke="#7A8695" stroke-width="0.2500" stroke-linecap="round"/>
+      </g>
+      <line x1="128.5000" y1="117.5000" x2="128.5000" y2="92.5000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="128.5000" y1="117.5000" x2="168.5000" y2="117.5000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="128.5000" y1="92.5000" x2="168.5000" y2="92.5000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="168.5000" y1="117.5000" x2="168.5000" y2="92.5000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="140.5000" cy="105.0000" r="5.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="156.5000" cy="105.0000" r="5.0000" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <text data-testid="drawing-view-label" x="148.5000" y="125.5000" text-anchor="middle" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4" letter-spacing="0.6">SECTION A-A</text>
+    </g>
+    <g data-testid="drawing-title-block">
+      <rect x="191.0000" y="166.0000" width="96.0000" height="34.0000" fill="none" stroke="#1B222B" stroke-width="0.7000"/>
+      <line x1="248.6000" y1="166.0000" x2="248.6000" y2="200.0000" stroke="#1B222B" stroke-width="0.3500"/>
+      <line x1="248.6000" y1="183.0000" x2="287.0000" y2="183.0000" stroke="#1B222B" stroke-width="0.3500"/>
+      <text x="195.0000" y="174.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">TITLE</text>
+      <text data-testid="title-block-name" x="195.0000" y="184.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">Section Demo</text>
+      <text x="195.0000" y="196.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">LOFT · PART DRAWING</text>
+      <text x="252.6000" y="174.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">SCALE</text>
+      <text data-testid="title-block-scale" x="252.6000" y="180.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">1:1</text>
+      <text x="252.6000" y="191.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">SIZE</text>
+      <text x="252.6000" y="196.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">A4</text>
+    </g>
+</svg>

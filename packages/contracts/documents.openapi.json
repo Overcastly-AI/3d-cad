@@ -3771,6 +3771,41 @@
         "title": "RollbackBarMove",
         "type": "object"
       },
+      "SectionViewParams": {
+        "description": "The cutting plane + half selection of a section view (drawings-section.md \u00a71).\n\nv1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting\nline (\u00a71): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`\n(``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to\nan axis-aligned offset / midplane datum FEATURE in the referenced part) \u2014 the\nEXACT union a sketch's plane reference uses, so no parallel plane taxonomy is\nintroduced (DRY). The geometry service resolves it, checks the v1 axis-aligned\nprecondition (a non-principal normal is a typed ``section_plane_not_principal``,\n\u00a77), cuts, and hatches. ``flip`` chooses which half is removed (\u00a74): ``false``\n(default) removes the eye-side material (the standard \"cut away what is between\nyou and the plane\"), ``true`` the far side.",
+        "properties": {
+          "flip": {
+            "default": false,
+            "description": "Which half is removed (\u00a74): false (default) removes the eye-side material; true the far side.",
+            "title": "Flip",
+            "type": "boolean"
+          },
+          "plane": {
+            "description": "The cutting plane, as a datum reference (reused GeomRef): a DatumPlaneRef (XY/XZ/YZ) or a FeatureRef to an axis-aligned offset/midplane datum. A non-principal-axis normal is out of v1 (typed error, \u00a77).",
+            "discriminator": {
+              "mapping": {
+                "datum_plane": "#/components/schemas/DatumPlaneRef",
+                "feature": "#/components/schemas/FeatureRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumPlaneRef"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureRef"
+              }
+            ],
+            "title": "Plane"
+          }
+        },
+        "required": [
+          "plane"
+        ],
+        "title": "SectionViewParams",
+        "type": "object"
+      },
       "SelectorV1": {
         "description": "Stage-1 selector payload: the geometric signature alone (\u00a73, \u00a74).\n\n``selector_version`` is the discriminator of the (currently single-member)\n``Selector`` union \u2014 decoupled from feature ``param_version`` (\u00a74). Stage 2\nadds a ``SelectorV2`` member (signature + provenance) additively, at which\npoint ``Selector`` becomes ``Annotated[SelectorV1 | SelectorV2,\nField(discriminator=\"selector_version\")]`` with no change to persisted v1\nrows. pydantic forbids a discriminated single-member union, so ``Selector``\nis a plain alias until then (same idiom as :data:`FeatureData`).",
         "properties": {
@@ -5157,13 +5192,14 @@
             "description": "View placement on the sheet (mm)"
           },
           "projection": {
-            "description": "Projection direction (front / top / right / iso)",
+            "description": "Projection direction (front / top / right / iso / flat_pattern / section)",
             "enum": [
               "front",
               "top",
               "right",
               "iso",
-              "flat_pattern"
+              "flat_pattern",
+              "section"
             ],
             "title": "Projection",
             "type": "string"
@@ -5191,6 +5227,17 @@
               "numerator": 1
             },
             "description": "Drawing scale (rational; 1:1 default)"
+          },
+          "section_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SectionViewParams"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cutting plane + flip for a `section` view (drawings-section.md \u00a71); required iff `projection == 'section'`, NULL for every other view. Documents validates the ref shape and persists it as JSONB (the geometry service resolves + cuts)."
           }
         },
         "required": [
@@ -5247,7 +5294,8 @@
               "top",
               "right",
               "iso",
-              "flat_pattern"
+              "flat_pattern",
+              "section"
             ],
             "title": "Projection",
             "type": "string"
@@ -5279,6 +5327,17 @@
           },
           "scale": {
             "$ref": "#/components/schemas/ViewScale"
+          },
+          "section_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SectionViewParams"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The section view's cutting plane + flip (drawings-section.md \u00a71); NULL for every non-section view"
           },
           "sheet_id": {
             "format": "uuid",
@@ -5357,7 +5416,8 @@
                   "top",
                   "right",
                   "iso",
-                  "flat_pattern"
+                  "flat_pattern",
+                  "section"
                 ],
                 "type": "string"
               },

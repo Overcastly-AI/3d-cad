@@ -652,6 +652,12 @@ class View(Base):
     scale_den: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     pos_x_mm: Mapped[float] = mapped_column(sa.Float(), nullable=False)
     pos_y_mm: Mapped[float] = mapped_column(sa.Float(), nullable=False)
+    #: A ``section`` view's cutting plane + flip (drawings-section.md §1) as JSONB —
+    #: the validated :class:`~py_kit.schemas.drawings.SectionViewParams` payload; NULL
+    #: for every non-section view, so existing views are untouched (additive).
+    section_params: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON_VARIANT, nullable=True
+    )
     order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),

@@ -1117,10 +1117,24 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       bodies[{base_feature_id, lumps}]` (additive) + a Bodies-panel "N solids"
       badge — a disjoint union / multi-solid import now reads as multi-solid at a
       glance.
-      **Section views v1 — design + spike done (`f75214b`, `b7bf40d`), build IN
-      FLIGHT** (kernel-architect, uncommitted as of this groom pass 2026-07-23):
-      cutting plane by datum reference, half-space cut + coplanar hatch faces
-      through a frame-generalized `project_view`; spike verdict TRACTABLE, sizing M.
+      **Section views v1 — SHIPPED** (kernel-architect, 2026-07-23): a single
+      planar FULL section of a single-body part, cut by a principal / axis-aligned-
+      offset datum plane specified by DATUM REFERENCE (`SectionViewParams`, reused
+      `GeomRef`). Kernel `drawings/section.py` sizes/positions the half-space tool
+      from the projected bbox (no notch bug), cuts via `boolean_bodies(...,
+      allow_disjoint=True)` keeping all lumps, extracts + canonicalises the coplanar
+      cross-section loops, and HLR-projects the behind-geometry through the SHIPPED
+      `project_view` with the derived STANDARD direction (N is a principal axis → NO
+      frame refactor; oblique + the frame generalization are v2/§11). A `ComposedHatch`
+      primitive renders the ANSI-45° even-odd scanline crosshatch across SVG/PDF/DXF
+      (export-only; on-screen hatch deferred). `views.section_params jsonb` migration
+      (0008). Goldens: wrong-half correctness (asymmetric-along-N boss cut away on the
+      eye side), multi-loop hatch (bored face, holes carved), byte-determinism
+      in-proc + fresh interpreter; standard-view + flat-pattern EXPORT goldens
+      byte-identical (the model-dump content-hash pins regenerated additively, the
+      bend_table pattern). Honest degradation: `section_plane_not_principal` /
+      `section_plane_misses_body` / `section_empty` / `subshape_unresolved`, never a
+      crash. Spike de-collected on greenlight.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a

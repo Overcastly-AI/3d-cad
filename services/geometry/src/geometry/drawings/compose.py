@@ -56,6 +56,8 @@ from py_kit.schemas.drawings import (
     ComposedDimLine,
     ComposedDimText,
     ComposedEdge,
+    ComposedHatch,
+    ComposedHatchLine,
     ComposedLineEdge,
     ComposedMeasuredDimension,
     ComposedNote,
@@ -74,6 +76,7 @@ from py_kit.schemas.drawings import (
     PointToPointMeasurement,
     ProjectedPoint,
     ProjectedViewEdge,
+    SectionFaceLoop,
     SheetLayout,
     SheetOrientation,
     SheetProjectionConvention,
@@ -107,6 +110,7 @@ VIEW_LABEL: dict[ViewProjection, str] = {
     "right": "Right",
     "iso": "Isometric",
     "flat_pattern": "Flat Pattern",
+    "section": "Section A-A",
 }
 
 #: ISO / ANSI sheet dimensions in mm, given LANDSCAPE (w >= h) — layout.ts.
@@ -136,6 +140,20 @@ VIEW_GUTTER_MM = 24.0
 #: (which is front/top/right/iso specific). Kept distinct so a standard sheet composes
 #: byte-identically; only a layout that names a `flat_pattern` view takes the branch.
 FLAT_PATTERN_PROJECTION: ViewProjection = "flat_pattern"
+
+#: The section view projection kind (drawings-section.md v1). Placed by the ADDITIVE
+#: section branch of :func:`place_sheet` — a single centred cut view + a crosshatch
+#: over its cross-section faces — NEVER by the standard-4 `bounds_aware_layout`. A
+#: standard sheet composes byte-identically; only a layout naming a `section` view
+#: takes the branch.
+SECTION_PROJECTION: ViewProjection = "section"
+
+# --- crosshatch (drawings-section.md §5) — the ANSI 45° section fill --------------
+#: Hatch line angle (ANSI 45°) and spacing (sheet mm). Fixed (not ad-hoc) so the
+#: even-odd scanline clip is byte-deterministic (§6); spacing is a SHEET concern (it
+#: scales with the drawing, not the model), so the clip runs in final sheet-SVG space.
+_HATCH_ANGLE_DEG = 45.0
+_HATCH_SPACING_MM = 2.5
 
 #: Bend-table block layout (mm) — the quiet top-left annotation block on a flat-pattern
 #: sheet (sheet-metal.md §7): a header row plus one row per bend. Anchored at the sheet
@@ -509,6 +527,81 @@ def view_to_svg_edges(
                 )
             )
     return out
+
+
+def _hatch_loops_svg(
+    faces: Sequence[SectionFaceLoop], to_svg: ToSvg
+) -> list[list[Vec2]]:
+    """Every section-face boundary (outer + holes) as SVG-space polylines.
+
+    The section loops are in the view plane (the SAME frame as the view's edges), so
+    the ONE ``to_svg`` transform maps them onto the placed geometry — the hatch lands
+    exactly on the drawn cut face. Holes are kept as their own loops for the even-odd
+    carve (drawings-section.md §5)."""
+    loops: list[list[Vec2]] = []
+    for face in faces:
+        loops.append([to_svg(_p2(p)) for p in face.outer])
+        for hole in face.holes:
+            loops.append([to_svg(_p2(p)) for p in hole])
+    return loops
+
+
+def build_section_hatch(
+    faces: Sequence[SectionFaceLoop], to_svg: ToSvg
+) -> ComposedHatch | None:
+    """Generate the ANSI 45° crosshatch of a section view (drawings-section.md §5/§6).
+
+    A faithful port of the spike's proven even-odd scanline clip
+    (spike_section_view.py ``_scanline_hatch``), run in FINAL sheet-SVG space so the
+    spacing is a true sheet-mm concern (§5): rotate every loop so the hatch lines are
+    horizontal, sweep scanlines at :data:`_HATCH_SPACING_MM` from a deterministic grid
+    origin (min rotated-v snapped to the spacing grid), intersect every loop edge, sort
+    the crossings, and pair them even-odd — so interior hole loops carve gaps. A
+    scanline that grazes a shared vertex is counted exactly once (half-open
+    ``[lo, hi)`` on each edge's v-extent). Each kept span is rotated back to SVG space.
+    Deterministic (§6): the loops, angle, spacing, and clip origin are pure functions of
+    the projected geometry. Returns ``None`` when there are no faces (nothing to hatch).
+    """
+    loops = _hatch_loops_svg(faces, to_svg)
+    if not loops:
+        return None
+
+    a = math.radians(_HATCH_ANGLE_DEG)
+    ca, sa = math.cos(a), math.sin(a)
+
+    def rot(p: Vec2) -> Vec2:  # rotate so hatch lines are horizontal
+        return Vec2(p.x * ca + p.y * sa, -p.x * sa + p.y * ca)
+
+    def unrot(p: Vec2) -> Vec2:  # inverse — back to SVG space
+        return Vec2(p.x * ca - p.y * sa, p.x * sa + p.y * ca)
+
+    redges: list[tuple[Vec2, Vec2]] = []
+    for loop in loops:
+        rl = [rot(p) for p in loop]
+        for i in range(len(rl)):
+            redges.append((rl[i], rl[(i + 1) % len(rl)]))
+    if not redges:
+        return None
+    vmin = min(min(e[0].y, e[1].y) for e in redges)
+    vmax = max(max(e[0].y, e[1].y) for e in redges)
+    spacing = _HATCH_SPACING_MM
+    v = math.ceil(vmin / spacing) * spacing  # snap to a deterministic grid
+    lines: list[ComposedHatchLine] = []
+    while v <= vmax + 1e-12:
+        xs: list[float] = []
+        for p0, p1 in redges:
+            y1, y2 = p0.y, p1.y
+            lo, hi = (y1, y2) if y1 <= y2 else (y2, y1)
+            if lo <= v < hi:  # half-open: a grazing vertex is counted once
+                t = (v - y1) / (y2 - y1)
+                xs.append(p0.x + t * (p1.x - p0.x))
+        xs.sort()
+        for i in range(0, len(xs) - 1, 2):  # even-odd → interior spans only
+            a0 = unrot(Vec2(xs[i], v))
+            b0 = unrot(Vec2(xs[i + 1], v))
+            lines.append(ComposedHatchLine(x1=a0.x, y1=a0.y, x2=b0.x, y2=b0.y))
+        v += spacing
+    return ComposedHatch(lines=lines)
 
 
 # ---------------------------------------------------------------------------------
@@ -1324,6 +1417,33 @@ def place_sheet(
                 flat_result.bend_table, SHEET_MARGIN_MM
             )
 
+    # Section branch (drawings-section.md §5) — ADDITIVE to the standard-4 layout,
+    # exactly like flat_pattern: a section view is a single view placed CENTRED on the
+    # sheet from its projected extents through the SAME `_compose_view` machinery, and
+    # its crosshatch rides along, generated from the projected cross-section faces and
+    # clipped in the SAME `to_svg` frame so it lands on the drawn cut face. Standard
+    # sheets (no `section` in the layout) skip this and compose byte-identically.
+    section_center = Vec2(sheet_w / 2, sheet_h / 2)
+    for vp in layout.views:
+        if vp.projection != SECTION_PROJECTION:
+            continue
+        section_result = result_by_proj.get(SECTION_PROJECTION)
+        section_view = _compose_view(
+            SECTION_PROJECTION,
+            section_center,
+            sheet_w,
+            sheet_h,
+            section_result,
+            [],
+            [],
+        )
+        if section_result is not None and section_result.error is None:
+            to_svg = view_transform(section_result.edges, section_center, sheet_h)
+            section_view.hatch = build_section_hatch(
+                section_result.section_faces, to_svg
+            )
+        composed_views.append(section_view)
+
     scale_label = format_scale(layout.views[0].scale) if layout.views else "1:1"
     return ComposedSheet(
         width_mm=sheet_w,
@@ -1359,6 +1479,12 @@ _EDGE_HIDDEN = "#6E7A88"
 #: renderers all read; this constant is the byte-export twin (the cross-renderer token
 #: duplication the module header notes) — keep the two hexes in lock-step.
 _EDGE_BEND = "#2F6FEB"
+#: Section crosshatch stroke (drawings-section.md §5) — a quiet thin graphite, the
+#: conventional ANSI section-line ink, distinct from the body-edge and dimension inks.
+#: Export-only in v1 (§5); the paired DOM sheet hatch is a BACKLOG follow-on that adds
+#: the matching `drawing.hatch` design token (the cross-renderer token duplication the
+#: module header notes) so the on-screen and exported hatch stay one colour.
+_HATCH_INK = "#7A8695"
 _LABEL = "#48525E"
 _DIM_INK = "#2A3542"
 _DIM_TEXT = "#1B222B"
@@ -1374,6 +1500,7 @@ _PAPER_EDGE_W = 0.6
 _HIDDEN_DASH = "2 1.4"  # hiddenDashMm + hiddenGapMm
 _BEND_W = 0.4  # flat-pattern fold-line weight (sheet-metal.md §7)
 _BEND_DASH = "3 1.6"  # bend fold-line dash (distinct from the hidden-edge dash)
+_HATCH_W = 0.25  # section crosshatch stroke weight (drawings-section.md §5)
 
 #: Monospace stack (font.data) — the drafting vernacular. Emitted with escaped
 #: quotes so the attribute stays valid standalone XML.
@@ -1518,6 +1645,21 @@ def _emit_edge(edge: ComposedEdge, out: list[str]) -> None:
         )
 
 
+def _emit_hatch(hatch: ComposedHatch, out: list[str]) -> None:
+    """Render a section view's crosshatch (drawings-section.md §5) — thin 45° strokes.
+
+    One ``<line>`` per clipped span, in quiet graphite ink. Emitted BEFORE the view's
+    edges so the cut-face outline draws over the fill (the conventional reading)."""
+    out.append('      <g data-testid="drawing-hatch">')
+    for line in hatch.lines:
+        out.append(
+            f'        <line x1="{_fmt(line.x1)}" y1="{_fmt(line.y1)}" '
+            f'x2="{_fmt(line.x2)}" y2="{_fmt(line.y2)}" stroke="{_HATCH_INK}" '
+            f'stroke-width="{_fmt(_HATCH_W)}" stroke-linecap="round"/>'
+        )
+    out.append("      </g>")
+
+
 def _emit_dimension(dim: ComposedDimension, out: list[str]) -> None:
     if isinstance(dim, ComposedDimensionError):
         out.append(
@@ -1599,6 +1741,8 @@ def _emit_view(view: ComposedView, out: list[str]) -> None:
             f'letter-spacing="0.4">VIEW FAILED</text>'
         )
     else:
+        if view.hatch is not None:
+            _emit_hatch(view.hatch, out)
         for edge in view.edges:
             _emit_edge(edge, out)
         for dim in view.dimensions:
@@ -1917,6 +2061,15 @@ def _pdf_dimension(c: Canvas, dim: ComposedDimension) -> None:
     c.restoreState()
 
 
+def _pdf_hatch(c: Canvas, hatch: ComposedHatch) -> None:
+    """Draw a section view's crosshatch onto the PDF canvas (drawings-section.md §5)."""
+    c.setStrokeColor(_hex(_HATCH_INK))
+    c.setLineWidth(_HATCH_W * _MM)
+    c.setDash([])
+    for line in hatch.lines:
+        c.line(line.x1 * _MM, line.y1 * _MM, line.x2 * _MM, line.y2 * _MM)
+
+
 def _pdf_view(c: Canvas, view: ComposedView) -> None:
     if view.failed:
         ax = view.anchor.x_mm
@@ -1936,6 +2089,8 @@ def _pdf_view(c: Canvas, view: ComposedView) -> None:
             central=False,
         )
     else:
+        if view.hatch is not None:
+            _pdf_hatch(c, view.hatch)
         for edge in view.edges:
             _pdf_edge(c, edge)
         for dim in view.dimensions:
@@ -2130,6 +2285,10 @@ _LYR_BEND = "BEND"
 #: note-free sheet's TABLES section (and thus its DXF bytes) is byte-unchanged (the
 #: same additive-layer posture as `_LYR_BEND`).
 _LYR_NOTE = "NOTES"
+#: Section crosshatch (drawings-section.md §5) — REAL LINE entities on their own layer,
+#: added ONLY for a section sheet, so a non-section sheet's TABLES section (and DXF
+#: bytes) is byte-unchanged (the same additive-layer posture as `_LYR_BEND`).
+_LYR_HATCH = "HATCH"
 
 #: Mono text style — the consuming CAD supplies the Courier face (no embed).
 _DXF_STYLE = "LOFT_MONO"
@@ -2221,6 +2380,17 @@ def _dxf_dimension(
     )
 
 
+def _dxf_hatch(
+    msp: Modelspace, hatch: ComposedHatch, fy: Callable[[float], float]
+) -> None:
+    """Emit a section view's crosshatch as REAL LINE entities on the HATCH layer (§5).
+
+    Honest CAD-editable strokes (not a fill picture), so the section reopens with its
+    hatch as geometry. The ONE y-flip (DXF model space is y-up) applied via ``fy``."""
+    for line in hatch.lines:
+        _dxf_line(msp, line.x1, fy(line.y1), line.x2, fy(line.y2), _LYR_HATCH)
+
+
 def _dxf_view(
     msp: Modelspace, view: ComposedView, fy: Callable[[float], float]
 ) -> None:
@@ -2238,6 +2408,8 @@ def _dxf_view(
             msp, "VIEW FAILED", ax, fy(ay + 1), 3.0, 0.0, _LYR_TITLE, centred=True
         )
     else:
+        if view.hatch is not None:
+            _dxf_hatch(msp, view.hatch, fy)
         for edge in view.edges:
             _dxf_edge(msp, edge, fy)
         for dim in view.dimensions:
@@ -2385,6 +2557,11 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         # sheet's TABLES section (and its DXF bytes) is byte-unchanged (design §2.2).
         if composed.notes:
             doc.layers.add(_LYR_NOTE, color=7)
+        # The HATCH layer is added ONLY when a section view carries a crosshatch, so a
+        # non-section sheet's TABLES section (and its DXF bytes) is byte-unchanged
+        # (drawings-section.md §5, the same additive-layer posture as BEND/NOTES).
+        if any(v.hatch is not None for v in composed.views):
+            doc.layers.add(_LYR_HATCH, color=8)
         doc.styles.add(_DXF_STYLE, font="cour.ttf")
         msp = doc.modelspace()
 

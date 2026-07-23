@@ -2016,6 +2016,12 @@ class TreeEvaluation:
     #: ``None`` for a non-sheet-metal part; for an unrelieved sheet part it equals
     #: ``body`` (same bends, no notches), so the unfold uses ``unfold_body or body``.
     unfold_body: BodyShape | None = None
+    #: The resolved plane of every ``ok`` datum feature in this prefix, by feature id
+    #: (service-internal like ``body``). A drawing SECTION view whose cutting plane is
+    #: a ``FeatureRef`` (an axis-aligned offset/midplane datum, drawings-section.md §1)
+    #: resolves it here — the SAME plane the sketch/extrude path resolved during this
+    #: evaluation, never a re-resolution. Empty for a part with no datum feature.
+    datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
 
 
 def tree_no_body_error(
@@ -2154,4 +2160,5 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         sheet_metal_defaults=next(iter(state.sheet_metal_defaults.values()), None),
         corner_reliefs=list(state.corner_reliefs.values()),
         unfold_body=state.sheet_metal_unfold_body,
+        datum_planes=dict(state.datum_planes),
     )
