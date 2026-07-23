@@ -422,3 +422,17 @@ recipe here in the same commit as the fix.**
   hash is a string field unaffected by formatting, i.e. `prettier --write` on a
   golden is behaviour-neutral and safe.** Always run the full `just lint` at the
   batch boundary regardless.
+- **When a concurrent agent's unfinished work blocks a clean full `just lint`,
+  scope your gate to your ENTIRE diff — every file you touched — not just the
+  primary source file.** Cautionary tale (2026-07-23, overnight loop): a
+  first-angle-projection slice (`822b3a9`) changed `bounds_aware_layout`'s
+  signature in `compose.py` AND the call sites in `test_drawings_compose.py`,
+  but — unable to run repo-wide `just lint` because a concurrent frontend agent
+  had unfinished `apps/web` work — ran only scoped `pyright compose.py`. That
+  passed; the signature change left 7 `pyright` errors in the TEST file
+  (`dict[str, ViewBounds]` vs the new `dict[ViewProjection, ViewBounds | None]`),
+  so HEAD shipped lint-red and a sibling agent caught it. A scoped gate is fine
+  when the tree is dirty with foreign work, but scope it to `git diff --name-only`
+  (your whole change), e.g. `uv run pyright <each changed .py>` + `ruff` on all
+  of them — never just the one file you were "mainly" editing. A signature change
+  breaks its callers and tests, which single-file scoping can't see.
