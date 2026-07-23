@@ -995,10 +995,22 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       the real stack — lay out + dimension, click Export DXF, catch the download,
       assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
       **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
-      pillar: detail/assembly views (section views v1 SHIPPED — see below; DE-1c
-      client-placement cutover DONE — see below).
-      **Drawings SECTION VIEWS v1 SHIPPED + VERIFIED-GREEN (2026-07-23,
-      `137a929`→`57dca7a`):** single planar full section of a single-body part by
+      pillar: detail/assembly views (section-view KERNEL OP shipped + verified, but
+      end-to-end wire is PENDING as E1/P1 — see below; DE-1c client-placement
+      cutover DONE — see below).
+      **Drawings SECTION VIEWS v1 — KERNEL OP SHIPPED + GEOMETRY-VERIFIED; END-TO-END
+      WIRE PENDING (E1, P1) (2026-07-23, `137a929`→`57dca7a`).** HONESTY CORRECTION
+      (engineering audit `d980764`): the kernel op below is real and adversarially
+      QA-verified, but the capability is **not yet end-to-end** — the gateway
+      compose path (`_compose_request`, `services/gateway/src/gateway/drawings.py`)
+      **never threads the persisted `section_params`** (`grep section` there → 0
+      hits), so a stored `section` view composes with `section_params=None` →
+      geometry returns `section_params_missing`; there is also no web authoring
+      surface, and the per-view persistence vs. request-level compose field is a
+      wire mismatch. Tracked as **E1 (P1)** in BACKLOG — do NOT call the drawings
+      section-view row ✅ on the scorecard until E1 lands. What IS shipped +
+      verified:
+      single planar full section of a single-body part by
       principal / axis-aligned-offset datum reference — `drawings/section.py`
       half-space cut (`boolean_bodies(allow_disjoint=True)`), exact coplanar
       section-face loops (`BRepTools_WireExplorer` emitting exact wire vertices +

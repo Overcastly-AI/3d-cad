@@ -26,7 +26,9 @@ duplication.
   STEP **export** now real, **import** still missing — the one-way gap narrowed
   to inbound-only). Drawings (dead-capability drain
   mostly closed this batch — title-block/first-angle/dimension-placement/notes
-  all wired; section views v1 SHIPPED + verified-green 2026-07-23; still no
+  all wired; section-view KERNEL OP shipped + geometry-verified 2026-07-23 but
+  NOT end-to-end — the gateway compose path never threads persisted
+  `section_params`, so a stored section renders empty [E1, P1 below]; still no
   detail views, assembly views/BOM/balloons, GD&T). Sheet
   metal (bend chains + corner relief + closed hem + edge-flange WIDTH EXTENTS
   + auto bend-end relief shipped, all click-authorable in-app; still no open/
@@ -70,6 +72,25 @@ frame refactor are v2/§11. Spike de-collected.
       canonicalised NAUO occurrence ids); worked export→re-import→placement
       round-trip + PRODUCT-name traceability + no-body 422 over the bolted
       goldens. See Done archive.
+- [ ] (P1, M) **E1 — Section views END-TO-END wire (make the shipped kernel op a
+      real capability).** The section-view kernel op (`drawings/section.py`) is
+      shipped + geometry-QA-verified, but the capability is DEAD end-to-end: the
+      gateway compose path `_compose_request` (`services/gateway/src/gateway/
+      drawings.py`) never threads the persisted `section_params` (`grep section`
+      there → 0 hits), so a stored `section` view composes with
+      `section_params=None` → geometry `section_params_missing`; and documents
+      persists `section_params` PER-VIEW while the compose/evaluate wire carries it
+      at a mismatched level (`py_kit/schemas/drawings.py:564/604/1005`) — the wire
+      can't represent >1 section view. Acceptance: thread each persisted view's
+      `section_params` through gateway compose → geometry; the wire represents
+      per-view section params (fix the level mismatch); a stored section view
+      composes to a real hatched section in SVG/PDF/DXF; a **guard golden/e2e that
+      authors→persists→composes a section end-to-end** (not a unit test that
+      injects the param directly — that's the dead-capability tell); a minimal web
+      authoring surface to set a view's section datum+offset (or an explicit
+      "authoring is a follow-up slice" note if split). This is the same
+      dead-capability class as the drawings D1-D4 drain. [src: AUDIT-ENGINEERING.md
+      E1 2026-07-23]
 - [ ] (P1, M) Assembly interference/collision detection. Pairwise
       `BRepAlgoAPI_Common` over solved instance bodies (already available in
       `services/geometry`) → a typed clash list with overlap volume. Acceptance:
@@ -124,6 +145,15 @@ frame refactor are v2/§11. Spike de-collected.
       (D3), and dimension-placement (D2) goldens all landed this batch; only the
       D5 orientation (portrait) golden remains once D5 authoring ships. [src:
       AUDIT-ENGINEERING.md cross-cutting]
+- [ ] (P2, S) E2 — gateway `assembly/export` boundary test + web consumer.
+      `POST /api/v1/geometry/assembly/export` + kernel impl shipped, but it's the
+      only geometry proxy route with no `*_proxy.py` boundary test in
+      `services/gateway/tests`, and nothing in `apps/web/src` builds an
+      `ExportAssemblyRequest` (no client consumer → the export button doesn't exist
+      in-app yet). Acceptance: a gateway proxy test asserting auth + rate-limit +
+      identity-free upstream + byte pass-through (mirror `test_drawing_export_
+      proxy.py`); a minimal web "Export STEP" action on an assembly. [src:
+      AUDIT-ENGINEERING.md E2 2026-07-23]
 - [ ] (P2, S) Assembly export — persistent ROTATED multi-instance golden under
       `goldens-assembly/`. Both shipped export goldens
       (`assembly-two-plates-bolted`, `assembly-two-plates-gap`) solve every
