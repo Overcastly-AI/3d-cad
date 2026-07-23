@@ -39,6 +39,7 @@ import {
   buildDatumParams,
   canSubmitDatum,
   DATUM_BASES,
+  type DatumFace,
   type DatumFacePick,
   type DatumFaceSlot,
   type DatumForm,
@@ -130,14 +131,12 @@ function FlipControl({
 /** A quiet, brass-when-armed toggle to arm a viewport face pick for a slot. */
 function FacePickButton({
   armed,
-  disabled,
   onClick,
   testId,
   label,
   ariaLabel,
 }: {
   armed: boolean;
-  disabled: boolean;
   onClick: () => void;
   testId: string;
   label: string;
@@ -149,12 +148,10 @@ function FacePickButton({
       data-testid={testId}
       aria-pressed={armed}
       aria-label={ariaLabel}
-      disabled={disabled}
       onClick={onClick}
       className={cx(
         "self-start rounded-sm border px-2 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
-        "disabled:pointer-events-none disabled:opacity-50",
         armed
           ? "border-brass text-brass"
           : "border-etch text-gauge hover:border-gauge hover:text-mist",
@@ -162,6 +159,44 @@ function FacePickButton({
     >
       {armed ? "Picking… (click a face)" : label}
     </button>
+  );
+}
+
+/** A picked-face readout (labelled, brass-bordered) with a Clear back-out — the
+ * shared chip both the midplane FACE-sides and the on_face base wear. */
+function PickedFaceChip({
+  label,
+  face,
+  readoutTestId,
+  clearTestId,
+  onClear,
+}: {
+  label: string;
+  face: DatumFace;
+  readoutTestId: string;
+  clearTestId: string;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-body text-xs text-gauge">{label}</span>
+      <div className="flex items-center justify-between gap-2 rounded-sm border border-brass/60 bg-carbide px-2 py-1">
+        <span
+          data-testid={readoutTestId}
+          className="min-w-0 truncate font-data text-md text-mist"
+        >
+          {faceReadout(face)}
+        </span>
+        <button
+          type="button"
+          data-testid={clearTestId}
+          onClick={onClear}
+          className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -196,25 +231,13 @@ function MidplaneSideField({
   return (
     <div className="flex flex-col gap-1">
       {side.source === "face" ? (
-        <div className="flex flex-col gap-0.5">
-          <span className="font-body text-xs text-gauge">{label}</span>
-          <div className="flex items-center justify-between gap-2 rounded-sm border border-brass/60 bg-carbide px-2 py-1">
-            <span
-              data-testid={`${testIdBase}-face`}
-              className="min-w-0 truncate font-data text-md text-mist"
-            >
-              {faceReadout(side.face)}
-            </span>
-            <button
-              type="button"
-              data-testid={`${testIdBase}-face-clear`}
-              onClick={onClearFace}
-              className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
-            >
-              Clear
-            </button>
-          </div>
-        </div>
+        <PickedFaceChip
+          label={label}
+          face={side.face}
+          readoutTestId={`${testIdBase}-face`}
+          clearTestId={`${testIdBase}-face-clear`}
+          onClear={onClearFace}
+        />
       ) : (
         <SelectField
           label={label}
@@ -223,13 +246,12 @@ function MidplaneSideField({
           value={side.value}
           options={refOptions}
           onChange={(e) => onSelectRef(e.target.value)}
-          aria-label={label}
+          aria-label={`${label.replace(/ reference$/, "")} midplane reference`}
         />
       )}
       {canPickFace ? (
         <FacePickButton
           armed={armed}
-          disabled={false}
           testId={`${testIdBase}-pick`}
           label={side.source === "face" ? "Pick another face" : "Pick a face"}
           ariaLabel={`Pick a model face for the ${label.toLowerCase()}`}
@@ -447,31 +469,17 @@ export function DatumEditor({
               <>
                 <div className="flex flex-col gap-1">
                   {form.face !== null ? (
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-body text-xs text-gauge">
-                        Model face
-                      </span>
-                      <div className="flex items-center justify-between gap-2 rounded-sm border border-brass/60 bg-carbide px-2 py-1">
-                        <span
-                          data-testid="datum-on-face"
-                          className="min-w-0 truncate font-data text-md text-mist"
-                        >
-                          {faceReadout(form.face)}
-                        </span>
-                        <button
-                          type="button"
-                          data-testid="datum-on-face-clear"
-                          onClick={() =>
-                            setForm((f) =>
-                              f.kind === "on_face" ? { ...f, face: null } : f,
-                            )
-                          }
-                          className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    </div>
+                    <PickedFaceChip
+                      label="Model face"
+                      face={form.face}
+                      readoutTestId="datum-on-face"
+                      clearTestId="datum-on-face-clear"
+                      onClear={() =>
+                        setForm((f) =>
+                          f.kind === "on_face" ? { ...f, face: null } : f,
+                        )
+                      }
+                    />
                   ) : (
                     <div className="flex flex-col gap-0.5">
                       <span className="font-body text-xs text-gauge">
@@ -490,7 +498,6 @@ export function DatumEditor({
                   {canPickFace ? (
                     <FacePickButton
                       armed={activeFacePickSlot === "on_face"}
-                      disabled={false}
                       testId="datum-on-face-pick"
                       label={
                         form.face !== null ? "Pick another face" : "Pick a face"

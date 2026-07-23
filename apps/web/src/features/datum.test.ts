@@ -407,6 +407,41 @@ describe("formFromDatumParams round-trips each kind", () => {
     );
   });
 
+  it("on_face (re-seeds the picked face + a non-zero offset from the SubshapeRef)", () => {
+    const sig = faceSignatureFixture();
+    const params = {
+      kind: "on_face",
+      face: {
+        kind: "subshape",
+        feature_id: "b1",
+        subshape_type: "face",
+        selector: { selector_version: 1, signature: sig },
+      },
+      offset_mm: 7.5,
+    } as const;
+    expect(buildDatumParams(formFromDatumParams(params, "mm"), "mm")).toEqual(
+      params,
+    );
+  });
+
+  it("midplane with a subshape (picked FACE) side re-seeds from its signature", () => {
+    const sig = faceSignatureFixture();
+    const params = {
+      kind: "midplane",
+      a: { kind: "datum_plane", plane: "XY" },
+      b: {
+        kind: "subshape",
+        feature_id: "b1",
+        subshape_type: "face",
+        selector: { selector_version: 1, signature: sig },
+      },
+      flip: false,
+    } as const;
+    expect(buildDatumParams(formFromDatumParams(params, "mm"), "mm")).toEqual(
+      params,
+    );
+  });
+
   it("round-trips an offset through inches without drift", () => {
     const params = {
       kind: "offset",
