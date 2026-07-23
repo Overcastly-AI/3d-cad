@@ -117,19 +117,17 @@ scorecard impact → core capability → polish).
       byte-identical (the 2 flat-pattern-sheet MODEL-hash goldens refresh for the
       additive null fields, precedent b0cb16a; serialized SVG/PDF/DXF unchanged).
       DOM half split → D1b. [src: AUDIT-ENGINEERING.md D1]
-- [ ] (P2, S) e2e: heavy founder-flow specs flake under CPU contention
-      (2026-07-23). `full-flow.spec.ts` (register→sketch→extrude→edit→export) and
-      `sketch-on-face.spec.ts` fail intermittently when a batch-end `just e2e`
-      overlaps heavy agents — the failure POINT MOVES between runs (`new-extrude`
-      "solve a sketch first" still disabled one run, `sketch-strip`
-      toHaveCount(0) got 1 the next), the flake signature; both pass clean in a
-      quiet window (verified 2026-07-23, 190/190). These intermediate waits use
-      the default 5s while the sibling `eval-status` wait already uses 30s — a
-      geometry solve / UI-state transition can exceed 5s under load. Fix: bump the
-      solve/UI-state-gated `toBeEnabled`/`toHaveCount` waits in the heavy
-      founder-flow specs to a generous timeout (audit siblings), so the gate is
-      contention-robust without loosening what it catches. Process half already in
-      CLAUDE.md (run the gate quiet). [src: orchestrator 2026-07-23]
+- [x] (P2, S) e2e: heavy founder-flow specs hardened against CPU contention
+      (2026-07-23). Gave the solve/eval-gated intermediate waits in
+      `full-flow.spec.ts` + `sketch-on-face.spec.ts` an explicit 30s timeout
+      (matching the sibling `eval-status` wait), each with a comment noting the
+      geometry round-trip it waits on: `new-extrude` toBeEnabled (canExtrude =
+      hasSolvedSketch), `sketch-strip` toHaveCount(0) (post-solve UI close),
+      `feature-row` toHaveCount(2) + `body-inspector` toBeVisible (extrude eval).
+      Values/testids/behavior unchanged — only the timeout; a never-satisfied
+      condition still fails at 30s (proved: throwaway spec, disabled button →
+      toBeEnabled failed at 30012ms). Both specs 8/8 green on an isolated stack.
+      [src: orchestrator 2026-07-23]
 - [x] (P1, XS) Drawings D1b (DOM half) — the on-screen `TitleBlock` now stamps the
       authored author/date/notes as the SAME labeled DRAWN/DATE/NOTES rows the
       SVG/PDF/DXF emit (`title-block-{author,date,notes}`), via a shared

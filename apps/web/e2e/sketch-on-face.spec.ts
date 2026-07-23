@@ -52,7 +52,11 @@ async function sketchRectangleAndSave(page: Page): Promise<void> {
   await page.mouse.click(980, 640);
   await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
   await page.getByTestId("sketch-save").click();
-  await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+  // The strip closes only after the sketch solve round-trips back — 30s (matches
+  // the sibling eval-status wait) so a slow solve under CPU load holds.
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+    timeout: 30_000,
+  });
   await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
     timeout: 30_000,
   });
@@ -70,7 +74,11 @@ async function sketchBossAndSave(page: Page): Promise<void> {
   await page.mouse.click(900, 590);
   await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
   await page.getByTestId("sketch-save").click();
-  await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+  // The strip closes only after the sketch solve round-trips back — 30s (matches
+  // the sibling eval-status wait) so a slow solve under CPU load holds.
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+    timeout: 30_000,
+  });
   await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
     timeout: 30_000,
   });
@@ -78,7 +86,11 @@ async function sketchBossAndSave(page: Page): Promise<void> {
 
 /** Extrude the solved profile 10 mm through the UI and wait for the body. */
 async function extrudeTenMm(page: Page): Promise<void> {
-  await expect(page.getByTestId("new-extrude")).toBeEnabled();
+  // Extrude enables only once the sketch solve round-trips back (canExtrude =
+  // hasSolvedSketch) — 30s so a slow solve under load isn't misread as broken.
+  await expect(page.getByTestId("new-extrude")).toBeEnabled({
+    timeout: 30_000,
+  });
   await page.getByTestId("new-extrude").click();
   await expect(page.getByTestId("extrude-distance")).toHaveValue("10");
   await page.getByTestId("extrude-distance").press("Enter");
