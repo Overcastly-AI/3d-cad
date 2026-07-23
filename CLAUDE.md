@@ -421,7 +421,15 @@ recipe here in the same commit as the fix.**
   harness parses goldens as JSON (whitespace-insensitive) so a stored content
   hash is a string field unaffected by formatting, i.e. `prettier --write` on a
   golden is behaviour-neutral and safe.** Always run the full `just lint` at the
-  batch boundary regardless.
+  batch boundary regardless. **(3) Lint with `uv run ruff …`, NEVER a bare PATH
+  `ruff`.** Seen 2026-07-23 (interference slice `e46db16`): the agent ran a PATH
+  `ruff check` that predated the `RUF002` confusable rule and reported "0 errors,"
+  but the locked `uv run ruff check` (0.15.20) flagged 8× `RUF002` (a test file
+  using U+00D7 `×`/U+2212 `−` glyphs — every other file uses ASCII `x`/`-`) + 1×
+  `SIM300`, so HEAD shipped lint-red under a false "lint clean" claim (geometry-QA
+  caught it). A bare `ruff` resolves to whatever's on PATH, which can be older than
+  the lockfile; `uv run ruff` always uses the pinned 0.15.20 CI installs. Prefer
+  ASCII in code/tests (`x`, `-`, `<=`) — reserve `×`/`−`/`≤` for docs/markdown.
 - **When a concurrent agent's unfinished work blocks a clean full `just lint`,
   scope your gate to your ENTIRE diff — every file you touched — not just the
   primary source file.** Cautionary tale (2026-07-23, overnight loop): a
