@@ -73,6 +73,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assembly/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Assembly Route
+         * @description Read an assembly STEP into its structured product list (BACKLOG P1, §4).
+         *
+         *     Stateless (CLAUDE.md): the inverse of ``/assembly/export`` — geometry walks
+         *     the file's AP214 XDE product tree (``STEPCAFControl_Reader`` →
+         *     ``XCAFDoc_ShapeTool``) into N positioned, NAMED products, each surfaced by
+         *     reference: a content-addressed shared presentation mesh + its own mass
+         *     properties (no B-rep / kernel type crosses the boundary). ``has_assembly_
+         *     structure`` is true when the file carried ``NEXT_ASSEMBLY_USAGE_OCCURRENCE``
+         *     product structure; a flat / single-body STEP returns false with one product
+         *     at identity, the backward-compatible signal to fall back to the single-body
+         *     MB-4b import (slice 2 wires that + the documents assembly-document creation).
+         *     Deterministic (RESEARCH §9): units pinned to mm, per-product meshes
+         *     content-addressed.
+         *
+         *     A malformed / bodyless file is a clean 422 (``import_parse_failed`` /
+         *     ``import_no_solid``), never a 500 — the same typed taxonomy the single-body
+         *     import uses (design §5); the py-kit error envelope stays reserved for
+         *     transport/validation failures of this call itself.
+         */
+        post: operations["import_assembly_route_api_v1_assembly_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assembly/interference": {
         parameters: {
             query?: never;
@@ -3194,6 +3231,36 @@ export interface components {
             kind: "inline";
         };
         /**
+         * ImportedProduct
+         * @description One product recovered from an assembly STEP — name + placement + body ref.
+         *
+         *     ``name`` is the STEP PRODUCT name (``None`` when the file names no product —
+         *     the caller supplies a fallback instance name). ``placement`` is the
+         *     product's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` —
+         *     identity for a flat single-body STEP), matched to the exported placement
+         *     within the kernel round-trip tolerance. The body is surfaced by reference
+         *     (no B-rep crosses the wire): ``mesh_glb_id`` is a content-addressed
+         *     presentation mesh, SHARED across repeated occurrences of one part (the dedup
+         *     contract), and ``properties`` are the body's OWN (local-frame) mass
+         *     properties for BOM / inspection.
+         */
+        ImportedProduct: {
+            /**
+             * Mesh Glb Id
+             * @description Content-addressed shared presentation mesh (sha256:<hex>), or null when the product produced no mesh
+             */
+            mesh_glb_id: string | null;
+            /**
+             * Name
+             * @description STEP PRODUCT name, or null when the file names no product
+             */
+            name: string | null;
+            /** @description World placement of this product (identity for a flat STEP) */
+            placement: components["schemas"]["Placement"];
+            /** @description The product body's own (local-frame) mass properties */
+            properties?: components["schemas"]["ShapeProperties"] | null;
+        };
+        /**
          * InstancePlacementResult
          * @description One instance's evaluation output: its shared mesh + solved pose (§4).
          *
@@ -5436,6 +5503,56 @@ export interface components {
             status: "converged" | "underconstrained" | "overconstrained" | "conflicting" | "diverged";
         };
         /**
+         * StepAssemblyImportRequest
+         * @description Read an assembly STEP into its structured product list (geometry-side).
+         *
+         *     ``data`` is the STEP AP214 part-21 TEXT inline, bounded/non-empty by
+         *     :data:`~py_kit.schemas.features.MAX_INLINE_STEP_CHARS` (the SAME cap the
+         *     single-body :class:`~py_kit.schemas.features.ImportParamsV1` uses) — an
+         *     oversize or empty payload is a request-validation 422 at the boundary, never
+         *     a per-request geometry error. ``linear_deflection`` is the presentation
+         *     tessellation parameter for each product's shared mesh (never persisted).
+         *     Deterministic (RESEARCH §9): the geometry service pins the read unit to mm,
+         *     so the same bytes yield an identical structured result and byte-identical
+         *     per-product meshes across rebuilds and interpreter restarts.
+         */
+        StepAssemblyImportRequest: {
+            /**
+             * Data
+             * @description Assembly STEP AP214 part-21 file text (inline). Bounded / non-empty at parse time (422); parsed into positioned, named products by the geometry service (product structure when present, else one single-body product with has_assembly_structure=false).
+             */
+            data: string;
+            /**
+             * Linear Deflection
+             * @description Presentation tessellation parameter (mm) for each product's shared mesh; never persisted
+             * @default 0.1
+             */
+            linear_deflection: number;
+        };
+        /**
+         * StepAssemblyImportResult
+         * @description Structured read of an assembly STEP — the product list + structure flag.
+         *
+         *     ``has_assembly_structure`` is True when the file carried
+         *     ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,
+         *     named products); False for a flat / single-body STEP, whose single product
+         *     signals the caller to fall back to the single-body MB-4b import (backward
+         *     compatible). ``products`` are in the deterministic order the geometry service
+         *     walks the product tree (RESEARCH §9).
+         */
+        StepAssemblyImportResult: {
+            /**
+             * Has Assembly Structure
+             * @description True when the file carried NAUO product structure; False for a flat / single-body STEP (fall back to single-body import)
+             */
+            has_assembly_structure: boolean;
+            /**
+             * Products
+             * @description Recovered products, in deterministic product-tree order
+             */
+            products: components["schemas"]["ImportedProduct"][];
+        };
+        /**
          * SubshapeRef
          * @description Stage-1 reference to ONE planar face of a body-affecting feature's result.
          *
@@ -5793,6 +5910,39 @@ export interface operations {
                 content: {
                     "model/step": string;
                     "model/stl": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_assembly_route_api_v1_assembly_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepAssemblyImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepAssemblyImportResult"];
                 };
             };
             /** @description Validation Error */

@@ -14,6 +14,7 @@ from geometry.assembly.evaluate import (
     solve_assembly,
 )
 from geometry.assembly.export import AssemblyExportError, export_assembly
+from geometry.assembly.import_step import import_step_assembly
 from geometry.assembly.interference import check_interference
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
@@ -64,6 +65,7 @@ __all__ = [
     "check_interference",
     "evaluate_assembly",
     "export_assembly",
+    "import_step_assembly",
     "resolve_mate_geometry",
     "solve_assembly",
 ]

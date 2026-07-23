@@ -416,8 +416,17 @@ solved assembly to STEP/STL (shared `ExportRow`) and runs an in-app
 interference check surfaced as a "Clash" inspector view (per-pair overlap
 volumes + "No interferences found" empty state) with clashing instances
 flagged red across the tree + viewport; e2e `assembly-inspect.spec.ts` green
-on the real stack. This closes E2 (both halves). Still deferred
-past v1 (design doc §5): exploded views, BOM
+on the real stack. This closes E2 (both halves). **Assembly STEP import SLICE 1
+(geometry XCAF reader) landed 2026-07-23** (P1 — `POST /api/v1/assembly/import`
++ `kernel/step_assembly.py`, the mirror of the export composer: `STEPCAFControl_
+Reader` walks the XDE product tree into `StepAssemblyImportResult{has_assembly_
+structure, products[{name, placement, mesh_glb_id, properties}]}`; export↔import
+round-trip recovers N products + world placements (centroid/vol within
+`roundtrip_tol`) + PRODUCT names, incl. off-axis rotation + repeated part; a
+flat/single-body STEP reports `has_assembly_structure=false`, MB-4b path intact.
+**Slice 2 remains**: documents assembly-document creation from the products +
+gateway upload endpoint + wiring the false-flag fallback to the single-body
+import). Still deferred past v1 (design doc §5): exploded views, BOM
 formatting, flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6

@@ -114,6 +114,17 @@ frame refactor are v2/§11. Spike de-collected.
       present; a STEP with NO assembly structure still falls back to today's
       MB-4b single-body import (backward compatible); worked test against a
       real multi-part STEP fixture. [src: AUDIT-PRODUCT.md 2026-07-23]
+      **SLICE 1 (geometry XCAF reader) shipped 2026-07-23**:
+      `POST /api/v1/assembly/import` + `kernel/step_assembly.py` (XDE
+      `STEPCAFControl_Reader` walk, the mirror of the export composer) →
+      `StepAssemblyImportResult{has_assembly_structure, products[{name,
+      placement, mesh_glb_id, properties}]}`; export↔import round-trip proves
+      N products + placements (world centroid/vol within `roundtrip_tol`) +
+      PRODUCT names recovered, incl. off-axis rotation + repeated part;
+      flat/single-body STEP → `has_assembly_structure=false` (MB-4b path
+      intact). **SLICE 2 remains**: documents assembly-document creation from
+      the products + gateway upload endpoint + wire the false-flag fallback to
+      the single-body import.
 - [ ] (P2, M) Drawings parity #4 — assembly drawing views + BOM/balloons (WIRE).
       The real capability behind the D4 gate: compose a drawing view that
       projects an ASSEMBLY (not a single part) — an assembly-side
@@ -648,6 +659,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-23 — **Assembly STEP import SLICE 1 — geometry XCAF reader
+  (kernel-architect):** `POST /api/v1/assembly/import` + `kernel/step_assembly.py`
+  (XDE `STEPCAFControl_Reader` walk, mirror of the export composer) →
+  `StepAssemblyImportResult{has_assembly_structure, products}`; export↔import
+  round-trip recovers N products/placements/PRODUCT-names (off-axis rotation +
+  repeated part), flat STEP → false-flag (MB-4b path intact). Slice 2 (documents
+  assembly creation + gateway upload + fallback wiring) remains.
 - 2026-07-23 — **E1a — Section views END-TO-END wire (kernel-architect):**
   per-view `section_params` map (`dict[int, SectionViewParams]`) on the geometry
   evaluate/compose wire; gateway `_compose_request` threads each persisted view's

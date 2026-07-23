@@ -97,6 +97,11 @@ from geometry.kernel.revolve import (
 )
 from geometry.kernel.shapes import build_box, build_cylinder
 from geometry.kernel.shell import ShellError, ShellThicknessError, shell_body
+from geometry.kernel.step_assembly import (
+    ReadProduct,
+    StepAssemblyRead,
+    read_step_assembly,
+)
 from geometry.kernel.sweep import (
     PathClosedError,
     PathEmptyError,
@@ -151,9 +156,11 @@ __all__ = [
     "PlanarFaceRecord",
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
+    "ReadProduct",
     "RevolveError",
     "ShellError",
     "ShellThicknessError",
+    "StepAssemblyRead",
     "SubshapeAmbiguousError",
     "SubshapeUnresolvedError",
     "SweepError",
@@ -196,6 +203,7 @@ __all__ = [
     "offset_plane",
     "place_body",
     "planar_faces",
+    "read_step_assembly",
     "resolve_axis_line",
     "resolve_edge",
     "resolve_face_plane",

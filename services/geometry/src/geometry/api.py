@@ -58,12 +58,17 @@ from py_kit.schemas.sketch import (
     SketchOffsetRequest,
     SketchOffsetResult,
 )
+from py_kit.schemas.step_import import (
+    StepAssemblyImportRequest,
+    StepAssemblyImportResult,
+)
 
 from geometry.assembly import (
     AssemblyExportError,
     check_interference,
     evaluate_assembly,
     export_assembly,
+    import_step_assembly,
 )
 from geometry.drawing_store import (
     drawing_artifact_key,
@@ -79,7 +84,13 @@ from geometry.drawings import (
 )
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
-from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
+from geometry.kernel import (
+    ImportNoSolidError,
+    ImportParseError,
+    evaluate_export,
+    evaluate_tessellation,
+    export_solid,
+)
 from geometry.measure import evaluate_measure
 from geometry.mesh_store import fetch_mesh_glb
 from geometry.overlay import evaluate_overlay
@@ -239,6 +250,37 @@ def export_assembly_route(request: ExportAssemblyRequest) -> Response:
             )
         },
     )
+
+
+@router.post("/assembly/import")
+def import_assembly_route(
+    request: StepAssemblyImportRequest,
+) -> StepAssemblyImportResult:
+    """Read an assembly STEP into its structured product list (BACKLOG P1, §4).
+
+    Stateless (CLAUDE.md): the inverse of ``/assembly/export`` — geometry walks
+    the file's AP214 XDE product tree (``STEPCAFControl_Reader`` →
+    ``XCAFDoc_ShapeTool``) into N positioned, NAMED products, each surfaced by
+    reference: a content-addressed shared presentation mesh + its own mass
+    properties (no B-rep / kernel type crosses the boundary). ``has_assembly_
+    structure`` is true when the file carried ``NEXT_ASSEMBLY_USAGE_OCCURRENCE``
+    product structure; a flat / single-body STEP returns false with one product
+    at identity, the backward-compatible signal to fall back to the single-body
+    MB-4b import (slice 2 wires that + the documents assembly-document creation).
+    Deterministic (RESEARCH §9): units pinned to mm, per-product meshes
+    content-addressed.
+
+    A malformed / bodyless file is a clean 422 (``import_parse_failed`` /
+    ``import_no_solid``), never a 500 — the same typed taxonomy the single-body
+    import uses (design §5); the py-kit error envelope stays reserved for
+    transport/validation failures of this call itself.
+    """
+    try:
+        return import_step_assembly(request)
+    except ImportNoSolidError as exc:
+        raise ValidationApiError(str(exc), code="import_no_solid") from exc
+    except ImportParseError as exc:
+        raise ValidationApiError(str(exc), code="import_parse_failed") from exc
 
 
 @router.post("/drawing/evaluate")

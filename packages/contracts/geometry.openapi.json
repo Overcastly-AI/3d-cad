@@ -3405,6 +3405,57 @@
         "title": "ImportParamsV1",
         "type": "object"
       },
+      "ImportedProduct": {
+        "description": "One product recovered from an assembly STEP \u2014 name + placement + body ref.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance. The body is surfaced by reference\n(no B-rep crosses the wire): ``mesh_glb_id`` is a content-addressed\npresentation mesh, SHARED across repeated occurrences of one part (the dedup\ncontract), and ``properties`` are the body's OWN (local-frame) mass\nproperties for BOM / inspection.",
+        "properties": {
+          "mesh_glb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Content-addressed shared presentation mesh (sha256:<hex>), or null when the product produced no mesh",
+            "title": "Mesh Glb Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "STEP PRODUCT name, or null when the file names no product",
+            "title": "Name"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/Placement",
+            "description": "World placement of this product (identity for a flat STEP)"
+          },
+          "properties": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShapeProperties"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The product body's own (local-frame) mass properties"
+          }
+        },
+        "required": [
+          "name",
+          "placement",
+          "mesh_glb_id"
+        ],
+        "title": "ImportedProduct",
+        "type": "object"
+      },
       "InstancePlacementResult": {
         "description": "One instance's evaluation output: its shared mesh + solved pose (\u00a74).\n\n``part_mesh_glb_id`` is a content address SHARED across every instance of a\npart (the dedup contract, \u00a74/\u00a76.4) \u2014 ``None`` only when the instance's part\nproduced no body (``error`` then explains why). ``placement`` is the SOLVED\nworld pose (the authored seed for a failed / un-solved instance).\n``properties`` are the part's OWN mass properties (for BOM / inspection).\n``error`` is a typed per-instance failure inside a 200 (design \u00a74, mirroring\nfeature-tree \u00a74.3) \u2014 e.g. the part's failing feature error \u2014 never a 4xx.",
         "properties": {
@@ -6484,6 +6535,54 @@
         "title": "SolvedSketchData",
         "type": "object"
       },
+      "StepAssemblyImportRequest": {
+        "description": "Read an assembly STEP into its structured product list (geometry-side).\n\n``data`` is the STEP AP214 part-21 TEXT inline, bounded/non-empty by\n:data:`~py_kit.schemas.features.MAX_INLINE_STEP_CHARS` (the SAME cap the\nsingle-body :class:`~py_kit.schemas.features.ImportParamsV1` uses) \u2014 an\noversize or empty payload is a request-validation 422 at the boundary, never\na per-request geometry error. ``linear_deflection`` is the presentation\ntessellation parameter for each product's shared mesh (never persisted).\nDeterministic (RESEARCH \u00a79): the geometry service pins the read unit to mm,\nso the same bytes yield an identical structured result and byte-identical\nper-product meshes across rebuilds and interpreter restarts.",
+        "properties": {
+          "data": {
+            "description": "Assembly STEP AP214 part-21 file text (inline). Bounded / non-empty at parse time (422); parsed into positioned, named products by the geometry service (product structure when present, else one single-body product with has_assembly_structure=false).",
+            "maxLength": 16777216,
+            "minLength": 1,
+            "title": "Data",
+            "type": "string"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Presentation tessellation parameter (mm) for each product's shared mesh; never persisted",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "StepAssemblyImportRequest",
+        "type": "object"
+      },
+      "StepAssemblyImportResult": {
+        "description": "Structured read of an assembly STEP \u2014 the product list + structure flag.\n\n``has_assembly_structure`` is True when the file carried\n``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,\nnamed products); False for a flat / single-body STEP, whose single product\nsignals the caller to fall back to the single-body MB-4b import (backward\ncompatible). ``products`` are in the deterministic order the geometry service\nwalks the product tree (RESEARCH \u00a79).",
+        "properties": {
+          "has_assembly_structure": {
+            "description": "True when the file carried NAUO product structure; False for a flat / single-body STEP (fall back to single-body import)",
+            "title": "Has Assembly Structure",
+            "type": "boolean"
+          },
+          "products": {
+            "description": "Recovered products, in deterministic product-tree order",
+            "items": {
+              "$ref": "#/components/schemas/ImportedProduct"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": [
+          "has_assembly_structure",
+          "products"
+        ],
+        "title": "StepAssemblyImportResult",
+        "type": "object"
+      },
       "SubshapeRef": {
         "description": "Stage-1 reference to ONE planar face of a body-affecting feature's result.\n\n(docs/design/topological-naming.md \u00a74.) ``feature_id`` is the stage-1 anchor\n\u2014 \"the prior body-affecting feature whose body I signature-match against\"\n(\u00a74), NOT necessarily the originating feature (stage 2 shifts it to the true\noriginating feature). It materializes into ``feature_dependencies`` like a\n:class:`FeatureRef` (via the widened :func:`iter_feature_refs` /\n:func:`feature_references`), so deleting that feature is a write-time\n409-with-dependents. ``subshape_type`` is ``\"face\"`` only in v1 (edge/vertex\nreserved \u2014 \u00a710).",
         "properties": {
@@ -6983,6 +7082,48 @@
           }
         },
         "summary": "Export Assembly Route",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/assembly/import": {
+      "post": {
+        "description": "Read an assembly STEP into its structured product list (BACKLOG P1, \u00a74).\n\nStateless (CLAUDE.md): the inverse of ``/assembly/export`` \u2014 geometry walks\nthe file's AP214 XDE product tree (``STEPCAFControl_Reader`` \u2192\n``XCAFDoc_ShapeTool``) into N positioned, NAMED products, each surfaced by\nreference: a content-addressed shared presentation mesh + its own mass\nproperties (no B-rep / kernel type crosses the boundary). ``has_assembly_\nstructure`` is true when the file carried ``NEXT_ASSEMBLY_USAGE_OCCURRENCE``\nproduct structure; a flat / single-body STEP returns false with one product\nat identity, the backward-compatible signal to fall back to the single-body\nMB-4b import (slice 2 wires that + the documents assembly-document creation).\nDeterministic (RESEARCH \u00a79): units pinned to mm, per-product meshes\ncontent-addressed.\n\nA malformed / bodyless file is a clean 422 (``import_parse_failed`` /\n``import_no_solid``), never a 500 \u2014 the same typed taxonomy the single-body\nimport uses (design \u00a75); the py-kit error envelope stays reserved for\ntransport/validation failures of this call itself.",
+        "operationId": "import_assembly_route_api_v1_assembly_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepAssemblyImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepAssemblyImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Assembly Route",
         "tags": [
           "geometry"
         ]
