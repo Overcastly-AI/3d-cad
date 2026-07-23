@@ -160,11 +160,15 @@ scorecard impact → core capability → polish).
       When it lands, remove the `assembly_views_unsupported` gate in
       `gateway/drawings.py`. Supervised M feature (kernel + gateway + documents +
       web). [src: AUDIT-ENGINEERING.md D4 follow-on]
-- [ ] (P2, S) Drawings D2 — authored `DimensionPlacement` (offset_mm/text_pos)
-      ignored: composer recomputes placement via its own penalty engine, never
-      reads `.placement`. Wire it (seed the composer offset from
-      `placement.offset_mm`, honor `text_pos`) or drop the fields until
-      drag-to-place ships. Benign-by-default but orphaned authoring. [src:
+- [x] (P2, S) Drawings D2 — authored `DimensionPlacement` (offset_mm/text_pos)
+      ignored: composer recomputed placement via its own penalty engine, never
+      read `.placement`. **SHIPPED:** `build_dimension_annotation` seeds the
+      linear dimension-line offset from a non-zero `placement.offset_mm` (bypassing
+      the auto penalty; signed along the composer's `away` normal) and overrides the
+      text anchor verbatim from `placement.text_pos` for any dimension type. Default
+      placement (offset 0 / text_pos None — every shipped dim) runs the auto path
+      byte-identically. Guard golden `compose_placement_goldens` (non-zero offset +
+      text_pos, authored position asserted) + default byte-identity gate. [src:
       AUDIT-ENGINEERING.md D2]
 - [ ] (P3, S) Drawings D5/D6 — portrait orientation (consumer exists, no
       authoring — add to the sheet-size UI) + multi-sheet (only `sheets[0]`

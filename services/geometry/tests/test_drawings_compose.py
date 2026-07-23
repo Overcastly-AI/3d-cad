@@ -491,7 +491,9 @@ def test_bounds_aware_layout_first_angle_swaps_top_and_right() -> None:
     is conventionally unchanged (drawings.md §1.2). Same projected geometry, swapped
     placement — the D3 wire (AUDIT-ENGINEERING)."""
     dims = sheet_dimensions("A4", "landscape")
-    bounds = {v: _square_bounds(20) for v in ("front", "top", "right", "iso")}
+    bounds: dict[ViewProjection, ViewBounds | None] = {
+        v: _square_bounds(20) for v in ("front", "top", "right", "iso")
+    }
     third = bounds_aware_layout(bounds, dims, "third_angle")
     first = bounds_aware_layout(bounds, dims, "first_angle")
     # First-angle relations (mirror of third-angle).
@@ -512,7 +514,9 @@ def test_bounds_aware_layout_first_angle_swaps_top_and_right() -> None:
 def test_bounds_aware_layout_third_angle_is_default() -> None:
     """Omitting the convention == third-angle (the byte-identity default path)."""
     dims = sheet_dimensions("A4", "landscape")
-    bounds = {v: _square_bounds(20) for v in ("front", "top", "right", "iso")}
+    bounds: dict[ViewProjection, ViewBounds | None] = {
+        v: _square_bounds(20) for v in ("front", "top", "right", "iso")
+    }
     assert bounds_aware_layout(bounds, dims) == bounds_aware_layout(
         bounds, dims, "third_angle"
     )
@@ -1091,6 +1095,163 @@ def test_first_angle_golden_svg_is_deterministic_across_interpreter_restart() ->
     assert result.stdout == local, (
         "composed first-angle SVG differs across interpreter restart"
     )
+
+
+# --- authored dimension placement golden (AUDIT-ENGINEERING D2) ----------------
+# The process-guard golden the audit asked for: a NON-DEFAULT DimensionPlacement (a
+# linear dimension with an explicit non-zero `offset_mm` AND a `text_pos`) whose
+# AUTHORED position MUST reach the composed sheet — the golden that would have gone
+# red before the wire (the composer used to recompute placement entirely via its
+# auto-penalty engine and silently ignore the authored fields). The paired default-
+# placement byte-identity is asserted by every OTHER golden here (all ship
+# `offset_mm == 0` / `text_pos == None`, the auto-penalty path) and again explicitly
+# below (`test_authored_placement_default_is_byte_identical`): the guard cuts BOTH
+# ways — authored placement is honored, default placement is untouched.
+_PLACEMENT_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_placement_goldens"
+
+#: The authored values baked into the placement golden's linear dimension (id
+#: ...0001, the front-view 40 mm bottom edge). `offset_mm` is a LARGE value (well
+#: past the auto token offset `_O == 11 mm`) so the authored dimension line is
+#: unmistakably not the auto one; `text_pos` is an explicit sheet point.
+_AUTHORED_OFFSET_MM = 30.0
+_AUTHORED_TEXT_POS = (120.0, 100.0)
+_LINEAR_DIM_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def _placement_request() -> ComposeDrawingRequest:
+    return ComposeDrawingRequest.model_validate_json(
+        (_PLACEMENT_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+
+
+def _compose_placement() -> ComposedSheet:
+    request = _placement_request()
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def _linear_dim(sheet: ComposedSheet) -> ComposedMeasuredDimension:
+    """The single placed LINEAR measured dimension across all views."""
+    found = [
+        d
+        for v in sheet.views
+        for d in v.dimensions
+        if isinstance(d, ComposedMeasuredDimension) and d.dimension_type == "linear"
+    ]
+    assert len(found) == 1, f"expected one linear dim, got {len(found)}"
+    return found[0]
+
+
+def _front_bottom_edge_y(sheet: ComposedSheet) -> float:
+    """SVG y of the front view's bottom (measured) edge — the horizontal, length-40
+    visible line with the LARGEST y (bottom-most, y-down). The authored offset is
+    measured against THIS geometry, so the assertion is transform-independent."""
+    front = next(v for v in sheet.views if v.projection == "front")
+    ys = [
+        e.y1
+        for e in front.edges
+        if isinstance(e, ComposedLineEdge)
+        and e.visible
+        and abs(e.y1 - e.y2) < 1e-6
+        and abs(abs(e.x1 - e.x2) - 40.0) < 1e-6
+    ]
+    assert ys, "front view has no horizontal 40 mm edge"
+    return max(ys)
+
+
+def test_authored_offset_places_dimension_line_verbatim() -> None:
+    """The authored `offset_mm` (30 mm) — NOT the auto token offset (`_O == 11 mm`) —
+    is the perpendicular distance from the measured edge to the composed dimension
+    line. Proves the composer SEEDS its dimension-line offset from the authored field
+    instead of the penalty engine (the D2 wire)."""
+    sheet = _compose_placement()
+    dim = _linear_dim(sheet)
+    dim_lines = [ln for ln in dim.lines if ln.role == "dimension"]
+    assert len(dim_lines) == 1
+    line = dim_lines[0]
+    assert abs(line.y1 - line.y2) < 1e-6, "dimension line horizontal in front view"
+    gap = line.y1 - _front_bottom_edge_y(sheet)
+    assert gap == pytest.approx(_AUTHORED_OFFSET_MM, abs=_TOL)
+    # And unmistakably NOT the auto offset the penalty engine would have chosen.
+    assert abs(gap - 11.0) > 1.0
+
+
+def test_authored_text_pos_overrides_text_verbatim() -> None:
+    """The authored `text_pos` lands VERBATIM in final sheet-SVG space (no view
+    transform / y-flip re-applied), while the stamped value + geometry stay the
+    model-true auto-placed ones."""
+    dim = _linear_dim(_compose_placement())
+    assert (dim.text.x, dim.text.y) == _AUTHORED_TEXT_POS
+    assert dim.text.value == "40.000"  # model-true value, unchanged by placement
+
+
+def test_authored_placement_differs_from_auto() -> None:
+    """The SAME part/dimension composed with DEFAULT placement puts the linear dim
+    at the auto offset (11 mm) and the auto text position — so the authored golden is
+    genuinely a different placement, not a coincidental match."""
+    auto_sheet = place_sheet(
+        evaluate_drawing_views(_golden_request()),
+        _golden_request().dimensions,
+        _golden_request().layout,
+    )
+    auto = _linear_dim(auto_sheet)
+    auto_gap = next(ln for ln in auto.lines if ln.role == "dimension").y1
+    auto_gap -= _front_bottom_edge_y(auto_sheet)
+    assert auto_gap == pytest.approx(11.0, abs=_TOL)
+    assert (auto.text.x, auto.text.y) != _AUTHORED_TEXT_POS
+
+
+def test_placement_golden_svg_is_byte_identical() -> None:
+    """The composed SVG for the authored-placement sheet matches its committed golden
+    byte-for-byte — the authored dimension line + text position are placed
+    deterministically."""
+    expected = (_PLACEMENT_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_placement()) == expected
+
+
+def test_placement_golden_pdf_is_byte_identical() -> None:
+    expected = (_PLACEMENT_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_placement()) == expected
+
+
+def test_placement_golden_dxf_is_byte_identical() -> None:
+    expected = (_PLACEMENT_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_placement()) == expected
+
+
+def test_placement_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose of the placement golden reproduces the SAME SVG
+    bytes (§8.3 / RESEARCH §9) — authored placement is a pure function of the input."""
+    local = serialize_svg(_compose_placement())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_PLACEMENT_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "composed placement SVG differs across interpreter restart"
+    )
+
+
+def test_authored_placement_default_is_byte_identical() -> None:
+    """A dimension carrying the DEFAULT placement (`offset_mm == 0`, `text_pos ==
+    None` — what every shipped dimension ships) composes byte-identically to the
+    pre-wire plate golden in all three formats: the auto-penalty path is untouched
+    for defaults. The byte-identity safety gate the D2 wire is required to preserve."""
+    composed = place_sheet(
+        evaluate_drawing_views(_golden_request()),
+        _golden_request().dimensions,
+        _golden_request().layout,
+    )
+    assert serialize_svg(composed) == (_GOLDEN_DIR / "sheet.svg").read_text(
+        encoding="utf-8"
+    )
+    assert serialize_pdf(composed) == (_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_dxf(composed) == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
 
 
 # --- endpoint (mirrors /export wiring) -----------------------------------------

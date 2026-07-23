@@ -732,8 +732,23 @@ def _place_linear_between(
     sheet: Vec2 | None,
     dim_type: str,
     dim_id: object,
+    authored_offset: float | None = None,
 ) -> ComposedMeasuredDimension | None:
-    """A straight linear dimension between two projected points (dimensions.ts)."""
+    """A straight linear dimension between two projected points (dimensions.ts).
+
+    ``authored_offset`` wires the authored :class:`DimensionPlacement.offset_mm`
+    (design §3.1) — the signed perpendicular distance of the dimension line from the
+    measured geometry. When ``None`` (the default — ``offset_mm == 0``, what every
+    shipped drawing carries) the auto engine runs UNCHANGED: the dimension is placed
+    at the token offset ``_O`` on the ``away`` side and the ``_neg(away)`` alternate,
+    and the cleaner-reading one wins by :func:`_choose_by_penalty` (byte-identical to
+    pre-wire). When authored (non-zero) the auto penalty is BYPASSED: the dimension
+    line sits at ``abs(authored_offset)`` mm on the ``away`` side for a positive
+    offset (the composer's canonical outward normal — the auto engine's preferred
+    side) and the opposite side for a negative one, placed VERBATIM (a value large
+    enough to fall off-sheet is placed as-authored and the viewer clips it — the same
+    honest posture the auto engine takes for its own extremes and notes take off-sheet).
+    """
     d = _unit(_sub(q, p))
     if _hyp(_sub(q, p)) < 1e-9:
         return None
@@ -741,14 +756,14 @@ def _place_linear_between(
     n0 = _perp(d)
     away = n0 if _dot(n0, _sub(mid, view_center)) >= 0 else _neg(n0)
 
-    def place(n: Vec2) -> ComposedMeasuredDimension:
-        dim_a = _add(p, _mul(n, _O))
-        dim_b = _add(q, _mul(n, _O))
+    def place(n: Vec2, o: float = _O) -> ComposedMeasuredDimension:
+        dim_a = _add(p, _mul(n, o))
+        dim_b = _add(q, _mul(n, o))
         ext_a = _svg_line(
-            _add(p, _mul(n, _GAP)), _add(p, _mul(n, _O + _OVER)), "extension", to_svg
+            _add(p, _mul(n, _GAP)), _add(p, _mul(n, o + _OVER)), "extension", to_svg
         )
         ext_b = _svg_line(
-            _add(q, _mul(n, _GAP)), _add(q, _mul(n, _O + _OVER)), "extension", to_svg
+            _add(q, _mul(n, _GAP)), _add(q, _mul(n, o + _OVER)), "extension", to_svg
         )
         lines = [ext_a, ext_b, _svg_line(dim_a, dim_b, "dimension", to_svg)]
         arrows = [_arrow(dim_a, _neg(d), to_svg), _arrow(dim_b, d, to_svg)]
@@ -764,6 +779,9 @@ def _place_linear_between(
             foreshortened,
         )
 
+    if authored_offset is not None:
+        n = away if authored_offset >= 0 else _neg(away)
+        return place(n, abs(authored_offset))
     return _choose_by_penalty(place(away), place(_neg(away)), obstacles, sheet)
 
 
@@ -851,7 +869,7 @@ def _place_angular(
     )
 
 
-def build_dimension_annotation(
+def _build_dimension_annotation_auto(
     dimension: DimensionParams,
     measured: MeasuredDimension,
     edges: Sequence[ProjectedViewEdge],
@@ -865,8 +883,20 @@ def build_dimension_annotation(
 
     Returns None when the dimension cannot be placed (an unmatched/mismatched edge,
     parallel angular edges) — the caller lists it, never mis-draws.
+
+    The auto-placement CORE. Honors the authored :class:`DimensionPlacement.offset_mm`
+    for a LINEAR dimension (its design-§3.1 meaning — the signed offset of the
+    dimension LINE from the geometry; a diameter/radius/angular has no such offset
+    line, so ``offset_mm`` is inapplicable there in v1). The authored ``text_pos`` is
+    applied by the public :func:`build_dimension_annotation` wrapper (it overrides the
+    text of ANY placed dimension type). A default placement (``offset_mm == 0``,
+    ``text_pos is None`` — what every shipped dimension carries) runs this core
+    unchanged and byte-identical.
     """
     dim_type = dimension.type
+    authored_offset = (
+        dimension.placement.offset_mm if dimension.placement.offset_mm != 0.0 else None
+    )
     primary_sig = dimension_edge_signature(dimension)
     primary_edge = find_matching_edge(edges, primary_sig) if primary_sig else None
     marker_at = (
@@ -908,6 +938,7 @@ def build_dimension_annotation(
                 sheet,
                 dim_type,
                 dim_id,
+                authored_offset,
             )
         edge = primary_edge
         if edge is None or edge.primitive != "line":
@@ -923,6 +954,7 @@ def build_dimension_annotation(
             sheet,
             dim_type,
             dim_id,
+            authored_offset,
         )
 
     if isinstance(dimension, AngularDimensionParams):
@@ -977,6 +1009,46 @@ def build_dimension_annotation(
         ComposedDimText(x=anchor.x, y=anchor.y, angle=0.0, value=label),
         measured.foreshortened,
     )
+
+
+def build_dimension_annotation(
+    dimension: DimensionParams,
+    measured: MeasuredDimension,
+    edges: Sequence[ProjectedViewEdge],
+    view_center: Vec2,
+    to_svg: ToSvg,
+    obstacles: Sequence[SvgRect],
+    sheet: Vec2 | None,
+    dim_id: object,
+) -> ComposedDimension | None:
+    """Build the drafting annotation for one measured dimension (dimensions.ts).
+
+    Wraps the auto-placement core (:func:`_build_dimension_annotation_auto`, which
+    also honors an authored ``offset_mm`` for linear dims) and applies the authored
+    :class:`DimensionPlacement.text_pos` (design §3.1): when present it OVERRIDES the
+    auto-computed text anchor of a placed dimension of ANY type, verbatim in FINAL
+    sheet-SVG space (mm, y-DOWN, top-left origin — the same space a note anchor uses,
+    so no view transform / y-flip is re-applied; a point off the sheet is placed
+    as-authored and the viewer clips it). ``None`` (the default every shipped
+    dimension carries) leaves the auto text position untouched — byte-identical. The
+    override touches only the text POSITION; the dimension/extension lines, arrows,
+    stamped value, and text angle are the auto-placed geometry. An unplaceable
+    dimension (``None``) or a typed :class:`ComposedDimensionError` is returned as-is
+    (no text to move).
+    """
+    anno = _build_dimension_annotation_auto(
+        dimension, measured, edges, view_center, to_svg, obstacles, sheet, dim_id
+    )
+    text_pos = dimension.placement.text_pos
+    if text_pos is not None and isinstance(anno, ComposedMeasuredDimension):
+        return anno.model_copy(
+            update={
+                "text": anno.text.model_copy(
+                    update={"x": text_pos.x_mm, "y": text_pos.y_mm}
+                )
+            }
+        )
+    return anno
 
 
 # ---------------------------------------------------------------------------------
