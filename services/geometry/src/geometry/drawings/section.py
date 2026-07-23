@@ -29,17 +29,27 @@ never a silently-wrong section.
 # The OCP wheel ships no type stubs, so the raw build123d face/wire calls below are
 # opaque to pyright; scope that relaxation to this file (the project.py / edges.py
 # posture). The fully-typed BodyShape input + Point2D output keep the boundary honest.
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportUnknownParameterType=false
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportAttributeAccessIssue=false, reportUnknownParameterType=false
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from build123d import Face, Plane, Pos, Solid, Wire
+from OCP.BRep import BRep_Tool
+from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.BRepTools import BRepTools_WireExplorer
+from OCP.GeomAbs import GeomAbs_Line
+from OCP.TopAbs import TopAbs_REVERSED
 
-from geometry.drawings.project import Point2D, ViewDirection, project_point
+from geometry.drawings.project import (
+    Point2D,
+    ViewDirection,
+    project_point,
+    view_normal,
+)
 from geometry.kernel.boolean import BooleanEmptyError, boolean_bodies
 from geometry.kernel.types import BodyShape
 
@@ -61,13 +71,17 @@ _FACE_PLANE_TOL = 1e-6
 #: degenerate section (design §7). Sized well above kernel volume jitter and well
 #: below any authored feature volume — the same dead-middle posture as the datum
 #: parallel bound (kernel/datum.py).
+#: NB: this only disambiguates the miss-vs-empty typed MESSAGE (which honest error to
+#: raise when 0 section faces were found); it never gates the geometry of the cut.
 _MISS_VOLUME_TOL = 1e-6
 
-#: Per-wire sample count for a section face's boundary loop → projected polyline
-#: (design §6). Fixed (not ad-hoc) so the polyline — and therefore the hatch clip
-#: over it — is byte-deterministic; a curved (bored) loop samples smooth, a straight
-#: loop over-samples harmlessly (collinear points never change the scanline spans).
-_LOOP_SAMPLES = 128
+#: Interior-sample count for a GENUINELY CURVED boundary edge (circle/arc/spline) of a
+#: section face → projected polyline (design §6). Fixed (not ad-hoc) so the polyline —
+#: and therefore the hatch clip over it — is byte-deterministic. Straight edges are
+#: NOT sampled at all: their exact endpoints are emitted (:func:`_ordered_loop_points`),
+#: so a rectangular section face keeps its true corners. The count only affects
+#: genuinely curved (bored) loops — the project.py ``_POLYLINE_SAMPLES`` discipline.
+_CURVE_EDGE_SAMPLES = 64
 
 #: Cut normal axis (0=X, 1=Y, 2=Z) → the standard view direction whose pinned frame
 #: normal shares that axis (design §4). Front is viewed along Y, Top along Z, Right
@@ -138,20 +152,28 @@ class SectionCut:
 def resolve_section_frame(plane: Plane, flip: bool) -> tuple[ViewDirection, int, int]:
     """The single-sourced flip / normal / half-space convention (design §4).
 
-    Returns ``(view, axis, tool_sign)``:
+    Returns ``(view, axis, remove_dir)``:
 
     * ``axis`` = ``argmax(|N.X|, |N.Y|, |N.Z|)`` — the principal axis of the cut
       normal ``N = plane.z_dir`` (guarded to be axis-aligned, §1);
     * ``view`` = the standard view direction whose frame normal shares ``axis``
       (:data:`_AXIS_TO_VIEW`) — keyed off the AXIS, not the datum's normal sign, so
-      the convention is single-valued (``Plane.XZ`` has ``z_dir=+Y`` yet is viewed
-      from the ``front`` eye at ``-Y``);
-    * ``tool_sign`` = ``+1`` if ``not flip`` else ``-1`` — ``+1`` removes the
-      EYE-side half (the standard "cut away what is between you and the plane"),
-      ``-1`` the far side.
+      the convention is single-valued (a front section is viewed from the ``front``
+      eye at ``-Y`` regardless of whether the datum was authored ``z_dir=+Y`` or
+      ``-Y``);
+    * ``remove_dir`` = the world direction (``+1`` / ``-1``) along ``axis`` the
+      REMOVED half occupies — a SINGLE derived sign: ``tool_sign * eye_sign`` where
+      ``tool_sign = +1`` (not flip, remove the EYE-side half) or ``-1`` (flip, remove
+      the far half), and ``eye_sign = sign(view_normal(view)[axis])`` is the
+      standard-view eye direction along the cut axis.
 
-    Everything downstream (which half the tool occupies, the view direction) DERIVES
-    from this triple — the pre-audit two-way statement collapses to one function.
+    Keying ``remove_dir`` off the EYE (``view_normal``), NOT the datum's arbitrary
+    ``z_dir`` sign, is what makes the removed half single-valued (design §4): the eye
+    coincides with the datum normal for top (+Z) / right (+X) but NOT for front
+    (eye ``-Y`` vs an XZ datum's ``+Y``), so deriving from ``z_dir`` cuts the wrong
+    half on the most common (front) section. Everything downstream (which half the
+    tool occupies, the view direction) DERIVES from this triple, and
+    ``_half_space_tool`` consumes ``remove_dir`` verbatim — it can't re-derive it wrong.
 
     Raises:
         SectionPlaneNotPrincipalError: ``N`` is not within tol of a principal axis.
@@ -166,22 +188,27 @@ def resolve_section_frame(plane: Plane, flip: bool) -> tuple[ViewDirection, int,
             "is X, Y, or Z (a principal or axis-aligned offset datum); an oblique "
             "cutting plane is deferred (drawings-section.md §11)."
         )
-    return _AXIS_TO_VIEW[axis], axis, (1 if not flip else -1)
+    view = _AXIS_TO_VIEW[axis]
+    eye_sign = 1 if view_normal(view)[axis] >= 0.0 else -1
+    tool_sign = 1 if not flip else -1
+    return view, axis, tool_sign * eye_sign
 
 
 def _half_space_tool(
-    body: BodyShape, plane: Plane, axis: int, tool_sign: int
+    body: BodyShape, plane: Plane, axis: int, remove_dir: int
 ) -> Solid | None:
     """The eye-side half-space subtract tool, sized/positioned from the body bbox.
 
     v1's cut normal is axis-aligned (the §1 guard), so the tool is an axis-aligned
     world box that covers the body's full extent in the two off-axis directions
     (padded) and, along the cut axis, spans from the cut plane's coordinate out past
-    the body on the side selected by ``tool_sign`` times the plane's normal sign (design
-    §3/§4). Positioning from the PROJECTED bbox — never the plane origin — is what
-    makes an off-centre (offset / midplane) datum a clean HALF cut, not a notch
-    (audit 🟡3). Subtracting it keeps the far half with the cut face exposed at the
-    plane.
+    the body on the side selected by ``remove_dir`` (design §3/§4). ``remove_dir`` is
+    the ALREADY-DERIVED removed-half sign from :func:`resolve_section_frame` (eye +
+    flip) — this function does NOT re-derive it from the plane's ``z_dir`` sign, which
+    was the wrong-half bug. Positioning from the PROJECTED bbox — never the plane
+    origin — is what makes an off-centre (offset / midplane) datum a clean HALF cut,
+    not a notch (audit 🟡3). Subtracting it keeps the far half with the cut face
+    exposed at the plane.
 
     Returns ``None`` when the removal region does not reach the body at all (the
     plane is offset PAST the body on the removed side): the cut is then a no-op and
@@ -192,11 +219,6 @@ def _half_space_tool(
     lo = (bb.min.X, bb.min.Y, bb.min.Z)
     hi = (bb.max.X, bb.max.Y, bb.max.Z)
     origin = (plane.origin.X, plane.origin.Y, plane.origin.Z)
-    normal = plane.z_dir.normalized()
-    normal_sign = 1.0 if (normal.X, normal.Y, normal.Z)[axis] >= 0 else -1.0
-    # Which world direction along `axis` the removed half occupies: tool_sign selects
-    # eye vs far relative to the plane's own normal sign (a single derived sign, §4).
-    remove_dir = tool_sign * normal_sign
     pad = (bb.max - bb.min).length + 1.0  # provably exceeds the body in every axis
 
     box_min = [lo[i] - pad for i in range(3)]
@@ -249,26 +271,59 @@ def _signed_area(pts: list[Point2D]) -> float:
     return 0.5 * area
 
 
+def _ordered_loop_points(wire: Wire) -> list[tuple[float, float, float]]:
+    """The wire's EXACT ordered boundary points — corners kept, only curves sampled.
+
+    Walk the wire in CONNECTED order (:class:`BRepTools_WireExplorer`, not the
+    orientation-agnostic ``wire.edges()``) and per edge emit its exact START vertex;
+    a genuinely CURVED edge (circle/arc/spline) additionally emits
+    ``_CURVE_EDGE_SAMPLES - 1`` interior samples so a bore reads smooth. A STRAIGHT
+    edge contributes only its endpoints — so a rectangular section face keeps its
+    true 4 corners, which the old uniform arc-length sample dropped (a 128-gon missing
+    the corners). Each edge's end vertex is the next edge's start vertex, and the last
+    edge closes onto the first, so the result is a clean closed loop with no duplicated
+    corner. This is project.py's discipline (real straight edges stay exact, only
+    free-form curvature is sampled), applied to a section-face boundary wire.
+    """
+    explorer = BRepTools_WireExplorer(wire.wrapped)
+    pts: list[tuple[float, float, float]] = []
+    while explorer.More():
+        edge = explorer.Current()
+        vertex = explorer.CurrentVertex()
+        p = BRep_Tool.Pnt_s(vertex)
+        pts.append((p.X(), p.Y(), p.Z()))
+        curve = BRepAdaptor_Curve(edge)
+        if curve.GetType() != GeomAbs_Line:
+            u0 = curve.FirstParameter()
+            u1 = curve.LastParameter()
+            reverse = edge.Orientation() == TopAbs_REVERSED
+            for i in range(1, _CURVE_EDGE_SAMPLES):
+                frac = i / _CURVE_EDGE_SAMPLES
+                u = u1 - (u1 - u0) * frac if reverse else u0 + (u1 - u0) * frac
+                cp = curve.Value(u)
+                pts.append((cp.X(), cp.Y(), cp.Z()))
+        explorer.Next()
+    return pts
+
+
 def _canonical_loop(
     wire: Wire, view: ViewDirection, scale: float, *, outer: bool
 ) -> tuple[Point2D, ...]:
     """One boundary wire → a canonical projected 2D polyline (design §6).
 
-    Sample the whole wire uniformly (``wire @ (i/N)`` — connected, ordered, a pure
-    function of the wire) and project each point into the view plane through the SAME
-    frame as the HLR edges (:func:`project_point`). Then pin determinism two ways:
+    Take the wire's EXACT ordered vertices (curved edges sampled, straight edges kept
+    exact — :func:`_ordered_loop_points`) and project each into the view plane through
+    the SAME frame as the HLR edges (:func:`project_point`). Then pin determinism two
+    ways:
 
     * **winding** — outer loops are forced CCW, holes CW in the view frame (a fixed
       sign, never OCCT's edge orientation);
     * **start vertex** — rotated so the lexicographically smallest projected point is
-      first.
+      first (an EXACT vertex now, not a phase-dependent arc-length sample).
 
     So the polyline is byte-stable regardless of OCCT's edge-enumeration order.
     """
-    pts = [
-        project_point(view, _wire_point(wire, i / _LOOP_SAMPLES), scale)
-        for i in range(_LOOP_SAMPLES)
-    ]
+    pts = [project_point(view, wp, scale) for wp in _ordered_loop_points(wire)]
     # Winding: outer CCW (area > 0), holes CW (area < 0) in the right-handed view
     # frame (x right, y up = N x x_dir). Reverse to the canonical sense if needed.
     area = _signed_area(pts)
@@ -277,12 +332,6 @@ def _canonical_loop(
     # Start-vertex pin: rotate so the lexicographically smallest (x, y) leads.
     k = min(range(len(pts)), key=lambda i: (pts[i].x, pts[i].y))
     return tuple(pts[k:] + pts[:k])
-
-
-def _wire_point(wire: Wire, t: float) -> tuple[float, float, float]:
-    """A world point at parameter ``t in [0, 1)`` along a wire (build123d ``@``)."""
-    p = wire @ t
-    return (float(p.X), float(p.Y), float(p.Z))
 
 
 def section_cut(
@@ -300,8 +349,8 @@ def section_cut(
         SectionEmptyError: the cut removed all material, or left no cut face (§7).
         SectionMissesBodyError: the plane does not intersect the solid (§7).
     """
-    view, axis, tool_sign = resolve_section_frame(plane, flip)
-    tool = _half_space_tool(body, plane, axis, tool_sign)
+    view, axis, remove_dir = resolve_section_frame(plane, flip)
+    tool = _half_space_tool(body, plane, axis, remove_dir)
     if tool is None:
         # The removed half never reaches the body — the plane is offset past it (§7).
         raise SectionMissesBodyError(

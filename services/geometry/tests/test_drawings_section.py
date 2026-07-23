@@ -261,12 +261,20 @@ def test_principal_axes_map_to_standard_views() -> None:
 
 
 def test_plane_that_misses_the_body_is_typed() -> None:
-    """A section plane offset past the body → typed ``section_plane_misses_body``."""
+    """A section plane offset past the body on the REMOVED side → typed
+    ``section_plane_misses_body``.
+
+    The removed half keys off the standard-view EYE (design §4): a front section
+    (eye ``-Y``, ``flip=false``) removes the ``-Y`` side, so a plane offset past the
+    body on that ``-Y`` side removes nothing and honestly misses. (A plane offset on
+    the far ``+Y`` side instead removes the whole body → the separate ``section_empty``
+    path — see ``test_coincident_face_plane_is_typed_section_empty``.)
+    """
     body = Solid.make_box(10, 10, 10).locate(Pos(-5, -5, -5))
     from geometry.drawings.section import SectionMissesBodyError
 
     with pytest.raises(SectionMissesBodyError):
-        section_cut(body, Plane(origin=(0, 100, 0), z_dir=(0, 1, 0)))
+        section_cut(body, Plane(origin=(0, -100, 0), z_dir=(0, 1, 0)))
 
 
 def test_coincident_face_plane_is_typed_section_empty() -> None:

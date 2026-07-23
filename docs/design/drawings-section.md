@@ -223,27 +223,36 @@ pre-audit §3/§4 stated this two ways; here it is stated once and everything el
 derives):
 
 ```
-resolve_section_frame(plane, flip) -> (view: ViewDirection, eye_N: Vec3, tool_sign: ±1)
-  axis     = argmax(|N·X|, |N·Y|, |N·Z|)   # N = plane.z_dir; v1 guard: |proj| ≥ 1−1e-7
-  view     = {Y: "front", Z: "top", X: "right"}[axis]     # the standard eye
-  eye_N    = view_normal(view)              # model→eye, from _VIEW_FRAMES (§3)
-  tool_sign = +1 if not flip else -1        # +1 removes the EYE-side half
+resolve_section_frame(plane, flip) -> (view: ViewDirection, axis: int, remove_dir: ±1)
+  axis      = argmax(|N·X|, |N·Y|, |N·Z|)   # N = plane.z_dir; v1 guard: |proj| ≥ 1−1e-7
+  view      = {Y: "front", Z: "top", X: "right"}[axis]    # the standard eye
+  eye_sign  = sign(view_normal(view)[axis])  # model→eye along the cut axis, from §3
+  tool_sign = +1 if not flip else -1         # +1 removes the EYE-side half
+  remove_dir = tool_sign * eye_sign          # THE single derived removed-half sign
 ```
 
 Derived, not restated:
 
-- **Which half is removed.** `flip=false` ⇒ the half-space tool occupies the
-  **eye side** (`+eye_N`), so the cut face nearest the eye is exposed (the standard
+- **Which half is removed.** `remove_dir` is the world direction along `axis` the
+  removed half occupies. `flip=false` (`tool_sign=+1`) ⇒ the half-space tool occupies
+  the **eye side** (`+eye_N`), so the cut face nearest the eye is exposed (the standard
   "cut away what's between you and the plane"). `flip=true` ⇒ the tool occupies the
   far side (`−eye_N`) — the less common "look the other way" section.
-- **The half-space orientation** is `tool_sign · eye_N` — a single sign, derived
-  above; §2 step 1 places the box on exactly that side.
+- **The half-space orientation** is `remove_dir` — a single sign derived above from
+  the eye, NOT re-derived from `plane.z_dir`; §2 step 1 places the box on exactly that
+  side (`_half_space_tool` consumes `remove_dir` verbatim so it can't re-derive it wrong).
 - **The view direction** is `view`, derived above; §2 step 4 / §3 use it.
 
-Crucially the convention keys off the **standard-view eye (the plane's AXIS)**, NOT
-the datum's arbitrary normal SIGN — `Plane.XZ` has `z_dir = +Y`, but the section is
-viewed from the `front` eye at −Y. Keying off the axis (not the sign) is what makes
-this single-valued; the pre-audit text drifted precisely because it mixed the two.
+Crucially the removed half keys off the **standard-view eye (`view_normal(view)`)**,
+NOT the datum's arbitrary normal SIGN. The two COINCIDE for top (eye +Z = datum +Z)
+and right (eye +X = datum +X) but NOT for **front**: the `front` eye is −Y, so a
+front section keys off −Y regardless of whether the cutting datum was authored
+`z_dir=+Y` or `z_dir=−Y` (both are the same physical XZ plane). Deriving the removed
+half from `z_dir`'s sign instead cuts the WRONG half on the most common (front)
+section, and makes the same geometric plane authored +Y vs −Y remove opposite halves
+— a silently-wrong, non-canonical result. Keying off the eye (a pure function of the
+axis, not the sign) is what makes this single-valued; the pre-audit text drifted
+precisely because it mixed the two.
 
 **The wrong-half golden must be asymmetric ALONG N** (audit 🟡4). A full section's
 HATCHED cut face is IDENTICAL for flip / no-flip (the plane's coplanar face is the

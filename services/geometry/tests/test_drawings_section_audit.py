@@ -76,20 +76,7 @@ def _extent(solid: BodyShape, axis: int) -> tuple[float, float]:
     "axis",
     [
         0,  # YZ / right  — eye +X coincides with datum normal sign; correct
-        pytest.param(
-            1,  # XZ / front — eye -Y is OPPOSITE the datum normal +Y
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "WRONG-HALF BUG (drawings-section.md §4): _half_space_tool keys "
-                    "the removed half off plane.z_dir's SIGN (normal_sign), NOT the "
-                    "standard-view eye (eye_N). Front eye_N=-Y but an XZ datum's "
-                    "z_dir=+Y, so flip=false removes the FAR half and keeps the EYE "
-                    "side — the opposite of the top/right convention. section.py "
-                    "must derive remove_dir from view_normal(view)[axis], per §4."
-                ),
-            ),
-        ),
+        1,  # XZ / front — eye -Y is OPPOSITE the datum normal +Y (the wrong-half case)
         2,  # XY / top — eye +Z coincides with datum normal sign; correct (shipped)
     ],
 )
@@ -111,20 +98,7 @@ def test_flip_false_removes_the_eye_side_half(axis: int) -> None:
         assert (lo, hi) == pytest.approx((5.0, 10.0), abs=_COORD_TOL)
 
 
-@pytest.mark.parametrize(
-    "axis",
-    [
-        0,
-        pytest.param(
-            1,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="same wrong-half bug, mirrored for flip=true on the front view",
-            ),
-        ),
-        2,
-    ],
-)
+@pytest.mark.parametrize("axis", [0, 1, 2])
 def test_flip_true_removes_the_far_side_half(axis: int) -> None:
     """``flip=true`` removes the FAR (``-eye_N``) half — the mirror of flip=false."""
     body = _box_along(axis)
@@ -143,28 +117,18 @@ def test_flip_is_not_datum_normal_sign_dependent() -> None:
 
     design §4 is explicit: "keying off the axis (not the sign) is what makes this
     single-valued". The SAME geometric XZ plane authored with ``z_dir=+Y`` vs
-    ``z_dir=-Y`` must remove the SAME half for a given flip. Currently the removed
-    half tracks ``normal_sign`` (plane.z_dir), so the two orientations remove opposite
-    halves — a non-canonical, silently-wrong result.
+    ``z_dir=-Y`` must remove the SAME half for a given flip. ``remove_dir`` now derives
+    from the standard-view eye (``view_normal``), which is a pure function of the axis,
+    so the datum's arbitrary ``z_dir`` sign no longer changes which half is removed.
     """
     body = _box_along(1)
     plus = section_cut(body, Plane(origin=(0, 5, 0), z_dir=(0, 1, 0)), flip=False)
     minus = section_cut(body, Plane(origin=(0, 5, 0), z_dir=(0, -1, 0)), flip=False)
     # A datum plane is the same plane regardless of normal sign; the section must not
-    # change which half it removes (xfail until remove_dir keys off eye_N, per §4).
+    # change which half it removes (remove_dir keys off eye_N, per §4).
     assert _extent(plus.remaining, 1) == pytest.approx(
         _extent(minus.remaining, 1), abs=_COORD_TOL
     ), "removed half must not depend on the datum's z_dir sign (design §4)"
-
-
-test_flip_is_not_datum_normal_sign_dependent = pytest.mark.xfail(  # type: ignore[assignment]
-    strict=True,
-    reason=(
-        "🔴 wrong-half root cause: section._half_space_tool derives the removed half "
-        "from plane.z_dir's sign, so an XZ plane with z_dir=-Y removes the opposite "
-        "half from z_dir=+Y for the same flip — design §4 requires keying off eye_N."
-    ),
-)(test_flip_is_not_datum_normal_sign_dependent)
 
 
 # --- gate 1b: off-centre offset half vs. notch (audit 🟡3) ----------------------
@@ -197,6 +161,27 @@ def test_off_centre_offset_is_a_clean_half_not_a_notch(axis: int) -> None:
     assert lo == pytest.approx(cut, abs=_COORD_TOL) or hi == pytest.approx(
         cut, abs=_COORD_TOL
     )
+
+
+# --- gate 1c: section-face outline keeps its TRUE corners (loop-corner fix) ------
+def test_rectangular_section_face_has_its_four_exact_corners() -> None:
+    """A rectangular section face's outline must contain its true 4 corners.
+
+    The old loop canonicalisation uniformly arc-length-sampled the wire (a 128-gon)
+    and DROPPED the corners of a straight-edged face, so the hatch clipped to a
+    corner-cut boundary. The fix emits the wire's EXACT vertices and samples only
+    genuinely curved edges. A 40x25 plate cut at z=5 has a rectangular cut face whose
+    projected outline must carry all four corners (0,0)/(40,0)/(40,25)/(0,25).
+    """
+    body = Solid.make_box(40, 25, 10)
+    plane = Plane(origin=(0, 0, 5), z_dir=(0, 0, 1))
+    res = section_cut(body, plane, flip=False)
+    outline = res.loops[0].outer  # top view: x = world X, y = world Y
+    corners = {(0.0, 0.0), (40.0, 0.0), (40.0, 25.0), (0.0, 25.0)}
+    for cx, cy in corners:
+        assert any(
+            abs(p.x - cx) < _COORD_TOL and abs(p.y - cy) < _COORD_TOL for p in outline
+        ), f"corner ({cx}, {cy}) missing from the section-face outline"
 
 
 # --- gate 2: section-face analytic area + hatch hole-carve ----------------------
