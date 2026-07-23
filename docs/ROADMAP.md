@@ -398,10 +398,13 @@ coincident/concentric) + shared-mesh tessellation. Sequenced into 6 Ready
 items on `docs/BACKLOG.md` (document model → solver core → mate-geometry
 resolution → gateway endpoints → evaluation/tessellation DoD golden →
 frontend). Distance/angle mates landed as the fast-follow (2026-07-17,
-conventions pinned + goldens + frontend authoring UI). Still deferred past v1
-(design doc §5):
-interference detection, exploded views, BOM formatting, STEP-assembly
-export, flexible sub-assemblies, part-version pinning-as-default.
+conventions pinned + goldens + frontend authoring UI). **Assembly STEP export
+landed 2026-07-23** (P0 — `POST /api/v1/assembly/export`, AP214 product
+structure: each instance a named PRODUCT at its solved world placement via
+build123d's XCAF writer; byte-deterministic; worked export→re-import→placement
+round-trip over the bolted goldens). Still deferred past v1 (design doc §5):
+interference detection, exploded views, BOM formatting, flexible
+sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
       items, backend→gateway→frontend); "bolt two parts together and see it" is

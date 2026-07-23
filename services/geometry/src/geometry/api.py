@@ -17,6 +17,8 @@ from py_kit.errors import NotFoundError, ValidationApiError
 from py_kit.schemas.assemblies import (
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
+    ExportAssemblyRequest,
+    assembly_export_filename,
 )
 from py_kit.schemas.drawings import (
     ARTIFACT_MEDIA_TYPES,
@@ -56,7 +58,7 @@ from py_kit.schemas.sketch import (
     SketchOffsetResult,
 )
 
-from geometry.assembly import evaluate_assembly
+from geometry.assembly import AssemblyExportError, evaluate_assembly, export_assembly
 from geometry.drawing_store import (
     drawing_artifact_key,
     fetch_drawing_artifact,
@@ -100,6 +102,15 @@ _EXPORT_RESPONSES = export_responses(
     "or binary STL (`model/stl`, faceted mesh). `Content-Disposition` "
     "carries the suggested download filename. Byte-deterministic: identical "
     "requests produce identical files."
+)
+
+_ASSEMBLY_EXPORT_RESPONSES = export_responses(
+    "The exported assembly file: STEP AP214 part 21 (`model/step`, exact "
+    "B-rep) with product structure — each instance a named PRODUCT at its "
+    "solved world placement — or binary STL (`model/stl`, faceted mesh with "
+    "placements baked into one compound). `Content-Disposition` carries the "
+    "suggested download filename. Byte-deterministic: identical requests "
+    "produce identical files."
 )
 
 
@@ -156,6 +167,47 @@ def evaluate_assembly_route(
     failures of this call itself.
     """
     return evaluate_assembly(request)
+
+
+@router.post(
+    "/assembly/export",
+    response_class=Response,
+    responses=_ASSEMBLY_EXPORT_RESPONSES,
+)
+def export_assembly_route(request: ExportAssemblyRequest) -> Response:
+    """Evaluate an assembly and export it as ONE multi-instance STEP/STL download.
+
+    Stateless (CLAUDE.md): documents sends the assembly graph (the SAME
+    ``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export
+    ``format``), geometry solves it through the identical pipeline
+    (``solve_assembly`` — each unique part evaluated once, the mate graph solved
+    to per-instance world placements), and composes every instance that produced
+    a body into a single file. STEP writes **AP214 product structure**: each
+    instance is a named PRODUCT at its solved placement, so a re-import recovers
+    each part traceable to its instance; STL bakes the placements into one
+    faceted compound. Deterministic (RESEARCH §9): the STEP timestamp is pinned
+    and the per-occurrence ids canonicalised, so identical requests produce
+    byte-identical files.
+
+    An assembly where NO instance produced a body is a clean 422
+    ``assembly_export_no_body`` envelope (never a zero-solid file or a 500,
+    mirroring ``/export/tree``'s no-body posture, §4.3); a bad part/mate/solve is
+    absorbed by the solve into a best-fit placement, not a failure. The py-kit
+    error envelope stays reserved for transport/validation failures of this call.
+    """
+    try:
+        data = export_assembly(request)
+    except AssemblyExportError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
+    return Response(
+        content=data,
+        media_type=EXPORT_MEDIA_TYPES[request.format],
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{assembly_export_filename(request)}"'
+            )
+        },
+    )
 
 
 @router.post("/drawing/evaluate")

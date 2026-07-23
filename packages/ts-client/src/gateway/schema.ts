@@ -595,6 +595,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/geometry/assembly/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assembly Export
+         * @description Proxy an assembly export to the geometry service; pass the file through.
+         *
+         *     Auth-protected (an assembly graph belongs to a signed-in user); the geometry
+         *     hop stays identity-free, so the principal never travels upstream (same
+         *     posture as ``/export`` + ``/assembly/evaluate``, RESEARCH §3). The shared
+         *     :class:`ExportAssemblyRequest` DTO validates at the gateway before anything
+         *     goes upstream. Geometry solves the assembly and composes it into ONE
+         *     multi-instance STEP (AP214 product structure) or STL; a body-less assembly is
+         *     a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim.
+         */
+        post: operations["assembly_export_api_v1_geometry_assembly_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/drawing/evaluate": {
         parameters: {
             query?: never;
@@ -3678,6 +3706,62 @@ export interface components {
              * @description Deterministic processing order (design §2.2)
              */
             order_index: number;
+        };
+        /**
+         * ExportAssemblyRequest
+         * @description Evaluate an assembly graph and export it as one multi-instance CAD file.
+         *
+         *     Extends :class:`EvaluateAssemblyRequest` (the solver runs the identical
+         *     evaluate pipeline — same solved world placements), adding only the export
+         *     ``format`` and the STL faceting parameter. STEP exports the exact B-rep as
+         *     **AP214 product structure**: every instance that produced a body becomes a
+         *     named PRODUCT positioned at its SOLVED world placement, so a downstream tool
+         *     (or a re-import) recovers each part traceable to its instance. STL bakes the
+         *     solved placements into a single faceted compound (no product names — the
+         *     format carries none). Byte-deterministic for identical requests (RESEARCH
+         *     §9): the STEP creation timestamp is pinned kernel-side and the assembly's
+         *     per-occurrence ids are canonicalised, so the same graph in yields identical
+         *     bytes out, in-process and across an interpreter restart.
+         */
+        ExportAssemblyRequest: {
+            /**
+             * Angular Deflection
+             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)
+             * @default 0.1
+             */
+            angular_deflection: number;
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Format
+             * @description Export file format: STEP (exact B-rep, AP214 product structure) or STL (faceted mesh, placements baked into one compound)
+             * @enum {string}
+             */
+            format: "step" | "stl";
+            /**
+             * Instances
+             * @description The assembly's instances (result order preserved)
+             */
+            instances: components["schemas"]["EvaluatedInstance"][];
+            /**
+             * Linear Deflection
+             * @description Presentation tessellation parameter (mm), never persisted
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /**
+             * Mates
+             * @description The mate graph; processed in order_index order (determinism)
+             */
+            mates?: components["schemas"]["EvaluatedMate"][];
+            /**
+             * Version
+             * @description Echoed back; cache/correlation key
+             */
+            version: number;
         };
         /**
          * ExportRequest
@@ -8285,6 +8369,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluateAssemblyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assembly_export_api_v1_geometry_assembly_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportAssemblyRequest"];
+            };
+        };
+        responses: {
+            /** @description The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure — each instance a named PRODUCT at its solved placement) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            200: {
+                headers: {
+                    /** @description attachment; filename="<shape>.<format>" */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "model/step": string;
+                    "model/stl": string;
                 };
             };
             /** @description Validation Error */

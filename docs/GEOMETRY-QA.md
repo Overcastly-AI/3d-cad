@@ -7,6 +7,33 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — Assembly STEP export (AP214 product structure) — determinism decision (kernel-architect self-report)
+
+**Feature:** `POST /api/v1/assembly/export` composes a solved assembly into ONE
+multi-instance STEP/STL. STEP writes AP214 product structure via build123d's XCAF
+`STEPCAFControl_Writer` (auto-naming off → our per-child labels become the PRODUCT
+names): each instance a named PRODUCT positioned at its SOLVED world placement.
+
+**Determinism (RESEARCH §9) — one NEW nondeterministic byte range beyond the
+timestamp.** The XCAF assembly path stamps each `NEXT_ASSEMBLY_USAGE_OCCURRENCE`
+with an **id string from an OCCT process-global counter** that increments across
+writer invocations, so a second in-process export of the same graph differs ONLY
+in those id fields (verified: a 3-instance box assembly diffed exactly the N NAUO
+id lines, `'1','2','3'` → `'3','4','5'`, nothing else). The id is an arbitrary
+label — STEP cross-references use `#N` entity ids, never this string — so
+`geometry.kernel.export._canonicalise_occurrence_ids` renumbers them to
+appearance order (`1..N`, itself deterministic), making the whole file
+byte-identical for identical requests. This is the assembly analogue of the
+pinned `FILE_NAME` timestamp (gap #4); both are provenance labels, not geometry.
+
+**Evidence (`tests/test_assembly_export.py`, over the two bolted goldens):**
+STEP+STL byte-identical across 2 in-process exports AND a fresh interpreter under
+a different `PYTHONHASHSEED`; worked export → `build123d.import_step` → each part
+body recovered at its solved placement (world volume/area/centroid within the
+kernel round-trip bound 1e-7); every instance id present as a PRODUCT name
+(traceability); a body-less assembly → clean 422 `assembly_export_no_body`, never
+a zero-solid file. Single-part `/export` path untouched.
+
 ## 2026-07-23 — SECTION VIEWS v1 independent audit (commit 137a929) — 🔴 WRONG-HALF BUG
 
 **VERDICT: 🔴 P0 correctness defect found — the FRONT (XZ / Y-normal) section cuts the

@@ -18,12 +18,13 @@ duplication.
 - **✅ rows:** Sketching, Part modeling, Price/freedom.
 - **➖ rows (usable, short of incumbent parity):** **Assemblies — headline gap
   is now "one-way street"** (fresh product-audit pass 2026-07-23): you can
-  build+solve a bolted assembly but cannot export it (no assembly STEP),
-  nothing checks it fits (no interference/collision), and you cannot bring one
-  in (no assembly-STEP import/product-structure) — also still no exploded
-  views, recursive BOM, part-version pinning. Interop (STEP two-way is real
-  for a *part*; **no assembly-level STEP either direction** — the same gap as
-  above, part/assembly split now explicit). Drawings (dead-capability drain
+  build+solve a bolted assembly and now **export it (assembly STEP, AP214
+  product structure — shipped 2026-07-23)**, but nothing checks it fits (no
+  interference/collision), and you cannot bring one in (no assembly-STEP
+  import/product-structure) — also still no exploded views, recursive BOM,
+  part-version pinning. Interop (STEP two-way is real for a *part*; assembly
+  STEP **export** now real, **import** still missing — the one-way gap narrowed
+  to inbound-only). Drawings (dead-capability drain
   mostly closed this batch — title-block/first-angle/dimension-placement/notes
   all wired; section views v1 SHIPPED + verified-green 2026-07-23; still no
   detail views, assembly views/BOM/balloons, GD&T). Sheet
@@ -59,17 +60,16 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
-- [ ] (P0, M) Assembly STEP export — AP214 product structure. `evaluate_assembly`
-      already resolves each instance to a solved world `Placement` + a solved
-      body; compose them into ONE multi-instance STEP (the multi-body path
-      already writes a `Compound` to AP214 — this is assembly-level composition,
-      not new kernel work). Acceptance: an export path (gateway/geometry) returns
-      a valid ISO-10303-21 file for a ≥2-instance assembly; reopening it (e.g.
-      `build123d.import_step`) recovers N part bodies at their solved placements
-      (bbox-centroid check to tolerance); each part traceable to a PRODUCT
-      name/id; single-part export unchanged; worked round-trip test (export →
-      reimport → placement match). [src: AUDIT-PRODUCT.md 2026-07-23 #1
-      do-this-next]
+- [x] (P0, M) Assembly STEP export — AP214 product structure. **Shipped
+      2026-07-23** — `POST /api/v1/assembly/export` (geometry) + gateway proxy;
+      `ExportAssemblyRequest` reuses `EvaluateAssemblyRequest` + format;
+      `solve_assembly` extracted from `evaluate_assembly` (shared solve → placed
+      kernel bodies) → `assembly/export.py` composes via build123d's XCAF writer
+      (each instance a named PRODUCT at its solved world placement; STL bakes
+      placements into one compound). Byte-deterministic (pinned timestamp +
+      canonicalised NAUO occurrence ids); worked export→re-import→placement
+      round-trip + PRODUCT-name traceability + no-body 422 over the bolted
+      goldens. See Done archive.
 - [ ] (P1, M) Assembly interference/collision detection. Pairwise
       `BRepAlgoAPI_Common` over solved instance bodies (already available in
       `services/geometry`) → a typed clash list with overlap volume. Acceptance:
@@ -382,7 +382,19 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-23 batch)
 
-- [x] (P2, M) Drawings — SECTION VIEWS v1: single planar full section (principal /
+- [x] (P0, M) Assembly STEP export — AP214 product structure. `POST /api/v1/
+      assembly/export` (geometry) + auth'd/rate-limited gateway proxy;
+      `ExportAssemblyRequest` (shared DTO = evaluate fields + export format).
+      `solve_assembly` factored out of `evaluate_assembly` so export reuses the
+      identical solve → placed kernel bodies; `assembly/export.py` composes them
+      through build123d's XCAF `STEPCAFControl_Writer` (each instance a named
+      PRODUCT at its solved world placement; STL = one baked compound).
+      Byte-deterministic (pinned STEP timestamp + kernel-side canonicalisation of
+      the process-global NAUO occurrence-id counter). Gates: worked
+      export→`import_step`→placement round-trip (world mass-props within the
+      kernel round-trip bound), PRODUCT-name traceability, in-process + across-
+      restart determinism, body-less→422 `assembly_export_no_body`, over the two
+      bolted goldens; single-part `/export` untouched.
       axis-aligned-offset datum) — `drawings/section.py` half-space cut + exact
       coplanar loops (`BRepTools_WireExplorer`, exact corners) + `ComposedHatch`
       (ANSI-45° even-odd scanline clip) across SVG/PDF/DXF; `views.section_params`

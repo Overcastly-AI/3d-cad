@@ -30,8 +30,10 @@ from py_kit.schemas.features import (
     PlanarFaceSignature,
 )
 from py_kit.schemas.geometry import (
+    DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
     BoundingBox,
+    ExportFormat,
     ShapeProperties,
     Vec3,
 )
@@ -785,3 +787,48 @@ class EvaluateAssemblyResult(BaseModel):
     bounding_box: BoundingBox | None = Field(
         default=None, description="Combined assembly AABB (transformed-bbox union)"
     )
+
+
+# --- assembly export contract (documents → geometry → gateway → web) ------------
+#
+# The interop sibling of the part-level ``ExportRequest`` (schemas.geometry): the
+# SAME evaluate-assembly graph, exported to ONE multi-instance CAD file instead of
+# per-instance meshes. Reuses ``EvaluateAssemblyRequest`` VERBATIM (the solver runs
+# the identical pipeline) and only adds the export ``format`` + the STL faceting
+# knob, so a request that evaluates can always be exported (the ShapeRequest →
+# ExportRequest discipline, applied to assemblies). STEP writes AP214 product
+# structure — each instance is a named PRODUCT at its SOLVED world placement
+# (RESEARCH §10/§11); STL bakes the placements into one faceted compound.
+
+
+class ExportAssemblyRequest(EvaluateAssemblyRequest):
+    """Evaluate an assembly graph and export it as one multi-instance CAD file.
+
+    Extends :class:`EvaluateAssemblyRequest` (the solver runs the identical
+    evaluate pipeline — same solved world placements), adding only the export
+    ``format`` and the STL faceting parameter. STEP exports the exact B-rep as
+    **AP214 product structure**: every instance that produced a body becomes a
+    named PRODUCT positioned at its SOLVED world placement, so a downstream tool
+    (or a re-import) recovers each part traceable to its instance. STL bakes the
+    solved placements into a single faceted compound (no product names — the
+    format carries none). Byte-deterministic for identical requests (RESEARCH
+    §9): the STEP creation timestamp is pinned kernel-side and the assembly's
+    per-occurrence ids are canonicalised, so the same graph in yields identical
+    bytes out, in-process and across an interpreter restart.
+    """
+
+    format: ExportFormat = Field(
+        description="Export file format: STEP (exact B-rep, AP214 product "
+        "structure) or STL (faceted mesh, placements baked into one compound)"
+    )
+    angular_deflection: float = Field(
+        default=DEFAULT_ANGULAR_DEFLECTION,
+        gt=0,
+        description="STL facet angular deflection (rad) between adjacent "
+        "segments; ignored for STEP (exact B-rep)",
+    )
+
+
+def assembly_export_filename(request: ExportAssemblyRequest) -> str:
+    """Deterministic download filename for an assembly export (Content-Disposition)."""
+    return f"assembly.{request.format}"

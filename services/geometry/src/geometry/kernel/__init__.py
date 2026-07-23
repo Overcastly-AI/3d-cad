@@ -31,7 +31,13 @@ from geometry.kernel.edges import (
     resolve_edge,
     select_edges,
 )
-from geometry.kernel.export import export_step_bytes, export_stl_bytes
+from geometry.kernel.export import (
+    AssemblyComponent,
+    export_step_assembly_bytes,
+    export_step_bytes,
+    export_stl_assembly_bytes,
+    export_stl_bytes,
+)
 from geometry.kernel.extrude import (
     BooleanError,
     ProfileNotClosedError,
@@ -108,6 +114,7 @@ from geometry.schemas import (
 
 __all__ = [
     "DATUM_PLANES",
+    "AssemblyComponent",
     "AxisIntersectsProfileError",
     "BooleanDisjointError",
     "BooleanEmptyError",
@@ -165,7 +172,9 @@ __all__ = [
     "evaluate_export",
     "evaluate_tessellation",
     "export_solid",
+    "export_step_assembly_bytes",
     "export_step_bytes",
+    "export_stl_assembly_bytes",
     "export_stl_bytes",
     "extrude_face",
     "fillet_body",

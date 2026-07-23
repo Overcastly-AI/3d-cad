@@ -305,14 +305,55 @@ def _combine_properties(
     )
 
 
-def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResult:
-    """Evaluate an assembly to solved placements + shared meshes (design §4).
+@dataclass(frozen=True)
+class PlacedInstance:
+    """One instance's resolved KERNEL body at its solved world placement (§4).
 
-    Deterministic (RESEARCH §9): the same request yields an identical result —
-    bitwise-stable ``part_mesh_glb_id``s (content hashes of deterministic GLBs)
-    and solved transforms (the BLAS-pinned solver). Never raises for an
-    evaluation outcome — a bad part/mate/solve is a typed per-entry error or a
-    non-``well_constrained`` status inside the result envelope.
+    Service-internal (``body`` is a kernel solid, never serialised). Produced
+    only for instances that evaluated to a body; the export path applies
+    ``placement`` to ``body`` to compose the assembly file.
+    """
+
+    instance_id: uuid.UUID
+    part_key: str
+    body: BodyShape
+    placement: Placement
+
+
+@dataclass(frozen=True)
+class SolvedAssembly:
+    """The service-internal solve outcome — solved placements + KERNEL bodies.
+
+    The shared core of :func:`evaluate_assembly` (which serialises it to the
+    boundary DTO) and :func:`geometry.assembly.export.export_assembly` (which
+    composes the bodies into one multi-instance CAD file). ``parts`` /
+    ``placed`` hold kernel :class:`~geometry.kernel.types.BodyShape` solids, so
+    this type is NEVER serialised or crossed over a service boundary (CLAUDE.md).
+
+    ``placed`` is the export-ready view: one entry per instance that produced a
+    body, in request-instance order, each carrying its resolved part body and
+    its SOLVED world placement (the authored seed for an un-solved instance).
+    """
+
+    parts: dict[str, _PartResult]
+    solved: dict[uuid.UUID, Placement]
+    instance_errors: dict[uuid.UUID, FeatureError]
+    placed: list[PlacedInstance]
+    status: AssemblySolveStatus
+    diagnosis: AssemblySolveDiagnosis | None
+    mate_errors: list[MateEvaluationError]
+
+
+def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
+    """Evaluate + solve an assembly to placements + KERNEL bodies (design §4).
+
+    The shared pipeline behind :func:`evaluate_assembly` and the assembly
+    export: evaluate each unique part once (§4 step 1), resolve every mate
+    individually (§4 step 2), solve the mate graph (§4 step 3), and pair each
+    instance's resolved body with its solved world placement. Total — never
+    raises for an evaluation outcome (a bad part/mate/solve is a typed per-entry
+    error or a non-``well_constrained`` status, the never-500 contract, §4).
+    Deterministic (RESEARCH §9): the BLAS-pinned solver + fixed instance order.
     """
     parts = _evaluate_unique_parts(request)
 
@@ -344,8 +385,8 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
             # already convert bad mates into typed per-mate errors, but the
             # pre-solve instance build (a duplicate instance id) and the solver
             # itself may still raise AssemblyDefinitionError. Map ANY residual to
-            # a clean assembly-level status — evaluate_assembly never raises for
-            # an evaluation outcome (§4, the never-500 contract).
+            # a clean assembly-level status — solve_assembly never raises for an
+            # evaluation outcome (§4, the never-500 contract).
             problem, mate_errors = _resolve_mates(evaluable, request)
             result = _SOLVER.solve(problem)
         except AssemblyDefinitionError as exc:
@@ -363,6 +404,48 @@ def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResul
             remaining_dof=0,
             message="No instance produced a body to place; nothing to solve.",
         )
+
+    placed: list[PlacedInstance] = []
+    for inst in request.instances:
+        part = parts[inst.part_key]
+        if part.body is None:
+            continue
+        placed.append(
+            PlacedInstance(
+                instance_id=inst.instance_id,
+                part_key=inst.part_key,
+                body=part.body,
+                placement=solved.get(inst.instance_id, inst.placement),
+            )
+        )
+
+    return SolvedAssembly(
+        parts=parts,
+        solved=solved,
+        instance_errors=instance_errors,
+        placed=placed,
+        status=status,
+        diagnosis=diagnosis,
+        mate_errors=mate_errors,
+    )
+
+
+def evaluate_assembly(request: EvaluateAssemblyRequest) -> EvaluateAssemblyResult:
+    """Evaluate an assembly to solved placements + shared meshes (design §4).
+
+    Deterministic (RESEARCH §9): the same request yields an identical result —
+    bitwise-stable ``part_mesh_glb_id``s (content hashes of deterministic GLBs)
+    and solved transforms (the BLAS-pinned solver). Never raises for an
+    evaluation outcome — a bad part/mate/solve is a typed per-entry error or a
+    non-``well_constrained`` status inside the result envelope.
+    """
+    solved_assembly = solve_assembly(request)
+    parts = solved_assembly.parts
+    solved = solved_assembly.solved
+    instance_errors = solved_assembly.instance_errors
+    status = solved_assembly.status
+    diagnosis = solved_assembly.diagnosis
+    mate_errors = solved_assembly.mate_errors
 
     instances_out: list[InstancePlacementResult] = []
     roll_up: list[tuple[ShapeProperties, Placement]] = []

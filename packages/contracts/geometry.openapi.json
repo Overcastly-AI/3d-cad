@@ -2831,6 +2831,68 @@
         "title": "EvaluatedMate",
         "type": "object"
       },
+      "ExportAssemblyRequest": {
+        "description": "Evaluate an assembly graph and export it as one multi-instance CAD file.\n\nExtends :class:`EvaluateAssemblyRequest` (the solver runs the identical\nevaluate pipeline \u2014 same solved world placements), adding only the export\n``format`` and the STL faceting parameter. STEP exports the exact B-rep as\n**AP214 product structure**: every instance that produced a body becomes a\nnamed PRODUCT positioned at its SOLVED world placement, so a downstream tool\n(or a re-import) recovers each part traceable to its instance. STL bakes the\nsolved placements into a single faceted compound (no product names \u2014 the\nformat carries none). Byte-deterministic for identical requests (RESEARCH\n\u00a79): the STEP creation timestamp is pinned kernel-side and the assembly's\nper-occurrence ids are canonicalised, so the same graph in yields identical\nbytes out, in-process and across an interpreter restart.",
+        "properties": {
+          "angular_deflection": {
+            "default": 0.1,
+            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)",
+            "exclusiveMinimum": 0.0,
+            "title": "Angular Deflection",
+            "type": "number"
+          },
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "format": {
+            "description": "Export file format: STEP (exact B-rep, AP214 product structure) or STL (faceted mesh, placements baked into one compound)",
+            "enum": [
+              "step",
+              "stl"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "instances": {
+            "description": "The assembly's instances (result order preserved)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedInstance"
+            },
+            "title": "Instances",
+            "type": "array"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Presentation tessellation parameter (mm), never persisted",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "mates": {
+            "description": "The mate graph; processed in order_index order (determinism)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedMate"
+            },
+            "title": "Mates",
+            "type": "array"
+          },
+          "version": {
+            "description": "Echoed back; cache/correlation key",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assembly_id",
+          "version",
+          "instances",
+          "format"
+        ],
+        "title": "ExportAssemblyRequest",
+        "type": "object"
+      },
       "ExportRequest": {
         "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; its quality fields default\nto the tessellation defaults so the exported mesh matches what the\nviewport shows.",
         "properties": {
@@ -6779,6 +6841,63 @@
           }
         },
         "summary": "Evaluate Assembly Route",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/assembly/export": {
+      "post": {
+        "description": "Evaluate an assembly and export it as ONE multi-instance STEP/STL download.\n\nStateless (CLAUDE.md): documents sends the assembly graph (the SAME\n``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export\n``format``), geometry solves it through the identical pipeline\n(``solve_assembly`` \u2014 each unique part evaluated once, the mate graph solved\nto per-instance world placements), and composes every instance that produced\na body into a single file. STEP writes **AP214 product structure**: each\ninstance is a named PRODUCT at its solved placement, so a re-import recovers\neach part traceable to its instance; STL bakes the placements into one\nfaceted compound. Deterministic (RESEARCH \u00a79): the STEP timestamp is pinned\nand the per-occurrence ids canonicalised, so identical requests produce\nbyte-identical files.\n\nAn assembly where NO instance produced a body is a clean 422\n``assembly_export_no_body`` envelope (never a zero-solid file or a 500,\nmirroring ``/export/tree``'s no-body posture, \u00a74.3); a bad part/mate/solve is\nabsorbed by the solve into a best-fit placement, not a failure. The py-kit\nerror envelope stays reserved for transport/validation failures of this call.",
+        "operationId": "export_assembly_route_api_v1_assembly_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportAssemblyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "model/step": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/stl": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The exported assembly file: STEP AP214 part 21 (`model/step`, exact B-rep) with product structure \u2014 each instance a named PRODUCT at its solved world placement \u2014 or binary STL (`model/stl`, faceted mesh with placements baked into one compound). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"<shape>.<format>\"",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Assembly Route",
         "tags": [
           "geometry"
         ]

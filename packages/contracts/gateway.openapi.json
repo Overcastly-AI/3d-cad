@@ -3385,6 +3385,68 @@
         "title": "EvaluatedMate",
         "type": "object"
       },
+      "ExportAssemblyRequest": {
+        "description": "Evaluate an assembly graph and export it as one multi-instance CAD file.\n\nExtends :class:`EvaluateAssemblyRequest` (the solver runs the identical\nevaluate pipeline \u2014 same solved world placements), adding only the export\n``format`` and the STL faceting parameter. STEP exports the exact B-rep as\n**AP214 product structure**: every instance that produced a body becomes a\nnamed PRODUCT positioned at its SOLVED world placement, so a downstream tool\n(or a re-import) recovers each part traceable to its instance. STL bakes the\nsolved placements into a single faceted compound (no product names \u2014 the\nformat carries none). Byte-deterministic for identical requests (RESEARCH\n\u00a79): the STEP creation timestamp is pinned kernel-side and the assembly's\nper-occurrence ids are canonicalised, so the same graph in yields identical\nbytes out, in-process and across an interpreter restart.",
+        "properties": {
+          "angular_deflection": {
+            "default": 0.1,
+            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)",
+            "exclusiveMinimum": 0.0,
+            "title": "Angular Deflection",
+            "type": "number"
+          },
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "format": {
+            "description": "Export file format: STEP (exact B-rep, AP214 product structure) or STL (faceted mesh, placements baked into one compound)",
+            "enum": [
+              "step",
+              "stl"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "instances": {
+            "description": "The assembly's instances (result order preserved)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedInstance"
+            },
+            "title": "Instances",
+            "type": "array"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Presentation tessellation parameter (mm), never persisted",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "mates": {
+            "description": "The mate graph; processed in order_index order (determinism)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedMate"
+            },
+            "title": "Mates",
+            "type": "array"
+          },
+          "version": {
+            "description": "Echoed back; cache/correlation key",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assembly_id",
+          "version",
+          "instances",
+          "format"
+        ],
+        "title": "ExportAssemblyRequest",
+        "type": "object"
+      },
       "ExportRequest": {
         "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; its quality fields default\nto the tessellation defaults so the exported mesh matches what the\nviewport shows.",
         "properties": {
@@ -10644,6 +10706,68 @@
           }
         ],
         "summary": "Assembly Evaluate",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/geometry/assembly/export": {
+      "post": {
+        "description": "Proxy an assembly export to the geometry service; pass the file through.\n\nAuth-protected (an assembly graph belongs to a signed-in user); the geometry\nhop stays identity-free, so the principal never travels upstream (same\nposture as ``/export`` + ``/assembly/evaluate``, RESEARCH \u00a73). The shared\n:class:`ExportAssemblyRequest` DTO validates at the gateway before anything\ngoes upstream. Geometry solves the assembly and composes it into ONE\nmulti-instance STEP (AP214 product structure) or STL; a body-less assembly is\na 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim.",
+        "operationId": "assembly_export_api_v1_geometry_assembly_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportAssemblyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "model/step": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/stl": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure \u2014 each instance a named PRODUCT at its solved placement) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"<shape>.<format>\"",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assembly Export",
         "tags": [
           "geometry"
         ]

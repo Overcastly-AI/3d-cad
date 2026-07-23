@@ -21,17 +21,46 @@ underneath). Both outputs are **byte-deterministic** for identical requests
   0.1 rad — the viewport-quality tessellation settings).
 
 Kernel objects never leave ``geometry.kernel``: callers receive bytes.
+
+**Assembly export (AP214 product structure).** :func:`export_step_assembly_bytes`
+composes N placed part bodies into ONE multi-instance STEP where every instance
+is a named PRODUCT at its solved world placement (RESEARCH §10/§11). It reuses
+build123d's own XCAF path (``export_step`` drives ``STEPCAFControl_Writer`` with
+a full XDE document — auto-naming off so our per-child labels become the PRODUCT
+names), so the timestamp pinning above applies unchanged. The one EXTRA
+nondeterministic byte range that path introduces is a **process-global**
+occurrence counter OCCT stamps into each ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` id
+(it increments across writer invocations within a worker, so a second export of
+the same graph would differ); we canonicalise it to appearance order
+(:func:`_canonicalise_occurrence_ids`) so identical requests stay byte-identical
+(RESEARCH §9; decision + evidence in docs/GEOMETRY-QA.md). The NAUO id is an
+arbitrary label — STEP cross-references use ``#N`` entity ids, not this string —
+so renumbering it is semantically inert.
+
+The OCP wheel ships no type stubs, so the raw ``gp_Trsf`` / ``gp_Quaternion``
+transform calls the assembly placement uses are opaque to pyright; the directives
+scope that relaxation to this file only (same posture as
+:mod:`geometry.kernel.properties` / :mod:`geometry.kernel.imports`), and the
+fully-typed :data:`BodyShape` return keeps the boundary honest.
 """
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
+# pyright: reportUnknownArgumentType=false
 
 import io
+import re
 import tempfile
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from build123d import Compound, Location
 from build123d.exporters3d import (
     export_step,  # pyright: ignore[reportUnknownVariableType]  (Shape[Unknown] param upstream)
     export_stl,  # pyright: ignore[reportUnknownVariableType]
 )
+from OCP.gp import gp_Quaternion, gp_Trsf, gp_Vec
 
 from geometry.kernel.types import BodyShape
 
@@ -102,3 +131,122 @@ def export_stl_bytes(
     if len(data) < STL_HEADER_BYTES:
         raise RuntimeError("STL export produced a truncated payload")
     return data
+
+
+@dataclass(frozen=True)
+class AssemblyComponent:
+    """One instance to compose into an assembly export — body + world pose + name.
+
+    ``body`` is a resolved part :data:`BodyShape` in its LOCAL frame;
+    ``translation`` / ``quaternion`` (the latter ``(x, y, z, w)``, matching
+    :class:`py_kit.schemas.assemblies.Quat`) are its SOLVED world placement; the
+    exporter positions the body by ``world = R(q)·local + t``. ``name`` becomes
+    the STEP PRODUCT / occurrence name (traceability back to the instance).
+    """
+
+    name: str
+    body: BodyShape
+    translation: tuple[float, float, float]
+    quaternion: tuple[float, float, float, float]
+
+
+def _placed_body(component: AssemblyComponent) -> BodyShape:
+    """Copy *component*'s body to its world placement (``world = R·local + t``).
+
+    Builds an OCCT rigid transform from the unit quaternion + translation and
+    returns a LOCATED copy (build123d ``.located`` leaves the original — and its
+    shared underlying geometry — untouched, so composing two instances of one
+    part never mutates the shared body). Deterministic: a fixed sequence of
+    OCCT ops on the numeric pose.
+    """
+    qx, qy, qz, qw = component.quaternion
+    rotation = gp_Quaternion(qx, qy, qz, qw)
+    rotation.Normalize()  # belt-and-braces; the solver already emits unit q
+    trsf = gp_Trsf()
+    trsf.SetRotation(rotation)
+    tx, ty, tz = component.translation
+    trsf.SetTranslationPart(gp_Vec(tx, ty, tz))
+    return component.body.located(Location(trsf))
+
+
+#: Matches the id (first) field of every ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` in a
+#: part-21 file — the one byte range OCCT's assembly writer fills from a
+#: process-global counter. The name/reference fields that follow are untouched.
+_NAUO_ID_RE = re.compile(rb"(NEXT_ASSEMBLY_USAGE_OCCURRENCE\(')([^']*)(')")
+
+
+def _canonicalise_occurrence_ids(data: bytes) -> bytes:
+    """Renumber ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` ids to appearance order (§9).
+
+    OCCT stamps each usage occurrence's id string from a counter that persists
+    ACROSS writer invocations in a worker process, so a second export of the
+    same graph would differ only in those ids. The id is an arbitrary label
+    (STEP cross-refs use ``#N`` entity ids, never this string), so rewriting it
+    to a deterministic ``1..N`` in file order — itself deterministic — makes the
+    whole file byte-identical for identical requests without touching geometry.
+    """
+    counter = 0
+
+    def _renumber(match: re.Match[bytes]) -> bytes:
+        nonlocal counter
+        counter += 1
+        return match.group(1) + str(counter).encode("ascii") + match.group(3)
+
+    return _NAUO_ID_RE.sub(_renumber, data)
+
+
+def export_step_assembly_bytes(
+    assembly_name: str, components: Sequence[AssemblyComponent]
+) -> bytes:
+    """Export *components* as ONE AP214 STEP with named product structure.
+
+    Each component becomes a named PRODUCT positioned at its solved world
+    placement under a single assembly root (``assembly_name``): re-opening the
+    file recovers every part body at its placement, traceable to its instance
+    name (RESEARCH §10/§11). Reuses build123d's XCAF writer (module docstring),
+    so the pinned creation timestamp applies; the per-occurrence id counter is
+    canonicalised so identical requests are byte-identical (RESEARCH §9).
+
+    Raises:
+        ValueError: if *components* is empty (nothing to place — the caller maps
+            this to a clean 422, never a zero-solid file).
+    """
+    if not components:
+        raise ValueError("assembly STEP export requires at least one placed body")
+    children: list[BodyShape] = []
+    for component in components:
+        placed = _placed_body(component)
+        placed.label = component.name
+        children.append(placed)
+    root = Compound(children=children)
+    root.label = assembly_name
+
+    buffer = io.BytesIO()
+    if not export_step(root, buffer, timestamp=STEP_EXPORT_TIMESTAMP):
+        raise RuntimeError("assembly STEP export failed")
+    data = _canonicalise_occurrence_ids(buffer.getvalue())
+    if not data.startswith(STEP_MAGIC):
+        raise RuntimeError("assembly STEP export produced a non-part-21 payload")
+    return data
+
+
+def export_stl_assembly_bytes(
+    components: Sequence[AssemblyComponent],
+    linear_deflection: float,
+    angular_deflection: float,
+) -> bytes:
+    """Export *components* as ONE binary STL with placements baked in (faceted).
+
+    STL carries no product structure, so the solved world placements are baked
+    into a single :class:`~build123d.Compound` of every instance's positioned
+    body and emitted through the SAME mesher as the single-body path
+    (:func:`export_stl_bytes`). Deflection semantics match tessellation.
+
+    Raises:
+        ValueError: if *components* is empty, or a deflection is not strictly
+            positive (delegated to :func:`export_stl_bytes`).
+    """
+    if not components:
+        raise ValueError("assembly STL export requires at least one placed body")
+    compound = Compound([_placed_body(component) for component in components])
+    return export_stl_bytes(compound, linear_deflection, angular_deflection)
