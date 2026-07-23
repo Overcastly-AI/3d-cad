@@ -46,6 +46,7 @@ import {
   type Point2D,
   type SvgEdge,
 } from "../drawing/layout";
+import { titleBlockFields } from "../drawing/titleBlock";
 
 /** A pick on a dimensionable projected edge — the seed of an authored dimension. */
 export interface EdgePickEvent {
@@ -957,6 +958,22 @@ function TitleBlock({ block }: { block: ComposedTitleBlock }) {
     fontFamily: font.data,
     fontSize: 3.4,
   };
+  // Secondary free-text rows (author/date/notes) — the `titleBlockFields` helper
+  // is the shared DOM twin of the server's `_tb_fields`, so both stamp the same
+  // rows at the same baselines. x offsets match `_TB_FIELD_CAP_DX` (4) /
+  // `_TB_FIELD_VAL_DX` (18); a null field is already skipped by the helper.
+  const fields = titleBlockFields(block);
+  const fieldCaption = {
+    fill: drawing.label,
+    fontFamily: font.data,
+    fontSize: drawing.titleFieldCaptionMm,
+    letterSpacing: 0.4,
+  };
+  const fieldValue = {
+    fill: drawing.ink,
+    fontFamily: font.data,
+    fontSize: drawing.titleFieldValueMm,
+  };
   return (
     <g data-testid="drawing-title-block">
       <rect
@@ -998,6 +1015,23 @@ function TitleBlock({ block }: { block: ComposedTitleBlock }) {
       <text x={splitX + 4} y={y + h - 4} {...value}>
         {block.size}
       </text>
+      {/* Secondary rows — the same additive DRAWN / DATE / NOTES rows the
+          SVG/PDF/DXF serializers now emit; the helper already drops null fields. */}
+      {fields.map((field) => (
+        <g key={field.key}>
+          <text x={x + 4} y={y + field.dy} {...fieldCaption}>
+            {field.caption}
+          </text>
+          <text
+            data-testid={`title-block-${field.key}`}
+            x={x + 18}
+            y={y + field.dy}
+            {...fieldValue}
+          >
+            {field.value}
+          </text>
+        </g>
+      ))}
     </g>
   );
 }

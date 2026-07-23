@@ -130,14 +130,13 @@ scorecard impact → core capability → polish).
       founder-flow specs to a generous timeout (audit siblings), so the gate is
       contention-robust without loosening what it catches. Process half already in
       CLAUDE.md (run the gate quiet). [src: orchestrator 2026-07-23]
-- [ ] (P1, XS) Drawings D1b (DOM half) — on-screen title block still stamps only
-      title+scale+size (`apps/web/src/components/DrawingSheet.tsx` `TitleBlock`).
-      Mirror the export half: render author/date/notes as the SAME labeled
-      DRAWN/DATE/NOTES rows the SVG/PDF/DXF now emit (captions + `data-testid`
-      `title-block-{author,date,notes}` already established server-side), add the
-      matching `drawing` design tokens for the secondary field sizes, and a
-      Playwright assertion that an authored title block renders its free-text
-      on-screen. [src: AUDIT-ENGINEERING.md D1, paired frontend follow-on]
+- [x] (P1, XS) Drawings D1b (DOM half) — the on-screen `TitleBlock` now stamps the
+      authored author/date/notes as the SAME labeled DRAWN/DATE/NOTES rows the
+      SVG/PDF/DXF emit (`title-block-{author,date,notes}`), via a shared
+      `titleBlockFields` helper (the DOM twin of the server's `_tb_fields`; a null
+      field renders nothing). New `drawing.titleFieldCaptionMm`/`titleFieldValueMm`
+      tokens match the composer's `_TB_FIELD_*_MM`. Unit test (row selection) +
+      Playwright (an authored block's free-text on-screen). [src: AUDIT-ENGINEERING.md D1, paired frontend follow-on]
 - [ ] (P2, S) Drawings D3 — `first_angle` projection silently composes as
       third-angle (dead-cap audit D3). The convention is persisted + threaded to
       `SheetLayout.projection` but `compose.py` never branches on it (first vs
@@ -180,12 +179,12 @@ scorecard impact → core capability → polish).
       round-trip DTO test + new per-body assertions (test_boolean, test_multibody)
       green; contracts + ts-client regenerated. [src: frontend-builder, MB-4c
       honest wire gap]
-- [ ] (P2, S) MB-4c tail (FRONTEND half) — Bodies-panel multi-lump badge.
-      Consumes the shipped `EvaluateTreeResult.bodies` wire: `BodiesPanel` row
-      shows a lump-count badge (e.g. "2 lumps") when `lumps > 1`, so a disjoint-
-      union / multi-solid-import body reads as multi-lump at a glance. Frontend
-      only (apps/web + packages/design token if a new badge tone is needed);
-      preserve test hooks; existing single-lump rows unchanged. [src:
+- [x] (P2, S) MB-4c tail (FRONTEND half) — Bodies-panel multi-lump badge.
+      Consumes `EvaluateTreeResult.bodies` (keyed by base feature id in PartPage):
+      a `BodiesPanel` row shows a quiet "N solids" badge (`body-lumps-{i}`) when
+      `lumps > 1`, so a disjoint-union / multi-solid-import body reads as
+      multi-solid at a glance; single-lump rows unchanged. `lumpBadgeLabel` helper
+      (unit-tested) + e2e on the disjoint two-cube union. [src:
       frontend-builder, MB-4c honest wire gap]
 - [ ] (P2, S) SM-fmt-1 — bend-table ONE format, ONE layout pass (frontend +
       geometry). The deeper DRY the 2026-07-19 export-consistency fix

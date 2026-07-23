@@ -1094,6 +1094,17 @@ export function PartPage() {
   // Bodies panel and the Combine tool's target/tool pickers. One body is the
   // common case; a `merge: false` add (or an import) starts a second.
   const bodies = useMemo(() => computeBodies(features), [features]);
+  // Per-body lump count from the evaluate wire (§MB-4c): a disjoint-union /
+  // multi-solid-import body reports `lumps > 1`, which the Bodies panel flags.
+  // Keyed by the body's base feature id (its §MB-0 identity) so a row maps to its
+  // count; absent for a tree with no body-affecting feature (the panel shows none).
+  const lumpsByFeature = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of evaluation.data?.bodies ?? []) {
+      map.set(entry.base_feature_id, entry.lumps);
+    }
+    return map;
+  }, [evaluation.data?.bodies]);
   // Sheet-metal state: the part is sheet metal once it has a base flange, and
   // that base flange's gauge / bend-radius / K become the defaults every edge
   // flange inherits (sheet-metal.md §4.2). Edge flange + Flat pattern light up
@@ -3112,6 +3123,7 @@ export function PartPage() {
               {bodies.length > 0 ? (
                 <BodiesPanel
                   bodies={bodies}
+                  lumpsByFeature={lumpsByFeature}
                   selectedFeatureId={selectedFeatureId}
                   onSelectBody={selectBody}
                 />

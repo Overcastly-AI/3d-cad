@@ -187,6 +187,10 @@ test.describe("multi-body disjoint union (MB-4c)", () => {
     });
     await expectRenderedBody(page);
 
+    // Each cube is a single connected solid → the Bodies panel shows NO lump badge.
+    await expect(page.getByTestId("body-lumps-0")).toHaveCount(0);
+    await expect(page.getByTestId("body-lumps-1")).toHaveCount(0);
+
     await page.getByTestId("new-combine").click();
     await expect(page.getByTestId("combine-editor")).toBeVisible();
 
@@ -208,7 +212,19 @@ test.describe("multi-body disjoint union (MB-4c)", () => {
     await expect(page.getByTestId("prop-volume")).toContainText("16,000", {
       timeout: 30_000,
     });
+    // The surviving body is a disjoint TWO-solid union — the Bodies panel flags it
+    // with a quiet multi-solid badge (§MB-4c frontend half).
+    await expect(page.getByTestId("body-lumps-0")).toHaveText("2 solids", {
+      timeout: 30_000,
+    });
     await expectRenderedBody(page);
+
+    // Founder frame — the Bodies panel's quiet "2 solids" badge on the union.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.getByTestId("bodies-panel")).toBeVisible();
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/multibody-lump-badge-desktop.png`,
+    });
   });
 
   test("a plain union fails boolean_disjoint, then the guided recovery fixes it", async ({

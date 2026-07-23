@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { FeatureResponse } from "../api/parts";
-import { computeBodies } from "./bodies";
+import { computeBodies, lumpBadgeLabel } from "./bodies";
 
 function base(id: string, name: string): Omit<FeatureResponse, "feature"> {
   return {
@@ -166,5 +166,20 @@ describe("computeBodies", () => {
       { ...rolled, rolled_back: true },
     ]);
     expect(bodies.map((b) => b.baseFeatureId)).toEqual(["x1"]);
+  });
+});
+
+describe("lumpBadgeLabel", () => {
+  it("shows a multi-solid badge when a body has more than one lump", () => {
+    expect(lumpBadgeLabel(2)).toBe("2 solids");
+    expect(lumpBadgeLabel(5)).toBe("5 solids");
+  });
+
+  it("shows no badge for a single-lump body", () => {
+    expect(lumpBadgeLabel(1)).toBeNull();
+  });
+
+  it("shows no badge when the lump count is unknown", () => {
+    expect(lumpBadgeLabel(undefined)).toBeNull();
   });
 });

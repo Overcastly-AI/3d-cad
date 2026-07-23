@@ -317,6 +317,84 @@ test("lay out the standard four views on a sheet", async ({ page }) => {
   await page.screenshot({ path: `${SCREENSHOT_DIR}/drawings-editor-1280.png` });
 });
 
+/**
+ * Drawings D1b — the authored title-block free-text (author / date / notes) now
+ * flows to the DOM sheet, mirroring the SVG/PDF/DXF export half (D1). Build a
+ * part, create a drawing + a sheet carrying a `title_block` with all three
+ * fields via the real gateway, then lay out the views through the UI and assert
+ * the composed sheet stamps the DRAWN / DATE / NOTES rows the export now emits.
+ */
+test("the sheet stamps an authored title block's author, date, and notes", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  const auth = { Authorization: `Bearer ${account.token}` };
+  const part = await createPlateWithHoleViaApi(
+    page,
+    account.token,
+    "Plate 40×25",
+  );
+
+  // Create the drawing + a title-blocked sheet via the API, then open it — so the
+  // page loads a tree that already carries the sheet (autolayout reuses it).
+  const drawingRes = await page.request.post("/api/v1/drawings", {
+    data: { name: "Plate — authored block" },
+    headers: auth,
+  });
+  if (!drawingRes.ok()) {
+    throw new Error(
+      `create drawing failed: ${drawingRes.status()} ${await drawingRes.text()}`,
+    );
+  }
+  const drawingId = ((await drawingRes.json()) as { id: string }).id;
+
+  const sheetRes = await page.request.post(
+    `/api/v1/drawings/${drawingId}/sheets`,
+    {
+      data: {
+        name: "Sheet 1",
+        size: "A4",
+        orientation: "landscape",
+        projection: "third_angle",
+        expected_version: 0,
+        title_block: {
+          author: "J. Cobb",
+          date: "2026-07-23",
+          notes: "Deburr all edges",
+        },
+      },
+      headers: auth,
+    },
+  );
+  if (!sheetRes.ok()) {
+    throw new Error(
+      `create sheet failed: ${sheetRes.status()} ${await sheetRes.text()}`,
+    );
+  }
+
+  await page.goto(`/drawings/${drawingId}`);
+  await page.getByTestId("drawing-part-select").selectOption(part.id);
+  await page.getByTestId("drawing-autolayout").click();
+
+  const sheet = page.getByTestId("drawing-sheet");
+  await expect(sheet).toBeVisible({ timeout: 30_000 });
+  const block = page.getByTestId("drawing-title-block");
+  await expect(block).toBeVisible();
+
+  // The three authored rows are stamped with the same test hooks the export uses.
+  await expect(page.getByTestId("title-block-author")).toHaveText("J. Cobb");
+  await expect(page.getByTestId("title-block-date")).toHaveText("2026-07-23");
+  await expect(page.getByTestId("title-block-notes")).toHaveText(
+    "Deburr all edges",
+  );
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(sheet).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-title-block-authored-1440.png`,
+  });
+});
+
 /** Lay out the standard views for a fresh plate-with-hole drawing. */
 async function layOutPlateDrawing(page: Page, token: string): Promise<string> {
   const part = await createPlateWithHoleViaApi(page, token, "Plate 40×25");

@@ -297,6 +297,18 @@ export const drawing = {
    *  cross-renderer token duplication drawing-export.md notes; one source here). */
   noteTextMm: 3.2,
 
+  // --- Title-block secondary fields (author/date/notes) — drawing D1b. ---
+  // The optional TitleBlock free-text stamps as labeled DRAWN / DATE / NOTES rows
+  // in the left cell's mid-band, below the primary title. A real block's secondary
+  // fields are smaller than its title; these two heights MATCH the server composer's
+  // `_TB_FIELD_CAP_MM` / `_TB_FIELD_VAL_MM`, so the DOM sheet and the exported
+  // SVG/PDF/DXF read one height rather than each hardcoding it (one source, two
+  // renderers — the same cross-renderer rule `noteTextMm` carries).
+  /** Secondary-field caption height (mm) — the quiet DRAWN / DATE / NOTES label. */
+  titleFieldCaptionMm: 2.1,
+  /** Secondary-field value height (mm) — the stamped free-text, below the title. */
+  titleFieldValueMm: 2.4,
+
   // --- Vertex handles — the endpoint pick affordance for point-to-point. ---
   // A point-to-point dimension names two edge ENDPOINTS (design §3.3), so a
   // straight edge's ends get small square handles: precise vertex picking, the

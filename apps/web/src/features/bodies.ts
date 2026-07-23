@@ -98,3 +98,16 @@ export function computeBodies(
 
   return bodies.map((b, i) => ({ ...b, ordinal: i + 1 }));
 }
+
+/**
+ * The Bodies-panel lump badge label for a body's disjoint-solid count (§MB-4c).
+ * A body is usually one connected solid; a `boolean` union kept as a multi-lump
+ * body (or a multi-solid STEP import) holds several disjoint LUMPS the whole-part
+ * `properties.topology.shells` aggregate cannot distinguish. When `lumps > 1` the
+ * panel flags it with a quiet count badge; a single-lump (or unknown) body shows
+ * none — so this returns the badge text only for a genuine multi-solid body.
+ * "solids" (not the kernel's "lumps") is the plain word an engineer recognises.
+ */
+export function lumpBadgeLabel(lumps: number | undefined): string | null {
+  return lumps !== undefined && lumps > 1 ? `${lumps} solids` : null;
+}
