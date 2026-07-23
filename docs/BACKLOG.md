@@ -190,16 +190,29 @@ scorecard impact → core capability → polish).
       size the feature slice (params: pitch, turns, profile, handedness,
       taper). Sequence AFTER the current sheet-metal campaign commitments.
       [src: WB-64 retro]
-- [ ] (P2, S) Drawings: note annotations persist but NEVER render (founder
-      dogfooding 2026-07-20, WB-64 bottle build). `NoteAnnotationParams` + the
-      full CRUD (POST/DELETE `/drawings/{id}/sheets/{sid}/annotations`) ship, but
-      neither the DOM sheet nor any of the three composed serializers draws them
-      (`compose.py` has no `note` handling) — the dead-capability defect class
-      (same as the corner-relief precedent). A GA sheet can't carry material/
-      capacity/gasket notes, which real manufacturing sheets need. Acceptance:
-      an authored note renders on the DOM sheet AND in SVG/PDF/DXF at its
-      `SheetPoint`, byte-goldened; annotations panel lists/deletes it. [src:
-      founder dogfooding — WB-64]
+- [x] (P2, S) Drawings: note annotations persist but NEVER render — EXPORT half.
+      **SHIPPED 2026-07-23:** the three server-composed serializers now draw notes.
+      `place_sheet` threads the request's authored `annotations` into a
+      `ComposedNote` list (verbatim at each note's `SheetPoint`, request order
+      preserved); `compose.py` gained SVG/PDF/DXF note emitters (left-anchored
+      graphite ink, consistent with the title-block stamped text; DXF emits real
+      TEXT on an additive `NOTES` layer). `annotations` added to
+      `ComposeDrawingRequest` (was absent → DE-4 cache key picks it up
+      automatically). New `compose_note_goldens/` proves the note lands at its
+      point in all three formats + byte-determinism across restart; a note-free
+      sheet stays byte-identical (additive). The paired DOM-sheet render is the
+      follow-on below. [src: founder dogfooding — WB-64]
+- [ ] (P2, S) Drawings: note render — DOM sheet half (paired follow-on to the
+      export half shipped 2026-07-23). The server-composed SVG/PDF/DXF now draw
+      notes at their `SheetPoint`, but the on-screen `DrawingSheet.tsx` still does
+      NOT render authored notes, so a note is visible in the export yet invisible
+      while editing. Acceptance: an authored note renders on the DOM sheet at its
+      `SheetPoint` (mirroring the composed `ComposedNote`: left-anchored ink text,
+      same height — add the matching `drawing.noteTextMm` design token so the DOM
+      note and the exported note are one height); the annotations panel lists/
+      deletes it. Kernel contract is fixed: `ComposedSheet.notes[]` (x/y in final
+      sheet-SVG space + text) is served by `/drawing/compose/sheet`; the DOM sheet
+      renders from it. [src: founder dogfooding — WB-64]
 - [x] (P3, S) Drawings: auto-layout sheet-size control. **SHIPPED 2026-07-23:**
       a sheet-SIZE picker (`SHEET_SIZE_OPTIONS`, A4→A0 + ANSI, labels carry the
       landscape mm extents) in the drawing command band, the SAME `SelectField`

@@ -2130,6 +2130,37 @@ export interface components {
             text: components["schemas"]["ComposedDimText"];
         };
         /**
+         * ComposedNote
+         * @description A placed free-text note annotation (design §2.2 v1 — text at a sheet point).
+         *
+         *     The composed twin of :class:`NoteAnnotationParams`: the note ``text`` and its
+         *     anchor ``x``/``y`` in FINAL sheet-SVG space (mm, y-DOWN, top-left origin — the
+         *     same space every other placed primitive on :class:`ComposedSheet` uses), so a
+         *     serializer stamps it verbatim (no re-reasoning about axes). The three serializers
+         *     render it as left-anchored graphite-ink text, consistent with the title-block
+         *     stamped values. Additive to the sheet: an empty ``notes`` list emits nothing, so a
+         *     sheet with no notes composes byte-identically to its pre-notes golden. A note whose
+         *     anchor falls outside the sheet is placed verbatim (clipped by the viewer), the same
+         *     honest posture as a title-block text run — never a crash.
+         */
+        ComposedNote: {
+            /**
+             * Text
+             * @description The note body, rendered verbatim
+             */
+            text: string;
+            /**
+             * X
+             * @description Note anchor X (mm, SVG space)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Note anchor Y (mm, SVG space, y-down)
+             */
+            y: number;
+        };
+        /**
          * ComposedPoint
          * @description A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin).
          */
@@ -2196,6 +2227,11 @@ export interface components {
              * @description Border inset from the sheet edge (mm)
              */
             margin_mm: number;
+            /**
+             * Notes
+             * @description Placed free-text note annotations (design §2.2), each stamped at its sheet anchor; empty for a sheet with no notes — additive, so a note-free sheet composes byte-identically to its pre-notes golden.
+             */
+            notes?: components["schemas"]["ComposedNote"][];
             /**
              * Scale Label
              * @description The sheet scale label ('1:1')

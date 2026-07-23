@@ -1062,6 +1062,13 @@ class ComposeDrawingRequest(EvaluateDrawingViewsRequest):
     """
 
     layout: SheetLayout = Field(description="Sheet layout (size + title block + views)")
+    annotations: list[Annotation] = Field(
+        default_factory=list["Annotation"],
+        description="Sheet annotations (v1: free-text notes) placed at their authored "
+        "sheet positions; empty by default. Composed onto the sheet + serialized in "
+        "all three formats. Part of the content-addressed artifact cache key (DE-4), "
+        "so a note edit misses the cache and recomposes.",
+    )
     format: ArtifactFormat = Field(
         default="svg", description="Artifact format to serialize (svg | pdf | dxf)"
     )
@@ -1269,6 +1276,25 @@ class ComposedBendTable(BaseModel):
     )
 
 
+class ComposedNote(BaseModel):
+    """A placed free-text note annotation (design §2.2 v1 — text at a sheet point).
+
+    The composed twin of :class:`NoteAnnotationParams`: the note ``text`` and its
+    anchor ``x``/``y`` in FINAL sheet-SVG space (mm, y-DOWN, top-left origin — the
+    same space every other placed primitive on :class:`ComposedSheet` uses), so a
+    serializer stamps it verbatim (no re-reasoning about axes). The three serializers
+    render it as left-anchored graphite-ink text, consistent with the title-block
+    stamped values. Additive to the sheet: an empty ``notes`` list emits nothing, so a
+    sheet with no notes composes byte-identically to its pre-notes golden. A note whose
+    anchor falls outside the sheet is placed verbatim (clipped by the viewer), the same
+    honest posture as a title-block text run — never a crash.
+    """
+
+    x: float = Field(description="Note anchor X (mm, SVG space)")
+    y: float = Field(description="Note anchor Y (mm, SVG space, y-down)")
+    text: str = Field(description="The note body, rendered verbatim")
+
+
 class ComposedSheet(BaseModel):
     """A fully placed drawing sheet — the model the three serializers render (§4.2).
 
@@ -1294,4 +1320,10 @@ class ComposedSheet(BaseModel):
         description="A flat-pattern sheet's placed bend-table block (rows + anchor "
         "rect, sheet-metal.md §7); null for every standard (HLR) sheet — additive, so "
         "a standard sheet composes byte-identically.",
+    )
+    notes: list[ComposedNote] = Field(
+        default_factory=list["ComposedNote"],
+        description="Placed free-text note annotations (design §2.2), each stamped at "
+        "its sheet anchor; empty for a sheet with no notes — additive, so a note-free "
+        "sheet composes byte-identically to its pre-notes golden.",
     )

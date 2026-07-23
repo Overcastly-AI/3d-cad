@@ -1230,6 +1230,33 @@
         "title": "ComposedMeasuredDimension",
         "type": "object"
       },
+      "ComposedNote": {
+        "description": "A placed free-text note annotation (design \u00a72.2 v1 \u2014 text at a sheet point).\n\nThe composed twin of :class:`NoteAnnotationParams`: the note ``text`` and its\nanchor ``x``/``y`` in FINAL sheet-SVG space (mm, y-DOWN, top-left origin \u2014 the\nsame space every other placed primitive on :class:`ComposedSheet` uses), so a\nserializer stamps it verbatim (no re-reasoning about axes). The three serializers\nrender it as left-anchored graphite-ink text, consistent with the title-block\nstamped values. Additive to the sheet: an empty ``notes`` list emits nothing, so a\nsheet with no notes composes byte-identically to its pre-notes golden. A note whose\nanchor falls outside the sheet is placed verbatim (clipped by the viewer), the same\nhonest posture as a title-block text run \u2014 never a crash.",
+        "properties": {
+          "text": {
+            "description": "The note body, rendered verbatim",
+            "title": "Text",
+            "type": "string"
+          },
+          "x": {
+            "description": "Note anchor X (mm, SVG space)",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Note anchor Y (mm, SVG space, y-down)",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "text"
+        ],
+        "title": "ComposedNote",
+        "type": "object"
+      },
       "ComposedPoint": {
         "description": "A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin).",
         "properties": {
@@ -1314,6 +1341,14 @@
             "description": "Border inset from the sheet edge (mm)",
             "title": "Margin Mm",
             "type": "number"
+          },
+          "notes": {
+            "description": "Placed free-text note annotations (design \u00a72.2), each stamped at its sheet anchor; empty for a sheet with no notes \u2014 additive, so a note-free sheet composes byte-identically to its pre-notes golden.",
+            "items": {
+              "$ref": "#/components/schemas/ComposedNote"
+            },
+            "title": "Notes",
+            "type": "array"
           },
           "scale_label": {
             "description": "The sheet scale label ('1:1')",

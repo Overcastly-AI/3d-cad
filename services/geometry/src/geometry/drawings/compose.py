@@ -46,6 +46,7 @@ from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
+    Annotation,
     BendTableRow,
     ComposedArrow,
     ComposedBendTable,
@@ -57,6 +58,7 @@ from py_kit.schemas.drawings import (
     ComposedEdge,
     ComposedLineEdge,
     ComposedMeasuredDimension,
+    ComposedNote,
     ComposedPoint,
     ComposedPolylineEdge,
     ComposedSheet,
@@ -1059,10 +1061,30 @@ def _bend_table_block(
     )
 
 
+def _place_notes(annotations: Sequence[Annotation]) -> list[ComposedNote]:
+    """Place each free-text note annotation onto the sheet (design §2.2 v1).
+
+    A note's authored ``position`` is already in FINAL sheet-SVG space (mm, y-down,
+    top-left origin — the same space the title block and view labels use), so it maps
+    to a :class:`ComposedNote` verbatim: no view transform, no y-flip (the serializers
+    apply the per-format axis convention, exactly as they do for the title block). The
+    request order is preserved, so the emitted primitives are deterministic; an empty
+    ``annotations`` yields ``[]`` and the sheet composes byte-identically to its
+    pre-notes golden. ``NoteText`` is validated non-empty (min_length=1) upstream, so a
+    blank note never reaches here; a note anchored off the sheet is placed verbatim
+    (the viewer clips it), the same honest posture as a title-block text run.
+    """
+    return [
+        ComposedNote(x=a.position.x_mm, y=a.position.y_mm, text=a.text)
+        for a in annotations
+    ]
+
+
 def place_sheet(
     evaluation: EvaluateDrawingViewsResult,
     dimensions: Sequence[DrawingDimensionInput],
     layout: SheetLayout,
+    annotations: Sequence[Annotation] = (),
 ) -> ComposedSheet:
     """Place the evaluated drawing on the sheet (drawing-export.md §4.2).
 
@@ -1073,9 +1095,15 @@ def place_sheet(
     ``evaluation.dimensions`` (measured values, same request order) so a dimension
     is placed with its params AND its model-true value. Pure + deterministic.
 
+    ``annotations`` are the request's authored sheet notes (design §2.2 v1): each is
+    placed verbatim at its sheet-mm anchor (:func:`_place_notes`) — no geometry needed,
+    so they are independent of the evaluated views. Defaulting to ``()`` keeps a
+    note-free compose byte-identical to its pre-notes golden.
+
     NB the two-argument ``place_sheet(evaluation, layout)`` of the design sketch is
-    widened to three: the measured-result envelope carries no dimension PARAMS, so
-    the authored inputs are threaded through explicitly.
+    widened: the measured-result envelope carries no dimension PARAMS (so the authored
+    dimension inputs are threaded through explicitly) and no sheet annotations (so the
+    authored notes are threaded through explicitly).
     """
     dims = sheet_dimensions(layout.size, layout.orientation)
     sheet_w, sheet_h = dims.x, dims.y
@@ -1175,6 +1203,7 @@ def place_sheet(
         views=composed_views,
         title_block=_title_block(layout, dims, scale_label),
         bend_table=bend_table_block,
+        notes=_place_notes(annotations),
     )
 
 
@@ -1218,6 +1247,14 @@ _BEND_DASH = "3 1.6"  # bend fold-line dash (distinct from the hidden-edge dash)
 #: Monospace stack (font.data) — the drafting vernacular. Emitted with escaped
 #: quotes so the attribute stays valid standalone XML.
 _FONT = "&quot;Fragment Mono&quot;, ui-monospace, monospace"
+
+#: Free-text note height (mm) — a sibling of the dimension/title-block value stamp
+#: (`drawing.dimensionTextMm`), so a note reads as ordinary sheet body text in graphite
+#: ink. The SINGLE size the SVG/PDF/DXF note serializers share; the paired DOM sheet
+#: half (BACKLOG follow-on) adds the matching `drawing.noteTextMm` design token so the
+#: on-screen note and the exported note are the SAME height (the cross-renderer token
+#: duplication the module header notes).
+_NOTE_TEXT_MM = 3.2
 
 
 def _fmt(value: float) -> str:
@@ -1487,6 +1524,20 @@ def _emit_bend_table(bt: ComposedBendTable, out: list[str]) -> None:
     out.append("    </g>")
 
 
+def _emit_note(note: ComposedNote, out: list[str]) -> None:
+    """Render a placed free-text note (design §2.2) — left-anchored graphite ink.
+
+    A single ``<text>`` stamped at the note's sheet anchor, in the same ink/font as the
+    title-block stamped values (consistent sheet text). ``dominant-baseline`` is the SVG
+    default (alphabetic), so the anchor is the text baseline — the DXF/PDF note
+    serializers place the baseline at the SAME anchor for a byte-consistent reading."""
+    out.append(
+        f'    <text data-testid="drawing-note" x="{_fmt(note.x)}" y="{_fmt(note.y)}" '
+        f'fill="{_INK}" font-family="{_FONT}" font-size="{_fmt(_NOTE_TEXT_MM)}" '
+        f'letter-spacing="0.1">{_esc(note.text)}</text>'
+    )
+
+
 def serialize_svg(composed: ComposedSheet) -> str:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable SVG string.
 
@@ -1522,6 +1573,8 @@ def serialize_svg(composed: ComposedSheet) -> str:
     _emit_title_block(composed.title_block, out)
     if composed.bend_table is not None:
         _emit_bend_table(composed.bend_table, out)
+    for note in composed.notes:
+        _emit_note(note, out)
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -1770,6 +1823,21 @@ def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
             )
 
 
+def _pdf_note(c: Canvas, note: ComposedNote) -> None:
+    """Stamp a placed free-text note onto the PDF canvas (design §2.2) — left-anchored
+    graphite ink at the note's sheet anchor (baseline-left, matching the SVG/DXF)."""
+    _pdf_text(
+        c,
+        note.x,
+        note.y,
+        note.text,
+        _NOTE_TEXT_MM,
+        _INK,
+        centred=False,
+        central=False,
+    )
+
+
 def serialize_pdf(composed: ComposedSheet) -> bytes:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable PDF (DE-2).
 
@@ -1813,6 +1881,8 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
     _pdf_title_block(c, composed.title_block)
     if composed.bend_table is not None:
         _pdf_bend_table(c, composed.bend_table)
+    for note in composed.notes:
+        _pdf_note(c, note)
     c.showPage()
     c.save()
     return buf.getvalue()
@@ -1851,6 +1921,10 @@ _LYR_TITLE = "TITLE"
 #: Flat-pattern fold lines (sheet-metal.md §7) — added ONLY for a flat-pattern sheet,
 #: so a standard sheet's TABLES section (and thus its DXF bytes) is byte-unchanged.
 _LYR_BEND = "BEND"
+#: Free-text notes (design §2.2) — added ONLY when the sheet carries notes, so a
+#: note-free sheet's TABLES section (and thus its DXF bytes) is byte-unchanged (the
+#: same additive-layer posture as `_LYR_BEND`).
+_LYR_NOTE = "NOTES"
 
 #: Mono text style — the consuming CAD supplies the Courier face (no embed).
 _DXF_STYLE = "LOFT_MONO"
@@ -2047,6 +2121,20 @@ def _dxf_bend_table(
             )
 
 
+def _dxf_note(
+    msp: Modelspace, note: ComposedNote, fy: Callable[[float], float]
+) -> None:
+    """Emit a placed free-text note as a DXF TEXT entity (design §2.2).
+
+    A single left-anchored TEXT on the NOTES layer at the note's sheet anchor (the ONE
+    y-flip applied via ``fy``, DXF model space being y-up), so the note reopens as real,
+    editable CAD text — not a picture. Left alignment (``centred=False``) matches the
+    SVG/PDF baseline-left placement."""
+    _dxf_text_entity(
+        msp, note.text, note.x, fy(note.y), _NOTE_TEXT_MM, 0.0, _LYR_NOTE, centred=False
+    )
+
+
 def serialize_dxf(composed: ComposedSheet) -> bytes:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable DXF (DE-3).
 
@@ -2080,6 +2168,10 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         # TABLES section (and its DXF bytes) is byte-unchanged (sheet-metal.md §7).
         if composed.bend_table is not None:
             doc.layers.add(_LYR_BEND, color=5, linetype="DASHED")
+        # The NOTES layer is added ONLY when the sheet carries notes, so a note-free
+        # sheet's TABLES section (and its DXF bytes) is byte-unchanged (design §2.2).
+        if composed.notes:
+            doc.layers.add(_LYR_NOTE, color=7)
         doc.styles.add(_DXF_STYLE, font="cour.ttf")
         msp = doc.modelspace()
 
@@ -2103,6 +2195,8 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         _dxf_title_block(msp, composed.title_block, fy)
         if composed.bend_table is not None:
             _dxf_bend_table(msp, composed.bend_table, fy)
+        for note in composed.notes:
+            _dxf_note(msp, note, fy)
 
         stream = io.StringIO()
         doc.write(stream)

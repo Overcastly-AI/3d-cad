@@ -1039,6 +1039,22 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       A3 → viewBox 420×297, 1:2), founder shots `drawings-size-picker-1440.png`
       + `drawings-sheet-size-a3-1440.png`. Residual (BACKLOG): flat-pattern
       auto-fit (needs unfolded extents, not the 3D bbox).
+      **Drawings note annotations — EXPORT half SHIPPED** (2026-07-23): the WB-64
+      dead-capability fix — an authored `NoteAnnotationParams` (text + `SheetPoint`)
+      was stored yet NEVER drawn. `place_sheet` now threads the request's authored
+      `annotations` into a `ComposedNote` list (each placed verbatim at its
+      sheet-mm anchor, request order preserved) and all three server serializers
+      draw them: SVG/PDF left-anchored graphite `<text>` at the point, DXF a real
+      `TEXT` entity on an additive `NOTES` layer (CAD-editable, not a picture) —
+      consistent with the title-block stamped text. `annotations` added to
+      `ComposeDrawingRequest` (was absent → the DE-4 content-addressed cache key
+      picks it up automatically, so a note edit misses + recomposes). New
+      `compose_note_goldens/` byte-goldens prove the note lands at its `SheetPoint`
+      in all three formats + reproduces across a fresh interpreter; a note-FREE
+      sheet stays byte-identical (additive — empty `notes` emits nothing). Contracts
+      regenerated (`ComposedNote` + `ComposedSheet.notes[]` + request `annotations`).
+      Geometry pytest + all pre-existing goldens byte-unchanged + `just lint` green.
+      Paired DOM-sheet render (`DrawingSheet.tsx`) is a discrete BACKLOG follow-on.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a

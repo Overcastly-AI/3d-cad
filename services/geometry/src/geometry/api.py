@@ -236,7 +236,9 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
         cache_status = "hit"
     else:
         evaluation = evaluate_drawing_views(request)
-        composed = place_sheet(evaluation, request.dimensions, request.layout)
+        composed = place_sheet(
+            evaluation, request.dimensions, request.layout, request.annotations
+        )
         if request.format == "pdf":
             body = serialize_pdf(composed)
         elif request.format == "dxf":
@@ -273,7 +275,9 @@ def compose_sheet_route(request: ComposeDrawingRequest) -> ComposedSheet:
     gateway owns auth. Deterministic (RESEARCH §9): same request ⇒ identical sheet.
     """
     evaluation = evaluate_drawing_views(request)
-    return place_sheet(evaluation, request.dimensions, request.layout)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
 
 
 _MESH_RESPONSES: dict[int | str, dict[str, Any]] = {

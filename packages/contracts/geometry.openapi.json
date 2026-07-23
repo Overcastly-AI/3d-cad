@@ -485,6 +485,14 @@
       "ComposeDrawingRequest": {
         "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nExtends :class:`EvaluateDrawingViewsRequest` (the evaluate INPUTS \u2014 ``part_id``\n/ ``tree_version`` / ``features`` / ``views`` / ``scale`` / ``dimensions`` are\ninherited VERBATIM, so composition reuses ``evaluate_drawing_views`` as its\nsole geometry source, no re-projection) with the ``layout`` (sheet + placed\nviews) and the requested ``format``. The geometry service evaluates the part\nONCE, places the sheet (``place_sheet``), and serializes to the requested\nartifact \u2014 deterministic (RESEARCH \u00a79): same request \u21d2 byte-identical artifact.",
         "properties": {
+          "annotations": {
+            "description": "Sheet annotations (v1: free-text notes) placed at their authored sheet positions; empty by default. Composed onto the sheet + serialized in all three formats. Part of the content-addressed artifact cache key (DE-4), so a note edit misses the cache and recomposes.",
+            "items": {
+              "$ref": "#/components/schemas/NoteAnnotationParams"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
           "dimensions": {
             "description": "Dimensions to measure against the evaluated body, each tagged with its view (design \u00a73/\u00a75). Empty (the default) \u2192 no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).",
             "items": {
@@ -908,6 +916,33 @@
         "title": "ComposedMeasuredDimension",
         "type": "object"
       },
+      "ComposedNote": {
+        "description": "A placed free-text note annotation (design \u00a72.2 v1 \u2014 text at a sheet point).\n\nThe composed twin of :class:`NoteAnnotationParams`: the note ``text`` and its\nanchor ``x``/``y`` in FINAL sheet-SVG space (mm, y-DOWN, top-left origin \u2014 the\nsame space every other placed primitive on :class:`ComposedSheet` uses), so a\nserializer stamps it verbatim (no re-reasoning about axes). The three serializers\nrender it as left-anchored graphite-ink text, consistent with the title-block\nstamped values. Additive to the sheet: an empty ``notes`` list emits nothing, so a\nsheet with no notes composes byte-identically to its pre-notes golden. A note whose\nanchor falls outside the sheet is placed verbatim (clipped by the viewer), the same\nhonest posture as a title-block text run \u2014 never a crash.",
+        "properties": {
+          "text": {
+            "description": "The note body, rendered verbatim",
+            "title": "Text",
+            "type": "string"
+          },
+          "x": {
+            "description": "Note anchor X (mm, SVG space)",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Note anchor Y (mm, SVG space, y-down)",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "text"
+        ],
+        "title": "ComposedNote",
+        "type": "object"
+      },
       "ComposedPoint": {
         "description": "A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin).",
         "properties": {
@@ -992,6 +1027,14 @@
             "description": "Border inset from the sheet edge (mm)",
             "title": "Margin Mm",
             "type": "number"
+          },
+          "notes": {
+            "description": "Placed free-text note annotations (design \u00a72.2), each stamped at its sheet anchor; empty for a sheet with no notes \u2014 additive, so a note-free sheet composes byte-identically to its pre-notes golden.",
+            "items": {
+              "$ref": "#/components/schemas/ComposedNote"
+            },
+            "title": "Notes",
+            "type": "array"
           },
           "scale_label": {
             "description": "The sheet scale label ('1:1')",
@@ -3679,6 +3722,34 @@
           "b"
         ],
         "title": "MirrorAxisPoints",
+        "type": "object"
+      },
+      "NoteAnnotationParams": {
+        "description": "A free text note placed on the sheet (design \u00a72.2 v1 minimal).\n\nv1 ships the ``note`` kind only (text + sheet position); a ``leader`` (a note\nwith a pointer) joins additively later \u2014 hence :data:`Annotation` is a plain\nalias today (pydantic forbids a single-member discriminated union), promoted\nto a ``type``-discriminated union when the second kind lands.",
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/SheetPoint",
+            "description": "Anchor position on the sheet (mm)"
+          },
+          "text": {
+            "description": "The note body",
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "const": "note",
+            "default": "note",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "position"
+        ],
+        "title": "NoteAnnotationParams",
         "type": "object"
       },
       "OverlayEdge": {
@@ -6489,7 +6560,7 @@
     },
     "/api/v1/drawing/compose": {
       "post": {
-        "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nApproach C's server-composed export: geometry OWNS drafting placement. Reuses\n``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values\n(no re-projection), places the sheet (``place_sheet`` \u2014 bounds-aware view\nanchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),\nthen serializes to the requested ``format``: ``svg`` (dependency-free),\n``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) \u2014 all\ndeterministic. Identity-free \u2014 the gateway owns auth (same posture as\n``/export``). Deterministic (RESEARCH \u00a79): same request \u21d2 identical bytes.",
+        "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nApproach C's server-composed export: geometry OWNS drafting placement. Reuses\n``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values\n(no re-projection), places the sheet (``place_sheet`` \u2014 bounds-aware view\nanchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),\nthen serializes to the requested ``format``: ``svg`` (dependency-free),\n``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) \u2014 all\ndeterministic. Identity-free \u2014 the gateway owns auth (same posture as\n``/export``). Deterministic (RESEARCH \u00a79): same request \u21d2 identical bytes.\n\n**Content-addressed cache (DE-4, drawing-export.md \u00a78.3).** The composed bytes\nare stored keyed on a content address of the WHOLE request\n(:func:`~geometry.drawing_store.drawing_artifact_key`), so a repeat export of an\nunchanged drawing is served byte-identically from storage WITHOUT re-composing\n(``X-Loft-Artifact-Cache: hit``). Any edit \u2014 views/dimensions/title-block/sheet\nor the ``format`` \u2014 changes the key, misses (``miss``), and recomposes; a stale\nartifact is never served. The store is a cache, not state: a miss just composes.",
         "operationId": "compose_drawing_route_api_v1_drawing_compose_post",
         "requestBody": {
           "content": {
@@ -6523,7 +6594,7 @@
                 }
               }
             },
-            "description": "The composed drawing artifact bytes (`image/svg+xml`, `application/pdf`, or `image/vnd.dxf` per `format`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes."
+            "description": "The composed drawing artifact bytes (`image/svg+xml`, `application/pdf`, or `image/vnd.dxf` per `format`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes. `X-Loft-Artifact-Cache` reports `hit` (served from the content-addressed store) or `miss` (composed fresh)."
           },
           "422": {
             "content": {

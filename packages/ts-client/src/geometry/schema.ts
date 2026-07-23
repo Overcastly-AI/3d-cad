@@ -56,6 +56,14 @@ export interface paths {
          *     ``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) — all
          *     deterministic. Identity-free — the gateway owns auth (same posture as
          *     ``/export``). Deterministic (RESEARCH §9): same request ⇒ identical bytes.
+         *
+         *     **Content-addressed cache (DE-4, drawing-export.md §8.3).** The composed bytes
+         *     are stored keyed on a content address of the WHOLE request
+         *     (:func:`~geometry.drawing_store.drawing_artifact_key`), so a repeat export of an
+         *     unchanged drawing is served byte-identically from storage WITHOUT re-composing
+         *     (``X-Loft-Artifact-Cache: hit``). Any edit — views/dimensions/title-block/sheet
+         *     or the ``format`` — changes the key, misses (``miss``), and recomposes; a stale
+         *     artifact is never served. The store is a cache, not state: a miss just composes.
          */
         post: operations["compose_drawing_route_api_v1_drawing_compose_post"];
         delete?: never;
@@ -966,6 +974,11 @@ export interface components {
          */
         ComposeDrawingRequest: {
             /**
+             * Annotations
+             * @description Sheet annotations (v1: free-text notes) placed at their authored sheet positions; empty by default. Composed onto the sheet + serialized in all three formats. Part of the content-addressed artifact cache key (DE-4), so a note edit misses the cache and recomposes.
+             */
+            annotations?: components["schemas"]["NoteAnnotationParams"][];
+            /**
              * Dimensions
              * @description Dimensions to measure against the evaluated body, each tagged with its view (design §3/§5). Empty (the default) → no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).
              */
@@ -1233,6 +1246,37 @@ export interface components {
             text: components["schemas"]["ComposedDimText"];
         };
         /**
+         * ComposedNote
+         * @description A placed free-text note annotation (design §2.2 v1 — text at a sheet point).
+         *
+         *     The composed twin of :class:`NoteAnnotationParams`: the note ``text`` and its
+         *     anchor ``x``/``y`` in FINAL sheet-SVG space (mm, y-DOWN, top-left origin — the
+         *     same space every other placed primitive on :class:`ComposedSheet` uses), so a
+         *     serializer stamps it verbatim (no re-reasoning about axes). The three serializers
+         *     render it as left-anchored graphite-ink text, consistent with the title-block
+         *     stamped values. Additive to the sheet: an empty ``notes`` list emits nothing, so a
+         *     sheet with no notes composes byte-identically to its pre-notes golden. A note whose
+         *     anchor falls outside the sheet is placed verbatim (clipped by the viewer), the same
+         *     honest posture as a title-block text run — never a crash.
+         */
+        ComposedNote: {
+            /**
+             * Text
+             * @description The note body, rendered verbatim
+             */
+            text: string;
+            /**
+             * X
+             * @description Note anchor X (mm, SVG space)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Note anchor Y (mm, SVG space, y-down)
+             */
+            y: number;
+        };
+        /**
          * ComposedPoint
          * @description A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin).
          */
@@ -1299,6 +1343,11 @@ export interface components {
              * @description Border inset from the sheet edge (mm)
              */
             margin_mm: number;
+            /**
+             * Notes
+             * @description Placed free-text note annotations (design §2.2), each stamped at its sheet anchor; empty for a sheet with no notes — additive, so a note-free sheet composes byte-identically to its pre-notes golden.
+             */
+            notes?: components["schemas"]["ComposedNote"][];
             /**
              * Scale Label
              * @description The sheet scale label ('1:1')
@@ -3300,6 +3349,30 @@ export interface components {
              * @enum {string}
              */
             kind: "points";
+        };
+        /**
+         * NoteAnnotationParams
+         * @description A free text note placed on the sheet (design §2.2 v1 minimal).
+         *
+         *     v1 ships the ``note`` kind only (text + sheet position); a ``leader`` (a note
+         *     with a pointer) joins additively later — hence :data:`Annotation` is a plain
+         *     alias today (pydantic forbids a single-member discriminated union), promoted
+         *     to a ``type``-discriminated union when the second kind lands.
+         */
+        NoteAnnotationParams: {
+            /** @description Anchor position on the sheet (mm) */
+            position: components["schemas"]["SheetPoint"];
+            /**
+             * Text
+             * @description The note body
+             */
+            text: string;
+            /**
+             * Type
+             * @default note
+             * @constant
+             */
+            type: "note";
         };
         /**
          * OverlayEdge
@@ -5342,7 +5415,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The composed drawing artifact bytes (`image/svg+xml`, `application/pdf`, or `image/vnd.dxf` per `format`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes. */
+            /** @description The composed drawing artifact bytes (`image/svg+xml`, `application/pdf`, or `image/vnd.dxf` per `format`). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes. `X-Loft-Artifact-Cache` reports `hit` (served from the content-addressed store) or `miss` (composed fresh). */
             200: {
                 headers: {
                     [name: string]: unknown;

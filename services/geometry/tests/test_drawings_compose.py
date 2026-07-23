@@ -53,6 +53,7 @@ from py_kit.schemas.drawings import (
     ComposedLineEdge,
     ComposedMeasuredDimension,
     ComposeDrawingRequest,
+    ComposedSheet,
     DiameterDimensionParams,
     DimensionEndpointRef,
     DimensionParams,
@@ -555,7 +556,9 @@ request = ComposeDrawingRequest.model_validate_json(
     (golden / "request.json").read_text(encoding="utf-8")
 )
 evaluation = evaluate_drawing_views(request)
-composed = place_sheet(evaluation, request.dimensions, request.layout)
+composed = place_sheet(
+    evaluation, request.dimensions, request.layout, request.annotations
+)
 sys.stdout.write(serialize_svg(composed))
 """
 
@@ -619,7 +622,9 @@ request = ComposeDrawingRequest.model_validate_json(
     (golden / "request.json").read_text(encoding="utf-8")
 )
 evaluation = evaluate_drawing_views(request)
-composed = place_sheet(evaluation, request.dimensions, request.layout)
+composed = place_sheet(
+    evaluation, request.dimensions, request.layout, request.annotations
+)
 sys.stdout.buffer.write(serialize_pdf(composed))
 """
 
@@ -699,7 +704,9 @@ request = ComposeDrawingRequest.model_validate_json(
     (golden / "request.json").read_text(encoding="utf-8")
 )
 evaluation = evaluate_drawing_views(request)
-composed = place_sheet(evaluation, request.dimensions, request.layout)
+composed = place_sheet(
+    evaluation, request.dimensions, request.layout, request.annotations
+)
 sys.stdout.buffer.write(serialize_dxf(composed))
 """
 
@@ -718,6 +725,126 @@ def test_golden_dxf_is_deterministic_across_interpreter_restart() -> None:
     assert result.stdout == local, (
         "composed DXF bytes differ across interpreter restart"
     )
+
+
+# --- note annotations: composed onto the sheet + serialized (design §2.2) -------
+# The WB-64 dead-capability fix: an authored `NoteAnnotationParams` (text + SheetPoint)
+# was stored yet NEVER drawn. These gates prove it now lands at its sheet point in all
+# three server-composed formats, and that a note-FREE sheet stays byte-identical.
+_NOTE_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_note_goldens"
+
+
+def _note_request() -> ComposeDrawingRequest:
+    return ComposeDrawingRequest.model_validate_json(
+        (_NOTE_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+
+
+def _compose_note_sheet() -> ComposedSheet:
+    request = _note_request()
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def test_notes_place_at_sheet_points() -> None:
+    """Each authored note is placed verbatim at its sheet-mm anchor (design §2.2),
+    request order preserved — no view transform, no y-flip (the serializers apply the
+    per-format axis convention, as they do for the title block)."""
+    sheet = _compose_note_sheet()
+    assert [(n.x, n.y, n.text) for n in sheet.notes] == [
+        (20.0, 24.0, "MATERIAL: AL 6061-T6"),
+        (20.0, 32.0, "DEBURR ALL EDGES"),
+    ]
+
+
+def test_note_golden_svg_is_byte_identical() -> None:
+    """The composed SVG for the note golden matches the committed golden byte-for-byte:
+    each note is a left-anchored ink `<text>` stamped at its SheetPoint."""
+    expected = (_NOTE_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_note_sheet()) == expected
+
+
+def test_note_golden_pdf_is_byte_identical() -> None:
+    expected = (_NOTE_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_note_sheet()) == expected
+
+
+def test_note_golden_dxf_is_byte_identical() -> None:
+    expected = (_NOTE_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_note_sheet()) == expected
+
+
+def test_note_lands_at_sheet_point_in_svg() -> None:
+    """The SVG stamps each note's text at its SheetPoint (x/y verbatim) as a
+    left-anchored ink `<text>` — the invisible-note defect (WB-64) is fixed."""
+    svg = serialize_svg(_compose_note_sheet())
+    assert '<text data-testid="drawing-note" x="20.0000" y="24.0000"' in svg
+    assert ">MATERIAL: AL 6061-T6</text>" in svg
+    assert ">DEBURR ALL EDGES</text>" in svg
+
+
+def test_note_lands_at_sheet_point_in_dxf() -> None:
+    """The DXF emits each note as a REAL TEXT entity on the NOTES layer at its
+    (y-flipped) sheet anchor — CAD-editable text a shop reads, not a picture."""
+    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
+        io.StringIO(serialize_dxf(_compose_note_sheet()).decode("utf-8"))
+    )
+    assert "NOTES" in {layer.dxf.name for layer in doc.layers}
+    notes = {
+        e.dxf.text: (round(e.dxf.insert.x, 3), round(e.dxf.insert.y, 3))
+        for e in doc.modelspace()
+        if e.dxftype() == "TEXT" and e.dxf.layer == "NOTES"
+    }
+    # Model space is y-UP: the SVG y-down anchors 24 / 32 map to 210-24 / 210-32.
+    assert notes == {
+        "MATERIAL: AL 6061-T6": (20.0, 186.0),
+        "DEBURR ALL EDGES": (20.0, 178.0),
+    }
+    assert not doc.audit().errors
+
+
+def test_note_pdf_carries_note_text() -> None:
+    """The PDF (base-14 Courier, pageCompression=0 → plain text ops) carries the note
+    strings — dimensionally-correct shop text, not an opaque blob."""
+    pdf = serialize_pdf(_compose_note_sheet())
+    for token in (b"MATERIAL: AL 6061-T6", b"DEBURR ALL EDGES"):
+        assert token in pdf, f"missing {token!r}"
+
+
+def test_note_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose of the note golden reproduces the SAME SVG bytes
+    (§8.3 / RESEARCH §9) — note placement is byte-deterministic like everything else."""
+    local = serialize_svg(_compose_note_sheet())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_NOTE_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "composed note SVG differs across interpreter restart"
+    )
+
+
+def test_no_note_sheet_is_byte_identical_to_pre_notes_goldens() -> None:
+    """A sheet with NO notes composes byte-identically to its pre-notes goldens in all
+    three formats: `composed.notes` is empty and emits nothing (the notes capability is
+    additive — no note ⇒ no output change). Guards the parity port + the DE-4 cache."""
+    request = _golden_request()
+    assert request.annotations == []
+    evaluation = evaluate_drawing_views(request)
+    composed = place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+    assert composed.notes == []
+    assert serialize_svg(composed) == (_GOLDEN_DIR / "sheet.svg").read_text(
+        encoding="utf-8"
+    )
+    assert serialize_pdf(composed) == (_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_dxf(composed) == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
 
 
 # --- endpoint (mirrors /export wiring) -----------------------------------------
