@@ -68,7 +68,9 @@ from geometry.kernel.imports import (
 )
 from geometry.kernel.interference import (
     CLASH_VOLUME_FLOOR_MM3,
+    OverlapProbe,
     intersection_volume,
+    probe_overlap,
 )
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
@@ -143,6 +145,7 @@ __all__ = [
     "MeasureError",
     "NoAxisError",
     "NoEdgesSelectedError",
+    "OverlapProbe",
     "PathClosedError",
     "PathEmptyError",
     "PathNotConnectedError",
@@ -203,6 +206,7 @@ __all__ = [
     "offset_plane",
     "place_body",
     "planar_faces",
+    "probe_overlap",
     "read_step_assembly",
     "resolve_axis_line",
     "resolve_edge",

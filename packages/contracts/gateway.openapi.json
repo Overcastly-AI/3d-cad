@@ -853,7 +853,7 @@
         "type": "object"
       },
       "ClashPair": {
-        "description": "One interfering instance pair + the volume of their B-rep overlap (\u00a74).\n\n``instance_a`` / ``instance_b`` are the two clashing instances \u2014 reported as\nan UNORDERED pair exactly once (``instance_a`` precedes ``instance_b`` in the\nrequest's instance order, so the same physical clash is never double-listed).\n``overlap_volume_mm3`` is the exact volume of the solved-world intersection\nsolid (``BRepAlgoAPI_Common``), always positive and above the kernel-tolerance\nfloor (a merely-touching, coincident-face pair reports NO clash, \u00a74).",
+        "description": "One interfering instance pair + the volume of their B-rep overlap (\u00a74).\n\n``instance_a`` / ``instance_b`` are the two clashing instances \u2014 reported as\nan UNORDERED pair exactly once (``instance_a`` precedes ``instance_b`` in the\nrequest's instance order, so the same physical clash is never double-listed).\n``overlap_volume_mm3`` is the exact volume of the solved-world intersection\nsolid (``BRepAlgoAPI_Common``), always positive and above the kernel-tolerance\nfloor (a merely-touching, coincident-face pair reports NO clash, \u00a74).\n\n``unresolved`` distinguishes a MEASURED clash from one the kernel boolean\ncould not resolve. The exact intersection can *fail* on two deeply\ninterpenetrating solids (an OCCT robustness limit that shares an exception\nsurface with a harmless grazing degeneracy); reporting such a pair as \"clear\"\nwould be a dangerous false negative for a collision check, so when the boolean\nfails but the two solved-world bounding boxes overlap, the pair is surfaced as\n``unresolved: true`` for the user to inspect. For an unresolved pair\n``overlap_volume_mm3`` is a COARSE magnitude hint (the overlapping-AABB volume,\nwhich bounds the true overlap from above), NOT an exact clash volume. A normal\nmeasured clash carries ``unresolved: false`` (the default) and an exact volume.",
         "properties": {
           "instance_a": {
             "description": "First clashing instance (request order)",
@@ -868,10 +868,16 @@
             "type": "string"
           },
           "overlap_volume_mm3": {
-            "description": "Exact volume of the two instances' solved-world intersection solid (mm\u00b3); above the kernel-tolerance clash floor",
+            "description": "Overlap magnitude (mm\u00b3): the EXACT intersection-solid volume for a measured clash (above the kernel-tolerance floor), or \u2014 when `unresolved` \u2014 the coarse overlapping-AABB volume as a hint",
             "minimum": 0.0,
             "title": "Overlap Volume Mm3",
             "type": "number"
+          },
+          "unresolved": {
+            "default": false,
+            "description": "True when the exact B-rep boolean FAILED but the two solved-world bounding boxes overlap, so a real interference is possible but could not be measured \u2014 surfaced for inspection, never reported as clear. False (default) for a normally-measured clash.",
+            "title": "Unresolved",
+            "type": "boolean"
           }
         },
         "required": [
@@ -4640,7 +4646,7 @@
             "type": "string"
           },
           "clashes": {
-            "description": "Interfering instance pairs (request-order, each pair once); empty for a clash-free assembly",
+            "description": "Interfering instance pairs (request-order, each pair once); empty for a clash-free assembly. Includes any `unresolved` pairs whose exact boolean failed but whose bounding boxes overlap (surfaced, not hidden as clear).",
             "items": {
               "$ref": "#/components/schemas/ClashPair"
             },

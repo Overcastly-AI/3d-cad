@@ -15,10 +15,14 @@ Pipeline (reusing the shipped solve VERBATIM):
 2. Place every bodied instance at its solved world pose
    (:func:`geometry.kernel.export.place_body` — the shared placement transform,
    NOT reinvented) and scan every unordered instance pair once, computing the
-   overlap-solid volume via :func:`geometry.kernel.interference.intersection_volume`
-   (``BRepAlgoAPI_Common``). A pair whose overlap exceeds the kernel-tolerance
-   clash floor is reported; a merely-touching (coincident-face, zero-volume) pair
-   is NOT.
+   overlap via :func:`geometry.kernel.interference.probe_overlap`
+   (``BRepAlgoAPI_Common``). A pair whose exact overlap exceeds the
+   kernel-tolerance clash floor is reported; a merely-touching (coincident-face,
+   zero-volume) pair is NOT. When the exact boolean *fails* on a pair whose
+   solved-world bounding boxes overlap (an OCCT robustness limit that would
+   otherwise masquerade as "clear"), the pair is surfaced as an ``unresolved``
+   clash for inspection — never silently dropped — and the failure is logged with
+   both instance ids.
 
 **Cost — accepted v1 bound.** The scan is O(N²) in the number of bodied
 instances (every unordered pair booleaned). That is the deliberate v1 bound: it
@@ -38,6 +42,7 @@ BLAS-pinned solve yields an identical clash list across interpreter restarts.
 
 from __future__ import annotations
 
+from py_kit import get_logger
 from py_kit.schemas.assemblies import (
     ClashPair,
     EvaluateAssemblyRequest,
@@ -46,9 +51,11 @@ from py_kit.schemas.assemblies import (
 
 from geometry.assembly.evaluate import PlacedInstance, solve_assembly
 from geometry.assembly.transform import Pose
-from geometry.kernel import intersection_volume, place_body
+from geometry.kernel import place_body, probe_overlap
 from geometry.kernel.interference import CLASH_VOLUME_FLOOR_MM3
 from geometry.kernel.types import BodyShape
+
+_logger = get_logger("geometry.assembly.interference")
 
 
 def _world_body(placed: PlacedInstance) -> BodyShape:
@@ -89,13 +96,35 @@ def check_interference(request: EvaluateAssemblyRequest) -> InterferenceResult:
         id_a, body_a = world_bodies[i]
         for j in range(i + 1, len(world_bodies)):
             id_b, body_b = world_bodies[j]
-            volume = intersection_volume(body_a, body_b)
-            if volume > CLASH_VOLUME_FLOOR_MM3:
+            probe = probe_overlap(body_a, body_b)
+            if probe.boolean_failed:
+                # Observability: a raised boolean is never silent, whatever the
+                # AABB fallback then decided (unresolved vs genuinely-clear).
+                _logger.warning(
+                    "interference_boolean_failed",
+                    instance_a=str(id_a),
+                    instance_b=str(id_b),
+                    unresolved=probe.unresolved,
+                    aabb_overlap_mm3=probe.volume_mm3 if probe.unresolved else 0.0,
+                )
+            if probe.unresolved:
+                # Boolean failed but the solved-world AABBs overlap: a real
+                # interference is possible and could not be measured → surface it
+                # for inspection rather than hide it as clear (the dangerous FN).
                 clashes.append(
                     ClashPair(
                         instance_a=id_a,
                         instance_b=id_b,
-                        overlap_volume_mm3=volume,
+                        overlap_volume_mm3=probe.volume_mm3,
+                        unresolved=True,
+                    )
+                )
+            elif probe.volume_mm3 > CLASH_VOLUME_FLOOR_MM3:
+                clashes.append(
+                    ClashPair(
+                        instance_a=id_a,
+                        instance_b=id_b,
+                        overlap_volume_mm3=probe.volume_mm3,
                     )
                 )
 

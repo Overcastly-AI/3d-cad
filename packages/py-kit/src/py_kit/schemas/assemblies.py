@@ -810,6 +810,17 @@ class ClashPair(BaseModel):
     ``overlap_volume_mm3`` is the exact volume of the solved-world intersection
     solid (``BRepAlgoAPI_Common``), always positive and above the kernel-tolerance
     floor (a merely-touching, coincident-face pair reports NO clash, §4).
+
+    ``unresolved`` distinguishes a MEASURED clash from one the kernel boolean
+    could not resolve. The exact intersection can *fail* on two deeply
+    interpenetrating solids (an OCCT robustness limit that shares an exception
+    surface with a harmless grazing degeneracy); reporting such a pair as "clear"
+    would be a dangerous false negative for a collision check, so when the boolean
+    fails but the two solved-world bounding boxes overlap, the pair is surfaced as
+    ``unresolved: true`` for the user to inspect. For an unresolved pair
+    ``overlap_volume_mm3`` is a COARSE magnitude hint (the overlapping-AABB volume,
+    which bounds the true overlap from above), NOT an exact clash volume. A normal
+    measured clash carries ``unresolved: false`` (the default) and an exact volume.
     """
 
     instance_a: uuid.UUID = Field(description="First clashing instance (request order)")
@@ -818,8 +829,16 @@ class ClashPair(BaseModel):
     )
     overlap_volume_mm3: float = Field(
         ge=0.0,
-        description="Exact volume of the two instances' solved-world intersection "
-        "solid (mm³); above the kernel-tolerance clash floor",
+        description="Overlap magnitude (mm³): the EXACT intersection-solid volume "
+        "for a measured clash (above the kernel-tolerance floor), or — when "
+        "`unresolved` — the coarse overlapping-AABB volume as a hint",
+    )
+    unresolved: bool = Field(
+        default=False,
+        description="True when the exact B-rep boolean FAILED but the two "
+        "solved-world bounding boxes overlap, so a real interference is possible "
+        "but could not be measured — surfaced for inspection, never reported as "
+        "clear. False (default) for a normally-measured clash.",
     )
 
 
@@ -843,7 +862,9 @@ class InterferenceResult(BaseModel):
     version: int
     clashes: list[ClashPair] = Field(
         description="Interfering instance pairs (request-order, each pair once); "
-        "empty for a clash-free assembly"
+        "empty for a clash-free assembly. Includes any `unresolved` pairs whose "
+        "exact boolean failed but whose bounding boxes overlap (surfaced, not "
+        "hidden as clear)."
     )
     status: AssemblySolveStatus = Field(description="Assembly-level solve outcome")
     diagnosis: AssemblySolveDiagnosis | None = Field(

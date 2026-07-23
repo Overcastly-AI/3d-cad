@@ -117,6 +117,26 @@ frame refactor are v2/§11. Spike de-collected.
       (1e-12 mm³) so a coincident-face touch is NOT a clash. N² over bodied
       instances documented as the accepted v1 bound (AABB broad-phase = v2).
       See Done archive.
+- [x] (P1, S) Interference detector — close the silent false-negative on a
+      boolean robustness failure (code-review 🟡, `e46db16`). **Shipped
+      2026-07-23** — `kernel/interference` no longer `except Exception: return
+      0.0`: on a `BRepAlgoAPI_Common` failure it now runs a robust solved-world
+      AABB-overlap fallback (`probe_overlap` → `OverlapProbe` tri-state). Disjoint
+      AABBs stay no-clash (a real interference is geometrically impossible);
+      overlapping AABBs surface the pair as `ClashPair.unresolved=true` (new
+      additive field) with the AABB-overlap magnitude hint — never hidden as clear
+      (the dangerous FN for a collision check). Warning logged with both instance
+      ids on the exception path. Guard tests force the boolean to raise for an
+      overlapping- and a disjoint-AABB pair; existing 12 interference tests
+      unchanged. Contracts + ts-client regenerated (backward-compatible — the web
+      clash panel still renders `overlap_volume_mm3`). [src: AUDIT-ENGINEERING.md
+      interference review]
+- [ ] (P3, S) Surface the `unresolved` clash state in the web clash panel
+      (`AssemblyClashPanel.tsx`) — a distinct "unresolved · inspect" row style
+      (not the exact-volume red balloon) for `ClashPair.unresolved=true`, so a
+      masked boolean failure reads as "could not verify — inspect" rather than a
+      measured overlap. Schema + generated API already carry the flag
+      (backward-compatible). [src: interference hardening follow-up 2026-07-23]
 - [ ] (P1, M) Assembly STEP import with product structure. Read AP214
       PRODUCT/NEXT_ASSEMBLY_USAGE_OCCURRENCE into positioned, NAMED Loft
       assembly instances — not one anonymous multi-lump body (today's MB-4b

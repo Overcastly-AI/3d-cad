@@ -22,6 +22,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from build123d import Solid
 from fastapi.testclient import TestClient
 from geometry.assembly import check_interference
 from geometry.assembly.transform import Pose
@@ -402,3 +403,89 @@ def test_clash_list_is_deterministic_across_repeated_calls() -> None:
         ]
         # Exact equality (not approx): determinism means identical bytes.
         assert again == baseline
+
+
+# --- robustness guard: a boolean FAILURE must never be reported as "clear" ------
+# code-review 🟡 (e46db16): BRepAlgoAPI_Common can RAISE on two deeply
+# interpenetrating solids (an OCCT robustness limit), sharing an exception surface
+# with a harmless grazing degeneracy. The old `except Exception: return 0.0`
+# swallowed both to zero overlap → a false "no clash" for parts that physically
+# collide (the DANGEROUS direction for a collision check). The fix falls back to a
+# robust solved-world AABB-overlap test: disjoint AABBs stay no-clash; overlapping
+# AABBs surface the pair as `unresolved`, never hidden as clear. These force the
+# exception path (monkeypatching the exact boolean to raise) so the AABB fallback
+# and the assembly surfacing run for real.
+
+
+def _forced_boolean_failure(*_args: object, **_kwargs: object) -> object:
+    """Stand-in for ``Shape.intersect`` that raises like an OCCT robustness fault."""
+    raise RuntimeError("forced BRepAlgoAPI_Common robustness failure")
+
+
+def test_boolean_failure_on_overlapping_bodies_is_surfaced_unresolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exact boolean RAISES on a deeply overlapping pair → an `unresolved` clash.
+
+    A at x∈[0,40], B at x∈[30,70] deeply interpenetrate. With the exact
+    ``Common`` forced to raise (the robustness fault this guards), the pair must
+    NOT vanish to "clear": the AABB fallback sees the boxes overlap and the pair
+    is reported with ``unresolved=True`` and the AABB-overlap magnitude hint
+    (10x25x10 = 2500 mm³ for these axis-aligned boxes). This is the dangerous
+    false-negative the fix closes.
+    """
+    monkeypatch.setattr(Solid, "intersect", _forced_boolean_failure)
+    result = check_interference(_request(_instance(1, x=0.0), _instance(2, x=30.0)))
+    assert len(result.clashes) == 1
+    clash = result.clashes[0]
+    assert clash.unresolved is True
+    assert {clash.instance_a, clash.instance_b} == {iid(1), iid(2)}
+    # The magnitude hint is the overlapping-AABB volume, not an exact common.
+    assert clash.overlap_volume_mm3 == pytest.approx(2500.0, rel=OVERLAP_REL_TOL)
+
+
+def test_boolean_failure_on_disjoint_bodies_stays_no_clash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exact boolean RAISES on a non-overlapping pair → genuinely no clash.
+
+    A at x∈[0,40], B at x∈[50,90] have a 10 mm gap, so their bounding boxes are
+    disjoint and a real interference is geometrically impossible. Even with the
+    boolean forced to raise, the AABB fallback resolves this to "no clash" — the
+    grazing/degenerate case must stay clear, not spuriously flag.
+    """
+    monkeypatch.setattr(Solid, "intersect", _forced_boolean_failure)
+    result = check_interference(_request(_instance(1, x=0.0), _instance(2, x=50.0)))
+    assert result.clashes == []
+
+
+def test_probe_overlap_tri_state_resolved_vs_forced_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Directly lock the kernel probe's tri-state on one deeply-overlapping pair.
+
+    Two identical boxes offset +30 in x (real overlap 2500 mm³). The RESOLVED
+    probe carries the exact volume with no failure flags. When the exact boolean
+    is forced to raise, the SAME pair (overlapping AABBs) comes back
+    ``unresolved`` + ``boolean_failed`` with the positive AABB hint — never a
+    false 0.0. The hint is >= the true overlap (the AABB bounds it from above),
+    the SAFE direction for a collision check.
+    """
+    from geometry.kernel.export import place_body
+    from geometry.kernel.interference import probe_overlap
+    from geometry.kernel.shapes import build_box
+
+    box = build_box(40.0, 25.0, 10.0)
+    a = place_body(box, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    b = place_body(box, (30.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+
+    resolved = probe_overlap(a, b)
+    assert resolved.unresolved is False
+    assert resolved.boolean_failed is False
+    assert resolved.volume_mm3 == pytest.approx(2500.0, rel=OVERLAP_REL_TOL)
+
+    monkeypatch.setattr(Solid, "intersect", _forced_boolean_failure)
+    failed = probe_overlap(a, b)
+    assert failed.boolean_failed is True
+    assert failed.unresolved is True
+    assert failed.volume_mm3 >= resolved.volume_mm3  # AABB hint bounds from above

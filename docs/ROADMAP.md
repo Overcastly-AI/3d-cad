@@ -408,7 +408,12 @@ pairwise `BRepAlgoAPI_Common` over the solved world-placed bodies →
 `clashes: [{instance_a, instance_b, overlap_volume_mm3}]`; principled volume
 floor = one kernel-tolerance cube so a coincident-face touch is no clash; N²
 over bodied instances = accepted v1 bound; analytic 2500 mm³ overlap verified
-to 4.5e-13). **Gateway proxy boundary tests for both routes landed 2026-07-23**
+to 4.5e-13). **Interference robustness hardening landed 2026-07-23** (code-review
+🟡 on `e46db16` — the detector no longer swallows a `BRepAlgoAPI_Common` failure
+to a false "no clash": on the exception path a robust solved-world AABB-overlap
+fallback either confirms genuinely-clear (disjoint boxes) or surfaces the pair as
+`ClashPair.unresolved=true`, the safe direction for a collision check).
+**Gateway proxy boundary tests for both routes landed 2026-07-23**
 (E2 test-half — `test_assembly_export_proxy.py` + `test_assembly_interference_
 proxy.py`: auth/rate-limit/identity-free-upstream/pass-through/error-resurface).
 **E2 web consumers landed 2026-07-23** — the assembly page now exports the
