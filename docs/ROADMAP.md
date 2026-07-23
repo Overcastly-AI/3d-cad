@@ -751,10 +751,17 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       resolves any datum kind to its sketch basis by the same math the kernel
       evaluates (`resolveDatumBasis`), so these datums are sketchable + preview
       in the plane picker; e2e authors a midplane + an offset_from through the
-      real stack and extrudes bodies at the resolved heights. Remaining:
-      midplane FACE-sides + `on_face` authoring in the editor (filed — needs
-      the FacePickOverlay wired into the standalone editor), and the angled /
-      3-point / tangent / normal-to-curve kinds.
+      real stack and extrudes bodies at the resolved heights. **Midplane
+      FACE-sides + `on_face` authoring ✅ 2026-07-23 (frontend-builder):** the
+      `FacePickOverlay` is wired into the standalone `DatumEditor` — an `on_face`
+      kind and either midplane side arm the same viewport face pick as
+      sketch-on-face, folding a clicked planar face in as a full-precision
+      `SubshapeRef` (reusing `faceSubshapeRef`/`onFaceDatumParams`, so kernel
+      resolution matches sketch-on-face); editing a face-datum re-seeds its
+      stored signature; e2e (`datum-face-pick.spec.ts`, 5 tests) proves each
+      authored face-datum evaluates "Solved" + survives reload; founder shots
+      `datum-on-face-*`. Remaining: the angled / 3-point / tangent /
+      normal-to-curve kinds.
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).

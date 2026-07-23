@@ -4,12 +4,18 @@
  * plane that produces no body, only a plane later sketches sit on
  * (docs/design/datum-planes.md §3/§7). Its structural choice is the KIND
  * (a ruled Type select): an OFFSET from an origin datum, an offset FROM another
- * datum (chaining), or a MIDPLANE midway between two references. Each kind wears
- * one parametric handle in brass focus — the offset distance for the offset
- * kinds, the first reference for a midplane. Keyboard-first: the handle
- * autofocuses, Enter commits, Escape cancels — the sketcher's dimension grammar.
+ * datum (chaining), a MIDPLANE midway between two references (each an origin
+ * datum, an earlier datum, or a picked model FACE), or ON a picked model FACE.
+ * Each kind wears one parametric handle in brass focus — the offset distance for
+ * the offset kinds, the first reference for a midplane, the picked face for
+ * on-face. The face references are authored by clicking the highlighted face in
+ * the viewport (the parent renders the `FacePickOverlay`); the editor arms the
+ * pick and folds the clicked face into the armed slot. Keyboard-first: the
+ * handle autofocuses, Enter commits, Escape cancels — the sketcher's dimension
+ * grammar (Escape disarms an armed pick first, handled by the parent).
  */
 import {
+  cx,
   NumberField,
   Panel,
   PanelActionCell,
@@ -17,22 +23,34 @@ import {
   type SegmentOption,
   SelectField,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { useCommandBridge } from "../features/commandActions";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { DatumParams } from "../api/parts";
 import {
+  applyFacePick,
   buildDatumParams,
   canSubmitDatum,
   DATUM_BASES,
+  type DatumFacePick,
+  type DatumFaceSlot,
   type DatumForm,
   type DatumKind,
   type DatumRef,
+  type MidplaneSideForm,
   datumRefOptions,
   defaultFormForKind,
+  faceReadout,
   midplaneSideOptions,
   offsetError,
+  refMidplaneSide,
 } from "../features/datum";
 import type { DatumPlaneName } from "../sketch/plane";
 
@@ -49,12 +67,23 @@ export interface DatumEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /** A body with pickable planar faces exists — gates the face-pick affordances. */
+  canPickFace: boolean;
+  /** The slot whose face pick is currently armed (the parent highlights faces). */
+  activeFacePickSlot: DatumFaceSlot | null;
+  /** Arm/disarm face picking for a slot (the parent renders the overlay). */
+  onToggleFacePick: (slot: DatumFaceSlot) => void;
+  /** The latest picked face for a slot, delivered once per pick (nonce-guarded). */
+  facePick: DatumFacePick | null;
+  /** Why a face can't be picked right now (no body / no anchor), or null. */
+  facePickError: string | null;
 }
 
 const KIND_OPTIONS: ReadonlyArray<{ value: DatumKind; label: string }> = [
   { value: "offset", label: "Offset from origin plane" },
   { value: "offset_from", label: "Offset from a datum" },
   { value: "midplane", label: "Midplane between two references" },
+  { value: "on_face", label: "On a model face" },
 ];
 
 const BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
@@ -98,6 +127,119 @@ function FlipControl({
   );
 }
 
+/** A quiet, brass-when-armed toggle to arm a viewport face pick for a slot. */
+function FacePickButton({
+  armed,
+  disabled,
+  onClick,
+  testId,
+  label,
+  ariaLabel,
+}: {
+  armed: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  testId: string;
+  label: string;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-pressed={armed}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onClick}
+      className={cx(
+        "self-start rounded-sm border px-2 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
+        "disabled:pointer-events-none disabled:opacity-50",
+        armed
+          ? "border-brass text-brass"
+          : "border-etch text-gauge hover:border-gauge hover:text-mist",
+      )}
+    >
+      {armed ? "Picking… (click a face)" : label}
+    </button>
+  );
+}
+
+/** One midplane side: a reference dropdown OR a picked-face chip, with a pick
+ * affordance. Wearing a face swaps the dropdown for a readout the engineer can
+ * clear back to a reference. */
+function MidplaneSideField({
+  slot,
+  label,
+  testIdBase,
+  side,
+  refOptions,
+  armed,
+  canPickFace,
+  autoFocus,
+  onSelectRef,
+  onClearFace,
+  onToggleFacePick,
+}: {
+  slot: DatumFaceSlot;
+  label: string;
+  testIdBase: string;
+  side: MidplaneSideForm;
+  refOptions: { value: string; label: string }[];
+  armed: boolean;
+  canPickFace: boolean;
+  autoFocus: boolean;
+  onSelectRef: (value: string) => void;
+  onClearFace: () => void;
+  onToggleFacePick: (slot: DatumFaceSlot) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      {side.source === "face" ? (
+        <div className="flex flex-col gap-0.5">
+          <span className="font-body text-xs text-gauge">{label}</span>
+          <div className="flex items-center justify-between gap-2 rounded-sm border border-brass/60 bg-carbide px-2 py-1">
+            <span
+              data-testid={`${testIdBase}-face`}
+              className="min-w-0 truncate font-data text-md text-mist"
+            >
+              {faceReadout(side.face)}
+            </span>
+            <button
+              type="button"
+              data-testid={`${testIdBase}-face-clear`}
+              onClick={onClearFace}
+              className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : (
+        <SelectField
+          label={label}
+          data-testid={testIdBase}
+          autoFocus={autoFocus}
+          value={side.value}
+          options={refOptions}
+          onChange={(e) => onSelectRef(e.target.value)}
+          aria-label={label}
+        />
+      )}
+      {canPickFace ? (
+        <FacePickButton
+          armed={armed}
+          disabled={false}
+          testId={`${testIdBase}-pick`}
+          label={side.source === "face" ? "Pick another face" : "Pick a face"}
+          ariaLabel={`Pick a model face for the ${label.toLowerCase()}`}
+          onClick={() => onToggleFacePick(slot)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export function DatumEditor({
   mode,
   initial,
@@ -106,11 +248,25 @@ export function DatumEditor({
   onCancel,
   saving,
   error,
+  canPickFace,
+  activeFacePickSlot,
+  onToggleFacePick,
+  facePick,
+  facePickError,
 }: DatumEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<DatumForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
   useEffect(() => setForm(initial), [initial]);
+
+  // Fold each delivered viewport face pick into its slot exactly once — the
+  // nonce guards against a re-render re-applying the same pick.
+  const lastPickNonce = useRef(0);
+  useEffect(() => {
+    if (facePick === null || facePick.nonce === lastPickNonce.current) return;
+    lastPickNonce.current = facePick.nonce;
+    setForm((f) => applyFacePick(f, facePick.slot, facePick.face));
+  }, [facePick]);
 
   const submit = useCallback(() => {
     const params = buildDatumParams(form, unit);
@@ -119,7 +275,9 @@ export function DatumEditor({
   }, [form, onSubmit, unit]);
 
   // Enter commits, Escape cancels — except when a button (the footer / a
-  // segment) has focus: Enter must fire that control's own action.
+  // segment) has focus: Enter must fire that control's own action. While a face
+  // pick is armed, the parent's window handler owns Escape (it disarms the
+  // pick), so the editor leaves Escape alone rather than cancelling outright.
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === "Enter") {
@@ -127,11 +285,12 @@ export function DatumEditor({
         event.preventDefault();
         if (!saving) submit();
       } else if (event.key === "Escape") {
+        if (activeFacePickSlot !== null) return;
         event.preventDefault();
         onCancel();
       }
     },
-    [saving, submit, onCancel],
+    [saving, submit, onCancel, activeFacePickSlot],
   );
 
   const canSubmit = canSubmitDatum(form, unit) && !saving;
@@ -157,7 +316,10 @@ export function DatumEditor({
               options={KIND_OPTIONS}
               onChange={(e) =>
                 setForm((f) =>
-                  defaultFormForKind(e.target.value as DatumKind, f.flip),
+                  defaultFormForKind(
+                    e.target.value as DatumKind,
+                    f.kind === "on_face" ? false : f.flip,
+                  ),
                 )
               }
               aria-label="Datum plane type"
@@ -234,38 +396,141 @@ export function DatumEditor({
 
             {form.kind === "midplane" ? (
               <>
-                <SelectField
+                <MidplaneSideField
+                  slot="midplane-a"
                   label="First reference"
-                  data-testid="datum-side-a"
+                  testIdBase="datum-side-a"
+                  side={form.a}
+                  refOptions={midplaneSideOptions(datumRefs)}
+                  armed={activeFacePickSlot === "midplane-a"}
+                  canPickFace={canPickFace}
                   autoFocus
-                  value={form.a}
-                  options={midplaneSideOptions(datumRefs)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, a: e.target.value }))
+                  onSelectRef={(value) =>
+                    setForm((f) => ({ ...f, a: refMidplaneSide(value) }))
                   }
-                  aria-label="First midplane reference"
+                  onClearFace={() =>
+                    setForm((f) => ({ ...f, a: refMidplaneSide("") }))
+                  }
+                  onToggleFacePick={onToggleFacePick}
                 />
-                <SelectField
+                <MidplaneSideField
+                  slot="midplane-b"
                   label="Second reference"
-                  data-testid="datum-side-b"
-                  value={form.b}
-                  options={midplaneSideOptions(datumRefs)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, b: e.target.value }))
+                  testIdBase="datum-side-b"
+                  side={form.b}
+                  refOptions={midplaneSideOptions(datumRefs)}
+                  armed={activeFacePickSlot === "midplane-b"}
+                  canPickFace={canPickFace}
+                  autoFocus={false}
+                  onSelectRef={(value) =>
+                    setForm((f) => ({ ...f, b: refMidplaneSide(value) }))
                   }
-                  aria-label="Second midplane reference"
+                  onClearFace={() =>
+                    setForm((f) => ({ ...f, b: refMidplaneSide("") }))
+                  }
+                  onToggleFacePick={onToggleFacePick}
                 />
                 <p className="-mt-1 font-body text-xs text-gauge">
                   The plane midway between the two references. Parallel
                   references give a plane halfway between them; angled ones give
-                  their bisector. Pick a face for a reference from the sketch
-                  plane picker.
+                  their bisector. A reference can be an origin datum, an earlier
+                  datum, or a picked model face.
                 </p>
                 <FlipControl
                   flip={form.flip}
                   onChange={(flip) => setForm((f) => ({ ...f, flip }))}
                 />
               </>
+            ) : null}
+
+            {form.kind === "on_face" ? (
+              <>
+                <div className="flex flex-col gap-1">
+                  {form.face !== null ? (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-body text-xs text-gauge">
+                        Model face
+                      </span>
+                      <div className="flex items-center justify-between gap-2 rounded-sm border border-brass/60 bg-carbide px-2 py-1">
+                        <span
+                          data-testid="datum-on-face"
+                          className="min-w-0 truncate font-data text-md text-mist"
+                        >
+                          {faceReadout(form.face)}
+                        </span>
+                        <button
+                          type="button"
+                          data-testid="datum-on-face-clear"
+                          onClick={() =>
+                            setForm((f) =>
+                              f.kind === "on_face" ? { ...f, face: null } : f,
+                            )
+                          }
+                          className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-body text-xs text-gauge">
+                        Model face
+                      </span>
+                      <p
+                        data-testid="datum-on-face-empty"
+                        className="font-data text-md text-gauge"
+                      >
+                        {canPickFace
+                          ? "No face chosen"
+                          : "Add a body to pick a face"}
+                      </p>
+                    </div>
+                  )}
+                  {canPickFace ? (
+                    <FacePickButton
+                      armed={activeFacePickSlot === "on_face"}
+                      disabled={false}
+                      testId="datum-on-face-pick"
+                      label={
+                        form.face !== null ? "Pick another face" : "Pick a face"
+                      }
+                      ariaLabel="Pick a model face for this datum"
+                      onClick={() => onToggleFacePick("on_face")}
+                    />
+                  ) : null}
+                </div>
+                <NumberField
+                  label="Offset"
+                  unit={unit}
+                  data-testid="datum-offset"
+                  value={form.offsetInput}
+                  error={offsetError(form.offsetInput, unit)}
+                  onChange={(e) =>
+                    setForm((f) =>
+                      f.kind === "on_face"
+                        ? { ...f, offsetInput: e.target.value }
+                        : f,
+                    )
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="Offset distance along the face normal (signed)"
+                />
+                <p className="-mt-1 font-body text-xs text-gauge">
+                  The plane of the picked face. 0 sits on it; a signed offset
+                  slides along the face normal.
+                </p>
+              </>
+            ) : null}
+
+            {facePickError ? (
+              <p
+                role="alert"
+                data-testid="datum-face-pick-error"
+                className="-mt-1 font-body text-xs text-flag"
+              >
+                {facePickError}
+              </p>
             ) : null}
           </div>
         </div>

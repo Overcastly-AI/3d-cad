@@ -132,14 +132,18 @@ frame refactor are v2/§11. Spike de-collected.
       the axis works. Acceptance: sketch a half-profile + a construction
       centerline on the axis → revolve succeeds using the centerline; existing
       real-edge-as-axis path unaffected; worked e2e. [src: product-auditor]
-- [ ] (P2, S) Datum editor: midplane FACE-sides + `on_face` authoring —
-      deferred from the 2026-07-16 authoring-UI slice. The `MidplaneSide`
-      SUBSHAPE (picked planar face) and the standalone `on_face` datum kind
-      need the `FacePickOverlay` wired into the standalone `DatumEditor`.
-      Backend + `on_face` via the sketch-on-face picker already exist;
-      editor-side pick integration only. Acceptance: pick a model face as a
-      midplane side or an `on_face` base in the DatumEditor; resolved basis
-      matches the kernel's; worked e2e. [src: frontend-builder]
+- [x] (P2, S) Datum editor: midplane FACE-sides + `on_face` authoring —
+      SHIPPED 2026-07-23 (frontend-builder). The `FacePickOverlay` is wired into
+      the standalone `DatumEditor`: an `on_face` kind and midplane FACE-sides
+      each arm the SAME viewport face pick the sketch-on-face flow uses, and a
+      clicked planar face folds into the slot as a full-precision `SubshapeRef`
+      (reusing `faceSubshapeRef`/`onFaceDatumParams`, so the authored params —
+      and the kernel-resolved basis — match sketch-on-face exactly). Editing an
+      existing on_face / face-midplane datum re-seeds its picked face(s) from the
+      stored signature. Worked e2e (`datum-face-pick.spec.ts`, 5 tests): each
+      authored face-datum evaluates to "Solved" (kernel resolved the picked
+      signature) and survives reload; Escape disarms an armed pick. Founder shots
+      `datum-on-face-*` (1440 + 1280×800). [src: frontend-builder]
 
 ## Next (P2)
 

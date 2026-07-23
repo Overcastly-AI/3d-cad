@@ -110,6 +110,8 @@ import { ShellEditor } from "../components/ShellEditor";
 import { SweepEditor } from "../components/SweepEditor";
 import {
   defaultDatumForm,
+  type DatumFacePick,
+  type DatumFaceSlot,
   type DatumForm,
   formFromDatumParams,
 } from "../features/datum";
@@ -474,6 +476,21 @@ export function PartPage() {
   const [facePlaneBusy, setFacePlaneBusy] = useState(false);
   const [facePlaneError, setFacePlaneError] = useState<string | null>(null);
   const [pendingFaceIndex, setPendingFaceIndex] = useState<number | null>(null);
+
+  // Datum-editor face picking: the DatumEditor arms a pick for one slot (the
+  // on_face base, or either midplane side); a clicked face is folded into that
+  // slot's form field. Reuses the SAME FacePickOverlay + overlay fetch the
+  // sketch-on-face flow uses — one enumeration, pick side and resolve side.
+  const [datumFacePick, setDatumFacePick] = useState<DatumFaceSlot | null>(
+    null,
+  );
+  const [datumFacePicked, setDatumFacePicked] = useState<DatumFacePick | null>(
+    null,
+  );
+  const [datumFacePickError, setDatumFacePickError] = useState<string | null>(
+    null,
+  );
+  const datumFacePickNonce = useRef(0);
 
   // ---------------------------------------------------------------------
   // Measurement (inspect mode). The tool fetches the pickable overlay for the
@@ -1223,6 +1240,20 @@ export function PartPage() {
   });
   const pickableFaces = facePicking ? (facesQuery.data?.faces ?? null) : null;
 
+  // The pickable face overlay while the datum editor is armed for a slot —
+  // same request/key (one cache entry, faces line up with the rendered body).
+  const datumFacesQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled:
+      datumFacePick !== null && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const datumPickableFaces =
+    datumFacePick !== null ? (datumFacesQuery.data?.faces ?? null) : null;
+
   // ---------------------------------------------------------------------
   // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
   // is the last body-affecting feature (the body the edges belong to) — the
@@ -1835,12 +1866,11 @@ export function PartPage() {
             lengthUnit,
           ),
         });
-      } else if (
-        feature.feature.type === "datum" &&
-        feature.feature.params.kind !== "on_face"
-      ) {
-        // Offset / offset-from / midplane datums are editable here; an on_face
-        // datum is authored + retargeted through the sketch-on-face picker.
+      } else if (feature.feature.type === "datum") {
+        // Every datum kind is editable here — offset / offset-from / midplane /
+        // on_face. A face-referencing datum (on_face or a midplane FACE-side)
+        // seeds its picked face(s) from the stored signature; the editor arms a
+        // re-pick through the same FacePickOverlay it authored them with.
         setEditor({
           kind: "datum",
           mode: "edit",
@@ -2429,6 +2459,74 @@ export function PartPage() {
     setFacePicking((armed) => !armed);
   }, []);
 
+  // Datum-editor face picking. Arming a slot highlights the body's planar faces
+  // in the viewport (the shared FacePickOverlay); a click resolves to a
+  // full-precision signature the editor folds into that slot. The anchor is the
+  // last body-affecting feature — the same rule sketch-on-face uses.
+  const toggleDatumFacePick = useCallback(
+    (slot: DatumFaceSlot) => {
+      if (!hasBody) {
+        setDatumFacePickError(
+          "Add a feature that creates a body before picking a face.",
+        );
+        return;
+      }
+      setDatumFacePickError(null);
+      setDatumFacePick((current) => (current === slot ? null : slot));
+    },
+    [hasBody],
+  );
+
+  const pickDatumFace = useCallback(
+    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+      const slot = datumFacePick;
+      if (slot === null) return;
+      const anchorId = lastBodyFeatureId(tree.data?.features ?? []);
+      if (anchorId === null) {
+        setDatumFacePickError(
+          "Add a feature that creates a body before picking a face.",
+        );
+        setDatumFacePick(null);
+        return;
+      }
+      datumFacePickNonce.current += 1;
+      setDatumFacePicked({
+        nonce: datumFacePickNonce.current,
+        slot,
+        face: { signature: face.signature, anchorId },
+      });
+      setDatumFacePick(null);
+    },
+    [datumFacePick, tree.data],
+  );
+
+  // The datum face-pick session ends whenever the datum editor closes (or the
+  // seat holds a different editor) — drop the armed slot, the pending pick, and
+  // any pick error so a reopened editor starts clean (the nonce guard already
+  // stops a stale pick re-folding, but a cleared session is the honest state).
+  useEffect(() => {
+    if (editor?.kind !== "datum") {
+      setDatumFacePick(null);
+      setDatumFacePicked(null);
+      setDatumFacePickError(null);
+    }
+  }, [editor]);
+
+  // Escape disarms an armed datum face pick (staying in the editor) — the most
+  // local cancel, mirroring the sketch-on-face Escape. Registered only while a
+  // pick is armed; the editor's own Escape (cancel) stands down in that window.
+  useEffect(() => {
+    if (datumFacePick === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDatumFacePick(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [datumFacePick]);
+
   // ---------------------------------------------------------------------
   // Undo/redo (docs/design/undo-redo.md §UR2). History is SERVER-side snapshot
   // state: the tree GET's can_undo/can_redo gate the controls, and a step is a
@@ -2952,6 +3050,11 @@ export function PartPage() {
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}
+                      canPickFace={hasBody}
+                      activeFacePickSlot={datumFacePick}
+                      onToggleFacePick={toggleDatumFacePick}
+                      facePick={datumFacePicked}
+                      facePickError={datumFacePickError}
                     />
                   ) : (
                     <CombineEditor
@@ -3101,6 +3204,15 @@ export function PartPage() {
                 faces={pickableFaces}
                 onPick={authorFacePlane}
                 pendingIndex={pendingFaceIndex}
+              />
+            ) : null}
+            {mode === "off" &&
+            editor?.kind === "datum" &&
+            datumFacePick !== null ? (
+              <FacePickOverlay
+                faces={datumPickableFaces}
+                onPick={pickDatumFace}
+                pendingIndex={null}
               />
             ) : null}
           </Viewport>

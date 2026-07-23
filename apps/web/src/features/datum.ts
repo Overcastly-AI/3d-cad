@@ -7,13 +7,15 @@
  *
  * A datum plane is authored in one of several kinds (docs/design/datum-planes.md
  * §3/§7): `offset` (an origin datum slid a signed distance along its normal),
- * `offset_from` (that slide off ANOTHER earlier datum — offset chaining), or
- * `midplane` (a plane midway between two references — an origin datum or an
- * earlier datum). The `on_face` kind (a picked planar face) and midplane
- * FACE-sides are authored through the sketch-on-face picker, not this editor yet
- * (see docs/BACKLOG.md). Any FINITE offset is a valid plane and a midplane over
- * two resolved sides is total, so the only invalid input is a missing reference
- * or a non-numeric field.
+ * `offset_from` (that slide off ANOTHER earlier datum — offset chaining),
+ * `midplane` (a plane midway between two references — an origin datum, an
+ * earlier datum, OR a picked planar model face), or `on_face` (a datum adopted
+ * from a picked planar face, optionally offset along its normal). The face
+ * references are authored by clicking the highlighted face in the viewport
+ * (`FacePickOverlay`), reusing the SAME stage-1 signature the sketch-on-face
+ * picker echoes — one enumeration, pick side and resolve side. Any FINITE
+ * offset is a valid plane and a midplane over two resolved sides is total, so
+ * the only invalid input is a missing reference/face or a non-numeric field.
  */
 import type { LengthUnit } from "@loft/design";
 
@@ -21,9 +23,12 @@ import type {
   DatumMidplaneParams,
   DatumOffsetFromParams,
   DatumOffsetParams,
+  DatumOnFaceParams,
   DatumParams,
   MidplaneSide,
+  PlanarFaceSignature,
 } from "../api/parts";
+import { faceSubshapeRef, onFaceDatumParams } from "./face";
 import { lengthInputValue, parseSignedLengthMm } from "../units/length";
 import type { DatumPlaneName } from "../sketch/plane";
 
@@ -38,6 +43,36 @@ export const DATUM_BASES: readonly { id: DatumPlaneName; label: string }[] = [
 export interface DatumRef {
   id: string;
   name: string;
+}
+
+/**
+ * A picked planar model face, as the datum editor carries it: the full-precision
+ * stage-1 `signature` (the resolve identity — never quantized) plus the id of
+ * the body-affecting feature whose body owns the face (the `SubshapeRef` anchor,
+ * the strict-backward dependency the write records). The single value both a
+ * midplane FACE-side and an `on_face` base reduce a click to.
+ */
+export interface DatumFace {
+  signature: PlanarFaceSignature;
+  anchorId: string;
+}
+
+/**
+ * Which slot in the datum form a face pick lands in: the standalone `on_face`
+ * base, or either midplane side. The DatumEditor arms a pick for one slot; the
+ * clicked face is folded into that slot.
+ */
+export type DatumFaceSlot = "on_face" | "midplane-a" | "midplane-b";
+
+/**
+ * A face delivered from the viewport pick into the editor, tagged with its
+ * target slot and a monotonic `nonce` so the editor folds each pick EXACTLY
+ * once (the same nonce-guard the sketch edit/offset/mirror effects use).
+ */
+export interface DatumFacePick {
+  nonce: number;
+  slot: DatumFaceSlot;
+  face: DatumFace;
 }
 
 // --- Offset-from-origin form (the inline picker panel + the editor's default) --
@@ -102,9 +137,34 @@ export function canSubmitOffset(form: OffsetForm, unit: LengthUnit): boolean {
 // --- Midplane side encoding (a select's string value ⇄ a wire MidplaneSide) ---
 
 /**
+ * A single midplane side, as authored: either a datum REFERENCE chosen from the
+ * dropdown (an origin datum or an earlier datum, encoded as a `<select>` value —
+ * `origin:XY` / `feature:<id>` / `""` for unchosen), or a picked planar model
+ * FACE. Both reduce to a wire {@link MidplaneSide} by {@link buildMidplaneSide}.
+ */
+export type MidplaneSideForm =
+  { source: "ref"; value: string } | { source: "face"; face: DatumFace };
+
+/** The unchosen side — a reference dropdown at its placeholder. */
+export const EMPTY_MIDPLANE_SIDE: MidplaneSideForm = {
+  source: "ref",
+  value: "",
+};
+
+/** A midplane side from a chosen reference dropdown value. */
+export function refMidplaneSide(value: string): MidplaneSideForm {
+  return { source: "ref", value };
+}
+
+/** A midplane side from a picked planar model face. */
+export function faceMidplaneSide(face: DatumFace): MidplaneSideForm {
+  return { source: "face", face };
+}
+
+/**
  * Encode a midplane side as a single `<select>` value: `origin:XY` for an origin
  * datum, `feature:<id>` for an earlier datum feature. The empty string is the
- * unchosen placeholder (blocks submit). Face sides are deferred (BACKLOG).
+ * unchosen placeholder (blocks submit).
  */
 export function encodeOriginSide(base: DatumPlaneName): string {
   return `origin:${base}`;
@@ -115,7 +175,8 @@ export function encodeFeatureSide(featureId: string): string {
   return `feature:${featureId}`;
 }
 
-/** Decode a side value to a wire `MidplaneSide`, or null when unchosen/unknown. */
+/** Decode a REFERENCE side value to a wire `MidplaneSide`, or null when
+ * unchosen/unknown (a picked face is carried separately — {@link faceMidplaneSide}). */
 export function decodeMidplaneSide(value: string): MidplaneSide | null {
   if (value.startsWith("origin:")) {
     const plane = value.slice("origin:".length);
@@ -131,12 +192,32 @@ export function decodeMidplaneSide(value: string): MidplaneSide | null {
   return null;
 }
 
-/** Re-encode a persisted `MidplaneSide` to its select value (form seeding). */
+/** Re-encode a persisted REFERENCE `MidplaneSide` to its select value (form
+ * seeding). A face side has no dropdown value — it seeds as a face form via
+ * {@link midplaneSideForm}. */
 export function encodeMidplaneSide(side: MidplaneSide): string {
   if (side.kind === "datum_plane") return encodeOriginSide(side.plane);
   if (side.kind === "feature") return encodeFeatureSide(side.feature_id);
-  // A face side has no dropdown value yet — seed it blank (BACKLOG).
   return "";
+}
+
+/** Seed a midplane side FORM from a persisted wire side (reference or face). */
+export function midplaneSideForm(side: MidplaneSide): MidplaneSideForm {
+  if (side.kind === "subshape") {
+    return faceMidplaneSide({
+      signature: side.selector.signature,
+      anchorId: side.feature_id,
+    });
+  }
+  return refMidplaneSide(encodeMidplaneSide(side));
+}
+
+/** Build the wire {@link MidplaneSide} from a side form, or null when unchosen. */
+export function buildMidplaneSide(side: MidplaneSideForm): MidplaneSide | null {
+  if (side.source === "face") {
+    return faceSubshapeRef(side.face.anchorId, side.face.signature);
+  }
+  return decodeMidplaneSide(side.value);
 }
 
 /** Select options for a midplane side: origin datums, then earlier datums. */
@@ -166,10 +247,21 @@ export function datumRefOptions(
   ];
 }
 
+/**
+ * A short readout for a picked face — its area centroid, rounded, in the same
+ * grammar as `faceLabel`. Names what the engineer picked (a face at a place),
+ * never how it's stored.
+ */
+export function faceReadout(face: DatumFace): string {
+  const round = (n: number) => Math.round(n * 10) / 10;
+  const { x, y, z } = face.signature.centroid;
+  return `Face at ${round(x)}, ${round(y)}, ${round(z)} mm`;
+}
+
 // --- The editor's discriminated form over the authorable datum kinds ----------
 
-/** The datum kinds the editor authors today (`on_face` is deferred). */
-export type DatumKind = "offset" | "offset_from" | "midplane";
+/** The datum kinds the editor authors. */
+export type DatumKind = "offset" | "offset_from" | "midplane" | "on_face";
 
 /** The editable datum form — a discriminated union over {@link DatumKind}. */
 export type DatumForm =
@@ -183,11 +275,18 @@ export type DatumForm =
     }
   | {
       kind: "midplane";
-      /** First side, as a {@link midplaneSideOptions} value (`""` = unchosen). */
-      a: string;
-      /** Second side (same encoding). */
-      b: string;
+      /** First side: a reference dropdown value or a picked face. */
+      a: MidplaneSideForm;
+      /** Second side (same forms). */
+      b: MidplaneSideForm;
       flip: boolean;
+    }
+  | {
+      kind: "on_face";
+      /** The picked planar model face this datum adopts (`null` = unchosen). */
+      face: DatumFace | null;
+      /** Signed offset along the face normal (mm), as typed. 0 sits on it. */
+      offsetInput: string;
     };
 
 /** The default new-datum form: 30 mm above XY (the everyday "sketch up" case). */
@@ -208,8 +307,37 @@ export function defaultFormForKind(kind: DatumKind, flip: boolean): DatumForm {
         flip,
       };
     case "midplane":
-      return { kind: "midplane", a: "", b: "", flip };
+      return {
+        kind: "midplane",
+        a: EMPTY_MIDPLANE_SIDE,
+        b: EMPTY_MIDPLANE_SIDE,
+        flip,
+      };
+    case "on_face":
+      return { kind: "on_face", face: null, offsetInput: "0" };
   }
+}
+
+/**
+ * Fold a picked face into a form slot: the `on_face` base, or either midplane
+ * side. A pick that doesn't match the current kind is ignored (the armed slot
+ * always matches the visible kind, but this keeps the fold total).
+ */
+export function applyFacePick(
+  form: DatumForm,
+  slot: DatumFaceSlot,
+  face: DatumFace,
+): DatumForm {
+  if (slot === "on_face" && form.kind === "on_face") {
+    return { ...form, face };
+  }
+  if (slot === "midplane-a" && form.kind === "midplane") {
+    return { ...form, a: faceMidplaneSide(face) };
+  }
+  if (slot === "midplane-b" && form.kind === "midplane") {
+    return { ...form, b: faceMidplaneSide(face) };
+  }
+  return form;
 }
 
 /** Seed the form from an existing datum feature for editing (offset in `unit`). */
@@ -235,13 +363,19 @@ export function formFromDatumParams(
     case "midplane":
       return {
         kind: "midplane",
-        a: encodeMidplaneSide(params.a),
-        b: encodeMidplaneSide(params.b),
+        a: midplaneSideForm(params.a),
+        b: midplaneSideForm(params.b),
         flip: params.flip,
       };
     case "on_face":
-      // Not editable in this surface yet — fall back to a fresh offset form.
-      return defaultDatumForm();
+      return {
+        kind: "on_face",
+        face: {
+          signature: params.face.selector.signature,
+          anchorId: params.face.feature_id,
+        },
+        offsetInput: lengthInputValue(params.offset_mm, unit),
+      };
   }
 }
 
@@ -278,8 +412,8 @@ export function buildDatumParams(
       return params;
     }
     case "midplane": {
-      const a = decodeMidplaneSide(form.a);
-      const b = decodeMidplaneSide(form.b);
+      const a = buildMidplaneSide(form.a);
+      const b = buildMidplaneSide(form.b);
       if (a === null || b === null) return null;
       const params: DatumMidplaneParams = {
         kind: "midplane",
@@ -287,6 +421,17 @@ export function buildDatumParams(
         b,
         flip: form.flip,
       };
+      return params;
+    }
+    case "on_face": {
+      if (form.face === null) return null;
+      const offset = parseOffsetMm(form.offsetInput, unit);
+      if (offset === null) return null;
+      const params: DatumOnFaceParams = onFaceDatumParams(
+        form.face.anchorId,
+        form.face.signature,
+        offset,
+      );
       return params;
     }
   }
