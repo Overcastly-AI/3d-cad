@@ -10,6 +10,7 @@
 import {
   FlatPatternIcon,
   RectIcon,
+  SectionIcon,
   SelectField,
   SheetExportIcon,
   ToolButton,
@@ -42,6 +43,10 @@ export interface DrawingCommandBandProps {
   onLayout: () => void;
   /** Unfold the selected part's flat pattern onto a lone-view sheet (§7). */
   onFlatPattern: () => void;
+  /** Toggle the section-view author (pick a cutting plane + flip; §1). */
+  onToggleSection: () => void;
+  /** True while the section-view author panel is open. */
+  sectionOpen: boolean;
   onReproject: () => void;
   /** Serialize the laid-out sheet to a downloadable `.svg` (#5). */
   onExportSvg: () => void;
@@ -67,6 +72,8 @@ export function DrawingCommandBand({
   draftedPartName,
   onLayout,
   onFlatPattern,
+  onToggleSection,
+  sectionOpen,
   onReproject,
   onExportSvg,
   onExportPdf,
@@ -198,6 +205,19 @@ export function DrawingCommandBand({
               }
               data-testid="drawing-flat-pattern"
               onClick={onFlatPattern}
+            />
+            <ToolButton
+              icon={<SectionIcon />}
+              label="Section view"
+              showLabel
+              shortcut="S"
+              active={sectionOpen}
+              disabled={!canLayout}
+              caption={
+                layoutReason ?? (busy ? "Cutting…" : "Cut on a datum plane")
+              }
+              data-testid="drawing-section"
+              onClick={onToggleSection}
             />
           </>
         )}

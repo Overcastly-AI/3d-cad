@@ -73,6 +73,19 @@ export const FlatPatternIcon = (p: IconProps) => (
   </Icon>
 );
 
+/** Section view — a cut face filled with the ANSI 45° crosshatch, crossed by the
+ * cutting-plane line (the drawing convention: hatch the solid the plane slices). */
+export const SectionIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={5} y={7} width={14} height={10} />
+    <path
+      d="M7 17 L17 7 M11 17 L19 9 M5 15 L13 7"
+      strokeWidth={1}
+      strokeDasharray="0"
+    />
+  </Icon>
+);
+
 export const CircleIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx={12} cy={12} r={7} />

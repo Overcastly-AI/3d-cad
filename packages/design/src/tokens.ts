@@ -346,6 +346,18 @@ export const drawing = {
   /** Invisible hit-stroke width (mm) so thin edges are easy to click/focus. */
   pickHitMm: 2.6,
 
+  // --- Section crosshatch — the cut-face fill of a section view (drawings-section.md §5). ---
+  // A section view slices the part on a datum plane and hatches the solid it cuts
+  // through: the ANSI 45° parallel-line fill. The ink + weight are the SAME the
+  // server composer hand-emits for the exported hatch (compose.py `_HATCH_INK` /
+  // `_HATCH_W`), so the on-screen section fill and the exported SVG/PDF/DXF read
+  // ONE colour — the design token is the single source both renderers draw from
+  // (one palette, two renderers — CLAUDE.md DRY design rule).
+  /** Section crosshatch ink — a quiet thin graphite (4.0:1 on the vellum). */
+  hatch: "#7A8695",
+  /** Section crosshatch stroke weight (mm) — the lightest fill rule on the sheet. */
+  hatchWeightMm: 0.25,
+
   // --- Flat-pattern fold lines — the sheet-metal signature (sheet-metal.md §7). ---
   // A sheet-metal flat blank's defining mark is the FOLD LINE: where the shop
   // bends the cut sheet. A fold is neither a cut outline (a visible object edge)

@@ -26,11 +26,11 @@ duplication.
   STEP **export** now real, **import** still missing — the one-way gap narrowed
   to inbound-only). Drawings (dead-capability drain
   mostly closed this batch — title-block/first-angle/dimension-placement/notes
-  all wired; section views now END-TO-END (E1a shipped 2026-07-23 — the wire
-  carries per-view `section_params` and the gateway threads each persisted
-  view's datum, so a stored section actually cuts + hatches; web authoring of
-  the datum+offset is the E1b follow-up); still no detail views, assembly
-  views/BOM/balloons, GD&T). Sheet
+  all wired; section views now FULLY END-TO-END (E1a wire 2026-07-23 + E1b web
+  authoring 2026-07-23 — the `SectionAuthorPanel` picks a cutting plane + flip
+  in-app, persists per-view `section_params`, and the sheet composes + hatches
+  on-screen; a working engineer cuts a section without touching the API); still
+  no detail views, assembly views/BOM/balloons, GD&T). Sheet
   metal (bend chains + corner relief + closed hem + edge-flange WIDTH EXTENTS
   + auto bend-end relief shipped, all click-authorable in-app; still no open/
   teardrop/rolled hems, miters, tabs, or gauge tables).
@@ -90,11 +90,23 @@ frame refactor are v2/§11. Spike de-collected.
       (`test_drawings_section.py`); the gateway half asserts `_compose_request`
       threads the persisted per-view params (`test_drawing_export_proxy.py`). Existing
       section/compose goldens byte-stable; contracts + ts-client regenerated.
-- [ ] (P2, S) **E1b — Section-view web authoring surface (apps/web).** E1a made a
-      stored section view compose end-to-end; the remaining half is a minimal
-      frontend surface to SET a view's section datum + offset/flip (currently only
-      settable via the documents view-create API). Invokes the `frontend-design`
-      skill. [src: AUDIT-ENGINEERING.md E1 2026-07-23]
+- [x] (P2, S) **E1b — Section-view web authoring surface (apps/web). Shipped
+      2026-07-23** — section views now FULLY end-to-end (kernel + wire + web
+      authoring). New `SectionAuthorPanel` (a `drawing-section` command-band
+      action + `S` shortcut, hung from the band like the sketch strip's offset
+      panel): pick the cutting plane + which half is removed, then "Cut section"
+      persists a `section` view carrying its `section_params`. The plane REUSES
+      the sketch plane picker's exact vocabulary — the three origin datums OR an
+      in-tree datum `FeatureRef` (new `resolveDatumPlaneOptions` in `sketch/
+      plane.ts`, the ONE derivation the sketcher reads too; no parallel plane
+      taxonomy, DRY). The v1 axis-aligned precondition is pre-checked client-side
+      (disables Cut with a reason) and the server's `section_plane_not_principal`
+      / `_misses_body` / `_empty` now render as readable failed-view guidance.
+      `DrawingSheet` gains the on-screen `drawing-hatch` fill (new `drawing.hatch`
+      token matching the server `_HATCH_INK` — one palette, two renderers), so the
+      section hatches on-screen exactly as it exports. e2e authors a section on an
+      XY+5 datum in the UI → hatched section (`section-view.spec.ts`); founder
+      shots `drawings-section-{before,author,after}-*`. [src: AUDIT-ENGINEERING.md E1]
 - [x] (P1, M) Assembly interference/collision detection. **Shipped 2026-07-23**
       — `POST /api/v1/assembly/interference` (geometry) + auth'd/rate-limited
       gateway proxy; reuses `EvaluateAssemblyRequest` input + new

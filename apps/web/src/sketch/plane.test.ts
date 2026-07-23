@@ -17,6 +17,7 @@ import {
   planeRefFromSpec,
   planeToWorld,
   resolveDatumBasis,
+  resolveDatumPlaneOptions,
   resolveSpecBasis,
   snapPoint,
   snapValue,
@@ -434,5 +435,72 @@ describe("snap", () => {
 
   it("snaps both coordinates of a point", () => {
     expect(snapPoint({ x: 1.2, y: -2.7 }, 1)).toEqual({ x: 1, y: -3 });
+  });
+});
+
+describe("resolveDatumPlaneOptions", () => {
+  // Minimal FeatureResponse-shaped nodes — the resolver reads only id/name/feature.
+  const node = (id: string, name: string, feature: unknown) =>
+    ({ id, name, feature }) as never;
+
+  it("offers offset datums with a rich readout spec, skipping non-datums", () => {
+    const options = resolveDatumPlaneOptions([
+      node("f1", "Sketch1", { type: "sketch", params: {} }),
+      node("f2", "Datum +30", {
+        type: "datum",
+        params: { kind: "offset", base: "XY", offset_mm: 30, flip: false },
+      }),
+    ]);
+    expect(options).toHaveLength(1);
+    expect(options[0]?.id).toBe("f2");
+    expect(options[0]?.spec).toMatchObject({
+      kind: "offset",
+      base: "XY",
+      offsetMm: 30,
+      flip: false,
+    });
+    // Its readout reuses the sketch plane vocabulary ("XY +30").
+    expect(describePlane(options[0]!.spec)).toBe("XY +30");
+  });
+
+  it("resolves a chained offset_from datum to a placed 'datum' spec", () => {
+    const options = resolveDatumPlaneOptions([
+      node("base", "Datum +10", {
+        type: "datum",
+        params: { kind: "offset", base: "XY", offset_mm: 10, flip: false },
+      }),
+      node("child", "Datum +25", {
+        type: "datum",
+        params: {
+          kind: "offset_from",
+          base: { kind: "feature", feature_id: "base" },
+          offset_mm: 15,
+          flip: false,
+        },
+      }),
+    ]);
+    expect(options).toHaveLength(2);
+    const child = options.find((o) => o.id === "child");
+    expect(child?.spec.kind).toBe("datum");
+    if (child?.spec.kind === "datum") {
+      // Chained offset lands at 10 + 15 = 25 along +Z (an axis-aligned normal).
+      expect([...child.spec.basis.origin]).toEqual([0, 0, 25]);
+      expect([...child.spec.basis.normal]).toEqual([0, 0, 1]);
+    }
+  });
+
+  it("omits an on_face datum (resolves server-side only)", () => {
+    const options = resolveDatumPlaneOptions([
+      node("face", "On face", {
+        type: "datum",
+        params: {
+          kind: "on_face",
+          signature: {},
+          offset_mm: 0,
+          flip: false,
+        },
+      }),
+    ]);
+    expect(options).toHaveLength(0);
   });
 });

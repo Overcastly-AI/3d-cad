@@ -1018,10 +1018,23 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       the real stack — lay out + dimension, click Export DXF, catch the download,
       assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
       **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
-      pillar: detail/assembly views (section-view now END-TO-END — E1a done 2026-07-23,
-      see below; web authoring of the section datum is the E1b follow-up; DE-1c
+      pillar: detail/assembly views (section-view now FULLY END-TO-END — E1a wire +
+      E1b web authoring both done 2026-07-23, see below; DE-1c
       client-placement cutover DONE — see below).
-      **Drawings SECTION VIEWS v1 — NOW END-TO-END (E1a SHIPPED 2026-07-23).** The
+      **Drawings SECTION VIEWS v1 — FULLY END-TO-END (E1a wire + E1b web authoring,
+      SHIPPED 2026-07-23).** E1b adds the in-app authoring surface: a
+      `SectionAuthorPanel` (`drawing-section` command-band action + `S` shortcut)
+      picks the cutting plane — REUSING the sketch plane picker's exact GeomRef
+      vocabulary (origin datums OR an in-tree datum `FeatureRef`, via the shared
+      `resolveDatumPlaneOptions`) — and the removed half, then persists a `section`
+      view's `section_params`; the sheet composes + hatches it on-screen (new
+      `drawing-hatch` render + `drawing.hatch` token matching the server serializer).
+      The v1 axis-aligned precondition is pre-checked client-side and the server's
+      typed `section_plane_not_principal` renders as readable guidance. UI-authored
+      → hatched-section e2e (`section-view.spec.ts`). The section-view scorecard row
+      is now honestly ✅ (kernel + wire + web authoring, not just export). The
+      geometry op + wire below (E1a):
+      **Drawings SECTION VIEWS v1 — END-TO-END WIRE (E1a SHIPPED 2026-07-23).** The
       kernel op below (shipped + adversarially geometry-QA-verified 2026-07-23,
       `137a929`→`57dca7a`) is now a REAL capability: the geometry evaluate/compose
       wire carries `section_params` PER-VIEW (a `dict[int, SectionViewParams]` keyed

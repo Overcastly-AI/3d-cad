@@ -11,6 +11,7 @@ import {
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
+  type SectionViewParams,
   type SheetSize,
   type ViewProjection,
   composeDrawingSheet,
@@ -35,6 +36,7 @@ import {
   vertexKey,
 } from "../components/DrawingSheet";
 import { FloatingPanel } from "../components/FloatingPanel";
+import { SectionAuthorPanel } from "../components/SectionAuthorPanel";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import {
@@ -64,6 +66,7 @@ import {
   standardLayout,
 } from "../drawing/layout";
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { resolveDatumPlaneOptions } from "../sketch/plane";
 import { drawingRoute } from "../router";
 
 /** The scale (num/den) for a picker value like "1:2", defaulting to 1:1. */
@@ -111,6 +114,24 @@ export function DrawingPage() {
     return ordered.length > 0 ? ordered : [...STANDARD_VIEWS];
   }, [views]);
   const isFlatPatternSheet = requestedViews.includes("flat_pattern");
+  // The persisted section view (v1: at most one) and its cutting-plane params.
+  const sectionView = useMemo(
+    () => views.find((view) => view.projection === "section") ?? null,
+    [views],
+  );
+  // The evaluate wire keys `section_params` by the INDEX into `views` of each
+  // section view (drawings-section.md §1); we send the persisted view's own
+  // params so the PICK provenance for the section resolves (compose reads the
+  // persisted params directly and needs no body). Empty for a non-section sheet.
+  const sectionParamsByIndex = useMemo(() => {
+    const map: Record<string, SectionViewParams> = {};
+    requestedViews.forEach((projection, index) => {
+      if (projection === "section" && sectionView?.section_params) {
+        map[String(index)] = sectionView.section_params;
+      }
+    });
+    return map;
+  }, [requestedViews, sectionView]);
   const dimensions = useMemo<readonly DimensionResponse[]>(
     () => tree?.sheets[0]?.dimensions ?? [],
     [tree],
@@ -205,6 +226,7 @@ export function DrawingPage() {
           .filter((feature) => !feature.rolled_back)
           .map((feature) => ({ id: feature.id, feature: feature.feature })),
         dimensions: dimensionInputs,
+        section_params: sectionParamsByIndex,
       };
       return evaluateDrawingViews(request);
     },
@@ -251,6 +273,23 @@ export function DrawingPage() {
   // ---------------------------------------------------------------------
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Section-view authoring: the panel's open state, its own create-time error,
+  // and the referenced part's reusable datums (fetched lazily when the panel
+  // opens). The datum options come from the SAME resolver the sketch plane
+  // picker reads, so a section's plane FeatureRef means the same plane there.
+  const [sectionOpen, setSectionOpen] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
+  const sectionPartTreeQuery = useQuery({
+    queryKey: ["drawing-section-part-tree", selectedPartId],
+    enabled: sectionOpen && selectedPartId !== null,
+    queryFn: () => fetchFeatureTree(selectedPartId as string),
+    staleTime: 30_000,
+  });
+  const sectionDatumOptions = useMemo(
+    () => resolveDatumPlaneOptions(sectionPartTreeQuery.data?.features ?? []),
+    [sectionPartTreeQuery.data],
+  );
 
   const handleLayout = useCallback(() => {
     if (hasLayout || selectedPartId === null || busy) return;
@@ -401,6 +440,75 @@ export function DrawingPage() {
     sizeValue,
     queryClient,
   ]);
+
+  // The section action: create the sheet (if needed) + a single centred section
+  // view carrying its cutting plane + flip (drawings-section.md §1). The compose
+  // wire (E1a) then resolves the datum, cuts, and hatches automatically — no
+  // request body: the compose route reads the persisted `section_params`. A
+  // non-principal plane is caught in the panel before this runs; the server also
+  // guards it, and the sheet renders `section_plane_not_principal` readably.
+  const handleAuthorSection = useCallback(
+    (plane: SectionViewParams["plane"], flip: boolean) => {
+      if (hasLayout || selectedPartId === null || busy) return;
+      setBusy(true);
+      setSectionError(null);
+      void (async () => {
+        try {
+          let version = docVersion;
+          let sheetId = sheet?.id ?? null;
+          if (sheetId === null) {
+            const created = await createSheet(drawingId, {
+              name: "Sheet 1",
+              size: sizeValue,
+              orientation: "landscape",
+              projection: "third_angle",
+              expected_version: version,
+            });
+            version = created.doc_version;
+            sheetId = created.sheet.id;
+          }
+          const dims = sheetDimensions(sizeValue, "landscape");
+          await createView(drawingId, sheetId, {
+            projection: "section",
+            ref_document_id: selectedPartId,
+            ref_document_kind: "part",
+            scale: scaleFromValue(scaleValue),
+            position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+            section_params: { plane, flip },
+            expected_version: version,
+          });
+          setSectionOpen(false);
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+        } catch (error) {
+          setSectionError(
+            error instanceof Error
+              ? error.message
+              : "The section view could not be created.",
+          );
+        } finally {
+          setBusy(false);
+        }
+      })();
+    },
+    [
+      hasLayout,
+      selectedPartId,
+      busy,
+      docVersion,
+      sheet,
+      drawingId,
+      scaleValue,
+      sizeValue,
+      queryClient,
+    ],
+  );
+
+  const handleToggleSection = useCallback(() => {
+    setSectionError(null);
+    setSectionOpen((open) => !open);
+  }, []);
 
   const handleReproject = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -675,6 +783,7 @@ export function DrawingPage() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setAuthoring(IDLE);
+        setSectionOpen(false);
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -689,6 +798,12 @@ export function DrawingPage() {
       if (event.key.toLowerCase() === "f" && !hasLayout) {
         event.preventDefault();
         handleFlatPattern();
+      }
+      // S opens the section-view author (pick a cutting plane + flip). Pre-layout
+      // only, mirroring the command band's Section action.
+      if (event.key.toLowerCase() === "s" && !hasLayout) {
+        event.preventDefault();
+        handleToggleSection();
       }
       // E exports the laid-out sheet to a .svg (keyboard-first, mirrors the
       // command band's Export SVG action). No-op before layout.
@@ -715,6 +830,7 @@ export function DrawingPage() {
     hasLayout,
     handleLayout,
     handleFlatPattern,
+    handleToggleSection,
     handleReproject,
     handleExportSvg,
     handleExportPdf,
@@ -754,6 +870,8 @@ export function DrawingPage() {
             draftedPartName={draftedPartName}
             onLayout={handleLayout}
             onFlatPattern={handleFlatPattern}
+            onToggleSection={handleToggleSection}
+            sectionOpen={sectionOpen}
             onReproject={handleReproject}
             onExportSvg={handleExportSvg}
             onExportPdf={handleExportPdf}
@@ -761,6 +879,22 @@ export function DrawingPage() {
             exporting={exporting}
             busy={busy || projecting}
           />
+        ) : null}
+
+        {/* The section-view author hangs from the band into the viewport (the
+            sketch strip's offset-plane idiom), so the Sheet actions stay one
+            row above. Pre-layout only — a section is a lone-view sheet in v1. */}
+        {sectionOpen && !hasLayout ? (
+          <div className="absolute left-3 top-full z-20 mt-2">
+            <SectionAuthorPanel
+              datumPlanes={sectionDatumOptions}
+              loadingDatums={sectionPartTreeQuery.isFetching}
+              onCut={handleAuthorSection}
+              onClose={() => setSectionOpen(false)}
+              busy={busy}
+              error={sectionError}
+            />
+          </div>
         ) : null}
       </TopToolbar>
 

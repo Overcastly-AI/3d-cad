@@ -26,6 +26,7 @@ import type {
   ComposedBendTable,
   ComposedDimension,
   ComposedEdge,
+  ComposedHatch,
   ComposedNote,
   ComposedPoint,
   ComposedSheet,
@@ -691,7 +692,26 @@ function errorHeadline(
 ): string {
   if (code === "flat_pattern_not_sheet_metal") return "NOT A SHEET-METAL PART";
   if (code === "subshape_unresolved") return "BEND UNRESOLVED";
+  if (code === "section_plane_not_principal") return "PLANE NOT AXIS-ALIGNED";
+  if (code === "section_plane_misses_body") return "PLANE MISSES THE PART";
+  if (code === "section_empty") return "NO CUT FACE";
+  if (code === "section_params_missing") return "NO CUTTING PLANE SET";
+  if (projection === "section") return "SECTION FAILED";
   return projection === "flat_pattern" ? "FLAT PATTERN FAILED" : "VIEW FAILED";
+}
+
+/** Forward-looking guidance for a typed section failure (drawings-section.md §7) —
+ * an error explains what went wrong and how to fix it (frontend-design). */
+function sectionDetail(code: string | undefined): string | null {
+  if (code === "section_plane_not_principal")
+    return "v1 cuts on an axis-aligned plane. Choose XY, XZ, YZ, or an offset datum parallel to one.";
+  if (code === "section_plane_misses_body")
+    return "The cutting plane doesn't pass through the part. Choose a plane that intersects it.";
+  if (code === "section_empty")
+    return "The plane grazes the part without cutting a face. Move it into the solid.";
+  if (code === "section_params_missing")
+    return "This section view has no cutting plane. Re-create it and pick a plane.";
+  return null;
 }
 
 /** An honest inline error state for a view that produced no geometry — a dashed
@@ -711,7 +731,9 @@ function FailedView({
   const detail =
     error?.code === "flat_pattern_not_sheet_metal"
       ? "Add a base flange and an edge flange to unfold a flat blank."
-      : (error?.message ?? "This view produced no geometry.");
+      : (sectionDetail(error?.code) ??
+        error?.message ??
+        "This view produced no geometry.");
   const lines = wrapText(detail, 34, 3);
   const boxW = 78;
   const boxH = 20 + lines.length * 4.4;
@@ -753,6 +775,32 @@ function FailedView({
         >
           {line}
         </text>
+      ))}
+    </g>
+  );
+}
+
+/**
+ * A section view's crosshatch — the ANSI 45° cut-face fill (drawings-section.md
+ * §5), drawn VERBATIM from the composed model (coordinates already in final
+ * sheet-mm SVG space). Rendered UNDER the projected edges so the cut outline and
+ * any dimensions read on top of the fill. The `drawing.hatch` ink + weight are
+ * the same the server serializer emits (`_HATCH_INK` / `_HATCH_W`) and the same
+ * `drawing-hatch` test hook, so the on-screen section and the exported SVG/PDF/
+ * DXF are one fill — QA drives a single target set (E1b, closing section views
+ * to fully end-to-end: kernel + wire + web authoring + on-screen fill). */
+function SectionHatch({ hatch }: { hatch: ComposedHatch }) {
+  if (hatch.lines.length === 0) return null;
+  return (
+    <g
+      data-testid="drawing-hatch"
+      aria-hidden="true"
+      stroke={drawing.hatch}
+      strokeWidth={drawing.hatchWeightMm}
+      strokeLinecap="butt"
+    >
+      {hatch.lines.map((line, i) => (
+        <line key={i} x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2} />
       ))}
     </g>
   );
@@ -885,6 +933,11 @@ function SheetView({
         />
       ) : (
         <>
+          {/* Section cut-face fill UNDER the edges (a non-section view has no
+              `hatch`, so this is a no-op there — the `bend_table` additive rule). */}
+          {composedView.hatch ? (
+            <SectionHatch hatch={composedView.hatch} />
+          ) : null}
           {svgEdges.map((edge, i) => {
             const key =
               edge.sourceEdge !== null

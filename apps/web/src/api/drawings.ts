@@ -18,6 +18,10 @@ export type SheetCreate = components["schemas"]["SheetCreate"];
 export type ViewResponse = components["schemas"]["ViewResponse"];
 export type ViewCreate = components["schemas"]["ViewCreate"];
 export type ViewScale = components["schemas"]["ViewScale"];
+/** A section view's cutting plane + half selection (drawings-section.md §1). The
+ * `plane` is the EXACT `GeomRef` union a sketch's plane uses (DatumPlaneRef |
+ * FeatureRef) — no parallel plane taxonomy (DRY). */
+export type SectionViewParams = components["schemas"]["SectionViewParams"];
 export type SheetPoint = components["schemas"]["SheetPoint"];
 export type SheetSize = SheetResponse["size"];
 export type ViewProjection = ViewResponse["projection"];
@@ -65,6 +69,9 @@ export type ComposedEdge =
 export type ComposedBendTable = components["schemas"]["ComposedBendTable"];
 /** A placed free-text note annotation — text at a sheet point (design §2.2). */
 export type ComposedNote = components["schemas"]["ComposedNote"];
+/** A section view's placed crosshatch — the ANSI 45° cut-face fill
+ * (drawings-section.md §5); null for every non-section view. */
+export type ComposedHatch = components["schemas"]["ComposedHatch"];
 /** One bend-table fold row (bend id, angle, radius, direction, allowance). */
 export type BendTableRow = components["schemas"]["BendTableRow"];
 /** The typed per-view/-feature error envelope (code + human message). */

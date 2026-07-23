@@ -479,6 +479,67 @@ export function offsetSpecFromDatum(
   };
 }
 
+/** A reusable datum plane already in a part's feature tree — id + name + the
+ * resolved plane spec (a `FeatureRef` on the wire). The shape the sketch plane
+ * picker (`SketchStrip`) and the section-view author both offer. */
+export interface DatumPlaneOption {
+  id: string;
+  name: string;
+  spec: SketchPlaneSpec;
+}
+
+/** One feature tree node, narrowed to what datum enumeration reads. */
+type DatumFeatureNode = components["schemas"]["FeatureResponse"];
+
+/**
+ * The reusable datum planes in a part's feature tree, resolved to their placed
+ * bases by the SAME plane-math the kernel evaluates (offset / offset-from-a-
+ * datum / midplane over origin + datum sides). An `offset` datum carries a rich
+ * readout ("XY +30") via its spec; every other client-resolvable datum is
+ * offered by its resolved basis. An `on_face` datum (or a face-picked midplane
+ * side) resolves server-side only, so it is absent here and simply not offered.
+ *
+ * The ONE derivation both the sketch plane picker and the section-view author
+ * read — so a datum FeatureRef means exactly the same plane in both flows (DRY:
+ * a section's plane reuses the EXACT `GeomRef` union a sketch's plane uses).
+ */
+export function resolveDatumPlaneOptions(
+  features: readonly DatumFeatureNode[],
+): DatumPlaneOption[] {
+  const byId = new Map<string, AnyDatumParams>();
+  for (const feature of features) {
+    if (feature.feature.type === "datum") {
+      byId.set(feature.id, feature.feature.params);
+    }
+  }
+  const options: DatumPlaneOption[] = [];
+  for (const feature of features) {
+    if (feature.feature.type !== "datum") continue;
+    const params = feature.feature.params;
+    if (params.kind === "offset") {
+      options.push({
+        id: feature.id,
+        name: feature.name,
+        spec: offsetSpecFromDatum(feature.id, params),
+      });
+      continue;
+    }
+    const basis = resolveDatumBasis(feature.id, byId);
+    if (basis === null) continue;
+    options.push({
+      id: feature.id,
+      name: feature.name,
+      spec: {
+        kind: "datum",
+        datumFeatureId: feature.id,
+        label: feature.name,
+        basis,
+      },
+    });
+  }
+  return options;
+}
+
 /** Sketch-plane (u,v) mm → world xyz mm (`origin + u·x + v·y`). */
 export function planeToWorld(
   basis: PlaneBasis,
