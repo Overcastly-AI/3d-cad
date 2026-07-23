@@ -375,3 +375,74 @@ parse per distinct upload, not one per edit.
     coincident fit points.
   - CI-time — batch the cross-interpreter determinism probe into one subprocess
     before it dominates the gate.
+
+---
+
+## 2026-07-23 — Pass: DEAD-CAPABILITY systematic sweep
+
+**Scope.** Branch `claude/open-source-3d-cad-o7hl49`, HEAD `beb3a21`. One
+systematic pass over every persisted pydantic schema + FastAPI route
+(`packages/py_kit/schemas/**`, `services/documents`, `services/gateway`) asking,
+per field/route: *where does a user SEE or DRIVE this end-to-end (author →
+persist → evaluate/compose → render/export), and is that path actually wired?*
+Deliberately flags fields whose only coverage is a single-hop unit/golden that
+INJECTS the value, with no path from stored authoring state — the exact shape of
+the note-annotation bug (`beb3a21`/`b0cb16a`), whose compose goldens were green
+because the golden fed `annotations`/`notes` directly while the gateway threading
+was missing.
+
+Method note: the drawings CRUD surface is the richest persisted schema and the
+site of all three prior instances (corner relief, notes, gauge fields), so it got
+the deepest trace; feature-param and assembly schemas were swept for
+reserved/unconsumed fields and came back clean of NEW orphans (the `ref_pinned_
+version` "pin-ready, NULL in v1" fields are documented-reserved WITH a real
+assembly-side consumer in `apps/web/src/assembly/evaluateRequest.ts:24` — not
+orphans).
+
+### Findings — orphaned / half-wired capabilities (6)
+
+Legend: **A** = authoring surface exists (UI or the only client, `apps/web`);
+**P** = persisted; **T** = threaded into the compose/evaluate request; **C** =
+a consumer renders/uses it end-to-end.
+
+| # | Capability (schema/field/route) | Persisted at | A | P | T | C | Gap | Verdict / severity |
+|---|---|---|---|---|---|---|---|---|
+| D1 | `TitleBlock` free-text (`title`/`author`/`date`/`notes`) — `SheetCreate.title_block` / `SheetUpdate.title_block` | documents Sheet row; `SheetResponse.title_block` | ✗ | ✓ | ✓ | ✗ | Gateway threads it into `SheetLayout.title_block` (`gateway/drawings.py:442`), but the composer's `_title_block()` (`geometry/drawings/compose.py:1016-1038`) stamps ONLY `layout.title`+`scale`+`size` — `author`/`date`/`notes` are never placed by any serializer nor by `DrawingSheet.tsx`. No web UI authors `title_block` (`createSheet` always sends just name/size/orientation/projection, `DrawingPage.tsx:355-363`). Schema even admits "v1 unused". | **P1 — the note-shape repeated: threaded to compose, dropped by the consumer, no golden asserts it.** wire-it (stamp author/date/notes in `_title_block` + a compose golden) or delete-it (drop `TitleBlock` fields until title-block editing lands). |
+| D2 | `DimensionPlacement` (`offset_mm`, `text_pos`) — authored 2D placement on every `Dimension` | documents Dimension params blob | ✗ | ✓ | ✓ | ✗ | `compose.py` never reads `.placement`/`.offset_mm`/`.text_pos` — it RECOMPUTES placement via its own bounds/penalty engine (`_placement_penalty`, `chooseByPenalty`, `compose.py:658-683`). Web authoring (`drawing/authoring.ts`) never sets either field (grep: 0 hits). So authored placement is persisted but no consumer honors it. | **P2.** wire-it (seed the composer's offset from `placement.offset_mm`, honor `text_pos`) or delete-it (drop `DimensionPlacement` until drag-to-place ships). Benign today (defaults 0/null), but it is API that demos as "authored placement" and does nothing. |
+| D3 | `SheetProjectionConvention = "first_angle"` — `SheetCreate/Update.projection` | documents Sheet row; threaded to `SheetLayout.projection` | ✗ | ✓ | ✓ | ✗ | `first_angle` appears ONLY in schemas + generated clients (grep across `services/`+`apps/web/src`: zero logic hits); `compose.py` never branches on the convention (first- vs third-angle swaps top/bottom + left/right view placement — a real drafting difference). Web hardcodes `projection: "third_angle"` (`DrawingPage.tsx:268,359`). A `first_angle` sheet silently composes as third-angle. | **P2.** wire-it (branch `boundsAwareLayout` on convention + a first-angle golden) or delete-it (drop the `first_angle` literal until it is honored) — shipping a standards toggle that silently no-ops is worse than not offering it. |
+| D4 | Assembly drawing views — `ViewCreate.ref_document_kind = "assembly"` | documents View row (existence-validated, `documents/drawings.py:554`) | ✗ | ✓ | ✗ | ✗ | Persistable via raw API (documents validates the referenced assembly exists), but the gateway compose/export path ALWAYS fetches `/api/v1/parts/{id}/evaluation-request` (`gateway/drawings.py:503`) — an assembly view 404s the compose. No web authoring (always sends `ref_document_kind: "part"`). | **P2.** Documented "fast-follow (design §7)", but the schema+route ship today as apparent capability with no consumer. Either gate the enum to `"part"` until assembly compose lands, or wire an assembly-evaluation-request branch. |
+| D5 | Sheet `orientation = "portrait"` — `SheetCreate/Update.orientation` | documents Sheet row | ✗ | ✓ | ✓ | ✓ | Consumer EXISTS (`sheet_dimensions` swaps w/h, `compose.py:232-235`) but NO authoring surface — web hardcodes `orientation: "landscape"` (`DrawingPage.tsx:358`). Inverse of the note bug (consume-ready, author-missing). | **P3.** Lower risk (the consumer is correct); just add the orientation control to the sheet-size UI, or note the API-only status. |
+| D6 | Multi-sheet drawings — `DrawingTreeResponse.sheets: list` | documents Sheet rows (N per drawing) | ✗ | ✓ | — | ✗ | Gateway compose/export consume ONLY `tree.sheets[0]` (`gateway/drawings.py:421`, `492`); sheets 2..N are persistable but never composed/exported. Web only ever creates "Sheet 1". | **P3.** Documented v1-single-sheet; acceptable as a stated limit, but the `sheets` list + per-sheet CRUD read as multi-sheet capability. Note the limit in the export route docstring or gate additional sheets. |
+
+### Cross-cutting observation
+
+All six live in the drawings surface — the same surface as the three prior
+case-by-case instances. The common failure mode is **a placement/render consumer
+that is a faithful port of the pre-existing frontend engine (which itself ignored
+the authored field), so the field is threaded end-to-end yet silently dropped at
+the last hop, and no golden catches it because goldens exercise the composer with
+DEFAULT placement / no title-block text.** A cheap structural guard: for every
+authored-but-optional drawing field (`title_block` free-text, `placement.
+offset_mm`/`text_pos`, `projection` convention), add ONE compose golden that sets
+a NON-default value and asserts it appears in the placed `ComposedSheet` — the
+same "golden that would have gone red" the notes fix should have carried.
+
+### Prioritized recommendations for the groomer
+
+- **P1 — D1 (title-block free-text).** Highest-severity: the exact notes-class
+  bug (threaded to compose, dropped by the consumer, zero golden coverage), and a
+  title block with an author/date is table-stakes drafting output. Cheapest
+  correct fix: stamp the three fields in `_title_block` across all serializers +
+  the on-screen block, add a non-default-title-block compose golden. If deferring,
+  DELETE the fields (don't ship dead authoring).
+- **P2 — D2, D3, D4.** Each is persisted API that demos as capability but no
+  consumer honors it. D3 (`first_angle`) and D4 (assembly views) are the more
+  visible "silent no-op / silent 404" risks; gate the enum members OR wire them.
+  D2 is benign-by-default but is orphaned authoring — wire or drop with the
+  placement-editing slice.
+- **P3 — D5, D6.** Documented/benign asymmetries (author-missing D5;
+  consume-limited D6); close the authoring gap or state the limit in the route
+  docstring.
+- **Process (P2).** Institutionalize the guard above: a non-default-value compose
+  golden per optional authored drawing field. This converts the whole
+  dead-capability class from case-by-case discovery into a standing gate.
