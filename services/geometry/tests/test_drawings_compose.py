@@ -485,6 +485,39 @@ def test_parity_bounds_aware_layout_third_angle_and_centering() -> None:
     assert (a["front"].y + a["iso"].y) / 2 == pytest.approx(dims.y / 2, abs=_TOL)
 
 
+def test_bounds_aware_layout_first_angle_swaps_top_and_right() -> None:
+    """First-angle (ISO 128) mirrors third-angle placement: the top view drops
+    BELOW the front and the right-side view moves to its LEFT, while the iso corner
+    is conventionally unchanged (drawings.md §1.2). Same projected geometry, swapped
+    placement — the D3 wire (AUDIT-ENGINEERING)."""
+    dims = sheet_dimensions("A4", "landscape")
+    bounds = {v: _square_bounds(20) for v in ("front", "top", "right", "iso")}
+    third = bounds_aware_layout(bounds, dims, "third_angle")
+    first = bounds_aware_layout(bounds, dims, "first_angle")
+    # First-angle relations (mirror of third-angle).
+    assert first["top"].y < first["front"].y  # top BELOW front (y-up)
+    assert first["top"].x == pytest.approx(first["front"].x, abs=_TOL)
+    assert first["right"].x < first["front"].x  # right-side view LEFT of front
+    assert first["right"].y == pytest.approx(first["front"].y, abs=_TOL)
+    # The convention actually changes the placement (not a silent no-op — the D3 bug).
+    assert first["top"].y != pytest.approx(third["top"].y, abs=1e-3)
+    assert first["right"].x != pytest.approx(third["right"].x, abs=1e-3)
+    # The arrangement stays centred in the sheet regardless of convention.
+    xs = [first[v].x for v in ("front", "top", "right", "iso")]
+    ys = [first[v].y for v in ("front", "top", "right", "iso")]
+    assert (min(xs) + max(xs)) / 2 == pytest.approx(dims.x / 2, abs=_TOL)
+    assert (min(ys) + max(ys)) / 2 == pytest.approx(dims.y / 2, abs=_TOL)
+
+
+def test_bounds_aware_layout_third_angle_is_default() -> None:
+    """Omitting the convention == third-angle (the byte-identity default path)."""
+    dims = sheet_dimensions("A4", "landscape")
+    bounds = {v: _square_bounds(20) for v in ("front", "top", "right", "iso")}
+    assert bounds_aware_layout(bounds, dims) == bounds_aware_layout(
+        bounds, dims, "third_angle"
+    )
+
+
 def test_parity_bounds_aware_layout_gutter_spacing() -> None:
     """Adjacent views' boxes are spaced by half+gutter+half, even for a large
     part (layout.test.ts VIEW_GUTTER_MM = 24)."""
@@ -976,6 +1009,87 @@ def test_title_block_golden_svg_is_deterministic_across_interpreter_restart() ->
     assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
     assert result.stdout == local, (
         "composed title-block SVG differs across interpreter restart"
+    )
+
+
+# --- first-angle convention golden (AUDIT-ENGINEERING D3) ----------------------
+# A NON-DEFAULT authored field (`layout.projection = "first_angle"`) that MUST change
+# the placed sheet — the process-guard golden the audit asked for: a first-angle sheet
+# used to silently compose as third-angle (`compose.py` never branched on the
+# convention). These prove the swapped placement lands in the ComposedSheet + all three
+# serialized formats, AND that the third-angle default path stays byte-identical
+# (asserted by the plate/title-block goldens above — those requests are third_angle).
+_FA_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_first_angle_goldens"
+
+
+def _fa_request() -> ComposeDrawingRequest:
+    return ComposeDrawingRequest.model_validate_json(
+        (_FA_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+
+
+def _compose_fa_sheet() -> ComposedSheet:
+    request = _fa_request()
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def test_first_angle_swaps_placement_in_composed_sheet() -> None:
+    """THE D3 guard: a `first_angle` sheet places the top view BELOW the front and the
+    right-side view to its LEFT in the ComposedSheet (SVG space, y-down) — the exact
+    assertion that failed before the wire (it silently composed as third-angle)."""
+    anchors = {v.projection: v.anchor for v in _compose_fa_sheet().views}
+    # SVG space is y-DOWN: a larger y_mm is LOWER on the page.
+    assert anchors["top"].y_mm > anchors["front"].y_mm  # top below front
+    assert anchors["right"].x_mm < anchors["front"].x_mm  # right-side view left
+    # The iso corner is conventionally unchanged (upper-right: right of + above front).
+    assert anchors["iso"].x_mm > anchors["front"].x_mm
+    assert anchors["iso"].y_mm < anchors["front"].y_mm
+
+
+def test_first_angle_differs_from_third_angle() -> None:
+    """The convention is honored, not a no-op: the SAME part composed first-angle vs
+    third-angle yields DIFFERENT SVG bytes (D3 was that they were identical)."""
+    fa = serialize_svg(_compose_fa_sheet())
+    third_layout = _fa_request().layout.model_copy(update={"projection": "third_angle"})
+    request = _fa_request()
+    evaluation = evaluate_drawing_views(request)
+    third = serialize_svg(
+        place_sheet(evaluation, request.dimensions, third_layout, request.annotations)
+    )
+    assert fa != third
+
+
+def test_first_angle_golden_svg_is_byte_identical() -> None:
+    expected = (_FA_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_fa_sheet()) == expected
+
+
+def test_first_angle_golden_pdf_is_byte_identical() -> None:
+    expected = (_FA_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_fa_sheet()) == expected
+
+
+def test_first_angle_golden_dxf_is_byte_identical() -> None:
+    expected = (_FA_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_fa_sheet()) == expected
+
+
+def test_first_angle_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose of the first-angle golden reproduces the SAME SVG
+    bytes (§8.3 / RESEARCH §9) — placement is a pure function of the convention."""
+    local = serialize_svg(_compose_fa_sheet())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_FA_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "composed first-angle SVG differs across interpreter restart"
     )
 
 

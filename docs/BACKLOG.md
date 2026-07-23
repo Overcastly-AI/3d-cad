@@ -137,13 +137,13 @@ scorecard impact → core capability → polish).
       field renders nothing). New `drawing.titleFieldCaptionMm`/`titleFieldValueMm`
       tokens match the composer's `_TB_FIELD_*_MM`. Unit test (row selection) +
       Playwright (an authored block's free-text on-screen). [src: AUDIT-ENGINEERING.md D1, paired frontend follow-on]
-- [ ] (P2, S) Drawings D3 — `first_angle` projection silently composes as
-      third-angle (dead-cap audit D3). The convention is persisted + threaded to
-      `SheetLayout.projection` but `compose.py` never branches on it (first vs
-      third swaps top/bottom + left/right placement — a real drafting standard).
-      A shipped standards toggle that silently no-ops is worse than none: either
-      branch `boundsAwareLayout` on convention (+ a first-angle golden) or gate
-      the enum to `third_angle` until honored. [src: AUDIT-ENGINEERING.md D3]
+- [x] (P2, S) Drawings D3 — `first_angle` projection silently composes as
+      third-angle (dead-cap audit D3). WIRED: `bounds_aware_layout` now branches
+      on `layout.projection` — first-angle drops the top view below the front and
+      the right-side view to its left (ISO 128), iso corner unchanged; third-angle
+      is the default and stays byte-identical. First-angle compose golden
+      (SVG/PDF/DXF + restart determinism) proves the swap; it doubles as the
+      non-default-authored-field process guard. [src: AUDIT-ENGINEERING.md D3]
 - [ ] (P2, S) Drawings D4 — assembly drawing views 404 the composer (dead-cap
       audit D4). `ViewCreate.ref_document_kind="assembly"` is persistable
       (documents validates existence) but the gateway compose path always fetches

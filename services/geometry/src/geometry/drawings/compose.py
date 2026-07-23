@@ -76,6 +76,7 @@ from py_kit.schemas.drawings import (
     ProjectedViewEdge,
     SheetLayout,
     SheetOrientation,
+    SheetProjectionConvention,
     SheetSize,
     ViewProjection,
     ViewScale,
@@ -292,13 +293,25 @@ def standard_layout(dims: Vec2) -> dict[ViewProjection, Vec2]:
 
 
 def bounds_aware_layout(
-    bounds_by_projection: dict[ViewProjection, ViewBounds | None], dims: Vec2
+    bounds_by_projection: dict[ViewProjection, ViewBounds | None],
+    dims: Vec2,
+    projection: SheetProjectionConvention = "third_angle",
 ) -> dict[ViewProjection, Vec2]:
-    """Bounds-aware third-angle placement (layout.ts boundsAwareLayout).
+    """Bounds-aware orthographic placement (layout.ts boundsAwareLayout).
 
     Spaces the four views by their OWN projected extents (+ a gutter) then centres
     the arrangement in the sheet; falls back to :func:`standard_layout` when no view
     has geometry. Returns view-CENTRE anchors (sheet mm, y-UP, bottom-left origin).
+
+    ``projection`` selects the drafting-standard placement of the orthographic
+    trio (ISO 128, drawings.md §1.2 — a SHEET convention, not a projection
+    difference: the projected edges are identical, only the placement swaps).
+    THIRD-angle (US default, unchanged) puts the top view ABOVE the front and the
+    right-side view to the RIGHT of it. FIRST-angle (ISO/European) mirrors that —
+    the top view goes BELOW the front and the right-side view to its LEFT ("as if
+    the object were projected through itself onto a plane behind it"). The iso
+    corner is conventionally unchanged (the free upper-right quadrant in both).
+    ``third_angle`` reproduces the pre-convention anchors byte-for-byte.
     """
 
     def half(v: ViewProjection) -> Vec2:
@@ -316,10 +329,16 @@ def bounds_aware_layout(
     if not any_geometry:
         return standard_layout(dims)
 
+    # y-UP, bottom-left origin: +y is up, +x is right. Third-angle places top at
+    # +y (above front) and right at +x (right of front); first-angle negates each
+    # of those two axes so top lands below and the right-side view to the left. The
+    # iso corner keeps the third-angle (+,+) slot in both conventions.
+    top_sy = 1.0 if projection == "third_angle" else -1.0
+    right_sx = 1.0 if projection == "third_angle" else -1.0
     rel: dict[ViewProjection, Vec2] = {
         "front": Vec2(0.0, 0.0),
-        "top": Vec2(0.0, f.y + g + t.y),
-        "right": Vec2(f.x + g + r.x, 0.0),
+        "top": Vec2(0.0, top_sy * (f.y + g + t.y)),
+        "right": Vec2(right_sx * (f.x + g + r.x), 0.0),
         "iso": Vec2(f.x + g + r.x, f.y + g + t.y),
     }
     half_of: dict[ViewProjection, Vec2] = {
@@ -1158,7 +1177,7 @@ def place_sheet(
         ok = r is not None and r.error is None
         bounds_by_proj[proj] = view_bounds(r.edges) if (ok and r is not None) else None
 
-    anchors = bounds_aware_layout(bounds_by_proj, dims)
+    anchors = bounds_aware_layout(bounds_by_proj, dims, layout.projection)
 
     svg_rect_by_proj: dict[ViewProjection, SvgRect] = {}
     for proj in STANDARD_VIEWS:
