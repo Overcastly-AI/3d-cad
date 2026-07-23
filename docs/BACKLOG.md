@@ -137,7 +137,9 @@ frame refactor are v2/§11. Spike de-collected.
       masked boolean failure reads as "could not verify — inspect" rather than a
       measured overlap. Schema + generated API already carry the flag
       (backward-compatible). [src: interference hardening follow-up 2026-07-23]
-- [ ] (P1, M) Assembly STEP import with product structure. Read AP214
+- [x] (P1, M) Assembly STEP import with product structure. **DONE 2026-07-23
+      (slices 1+2a+2b) — assembly interop is now BIDIRECTIONAL; the "assembly is
+      a one-way street" is closed.** Read AP214
       PRODUCT/NEXT_ASSEMBLY_USAGE_OCCURRENCE into positioned, NAMED Loft
       assembly instances — not one anonymous multi-lump body (today's MB-4b
       behavior). Acceptance: importing a multi-part assembly STEP creates an
@@ -164,10 +166,22 @@ frame refactor are v2/§11. Spike de-collected.
       now carries `body_step` (the LOCAL-frame, placement-stripped STEP fragment
       the single-body `import` feature ingests verbatim) + `body_step_id`
       (content-address dedup key — repeated part → one stored B-rep, N instances).
-      **SLICE 2b remains** (now DoS-safe to expose): documents assembly-document
-      creation from the products (seed each part with `ImportParamsV1(data=
-      body_step)`, group by `body_step_id`) + gateway upload endpoint + wire the
-      false-flag fallback to the single-body import.
+      **SLICE 2b SHIPPED 2026-07-23 (backend-builder):** documents
+      `POST /api/v1/step-import` turns a `StepAssemblyImportResult` into a REAL
+      graph — an `assembly` doc with one part per unique `body_step_id` (deduped)
+      seeded with `ImportParamsV1(data=body_step)` (ZERO new ingest path) + one
+      named instance per product at its placement (repeated part → ONE part / TWO
+      instances), or (`has_assembly_structure=false`) the single-body MB-4b
+      fallback; created ATOMICALLY (a rejected import leaves no orphan docs).
+      Gateway `POST /api/v1/assemblies/import` is the first untrusted-upload
+      entry: auth + rate-limited, a streamed byte-size cap BEFORE forwarding, an
+      identity-free geometry hop, and a product-count cap
+      (`MAX_IMPORT_ASSEMBLY_PRODUCTS=500`) enforced on the read BEFORE documents
+      (bounds the post-transfer fan-out a small STEP could encode — slice-2a
+      security review). New py-kit DTOs `ImportAssemblyRequest` /
+      `StepImportResponse` (`AssemblyImportResult` | `SingleBodyImportResult`);
+      contracts + ts-client regenerated. The true STEP-bytes round-trip
+      (`export_step_assembly_bytes` → reader → documents) is a geometry/e2e gate.
 - [ ] (P2, M) Drawings parity #4 — assembly drawing views + BOM/balloons (WIRE).
       The real capability behind the D4 gate: compose a drawing view that
       projects an ASSEMBLY (not a single part) — an assembly-side

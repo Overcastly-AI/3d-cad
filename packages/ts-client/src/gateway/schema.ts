@@ -25,6 +25,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Assembly Step
+         * @description Upload an untrusted assembly STEP → a real Loft assembly (or single part).
+         *
+         *     THE first truly-untrusted entry into the XCAF reader, so it is defended in
+         *     depth: auth-gated (``CurrentUser``), rate-limited (``COMPUTE_RATE_LIMIT``),
+         *     and size-capped WHILE the raw body streams (oversize → 422 ``import_too_large``
+         *     before the body is fully read or anything goes upstream — the strongest DoS
+         *     guard, §6). The bytes then take an identity-free hop to the geometry service's
+         *     ``/assembly/import`` (the killable-subprocess parse bound lives there, slice
+         *     2a — no principal travels upstream, RESEARCH §3), whose structured read drives
+         *     the documents service to create the assembly (deduped parts + named instances
+         *     at placements) or fall back to a single-body part.
+         *
+         *     A second DoS guard beyond bytes: the geometry read's product count is capped
+         *     at :data:`MAX_IMPORT_ASSEMBLY_PRODUCTS` BEFORE documents is touched, so a
+         *     small STEP that encodes a pathological occurrence count cannot fan out into
+         *     unbounded documents-side part/instance creation (no partial assembly is ever
+         *     created). Geometry / documents error envelopes (``import_parse_failed`` /
+         *     ``import_no_solid`` / ``import_parse_timeout`` / ``assembly_name_taken`` …)
+         *     are re-surfaced verbatim.
+         */
+        post: operations["import_assembly_step_api_v1_assemblies_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}": {
         parameters: {
             query?: never;
@@ -1447,6 +1485,30 @@ export interface components {
             instances: components["schemas"]["InstanceResponse"][];
             /** Mates */
             mates: components["schemas"]["MateResponse"][];
+        };
+        /**
+         * AssemblyImportResult
+         * @description A STEP that carried product structure became a Loft assembly (SLICE-2b).
+         *
+         *     ``assembly`` is the freshly-created assembly graph (its N named instances at
+         *     their imported placements, ready to render — the same read model every other
+         *     assembly route serves). ``part_ids`` are the DEDUPED part documents created:
+         *     one per unique ``body_step_id``, so a part occurring twice is ONE id here but
+         *     two instances in ``assembly.instances``.
+         */
+        AssemblyImportResult: {
+            /** @description The created assembly with its instances at imported placements */
+            assembly: components["schemas"]["AssemblyGraphResponse"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "assembly";
+            /**
+             * Part Ids
+             * @description Deduped part documents created (one per unique body_step_id)
+             */
+            part_ids: string[];
         };
         /**
          * AssemblyListResponse
@@ -6311,6 +6373,28 @@ export interface components {
             thickness_mm: number;
         };
         /**
+         * SingleBodyImportResult
+         * @description A flat STEP became a single-body part — the MB-4b fallback (SLICE-2b).
+         *
+         *     Backward-compatible with the pre-assembly import: one part document seeded
+         *     with the ``import`` base feature, no assembly. ``tree_version`` is the part's
+         *     post-import concurrency token (1 — the single import feature).
+         */
+        SingleBodyImportResult: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "part";
+            /** @description The created single-body part */
+            part: components["schemas"]["PartResponse"];
+            /**
+             * Tree Version
+             * @description The part's concurrency token after the import feature (== 1)
+             */
+            tree_version: number;
+        };
+        /**
          * SketchArc
          * @description A circular arc traversed **counterclockwise** from start to end.
          *
@@ -7436,6 +7520,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_assembly_step_api_v1_assemblies_import_post: {
+        parameters: {
+            query?: {
+                /** @description Name for the created assembly (or single-body part when the file carries no product structure) */
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The STEP part-21 file bytes (raw request body). */
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyImportResult"] | components["schemas"]["SingleBodyImportResult"];
                 };
             };
             /** @description Validation Error */

@@ -231,7 +231,7 @@ def _mate_response(mate: db.Mate) -> MateResponse:
     )
 
 
-async def _graph_response(
+async def graph_response(
     session: AsyncSession, assembly: db.Assembly
 ) -> AssemblyGraphResponse:
     instances = await ordered_instances(session, assembly.id)
@@ -294,7 +294,7 @@ async def get_assembly(
 ) -> AssemblyGraphResponse:
     """One owned assembly with its full instance + mate graph (uniform 404)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id)
-    return await _graph_response(session, assembly)
+    return await graph_response(session, assembly)
 
 
 async def _resolve_document_names(
@@ -671,7 +671,7 @@ async def delete_instance(
         instance_id=str(instance_id),
         doc_version=assembly.doc_version,
     )
-    return await _graph_response(session, assembly)
+    return await graph_response(session, assembly)
 
 
 # --- mate routes ------------------------------------------------------------------
@@ -765,7 +765,7 @@ async def delete_mate(
         mate_id=str(mate_id),
         doc_version=assembly.doc_version,
     )
-    return await _graph_response(session, assembly)
+    return await graph_response(session, assembly)
 
 
 # --- undo / redo (docs/design/undo-redo.md UR3) -----------------------------------
@@ -894,7 +894,7 @@ async def _restore_history_step(
             history_cursor=assembly.history_cursor,
             doc_version=assembly.doc_version,
         )
-    return await _graph_response(session, assembly)
+    return await graph_response(session, assembly)
 
 
 @router.post("/{assembly_id}/undo")

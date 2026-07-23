@@ -23,6 +23,7 @@ from documents.assemblies import router as assemblies_router
 from documents.drawings import router as drawings_router
 from documents.features import router as features_router
 from documents.parts import router as parts_router
+from documents.step_import import router as step_import_router
 
 TITLE = "Loft Documents"
 VERSION = "0.1.0"
@@ -73,6 +74,7 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(features_router)
     app.include_router(assemblies_router)
     app.include_router(drawings_router)
+    app.include_router(step_import_router)
     return app
 
 

@@ -254,6 +254,36 @@
         "title": "AssemblyGraphResponse",
         "type": "object"
       },
+      "AssemblyImportResult": {
+        "description": "A STEP that carried product structure became a Loft assembly (SLICE-2b).\n\n``assembly`` is the freshly-created assembly graph (its N named instances at\ntheir imported placements, ready to render \u2014 the same read model every other\nassembly route serves). ``part_ids`` are the DEDUPED part documents created:\none per unique ``body_step_id``, so a part occurring twice is ONE id here but\ntwo instances in ``assembly.instances``.",
+        "properties": {
+          "assembly": {
+            "$ref": "#/components/schemas/AssemblyGraphResponse",
+            "description": "The created assembly with its instances at imported placements"
+          },
+          "kind": {
+            "const": "assembly",
+            "default": "assembly",
+            "title": "Kind",
+            "type": "string"
+          },
+          "part_ids": {
+            "description": "Deduped part documents created (one per unique body_step_id)",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Part Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "assembly",
+          "part_ids"
+        ],
+        "title": "AssemblyImportResult",
+        "type": "object"
+      },
       "AssemblyListResponse": {
         "description": "The caller's assemblies, oldest first (wrapper leaves room for paging).",
         "properties": {
@@ -530,6 +560,23 @@
           "tool"
         ],
         "title": "BooleanParamsV1",
+        "type": "object"
+      },
+      "BoundingBox": {
+        "description": "Axis-aligned bounding box (mm), exact (not mesh-inflated).",
+        "properties": {
+          "max": {
+            "$ref": "#/components/schemas/Vec3"
+          },
+          "min": {
+            "$ref": "#/components/schemas/Vec3"
+          }
+        },
+        "required": [
+          "min",
+          "max"
+        ],
+        "title": "BoundingBox",
         "type": "object"
       },
       "ChamferFeature": {
@@ -2483,6 +2530,28 @@
         "title": "HorizontalConstraint",
         "type": "object"
       },
+      "ImportAssemblyRequest": {
+        "description": "documents-side request: materialise a geometry read into Loft documents.\n\n``result`` is the geometry service's structured read (forwarded verbatim by\nthe gateway); ``name`` is the caller-chosen name for the created document \u2014\nthe assembly name (``has_assembly_structure=True``) or the single part's name\n(the MB-4b fallback). Each product's editable ``body_step`` seeds a part's\n``import`` feature (:class:`~py_kit.schemas.features.ImportParamsV1` \u2014 ZERO new\ningest path), products sharing a ``body_step_id`` collapse to ONE part with N\ninstances, and the whole graph is created atomically (all-or-nothing \u2014 a\nfailure leaves no orphan docs).",
+        "properties": {
+          "name": {
+            "description": "Name for the created document \u2014 the assembly's name (product structure present) or the single part's name (single-body fallback)",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/StepAssemblyImportResult",
+            "description": "The geometry service's structured read of the uploaded STEP"
+          }
+        },
+        "required": [
+          "name",
+          "result"
+        ],
+        "title": "ImportAssemblyRequest",
+        "type": "object"
+      },
       "ImportFeature": {
         "description": "``{\"type\": \"import\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting BASE feature (docs/design/step-import.md \u00a71): it produces\nthe imported solid as the part's base body, rather than modifying a prior\none. ``params`` is :class:`ImportParamsV1` (inline STEP text in v1).",
         "properties": {
@@ -2535,6 +2604,81 @@
           "data"
         ],
         "title": "ImportParamsV1",
+        "type": "object"
+      },
+      "ImportedProduct": {
+        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both content-addressed and SHARED across repeated\noccurrences of one part (the dedup contract, as slice 1 does for meshes):\n\n* ``body_step`` \u2014 the product's editable **LOCAL-frame B-rep**, as a STEP\n  AP214 part-21 fragment with the instance placement STRIPPED (that is\n  ``placement``, kept separate). It is exactly what the single-body\n  ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`\n  ``data``), so the documents service seeds each part with ``ImportParamsV1(\n  data=body_step)`` \u2014 ZERO new ingest path. A mesh is not editable geometry;\n  this is the field that lets 2b build a REAL part per instance.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;\nit is EQUAL for two occurrences of one part, so the caller groups products by\nit to create ONE stored B-rep (one part) with N instances. ``properties`` are\nthe body's OWN (local-frame) mass properties for BOM / inspection.",
+        "properties": {
+          "body_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment (placement stripped \u2014 see `placement`); consumed verbatim as ImportParamsV1.data to seed an editable part (the single-body import path). Null when the product produced no solid.",
+            "title": "Body Step"
+          },
+          "body_step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Content address (sha256:<hex>) of `body_step`; EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.",
+            "title": "Body Step Id"
+          },
+          "mesh_glb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Content-addressed shared presentation mesh (sha256:<hex>), or null when the product produced no mesh",
+            "title": "Mesh Glb Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "STEP PRODUCT name, or null when the file names no product",
+            "title": "Name"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/Placement",
+            "description": "World placement of this product (identity for a flat STEP)"
+          },
+          "properties": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShapeProperties"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The product body's own (local-frame) mass properties"
+          }
+        },
+        "required": [
+          "name",
+          "placement",
+          "mesh_glb_id"
+        ],
+        "title": "ImportedProduct",
         "type": "object"
       },
       "InstanceCreate": {
@@ -3825,6 +3969,40 @@
         "title": "SelectorV1",
         "type": "object"
       },
+      "ShapeProperties": {
+        "description": "Mass properties + topology of the evaluated B-rep shape.",
+        "properties": {
+          "bounding_box": {
+            "$ref": "#/components/schemas/BoundingBox"
+          },
+          "centroid": {
+            "$ref": "#/components/schemas/Vec3",
+            "description": "Centre of mass (mm)"
+          },
+          "surface_area": {
+            "description": "Total surface area (mm^2)",
+            "title": "Surface Area",
+            "type": "number"
+          },
+          "topology": {
+            "$ref": "#/components/schemas/TopologyCounts"
+          },
+          "volume": {
+            "description": "Volume (mm^3)",
+            "title": "Volume",
+            "type": "number"
+          }
+        },
+        "required": [
+          "volume",
+          "surface_area",
+          "centroid",
+          "bounding_box",
+          "topology"
+        ],
+        "title": "ShapeProperties",
+        "type": "object"
+      },
       "SheetContent": {
         "description": "One sheet plus its views, dimensions, and annotations (design \u00a72.2).",
         "properties": {
@@ -4535,6 +4713,32 @@
         "title": "ShellParamsV1",
         "type": "object"
       },
+      "SingleBodyImportResult": {
+        "description": "A flat STEP became a single-body part \u2014 the MB-4b fallback (SLICE-2b).\n\nBackward-compatible with the pre-assembly import: one part document seeded\nwith the ``import`` base feature, no assembly. ``tree_version`` is the part's\npost-import concurrency token (1 \u2014 the single import feature).",
+        "properties": {
+          "kind": {
+            "const": "part",
+            "default": "part",
+            "title": "Kind",
+            "type": "string"
+          },
+          "part": {
+            "$ref": "#/components/schemas/PartResponse",
+            "description": "The created single-body part"
+          },
+          "tree_version": {
+            "description": "The part's concurrency token after the import feature (== 1)",
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part",
+          "tree_version"
+        ],
+        "title": "SingleBodyImportResult",
+        "type": "object"
+      },
       "SketchArc": {
         "description": "A circular arc traversed **counterclockwise** from start to end.\n\nThe radius is implied by ``|start - center|``; the solver keeps start and\nend on the circle (they may move to satisfy constraints).",
         "properties": {
@@ -4869,6 +5073,30 @@
         "title": "SketchSpline",
         "type": "object"
       },
+      "StepAssemblyImportResult": {
+        "description": "Structured read of an assembly STEP \u2014 the product list + structure flag.\n\n``has_assembly_structure`` is True when the file carried\n``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,\nnamed products); False for a flat / single-body STEP, whose single product\nsignals the caller to fall back to the single-body MB-4b import (backward\ncompatible). ``products`` are in the deterministic order the geometry service\nwalks the product tree (RESEARCH \u00a79).",
+        "properties": {
+          "has_assembly_structure": {
+            "description": "True when the file carried NAUO product structure; False for a flat / single-body STEP (fall back to single-body import)",
+            "title": "Has Assembly Structure",
+            "type": "boolean"
+          },
+          "products": {
+            "description": "Recovered products, in deterministic product-tree order",
+            "items": {
+              "$ref": "#/components/schemas/ImportedProduct"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": [
+          "has_assembly_structure",
+          "products"
+        ],
+        "title": "StepAssemblyImportResult",
+        "type": "object"
+      },
       "SubshapeRef": {
         "description": "Stage-1 reference to ONE planar face of a body-affecting feature's result.\n\n(docs/design/topological-naming.md \u00a74.) ``feature_id`` is the stage-1 anchor\n\u2014 \"the prior body-affecting feature whose body I signature-match against\"\n(\u00a74), NOT necessarily the originating feature (stage 2 shifts it to the true\noriginating feature). It materializes into ``feature_dependencies`` like a\n:class:`FeatureRef` (via the widened :func:`iter_feature_refs` /\n:func:`feature_references`), so deleting that feature is a write-time\n409-with-dependents. ``subshape_type`` is ``\"face\"`` only in v1 (edge/vertex\nreserved \u2014 \u00a710).",
         "properties": {
@@ -5075,6 +5303,30 @@
           }
         },
         "title": "TitleBlock",
+        "type": "object"
+      },
+      "TopologyCounts": {
+        "description": "B-rep entity counts \u2014 asserted exactly by the golden-model suite.",
+        "properties": {
+          "edges": {
+            "title": "Edges",
+            "type": "integer"
+          },
+          "faces": {
+            "title": "Faces",
+            "type": "integer"
+          },
+          "shells": {
+            "title": "Shells",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "faces",
+          "edges",
+          "shells"
+        ],
+        "title": "TopologyCounts",
         "type": "object"
       },
       "UndoRedoRequest": {
@@ -8468,6 +8720,83 @@
         "summary": "Undo",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/step-import": {
+      "post": {
+        "description": "Materialise a geometry STEP read into an assembly or a single-body part.\n\nAtomic (module docstring): the whole graph commits once or not at all. A\nproduct count over :data:`MAX_IMPORT_ASSEMBLY_PRODUCTS` is a 422\n``import_too_many_products`` (defence-in-depth behind the gateway's own cap);\na read with no solid product is a 422 ``import_no_solid``; a document-name\ncollision is a 409 (``assembly_name_taken`` / ``part_name_taken``) \u2014 all\nbefore any commit, so no orphan documents are left behind.",
+        "operationId": "create_from_step_import_api_v1_step_import_post",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAssemblyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "assembly": "#/components/schemas/AssemblyImportResult",
+                      "part": "#/components/schemas/SingleBodyImportResult"
+                    },
+                    "propertyName": "kind"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/AssemblyImportResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SingleBodyImportResult"
+                    }
+                  ],
+                  "title": "Response Create From Step Import Api V1 Step Import Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create From Step Import",
+        "tags": [
+          "step-import"
         ]
       }
     }

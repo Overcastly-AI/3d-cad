@@ -21,10 +21,14 @@ until that matrix says so.**
 the drawings dead-capability drain (D1-D4) both converged this batch (see
 Phase 4/4b entries below). A fresh product-audit pass the same night named
 **assembly STEP export/interference/import** the next highest-value gap
-("the assembly is a one-way street") — export ✅ + interference ✅ both shipped
-2026-07-23, leaving **assembly STEP import** leading `docs/BACKLOG.md`'s Ready
-queue ahead of the remaining sheet-metal extensions (open/teardrop/rolled hems,
-miters, tabs, gauge tables), pending founder direction on sequencing.
+("the assembly is a one-way street") — export ✅ + interference ✅ + **import ✅
+(slices 1+2a+2b, all shipped 2026-07-23)** now close it: assembly interop is
+**BIDIRECTIONAL** (an uploaded multi-part assembly STEP becomes a real `assembly`
+document — deduped parts + named instances at their placements — via
+gateway `POST /api/v1/assemblies/import` → geometry XCAF read → documents
+`POST /api/v1/step-import`, DoS-bounded by a byte-size + product-count cap). The
+remaining sheet-metal extensions (open/teardrop/rolled hems, miters, tabs, gauge
+tables) lead the Ready queue, pending founder direction on sequencing.
 
 **In flight right now:** authoring UI ✅ (base + edge flange, **and now closed
 hem + corner relief editors 2026-07-19** — all four shipped sheet-metal features
@@ -438,11 +442,18 @@ any degenerate-but-transferable solid is a typed 422, never a raw 500; each
 product now carries an editable **LOCAL-frame B-rep** (`body_step`, a
 placement-stripped STEP fragment the single-body `import` feature ingests
 verbatim) content-addressed by `body_step_id` (repeated part → one stored B-rep,
-N instances). **Slice 2b remains**: documents assembly-document creation from the
-products (seed each part's `import` feature with `ImportParamsV1(data=body_step)`,
-group by `body_step_id`) + gateway upload endpoint + wiring the false-flag
-fallback to the single-body import — now on a proven-safe, DoS-bounded reader.
-Still deferred past v1 (design doc §5): exploded views, BOM
+N instances). **SLICE 2b landed 2026-07-23 — assembly interop is now
+BIDIRECTIONAL**: documents `POST /api/v1/step-import` turns a
+`StepAssemblyImportResult` into a real graph — an `assembly` doc with one part
+per unique `body_step_id` (deduped) seeded with `ImportParamsV1(data=body_step)`
+(ZERO new ingest path) + one named instance per product at its placement
+(repeated part → ONE part / TWO instances), or the single-body MB-4b fallback —
+created ATOMICALLY (a rejected import leaves no orphan docs); gateway
+`POST /api/v1/assemblies/import` is the first untrusted-upload entry, auth +
+rate-limited with a streamed byte cap BEFORE forwarding and a product-count cap
+(`MAX_IMPORT_ASSEMBLY_PRODUCTS=500`) enforced on the read BEFORE documents (bounds
+the post-transfer fan-out a small STEP could encode). The "assembly is a one-way
+street" gap is CLOSED. Still deferred past v1 (design doc §5): exploded views, BOM
 formatting, flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
@@ -814,8 +825,9 @@ formatting, flexible sub-assemblies, part-version pinning-as-default.
 
 **Header corrected 2026-07-19** (was stale ⬜ "planned" though most of the
 phase shipped): STEP import v1 + multi-solid, Drawings v1 + server-composed
-export, and Sheet metal v1 (Phase 4b below) are all done; IGES, named
-assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
+export, Sheet metal v1 (Phase 4b below), and **named assembly-structure STEP
+import (2026-07-23, slices 1+2a+2b — assembly interop now bidirectional)** are
+all done; IGES and healing remain ⬜, keeping the phase 🚧.
 
 - 🚧 STEP/IGES import with healing report — **STEP import v1 shipped
       end-to-end** (kernel `4964fab` → gateway upload → UI file-picker,

@@ -719,6 +719,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/step-import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create From Step Import
+         * @description Materialise a geometry STEP read into an assembly or a single-body part.
+         *
+         *     Atomic (module docstring): the whole graph commits once or not at all. A
+         *     product count over :data:`MAX_IMPORT_ASSEMBLY_PRODUCTS` is a 422
+         *     ``import_too_many_products`` (defence-in-depth behind the gateway's own cap);
+         *     a read with no solid product is a 422 ``import_no_solid``; a document-name
+         *     collision is a 409 (``assembly_name_taken`` / ``part_name_taken``) — all
+         *     before any commit, so no orphan documents are left behind.
+         */
+        post: operations["create_from_step_import_api_v1_step_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -896,6 +923,30 @@ export interface components {
             instances: components["schemas"]["InstanceResponse"][];
             /** Mates */
             mates: components["schemas"]["MateResponse"][];
+        };
+        /**
+         * AssemblyImportResult
+         * @description A STEP that carried product structure became a Loft assembly (SLICE-2b).
+         *
+         *     ``assembly`` is the freshly-created assembly graph (its N named instances at
+         *     their imported placements, ready to render — the same read model every other
+         *     assembly route serves). ``part_ids`` are the DEDUPED part documents created:
+         *     one per unique ``body_step_id``, so a part occurring twice is ONE id here but
+         *     two instances in ``assembly.instances``.
+         */
+        AssemblyImportResult: {
+            /** @description The created assembly with its instances at imported placements */
+            assembly: components["schemas"]["AssemblyGraphResponse"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "assembly";
+            /**
+             * Part Ids
+             * @description Deduped part documents created (one per unique body_step_id)
+             */
+            part_ids: string[];
         };
         /**
          * AssemblyListResponse
@@ -1154,6 +1205,14 @@ export interface components {
             target: components["schemas"]["FeatureRef"];
             /** @description Base feature of the CONSUMED body; removed from the part once the boolean succeeds (design §Decisions-3) */
             tool: components["schemas"]["FeatureRef"];
+        };
+        /**
+         * BoundingBox
+         * @description Axis-aligned bounding box (mm), exact (not mesh-inflated).
+         */
+        BoundingBox: {
+            max: components["schemas"]["Vec3"];
+            min: components["schemas"]["Vec3"];
         };
         /**
          * ChamferFeature
@@ -2414,6 +2473,28 @@ export interface components {
             kind: "horizontal";
         };
         /**
+         * ImportAssemblyRequest
+         * @description documents-side request: materialise a geometry read into Loft documents.
+         *
+         *     ``result`` is the geometry service's structured read (forwarded verbatim by
+         *     the gateway); ``name`` is the caller-chosen name for the created document —
+         *     the assembly name (``has_assembly_structure=True``) or the single part's name
+         *     (the MB-4b fallback). Each product's editable ``body_step`` seeds a part's
+         *     ``import`` feature (:class:`~py_kit.schemas.features.ImportParamsV1` — ZERO new
+         *     ingest path), products sharing a ``body_step_id`` collapse to ONE part with N
+         *     instances, and the whole graph is created atomically (all-or-nothing — a
+         *     failure leaves no orphan docs).
+         */
+        ImportAssemblyRequest: {
+            /**
+             * Name
+             * @description Name for the created document — the assembly's name (product structure present) or the single part's name (single-body fallback)
+             */
+            name: string;
+            /** @description The geometry service's structured read of the uploaded STEP */
+            result: components["schemas"]["StepAssemblyImportResult"];
+        };
+        /**
          * ImportFeature
          * @description ``{"type": "import", "version": 1, "params": {...}}`` envelope.
          *
@@ -2476,6 +2557,59 @@ export interface components {
              * @constant
              */
             kind: "inline";
+        };
+        /**
+         * ImportedProduct
+         * @description One product recovered from an assembly STEP — name + placement + body.
+         *
+         *     ``name`` is the STEP PRODUCT name (``None`` when the file names no product —
+         *     the caller supplies a fallback instance name). ``placement`` is the
+         *     product's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` —
+         *     identity for a flat single-body STEP), matched to the exported placement
+         *     within the kernel round-trip tolerance.
+         *
+         *     Two body surfaces, both content-addressed and SHARED across repeated
+         *     occurrences of one part (the dedup contract, as slice 1 does for meshes):
+         *
+         *     * ``body_step`` — the product's editable **LOCAL-frame B-rep**, as a STEP
+         *       AP214 part-21 fragment with the instance placement STRIPPED (that is
+         *       ``placement``, kept separate). It is exactly what the single-body
+         *       ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`
+         *       ``data``), so the documents service seeds each part with ``ImportParamsV1(
+         *       data=body_step)`` — ZERO new ingest path. A mesh is not editable geometry;
+         *       this is the field that lets 2b build a REAL part per instance.
+         *     * ``mesh_glb_id`` — a content-addressed presentation mesh for the viewport.
+         *
+         *     ``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;
+         *     it is EQUAL for two occurrences of one part, so the caller groups products by
+         *     it to create ONE stored B-rep (one part) with N instances. ``properties`` are
+         *     the body's OWN (local-frame) mass properties for BOM / inspection.
+         */
+        ImportedProduct: {
+            /**
+             * Body Step
+             * @description The product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment (placement stripped — see `placement`); consumed verbatim as ImportParamsV1.data to seed an editable part (the single-body import path). Null when the product produced no solid.
+             */
+            body_step?: string | null;
+            /**
+             * Body Step Id
+             * @description Content address (sha256:<hex>) of `body_step`; EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.
+             */
+            body_step_id?: string | null;
+            /**
+             * Mesh Glb Id
+             * @description Content-addressed shared presentation mesh (sha256:<hex>), or null when the product produced no mesh
+             */
+            mesh_glb_id: string | null;
+            /**
+             * Name
+             * @description STEP PRODUCT name, or null when the file names no product
+             */
+            name: string | null;
+            /** @description World placement of this product (identity for a flat STEP) */
+            placement: components["schemas"]["Placement"];
+            /** @description The product body's own (local-frame) mass properties */
+            properties?: components["schemas"]["ShapeProperties"] | null;
         };
         /**
          * InstanceCreate
@@ -3425,6 +3559,26 @@ export interface components {
             signature: components["schemas"]["PlanarFaceSignature"];
         };
         /**
+         * ShapeProperties
+         * @description Mass properties + topology of the evaluated B-rep shape.
+         */
+        ShapeProperties: {
+            bounding_box: components["schemas"]["BoundingBox"];
+            /** @description Centre of mass (mm) */
+            centroid: components["schemas"]["Vec3"];
+            /**
+             * Surface Area
+             * @description Total surface area (mm^2)
+             */
+            surface_area: number;
+            topology: components["schemas"]["TopologyCounts"];
+            /**
+             * Volume
+             * @description Volume (mm^3)
+             */
+            volume: number;
+        };
+        /**
          * SheetContent
          * @description One sheet plus its views, dimensions, and annotations (design §2.2).
          */
@@ -3943,6 +4097,28 @@ export interface components {
             thickness_mm: number;
         };
         /**
+         * SingleBodyImportResult
+         * @description A flat STEP became a single-body part — the MB-4b fallback (SLICE-2b).
+         *
+         *     Backward-compatible with the pre-assembly import: one part document seeded
+         *     with the ``import`` base feature, no assembly. ``tree_version`` is the part's
+         *     post-import concurrency token (1 — the single import feature).
+         */
+        SingleBodyImportResult: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "part";
+            /** @description The created single-body part */
+            part: components["schemas"]["PartResponse"];
+            /**
+             * Tree Version
+             * @description The part's concurrency token after the import feature (== 1)
+             */
+            tree_version: number;
+        };
+        /**
          * SketchArc
          * @description A circular arc traversed **counterclockwise** from start to end.
          *
@@ -4154,6 +4330,29 @@ export interface components {
             points: components["schemas"]["Point2D"][];
         };
         /**
+         * StepAssemblyImportResult
+         * @description Structured read of an assembly STEP — the product list + structure flag.
+         *
+         *     ``has_assembly_structure`` is True when the file carried
+         *     ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,
+         *     named products); False for a flat / single-body STEP, whose single product
+         *     signals the caller to fall back to the single-body MB-4b import (backward
+         *     compatible). ``products`` are in the deterministic order the geometry service
+         *     walks the product tree (RESEARCH §9).
+         */
+        StepAssemblyImportResult: {
+            /**
+             * Has Assembly Structure
+             * @description True when the file carried NAUO product structure; False for a flat / single-body STEP (fall back to single-body import)
+             */
+            has_assembly_structure: boolean;
+            /**
+             * Products
+             * @description Recovered products, in deterministic product-tree order
+             */
+            products: components["schemas"]["ImportedProduct"][];
+        };
+        /**
          * SubshapeRef
          * @description Stage-1 reference to ONE planar face of a body-affecting feature's result.
          *
@@ -4337,6 +4536,18 @@ export interface components {
              * @description Drawing title
              */
             title?: string | null;
+        };
+        /**
+         * TopologyCounts
+         * @description B-rep entity counts — asserted exactly by the golden-model suite.
+         */
+        TopologyCounts: {
+            /** Edges */
+            edges: number;
+            /** Faces */
+            faces: number;
+            /** Shells */
+            shells: number;
         };
         /**
          * UndoRedoRequest
@@ -6116,6 +6327,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_from_step_import_api_v1_step_import_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportAssemblyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyImportResult"] | components["schemas"]["SingleBodyImportResult"];
                 };
             };
             /** @description Validation Error */

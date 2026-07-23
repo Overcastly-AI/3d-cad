@@ -28,11 +28,30 @@ grouping by ``body_step_id`` — and wires the ``has_assembly_structure=False`` 
 to the existing single-body MB-4b import.
 """
 
+import uuid
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, Field
 
-from py_kit.schemas.assemblies import Placement
+from py_kit.schemas.assemblies import (
+    AssemblyGraphResponse,
+    AssemblyName,
+    Placement,
+)
 from py_kit.schemas.features import MAX_INLINE_STEP_CHARS
 from py_kit.schemas.geometry import DEFAULT_LINEAR_DEFLECTION, ShapeProperties
+from py_kit.schemas.parts import PartResponse
+
+#: Upper bound on how many products (== instances) a single assembly-STEP upload
+#: may create. A DoS ceiling on the POST-transfer fan-out (documents-side part /
+#: feature / instance creation, and the per-product body/mesh work the geometry
+#: reader does): the byte-size upload cap alone is insufficient because a small
+#: STEP can encode a pathological ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` count. The
+#: gateway enforces this on the geometry read result BEFORE driving documents
+#: (so no partial assembly is ever created), and documents re-checks it as
+#: defense-in-depth. A few hundred instances comfortably covers real assemblies
+#: while bounding the fan-out (slice-2a security review, 2026-07-23).
+MAX_IMPORT_ASSEMBLY_PRODUCTS = 500
 
 
 class StepAssemblyImportRequest(BaseModel):
@@ -139,3 +158,78 @@ class StepAssemblyImportResult(BaseModel):
     products: list[ImportedProduct] = Field(
         description="Recovered products, in deterministic product-tree order"
     )
+
+
+# --- documents-creation contract (gateway → documents, SLICE-2b) -----------------
+#
+# The inverse of the geometry read above, one hop further in: the gateway forwards
+# the identity-free :class:`StepAssemblyImportResult` (plus the caller's chosen
+# document name) to documents, which turns it into a REAL Loft graph — an assembly
+# document with one part per unique ``body_step_id`` (deduped) and one named
+# instance per product at its placement, or (``has_assembly_structure=False``) a
+# single-body part (the MB-4b fallback). Pure pydantic — documents never imports
+# the kernel; it consumes only these plain models (CLAUDE.md service boundaries).
+
+
+class ImportAssemblyRequest(BaseModel):
+    """documents-side request: materialise a geometry read into Loft documents.
+
+    ``result`` is the geometry service's structured read (forwarded verbatim by
+    the gateway); ``name`` is the caller-chosen name for the created document —
+    the assembly name (``has_assembly_structure=True``) or the single part's name
+    (the MB-4b fallback). Each product's editable ``body_step`` seeds a part's
+    ``import`` feature (:class:`~py_kit.schemas.features.ImportParamsV1` — ZERO new
+    ingest path), products sharing a ``body_step_id`` collapse to ONE part with N
+    instances, and the whole graph is created atomically (all-or-nothing — a
+    failure leaves no orphan docs).
+    """
+
+    name: AssemblyName = Field(
+        description="Name for the created document — the assembly's name (product "
+        "structure present) or the single part's name (single-body fallback)"
+    )
+    result: StepAssemblyImportResult = Field(
+        description="The geometry service's structured read of the uploaded STEP"
+    )
+
+
+class AssemblyImportResult(BaseModel):
+    """A STEP that carried product structure became a Loft assembly (SLICE-2b).
+
+    ``assembly`` is the freshly-created assembly graph (its N named instances at
+    their imported placements, ready to render — the same read model every other
+    assembly route serves). ``part_ids`` are the DEDUPED part documents created:
+    one per unique ``body_step_id``, so a part occurring twice is ONE id here but
+    two instances in ``assembly.instances``.
+    """
+
+    kind: Literal["assembly"] = "assembly"
+    assembly: AssemblyGraphResponse = Field(
+        description="The created assembly with its instances at imported placements"
+    )
+    part_ids: list[uuid.UUID] = Field(
+        description="Deduped part documents created (one per unique body_step_id)"
+    )
+
+
+class SingleBodyImportResult(BaseModel):
+    """A flat STEP became a single-body part — the MB-4b fallback (SLICE-2b).
+
+    Backward-compatible with the pre-assembly import: one part document seeded
+    with the ``import`` base feature, no assembly. ``tree_version`` is the part's
+    post-import concurrency token (1 — the single import feature).
+    """
+
+    kind: Literal["part"] = "part"
+    part: PartResponse = Field(description="The created single-body part")
+    tree_version: int = Field(
+        description="The part's concurrency token after the import feature (== 1)"
+    )
+
+
+#: What a STEP upload created: an assembly (product structure) or a single part
+#: (flat file). Discriminated on ``kind`` so the gateway/web can branch by field.
+StepImportResponse = Annotated[
+    AssemblyImportResult | SingleBodyImportResult,
+    Field(discriminator="kind"),
+]
