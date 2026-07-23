@@ -7,6 +7,110 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — Assembly interference/collision detection (`e46db16`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the clash-detection P1
+(`kernel/interference.py::intersection_volume` = `BRepAlgoAPI_Common` + GProp;
+`assembly/interference.py::check_interference` = pairwise over `solve_assembly`;
+`CLASH_VOLUME_FLOOR_MM3 = 1e-12`). The shipped 6-test suite only exercised
+axis-aligned boxes at identity/translation. Probed the five highest-risk gaps
+(rotation accuracy incl. transpose/order, floor correctness at grazing contact,
+multi-lump Compound parts, N-pairwise completeness, determinism).
+**VERDICT: geometry is CORRECT — no P0/P1 geometric defect.** All five probes
+matched hand-derived analytics. Real gaps were TEST-COVERAGE only; closed with
+6 guard tests. One non-geometry lint-gate escape found (🟡, filed).
+
+### 1. Rotation accuracy incl. transpose/order — PASS (exact, transpose-proof)
+Highest-value check. Box (local x[0,40] y[0,25] z[0,10]) placed on instance B
+with a +90° rotation about +Z (`q=(0,0,√2/2,√2/2)`) then `t=(30,0,0)`, run
+through the full `check_interference` -> `_world_body` -> `place_body` path.
+Correct `R(q)` maps local (lx,ly)->(-ly,lx) so B spans x[5,30] y[0,40] z[0,10];
+overlap with A(x[0,40] y[0,25] z[0,10]) = 25 x 25 x 10 = **6250 mm³**.
+
+| quantity | value |
+|---|---|
+| analytic overlap | 6250.0 mm³ |
+| measured (`overlap_volume_mm3`) | **6250.0** (err 0.0) |
+
+Discriminator: a transposed/inverted rotation (`R(q)ᵀ` = the -90° rotation)
+would place B at x[30,55] y[-40,0] -> ZERO overlap -> no clash. Reporting exactly
+6250 proves the shared `place_body` quaternion->`gp_Trsf` handedness/order is
+correct on the clash path (consistent with the STEP-export rotation audit,
+`b7408fd` entry below). Non-axis-aligned cross-check: both instances rotated
+about the (1,1,1) body diagonal by 37° with B's offset = `R(q)·(30,0,0)` (rigid
+invariance) -> measured **2500.000000000001 mm³** (err 9.1e-13, well within
+rel-tol 1e-6). Guard tests: `test_rotated_placement_matches_analytic_and_catches_transpose`,
+`test_non_axis_aligned_rotation_preserves_overlap_volume`.
+
+### 2. Floor correctness at grazing contact — PASS (floor is defensible)
+The `1e-12 mm³` floor = one kernel-tolerance cube `(1e-4 mm)³`.
+
+| case | overlap depth | analytic vol | reported? |
+|---|---|---|---|
+| thin-but-real interpenetration | 0.001 mm on 25x10 face | 0.25 mm³ | **YES** (measured 0.24999999999941733) |
+| sub-floor sliver | 4e-16 mm (vol ~1e-13) | <floor | **NO** (clashes=[]) |
+| just-touching coincident face (shipped) | 0 | 0 | NO |
+
+The floor is conservative by ~10 orders of magnitude: the smallest RESOLVABLE
+interference on this geometry (depth = kernel tol 1e-4 mm on the 25x10 face) is
+0.025 mm³ = 2.5e10 x the floor, so the floor cannot hide a real thin interference.
+It cannot admit a numerical sliver either — a volume can only exceed 1e-12 mm³
+with a linear dimension >> kernel tol, and OCCT returns an empty common for any
+sub-tolerance-depth contact (verified: a synthetic "just above floor" target of
+vol ~1e-11 requires depth 4e-14 mm, far below kernel tol -> OCCT forms no common
+-> correctly no clash). Guard test: `test_thin_but_real_interpenetration_is_reported`.
+
+### 3. Multi-lump Compound part instance — PASS (sums across lumps)
+Instance of `multibody-two-disjoint-boxes` (cube A x[0,20] + cube B x[30,50],
+both y[0,20] z[0,20]) vs a 40x25x10 box at (10,5,5) (x[10,50] y[5,30] z[5,15])
+that pierces BOTH cubes: overlap with A = 10x15x10 = 1500; with B = 20x15x10 =
+3000; **total 4500 mm³**. Measured **4500.0** (err 0.0). Confirms the kernel
+integrates ALL solids of the common (`Compound(children=solids)` roll-up), not
+just the first lump. Guard test: `test_multi_lump_part_sums_overlap_across_both_lumps`.
+
+### 4. N-pairwise completeness — PASS (all pairs, each once, none dropped)
+4 instances A@0 B@30 C@35 D@200:
+
+| pair | analytic | measured |
+|---|---|---|
+| (A,B) | 2500 | 2500.0 |
+| (A,C) | 1250 | 1250.0 |
+| (B,C) | 8750 | 8750.0 |
+| any D pair | none | not reported |
+
+Exactly 3 clashes; no self-pair, no duplicate `(B,A)`, D isolated. Guard test:
+`test_four_instances_report_every_clashing_pair_once`.
+
+### 5. Determinism — PASS (in-process + fresh interpreter, incl. rotated pair)
+Repeated `check_interference` calls (incl. the rotated-B graph) -> bit-identical
+clash ordering AND volumes. Cross-interpreter (two fresh `uv run python`
+processes) reproduced identical `(1,2)=6250.0`, `(1,3)=1249.9999999999998`.
+Ordering follows the fixed request-instance pair scan. Guard test:
+`test_clash_list_is_deterministic_across_repeated_calls`.
+
+### 🟡 FINDING (non-geometry): `e46db16` shipped a ruff-RED test file — file for kernel-architect
+`services/geometry/tests/test_assembly_interference.py` as committed fails the
+lint gate under the LOCKED ruff (0.15.20, the version CI's `uv sync --locked`
+installs): **9 errors — 8× RUF002** (docstrings use U+00D7 `×` MULTIPLICATION
+SIGN, ambiguous with `x`; this file is the ONLY Python file in the repo using
+`×` — every other file uses ASCII `x`, e.g. `40x25x10`) **+ 1× SIM300**
+(yoda-condition `CLASH_VOLUME_FLOOR_MM3 == pytest.approx(1e-12)`). `uv run ruff
+check .` from repo root on clean HEAD returns `Found 9 errors`. The commit's
+"just lint (ruff+pyright) clean" claim was contradicted — almost certainly the
+CLAUDE.md "ruff version skew" trap (author ran a `ruff <0.15` that predates the
+`×` confusable rule; the locked/CI ruff flags it). **Severity 🟡** (P3 — lint
+only, zero geometric or runtime impact). **Fixed in place** as part of this
+test-territory pass: normalized 27 `×`/`−` glyphs to ASCII (behaviour-neutral,
+matches repo convention) and the yoda condition; whole file now `ruff check` +
+`ruff format --check` + `pyright` clean.
+
+### Guard tests added (test-code only, geometry-qa territory)
+6 new tests in `test_assembly_interference.py` encoding cases 1-5 above; full
+file **12/12 green**, `just lint`-clean. No kernel/app source touched — the
+implementation held up under every adversarial probe.
+
+---
+
 ## 2026-07-23 — Assembly STEP export (`b7408fd`) — adversarial geometry QA (geometry-qa)
 
 **Scope.** Independent adversarial verification of the assembly export P0 beyond
