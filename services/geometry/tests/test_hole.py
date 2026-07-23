@@ -1060,3 +1060,300 @@ def test_cut_counterbore_deeper_than_body_raises_too_deep() -> None:
             cbore_diameter_mm=18.0,
             cbore_depth_mm=14.0,
         )
+
+
+# --- Slice 2 recess — adversarial gaps past the axis-aligned goldens ------------------
+# (geometry-QA 2026-07-23, commit d82cd27) The counterbore/countersink goldens and the
+# recess kernel tests above cover a CENTRED +Z counterbore (tilted for the counterbore
+# annulus) and a 82° axis-aligned countersink. These guards push the recesses over the
+# cases those cannot reach: a countersink on a NON-axis-aligned face (coaxial along the
+# FACE normal, not world Z — a hardcoded-axis bug surfaces here), the real drill-point
+# angle standards (60/82/90/118°) against the h=(R-r)/tan(θ/2) frustum, the shallow-cone
+# (θ→180°) and over-steep (deep-cone) limits, the r→R degenerate mouth, the counterbore
+# recess that breaks fully through (depth == thickness) vs over-thickness, a recess that
+# overhangs the face edge, a blind-bore + counterbore stack, and recess determinism.
+# Every measured residual below is ≤5e-12 mm³ (observed 2026-07-23, build123d 0.11.1 /
+# OCCT 7.9); KERNEL_VOL_TOL (1e-6) sits ~6 orders above that and >8 below the bore's
+# whole-mm³ removal, so it never false-passes a wrong-volume recess.
+
+
+def _csink_annular_cone(r_bore: float, r_csink: float, angle_deg: float) -> float:
+    """Analytic ANNULAR-cone volume a countersink removes beyond an existing bore:
+    the frustum π·h/3·(R²+R·r+r²) minus the already-bored inner cylinder π·r²·h,
+    with the cone depth h=(R-r)/tan(θ/2) the included angle θ implies."""
+    h = (r_csink - r_bore) / math.tan(math.radians(angle_deg / 2.0))
+    frustum = math.pi * h / 3.0 * (r_csink**2 + r_csink * r_bore + r_bore**2)
+    return frustum - math.pi * r_bore * r_bore * h
+
+
+def test_cut_countersink_tracks_tilted_face_normal() -> None:
+    """A countersink on a 30°-tilted face sinks its cone COAXIAL WITH THE BORE
+    along the FACE normal (not world Z): the removed material equals the analytic
+    annular cone exactly, one valid lump. Only the counterbore had a tilted-face
+    guard; a hardcoded/transposed cone axis would surface here as a wrong volume."""
+    body = _block(40.0, 25.0, 10.0).rotate(Axis((0, 0, 0), (1, 0, 0)), 30.0)
+    normal = (0.0, -math.sin(math.radians(30)), math.cos(math.radians(30)))
+    top = _face_plane_with_normal(body, normal)
+    pos = top.origin + top.x_dir * 6.0  # off the centroid axis, on the tilted face
+    bored = bore_hole(
+        body, top, (pos.X, pos.Y, pos.Z), 6.0, through_all=True, depth_mm=None
+    )
+    after_bore = float(bored.volume)
+    recessed = cut_countersink(
+        bored,
+        top,
+        (pos.X, pos.Y, pos.Z),
+        bore_diameter_mm=6.0,
+        csink_diameter_mm=12.0,
+        csink_angle_deg=90.0,
+    )
+    removed = after_bore - float(recessed.volume)
+    assert removed == _kvol(_csink_annular_cone(3.0, 6.0, 90.0))
+    assert lump_count(recessed) == 1
+
+
+def test_cut_countersink_angle_sweep_matches_analytic_frustum() -> None:
+    """The four real drill-point standards (60°, 82°, 90°, 118° included) each
+    remove EXACTLY π·h/3·(R²+R·r+r²)-π·r²·h with h=(R-r)/tan(θ/2): a Ø12 mouth over
+    a Ø6 bore in a 10 mm block. Exercises the tan(θ/2) slope across the fastener
+    range (a fixed 45°/90° special-case would drift at 60/82/118°); 8 faces each."""
+    for angle in (60.0, 82.0, 90.0, 118.0):
+        body = _block(40.0, 25.0, 10.0)
+        top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+        pos = (20.0, 12.5, 10.0)
+        bored = bore_hole(body, top, pos, 6.0, through_all=True, depth_mm=None)
+        after_bore = float(bored.volume)
+        recessed = cut_countersink(
+            bored,
+            top,
+            pos,
+            bore_diameter_mm=6.0,
+            csink_diameter_mm=12.0,
+            csink_angle_deg=angle,
+        )
+        removed = after_bore - float(recessed.volume)
+        assert removed == _kvol(_csink_annular_cone(3.0, 6.0, angle)), (
+            f"angle {angle}° removed {removed}"
+        )
+        assert len(recessed.faces()) == 8
+        assert lump_count(recessed) == 1
+
+
+def test_cut_countersink_shallow_angle_is_valid_shallow_frustum() -> None:
+    """A very SHALLOW cone — 150° included (half-angle 75°, cone depth only
+    (R-r)/tan(75°) ≈ 0.80 mm) — still forms the correct thin frustum, not a
+    degenerate sliver: removed matches the analytic annular cone, one lump."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    pos = (20.0, 12.5, 10.0)
+    bored = bore_hole(body, top, pos, 6.0, through_all=True, depth_mm=None)
+    after_bore = float(bored.volume)
+    recessed = cut_countersink(
+        bored,
+        top,
+        pos,
+        bore_diameter_mm=6.0,
+        csink_diameter_mm=12.0,
+        csink_angle_deg=150.0,
+    )
+    removed = after_bore - float(recessed.volume)
+    assert removed == _kvol(_csink_annular_cone(3.0, 6.0, 150.0))
+    assert lump_count(recessed) == 1
+
+
+def test_cut_countersink_steep_angle_deep_cone_is_too_deep() -> None:
+    """An over-steep included angle drives the cone deeper than the material: at
+    20° the implied depth (R-r)/tan(10°) ≈ 17 mm exceeds the 10 mm block, so the
+    cone would break through -> HoleTooDeepError, never a silently short cone."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    bored = _drilled(body, (20.0, 12.5, 10.0), 6.0)
+    with pytest.raises(HoleTooDeepError):
+        cut_countersink(
+            bored,
+            top,
+            (20.0, 12.5, 10.0),
+            bore_diameter_mm=6.0,
+            csink_diameter_mm=12.0,
+            csink_angle_deg=20.0,
+        )
+
+
+def test_cut_countersink_diameter_equals_bore_is_recess_invalid() -> None:
+    """The degenerate mouth r→R (countersink diameter EXACTLY the bore, cone depth
+    h→0) seats nothing -> HoleRecessInvalidError, never a zero-height cone tool /
+    invalid solid. The `radius <= bore_radius` guard trips on the equality."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    bored = _drilled(body, (20.0, 12.5, 10.0), 10.0)
+    with pytest.raises(HoleRecessInvalidError):
+        cut_countersink(
+            bored,
+            top,
+            (20.0, 12.5, 10.0),
+            bore_diameter_mm=10.0,
+            csink_diameter_mm=10.0,
+            csink_angle_deg=90.0,
+        )
+
+
+def test_cut_countersink_cone_deeper_than_blind_bore_is_valid_solid() -> None:
+    """A cone that outreaches a SHORT blind bore (bore 2 mm, 90° cone depth 4 mm)
+    cuts the annulus PLUS the fresh material below the bore bottom: removed is
+    GREATER than the through-bore annular formula (which pre-subtracts a full-depth
+    cylinder), and the result stays a single valid positive-volume solid — the
+    boolean does not fail when the cone tip passes the bore floor."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    pos = (20.0, 12.5, 10.0)
+    bored = bore_hole(body, top, pos, 10.0, through_all=False, depth_mm=2.0)
+    after_bore = float(bored.volume)
+    recessed = cut_countersink(
+        bored,
+        top,
+        pos,
+        bore_diameter_mm=10.0,
+        csink_diameter_mm=18.0,
+        csink_angle_deg=90.0,
+    )
+    removed = after_bore - float(recessed.volume)
+    # Cone (4 mm) reaches past the bore floor (2 mm): more than the annular cone
+    # that assumes a full-depth bore beneath it.
+    assert removed > _csink_annular_cone(5.0, 9.0, 90.0)
+    assert float(recessed.volume) > 0.0
+    assert lump_count(recessed) == 1
+
+
+def test_cut_counterbore_depth_equals_thickness_is_through_recess() -> None:
+    """A counterbore whose depth EQUALS the body thickness breaks the recess fully
+    through the far face (a Ø-cbore through step): the coincident far-face boolean
+    is clean — removed is the full annulus π·(R²-r²)·thickness, one valid lump. The
+    boundary case between a seated recess and a `hole_too_deep` over-thickness one."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    bored = _drilled(body, (20.0, 12.5, 10.0), 10.0)
+    after_bore = float(bored.volume)
+    recessed = cut_counterbore(
+        bored,
+        top,
+        (20.0, 12.5, 10.0),
+        bore_diameter_mm=10.0,
+        cbore_diameter_mm=18.0,
+        cbore_depth_mm=10.0,
+    )
+    removed = after_bore - float(recessed.volume)
+    assert removed == _kvol(math.pi * (9.0**2 - 5.0**2) * 10.0)
+    assert lump_count(recessed) == 1
+
+
+def test_cut_counterbore_just_over_thickness_is_too_deep() -> None:
+    """A counterbore a hair deeper than the thickness (10.001 mm on a 10 mm block)
+    cannot form its full annulus in the material -> HoleTooDeepError. Pins the
+    boundary just ABOVE the exact-thickness through-recess that IS allowed."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    bored = _drilled(body, (20.0, 12.5, 10.0), 10.0)
+    with pytest.raises(HoleTooDeepError):
+        cut_counterbore(
+            bored,
+            top,
+            (20.0, 12.5, 10.0),
+            bore_diameter_mm=10.0,
+            cbore_diameter_mm=18.0,
+            cbore_depth_mm=10.001,
+        )
+
+
+def test_cut_counterbore_recess_edge_overhang_is_too_deep() -> None:
+    """A counterbore whose wider recess pokes past the side wall (bore Ø10 fully
+    inside at x=6, but the Ø18 recess spans x∈[-3,15], 3 mm past the x=0 wall)
+    removes LESS than its full analytic annulus, so — like a blind pocket that
+    overhangs — it degrades to HoleTooDeepError (the documented edge-overhang
+    posture), never a silently partial recess. Note the deliberate asymmetry: a
+    THROUGH-bore is allowed to break out an edge (partial volume), but a RECESS is
+    held to its full analytic annulus, so an edge-overhanging recess is rejected."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    bored = _drilled(body, (6.0, 12.5, 10.0), 10.0)
+    with pytest.raises(HoleTooDeepError):
+        cut_counterbore(
+            bored,
+            top,
+            (6.0, 12.5, 10.0),
+            bore_diameter_mm=10.0,
+            cbore_diameter_mm=18.0,
+            cbore_depth_mm=4.0,
+        )
+
+
+def test_blind_bore_plus_counterbore_volumes_sum() -> None:
+    """A BLIND bore (8 mm deep) with a counterbore recess (Ø18, 4 mm) at the face:
+    the bore removes π·r²·8, the recess the annulus π·(R²-r²)·4, and the total
+    removed is their sum to machine precision — the recess seats at the face while
+    the bore bottom stays blind at 8 mm (10 faces: 6 block + bore wall + bore
+    bottom cap + cbore wall + cbore flat-bottom annulus), one lump."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    pos = (20.0, 12.5, 10.0)
+    bored = bore_hole(body, top, pos, 10.0, through_all=False, depth_mm=8.0)
+    bore_removed = 10000.0 - float(bored.volume)
+    recessed = cut_counterbore(
+        bored,
+        top,
+        pos,
+        bore_diameter_mm=10.0,
+        cbore_diameter_mm=18.0,
+        cbore_depth_mm=4.0,
+    )
+    total_removed = 10000.0 - float(recessed.volume)
+    exp_bore = math.pi * RADIUS * RADIUS * 8.0
+    exp_annulus = math.pi * (9.0**2 - 5.0**2) * 4.0
+    assert bore_removed == _kvol(exp_bore)
+    assert total_removed == _kvol(exp_bore + exp_annulus)
+    assert len(recessed.faces()) == 10
+    assert lump_count(recessed) == 1
+
+
+def test_recess_cuts_are_deterministic_across_repeats() -> None:
+    """Counterbore and countersink recesses are pure functions of their inputs
+    (RESEARCH §9): N rebuilds yield byte-identical volume, area, and topology
+    metadata. Complements the bore determinism guard and the manually-verified
+    cross-restart check (two fresh interpreters produced identical CB/CS
+    volume/area/topology reprs, geometry-QA 2026-07-23)."""
+    sigs: set[tuple[str, str, int, int, int, str, str, int, int, int]] = set()
+    for _ in range(6):
+        body = _block(40.0, 25.0, 10.0)
+        top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+        pos = (20.0, 12.5, 10.0)
+        bored = bore_hole(body, top, pos, 10.0, through_all=True, depth_mm=None)
+        cb = cut_counterbore(
+            bored,
+            top,
+            pos,
+            bore_diameter_mm=10.0,
+            cbore_diameter_mm=18.0,
+            cbore_depth_mm=4.0,
+        )
+        cs = cut_countersink(
+            bored,
+            top,
+            pos,
+            bore_diameter_mm=10.0,
+            csink_diameter_mm=18.0,
+            csink_angle_deg=90.0,
+        )
+        sigs.add(
+            (
+                repr(float(cb.volume)),
+                repr(float(cb.area)),
+                len(cb.faces()),
+                len(cb.edges()),
+                len(cb.shells()),
+                repr(float(cs.volume)),
+                repr(float(cs.area)),
+                len(cs.faces()),
+                len(cs.edges()),
+                len(cs.shells()),
+            )
+        )
+    assert len(sigs) == 1

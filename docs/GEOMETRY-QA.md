@@ -7,6 +7,108 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — Hole slice 2: counterbore + countersink (`d82cd27`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the counterbore/countersink
+recess cores (`kernel/hole.py::cut_counterbore`, `::cut_countersink`) past the
+two shipped axis-aligned goldens (`hole-counterbore-d18-r5-40x25x10` → 8510.885,
+`hole-countersink-d18-90deg-r5-40x25x10` → 8896.254). Both goldens drill a CENTRED
+Ø18 recess over a Ø10 through-bore on the +Z face — they structurally cannot catch
+a hardcoded/transposed recess axis, an off-standard cone angle, a break-through, or
+an edge-overhang. I drove the kernel DIRECTLY over the seven attack families the
+brief names. **VERDICT: geometry is CORRECT — no P0/P1/P2 geometric defect.** Every
+probe matched its closed-form oracle to ≤5e-12 mm³, every must-reject case errors
+with the right typed error (never an invalid solid / 500), and the recess is
+byte-identical across a fresh-interpreter restart. Gaps were TEST-COVERAGE only;
+closed with **11 guard tests** in `services/geometry/tests/test_hole.py` (27→38
+passing + 1 pre-existing xfail; ruff format+check + pyright clean).
+
+Analytic oracle used throughout: counterbore annulus `π·(R²-r²)·h_cbore`; countersink
+annular cone `π·h/3·(R²+R·r+r²) - π·r²·h` with `h=(R-r)/tan(θ/2)`.
+
+### 1. Recess coaxial along the FACE normal on a 30°-tilted face — CORRECT
+Countersink (Ø12 mouth / Ø6 bore / 90°) on a block rotated 30° about X, placed
+OFF the centroid axis (`origin + x_dir·6`): removed **113.0973355292299** vs analytic
+`π·3/3·(36+18+9) - π·9·3` = **113.09733552923258** (diff -2.7e-12), one lump. Cone
+tracks the tilted normal, not world Z — no hardcoded-axis bug. (The counterbore
+already had a tilted guard; the countersink did not — now `test_cut_countersink_
+tracks_tilted_face_normal`.)
+
+### 2. Countersink angle sweep 60/82/90/118° (drill-point standards) — CORRECT
+Ø12 mouth over Ø6 bore, 10 mm block. All match the frustum oracle across the
+`tan(θ/2)` range, 8 faces each, one lump:
+| θ° | cone h (mm) | removed (mm³) | analytic (mm³) | Δ |
+|----|-------------|---------------|----------------|---|
+| 60 | 5.1962 | 195.89033133729754 | 195.89033133729552 | +2.0e-12 |
+| 82 | 3.4511 | 130.10360173370282 | 130.10360173370333 | -5.1e-13 |
+| 90 | 3.0000 | 113.0973355292299 | 113.09733552923258 | -2.7e-12 |
+|118 | 1.8026 | 67.95573503646119 | 67.95573503646236 | -1.2e-12 |
+
+### 2b. Angle limits — shallow cone valid, over-steep → `hole_too_deep`
+NB the brief's phrasing is geometrically inverted: a LARGE included angle is a
+SHALLOW cone. **150°** (half-angle 75°, h≈0.80 mm) forms the correct thin frustum
+(removed 30.30433972116771 vs 30.30433972116958, Δ-1.9e-12, one lump) — NOT a
+degenerate sliver. A SMALL angle is the deep one: **20°** implies h≈17 mm > the
+10 mm block → `HoleTooDeepError`, correctly. Guards: `..._shallow_angle_is_valid_
+shallow_frustum`, `..._steep_angle_deep_cone_is_too_deep`.
+
+### 3. Degenerate mouth r→R and cone-past-blind-bore — SAFE
+Countersink diameter EXACTLY the bore (10 mm = 10 mm, h→0) → `HoleRecessInvalidError`
+(the `radius <= bore_radius` guard trips on equality) — no zero-height cone tool /
+invalid solid. Separately, a cone that OUTREACHES a short blind bore (bore 2 mm,
+90° cone depth 4 mm) is a valid single positive-volume lump: it removes the annulus
+PLUS fresh material below the bore floor (removed 475.43 > the through-bore annular
+318.35, as expected), boolean does not fail. Guards: `..._diameter_equals_bore_is_
+recess_invalid`, `..._cone_deeper_than_blind_bore_is_valid_solid`.
+
+### 4. Counterbore depth == body thickness (break-through) vs > thickness — CORRECT
+Ø18 recess `cbore_depth == 10` (== thickness) on a 10 mm block is a clean
+through-recess: coincident far-face boolean removes the full annulus
+`π·(9²-5²)·10` = **1759.2918860102855** vs **1759.291886010284** (Δ+1.4e-12), 7 faces,
+one lump — VALID, not rejected. `cbore_depth = 10.001` (a hair over) →
+`HoleTooDeepError`; 14 mm → same. The exact-thickness boundary is the last VALID
+depth. Guards: `..._depth_equals_thickness_is_through_recess`, `..._just_over_
+thickness_is_too_deep`.
+
+### 5. Recess edge-overhang — typed `hole_too_deep` (documented ASYMMETRY, by design)
+Bore Ø10 fully inside at x=6, but the wider Ø18 recess spans x∈[-3,15], poking 3 mm
+past the x=0 wall → removed < full analytic annulus → `HoleTooDeepError`. Note the
+deliberate asymmetry vs a THROUGH-bore, which IS allowed to break out an edge and
+return a partial volume (`test_hole_partial_breakout_matches_analytic_partial_
+volume`): a RECESS is held to its full analytic annulus, so an edge-overhanging
+recess is rejected rather than returning partial mass. This matches the kernel
+docstring ("...or overhangs the face edge"). Not a defect — a valid typed error,
+never a crash/invalid solid. Guard: `..._recess_edge_overhang_is_too_deep`.
+
+### 6. Blind bore + counterbore stack — volumes sum, CORRECT
+Blind Ø10 bore 8 mm deep + Ø18 counterbore 4 mm at the face: bore removes
+628.3185307179574 (vs π·25·8 = 628.3185307179587), recess removes 703.7167544041167
+(vs π·56·4 = 703.716754404114), total 1332.0352851220741 (vs 1332.035285122072,
+Δ+1.8e-12). 10 faces (6 block + bore wall + bore bottom cap + cbore wall + cbore
+annulus floor), one lump — bore stays blind at 8 mm while the recess seats at the
+face. Guard: `test_blind_bore_plus_counterbore_volumes_sum`.
+
+### 7. Determinism — byte-identical in-process AND across interpreter restart
+6 in-process rebuilds of both recesses → 1 distinct (volume, area, faces, edges,
+shells) signature (`test_recess_cuts_are_deterministic_across_repeats`). Two FRESH
+interpreter processes produced identical reprs: counterbore
+`8510.885082198436 / 3557.6105975943624 / 9/18/1`, countersink
+`8896.253781038786 / 3404.288182471737 / 8/17/1` — matching each golden's
+`expected.json` within its documented 1e-9 tolerance (the direct-kernel volume
+8510.885082198436 vs golden 8510.885082198438 differ by 2e-12, well inside 1e-9).
+
+**Note (pre-existing, not from this commit).** The negative-diameter defence-in-depth
+gap remains an `xfail` (`test_negative_diameter_is_typed_hole_error`): a non-positive
+diameter raises a raw OCCT `Standard_ConstructionError`, not a typed `HoleError`.
+UNREACHABLE from the API (`HoleParamsV1.diameter_mm` is `Field(gt=0)`; the recess
+diameters/angle are likewise bounded), so it stays a low-severity hardening item, not
+a P0. No new schema-reachable path from slice 2 changes this.
+
+**Tolerance note.** All new assertions use `KERNEL_VOL_TOL = 1e-6` mm³ (the existing
+constant), ~6 orders above the observed ≤5e-12 float-noise floor and >8 below the
+whole-mm³ removals — a NEW assertion sized for the boolean residual on rotated/
+break-through bodies, never a loosening of the goldens' 1e-9.
+
 ## 2026-07-23 — Revolve construction-centerline axis (`1605a11`) — adversarial geometry QA (geometry-qa)
 
 **Scope.** Independent adversarial verification of the centerline-closes-open-
