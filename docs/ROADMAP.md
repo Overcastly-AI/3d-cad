@@ -1015,6 +1015,19 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       baselines (sheet region pixel-identical; only transient interaction chrome
       differs); `just lint` green. **ONE placement source; the time-boxed two-engine
       window is CLOSED — the drawing-export initiative (DE-0…DE-3) is complete.**
+      **Drawing export DE-4 — content-addressed stored artifact SHIPPED**
+      (2026-07-23): the deferred stored-artifact tail. `geometry.drawing_store`
+      caches composed SVG/PDF/DXF bytes on the SAME object-storage seam as the mesh
+      store, keyed on `drawing_artifact_key` = SHA-256 of the whole
+      `ComposeDrawingRequest` (feature prefix / views / scale / dimensions / sheet
+      layout + `format`), so a repeat export of an unchanged drawing is served
+      byte-identically from storage WITHOUT re-composing (`X-Loft-Artifact-Cache:
+      hit`) and any edit misses + recomposes — never a stale artifact. Shared
+      `S3DrawingArtifactStore` when `S3_URL` set, in-process LRU fallback otherwise
+      (no single-worker guard: a compose-cache miss just recomposes, unlike the
+      mesh store's fetch). No contract/schema change (internal seam); geometry
+      pytest + goldens byte-unchanged + `just lint` green. **Drawings v1 tail
+      closed.**
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a

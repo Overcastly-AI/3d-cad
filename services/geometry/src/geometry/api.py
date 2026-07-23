@@ -57,6 +57,11 @@ from py_kit.schemas.sketch import (
 )
 
 from geometry.assembly import evaluate_assembly
+from geometry.drawing_store import (
+    drawing_artifact_key,
+    fetch_drawing_artifact,
+    store_drawing_artifact,
+)
 from geometry.drawings import (
     evaluate_drawing_views,
     place_sheet,
@@ -179,13 +184,21 @@ def evaluate_drawing_route(
     return evaluate_drawing_views(request)
 
 
+#: Response header reporting whether the compose route served a stored artifact
+#: (``hit``) or composed it fresh (``miss``) — the DE-4 cache signal. An internal
+#: observability header (not part of the pydantic contract, not forwarded by the
+#: gateway pass-through), so adding it is not a schema change.
+ARTIFACT_CACHE_HEADER = "X-Loft-Artifact-Cache"
+
 _COMPOSE_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {
         "description": (
             "The composed drawing artifact bytes (`image/svg+xml`, "
             "`application/pdf`, or `image/vnd.dxf` per `format`). "
             "`Content-Disposition` carries the suggested download filename. "
-            "Byte-deterministic: identical requests produce identical bytes."
+            "Byte-deterministic: identical requests produce identical bytes. "
+            "`X-Loft-Artifact-Cache` reports `hit` (served from the "
+            "content-addressed store) or `miss` (composed fresh)."
         ),
         "content": {
             media: {"schema": {"type": "string", "format": "binary"}}
@@ -207,20 +220,39 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
     ``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) — all
     deterministic. Identity-free — the gateway owns auth (same posture as
     ``/export``). Deterministic (RESEARCH §9): same request ⇒ identical bytes.
+
+    **Content-addressed cache (DE-4, drawing-export.md §8.3).** The composed bytes
+    are stored keyed on a content address of the WHOLE request
+    (:func:`~geometry.drawing_store.drawing_artifact_key`), so a repeat export of an
+    unchanged drawing is served byte-identically from storage WITHOUT re-composing
+    (``X-Loft-Artifact-Cache: hit``). Any edit — views/dimensions/title-block/sheet
+    or the ``format`` — changes the key, misses (``miss``), and recomposes; a stale
+    artifact is never served. The store is a cache, not state: a miss just composes.
     """
-    evaluation = evaluate_drawing_views(request)
-    composed = place_sheet(evaluation, request.dimensions, request.layout)
-    if request.format == "pdf":
-        body = serialize_pdf(composed)
-    elif request.format == "dxf":
-        body = serialize_dxf(composed)
+    key = drawing_artifact_key(request)
+    cached = fetch_drawing_artifact(key)
+    if cached is not None:
+        body = cached
+        cache_status = "hit"
     else:
-        body = serialize_svg(composed).encode("utf-8")
+        evaluation = evaluate_drawing_views(request)
+        composed = place_sheet(evaluation, request.dimensions, request.layout)
+        if request.format == "pdf":
+            body = serialize_pdf(composed)
+        elif request.format == "dxf":
+            body = serialize_dxf(composed)
+        else:
+            body = serialize_svg(composed).encode("utf-8")
+        store_drawing_artifact(key, body)
+        cache_status = "miss"
     filename = artifact_filename(request.layout.title, request.format)
     return Response(
         content=body,
         media_type=ARTIFACT_MEDIA_TYPES[request.format],
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            ARTIFACT_CACHE_HEADER: cache_status,
+        },
     )
 
 

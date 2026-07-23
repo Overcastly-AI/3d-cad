@@ -99,14 +99,14 @@ scorecard impact → core capability → polish).
       (`test_sheet_metal_width_extents.py::test_pb1_*`). Bend-END relief was
       designed together with it (§4.5.2) exactly as this item asked.
       [src: founder dogfooding — PB-1; sheet-metal-parity.md §3]
-- [ ] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
-      mesh_store/S3 seam (§8.3). The last open Drawings v1 tail — SVG/PDF/DXF
-      compose today re-renders on every request; store the composed bytes
-      content-addressed (same pattern as the mesh store) so a repeat
-      export/download is a fetch, not a recompute. Acceptance: a second
-      export of an unchanged drawing returns byte-identical artifact bytes
-      from storage; `S3_URL`-unset dev path still works (in-memory fallback,
-      matching the mesh-store convention). [src: drawing-export.md §8.3]
+- [x] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
+      mesh_store/S3 seam (§8.3). **SHIPPED 2026-07-23:** `geometry.drawing_store`
+      caches composed SVG/PDF/DXF bytes keyed on `drawing_artifact_key` (SHA-256 of
+      the whole `ComposeDrawingRequest`, incl. `format`), so a repeat export is a
+      `X-Loft-Artifact-Cache: hit` served from storage (no recompose) and any edit
+      misses + recomposes. Shared `S3DrawingArtifactStore` when `S3_URL` set,
+      in-process LRU fallback otherwise — the mesh-store seam reused (no guard: a
+      compose-cache miss just recomposes). [src: drawing-export.md §8.3]
 - [ ] (P2, S) MB-4c tail — per-body lump count on the evaluate wire +
       Bodies-panel indicator. `EvaluateTreeResult` carries no per-body list
       today (only a whole-part aggregate `properties.topology.shells`,
