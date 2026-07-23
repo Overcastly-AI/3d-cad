@@ -1855,7 +1855,73 @@ class SheetMetalCornerReliefParamsV1(BaseModel):
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
-class DatumFeature(BaseModel):
+def _drop_schema_default(schema: dict[str, Any]) -> None:
+    """Strip the ``default`` key from a field's generated JSON schema.
+
+    ``openapi-typescript`` (default ``default-non-nullable``) makes any property
+    that advertises a ``default`` NON-optional in the generated TS type — so a
+    defaulted envelope field would force EVERY existing feature literal in the
+    web app to supply it, defeating the "additive-optional, backward-compatible"
+    contract. Dropping the schema ``default`` (the python default still applies
+    on validation) makes ``suppressed`` an OPTIONAL ``suppressed?: boolean`` in
+    the client, so existing callers that omit it keep compiling and the server
+    fills in ``False``. The ``description`` still documents the absent-reads-False
+    behaviour.
+    """
+    schema.pop("default", None)
+
+
+class FeatureEnvelopeBase(BaseModel):
+    """Envelope fields EVERY feature type carries besides its typed ``params``.
+
+    ``suppressed`` is the persisted feature-suppress flag (BACKLOG "Feature
+    suppress"; docs/design/feature-tree.md §4.3a): when ``True`` a tree rebuild
+    SKIPS this feature — the body is built from the non-suppressed prefix and
+    each later non-suppressed feature evaluates off the last non-suppressed
+    body. It lives on the ENVELOPE, not inside ``params``, because it is
+    orthogonal to every feature type (a rebuild flag, not a modeling parameter):
+    it does NOT change ``BODY_AFFECTING_FEATURE_TYPES`` (a suppressed extrude is
+    still an extrude), never forces a ``param_version`` bump, and defaults
+    ``False`` so every existing tree/golden validates and evaluates
+    byte-identically — the additive-optional ``merge``/``flip`` idiom, applied
+    once at the envelope level (CLAUDE.md DRY rule) so a new feature type
+    inherits it for free.
+
+    NOTE (documents persistence — slice-1 scope): documents stores a feature by
+    DECOMPOSING the envelope into ``(type, param_version, params)`` columns, so
+    an envelope-level flag is NOT persisted automatically today (unlike a new
+    ``params`` field). The documents slice must add a ``suppressed`` column, read
+    it back in the CRUD/response and the evaluation-request builder, and expose a
+    toggle endpoint (see the return report).
+
+    ``suppressed`` is a normal, always-serialized field (a dumped envelope
+    carries ``"suppressed": false`` exactly as it carries ``merge`` /
+    ``version``). It is NOT hidden behind a model serializer — a
+    ``@model_serializer`` on this base perturbs pydantic's schema generation for
+    the per-type discriminated ``params`` unions (``DatumParams``/``HoleDepth``/…
+    collapse to an untyped ``Params``), which would break the generated
+    ts-client. The generated CLIENT type is kept OPTIONAL
+    (``suppressed?: boolean``) purely by dropping the JSON-schema ``default``
+    (:func:`_drop_schema_default`), so existing web callers that omit it still
+    compile. The geometry goldens are unaffected: each ``model.json`` is
+    hand-authored input JSON (no ``suppressed`` key) that validates with the
+    default, and goldens assert evaluated mass-properties output — not a dumped
+    tree — so an input-field addition churns none of them.
+    """
+
+    suppressed: bool = Field(
+        default=False,
+        description=(
+            "Feature suppress flag: when True a tree rebuild SKIPS this feature "
+            "and downstream features rebuild off the last non-suppressed body "
+            "(BACKLOG feature suppress). Additive-optional — absent reads False, "
+            "no param_version bump."
+        ),
+        json_schema_extra=_drop_schema_default,
+    )
+
+
+class DatumFeature(FeatureEnvelopeBase):
     """``{"type": "datum", "version": 1, "params": {...}}`` envelope.
 
     A non-body-affecting feature that produces a plane a later sketch sits on
@@ -1901,7 +1967,7 @@ class DatumFeature(BaseModel):
         return new_fields
 
 
-class SketchFeature(BaseModel):
+class SketchFeature(FeatureEnvelopeBase):
     """``{"type": "sketch", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["sketch"]
@@ -1909,7 +1975,7 @@ class SketchFeature(BaseModel):
     params: SketchParamsV1
 
 
-class ExtrudeFeature(BaseModel):
+class ExtrudeFeature(FeatureEnvelopeBase):
     """``{"type": "extrude", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["extrude"]
@@ -1917,7 +1983,7 @@ class ExtrudeFeature(BaseModel):
     params: ExtrudeParamsV1
 
 
-class RevolveFeature(BaseModel):
+class RevolveFeature(FeatureEnvelopeBase):
     """``{"type": "revolve", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["revolve"]
@@ -1925,7 +1991,7 @@ class RevolveFeature(BaseModel):
     params: RevolveParamsV1
 
 
-class SweepFeature(BaseModel):
+class SweepFeature(FeatureEnvelopeBase):
     """``{"type": "sweep", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["sweep"]
@@ -1933,7 +1999,7 @@ class SweepFeature(BaseModel):
     params: SweepParamsV1
 
 
-class LoftFeature(BaseModel):
+class LoftFeature(FeatureEnvelopeBase):
     """``{"type": "loft", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["loft"]
@@ -1941,7 +2007,7 @@ class LoftFeature(BaseModel):
     params: LoftParamsV1
 
 
-class FilletFeature(BaseModel):
+class FilletFeature(FeatureEnvelopeBase):
     """``{"type": "fillet", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["fillet"]
@@ -1949,7 +2015,7 @@ class FilletFeature(BaseModel):
     params: FilletParamsV1
 
 
-class ChamferFeature(BaseModel):
+class ChamferFeature(FeatureEnvelopeBase):
     """``{"type": "chamfer", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["chamfer"]
@@ -1957,7 +2023,7 @@ class ChamferFeature(BaseModel):
     params: ChamferParamsV1
 
 
-class ShellFeature(BaseModel):
+class ShellFeature(FeatureEnvelopeBase):
     """``{"type": "shell", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["shell"]
@@ -1965,7 +2031,7 @@ class ShellFeature(BaseModel):
     params: ShellParamsV1
 
 
-class DraftFeature(BaseModel):
+class DraftFeature(FeatureEnvelopeBase):
     """``{"type": "draft", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["draft"]
@@ -1973,7 +2039,7 @@ class DraftFeature(BaseModel):
     params: DraftParamsV1
 
 
-class HoleFeature(BaseModel):
+class HoleFeature(FeatureEnvelopeBase):
     """``{"type": "hole", "version": 1, "params": {...}}`` envelope.
 
     A body-MODIFYING feature (design §7.6): it drills a cylinder into the current
@@ -1986,7 +2052,7 @@ class HoleFeature(BaseModel):
     params: HoleParamsV1
 
 
-class PatternFeature(BaseModel):
+class PatternFeature(FeatureEnvelopeBase):
     """``{"type": "pattern", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["pattern"]
@@ -1994,7 +2060,7 @@ class PatternFeature(BaseModel):
     params: PatternParamsV1
 
 
-class MirrorFeature(BaseModel):
+class MirrorFeature(FeatureEnvelopeBase):
     """``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
 
     A body-affecting feature (design §7.6): it reflects the current body about a
@@ -2008,7 +2074,7 @@ class MirrorFeature(BaseModel):
     params: MirrorParamsV1
 
 
-class ImportFeature(BaseModel):
+class ImportFeature(FeatureEnvelopeBase):
     """``{"type": "import", "version": 1, "params": {...}}`` envelope.
 
     A body-affecting BASE feature (docs/design/step-import.md §1): it produces
@@ -2021,7 +2087,7 @@ class ImportFeature(BaseModel):
     params: ImportParamsV1
 
 
-class SheetMetalBaseFlangeFeature(BaseModel):
+class SheetMetalBaseFlangeFeature(FeatureEnvelopeBase):
     """``{"type": "sheet_metal_base_flange", "version": 1, "params": {...}}`` envelope.
 
     A body-CREATING base feature (docs/design/sheet-metal.md §4.1): it thickens a
@@ -2035,7 +2101,7 @@ class SheetMetalBaseFlangeFeature(BaseModel):
     params: SheetMetalBaseFlangeParamsV1
 
 
-class SheetMetalEdgeFlangeFeature(BaseModel):
+class SheetMetalEdgeFlangeFeature(FeatureEnvelopeBase):
     """``{"type": "sheet_metal_edge_flange", "version": 1, "params": {...}}`` envelope.
 
     A body-MODIFYING feature (docs/design/sheet-metal.md §4.2): it folds a flange
@@ -2049,7 +2115,7 @@ class SheetMetalEdgeFlangeFeature(BaseModel):
     params: SheetMetalEdgeFlangeParamsV1
 
 
-class SheetMetalHemFeature(BaseModel):
+class SheetMetalHemFeature(FeatureEnvelopeBase):
     """``{"type": "sheet_metal_hem", "version": 1, "params": {...}}`` envelope.
 
     A body-MODIFYING feature (parity §2, closed hem): it folds the picked edge ~180
@@ -2064,7 +2130,7 @@ class SheetMetalHemFeature(BaseModel):
     params: SheetMetalHemParamsV1
 
 
-class SheetMetalCornerReliefFeature(BaseModel):
+class SheetMetalCornerReliefFeature(FeatureEnvelopeBase):
     """``{"type": "sheet_metal_corner_relief", "version": 1, "params": {...}}``.
 
     A body-affecting feature (sheet-metal.md §4.4) that cuts a rectangular notch at
@@ -2081,7 +2147,7 @@ class SheetMetalCornerReliefFeature(BaseModel):
     params: SheetMetalCornerReliefParamsV1
 
 
-class BooleanFeature(BaseModel):
+class BooleanFeature(FeatureEnvelopeBase):
     """``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
 
     A body-affecting feature that fuses two independently-built bodies
@@ -2937,10 +3003,13 @@ FeatureData = SolvedSketchData
 
 class FeatureResult(BaseModel):
     """Per-feature evaluation status. Strict-prefix rule (§4.3): the first
-    failure is ``error``, every subsequent feature ``skipped``."""
+    failure is ``error``, every subsequent feature ``skipped``. A feature marked
+    ``suppressed`` (§4.3a) is neither: it is deliberately skipped from the
+    rebuild — distinct from a downstream ``skipped`` (which means an earlier
+    feature failed) — so the tree UI can show it dimmed rather than red."""
 
     feature_id: uuid.UUID
-    status: Literal["ok", "error", "skipped"]
+    status: Literal["ok", "error", "skipped", "suppressed"]
     error: FeatureError | None = None
     data: FeatureData | None = Field(
         default=None,

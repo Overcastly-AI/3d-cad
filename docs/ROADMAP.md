@@ -356,6 +356,24 @@ item:
       intersect between independently-built bodies, multi-lump bodies, opt-in
       disjoint union, multi-solid STEP import — geometry-QA'd PASS twice;
       VISION Part modeling row Notes corrected same pass, score unchanged).
+- 🚧 Feature suppress — SLICE 1 SHIPPED (2026-07-23, kernel-architect): the
+      persisted-flag + evaluator half of a daily incumbent verb (`grep suppress`
+      → empty before this). `suppressed: bool = False` lives once on a shared
+      `FeatureEnvelopeBase` every feature envelope inherits (no `param_version`
+      bump, additive-optional like `merge`/`flip`); `FeatureResult.status` gains a
+      fourth `suppressed` value; `evaluate_tree` SKIPS a suppressed feature so the
+      body is built from the non-suppressed prefix and each later non-suppressed
+      feature rebuilds off the last non-suppressed body, with a typed
+      `references_suppressed` per-feature error (200, strict prefix) for a feature
+      that DIRECTLY references a suppressed one. Proof (test_evaluate_tree.py):
+      `[sketch,extrude,fillet]` fillet-suppressed → analytic box volume (10000
+      mm³), un-suppressed → filleted (material actually removed); a suppressed
+      MIDDLE extrude rebuilds the trailing fillet off the reduced body (max z=10
+      not 20); ref-to-suppressed is a 200 typed error; default-false is a
+      byte-identical no-op (goldens unchanged). feature-tree.md §4.3a. SLICE 2
+      (documents persistence — a `suppressed` column, the CRUD/evaluation-request
+      read-back, a `PATCH .../suppress` toggle — then the web tree toggle + dimmed
+      row) remains (BACKLOG P2).
 - ✅ Dedicated Hole feature — SLICE 1 END-TO-END (2026-07-23): first-class
       `HoleFeature` (face-placed point + diameter + through-all|blind, auto inward
       cut direction), NOT a sketched circle. Analytic + sketch-cut-parity golden

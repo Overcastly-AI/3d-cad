@@ -89,7 +89,15 @@ SKETCH_PARAMS: dict[str, Any] = {
 
 
 def _sketch_envelope() -> dict[str, Any]:
-    return {"type": "sketch", "version": 1, "params": SKETCH_PARAMS}
+    # `suppressed` is the additive envelope flag (py-kit FeatureEnvelopeBase,
+    # feature-tree.md §4.3a): a normal field defaulting False, so a round-tripped
+    # feature response carries it verbatim — exactly like the `merge` param below.
+    return {
+        "type": "sketch",
+        "version": 1,
+        "suppressed": False,
+        "params": SKETCH_PARAMS,
+    }
 
 
 def _datum_envelope(offset_mm: float = 30.0, flip: bool = False) -> dict[str, Any]:
@@ -212,6 +220,8 @@ def _extrude_envelope(sketch_id: str) -> dict[str, Any]:
     return {
         "type": "extrude",
         "version": 1,
+        # Additive envelope suppress flag (feature-tree.md §4.3a), defaults False.
+        "suppressed": False,
         "params": {
             "profile": {"kind": "feature", "feature_id": sketch_id},
             "distance_mm": 10.0,
@@ -237,6 +247,8 @@ def _import_envelope(data: str = STEP_TEXT) -> dict[str, Any]:
     return {
         "type": "import",
         "version": 1,
+        # Additive envelope suppress flag (feature-tree.md §4.3a), defaults False.
+        "suppressed": False,
         "params": {"kind": "inline", "format": "step", "data": data},
     }
 

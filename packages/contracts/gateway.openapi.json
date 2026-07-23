@@ -678,6 +678,11 @@
           "params": {
             "$ref": "#/components/schemas/BooleanParamsV1"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "boolean",
             "title": "Type",
@@ -785,6 +790,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/ChamferParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "chamfer",
@@ -1830,6 +1840,11 @@
             ],
             "title": "Params"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "datum",
             "title": "Type",
@@ -2337,6 +2352,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/DraftParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "draft",
@@ -3580,6 +3600,11 @@
           "params": {
             "$ref": "#/components/schemas/ExtrudeParamsV1"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "extrude",
             "title": "Type",
@@ -4025,7 +4050,7 @@
         "type": "object"
       },
       "FeatureResult": {
-        "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first\nfailure is ``error``, every subsequent feature ``skipped``.",
+        "description": "Per-feature evaluation status. Strict-prefix rule (\u00a74.3): the first\nfailure is ``error``, every subsequent feature ``skipped``. A feature marked\n``suppressed`` (\u00a74.3a) is neither: it is deliberately skipped from the\nrebuild \u2014 distinct from a downstream ``skipped`` (which means an earlier\nfeature failed) \u2014 so the tree UI can show it dimmed rather than red.",
         "properties": {
           "data": {
             "anyOf": [
@@ -4057,7 +4082,8 @@
             "enum": [
               "ok",
               "error",
-              "skipped"
+              "skipped",
+              "suppressed"
             ],
             "title": "Status",
             "type": "string"
@@ -4251,6 +4277,11 @@
           "params": {
             "$ref": "#/components/schemas/FilletParamsV1"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "fillet",
             "title": "Type",
@@ -4370,6 +4401,11 @@
           "params": {
             "$ref": "#/components/schemas/HoleParamsV1"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "hole",
             "title": "Type",
@@ -4475,6 +4511,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/ImportParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "import",
@@ -4971,6 +5012,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/LoftParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "loft",
@@ -5531,6 +5577,11 @@
           "params": {
             "$ref": "#/components/schemas/MirrorParamsV1"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "mirror",
             "title": "Type",
@@ -5915,6 +5966,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/PatternParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "pattern",
@@ -6454,6 +6510,11 @@
           "params": {
             "$ref": "#/components/schemas/RevolveParamsV1"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "revolve",
             "title": "Type",
@@ -6785,6 +6846,11 @@
           "params": {
             "$ref": "#/components/schemas/SheetMetalBaseFlangeParamsV1"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "sheet_metal_base_flange",
             "title": "Type",
@@ -6862,6 +6928,11 @@
           "params": {
             "$ref": "#/components/schemas/SheetMetalCornerReliefParamsV1"
           },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
           "type": {
             "const": "sheet_metal_corner_relief",
             "title": "Type",
@@ -6932,6 +7003,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/SheetMetalEdgeFlangeParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "sheet_metal_edge_flange",
@@ -7039,6 +7115,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/SheetMetalHemParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "sheet_metal_hem",
@@ -7339,6 +7420,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/ShellParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "shell",
@@ -7758,6 +7844,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/SketchParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "sketch",
@@ -8491,6 +8582,11 @@
         "properties": {
           "params": {
             "$ref": "#/components/schemas/SweepParamsV1"
+          },
+          "suppressed": {
+            "description": "Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional \u2014 absent reads False, no param_version bump.",
+            "title": "Suppressed",
+            "type": "boolean"
           },
           "type": {
             "const": "sweep",

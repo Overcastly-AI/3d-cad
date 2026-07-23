@@ -102,6 +102,7 @@ from py_kit.schemas.features import (
     SolvedSketchData,
     SubshapeRef,
     SweepFeature,
+    iter_feature_refs,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
 from py_kit.schemas.sketch import classify_overconstraint
@@ -2180,8 +2181,46 @@ def tree_no_body_error(
     )
 
 
+def _suppressed_reference_error(
+    feature: FeatureEnvelope, suppressed_ids: set[uuid.UUID]
+) -> FeatureError | None:
+    """A ``references_suppressed`` error if *feature* names a suppressed feature.
+
+    Feature suppress (§4.3a): a suppressed feature is skipped, so a later
+    NON-suppressed feature that DIRECTLY references its output — a profile /
+    plane / operand :class:`FeatureRef`, or a picked face/edge
+    :class:`SubshapeRef`/:class:`EdgeSubshapeRef` anchored on it — can no longer
+    rebuild off a body that omits that feature's contribution. That is a
+    distinct, honest failure from a plain ``reference_unresolved`` (the target
+    exists; it is deliberately suppressed), so it gets its own typed code pinned
+    to the suppressed upstream feature and, like any per-feature error, is a 200
+    with the strict-prefix rule downstream (never a raise). Walks EVERY ref kind
+    the schema carries (:func:`iter_feature_refs`), so a new ref-bearing field is
+    covered without touching this check; the first suppressed ref in deterministic
+    model-field order wins (RESEARCH §9).
+    """
+    for ref in iter_feature_refs(feature):
+        if ref.feature_id in suppressed_ids:
+            return FeatureError(
+                code="references_suppressed",
+                message=(
+                    "This feature references a suppressed feature, so it cannot "
+                    "rebuild off the current body; un-suppress that feature or "
+                    "repoint the reference."
+                ),
+                upstream_feature_id=ref.feature_id,
+            )
+    return None
+
+
 def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
+
+    Suppressed features (§4.3a) are SKIPPED: the body is built from the
+    non-suppressed prefix and each subsequent non-suppressed feature evaluates
+    off the last non-suppressed body. A non-suppressed feature that references a
+    suppressed one is a typed ``references_suppressed`` error
+    (:func:`_suppressed_reference_error`), never a raise.
 
     Deterministic: same request → identical statuses, identical solved
     positions, byte-identical GLB and therefore identical ``mesh_glb_id``
@@ -2190,11 +2229,26 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     state = EvaluationState(linear_deflection=request.linear_deflection)
     results: list[FeatureResult] = []
     last_good_feature_id: uuid.UUID | None = None
+    suppressed_ids: set[uuid.UUID] = set()
     failed = False
 
     for item in request.features:
         if failed:
             results.append(FeatureResult(feature_id=item.id, status="skipped"))
+            continue
+        if item.feature.suppressed:
+            # Skip a suppressed feature entirely: no dispatch, no body mutation,
+            # no last-good/prev-body advance — the running body state carries
+            # forward as the last non-suppressed body (§4.3a).
+            suppressed_ids.add(item.id)
+            results.append(FeatureResult(feature_id=item.id, status="suppressed"))
+            continue
+        ref_error = _suppressed_reference_error(item.feature, suppressed_ids)
+        if ref_error is not None:
+            results.append(
+                FeatureResult(feature_id=item.id, status="error", error=ref_error)
+            )
+            failed = True
             continue
         error = _dispatch(item, state)
         if error is None:

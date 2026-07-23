@@ -256,6 +256,22 @@ frame refactor are v2/§11. Spike de-collected.
       Acceptance: toggle in the feature tree; suppressing a fillet re-evaluates to
       the un-filleted body; un-suppressing restores it; worked e2e. [src:
       AUDIT-PRODUCT.md 2026-07-23]
+      - [x] Slice 1 — schema + geometry evaluate. `suppressed: bool = False` on the
+            shared `FeatureEnvelopeBase` (all 19 envelopes inherit; no param_version
+            bump), `FeatureResult.status` gains `suppressed`, and `evaluate_tree`
+            SKIPS suppressed features (downstream rebuilds off the last
+            non-suppressed body) with a typed `references_suppressed` error for a
+            feature that references a suppressed one. Proof: `[sketch,extrude,fillet]`
+            fillet-suppressed → analytic box volume, un-suppressed → filleted;
+            middle-suppress rebuilds downstream off the reduced body; ref-to-suppressed
+            → 200 typed error (test_evaluate_tree.py). feature-tree.md §4.3a.
+            2026-07-23 (kernel-architect).
+      - [ ] Slice 2 — documents persistence + toggle endpoint. Add a `suppressed`
+            column (envelope-level, NOT in `params`), store/read it in
+            create/update_feature + `_to_response` + the `/evaluation-request`
+            builder (pass `suppressed` into `FEATURE_REGISTRY.load`), and a
+            `PATCH .../features/{id}/suppress` toggle that bumps `tree_version`
+            without a param replace. Then the web tree suppress toggle + dimmed row.
 - [x] (P2, S) Mirror feature — mirror a feature/body about a plane (origin/datum),
       one op in every incumbent. **END-TO-END 2026-07-23** (geometry+DTO
       kernel-architect; web authoring frontend-builder): `MirrorFeature`/

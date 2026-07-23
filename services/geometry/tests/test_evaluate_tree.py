@@ -1022,3 +1022,212 @@ def test_response_round_trips_through_shared_dto() -> None:
     wire: dict[str, Any] = response.json()
     round_tripped = EvaluateTreeResult.model_validate(wire).model_dump(mode="json")
     assert round_tripped == wire
+
+
+# --- Feature suppress (docs/design/feature-tree.md §4.3a) ---------------------------
+#
+# A suppressed feature is SKIPPED by the rebuild: the body is built from the
+# non-suppressed prefix and each later non-suppressed feature evaluates off the
+# last non-suppressed body. A non-suppressed feature that DIRECTLY references a
+# suppressed feature is a typed ``references_suppressed`` error (200, strict
+# prefix), never a raise. Fixed ids keep responses byte-reproducible.
+
+SUP_SKETCH_ID = uuid.UUID("00000000-0000-0000-0000-0000000000e1")
+SUP_EXTRUDE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000e2")
+SUP_FILLET_ID = uuid.UUID("00000000-0000-0000-0000-0000000000e3")
+SUP_DATUM_ID = uuid.UUID("00000000-0000-0000-0000-0000000000e4")
+SUP_SKETCHB_ID = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
+SUP_EXTRUDEB_ID = uuid.UUID("00000000-0000-0000-0000-0000000000e6")
+
+#: Analytic volume of the 40 x 25 mm rectangle extruded 10 mm (mm^3). Exact by
+#: construction (the box is a pure prism); the box-vs-filleted comparison is the
+#: suppress proof, so the tolerance is the same kernel-exact 1e-6 the datum
+#: extrude test above uses, NOT an ad-hoc epsilon.
+BOX_VOLUME_MM3 = 40.0 * 25.0 * 10.0
+BOX_VOLUME_TOLERANCE_MM3 = 1e-6
+
+
+def _suppress(feature_input: dict[str, Any]) -> dict[str, Any]:
+    """Mark a feature-input dict suppressed (the persisted envelope flag)."""
+    feature_input["feature"]["suppressed"] = True
+    return feature_input
+
+
+def _fillet_input(
+    feature_id: uuid.UUID, radius_mm: float, *, suppressed: bool = False
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "fillet",
+            "version": 1,
+            "suppressed": suppressed,
+            "params": {"edges": {"kind": "all_edges"}, "radius_mm": radius_mm},
+        },
+    }
+
+
+def _box_then_fillet(*, fillet_suppressed: bool) -> dict[str, Any]:
+    return _request(
+        [
+            _sketch_input(SUP_SKETCH_ID, rectangle_params()),
+            _extrude_input(SUP_EXTRUDE_ID, SUP_SKETCH_ID),
+            _fillet_input(SUP_FILLET_ID, 2.0, suppressed=fillet_suppressed),
+        ]
+    )
+
+
+def test_suppressed_fillet_evaluates_to_the_unfilleted_box() -> None:
+    """The core proof (§4.3a): `[sketch, extrude, fillet]` with the fillet
+    SUPPRESSED evaluates to the analytic box — the fillet is skipped, so no
+    material is rounded off. The fillet row reports the distinct ``suppressed``
+    status (not ``ok``, not ``error``), and the body's mass properties are the
+    exact box volume."""
+    result = _post(_box_then_fillet(fillet_suppressed=True))
+
+    assert [(r.feature_id, r.status) for r in result.features] == [
+        (SUP_SKETCH_ID, "ok"),
+        (SUP_EXTRUDE_ID, "ok"),
+        (SUP_FILLET_ID, "suppressed"),
+    ]
+    # The last-good body is the extrude (the fillet did not run), so it is what
+    # the artifact reflects.
+    assert result.last_good_feature_id == SUP_EXTRUDE_ID
+    props = result.properties
+    assert props is not None
+    assert props.volume == pytest.approx(BOX_VOLUME_MM3, abs=BOX_VOLUME_TOLERANCE_MM3)
+
+
+def test_unsuppressed_fillet_actually_removes_material() -> None:
+    """The other half of the proof: with the SAME tree but the fillet
+    NON-suppressed, the fillet runs and the evaluated volume is strictly LESS
+    than the box (rounding an edge removes material). Suppress therefore
+    changes the evaluated geometry — it is not a cosmetic flag."""
+    result = _post(_box_then_fillet(fillet_suppressed=False))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.last_good_feature_id == SUP_FILLET_ID
+    props = result.properties
+    assert props is not None
+    # A 2 mm round-over on all 12 edges of a 40x25x10 box removes real material.
+    assert props.volume < BOX_VOLUME_MM3 - 1.0
+    assert props.volume > 0.0
+
+
+def test_suppress_flag_defaults_false_is_a_no_op() -> None:
+    """Omitting ``suppressed`` entirely (the legacy wire shape) reads False and
+    evaluates byte-identically to explicitly False — the additive-optional
+    guarantee that keeps every existing tree/golden unchanged."""
+    explicit = _post(_box_then_fillet(fillet_suppressed=False))
+    # Legacy shape: no `suppressed` key on any feature envelope.
+    legacy_payload = _request(
+        [
+            _sketch_input(SUP_SKETCH_ID, rectangle_params()),
+            _extrude_input(SUP_EXTRUDE_ID, SUP_SKETCH_ID),
+            _fillet_input(SUP_FILLET_ID, 2.0),
+        ]
+    )
+    for feature in legacy_payload["features"]:
+        feature["feature"].pop("suppressed", None)
+    legacy = _post(legacy_payload)
+
+    assert [r.status for r in explicit.features] == [r.status for r in legacy.features]
+    assert explicit.mesh_glb_id == legacy.mesh_glb_id
+    assert explicit.properties == legacy.properties
+
+
+def _stacked_boxes_then_fillet(*, middle_suppressed: bool) -> dict[str, Any]:
+    """`[datum+10, sketchA(XY), extrudeA, sketchB(on datum), extrudeB, fillet]`.
+
+    extrudeA is a box z[0,10]; extrudeB stacks a second box z[10,20] that fuses
+    into z[0,20]. extrudeB is the MIDDLE body-affecting feature; the trailing
+    fillet rounds whatever body precedes it."""
+    return _request(
+        [
+            _datum_input(SUP_DATUM_ID, "XY", 10.0),
+            _sketch_input(SUP_SKETCH_ID, rectangle_params()),
+            _extrude_input(SUP_EXTRUDE_ID, SUP_SKETCH_ID),
+            _sketch_on(SUP_SKETCHB_ID, _feature_ref(SUP_DATUM_ID)),
+            _suppress(_extrude_input(SUP_EXTRUDEB_ID, SUP_SKETCHB_ID))
+            if middle_suppressed
+            else _extrude_input(SUP_EXTRUDEB_ID, SUP_SKETCHB_ID),
+            _fillet_input(SUP_FILLET_ID, 2.0),
+        ]
+    )
+
+
+def test_suppressing_a_middle_feature_rebuilds_downstream_off_reduced_body() -> None:
+    """Suppressing a MIDDLE feature: the second (stacking) extrude is skipped, so
+    the body is the single z[0,10] box, and the trailing fillet STILL APPLIES —
+    off that reduced body, not the stacked one. Proven by the bounding box
+    (max z = 10, not 20) and a filleted volume below the single box."""
+    result = _post(_stacked_boxes_then_fillet(middle_suppressed=True))
+
+    assert [r.status for r in result.features] == [
+        "ok",  # datum
+        "ok",  # sketchA
+        "ok",  # extrudeA
+        "ok",  # sketchB (still solves; its body-affecting extrude is suppressed)
+        "suppressed",  # extrudeB
+        "ok",  # fillet applied to the reduced body
+    ]
+    props = result.properties
+    assert props is not None
+    # The stacking extrude is gone: the body tops out at z=10, and the fillet
+    # rounded the single box (volume just under the 10000 mm^3 box).
+    assert props.bounding_box.max.z == pytest.approx(10.0, abs=1e-6)
+    assert props.volume < BOX_VOLUME_MM3
+    # A 2 mm round-over on one box, NOT the stacked (z[0,20]) body: the filleted
+    # single box is ~9753 mm^3, nowhere near the ~19753 stacked-and-filleted one.
+    assert props.volume > BOX_VOLUME_MM3 - 1000.0
+
+
+def test_middle_feature_unsuppressed_stacks_then_fillets() -> None:
+    """The comparison: with the middle extrude NOT suppressed the body stacks to
+    z[0,20] before the fillet, so the evaluated volume is far larger than the
+    suppressed variant — the suppress flag alone flips which body downstream
+    features rebuild against."""
+    suppressed = _post(_stacked_boxes_then_fillet(middle_suppressed=True))
+    stacked = _post(_stacked_boxes_then_fillet(middle_suppressed=False))
+
+    assert [r.status for r in stacked.features] == ["ok"] * 6
+    assert stacked.properties is not None and suppressed.properties is not None
+    assert stacked.properties.bounding_box.max.z == pytest.approx(20.0, abs=1e-6)
+    # Stacked-then-filleted keeps far more material than the single-box variant.
+    assert stacked.properties.volume > suppressed.properties.volume + BOX_VOLUME_MM3 / 2
+
+
+def test_reference_to_suppressed_feature_is_a_typed_error_not_a_500() -> None:
+    """A non-suppressed feature that DIRECTLY references a suppressed feature is a
+    typed ``references_suppressed`` per-feature error — a 200 with the strict
+    prefix downstream, the upstream id pinned — never a raise. Here the extrude's
+    profile points at a SUPPRESSED sketch."""
+    result = _post(
+        _request(
+            [
+                _suppress(_sketch_input(SUP_SKETCH_ID, rectangle_params())),
+                _extrude_input(SUP_EXTRUDE_ID, SUP_SKETCH_ID),
+                _fillet_input(SUP_FILLET_ID, 2.0),
+            ]
+        )
+    )
+
+    sketch_r, extrude_r, fillet_r = result.features
+    assert (sketch_r.feature_id, sketch_r.status) == (SUP_SKETCH_ID, "suppressed")
+    assert extrude_r.status == "error"
+    assert extrude_r.error is not None
+    assert extrude_r.error.code == "references_suppressed"
+    assert extrude_r.error.upstream_feature_id == SUP_SKETCH_ID
+    # Strict prefix: everything after the error is skipped, and no body was built.
+    assert fillet_r.status == "skipped"
+    assert result.mesh_glb_id is None
+    assert result.properties is None
+
+
+def test_suppressed_tree_is_byte_deterministic() -> None:
+    """Determinism holds through a suppressed tree (RESEARCH §9): the same
+    request yields an identical response, including ``mesh_glb_id``."""
+    payload = _box_then_fillet(fillet_suppressed=True)
+    first = client.post("/api/v1/evaluate", json=payload).json()
+    second = client.post("/api/v1/evaluate", json=payload).json()
+    assert first == second

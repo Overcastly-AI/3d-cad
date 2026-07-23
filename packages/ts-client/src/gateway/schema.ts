@@ -1835,6 +1835,11 @@ export interface components {
         BooleanFeature: {
             params: components["schemas"]["BooleanParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -1948,6 +1953,11 @@ export interface components {
          */
         ChamferFeature: {
             params: components["schemas"]["ChamferParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2678,6 +2688,11 @@ export interface components {
             /** Params */
             params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"] | components["schemas"]["DatumOffsetFromParams"] | components["schemas"]["DatumMidplaneParams"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -3069,6 +3084,11 @@ export interface components {
          */
         DraftFeature: {
             params: components["schemas"]["DraftParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -3957,6 +3977,11 @@ export interface components {
         ExtrudeFeature: {
             params: components["schemas"]["ExtrudeParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -4155,7 +4180,10 @@ export interface components {
         /**
          * FeatureResult
          * @description Per-feature evaluation status. Strict-prefix rule (§4.3): the first
-         *     failure is ``error``, every subsequent feature ``skipped``.
+         *     failure is ``error``, every subsequent feature ``skipped``. A feature marked
+         *     ``suppressed`` (§4.3a) is neither: it is deliberately skipped from the
+         *     rebuild — distinct from a downstream ``skipped`` (which means an earlier
+         *     feature failed) — so the tree UI can show it dimmed rather than red.
          */
         FeatureResult: {
             /** @description Typed per-feature payload for ok features that produce one (§7.10): solved sketch geometry today; future feature types add kind-tagged variants additively. */
@@ -4170,7 +4198,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "ok" | "error" | "skipped";
+            status: "ok" | "error" | "skipped" | "suppressed";
         };
         /**
          * FeatureTreeResponse
@@ -4222,6 +4250,11 @@ export interface components {
          */
         FilletFeature: {
             params: components["schemas"]["FilletParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4307,6 +4340,11 @@ export interface components {
          */
         HoleFeature: {
             params: components["schemas"]["HoleParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4405,6 +4443,11 @@ export interface components {
          */
         ImportFeature: {
             params: components["schemas"]["ImportParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4756,6 +4799,11 @@ export interface components {
          */
         LoftFeature: {
             params: components["schemas"]["LoftParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -5156,6 +5204,11 @@ export interface components {
         MirrorFeature: {
             params: components["schemas"]["MirrorParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -5448,6 +5501,11 @@ export interface components {
          */
         PatternFeature: {
             params: components["schemas"]["PatternParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -5851,6 +5909,11 @@ export interface components {
         RevolveFeature: {
             params: components["schemas"]["RevolveParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -6077,6 +6140,11 @@ export interface components {
         SheetMetalBaseFlangeFeature: {
             params: components["schemas"]["SheetMetalBaseFlangeParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -6163,6 +6231,11 @@ export interface components {
         SheetMetalCornerReliefFeature: {
             params: components["schemas"]["SheetMetalCornerReliefParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -6234,6 +6307,11 @@ export interface components {
          */
         SheetMetalEdgeFlangeFeature: {
             params: components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -6315,6 +6393,11 @@ export interface components {
          */
         SheetMetalHemFeature: {
             params: components["schemas"]["SheetMetalHemParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -6488,6 +6571,11 @@ export interface components {
          */
         ShellFeature: {
             params: components["schemas"]["ShellParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -6781,6 +6869,11 @@ export interface components {
          */
         SketchFeature: {
             params: components["schemas"]["SketchParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -7204,6 +7297,11 @@ export interface components {
          */
         SweepFeature: {
             params: components["schemas"]["SweepParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}

@@ -136,6 +136,10 @@ def test_worked_example_sketch_round_trips_verbatim() -> None:
     assert envelope.model_dump(mode="json") == {
         "type": "sketch",
         "version": 1,
+        # Envelope-level suppress flag (FeatureEnvelopeBase); a normal field that
+        # defaults False, so a dumped envelope carries it — exactly like the
+        # `merge` param default above (the always-serialized additive idiom).
+        "suppressed": False,
         "params": SKETCH_PARAMS,
     }
 
@@ -149,6 +153,7 @@ def test_worked_example_extrude_round_trips_verbatim() -> None:
     assert envelope.model_dump(mode="json") == {
         "type": "extrude",
         "version": 1,
+        "suppressed": False,
         "params": EXTRUDE_PARAMS,
     }
 
@@ -164,6 +169,7 @@ def test_fillet_round_trips_and_selector_discriminates() -> None:
     assert envelope.model_dump(mode="json") == {
         "type": "fillet",
         "version": 1,
+        "suppressed": False,
         "params": FILLET_PARAMS,
     }
 
@@ -788,6 +794,7 @@ def test_mirror_on_datum_plane_round_trips_and_has_no_feature_refs() -> None:
     assert envelope.model_dump(mode="json") == {
         "type": "mirror",
         "version": 1,
+        "suppressed": False,
         "params": {"plane": {"kind": "datum_plane", "plane": "YZ"}},
     }
 
