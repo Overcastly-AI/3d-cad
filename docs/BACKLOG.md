@@ -117,6 +117,19 @@ scorecard impact → core capability → polish).
       byte-identical (the 2 flat-pattern-sheet MODEL-hash goldens refresh for the
       additive null fields, precedent b0cb16a; serialized SVG/PDF/DXF unchanged).
       DOM half split → D1b. [src: AUDIT-ENGINEERING.md D1]
+- [ ] (P2, S) e2e: heavy founder-flow specs flake under CPU contention
+      (2026-07-23). `full-flow.spec.ts` (register→sketch→extrude→edit→export) and
+      `sketch-on-face.spec.ts` fail intermittently when a batch-end `just e2e`
+      overlaps heavy agents — the failure POINT MOVES between runs (`new-extrude`
+      "solve a sketch first" still disabled one run, `sketch-strip`
+      toHaveCount(0) got 1 the next), the flake signature; both pass clean in a
+      quiet window (verified 2026-07-23, 190/190). These intermediate waits use
+      the default 5s while the sibling `eval-status` wait already uses 30s — a
+      geometry solve / UI-state transition can exceed 5s under load. Fix: bump the
+      solve/UI-state-gated `toBeEnabled`/`toHaveCount` waits in the heavy
+      founder-flow specs to a generous timeout (audit siblings), so the gate is
+      contention-robust without loosening what it catches. Process half already in
+      CLAUDE.md (run the gate quiet). [src: orchestrator 2026-07-23]
 - [ ] (P1, XS) Drawings D1b (DOM half) — on-screen title block still stamps only
       title+scale+size (`apps/web/src/components/DrawingSheet.tsx` `TitleBlock`).
       Mirror the export half: render author/date/notes as the SAME labeled
