@@ -3259,6 +3259,7 @@
                 "hole": "#/components/schemas/HoleFeature",
                 "import": "#/components/schemas/ImportFeature",
                 "loft": "#/components/schemas/LoftFeature",
+                "mirror": "#/components/schemas/MirrorFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
@@ -3307,6 +3308,9 @@
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorFeature"
               },
               {
                 "$ref": "#/components/schemas/ImportFeature"
@@ -3684,6 +3688,7 @@
                 "hole": "#/components/schemas/HoleFeature",
                 "import": "#/components/schemas/ImportFeature",
                 "loft": "#/components/schemas/LoftFeature",
+                "mirror": "#/components/schemas/MirrorFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
@@ -3732,6 +3737,9 @@
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorFeature"
               },
               {
                 "$ref": "#/components/schemas/ImportFeature"
@@ -3899,6 +3907,7 @@
                 "hole": "#/components/schemas/HoleFeature",
                 "import": "#/components/schemas/ImportFeature",
                 "loft": "#/components/schemas/LoftFeature",
+                "mirror": "#/components/schemas/MirrorFeature",
                 "pattern": "#/components/schemas/PatternFeature",
                 "revolve": "#/components/schemas/RevolveFeature",
                 "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
@@ -3947,6 +3956,9 @@
               },
               {
                 "$ref": "#/components/schemas/PatternFeature"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorFeature"
               },
               {
                 "$ref": "#/components/schemas/ImportFeature"
@@ -4134,6 +4146,7 @@
                     "hole": "#/components/schemas/HoleFeature",
                     "import": "#/components/schemas/ImportFeature",
                     "loft": "#/components/schemas/LoftFeature",
+                    "mirror": "#/components/schemas/MirrorFeature",
                     "pattern": "#/components/schemas/PatternFeature",
                     "revolve": "#/components/schemas/RevolveFeature",
                     "sheet_metal_base_flange": "#/components/schemas/SheetMetalBaseFlangeFeature",
@@ -4182,6 +4195,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/PatternFeature"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MirrorFeature"
                   },
                   {
                     "$ref": "#/components/schemas/ImportFeature"
@@ -5507,6 +5523,60 @@
           "b"
         ],
         "title": "MirrorAxisPoints",
+        "type": "object"
+      },
+      "MirrorFeature": {
+        "description": "``{\"type\": \"mirror\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature (design \u00a77.6): it reflects the current body about a\nplane and boolean-unions the reflection into the single body chain \u2014 the\nreflective sibling of :class:`PatternFeature`. ``params`` is\n:class:`MirrorParamsV1`.",
+        "properties": {
+          "params": {
+            "$ref": "#/components/schemas/MirrorParamsV1"
+          },
+          "type": {
+            "const": "mirror",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "params"
+        ],
+        "title": "MirrorFeature",
+        "type": "object"
+      },
+      "MirrorParamsV1": {
+        "description": "Reflect the current body about a plane and union the reflection in.\n\nThe mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,\nboolean-unioned into the single body chain (design \u00a77.6) \u2014 the reflective\nsibling of the ADD pattern (see the module note for the shared \"replicate the\ncurrent body + union\" semantics). Like a fillet/chamfer/pattern it carries NO\nsource ``FeatureRef``: it mirrors the implicit body chain that exists at its\npoint in the tree, so its dependency on the prior body-affecting feature is\ntree order.\n\n``plane`` is a :data:`GeomRef` \u2014 the SAME plane reference a sketch uses (no\nnew plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)\nor a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face\n/ midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of\nthis prefix is a write-time 422 (the eval-time backstop is\n``reference_unresolved``, pinned to the referenced feature).\n\nThe reflection is a true handedness-reversing isometry, NOT a translation\n(proven by the ``mirror-triangle-prism-2x`` golden). It handles every case\nsanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body\n(volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC\nbody is unchanged. A degenerate/failed reflection is a per-feature\n``mirror_failed`` rebuild error; a mirror with no prior body is\n``no_target_body`` \u2014 never a silently wrong body.",
+        "properties": {
+          "plane": {
+            "description": "Mirror plane \u2014 an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)",
+            "discriminator": {
+              "mapping": {
+                "datum_plane": "#/components/schemas/DatumPlaneRef",
+                "feature": "#/components/schemas/FeatureRef"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DatumPlaneRef"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureRef"
+              }
+            ],
+            "title": "Plane"
+          }
+        },
+        "required": [
+          "plane"
+        ],
+        "title": "MirrorParamsV1",
         "type": "object"
       },
       "NoteAnnotationParams": {

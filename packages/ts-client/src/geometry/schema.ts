@@ -2738,7 +2738,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -3881,6 +3881,62 @@ export interface components {
              * @enum {string}
              */
             kind: "points";
+        };
+        /**
+         * MirrorFeature
+         * @description ``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-affecting feature (design §7.6): it reflects the current body about a
+         *     plane and boolean-unions the reflection into the single body chain — the
+         *     reflective sibling of :class:`PatternFeature`. ``params`` is
+         *     :class:`MirrorParamsV1`.
+         */
+        MirrorFeature: {
+            params: components["schemas"]["MirrorParamsV1"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "mirror";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * MirrorParamsV1
+         * @description Reflect the current body about a plane and union the reflection in.
+         *
+         *     The mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,
+         *     boolean-unioned into the single body chain (design §7.6) — the reflective
+         *     sibling of the ADD pattern (see the module note for the shared "replicate the
+         *     current body + union" semantics). Like a fillet/chamfer/pattern it carries NO
+         *     source ``FeatureRef``: it mirrors the implicit body chain that exists at its
+         *     point in the tree, so its dependency on the prior body-affecting feature is
+         *     tree order.
+         *
+         *     ``plane`` is a :data:`GeomRef` — the SAME plane reference a sketch uses (no
+         *     new plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)
+         *     or a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face
+         *     / midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of
+         *     this prefix is a write-time 422 (the eval-time backstop is
+         *     ``reference_unresolved``, pinned to the referenced feature).
+         *
+         *     The reflection is a true handedness-reversing isometry, NOT a translation
+         *     (proven by the ``mirror-triangle-prism-2x`` golden). It handles every case
+         *     sanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body
+         *     (volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC
+         *     body is unchanged. A degenerate/failed reflection is a per-feature
+         *     ``mirror_failed`` rebuild error; a mirror with no prior body is
+         *     ``no_target_body`` — never a silently wrong body.
+         */
+        MirrorParamsV1: {
+            /**
+             * Plane
+             * @description Mirror plane — an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)
+             */
+            plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
         };
         /**
          * NoteAnnotationParams

@@ -1267,6 +1267,70 @@ class PatternParamsV1(BaseModel):
     )
 
 
+# --- Mirror params — reflect the current body about a plane + union it -----------
+#
+# The reflective sibling of the pattern feature (a daily verb in every incumbent):
+# where a pattern REPLICATES the current body along world-space vectors, a mirror
+# REFLECTS it about a plane and BOOLEAN-UNIONS the reflection into the single body
+# chain (design §7.6, option B — the SAME "replicate the current body + union"
+# semantics). Like a pattern it carries NO source `FeatureRef`: it mirrors the
+# implicit body chain that exists at its point in the tree, so its dependency on
+# the prior body-affecting feature is tree order.
+#
+# The mirror PLANE reuses the EXISTING :data:`GeomRef` plane vocabulary (CLAUDE.md
+# DRY rule — no new plane taxonomy): a :class:`DatumPlaneRef` names one of the
+# three origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier
+# `datum` feature (an offset / on-face / midplane plane). That is EXACTLY the
+# `plane` a sketch resolves, so the geometry service reuses `resolve_sketch_plane`
+# unchanged. A `DatumPlaneRef` names a world plane (no reference edge — like a
+# pattern's world vectors, independent of topological naming #1); a `FeatureRef`
+# to a `datum` DOES materialise into feature_dependencies (deleting that datum is a
+# 409-with-dependents), the SAME reference a sketch-plane FeatureRef creates.
+#
+# UNLIKE a pattern, a mirror does NOT force one connected lump: the reflection of a
+# body that CLEARS the plane is a legitimately DISJOINT second lump (a 2V two-lump
+# body — multi-body parts are supported, §MB-0); an OVERLAPPING reflection merges
+# to one solid; a SYMMETRIC body's reflection coincides and leaves the body
+# unchanged. All mirror geometry validity lives at rebuild in
+# `geometry.kernel.mirror`, surfacing as `mirror_failed` (a degenerate/failed
+# reflection) or `no_target_body` (no prior body) / `reference_unresolved` (the
+# plane names a missing/later/non-datum feature) under the strict-prefix rule.
+
+
+class MirrorParamsV1(BaseModel):
+    """Reflect the current body about a plane and union the reflection in.
+
+    The mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,
+    boolean-unioned into the single body chain (design §7.6) — the reflective
+    sibling of the ADD pattern (see the module note for the shared "replicate the
+    current body + union" semantics). Like a fillet/chamfer/pattern it carries NO
+    source ``FeatureRef``: it mirrors the implicit body chain that exists at its
+    point in the tree, so its dependency on the prior body-affecting feature is
+    tree order.
+
+    ``plane`` is a :data:`GeomRef` — the SAME plane reference a sketch uses (no
+    new plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)
+    or a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face
+    / midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of
+    this prefix is a write-time 422 (the eval-time backstop is
+    ``reference_unresolved``, pinned to the referenced feature).
+
+    The reflection is a true handedness-reversing isometry, NOT a translation
+    (proven by the ``mirror-triangle-prism-2x`` golden). It handles every case
+    sanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body
+    (volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC
+    body is unchanged. A degenerate/failed reflection is a per-feature
+    ``mirror_failed`` rebuild error; a mirror with no prior body is
+    ``no_target_body`` — never a silently wrong body.
+    """
+
+    plane: GeomRef = Field(
+        description="Mirror plane — an origin datum (XY/XZ/YZ `DatumPlaneRef`) or "
+        "an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a "
+        "sketch uses (discriminated on `kind`)"
+    )
+
+
 # --- Import params — bring an external STEP part in as the base body ------------
 #
 # DESIGN DECISION (v1, docs/design/step-import.md): an `import` feature is a
@@ -1930,6 +1994,20 @@ class PatternFeature(BaseModel):
     params: PatternParamsV1
 
 
+class MirrorFeature(BaseModel):
+    """``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
+
+    A body-affecting feature (design §7.6): it reflects the current body about a
+    plane and boolean-unions the reflection into the single body chain — the
+    reflective sibling of :class:`PatternFeature`. ``params`` is
+    :class:`MirrorParamsV1`.
+    """
+
+    type: Literal["mirror"]
+    version: Literal[1]
+    params: MirrorParamsV1
+
+
 class ImportFeature(BaseModel):
     """``{"type": "import", "version": 1, "params": {...}}`` envelope.
 
@@ -2035,6 +2113,7 @@ Feature = Annotated[
     | DraftFeature
     | HoleFeature
     | PatternFeature
+    | MirrorFeature
     | ImportFeature
     | SheetMetalBaseFlangeFeature
     | SheetMetalEdgeFlangeFeature
@@ -2058,6 +2137,7 @@ FeatureEnvelope = (
     | DraftFeature
     | HoleFeature
     | PatternFeature
+    | MirrorFeature
     | ImportFeature
     | SheetMetalBaseFlangeFeature
     | SheetMetalEdgeFlangeFeature
@@ -2218,6 +2298,7 @@ FEATURE_REGISTRY.register(ShellFeature)
 FEATURE_REGISTRY.register(DraftFeature)
 FEATURE_REGISTRY.register(HoleFeature)
 FEATURE_REGISTRY.register(PatternFeature)
+FEATURE_REGISTRY.register(MirrorFeature)
 FEATURE_REGISTRY.register(ImportFeature)
 FEATURE_REGISTRY.register(SheetMetalBaseFlangeFeature)
 FEATURE_REGISTRY.register(SheetMetalEdgeFlangeFeature)
@@ -2248,6 +2329,11 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         # SubshapeRef (a datum on the new bore face, a hole near an earlier hole).
         "hole",
         "pattern",
+        # `mirror` reflects the current body about a plane and unions the
+        # reflection in (a body-affecting modifier like pattern), so its result
+        # faces/edges are nameable by a later SubshapeRef (a hole on a mirrored
+        # boss, a sketch on the reflected face).
+        "mirror",
         # `import` produces the base body (step-import.md §1), so its faces/edges
         # are nameable by a later SubshapeRef — "sketch on an imported part's face".
         "import",
@@ -2503,6 +2589,21 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             # axis vectors (no picked sub-geometry — independent of #1); its
             # dependency on the prior body-affecting feature is tree order.
             pass
+        case MirrorFeature():
+            # A mirror reflects the implicit body about a plane and unions it
+            # (design §7.6) — no source FeatureRef, tree order is its dependency
+            # on the prior body-affecting feature. Its `plane` is the SAME GeomRef
+            # a sketch uses: a `datum_plane` origin ref carries no feature_id (a
+            # world plane — no dependency edge, like a pattern's vectors), but a
+            # `datum` FeatureRef DOES materialise into feature_dependencies with
+            # the same `datum`-only rule the sketch plane enforces (deleting that
+            # datum is a 409-with-dependents; a reorder re-checks strict-backward).
+            if isinstance(feature.params.plane, FeatureRef):
+                references.append(
+                    FeatureReference(
+                        "plane", feature.params.plane, frozenset({"datum"})
+                    )
+                )
         case ImportFeature():
             # An import PRODUCES the base body from its own inline STEP params
             # (step-import.md §1) — no picked geometry, no FeatureRef, so it

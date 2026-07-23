@@ -82,6 +82,7 @@ from geometry.kernel.interference import (
 )
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
+from geometry.kernel.mirror import MirrorError, mirror_union
 from geometry.kernel.overlay import selection_overlay
 from geometry.kernel.pattern import (
     PatternAngleError,
@@ -156,6 +157,7 @@ __all__ = [
     "ImportTooManyProductsError",
     "LoftError",
     "MeasureError",
+    "MirrorError",
     "NoAxisError",
     "NoEdgesSelectedError",
     "OverlapProbe",
@@ -217,6 +219,7 @@ __all__ = [
     "measure_shape",
     "measure_targets",
     "midplane_between",
+    "mirror_union",
     "offset_plane",
     "place_body",
     "planar_faces",

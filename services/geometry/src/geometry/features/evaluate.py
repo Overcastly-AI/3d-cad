@@ -89,6 +89,7 @@ from py_kit.schemas.features import (
     ImportFeature,
     LinearPatternParamsV1,
     LoftFeature,
+    MirrorFeature,
     PatternFeature,
     PatternGeometry,
     RevolveFeature,
@@ -120,6 +121,7 @@ from geometry.kernel import (
     ImportParseError,
     ImportParseTimeoutError,
     LoftError,
+    MirrorError,
     NoAxisError,
     NoEdgesSelectedError,
     PathClosedError,
@@ -161,6 +163,7 @@ from geometry.kernel import (
     loft_sections,
     measure_shape,
     midplane_between,
+    mirror_union,
     offset_plane,
     resolve_axis_line,
     resolve_edge,
@@ -1799,6 +1802,53 @@ def _evaluate_pattern(
     return None
 
 
+def _evaluate_mirror(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Reflect the current body about a plane and union the reflection in (§4.3).
+
+    v1 DESIGN DECISION (docs/GEOMETRY-QA.md): a mirror reflects the CURRENT
+    evaluated body about ``plane`` and BOOLEAN-UNIONS the reflection into the
+    single body chain (design §7.6, option B — the reflective sibling of the ADD
+    pattern). Like fillet/chamfer/pattern it needs a prior body-affecting feature
+    (``no_target_body`` otherwise). The mirror plane is resolved through the SAME
+    :func:`resolve_sketch_plane` funnel a sketch uses (an origin datum name or an
+    earlier ``datum`` feature — no new plane taxonomy), so a plane that names a
+    missing / later / non-datum feature is a ``reference_unresolved`` pinned to
+    the referenced feature (documents rejects it at write time; geometry
+    re-checks because it must not trust its callers).
+
+    UNLIKE a pattern, the union may be a DISJOINT two-lump body (the reflection
+    of a body that clears the plane — a valid ``2V`` multi-body, §MB-0), an
+    OVERLAPPING merge, or the unchanged body (a symmetric source). A degenerate
+    reflection / failed union is a per-feature ``mirror_failed`` error; the active
+    body is only replaced on success (strict-prefix rule tessellates the
+    last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, MirrorFeature), "registry dispatches on type='mirror'"
+
+    active = state.active_body
+    if active is None:
+        return FeatureError(
+            code="no_target_body",
+            message=(
+                "Mirror requires an existing body, but no body-affecting feature "
+                "precedes this one; add a feature that creates a body first."
+            ),
+        )
+
+    plane = resolve_sketch_plane(feature.params.plane, state)
+    if isinstance(plane, FeatureError):
+        return plane
+
+    try:
+        state.set_active_body(mirror_union(active, plane))
+    except MirrorError as exc:
+        return FeatureError(code="mirror_failed", message=str(exc))
+    return None
+
+
 def _evaluate_import(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -1969,6 +2019,7 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "draft",
         "hole",
         "pattern",
+        "mirror",
         "import",
         "sheet_metal_base_flange",
         "sheet_metal_edge_flange",
@@ -1995,6 +2046,7 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "draft": _evaluate_draft,
     "hole": _evaluate_hole,
     "pattern": _evaluate_pattern,
+    "mirror": _evaluate_mirror,
     "import": _evaluate_import,
     "sheet_metal_base_flange": _evaluate_sheet_metal_base_flange,
     "sheet_metal_edge_flange": _evaluate_sheet_metal_edge_flange,
