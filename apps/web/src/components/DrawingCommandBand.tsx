@@ -17,7 +17,12 @@ import {
 } from "@loft/design";
 
 import type { PartResponse } from "../api/parts";
-import { SCALE_OPTIONS } from "../drawing/layout";
+import {
+  SCALE_OPTIONS,
+  SHEET_SIZE_OPTIONS,
+  sheetSizeLabel,
+} from "../drawing/layout";
+import type { SheetSize } from "../api/drawings";
 
 export interface DrawingCommandBandProps {
   parts: readonly PartResponse[];
@@ -25,6 +30,9 @@ export interface DrawingCommandBandProps {
   onSelectPart: (partId: string) => void;
   scaleValue: string;
   onSelectScale: (value: string) => void;
+  /** The chosen sheet size before layout; the persisted sheet's size after. */
+  sizeValue: SheetSize;
+  onSelectSize: (value: SheetSize) => void;
   /** True once the standard views have been laid out on the sheet. */
   hasLayout: boolean;
   /** True when the laid-out sheet is a flat-pattern (sheet-metal) sheet. */
@@ -52,6 +60,8 @@ export function DrawingCommandBand({
   onSelectPart,
   scaleValue,
   onSelectScale,
+  sizeValue,
+  onSelectSize,
   hasLayout,
   isFlatPattern = false,
   draftedPartName,
@@ -70,6 +80,10 @@ export function DrawingCommandBand({
     label: part.name,
   }));
   const scaleOptions = SCALE_OPTIONS.map((s) => ({
+    value: s.value,
+    label: s.label,
+  }));
+  const sizeOptions = SHEET_SIZE_OPTIONS.map((s) => ({
     value: s.value,
     label: s.label,
   }));
@@ -100,6 +114,25 @@ export function DrawingCommandBand({
             data-testid="drawing-part-select"
             className="w-44"
             onChange={(event) => onSelectPart(event.currentTarget.value)}
+          />
+        )}
+        {hasLayout ? (
+          <Readout
+            label="Size"
+            value={sheetSizeLabel(sizeValue)}
+            testId="drawing-size-readout"
+          />
+        ) : (
+          <SelectField
+            label="Size"
+            options={sizeOptions}
+            value={sizeValue}
+            disabled={busy}
+            data-testid="drawing-size-select"
+            className="w-40"
+            onChange={(event) =>
+              onSelectSize(event.currentTarget.value as SheetSize)
+            }
           />
         )}
         {hasLayout ? (

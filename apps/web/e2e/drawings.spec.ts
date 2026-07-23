@@ -115,6 +115,152 @@ async function createPlateWithHoleViaApi(
   return { id: partId };
 }
 
+/** Build a 200×140×30 plate (no hole) via the real gateway — big enough that its
+ * four standard views overflow A4's quadrant cells until 1:5, but fit A3 at 1:2. */
+async function createBigPlateViaApi(
+  page: Page,
+  token: string,
+  name: string,
+): Promise<{ id: string }> {
+  const auth = { Authorization: `Bearer ${token}` };
+  const part = await page.request.post("/api/v1/parts", {
+    data: { name },
+    headers: auth,
+  });
+  if (!part.ok()) {
+    throw new Error(
+      `create part failed: ${part.status()} ${await part.text()}`,
+    );
+  }
+  const partId = ((await part.json()) as { id: string }).id;
+
+  const sketch = await page.request.post(`/api/v1/parts/${partId}/features`, {
+    data: {
+      name: "Sketch1",
+      feature: {
+        type: "sketch",
+        version: 1,
+        params: {
+          plane: { kind: "datum_plane", plane: "XY" },
+          entities: [
+            {
+              id: "e1",
+              kind: "line",
+              start: { x: 0, y: 0 },
+              end: { x: 200, y: 0 },
+            },
+            {
+              id: "e2",
+              kind: "line",
+              start: { x: 200, y: 0 },
+              end: { x: 200, y: 140 },
+            },
+            {
+              id: "e3",
+              kind: "line",
+              start: { x: 200, y: 140 },
+              end: { x: 0, y: 140 },
+            },
+            {
+              id: "e4",
+              kind: "line",
+              start: { x: 0, y: 140 },
+              end: { x: 0, y: 0 },
+            },
+          ],
+          constraints: [],
+        },
+      },
+      expected_tree_version: 0,
+    },
+    headers: auth,
+  });
+  if (!sketch.ok()) {
+    throw new Error(`sketch failed: ${sketch.status()} ${await sketch.text()}`);
+  }
+  const sketchBody = (await sketch.json()) as {
+    feature: { id: string };
+    tree_version: number;
+  };
+
+  const extrude = await page.request.post(`/api/v1/parts/${partId}/features`, {
+    data: {
+      name: "Extrude1",
+      feature: {
+        type: "extrude",
+        version: 1,
+        params: {
+          profile: { kind: "feature", feature_id: sketchBody.feature.id },
+          distance_mm: 30,
+          operation: "add",
+          direction: "normal",
+        },
+      },
+      expected_tree_version: sketchBody.tree_version,
+    },
+    headers: auth,
+  });
+  if (!extrude.ok()) {
+    throw new Error(
+      `extrude failed: ${extrude.status()} ${await extrude.text()}`,
+    );
+  }
+  return { id: partId };
+}
+
+test("choose A3 for a big part so auto-layout earns a larger scale", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  const part = await createBigPlateViaApi(page, account.token, "Plate 200×140");
+
+  await page.goto("/drawings");
+  await expect(page.getByTestId("nav-drawings")).toBeVisible();
+  await page.getByTestId("create-drawing-name").fill("Big plate — A3");
+  await page.getByTestId("create-drawing-submit").click();
+  const row = page.getByTestId("drawing-row").first();
+  await expect(row).toBeVisible();
+  await row.getByTestId("drawing-open").click();
+
+  // Pick the part and the LARGER A3 sheet.
+  await expect(page.getByTestId("drawing-setup-hint")).toBeVisible();
+  await page.getByTestId("drawing-part-select").selectOption(part.id);
+  const sizeSelect = page.getByTestId("drawing-size-select");
+  await sizeSelect.selectOption("A3");
+  await expect(sizeSelect).toHaveValue("A3");
+
+  // Founder frame — the pre-layout command band with the new sheet-SIZE picker.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.mouse.move(720, 500);
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-size-picker-1440.png`,
+  });
+
+  // Lay out onto the chosen A3 sheet.
+  await page.getByTestId("drawing-autolayout").click();
+
+  const sheet = page.getByTestId("drawing-sheet");
+  await expect(sheet).toBeVisible({ timeout: 30_000 });
+
+  // The sheet renders at the CHOSEN A3 size (read back from the persisted sheet)
+  // and — because A3 is bigger — auto-fit lands the four views at 1:2, a far
+  // larger scale than the 1:5 this same part would get on A4 (unit-tested). The
+  // A3 sheet is 420 mm wide vs A4's 297; the composed <svg> viewBox proves it.
+  await expect(page.getByTestId("drawing-size-readout")).toHaveText("A3");
+  await expect(page.getByTestId("drawing-scale-readout")).toHaveText("1:2");
+  await expect(sheet).toHaveAttribute("viewBox", "0 0 420 297");
+
+  // All four standard views still land, each with projected edges.
+  await expect(page.getByTestId("drawing-view")).toHaveCount(4);
+
+  // Founder frame — the A3 layout at a usable scale, desktop width.
+  await page.mouse.move(720, 500);
+  await expect(sheet).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-sheet-size-a3-1440.png`,
+  });
+});
+
 test("lay out the standard four views on a sheet", async ({ page }) => {
   const account = await seedSession(page);
   const part = await createPlateWithHoleViaApi(

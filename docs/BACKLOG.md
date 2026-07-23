@@ -200,16 +200,24 @@ scorecard impact → core capability → polish).
       an authored note renders on the DOM sheet AND in SVG/PDF/DXF at its
       `SheetPoint`, byte-goldened; annotations panel lists/deletes it. [src:
       founder dogfooding — WB-64]
-- [ ] (P3, S) Drawings: auto-layout sheet-size control + flat-pattern fit
-      (remaining tail of the WB-64 auto-layout finding; the FIT-SCALE half
-      SHIPPED 2026-07-20 — `fitScale` in `drawing/layout.ts` picks the largest
-      standard scale whose four view footprints, iso bounded analytically, fit
-      the quadrant cells, with the user's picked scale as a ceiling; wired into
-      `handleLayout` via a pre-layout evaluate, 6 unit cases + drawings e2e
-      green). Remaining: a sheet-size select in the command band (size is
-      API-only via sheet PATCH today; a 258 mm part now fits A4 at 1:5 —
-      correct but small, A3 would give 1:2) and the same fit for the lone
-      `flat_pattern` layout path. [src: founder dogfooding — WB-64]
+- [x] (P3, S) Drawings: auto-layout sheet-size control. **SHIPPED 2026-07-23:**
+      a sheet-SIZE picker (`SHEET_SIZE_OPTIONS`, A4→A0 + ANSI, labels carry the
+      landscape mm extents) in the drawing command band, the SAME `SelectField`
+      the scale picker uses; pre-layout it selects, post-layout it is a readout
+      derived from the persisted `sheet.size` (mirrors the scale readout). Wired
+      into BOTH `handleLayout` and `handleFlatPattern` in `DrawingPage.tsx`: the
+      chosen size flows to `createSheet({size})` AND `sheetDimensions/standardLayout/
+      fitScale` (was hardcoded "A4"), so fit-scale now fits the four views to the
+      CHOSEN sheet — the 200×140×30 e2e part gets 1:5 on A4 but 1:2 on A3. 5 new
+      unit cases (size→dims→fit + options/labels) + a new drawings e2e (pick A3,
+      viewBox 420×297, 1:2 readout); founder shots `drawings-size-picker-1440.png`
+      + `drawings-sheet-size-a3-1440.png`. [src: founder dogfooding — WB-64]
+- [ ] (P3, S) Drawings: flat-pattern auto-fit to the sheet. The lone
+      `flat_pattern` view now inherits the CHOSEN sheet size (2026-07-23) but is
+      not yet fit-scaled the way the four standard views are — a flat-pattern fit
+      needs the UNFOLDED blank extents (not the 3D bbox `fitScale` reads off the
+      part evaluate), a distinct data source, so it is split out here. [src:
+      founder dogfooding — WB-64]
 - [ ] (P3, S) Drawings: projected-coincident circle edges create ambiguous
       pick targets + duplicate dims (founder dogfooding 2026-07-20). A cylinder
       with several same-Ø edges (body + band edges all Ø120) projects stacked

@@ -10,6 +10,7 @@ import {
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
+  type SheetSize,
   type ViewProjection,
   composeDrawingSheet,
   createDimension,
@@ -142,9 +143,10 @@ export function DrawingPage() {
   });
   const parts = useMemo(() => partsQuery.data ?? [], [partsQuery.data]);
 
-  // Pre-layout picker state (which part to draft, at what scale).
+  // Pre-layout picker state (which part to draft, on what sheet, at what scale).
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [scaleValue, setScaleValue] = useState("1:1");
+  const [sizeValue, setSizeValue] = useState<SheetSize>("A4");
   useEffect(() => {
     if (selectedPartId === null && parts.length > 0) {
       setSelectedPartId(parts[0]?.id ?? null);
@@ -156,6 +158,13 @@ export function DrawingPage() {
   const effectiveScaleValue = hasLayout
     ? `${views[0]?.scale.numerator ?? 1}:${views[0]?.scale.denominator ?? 1}`
     : scaleValue;
+  // Post-layout the sheet SIZE is read from the persisted sheet (mirroring how
+  // the scale readout derives from the stored view scale); pre-layout it is the
+  // user's pick. Changing it after layout is a re-layout, not a re-size in place
+  // (the backend has no re-flow-on-resize; matches how scale re-selection works).
+  const effectiveSize: SheetSize = hasLayout
+    ? (sheet?.size ?? "A4")
+    : sizeValue;
 
   // The drafted part's feature tree (the projection intent).
   const partTreeQuery = useQuery({
@@ -247,7 +256,7 @@ export function DrawingPage() {
         if (sheetId === null) {
           const created = await createSheet(drawingId, {
             name: "Sheet 1",
-            size: "A4",
+            size: sizeValue,
             orientation: "landscape",
             projection: "third_angle",
             expected_version: version,
@@ -255,7 +264,7 @@ export function DrawingPage() {
           version = created.doc_version;
           sheetId = created.sheet.id;
         }
-        const dims = sheetDimensions("A4", "landscape");
+        const dims = sheetDimensions(sizeValue, "landscape");
         const anchors = standardLayout(dims);
         // Fit-scale: never lay out views that overflow their cells — evaluate
         // the part's bbox and reduce the scale until the four standard views
@@ -319,6 +328,7 @@ export function DrawingPage() {
     sheet,
     drawingId,
     scaleValue,
+    sizeValue,
     queryClient,
   ]);
 
@@ -337,7 +347,7 @@ export function DrawingPage() {
         if (sheetId === null) {
           const created = await createSheet(drawingId, {
             name: "Sheet 1",
-            size: "A4",
+            size: sizeValue,
             orientation: "landscape",
             projection: "third_angle",
             expected_version: version,
@@ -345,7 +355,12 @@ export function DrawingPage() {
           version = created.doc_version;
           sheetId = created.sheet.id;
         }
-        const dims = sheetDimensions("A4", "landscape");
+        // The chosen size flows to the flat-pattern sheet too, so the lone
+        // unfold blank is centred on (and composed against) the picked paper.
+        // NB: the lone flat view is not yet fit-scaled to the sheet the way the
+        // four standard views are — a flat-pattern fit needs the UNFOLDED
+        // extents (not the 3D bbox `fitScale` reads), a separate slice (BACKLOG).
+        const dims = sheetDimensions(sizeValue, "landscape");
         const created = await createView(drawingId, sheetId, {
           projection: "flat_pattern",
           ref_document_id: selectedPartId,
@@ -376,6 +391,7 @@ export function DrawingPage() {
     sheet,
     drawingId,
     scaleValue,
+    sizeValue,
     queryClient,
   ]);
 
@@ -641,6 +657,8 @@ export function DrawingPage() {
             onSelectPart={setSelectedPartId}
             scaleValue={effectiveScaleValue}
             onSelectScale={setScaleValue}
+            sizeValue={effectiveSize}
+            onSelectSize={setSizeValue}
             hasLayout={hasLayout}
             isFlatPattern={isFlatPatternSheet}
             draftedPartName={draftedPartName}
@@ -879,7 +897,7 @@ function SetupHint({ hasParts }: { hasParts: boolean }) {
         </h2>
         <p className="mt-1 font-body text-sm text-gauge">
           {hasParts
-            ? "Choose a part and scale above, then lay out the standard views — front, top, right and isometric — or unfold a sheet-metal part's flat pattern with its bend table."
+            ? "Choose a part, sheet size and scale above, then lay out the standard views — front, top, right and isometric — or unfold a sheet-metal part's flat pattern with its bend table."
             : "A drawing projects a part. Model a part, then return to draft it."}
         </p>
       </div>

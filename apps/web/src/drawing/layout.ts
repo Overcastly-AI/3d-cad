@@ -62,6 +62,33 @@ const SHEET_MM_LANDSCAPE: Record<SheetSize, readonly [number, number]> = {
   ANSI_D: [863.6, 558.8],
 };
 
+/** The terse display name for a size — "A4" as-is, "ANSI_B" → "ANSI B" (the
+ *  form the title block stamps and the post-layout readout shows). */
+export function sheetSizeLabel(size: SheetSize): string {
+  return size.startsWith("ANSI_") ? `ANSI ${size.slice(5)}` : size;
+}
+
+/**
+ * The standard sheet SIZES the auto-layout picker offers, in the same order the
+ * dimension table declares them (A4 first — the default — up through A0, then
+ * the ANSI series). Each label carries its LANDSCAPE mm extents so an engineer
+ * can see at a glance how much room a bigger sheet buys: the WB-64 finding was a
+ * 258 mm part that fits A4 only at a tiny 1:5, where a larger sheet earns a far
+ * more usable scale (the fit-scale half already reduces to the sheet; this lets
+ * the sheet itself be chosen). Reads straight off SHEET_MM_LANDSCAPE so the
+ * options can never drift from the dimensions the layout actually uses.
+ */
+export const SHEET_SIZE_OPTIONS: readonly {
+  value: SheetSize;
+  label: string;
+}[] = (Object.keys(SHEET_MM_LANDSCAPE) as SheetSize[]).map((size) => {
+  const [long, short] = SHEET_MM_LANDSCAPE[size];
+  return {
+    value: size,
+    label: `${sheetSizeLabel(size)} · ${long} × ${short} mm`,
+  };
+});
+
 export interface SheetDims {
   /** Sheet width in mm (the SVG viewBox width). */
   width: number;

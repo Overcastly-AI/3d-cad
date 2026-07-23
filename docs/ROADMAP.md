@@ -1028,6 +1028,17 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       mesh store's fetch). No contract/schema change (internal seam); geometry
       pytest + goldens byte-unchanged + `just lint` green. **Drawings v1 tail
       closed.**
+      **Drawings auto-layout sheet-SIZE control SHIPPED** (2026-07-23,
+      frontend-builder): the WB-64 dogfooding tail after the fit-scale half —
+      a sheet-size picker (A4→A0 + ANSI, `SHEET_SIZE_OPTIONS`) in the drawing
+      command band (the same `SelectField` the scale picker uses), wired through
+      `handleLayout`/`handleFlatPattern` so the chosen size flows to
+      `createSheet` AND `sheetDimensions/standardLayout/fitScale` (was hardcoded
+      A4). Fit-scale now fits the four views to the CHOSEN sheet — a 200×140×30
+      part gets 1:5 on A4 but 1:2 on A3. 5 unit cases + a new drawings e2e (pick
+      A3 → viewBox 420×297, 1:2), founder shots `drawings-size-picker-1440.png`
+      + `drawings-sheet-size-a3-1440.png`. Residual (BACKLOG): flat-pattern
+      auto-fit (needs unfolded extents, not the 3D bbox).
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a
