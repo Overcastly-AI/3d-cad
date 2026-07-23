@@ -1375,12 +1375,27 @@ export interface components {
          * ComposedTitleBlock
          * @description The placed bottom-right title block (drawing-export.md §4.2).
          *
-         *     Geometry (box + the two internal rules) plus the three stamped values (drawing
-         *     ``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed
-         *     captions ("TITLE" / "SCALE" / "SIZE" / "LOFT · PART DRAWING") are the
-         *     serializer's rendering constants (matching the on-screen title block).
+         *     Geometry (box + the two internal rules) plus the stamped values: the always-on
+         *     drawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus
+         *     the OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``
+         *     (each truncated to fit its cell, ``None`` when unset). The fixed captions ("TITLE" /
+         *     "SCALE" / "SIZE" / "LOFT · PART DRAWING" and, for the optional fields, "DRAWN" /
+         *     "DATE" / "NOTES") are the serializer's rendering constants (matching the on-screen
+         *     title block). A ``None`` optional field is stamped by NO serializer — caption and
+         *     value both omitted — so a title block with no free-text composes byte-identically to
+         *     its pre-free-text golden (the additive posture the notes/bend-table fields carry).
          */
         ComposedTitleBlock: {
+            /**
+             * Author
+             * @description Author/drafter, truncated to fit; None (stamps nothing) when the authored field is unset or blank
+             */
+            author?: string | null;
+            /**
+             * Date
+             * @description Free-text date, truncated to fit; None (stamps nothing) when the authored field is unset or blank
+             */
+            date?: string | null;
             /** Height */
             height: number;
             /**
@@ -1388,6 +1403,11 @@ export interface components {
              * @description Y of the horizontal rule in the right cell
              */
             mid_y: number;
+            /**
+             * Notes
+             * @description Free-text notes, truncated to fit; None (stamps nothing) when the authored field is unset or blank
+             */
+            notes?: string | null;
             /**
              * Scale
              * @description Scale label ('1:1')

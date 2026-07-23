@@ -63,6 +63,7 @@ from py_kit.schemas.drawings import (
     ProjectedPoint,
     ProjectedViewEdge,
     RadiusDimensionParams,
+    TitleBlock,
     ViewProjection,
 )
 from py_kit.schemas.features import EdgeSignature
@@ -845,6 +846,137 @@ def test_no_note_sheet_is_byte_identical_to_pre_notes_goldens() -> None:
     )
     assert serialize_pdf(composed) == (_GOLDEN_DIR / "sheet.pdf").read_bytes()
     assert serialize_dxf(composed) == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
+
+
+# --- title-block free-text: author/date/notes stamped (AUDIT-ENGINEERING D1) -----
+# The WB-64 GA case: a `TitleBlock {author, date, notes}` was threaded to compose yet
+# stamped by NO serializer (only title/scale/size rendered). This is the PROCESS-GUARD
+# golden the audit asked for — a NON-DEFAULT title block whose author/date/notes MUST
+# appear in the placed sheet + all three serialized formats — the golden that would have
+# gone red before the fix. The paired no-title-block byte-identity is asserted above
+# (`test_no_note_sheet_...` composes the null-title_block golden) and again here.
+_TB_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_title_block_goldens"
+
+
+def _tb_request() -> ComposeDrawingRequest:
+    return ComposeDrawingRequest.model_validate_json(
+        (_TB_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+
+
+def _compose_tb_sheet() -> ComposedSheet:
+    request = _tb_request()
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def test_title_block_free_text_reaches_composed_sheet() -> None:
+    """author/date/notes are stamped onto the placed `ComposedTitleBlock` (not dropped).
+
+    THE guard for D1: the authored `TitleBlock` free-text lands on the composed model —
+    the exact assertion that would have failed before the fix (author/date/notes were
+    silently discarded by `_title_block`)."""
+    tb = _compose_tb_sheet().title_block
+    assert tb.author == "LOFT ENGINEERING"
+    assert tb.date == "2026-07-23"
+    assert tb.notes == "MATERIAL: AL 6061-T6"
+
+
+def test_title_block_golden_svg_is_byte_identical() -> None:
+    """The composed SVG for the non-default title block matches its committed golden
+    byte-for-byte — author/date/notes rows stamped as labeled left-cell fields."""
+    expected = (_TB_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_tb_sheet()) == expected
+
+
+def test_title_block_golden_pdf_is_byte_identical() -> None:
+    expected = (_TB_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_tb_sheet()) == expected
+
+
+def test_title_block_golden_dxf_is_byte_identical() -> None:
+    expected = (_TB_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_tb_sheet()) == expected
+
+
+def test_title_block_free_text_stamped_in_svg() -> None:
+    """The SVG stamps each free-text value as a labeled left-cell field with a stable
+    `data-testid` (the DOM-parity hook the paired frontend follow-on mirrors)."""
+    svg = serialize_svg(_compose_tb_sheet())
+    assert 'data-testid="title-block-author"' in svg
+    assert ">LOFT ENGINEERING</text>" in svg
+    assert 'data-testid="title-block-date"' in svg
+    assert ">2026-07-23</text>" in svg
+    assert 'data-testid="title-block-notes"' in svg
+    assert ">MATERIAL: AL 6061-T6</text>" in svg
+    # The captions render too (a labeled field, not a bare value).
+    assert ">DRAWN</text>" in svg and ">DATE</text>" in svg and ">NOTES</text>" in svg
+
+
+def test_title_block_free_text_in_dxf_is_real_text() -> None:
+    """The DXF emits each free-text value as a REAL TEXT entity on the TITLE layer —
+    CAD-editable text a shop reads, not a picture."""
+    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
+        io.StringIO(serialize_dxf(_compose_tb_sheet()).decode("utf-8"))
+    )
+    texts = {
+        e.dxf.text
+        for e in doc.modelspace()
+        if e.dxftype() == "TEXT" and e.dxf.layer == "TITLE"
+    }
+    assert {"LOFT ENGINEERING", "2026-07-23", "MATERIAL: AL 6061-T6"} <= texts
+    assert {"DRAWN", "DATE", "NOTES"} <= texts
+    assert not doc.audit().errors
+
+
+def test_title_block_free_text_in_pdf() -> None:
+    """The PDF (base-14 Courier, pageCompression=0 → plain text ops) carries the
+    author/date/notes strings — dimensionally-correct shop text, not an opaque blob."""
+    pdf = serialize_pdf(_compose_tb_sheet())
+    for token in (b"LOFT ENGINEERING", b"2026-07-23", b"MATERIAL: AL 6061-T6"):
+        assert token in pdf, f"missing {token!r}"
+
+
+def test_empty_title_block_is_byte_identical_to_no_free_text() -> None:
+    """A `TitleBlock` whose fields are all blank/absent stamps NOTHING extra: the sheet
+    composes byte-identically to the same layout with `title_block=None` in all three
+    formats (the additive posture — no free-text ⇒ no output change). Complements the
+    non-default golden above: the guard cuts BOTH ways."""
+    base = _golden_request()
+    # Same request, but attach an all-blank TitleBlock (whitespace-only → coerced None).
+    blank_layout = base.layout.model_copy(
+        update={"title_block": TitleBlock(author="  ", date="", notes=None)}
+    )
+    evaluation = evaluate_drawing_views(base)
+    with_blank = place_sheet(
+        evaluation, base.dimensions, blank_layout, base.annotations
+    )
+    assert with_blank.title_block.author is None
+    assert with_blank.title_block.date is None
+    assert with_blank.title_block.notes is None
+    assert serialize_svg(with_blank) == (_GOLDEN_DIR / "sheet.svg").read_text(
+        encoding="utf-8"
+    )
+    assert serialize_pdf(with_blank) == (_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_dxf(with_blank) == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
+
+
+def test_title_block_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose of the title-block golden reproduces the SAME SVG
+    bytes (§8.3 / RESEARCH §9) — the free-text rows are byte-deterministic strings."""
+    local = serialize_svg(_compose_tb_sheet())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_TB_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "composed title-block SVG differs across interpreter restart"
+    )
 
 
 # --- endpoint (mirrors /export wiring) -----------------------------------------

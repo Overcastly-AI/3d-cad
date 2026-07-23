@@ -1068,6 +1068,22 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       asserts `drawing-note` on the DOM sheet + delete; founder shot
       `docs/screenshots/drawings-note-1440.png`. WB-64 note capability now COMPLETE
       end-to-end (author → screen → SVG/PDF/DXF).
+      **Drawings title-block free-text (D1) — EXPORT half SHIPPED** (2026-07-23):
+      the same NOTES-class dead-capability, hit the founder directly (WB-64's GA
+      authored `title_block {author:"LOFT ENGINEERING", date, notes:"material…"}`
+      but the export dropped author/date/notes). `_title_block()` stamped only
+      title+scale+size; now it threads the authored `TitleBlock` free-text onto
+      `ComposedTitleBlock.author/date/notes` (whitespace-blank→None, truncated to
+      fit) and all three serializers stamp them as labeled left-cell rows
+      (DRAWN/DATE/NOTES, below the title, above the LOFT footer) — SVG `<text>` with
+      `data-testid="title-block-{author,date,notes}"`, PDF Courier runs, DXF real
+      `TEXT` on the `TITLE` layer. PROCESS-GUARD golden added
+      (`compose_title_block_goldens/`, all three fields set) — the "golden that
+      would have gone red"; an empty title block stays byte-identical (serialized
+      SVG/PDF/DXF unchanged; the 2 flat-pattern-sheet MODEL-hash goldens refresh
+      for the additive null fields, precedent b0cb16a). Contracts regenerated
+      (`ComposedTitleBlock` +author/date/notes). Geometry pytest + `just gen-check`
+      green. DOM half (on-screen `DrawingSheet.tsx`) split → BACKLOG D1b.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a

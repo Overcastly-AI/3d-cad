@@ -1013,18 +1013,55 @@ def _compose_view(
     )
 
 
+#: Char budget for the truncated free-text fields (author/date/notes) — sized to the
+#: left-cell value column (x+18 → split_x) at `_TB_FIELD_VAL_MM`. Mirrors the `title`
+#: truncation posture (a too-long value is elided with "…" rather than overflowing the
+#: adjacent cell — the same honest fit the drawing title has always used).
+_TB_FIELD_CHARS = 26
+
+
+def _fit(text: str, limit: int) -> str:
+    """Truncate ``text`` to ``limit`` chars, eliding the overflow with a single "…".
+
+    The title-block fit posture, factored out so the drawing ``title`` and the
+    free-text ``author``/``date``/``notes`` share ONE truncation rule. ``len(text) ==
+    limit`` is kept verbatim (no ellipsis); ``> limit`` keeps ``limit - 1`` chars + "…".
+    """
+    return f"{text[: limit - 1]}…" if len(text) > limit else text
+
+
+def _tb_field(value: str | None) -> str | None:
+    """Normalise an optional free-text title-block field for stamping.
+
+    ``TitleBlockField`` is whitespace-trimmed but MAY be empty ("empty allowed → treated
+    as unset by the caller", schemas/drawings.py) — so a blank field is coerced to
+    ``None`` (stamps nothing), and a set field is truncated to fit its cell. Keeps the
+    empty/absent case byte-identical to a title block with no free-text at all.
+    """
+    if value is None or not value.strip():
+        return None
+    return _fit(value.strip(), _TB_FIELD_CHARS)
+
+
 def _title_block(
     layout: SheetLayout, dims: Vec2, scale_label: str
 ) -> ComposedTitleBlock:
-    """Place the bottom-right title block — mirrors TitleBlock.tsx."""
+    """Place the bottom-right title block — mirrors TitleBlock.tsx.
+
+    The always-on ``title``/``scale``/``size`` are stamped as before; the OPTIONAL
+    :class:`TitleBlock` free-text (``author``/``date``/``notes``) is normalised through
+    :func:`_tb_field` — a blank/absent field becomes ``None`` and is stamped by NO
+    serializer, so a sheet with no free-text composes byte-identically (the additive
+    posture; the WB-64 title-block-drop fix, AUDIT-ENGINEERING D1).
+    """
     w = _TITLE_BLOCK_W
     h = _TITLE_BLOCK_H
     x = dims.x - SHEET_MARGIN_MM - w
     y = dims.y - SHEET_MARGIN_MM - h
     split_x = x + w * 0.6
     mid_y = y + h * 0.5
-    title = layout.title
-    display_title = f"{title[:21]}…" if len(title) > 22 else title
+    display_title = _fit(layout.title, 22)
+    tb = layout.title_block
     return ComposedTitleBlock(
         x=x,
         y=y,
@@ -1035,6 +1072,9 @@ def _title_block(
         title=display_title,
         scale=scale_label,
         size=layout.size.replace("_", " "),
+        author=_tb_field(tb.author) if tb is not None else None,
+        date=_tb_field(tb.date) if tb is not None else None,
+        notes=_tb_field(tb.notes) if tb is not None else None,
     )
 
 
@@ -1255,6 +1295,54 @@ _FONT = "&quot;Fragment Mono&quot;, ui-monospace, monospace"
 #: on-screen note and the exported note are the SAME height (the cross-renderer token
 #: duplication the module header notes).
 _NOTE_TEXT_MM = 3.2
+
+# --- title-block free-text fields (author/date/notes) — AUDIT-ENGINEERING D1 -------
+# The optional TitleBlock free-text is stamped as three secondary labeled rows in the
+# left cell's mid-band (below the drawing title, above the "LOFT · PART DRAWING"
+# footer), a caption + value per row. Smaller than the primary title (a real block's
+# secondary fields are), sized to fit without touching the existing title/scale/size
+# placement — so a block with NO free-text emits none of these rows and stays
+# byte-identical (the additive posture). The SINGLE source of the captions, sizes, and
+# row offsets, shared by the SVG/PDF/DXF serializers via `_tb_fields` (the cross-
+# renderer parity the bend-table/notes fields carry). The paired on-screen DrawingSheet
+# .tsx block is the BACKLOG DOM follow-on; it mirrors these captions/rows.
+_TB_FIELD_CAP_MM = 2.1  # secondary-field caption height (mm)
+_TB_FIELD_VAL_MM = 2.4  # secondary-field value height (mm)
+_TB_FIELD_CAP_DX = 4.0  # caption x offset from the block left edge (mm)
+_TB_FIELD_VAL_DX = 18.0  # value x offset from the block left edge (mm)
+#: Per-row baseline y offsets from the block TOP edge (mm), in field order.
+_TB_FIELD_ROWS_DY: tuple[float, ...] = (20.5, 23.5, 26.5)
+#: Fixed captions, in field order (author, date, notes).
+_TB_FIELD_CAPTIONS: tuple[str, ...] = ("DRAWN", "DATE", "NOTES")
+#: Field keys (for the SVG/DOM ``data-testid``), in the SAME field order.
+_TB_FIELD_KEYS: tuple[str, ...] = ("author", "date", "notes")
+
+
+class TitleBlockFieldRow(NamedTuple):
+    caption: str  # the fixed label ("DRAWN" / "DATE" / "NOTES")
+    value: str  # the truncated free-text value (never None — Nones are skipped)
+    dy: float  # baseline y offset from the block top edge (mm)
+    key: str  # field key ("author" / "date" / "notes"), for the data-testid
+
+
+def _tb_fields(tb: ComposedTitleBlock) -> list[TitleBlockFieldRow]:
+    """The free-text rows to stamp for a title block, in field order.
+
+    The ONE place the "which free-text rows render" decision lives: a ``None`` field
+    (unset / blank) is skipped, so all three serializers stamp the SAME rows at the SAME
+    offsets and an empty title block yields ``[]`` (nothing emitted → byte-identical).
+    """
+    out: list[TitleBlockFieldRow] = []
+    for caption, value, dy, key in zip(
+        _TB_FIELD_CAPTIONS,
+        (tb.author, tb.date, tb.notes),
+        _TB_FIELD_ROWS_DY,
+        _TB_FIELD_KEYS,
+        strict=True,
+    ):
+        if value is not None:
+            out.append(TitleBlockFieldRow(caption, value, dy, key))
+    return out
 
 
 def _fmt(value: float) -> str:
@@ -1481,6 +1569,24 @@ def _emit_title_block(tb: ComposedTitleBlock, out: list[str]) -> None:
         f'      <text x="{_fmt(tb.split_x + 4)}" y="{_fmt(y + h - 4)}" {value}>'
         f"{_esc(tb.size)}</text>"
     )
+    # Optional free-text rows (author/date/notes) — stamped only when set, so an empty
+    # title block emits nothing here and stays byte-identical (AUDIT-ENGINEERING D1).
+    field_cap = (
+        f'fill="{_LABEL}" font-family="{_FONT}" font-size="{_TB_FIELD_CAP_MM}" '
+        f'letter-spacing="0.4"'
+    )
+    field_val = f'fill="{_INK}" font-family="{_FONT}" font-size="{_TB_FIELD_VAL_MM}"'
+    for row in _tb_fields(tb):
+        row_y = y + row.dy
+        out.append(
+            f'      <text x="{_fmt(x + _TB_FIELD_CAP_DX)}" y="{_fmt(row_y)}" '
+            f"{field_cap}>{row.caption}</text>"
+        )
+        out.append(
+            f'      <text data-testid="title-block-{row.key}" '
+            f'x="{_fmt(x + _TB_FIELD_VAL_DX)}" y="{_fmt(row_y)}" {field_val}>'
+            f"{_esc(row.value)}</text>"
+        )
     out.append("    </g>")
 
 
@@ -1771,6 +1877,9 @@ def _pdf_title_block(c: Canvas, tb: ComposedTitleBlock) -> None:
     def value(cx: float, cy: float, text: str) -> None:
         _pdf_text(c, cx, cy, text, 3.4, _INK, centred=False, central=False)
 
+    def field(cx: float, cy: float, text: str, size: float, fill: str) -> None:
+        _pdf_text(c, cx, cy, text, size, fill, centred=False, central=False)
+
     caption(x + 4, y + 8, "TITLE")
     value(x + 4, y + 18, tb.title)
     caption(x + 4, y + h - 4, "LOFT · PART DRAWING")
@@ -1778,6 +1887,11 @@ def _pdf_title_block(c: Canvas, tb: ComposedTitleBlock) -> None:
     value(tb.split_x + 4, tb.mid_y - 3, tb.scale)
     caption(tb.split_x + 4, tb.mid_y + 8, "SIZE")
     value(tb.split_x + 4, y + h - 4, tb.size)
+    # Optional free-text rows — stamped only when set (AUDIT-ENGINEERING D1); an empty
+    # title block draws none, keeping the PDF byte-identical.
+    for row in _tb_fields(tb):
+        field(x + _TB_FIELD_CAP_DX, y + row.dy, row.caption, _TB_FIELD_CAP_MM, _LABEL)
+        field(x + _TB_FIELD_VAL_DX, y + row.dy, row.value, _TB_FIELD_VAL_MM, _INK)
 
 
 def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
@@ -2069,6 +2183,9 @@ def _dxf_title_block(
     def value(cx: float, cy: float, text: str) -> None:
         _dxf_text_entity(msp, text, cx, fy(cy), 3.4, 0.0, _LYR_TITLE, centred=False)
 
+    def field(cx: float, cy: float, text: str, size: float) -> None:
+        _dxf_text_entity(msp, text, cx, fy(cy), size, 0.0, _LYR_TITLE, centred=False)
+
     caption(x + 4, y + 8, "TITLE")
     value(x + 4, y + 18, tb.title)
     caption(x + 4, y + h - 4, "LOFT · PART DRAWING")
@@ -2076,6 +2193,11 @@ def _dxf_title_block(
     value(tb.split_x + 4, tb.mid_y - 3, tb.scale)
     caption(tb.split_x + 4, tb.mid_y + 8, "SIZE")
     value(tb.split_x + 4, y + h - 4, tb.size)
+    # Optional free-text rows as real TEXT entities — stamped only when set (AUDIT-
+    # ENGINEERING D1); an empty title block emits none, keeping the DXF byte-identical.
+    for row in _tb_fields(tb):
+        field(x + _TB_FIELD_CAP_DX, y + row.dy, row.caption, _TB_FIELD_CAP_MM)
+        field(x + _TB_FIELD_VAL_DX, y + row.dy, row.value, _TB_FIELD_VAL_MM)
 
 
 def _dxf_bend_table(

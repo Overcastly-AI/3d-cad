@@ -107,17 +107,24 @@ scorecard impact → core capability → polish).
       misses + recomposes. Shared `S3DrawingArtifactStore` when `S3_URL` set,
       in-process LRU fallback otherwise — the mesh-store seam reused (no guard: a
       compose-cache miss just recomposes). [src: drawing-export.md §8.3]
-- [ ] (P1, S) Drawings D1 — title-block author/date/notes silently dropped
-      (dead-cap audit 2026-07-23, AUDIT-ENGINEERING.md; the NOTES-class bug
-      repeated — the founder's WB-64 GA exported with its author/date/material
-      notes missing). `TitleBlock` free-text is threaded to compose
-      (`gateway/drawings.py:442` → `SheetLayout.title_block`) but `_title_block()`
-      (`compose.py:1016-1038`) stamps ONLY title+scale+size; author/date/notes
-      are placed by no serializer nor `DrawingSheet.tsx`, and no golden catches
-      it. Fix: stamp author/date/notes across all three serializers (+ the
-      on-screen block as the paired follow-on) AND add a NON-DEFAULT-title-block
-      compose golden (the "golden that would have gone red" — this also seeds the
-      D-process guard below). [src: AUDIT-ENGINEERING.md D1]
+- [x] (P1, S) Drawings D1 (EXPORT half) — title-block author/date/notes silently
+      dropped. SHIPPED: `_title_block()` now threads the authored `TitleBlock`
+      free-text onto `ComposedTitleBlock.author/date/notes` (blank→None), and all
+      three serializers (SVG/PDF/DXF) stamp them as labeled left-cell rows
+      (DRAWN/DATE/NOTES) below the title. Non-default-title-block compose golden
+      added (`tests/compose_title_block_goldens/`) — the "golden that would have
+      gone red" (seeds the D-process guard); no-title-block goldens stay
+      byte-identical (the 2 flat-pattern-sheet MODEL-hash goldens refresh for the
+      additive null fields, precedent b0cb16a; serialized SVG/PDF/DXF unchanged).
+      DOM half split → D1b. [src: AUDIT-ENGINEERING.md D1]
+- [ ] (P1, XS) Drawings D1b (DOM half) — on-screen title block still stamps only
+      title+scale+size (`apps/web/src/components/DrawingSheet.tsx` `TitleBlock`).
+      Mirror the export half: render author/date/notes as the SAME labeled
+      DRAWN/DATE/NOTES rows the SVG/PDF/DXF now emit (captions + `data-testid`
+      `title-block-{author,date,notes}` already established server-side), add the
+      matching `drawing` design tokens for the secondary field sizes, and a
+      Playwright assertion that an authored title block renders its free-text
+      on-screen. [src: AUDIT-ENGINEERING.md D1, paired frontend follow-on]
 - [ ] (P2, S) Drawings D3 — `first_angle` projection silently composes as
       third-angle (dead-cap audit D3). The convention is persisted + threaded to
       `SheetLayout.projection` but `compose.py` never branches on it (first vs
@@ -149,14 +156,23 @@ scorecard impact → core capability → polish).
       have gone red" the notes/title-block bugs both lacked. Land the first such
       golden with D1; backfill the rest as D2/D3/D5 are wired. [src:
       AUDIT-ENGINEERING.md cross-cutting]
-- [ ] (P2, S) MB-4c tail — per-body lump count on the evaluate wire +
-      Bodies-panel indicator. `EvaluateTreeResult` carries no per-body list
-      today (only a whole-part aggregate `properties.topology.shells`,
-      inflated by sealed shells), so the Bodies panel can't flag a
-      disjoint-union or multi-solid-import row as multi-lump. Acceptance:
-      `EvaluateTreeResult.bodies: [{base_feature_id, lumps}]` (additive, no
-      `param_version` bump); `BodiesPanel` row shows a lump-count badge when
-      `lumps > 1`; existing single-lump goldens/e2e unaffected. [src:
+- [x] (P2, S) MB-4c tail (WIRE half) — per-body lump count on the evaluate
+      wire. **SHIPPED:** `EvaluateTreeResult.bodies: [{base_feature_id, lumps}]`
+      (additive, no `param_version` bump), populated in `evaluate_tree` from the
+      last-good `state.bodies` set via a new `geometry.kernel.lumps.lump_count`
+      primitive (`len(body.solids())`, the counting sibling of `assemble_lumps`).
+      A single-lump body reports `lumps: 1`; a disjoint boolean union / multi-
+      solid import reports the true lump count. Goldens pin hand-derived
+      properties/topology/mesh (not the full result), so all stay byte-identical;
+      round-trip DTO test + new per-body assertions (test_boolean, test_multibody)
+      green; contracts + ts-client regenerated. [src: frontend-builder, MB-4c
+      honest wire gap]
+- [ ] (P2, S) MB-4c tail (FRONTEND half) — Bodies-panel multi-lump badge.
+      Consumes the shipped `EvaluateTreeResult.bodies` wire: `BodiesPanel` row
+      shows a lump-count badge (e.g. "2 lumps") when `lumps > 1`, so a disjoint-
+      union / multi-solid-import body reads as multi-lump at a glance. Frontend
+      only (apps/web + packages/design token if a new badge tone is needed);
+      preserve test hooks; existing single-lump rows unchanged. [src:
       frontend-builder, MB-4c honest wire gap]
 - [ ] (P2, S) SM-fmt-1 — bend-table ONE format, ONE layout pass (frontend +
       geometry). The deeper DRY the 2026-07-19 export-consistency fix
@@ -499,6 +515,11 @@ Full evidence for every line below lives in `CHANGELOG.md`.
 
 ### Recently shipped
 
+- [x] (P1, S) Drawings D1 (EXPORT half) — title-block author/date/notes stamped.
+      **SHIPPED 2026-07-23.** `_title_block()` threads authored `TitleBlock`
+      free-text onto `ComposedTitleBlock` (blank→None); SVG/PDF/DXF stamp
+      DRAWN/DATE/NOTES rows. Non-default golden added; empty title block
+      byte-identical. DOM half → D1b. [src: AUDIT-ENGINEERING.md D1]
 - [x] (P2, M) Sheet metal: hem on a FLANGE top edge cannot flat-pattern
       (kernel-architect). **SHIPPED 2026-07-22.** Root cause: bend flank
       resolution counted every planar face COPLANAR with a tangent plane of the

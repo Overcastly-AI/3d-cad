@@ -1076,8 +1076,32 @@
         "type": "object"
       },
       "ComposedTitleBlock": {
-        "description": "The placed bottom-right title block (drawing-export.md \u00a74.2).\n\nGeometry (box + the two internal rules) plus the three stamped values (drawing\n``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed\ncaptions (\"TITLE\" / \"SCALE\" / \"SIZE\" / \"LOFT \u00b7 PART DRAWING\") are the\nserializer's rendering constants (matching the on-screen title block).",
+        "description": "The placed bottom-right title block (drawing-export.md \u00a74.2).\n\nGeometry (box + the two internal rules) plus the stamped values: the always-on\ndrawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus\nthe OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``\n(each truncated to fit its cell, ``None`` when unset). The fixed captions (\"TITLE\" /\n\"SCALE\" / \"SIZE\" / \"LOFT \u00b7 PART DRAWING\" and, for the optional fields, \"DRAWN\" /\n\"DATE\" / \"NOTES\") are the serializer's rendering constants (matching the on-screen\ntitle block). A ``None`` optional field is stamped by NO serializer \u2014 caption and\nvalue both omitted \u2014 so a title block with no free-text composes byte-identically to\nits pre-free-text golden (the additive posture the notes/bend-table fields carry).",
         "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Author/drafter, truncated to fit; None (stamps nothing) when the authored field is unset or blank",
+            "title": "Author"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text date, truncated to fit; None (stamps nothing) when the authored field is unset or blank",
+            "title": "Date"
+          },
           "height": {
             "title": "Height",
             "type": "number"
@@ -1086,6 +1110,18 @@
             "description": "Y of the horizontal rule in the right cell",
             "title": "Mid Y",
             "type": "number"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text notes, truncated to fit; None (stamps nothing) when the authored field is unset or blank",
+            "title": "Notes"
           },
           "scale": {
             "description": "Scale label ('1:1')",

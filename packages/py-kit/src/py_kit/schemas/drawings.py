@@ -1233,10 +1233,15 @@ class ComposedView(BaseModel):
 class ComposedTitleBlock(BaseModel):
     """The placed bottom-right title block (drawing-export.md §4.2).
 
-    Geometry (box + the two internal rules) plus the three stamped values (drawing
-    ``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed
-    captions ("TITLE" / "SCALE" / "SIZE" / "LOFT · PART DRAWING") are the
-    serializer's rendering constants (matching the on-screen title block).
+    Geometry (box + the two internal rules) plus the stamped values: the always-on
+    drawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus
+    the OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``
+    (each truncated to fit its cell, ``None`` when unset). The fixed captions ("TITLE" /
+    "SCALE" / "SIZE" / "LOFT · PART DRAWING" and, for the optional fields, "DRAWN" /
+    "DATE" / "NOTES") are the serializer's rendering constants (matching the on-screen
+    title block). A ``None`` optional field is stamped by NO serializer — caption and
+    value both omitted — so a title block with no free-text composes byte-identically to
+    its pre-free-text golden (the additive posture the notes/bend-table fields carry).
     """
 
     x: float
@@ -1248,6 +1253,21 @@ class ComposedTitleBlock(BaseModel):
     title: str = Field(description="Drawing title, truncated to fit the cell")
     scale: str = Field(description="Scale label ('1:1')")
     size: str = Field(description="Sheet size, display form ('A4', 'ANSI A')")
+    author: str | None = Field(
+        default=None,
+        description="Author/drafter, truncated to fit; None (stamps nothing) when the "
+        "authored field is unset or blank",
+    )
+    date: str | None = Field(
+        default=None,
+        description="Free-text date, truncated to fit; None (stamps nothing) when the "
+        "authored field is unset or blank",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Free-text notes, truncated to fit; None (stamps nothing) when the "
+        "authored field is unset or blank",
+    )
 
 
 class ComposedBendTable(BaseModel):

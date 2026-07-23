@@ -1,0 +1,323 @@
+{
+  "part_id": "00000000-0000-0000-0000-000000000001",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000000a1",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 40.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 40.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 40.0,
+                "y": 25.0
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 40.0,
+                "y": 25.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 25.0
+              }
+            },
+            {
+              "id": "e4",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 25.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "h1",
+              "construction": false,
+              "kind": "circle",
+              "center": {
+                "x": 12.0,
+                "y": 12.5
+              },
+              "radius": 5.0
+            },
+            {
+              "id": "h2",
+              "construction": false,
+              "kind": "circle",
+              "center": {
+                "x": 28.0,
+                "y": 12.5
+              },
+              "radius": 5.0
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          }
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000000b1",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000000a1"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
+  "views": ["front", "top", "right", "iso"],
+  "scale": {
+    "numerator": 1,
+    "denominator": 1
+  },
+  "dimensions": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "view": "front",
+      "dimension": {
+        "type": "linear",
+        "measurement": {
+          "mode": "edge_length",
+          "edge": {
+            "subshape_type": "edge",
+            "curve": "line",
+            "end_a": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "end_b": {
+              "x": 40.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "midpoint": {
+              "x": 20.0,
+              "y": 0.0,
+              "z": 0.0
+            },
+            "length_mm": 40.0
+          }
+        },
+        "placement": {
+          "offset_mm": 0.0,
+          "text_pos": null
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "view": "front",
+      "dimension": {
+        "type": "angular",
+        "edge_a": {
+          "subshape_type": "edge",
+          "curve": "line",
+          "end_a": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "end_b": {
+            "x": 40.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "midpoint": {
+            "x": 20.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "length_mm": 40.0
+        },
+        "edge_b": {
+          "subshape_type": "edge",
+          "curve": "line",
+          "end_a": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "end_b": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 10.0
+          },
+          "midpoint": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 5.0
+          },
+          "length_mm": 10.0
+        },
+        "placement": {
+          "offset_mm": 0.0,
+          "text_pos": null
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "view": "top",
+      "dimension": {
+        "type": "diameter",
+        "edge": {
+          "subshape_type": "edge",
+          "curve": "circle",
+          "end_a": {
+            "x": 17.0,
+            "y": 12.499999999999998,
+            "z": 10.0
+          },
+          "end_b": {
+            "x": 17.0,
+            "y": 12.5,
+            "z": 10.0
+          },
+          "midpoint": {
+            "x": 7.0,
+            "y": 12.5,
+            "z": 10.0
+          },
+          "length_mm": 31.41592653589793
+        },
+        "placement": {
+          "offset_mm": 0.0,
+          "text_pos": null
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "view": "top",
+      "dimension": {
+        "type": "radius",
+        "edge": {
+          "subshape_type": "edge",
+          "curve": "circle",
+          "end_a": {
+            "x": 17.0,
+            "y": 12.499999999999998,
+            "z": 10.0
+          },
+          "end_b": {
+            "x": 17.0,
+            "y": 12.5,
+            "z": 10.0
+          },
+          "midpoint": {
+            "x": 7.0,
+            "y": 12.5,
+            "z": 10.0
+          },
+          "length_mm": 31.41592653589793
+        },
+        "placement": {
+          "offset_mm": 0.0,
+          "text_pos": null
+        }
+      }
+    }
+  ],
+  "layout": {
+    "size": "A4",
+    "orientation": "landscape",
+    "projection": "third_angle",
+    "title": "Plate — Title-Block Golden",
+    "title_block": {
+      "title": "Plate — Title-Block Golden",
+      "author": "LOFT ENGINEERING",
+      "date": "2026-07-23",
+      "notes": "MATERIAL: AL 6061-T6"
+    },
+    "views": [
+      {
+        "projection": "front",
+        "position": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "scale": {
+          "numerator": 1,
+          "denominator": 1
+        }
+      },
+      {
+        "projection": "top",
+        "position": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "scale": {
+          "numerator": 1,
+          "denominator": 1
+        }
+      },
+      {
+        "projection": "right",
+        "position": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "scale": {
+          "numerator": 1,
+          "denominator": 1
+        }
+      },
+      {
+        "projection": "iso",
+        "position": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "scale": {
+          "numerator": 1,
+          "denominator": 1
+        }
+      }
+    ]
+  },
+  "format": "svg"
+}
