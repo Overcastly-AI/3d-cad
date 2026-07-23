@@ -104,7 +104,7 @@ def _to_point(point: Point2D) -> ProjectedPoint:
     return ProjectedPoint(x_mm=point.x, y_mm=point.y)
 
 
-def _to_edge(edge: ProjectedEdge) -> ProjectedViewEdge:
+def projected_edge_dto(edge: ProjectedEdge) -> ProjectedViewEdge:
     """Map one internal projected-edge dataclass → the neutral boundary DTO."""
     return ProjectedViewEdge(
         primitive=edge.primitive,
@@ -263,7 +263,7 @@ def section_view_result(
     return DrawingViewResult(
         view=SECTION_VIEW,
         scale=scale,
-        edges=[_to_edge(e) for e in projection.visible_edges],
+        edges=[projected_edge_dto(e) for e in projection.visible_edges],
         section_faces=[_to_section_loop(lp) for lp in cut.loops],
         error=None,
     )
@@ -347,7 +347,7 @@ def evaluate_drawing_views(
             DrawingViewResult(
                 view=view,
                 scale=request.scale,
-                edges=[_to_edge(e) for e in projection.edges],
+                edges=[projected_edge_dto(e) for e in projection.edges],
                 error=None,
             )
         )

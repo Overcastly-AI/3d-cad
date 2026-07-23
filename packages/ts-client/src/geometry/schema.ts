@@ -154,6 +154,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawing/assembly/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Evaluate Assembly Drawing Route
+         * @description Project a solved ASSEMBLY into its requested standard drawing views (§7).
+         *
+         *     Stateless (CLAUDE.md): documents sends INTENT — the assembly graph (the SAME
+         *     ``EvaluateAssemblyRequest`` the ``/assembly/evaluate`` route takes, reused
+         *     VERBATIM) plus the standard views (front/top/right/iso) + scale — and geometry is
+         *     the sole evaluator. The assembly is solved ONCE (``solve_assembly`` — each unique
+         *     part evaluated once, the mate graph solved to per-instance world placements),
+         *     every bodied instance is placed at its solved pose and composed into one compound,
+         *     then exact HLR (``HLRBRep_Algo``) runs per requested view. The projected edges are
+         *     the SAME neutral :class:`ProjectedViewEdge` shape a part view emits — hidden lines
+         *     dashed exactly where one instance occludes another. No kernel/OCCT type crosses
+         *     the boundary.
+         *
+         *     A body-less assembly (no instance produced a body) is a **200 with a whole-request
+         *     ``assembly_error``** (empty ``views``); a bodyless instance is a typed per-instance
+         *     error (dropped, the rest still project); a per-view HLR failure that view's typed
+         *     ``view_projection_failed``; a flat_pattern / section view kind a typed
+         *     ``assembly_view_unsupported_projection`` — mirroring ``/drawing/evaluate`` and
+         *     ``/assembly/evaluate``'s never-500 posture (§1.5/§4/§7). Identity-free: the gateway
+         *     owns auth. BOM / balloons + the gateway/documents/web wiring are follow-up slices.
+         */
+        post: operations["evaluate_assembly_drawing_route_api_v1_drawing_assembly_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawing/compose": {
         parameters: {
             query?: never;
@@ -2512,6 +2551,93 @@ export interface components {
             kind: "equal";
         };
         /**
+         * EvaluateAssemblyDrawingViewsRequest
+         * @description Project a solved ASSEMBLY into its requested standard drawing views (§7).
+         *
+         *     documents sends INTENT — the assembly graph (via the reused
+         *     :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest`: each instance's
+         *     part feature prefix + authored/grounded placement + the mate graph) plus the
+         *     standard views to project and the drawing scale. geometry is the sole evaluator:
+         *     it solves the assembly ONCE (``solve_assembly`` — each unique part evaluated
+         *     once, the mate graph solved to per-instance world placements), places every
+         *     bodied instance at its SOLVED world pose, composes them into one compound, and
+         *     runs exact HLR (``project_view``) per requested view. No kernel/OCCT type crosses
+         *     the boundary — the response is the same pure-pydantic :class:`ProjectedViewEdge`
+         *     list a part view emits. Deterministic (RESEARCH §9): the BLAS-pinned solve + the
+         *     canonical HLR edge order yield byte-identical projected edges for the same request,
+         *     in-process AND across an interpreter restart.
+         */
+        EvaluateAssemblyDrawingViewsRequest: {
+            /** @description The assembly graph to project (reused VERBATIM — instances + mates + version); geometry solves it with the SAME solve_assembly the evaluate/interference/export routes use */
+            assembly: components["schemas"]["EvaluateAssemblyRequest"];
+            /**
+             * @description Drawing scale (rational; 1:1 default) applied to every view
+             * @default {
+             *       "denominator": 1,
+             *       "numerator": 1
+             *     }
+             */
+            scale: components["schemas"]["ViewScale"];
+            /**
+             * Views
+             * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order. `flat_pattern` / `section` are part-body view kinds — a typed per-view error for an assembly (§7)
+             */
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
+        };
+        /**
+         * EvaluateAssemblyDrawingViewsResult
+         * @description Per-view projected geometry for an assembly, plus the solve context (§7).
+         *
+         *     ``views`` carries one :class:`DrawingViewResult` per requested view, in request
+         *     order — each either the assembly's canonically-ordered visible+hidden 2D edges
+         *     (the union of every placed instance's silhouettes, hidden lines where one
+         *     instance occludes another) or a typed per-view error (``view_projection_failed``
+         *     for an HLR failure, ``assembly_view_unsupported_projection`` for a flat_pattern /
+         *     section view kind). ``assembly_error`` is set ONLY when NO instance produced a
+         *     body (nothing to project); ``views`` is then empty (the assembly analogue of the
+         *     part ``part_error``). ``status`` / ``diagnosis`` / ``instance_errors`` /
+         *     ``mate_errors`` echo the SAME solve context ``evaluate_assembly`` reports, so a
+         *     bad instance or mate is a typed per-entry error inside a 200 — never a 500, never
+         *     a silently-empty view (design §4/§7).
+         */
+        EvaluateAssemblyDrawingViewsResult: {
+            /** @description Set when NO instance produced a body (nothing to project); `views` is then empty (the assembly analogue of the part `part_error`) */
+            assembly_error?: components["schemas"]["FeatureError"] | null;
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /** @description Under/over-constrained diagnosis, or null */
+            diagnosis?: components["schemas"]["AssemblySolveDiagnosis"] | null;
+            /**
+             * Instance Errors
+             * @description Per-instance body-evaluation failures (a bodyless part is DROPPED from the projection, the rest still project) — typed, never a 500
+             */
+            instance_errors?: components["schemas"]["InstanceEvaluationError"][];
+            /**
+             * Mate Errors
+             * @description Per-mate resolution failures dropped from the solve (design §4)
+             */
+            mate_errors?: components["schemas"]["MateEvaluationError"][];
+            /**
+             * Status
+             * @description The mate-solve status (echoes the evaluate route, design §4)
+             * @enum {string}
+             */
+            status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
+            /**
+             * Version
+             * @description Echoed back; cache/correlation key
+             */
+            version: number;
+            /**
+             * Views
+             * @description One result per requested view, in request order (empty when `assembly_error` is set)
+             */
+            views?: components["schemas"]["DrawingViewResult"][];
+        };
+        /**
          * EvaluateAssemblyRequest
          * @description Evaluate an assembly graph to solved placements + shared meshes (§4).
          *
@@ -3540,6 +3666,28 @@ export interface components {
             placement: components["schemas"]["Placement"];
             /** @description The product body's own (local-frame) mass properties */
             properties?: components["schemas"]["ShapeProperties"] | null;
+        };
+        /**
+         * InstanceEvaluationError
+         * @description A per-instance evaluation failure inside a 200, keyed by instance (design §4).
+         *
+         *     The instance analogue of :class:`MateEvaluationError`: an instance whose part
+         *     produced no body (its failing feature error, or an honest ``no_body``) is
+         *     reported here and DROPPED from the placed set, so the assembly still renders /
+         *     projects every instance it can (degrading rather than failing whole, design §4).
+         *     Distinct from :class:`InstancePlacementResult.error` (which folds the same
+         *     failure into a per-instance mesh+placement row): this is the lean {instance, error}
+         *     shape a consumer that carries no mesh — e.g. an assembly DRAWING projection — needs,
+         *     mirroring ``MateEvaluationError``'s lean {mate, error}.
+         */
+        InstanceEvaluationError: {
+            /** @description Typed per-instance failure (the part's failing feature error / no_body) */
+            error: components["schemas"]["FeatureError"];
+            /**
+             * Instance Id
+             * Format: uuid
+             */
+            instance_id: string;
         };
         /**
          * InstancePlacementResult
@@ -6368,6 +6516,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InterferenceResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evaluate_assembly_drawing_route_api_v1_drawing_assembly_evaluate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateAssemblyDrawingViewsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateAssemblyDrawingViewsResult"];
                 };
             };
             /** @description Validation Error */

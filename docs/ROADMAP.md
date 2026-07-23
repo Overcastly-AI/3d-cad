@@ -1319,6 +1319,23 @@ all done; IGES and healing remain ⬜, keeping the phase 🚧.
       part views unaffected. Enum stays for the WIRE fast-follow (BACKLOG Drawings
       parity #4 — assembly views + BOM/balloons). Gateway pytest + `just gen-check`
       (no drift) green.
+      **Drawings parity #4 — SLICE 1 (assembly-view geometry core) SHIPPED**
+      (2026-07-23): `evaluate_assembly_drawing_views`
+      (`geometry/drawings/assembly_project.py`) projects a solved ASSEMBLY (not a
+      single part) — `solve_assembly` (reused verbatim) → `place_body` each
+      instance at its solved world pose → compose ONE `Compound` → the SAME exact
+      HLR `project_view` per view (occlusion resolved across instances, hidden
+      lines dashed). Sibling DTOs `EvaluateAssemblyDrawingViewsRequest`/`Result`
+      (reuse `EvaluateAssemblyRequest` verbatim; new lean `InstanceEvaluationError`)
+      + route `POST /drawing/assembly/evaluate`; `just gen` regenerated (no drift).
+      Golden `test_drawings_assembly_project`: a 2-cube assembly front = 4 visible
+      + 4 HIDDEN (small cube occluded behind the big cube), top/right = 8 visible
+      union of two disjoint silhouettes; rotated-instance silhouette; single-
+      instance == the part alone (byte-identical); typed degradation (bodyless
+      instance / all-bodyless / unsupported flat_pattern|section view kind);
+      in-process determinism. Geometry pytest + `just lint` + `just gen-check`
+      green. Gateway-gate-removal + documents-resolution + BOM/balloons + web
+      remain (BACKLOG D4 next slices).
       **D1b (DOM half) SHIPPED** (2026-07-23): on-screen `TitleBlock` stamps the
       same DRAWN/DATE/NOTES rows the SVG/PDF/DXF emit, shared `titleBlockFields`
       helper. **D3 SHIPPED** (2026-07-23): `bounds_aware_layout` branches on

@@ -25,6 +25,8 @@ from py_kit.schemas.drawings import (
     ARTIFACT_MEDIA_TYPES,
     ComposeDrawingRequest,
     ComposedSheet,
+    EvaluateAssemblyDrawingViewsRequest,
+    EvaluateAssemblyDrawingViewsResult,
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
     artifact_filename,
@@ -76,6 +78,7 @@ from geometry.drawing_store import (
     store_drawing_artifact,
 )
 from geometry.drawings import (
+    evaluate_assembly_drawing_views,
     evaluate_drawing_views,
     place_sheet,
     serialize_dxf,
@@ -324,6 +327,34 @@ def evaluate_drawing_route(
     export are later slices (design §7).
     """
     return evaluate_drawing_views(request)
+
+
+@router.post("/drawing/assembly/evaluate")
+def evaluate_assembly_drawing_route(
+    request: EvaluateAssemblyDrawingViewsRequest,
+) -> EvaluateAssemblyDrawingViewsResult:
+    """Project a solved ASSEMBLY into its requested standard drawing views (§7).
+
+    Stateless (CLAUDE.md): documents sends INTENT — the assembly graph (the SAME
+    ``EvaluateAssemblyRequest`` the ``/assembly/evaluate`` route takes, reused
+    VERBATIM) plus the standard views (front/top/right/iso) + scale — and geometry is
+    the sole evaluator. The assembly is solved ONCE (``solve_assembly`` — each unique
+    part evaluated once, the mate graph solved to per-instance world placements),
+    every bodied instance is placed at its solved pose and composed into one compound,
+    then exact HLR (``HLRBRep_Algo``) runs per requested view. The projected edges are
+    the SAME neutral :class:`ProjectedViewEdge` shape a part view emits — hidden lines
+    dashed exactly where one instance occludes another. No kernel/OCCT type crosses
+    the boundary.
+
+    A body-less assembly (no instance produced a body) is a **200 with a whole-request
+    ``assembly_error``** (empty ``views``); a bodyless instance is a typed per-instance
+    error (dropped, the rest still project); a per-view HLR failure that view's typed
+    ``view_projection_failed``; a flat_pattern / section view kind a typed
+    ``assembly_view_unsupported_projection`` — mirroring ``/drawing/evaluate`` and
+    ``/assembly/evaluate``'s never-500 posture (§1.5/§4/§7). Identity-free: the gateway
+    owns auth. BOM / balloons + the gateway/documents/web wiring are follow-up slices.
+    """
+    return evaluate_assembly_drawing_views(request)
 
 
 #: Response header reporting whether the compose route served a stored artifact

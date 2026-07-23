@@ -33,7 +33,14 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from py_kit.schemas.assemblies import RefDocumentKind
+from py_kit.schemas.assemblies import (
+    AssemblySolveDiagnosis,
+    AssemblySolveStatus,
+    EvaluateAssemblyRequest,
+    InstanceEvaluationError,
+    MateEvaluationError,
+    RefDocumentKind,
+)
 from py_kit.schemas.features import (
     EdgeSignature,
     EvaluatedFeatureInput,
@@ -1473,4 +1480,97 @@ class ComposedSheet(BaseModel):
         description="Placed free-text note annotations (design §2.2), each stamped at "
         "its sheet anchor; empty for a sheet with no notes — additive, so a note-free "
         "sheet composes byte-identically to its pre-notes golden.",
+    )
+
+
+# --- §7 assembly-view projection contract (documents → geometry → gateway → web) --
+#
+# The assembly analogue of EvaluateDrawingViewsRequest (design §7): where the part
+# request carries ONE feature tree, an assembly view projects the UNION of every
+# instance's body at its SOLVED world placement. The request REUSES the shipped
+# EvaluateAssemblyRequest VERBATIM (instances + mates + version — no duplication of
+# the instance/mate shape, CLAUDE.md DRY), so geometry solves the assembly (the SAME
+# solve_assembly the evaluate/interference/export routes call), places each instance
+# body, composes ONE compound, and runs the SAME exact HLR (project_view) per view.
+# The projected edges are the identical neutral ProjectedViewEdge shape a part view
+# emits, so a drawing consumer renders assembly + part views through one code path.
+# Standard orthographic + iso views only (front/top/right/iso); flat_pattern / section
+# are part-body view kinds and are a typed per-view error for an assembly (§7).
+
+
+class EvaluateAssemblyDrawingViewsRequest(BaseModel):
+    """Project a solved ASSEMBLY into its requested standard drawing views (§7).
+
+    documents sends INTENT — the assembly graph (via the reused
+    :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest`: each instance's
+    part feature prefix + authored/grounded placement + the mate graph) plus the
+    standard views to project and the drawing scale. geometry is the sole evaluator:
+    it solves the assembly ONCE (``solve_assembly`` — each unique part evaluated
+    once, the mate graph solved to per-instance world placements), places every
+    bodied instance at its SOLVED world pose, composes them into one compound, and
+    runs exact HLR (``project_view``) per requested view. No kernel/OCCT type crosses
+    the boundary — the response is the same pure-pydantic :class:`ProjectedViewEdge`
+    list a part view emits. Deterministic (RESEARCH §9): the BLAS-pinned solve + the
+    canonical HLR edge order yield byte-identical projected edges for the same request,
+    in-process AND across an interpreter restart.
+    """
+
+    assembly: EvaluateAssemblyRequest = Field(
+        description="The assembly graph to project (reused VERBATIM — instances + "
+        "mates + version); geometry solves it with the SAME solve_assembly the "
+        "evaluate/interference/export routes use"
+    )
+    views: list[ViewProjection] = Field(
+        description="The standard views to project (subset of front/top/right/iso); "
+        "processed and returned in request order. `flat_pattern` / `section` are "
+        "part-body view kinds — a typed per-view error for an assembly (§7)"
+    )
+    scale: ViewScale = Field(
+        default=DEFAULT_VIEW_SCALE,
+        description="Drawing scale (rational; 1:1 default) applied to every view",
+    )
+
+
+class EvaluateAssemblyDrawingViewsResult(BaseModel):
+    """Per-view projected geometry for an assembly, plus the solve context (§7).
+
+    ``views`` carries one :class:`DrawingViewResult` per requested view, in request
+    order — each either the assembly's canonically-ordered visible+hidden 2D edges
+    (the union of every placed instance's silhouettes, hidden lines where one
+    instance occludes another) or a typed per-view error (``view_projection_failed``
+    for an HLR failure, ``assembly_view_unsupported_projection`` for a flat_pattern /
+    section view kind). ``assembly_error`` is set ONLY when NO instance produced a
+    body (nothing to project); ``views`` is then empty (the assembly analogue of the
+    part ``part_error``). ``status`` / ``diagnosis`` / ``instance_errors`` /
+    ``mate_errors`` echo the SAME solve context ``evaluate_assembly`` reports, so a
+    bad instance or mate is a typed per-entry error inside a 200 — never a 500, never
+    a silently-empty view (design §4/§7).
+    """
+
+    assembly_id: uuid.UUID
+    version: int = Field(description="Echoed back; cache/correlation key")
+    views: list[DrawingViewResult] = Field(
+        default_factory=list["DrawingViewResult"],
+        description="One result per requested view, in request order (empty when "
+        "`assembly_error` is set)",
+    )
+    status: AssemblySolveStatus = Field(
+        description="The mate-solve status (echoes the evaluate route, design §4)"
+    )
+    diagnosis: AssemblySolveDiagnosis | None = Field(
+        default=None, description="Under/over-constrained diagnosis, or null"
+    )
+    instance_errors: list[InstanceEvaluationError] = Field(
+        default_factory=list["InstanceEvaluationError"],
+        description="Per-instance body-evaluation failures (a bodyless part is "
+        "DROPPED from the projection, the rest still project) — typed, never a 500",
+    )
+    mate_errors: list[MateEvaluationError] = Field(
+        default_factory=list["MateEvaluationError"],
+        description="Per-mate resolution failures dropped from the solve (design §4)",
+    )
+    assembly_error: FeatureError | None = Field(
+        default=None,
+        description="Set when NO instance produced a body (nothing to project); "
+        "`views` is then empty (the assembly analogue of the part `part_error`)",
     )

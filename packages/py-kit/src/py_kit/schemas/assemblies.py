@@ -753,6 +753,26 @@ class MateEvaluationError(BaseModel):
     error: FeatureError = Field(description="Typed per-mate failure (code + message)")
 
 
+class InstanceEvaluationError(BaseModel):
+    """A per-instance evaluation failure inside a 200, keyed by instance (design §4).
+
+    The instance analogue of :class:`MateEvaluationError`: an instance whose part
+    produced no body (its failing feature error, or an honest ``no_body``) is
+    reported here and DROPPED from the placed set, so the assembly still renders /
+    projects every instance it can (degrading rather than failing whole, design §4).
+    Distinct from :class:`InstancePlacementResult.error` (which folds the same
+    failure into a per-instance mesh+placement row): this is the lean {instance, error}
+    shape a consumer that carries no mesh — e.g. an assembly DRAWING projection — needs,
+    mirroring ``MateEvaluationError``'s lean {mate, error}.
+    """
+
+    instance_id: uuid.UUID
+    error: FeatureError = Field(
+        description="Typed per-instance failure (the part's failing feature error / "
+        "no_body)"
+    )
+
+
 class EvaluateAssemblyResult(BaseModel):
     """Per-instance shared-mesh + solved transform, plus the analytic roll-up (§4).
 

@@ -14,6 +14,10 @@ neutral :class:`ProjectedEdge` dataclasses, and the API-facing DTO + evaluate
 endpoint are a later slice.
 """
 
+from geometry.drawings.assembly_project import (
+    compose_assembly_body,
+    evaluate_assembly_drawing_views,
+)
 from geometry.drawings.compose import (
     place_sheet,
     serialize_dxf,
@@ -70,6 +74,8 @@ __all__ = [
     "ViewProjection",
     "ViewProjectionError",
     "canonical_edges_repr",
+    "compose_assembly_body",
+    "evaluate_assembly_drawing_views",
     "evaluate_drawing_views",
     "flat_pattern_view_result",
     "measure_dimension",

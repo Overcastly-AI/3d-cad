@@ -217,6 +217,29 @@ frame refactor are v2/§11. Spike de-collected.
       authoring/compose. Removes the `assembly_views_unsupported` gate in
       `gateway/drawings.py` once landed. Supervised M feature (kernel + gateway
       + documents + web). [src: AUDIT-ENGINEERING.md D4 follow-on]
+    - [x] SLICE 1 (geometry projection core): `evaluate_assembly_drawing_views`
+          (`geometry/drawings/assembly_project.py`) — `solve_assembly` (reused
+          verbatim) → `place_body` each instance at its solved world pose →
+          compose ONE `Compound` → the SAME exact HLR `project_view` per view.
+          Sibling DTOs `EvaluateAssemblyDrawingViewsRequest`/`Result` (reuse
+          `EvaluateAssemblyRequest` verbatim; new `InstanceEvaluationError`) +
+          route `POST /drawing/assembly/evaluate`; `just gen` regenerated.
+          Golden `test_drawings_assembly_project`: 2-cube assembly front = 4
+          visible + 4 HIDDEN (occlusion), top/right = 8 visible union; rotated
+          instance silhouette; single-instance == part (byte-identical); typed
+          degradation (bodyless instance / all-bodyless / unsupported view kind);
+          determinism. [done 2026-07-23]
+    - [ ] NEXT SLICES (scoped): (a) gateway — remove the per-view
+          `assembly_views_unsupported` gate in `services/gateway/src/gateway/
+          drawings.py`, resolve an `assembly`-kind view's referenced assembly
+          document to an `EvaluateAssemblyRequest`, and call
+          `/drawing/assembly/evaluate`; (b) documents — resolve an
+          `assembly`-kind `ViewResponse.ref_document_id` to the assembly's
+          instances+mates (flatten sub-assemblies) as the compose request needs;
+          (c) BOM table + balloons authoring/compose; (d) web — render assembly
+          views + BOM/balloons. Compose request for assembly views: the geometry
+          `EvaluateAssemblyDrawingViewsRequest` shape (no part `features`; an
+          `EvaluateAssemblyRequest` instead).
 - [x] (P2, S) Dedicated Hole feature — SLICE 1 (simple hole): `HoleFeature`/
       `HoleParamsV1` registered across ALL feature-registry arms (Feature union,
       FeatureEnvelope, FEATURE_REGISTRY, BODY_AFFECTING_FEATURE_TYPES,
