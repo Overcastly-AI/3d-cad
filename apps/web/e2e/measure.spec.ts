@@ -185,14 +185,19 @@ test.describe("measurement", () => {
     await page.getByTestId(`measure-vertex-${b}`).click();
     expect((await measureResponse).status()).toBe(200);
 
-    // THE assertion: the readout reads the golden distance.
+    // THE assertion: the readout reads the golden distance. The readout formats
+    // via `formatLength` (document unit + trailing-zero-trimmed, 4 max fraction
+    // digits — the reviewed units convention), so √1400 mm renders exactly
+    // "37.4166 mm". This is an EXACT match tied to the geometry golden: a missed
+    // pick would read a different value (or no readout at all), so the check is
+    // not loosened by matching the real format instead of the pre-units "37.42".
     await expect(page.getByTestId("measure-readout-distance")).toHaveText(
-      "37.42",
+      "37.4166 mm",
     );
-    // Component deltas match the corner offset.
-    await expect(page.getByTestId("measure-readout-dx")).toHaveText("+10.00");
-    await expect(page.getByTestId("measure-readout-dy")).toHaveText("+20.00");
-    await expect(page.getByTestId("measure-readout-dz")).toHaveText("+30.00");
+    // Component deltas match the corner offset (whole-mm → no fraction digits).
+    await expect(page.getByTestId("measure-readout-dx")).toHaveText("10 mm");
+    await expect(page.getByTestId("measure-readout-dy")).toHaveText("20 mm");
+    await expect(page.getByTestId("measure-readout-dz")).toHaveText("30 mm");
     // Point-point has no angle.
     await expect(page.getByTestId("measure-readout-angle")).toHaveCount(0);
 
@@ -230,7 +235,7 @@ test.describe("measurement", () => {
     await page.getByTestId(`measure-vertex-${a}`).click();
     await page.getByTestId(`measure-vertex-${b}`).click();
     await expect(page.getByTestId("measure-readout-distance")).toHaveText(
-      "37.42",
+      "37.4166 mm",
     );
     await page.screenshot({ path: `${SCREENSHOT_DIR}/measure-desktop.png` });
   });
@@ -262,7 +267,7 @@ test.describe("measurement small laptop (1280×800)", () => {
     await page.getByTestId(`measure-vertex-${a}`).click();
     await page.getByTestId(`measure-vertex-${b}`).click();
     await expect(page.getByTestId("measure-readout-distance")).toHaveText(
-      "37.42",
+      "37.4166 mm",
     );
 
     const box = await page.getByTestId("viewport").boundingBox();
