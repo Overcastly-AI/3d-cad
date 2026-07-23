@@ -1014,6 +1014,44 @@ export async function updateFeature(
 }
 
 /**
+ * Flip ONLY a feature's suppress flag (feature-tree.md §4.3a). A dedicated,
+ * minimal mutation — distinct from `updateFeature` — so suppressing never
+ * touches `params`: it sets the envelope-level `suppressed` flag and bumps
+ * `tree_version` under the SAME optimistic-concurrency guard as every write. A
+ * suppressed feature is SKIPPED at rebuild (the body is built from the
+ * non-suppressed prefix), so this changes what evaluating the part means and is
+ * an undoable, history-recording tree edit. The route + types are generated
+ * (`@loft/ts-client`, CLAUDE.md DRY rule). A stale `expected_tree_version`
+ * throws the typed `StaleTreeVersionError` so the caller can soft-resync and
+ * retry quietly; every other failure surfaces the server envelope's message.
+ */
+export async function suppressFeature(
+  partId: string,
+  featureId: string,
+  suppressed: boolean,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureMutationResponse> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/parts/{part_id}/features/{feature_id}/suppress",
+    {
+      params: { path: { part_id: partId, feature_id: featureId } },
+      body: { expected_tree_version: expectedTreeVersion, suppressed },
+    },
+  );
+  if (error !== undefined) {
+    const message = envelopeMessage(
+      error,
+      "The feature could not be suppressed — reload and try again.",
+    );
+    throw envelopeCode(error) === "stale_tree_version"
+      ? new StaleTreeVersionError(message)
+      : new Error(message);
+  }
+  return data;
+}
+
+/**
  * Change the part's document display unit (docs/design/units.md §U2). DISPLAY
  * metadata only — the server never touches a stored mm value, so this is a pure
  * re-label; it bumps `tree_version` under the OCC guard like any part edit. The

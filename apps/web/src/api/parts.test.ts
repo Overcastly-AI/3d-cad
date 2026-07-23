@@ -33,6 +33,7 @@ import {
   type SketchConstraint,
   type SketchEntity,
   StaleTreeVersionError,
+  suppressFeature,
   type SweepParams,
   sweepFeatureCreate,
   sweepFeatureUpdate,
@@ -234,6 +235,82 @@ describe("undoPart / redoPart", () => {
     const error = await undoPart(samplePart.id, 1, client).catch(
       (e: unknown) => e,
     );
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(StaleTreeVersionError);
+    expect((error as Error).message).toMatch(/no such part/);
+  });
+});
+
+describe("suppressFeature", () => {
+  const featureId = "44444444-4444-4444-4444-444444444444";
+  /** The mutation the endpoint echoes: the feature with its NEW suppress state. */
+  const mutation = {
+    feature: {
+      id: featureId,
+      part_id: samplePart.id,
+      name: "Fillet1",
+      feature: {
+        type: "fillet",
+        version: 1,
+        params: { edges: { kind: "all_edges" }, radius_mm: 5 },
+        suppressed: true,
+      },
+      created_at: "2026-07-23T10:00:00Z",
+      updated_at: "2026-07-23T10:00:00Z",
+    },
+    tree_version: 7,
+  };
+
+  it("PATCHes the suppress route with expected_tree_version + suppressed", async () => {
+    let captured: Request | undefined;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        captured = request;
+        return Promise.resolve(json(mutation, 200));
+      },
+    });
+
+    await expect(
+      suppressFeature(samplePart.id, featureId, true, 6, client),
+    ).resolves.toEqual(mutation);
+    expect(captured?.method).toBe("PATCH");
+    expect(new URL(captured?.url ?? "").pathname).toBe(
+      `/api/v1/parts/${samplePart.id}/features/${featureId}/suppress`,
+    );
+    expect(JSON.parse(await captured!.text())).toEqual({
+      expected_tree_version: 6,
+      suppressed: true,
+    });
+  });
+
+  it("throws the typed StaleTreeVersionError on a 422 stale_tree_version", async () => {
+    const stale = json(
+      { error: { code: "stale_tree_version", message: "tree moved on" } },
+      422,
+    );
+    const error = await suppressFeature(
+      samplePart.id,
+      featureId,
+      false,
+      1,
+      clientReturning(stale),
+    ).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(StaleTreeVersionError);
+    expect((error as Error).message).toMatch(/tree moved on/);
+  });
+
+  it("surfaces the envelope message (untyped) on other failures", async () => {
+    const client = clientReturning(
+      json({ error: { code: "part_not_found", message: "no such part" } }, 404),
+    );
+    const error = await suppressFeature(
+      samplePart.id,
+      featureId,
+      true,
+      1,
+      client,
+    ).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(StaleTreeVersionError);
     expect((error as Error).message).toMatch(/no such part/);

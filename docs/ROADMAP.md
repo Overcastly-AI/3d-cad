@@ -356,7 +356,9 @@ item:
       intersect between independently-built bodies, multi-lump bodies, opt-in
       disjoint union, multi-solid STEP import — geometry-QA'd PASS twice;
       VISION Part modeling row Notes corrected same pass, score unchanged).
-- 🚧 Feature suppress — SLICE 1 SHIPPED (2026-07-23, kernel-architect): the
+- ✅ Feature suppress — FULLY END-TO-END (2026-07-23): schema + evaluator
+      (slice 1) + persistence + toggle endpoint (slice 2a) + web tree toggle
+      (slice 2b). SLICE 1 SHIPPED (2026-07-23, kernel-architect): the
       persisted-flag + evaluator half of a daily incumbent verb (`grep suppress`
       → empty before this). `suppressed: bool = False` lives once on a shared
       `FeatureEnvelopeBase` every feature envelope inherits (no `param_version`
@@ -381,8 +383,20 @@ item:
       test_evaluation_request.py). A dedicated `PATCH .../features/{id}/suppress`
       toggle (py-kit `FeatureSuppressRequest`) flips ONLY the flag — no param
       replace — bumps `tree_version` under the OCC guard (stale → 422), records
-      history (undoable), and is gateway-proxied auth-gated. SLICE 2b (the web
-      tree suppress toggle + dimmed row) remains (BACKLOG P2).
+      history (undoable), and is gateway-proxied auth-gated. SLICE 2b SHIPPED
+      (2026-07-23, frontend-builder): the feature tree now carries a per-row
+      suppress toggle (`suppressFeature` consumes the generated
+      `FeatureSuppressRequest`; a stale 422 refetches the fresh tree_version and
+      retries once). A suppressed row reads QUIET — dimmed + struck-through name,
+      `SUPP` status, brass pressed toggle (`aria-pressed` + accessible name +
+      `data-suppressed`), distinct from a red error row. Proof
+      (feature-suppress.spec.ts, real isolated stack): seed cube+fillet
+      (6,879.79 mm³), suppress the fillet in the tree → body rebuilds a sharp
+      8,000 mm³ cube, row dimmed/SUPP, solve Solved, row stays (reversible);
+      un-suppress → fillet returns. Founder shots
+      docs/screenshots/feature-suppress-{before,on,off}-desktop.png +
+      feature-suppress-on-laptop.png (1440 + 1280×800). New `SuppressIcon`
+      design primitive (struck feature cell).
 - ✅ Dedicated Hole feature — SLICE 1 END-TO-END (2026-07-23): first-class
       `HoleFeature` (face-placed point + diameter + through-all|blind, auto inward
       cut direction), NOT a sketched circle. Analytic + sketch-cut-parity golden

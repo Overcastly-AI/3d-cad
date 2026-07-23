@@ -679,6 +679,21 @@ export const SheetExportIcon = (p: IconProps) => (
   </Icon>
 );
 
+// --- Feature tree -----------------------------------------------------------
+//
+// The tree-row verbs, in the title-block idiom. Suppress = a feature struck
+// from the build sheet: the square feature cell scored through with a redline
+// — the inspection-sheet "deliberately excluded" mark, reversible, distinct
+// from a delete (nothing is removed, the line just stops being built).
+
+/** Suppress = a feature cell struck from the build (a redline through it). */
+export const SuppressIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={5} y={7} width={14} height={10} />
+    <path d="M4 20 L20 4" />
+  </Icon>
+);
+
 // --- Chrome -----------------------------------------------------------------
 
 export const CaretDownIcon = (p: IconProps) => (

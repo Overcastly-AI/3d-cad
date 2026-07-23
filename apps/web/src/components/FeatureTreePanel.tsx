@@ -8,7 +8,7 @@
  * (an extrude opens its editor); rolling the bar before a feature marks
  * everything below it inert without deleting it.
  */
-import { Button, Panel, PanelSection } from "@loft/design";
+import { Button, Panel, PanelSection, SuppressIcon } from "@loft/design";
 import type { ReactNode } from "react";
 
 import type {
@@ -42,12 +42,19 @@ export interface FeatureTreePanelProps {
   /** True while a `boolean_disjoint` recovery write is in flight — disables the
    * recovery button so a double-click can't enqueue two updates. */
   recoveringDisjoint?: boolean;
+  /** Toggle a feature's suppress flag (feature-tree.md §4.3a): a suppressed
+   * feature is skipped at rebuild but stays in the tree (reversible). */
+  onToggleSuppress: (feature: FeatureResponse) => void;
+  /** The feature id whose suppress toggle is mid-write — disables its control
+   * so a double-click can't enqueue two flips. */
+  suppressingId?: string | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
   ok: "OK",
   error: "ERR",
   skipped: "SKIP",
+  suppressed: "SUPP",
 };
 
 /**
@@ -78,6 +85,8 @@ export function FeatureTreePanel({
   rollbackBusy,
   onKeepAsOneBody,
   recoveringDisjoint = false,
+  onToggleSuppress,
+  suppressingId = null,
 }: FeatureTreePanelProps) {
   const resultById = new Map<string, FeatureResult>(
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
@@ -162,14 +171,23 @@ export function FeatureTreePanel({
                 const status = result?.status;
                 const rolledBack = index > barSlot;
                 const selected = feature.id === selectedFeatureId;
+                // Suppressed reads from the persisted envelope flag (authoritative
+                // the instant the tree refetches, before the re-evaluate lands)
+                // OR the evaluate's dedicated `suppressed` status — either marks
+                // the row quiet-and-struck, distinct from a red error.
+                const suppressed =
+                  (feature.feature.suppressed ?? false) ||
+                  status === "suppressed";
+                const suppressBusy = feature.id === suppressingId;
                 return (
                   <FeatureRowGroup key={feature.id}>
                     <li
-                      className={`flex items-baseline gap-2 border-l-2 py-1 pr-3 pl-[10px] ${
+                      className={`group/row flex items-baseline gap-2 border-l-2 py-1 pr-2 pl-[10px] ${
                         selected ? "border-brass" : "border-transparent"
                       }`}
                       data-testid="feature-row"
                       data-rolled-back={rolledBack || undefined}
+                      data-suppressed={suppressed || undefined}
                     >
                       <button
                         type="button"
@@ -184,7 +202,11 @@ export function FeatureTreePanel({
                         </span>
                         <span
                           className={`grow truncate font-data text-base ${
-                            rolledBack ? "text-gauge" : "text-mist"
+                            suppressed
+                              ? "text-gauge line-through decoration-etch"
+                              : rolledBack
+                                ? "text-gauge"
+                                : "text-mist"
                           }`}
                         >
                           {feature.name}
@@ -193,6 +215,25 @@ export function FeatureTreePanel({
                           {featureTypeLabel(feature.feature.type)}
                         </span>
                       </button>
+                      {/* Suppress toggle — quiet by default, brass when the
+                          feature is suppressed. Struck-out row + this pressed
+                          control read "held out of the build", reversibly. */}
+                      <button
+                        type="button"
+                        onClick={() => onToggleSuppress(feature)}
+                        disabled={suppressBusy}
+                        aria-pressed={suppressed}
+                        aria-busy={suppressBusy}
+                        aria-label={`Suppress ${feature.name}`}
+                        data-testid={`feature-suppress-${index}`}
+                        className={`shrink-0 rounded-sm p-0.5 transition-colors duration-fast focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
+                          suppressed
+                            ? "text-brass"
+                            : "text-gauge opacity-60 hover:text-mist hover:opacity-100 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+                        }`}
+                      >
+                        <SuppressIcon size={14} />
+                      </button>
                       <span
                         className={`w-8 shrink-0 text-right font-data text-xs ${
                           status === "error" ? "text-flag" : "text-gauge"
@@ -200,12 +241,20 @@ export function FeatureTreePanel({
                         aria-label={
                           rolledBack
                             ? "rolled back"
-                            : status
-                              ? `evaluation ${status}`
-                              : undefined
+                            : suppressed
+                              ? "evaluation suppressed"
+                              : status
+                                ? `evaluation ${status}`
+                                : undefined
                         }
                       >
-                        {rolledBack ? "—" : status ? STATUS_LABEL[status] : "—"}
+                        {rolledBack
+                          ? "—"
+                          : suppressed
+                            ? STATUS_LABEL.suppressed
+                            : status
+                              ? STATUS_LABEL[status]
+                              : "—"}
                       </span>
                     </li>
                     {status === "error" && result?.error && !rolledBack ? (

@@ -87,6 +87,7 @@ import {
   sweepFeatureUpdate,
   sketchFeatureCreate,
   sketchFeatureUpdate,
+  suppressFeature,
   updateFeature,
   updatePartUnit,
   type LengthUnit,
@@ -2450,6 +2451,48 @@ export function PartPage() {
     [partId, freshTreeVersion, refreshTreeAndBody],
   );
 
+  // Suppress toggle (feature-tree.md §4.3a): flip a feature's suppress flag so a
+  // rebuild SKIPS it (the body builds off the non-suppressed prefix) — the row
+  // stays in the tree, just dimmed. A minimal, param-untouching mutation; like
+  // every tree write it takes the freshest tree version and refreshes the tree +
+  // body. On a stale-version race (422) it refetches the fresh version and
+  // retries once (OCC soft-resync, matching moveRollback / keepAsOneBody) so the
+  // toggle can never leave the UI out of sync.
+  const [suppressingId, setSuppressingId] = useState<string | null>(null);
+  const toggleSuppress = useCallback(
+    (feature: FeatureResponse) => {
+      if (suppressingId !== null) return;
+      const next = !(feature.feature.suppressed ?? false);
+      // Rebuilding the body invalidates a mid-measure pick index — disarm the
+      // tool, as every other tree-mutating path does.
+      useMeasureStore.getState().deactivate();
+      setSuppressingId(feature.id);
+      void (async () => {
+        try {
+          const attempt = (version: number) =>
+            suppressFeature(partId, feature.id, next, version);
+          try {
+            await attempt(await freshTreeVersion());
+          } catch (error) {
+            if (error instanceof StaleTreeVersionError) {
+              await attempt((await fetchFeatureTree(partId)).tree_version);
+            } else {
+              throw error;
+            }
+          }
+          setSelectedFeatureId(feature.id);
+          await refreshTreeAndBody();
+        } catch {
+          // A hard failure leaves the feature as it was; the toggle stays put so
+          // the user can retry. Nothing changed.
+        } finally {
+          setSuppressingId(null);
+        }
+      })();
+    },
+    [partId, suppressingId, freshTreeVersion, refreshTreeAndBody],
+  );
+
   // Select a body from the Bodies panel: select its base feature — lights the
   // brass rule in both panels and opens that feature's editor (the same select
   // a tree row does). Per-body viewport highlight is MB-4.
@@ -3479,6 +3522,8 @@ export function PartPage() {
                 rollbackBusy={rollbackBusy || historyStep !== null}
                 onKeepAsOneBody={keepAsOneBody}
                 recoveringDisjoint={disjointRecovering}
+                onToggleSuppress={toggleSuppress}
+                suppressingId={suppressingId}
               />
               {bodies.length > 0 ? (
                 <BodiesPanel

@@ -249,12 +249,14 @@ frame refactor are v2/§11. Spike de-collected.
       `HoleParamsV1` as an additive `HoleType`-discriminated member (no
       `param_version` bump); the `HoleEditor` grows a type select + the tables.
       [src: AUDIT-PRODUCT.md 2026-07-23; roadmap, product-auditor, competitive]
-- [ ] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
+- [x] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
       state (or typed-fail if they reference the suppressed feature directly). A
-      daily incumbent verb, currently absent (`grep suppress` → empty).
-      Acceptance: toggle in the feature tree; suppressing a fillet re-evaluates to
-      the un-filleted body; un-suppressing restores it; worked e2e. [src:
+      daily incumbent verb, previously absent (`grep suppress` → empty).
+      **FULLY END-TO-END 2026-07-23** (schema+evaluator kernel-architect;
+      persistence+toggle backend-builder; web tree toggle frontend-builder):
+      toggle in the feature tree; suppressing a fillet re-evaluates to the
+      un-filleted body; un-suppressing restores it; worked e2e. [src:
       AUDIT-PRODUCT.md 2026-07-23]
       - [x] Slice 1 — schema + geometry evaluate. `suppressed: bool = False` on the
             shared `FeatureEnvelopeBase` (all 19 envelopes inherit; no param_version
@@ -278,8 +280,18 @@ frame refactor are v2/§11. Spike de-collected.
             `tree_version` (stale → 422), records history (undoable); gateway proxy
             auth-gated. History serialize/apply carry `suppressed` so undo restores
             it. 2026-07-23 (backend-builder).
-      - [ ] Slice 2b — web tree suppress toggle + dimmed row (against the
-            `PATCH .../features/{id}/suppress` endpoint above).
+      - [x] Slice 2b — web tree suppress toggle + dimmed row. `suppressFeature`
+            (consumes the generated `FeatureSuppressRequest`; stale 422 →
+            refetch fresh tree_version + retry once) behind a per-row toggle in
+            `FeatureTreePanel` (`aria-pressed` + accessible name +
+            `data-suppressed`; new `SuppressIcon` primitive). A suppressed row
+            reads QUIET — dimmed + struck-through name, `SUPP` status, brass
+            pressed toggle — distinct from a red error. Proof
+            (feature-suppress.spec.ts, real isolated stack): suppress a fillet in
+            the tree → sharp 8,000 mm³ cube + dimmed/SUPP row + Solved (row
+            stays, reversible); un-suppress → fillet returns. Founder shots
+            feature-suppress-{before,on,off}-desktop + -on-laptop (1440 +
+            1280×800). 2026-07-23 (frontend-builder).
 - [x] (P2, S) Mirror feature — mirror a feature/body about a plane (origin/datum),
       one op in every incumbent. **END-TO-END 2026-07-23** (geometry+DTO
       kernel-architect; web authoring frontend-builder): `MirrorFeature`/
