@@ -68,6 +68,10 @@ export const viewport = {
    */
   selectedSurfaceTint: "#E8CDA4",
   restSurfaceTint: "#FFFFFF",
+  /** Surface tint of a clashing/interfering body — multiplies the studio matcap
+   * toward a warm red (matcaps carry no emissive channel), so the body reads
+   * red-flushed but still metal. The single source `assembly.clashTint` reads. */
+  clashSurfaceTint: "#F2C9C9",
   /**
    * Atmosphere — the DOM half of the scene (the canvas is transparent and the
    * wrapper paints depth behind it; the vignette overlays it). One palette,
@@ -229,9 +233,11 @@ export const assembly = {
   /**
    * Surface tint of a clashing instance — multiplies the studio matcap toward
    * a warm red (matcaps carry no emissive channel), so an interfering body
-   * reads red-flushed but still metal. Shares the flag hue with `clash`.
+   * reads red-flushed but still metal. References `viewport.clashSurfaceTint`,
+   * mirroring how `selectedTint` references `selectedSurfaceTint` — one clash
+   * tint, one source (never a raw hex duplicated here).
    */
-  clashTint: "#F2C9C9",
+  clashTint: viewport.clashSurfaceTint,
 } as const;
 
 /**

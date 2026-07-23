@@ -68,19 +68,24 @@ const REMOVED_SIDE_OPTIONS: ReadonlyArray<SegmentOption<"near" | "far">> = [
   },
 ];
 
-/** Axis-alignment tolerance — a principal normal has exactly one unit component. */
-const PRINCIPAL_TOLERANCE = 1e-6;
+/** Axis-alignment tolerance — MIRRORS the kernel's `_AXIS_PARALLEL_TOL`
+ * (`services/geometry/src/geometry/drawings/section.py`), so this client
+ * pre-check can't drift from the server guard it stands in for. */
+const AXIS_PARALLEL_TOL = 1e-7;
 
-/** True when a plane normal is axis-aligned (the v1 section precondition, §7):
- * normalized, two of its three components are ~0. The SAME plane math the kernel
- * resolves, so this pre-check agrees with the server's `section_plane_not_principal`. */
+/** True when a plane normal is axis-aligned (the v1 section precondition, §7).
+ * The EXACT test the kernel's `resolve_section_frame` runs: normalize, then the
+ * largest-magnitude component must be within tol of 1 (a principal axis) — so a
+ * near-axis normal in the 1e-7 window resolves the SAME way here and server-side. */
 function isPrincipalNormal(n: Vec3Tuple): boolean {
   const len = Math.hypot(n[0], n[1], n[2]);
   if (len === 0) return false;
-  const near = [n[0], n[1], n[2]].filter(
-    (v) => Math.abs(v / len) < PRINCIPAL_TOLERANCE,
-  ).length;
-  return near === 2;
+  const maxComp = Math.max(
+    Math.abs(n[0] / len),
+    Math.abs(n[1] / len),
+    Math.abs(n[2] / len),
+  );
+  return maxComp >= 1 - AXIS_PARALLEL_TOL;
 }
 
 export interface SectionAuthorPanelProps {

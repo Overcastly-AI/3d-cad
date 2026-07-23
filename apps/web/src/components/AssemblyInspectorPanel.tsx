@@ -99,11 +99,17 @@ export function AssemblyInspectorPanel({
           error={clashError}
         />
       )}
-      <ExportRow
-        testIdPrefix="assembly-export"
-        exporter={exporter}
-        disabledReason={exportDisabledReason}
-      />
+      {/* The EXPORT strip is a STICKY footer: a long clash schedule (or BOM)
+          scrolls under it inside the panel's overflow, but export stays pinned
+          to the fold and always reachable. `-mt-3 pt-3` reclaims the flex gap as
+          a bg-anvil buffer so scrolling rows never bleed through above it. */}
+      <div className="sticky bottom-0 z-10 -mt-3 bg-anvil pt-3">
+        <ExportRow
+          testIdPrefix="assembly-export"
+          exporter={exporter}
+          disabledReason={exportDisabledReason}
+        />
+      </div>
     </div>
   );
 }

@@ -218,6 +218,7 @@ import {
   planeRefFromSpec,
   type PlaneBasis,
   resolveDatumBasis,
+  resolveDatumPlaneOptions,
 } from "../sketch/plane";
 import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -1136,38 +1137,12 @@ export function PartPage() {
     [features],
   );
   // Datum features already in the tree, offered as reusable sketch planes in
-  // the plane picker (a standalone datum seats many sketches — DRY).
+  // the plane picker (a standalone datum seats many sketches — DRY). The SAME
+  // derivation the section-view author reads (`resolveDatumPlaneOptions`), so a
+  // datum FeatureRef means exactly the same plane in both flows (one source).
   const datumPlaneOptions = useMemo(
-    () =>
-      features.flatMap((f) => {
-        if (f.feature.type !== "datum") return [];
-        const params = f.feature.params;
-        // Offset datums carry a rich readout ("XY +30") via their spec; every
-        // other client-resolvable datum (offset-from-a-datum / midplane) is
-        // offered by its resolved basis. On-face datums resolve server-side
-        // only, so they are absent from `datumBasisById` and not offered here.
-        if (params.kind === "offset") {
-          return [
-            { id: f.id, name: f.name, spec: offsetSpecFromDatum(f.id, params) },
-          ];
-        }
-        const basis = datumBasisById.get(f.id);
-        return basis === undefined
-          ? []
-          : [
-              {
-                id: f.id,
-                name: f.name,
-                spec: {
-                  kind: "datum" as const,
-                  datumFeatureId: f.id,
-                  label: f.name,
-                  basis,
-                },
-              },
-            ];
-      }),
-    [features, datumBasisById],
+    () => resolveDatumPlaneOptions(features),
+    [features],
   );
   // Axis line-entity choices per profile sketch — the revolve editor scopes its
   // axis picker to the selected profile's own lines.

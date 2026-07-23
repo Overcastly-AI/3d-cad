@@ -2,19 +2,31 @@
  * The CLASH inspector view — a machinist's interference-fit report. The check
  * runs the SAME solve as the evaluate, then lists every unordered instance pair
  * whose solved-world bodies overlap, each with the exact intersection volume.
- * A quiet precision instrument: the alarm hue (flag red) is spent only on the
- * count + each row's balloons, matching the tree badge and the viewport edge
- * (one clash language, three surfaces). A clash-free assembly gets an explicit
- * "No interferences found"; before the first run, an invitation to run it.
+ * A quiet precision instrument: the alarm hue (flag red) is spent only on each
+ * row's balloons, matching the tree badge and the viewport edge (one clash
+ * language, three surfaces); the eyebrow count stays quiet gauge-gray so the
+ * panel reads as calm until a row draws the eye. A clash-free assembly gets an
+ * explicit "No interferences found"; before the first run, an invitation to run it.
  *
  * Volume is read in mm³ with the same formatter as the inspector's mass block
  * (the assembly's number language) — a clash volume is a volume, not a length,
- * so it does not convert through the document length unit.
+ * so it does not convert through the document length unit. A genuine but tiny
+ * overlap (< 0.01 mm³) falls back to scientific notation so a FLAGGED pair can
+ * never read a misleading "0".
  */
 import { Panel, PanelSection } from "@loft/design";
 
 import type { InstanceResponse, InterferenceResult } from "../api/assemblies";
 import { formatQuantity } from "../lib/format";
+
+/** A clash overlap in mm³. A real overlap is always positive, but a sub-0.01 mm³
+ * one rounds to "0" at the shared 2-fraction-digit precision — misleading on a
+ * pair the panel flags red — so tiny positive volumes read in scientific
+ * notation instead (e.g. "3.2e-4"); everything ≥ 0.01 uses the shared formatter. */
+function formatOverlapVolume(mm3: number): string {
+  if (mm3 > 0 && mm3 < 0.01) return mm3.toExponential(1);
+  return formatQuantity(mm3);
+}
 
 export interface AssemblyClashPanelProps {
   /** The graph's instances (for balloon numbers + names). */
@@ -115,7 +127,7 @@ export function AssemblyClashPanel({
                         className="block font-data text-sm tabular-nums text-mist"
                         data-testid="clash-volume"
                       >
-                        {formatQuantity(clash.overlap_volume_mm3)}
+                        {formatOverlapVolume(clash.overlap_volume_mm3)}
                       </span>
                       <span className="block font-body text-2xs text-gauge">
                         mm³ overlap

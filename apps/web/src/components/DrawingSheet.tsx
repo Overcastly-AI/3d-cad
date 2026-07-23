@@ -797,7 +797,9 @@ function SectionHatch({ hatch }: { hatch: ComposedHatch }) {
       aria-hidden="true"
       stroke={drawing.hatch}
       strokeWidth={drawing.hatchWeightMm}
-      strokeLinecap="butt"
+      // `round` matches the server serializer's hatch stroke (compose.py
+      // `_emit_hatch`) so the on-screen fill == the exported SVG/PDF/DXF.
+      strokeLinecap="round"
     >
       {hatch.lines.map((line, i) => (
         <line key={i} x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2} />

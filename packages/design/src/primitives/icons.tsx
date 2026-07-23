@@ -78,11 +78,7 @@ export const FlatPatternIcon = (p: IconProps) => (
 export const SectionIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x={5} y={7} width={14} height={10} />
-    <path
-      d="M7 17 L17 7 M11 17 L19 9 M5 15 L13 7"
-      strokeWidth={1}
-      strokeDasharray="0"
-    />
+    <path d="M7 17 L17 7 M11 17 L19 9 M5 15 L13 7" strokeWidth={1} />
   </Icon>
 );
 
