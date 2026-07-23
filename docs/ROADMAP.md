@@ -411,9 +411,20 @@ item:
       snaps via `HolePointOverlay`), set Ø + through-all|blind, drill; typed
       rebuild errors read as guidance via `friendlyFeatureError`. e2e drills a
       through-all + a blind hole in the UI on the real stack; 13 `hole.test.ts`
-      units. Slice 2 (counterbore/countersink/tapped + drill tables) remains
-      (BACKLOG P2). Erases the highest-frequency everyday modeling friction and
+      units. Erases the highest-frequency everyday modeling friction and
       seeds Drawings hole callouts.
+- ✅ Dedicated Hole feature — SLICE 2 GEOMETRY CORE (counterbore + countersink,
+      2026-07-23): an additive `HoleType`-discriminated member on `HoleParamsV1`
+      (`simple` default reads byte-identical to slice 1 — no `param_version` bump,
+      the RevolveAxis/DatumParams idiom). Kernel `cut_counterbore` (a larger
+      coaxial cylindrical recess) + `cut_countersink` (a coaxial cone from the
+      mouth Ø to the bore Ø at the included angle, 82/90 std), cut alongside the
+      bore on the shared face-normal axis. Two analytic goldens
+      (`hole-counterbore-d18-r5-40x25x10` — π·r²·H+π·(R²-r²)·h, cross-checked vs an
+      independent 2-step extrude-cut; `hole-countersink-d18-90deg-r5-40x25x10` —
+      cone frustum); typed degradation `hole_cbore_invalid`/`hole_csink_invalid`/
+      `hole_too_deep` (never-500). Web `HoleEditor` type-select + tapped + drill
+      tables remain (BACKLOG P2).
 - ✅ Mirror feature — END-TO-END (geometry+DTO 2026-07-23; web authoring
       2026-07-23): `MirrorFeature`/`MirrorParamsV1` reflect the current body about a
       plane (origin datum XY/XZ/YZ or a `datum` feature — the SAME `GeomRef` a

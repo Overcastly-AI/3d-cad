@@ -1,0 +1,29 @@
+{
+  "description": "A 40x25x10 mm block with a COUNTERSINK hole drilled by the dedicated HoleFeature at the centre of the top (+Z) face: a Ø10 (r=5) bore fully through the material PLUS a coaxial conical recess Ø18 (R=9) wide at the surface tapering at the 90° included angle down to the bore diameter (seats a flat-head screw). Locks that the countersink removes exactly the bore cylinder plus the annular cone (the frustum π·h/3·(R²+R·r+r²) minus the already-bored π·r²·h), by a hand-derived analytic volume.",
+  "derivation": [
+    "Block: 40 x 25 x 10 = 10000 mm^3.",
+    "Cone depth from the 90° included angle: half-angle 45°, so the radius drops 1:1 with depth; h = (R−r)/tan(45°) = (9−5)/1 = 4 mm.",
+    "Bore removed (Ø10 through the 10 mm thickness): π·r²·H = π·5²·10 = 250π = 785.398163397448 mm^3.",
+    "Cone frustum (R=9 at the surface → r=5 at depth 4): π·h/3·(R²+R·r+r²) = π·4/3·(81+45+25) = 604π/3 = 632.5073209227453 mm^3. The already-bored inner cylinder over that depth is π·r²·h = π·25·4 = 100π, so the countersink removes the ANNULAR cone = 604π/3 − 100π = 304π/3 = 318.3086390706734 mm^3.",
+    "Total removed = 250π + 304π/3 = 1054π/3 = 1103.7462189612147 mm^3.",
+    "Volume = 10000 − 1054π/3 = 8896.253781038786 mm^3 (matches analytic to machine precision).",
+    "Surface area: block faces 3300 mm^2; the top face loses the Ø18 mouth disc πR²=81π and the bottom loses the Ø10 bore disc πr²=25π; the cone adds a frustum lateral π(R+r)·slant with slant=√(h²+(R−r)²)=√32=4√2, i.e. π·14·4√2 = 56√2·π; the bore adds a cylindrical wall from the cone bottom (z=6) to the bottom face over 6 mm: 2πr·6=60π. Area = 3300 + (−81−25+60)π + 56√2·π = 3300 + (−46+56√2)π = 3404.288182471737 mm^2.",
+    "Centroid: on the central axis (20, 12.5). z = (50000 − 6406π/3) / (10000 − 1054π/3) = 4.866278947584112 mm — BELOW the mid-plane 5.0, because the cone removes material from the TOP (confirms the recess is at the placement face).",
+    "AABB unchanged: the hole is interior to the envelope, so (0,0,0)-(40,25,10).",
+    "Topology: 6 block planar faces + the conical countersink face + the bore cylindrical wall = 8 faces; 12 block edges + the Ø18 mouth circle + the cone↔bore circle + the bore-bottom circle + the cone seam + the bore seam = 17 edges; 1 shell.",
+    "Mesh (linear_deflection 0.1): 976 vertices / 1150 triangles from the HoleFeature harness."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "The countersink is a pure boolean of a right cylinder and a right cone from a box; GProp integrates the analytic quadrics exactly, observed deviation from the closed-form volume/area is ~1e-12 (machine precision). 1e-9 mm^3/mm^2 ceiling matches the kernel's 1e-7 m linear posture and the simple-hole / counterbore / box / cylinder goldens.",
+  "properties": {
+    "volume": 8896.253781038786,
+    "surface_area": 3404.288182471737,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 4.866278947584112 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 8, "edges": 17, "shells": 1 },
+  "mesh": { "vertices": 976, "triangles": 1150 }
+}

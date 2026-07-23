@@ -2561,6 +2561,64 @@ export interface components {
             kind: "blind";
         };
         /**
+         * HoleCounterbore
+         * @description A larger coaxial CYLINDRICAL recess at the face (``kind: "counterbore"``).
+         *
+         *     Seats a socket-head cap screw: a flat-bottomed cylinder of
+         *     ``cbore_diameter_mm`` sunk ``cbore_depth_mm`` from the placement face, coaxial
+         *     with the bore, subtracted ALONGSIDE the bore. The recess diameter must exceed
+         *     the bore ``diameter_mm`` and its depth must fit within the body's thickness —
+         *     an invalid recess degrades to a typed ``hole_cbore_invalid`` (diameter) /
+         *     ``hole_too_deep`` (depth) rebuild error, never a raise or a silently wrong
+         *     body (the never-500 posture the simple hole already holds).
+         */
+        HoleCounterbore: {
+            /**
+             * Cbore Depth Mm
+             * @description Depth of the counterbore recess from the face into the material (mm); must fit the body thickness (a `hole_too_deep` otherwise)
+             */
+            cbore_depth_mm: number;
+            /**
+             * Cbore Diameter Mm
+             * @description Counterbore recess diameter (mm); must EXCEED the bore `diameter_mm` (a `hole_cbore_invalid` rebuild error otherwise)
+             */
+            cbore_diameter_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "counterbore";
+        };
+        /**
+         * HoleCountersink
+         * @description A coaxial CONICAL recess at the face (``kind: "countersink"``).
+         *
+         *     Seats a flat-head screw: a truncated cone — ``csink_diameter_mm`` wide at the
+         *     surface, tapering at the ``csink_angle_deg`` INCLUDED angle (82° and 90° are
+         *     the fastener standards) down to the bore diameter — subtracted alongside the
+         *     bore. The mouth diameter must exceed the bore ``diameter_mm`` and the cone
+         *     depth the angle implies must fit the body — an invalid recess degrades to a
+         *     typed ``hole_csink_invalid`` (diameter) / ``hole_too_deep`` (depth) rebuild
+         *     error, never a raise.
+         */
+        HoleCountersink: {
+            /**
+             * Csink Angle Deg
+             * @description INCLUDED cone angle (degrees); 82 and 90 are the flat-head fastener standards. The cone tapers from the mouth diameter down to the bore diameter over a depth the angle implies.
+             */
+            csink_angle_deg: number;
+            /**
+             * Csink Diameter Mm
+             * @description Countersink mouth diameter at the face surface (mm); must EXCEED the bore `diameter_mm` (a `hole_csink_invalid` otherwise)
+             */
+            csink_diameter_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "countersink";
+        };
+        /**
          * HoleFeature
          * @description ``{"type": "hole", "version": 1, "params": {...}}`` envelope.
          *
@@ -2588,7 +2646,7 @@ export interface components {
         };
         /**
          * HoleParamsV1
-         * @description A face-placed cylindrical hole — through-all or blind (slice 1).
+         * @description A face-placed cylindrical hole — through-all or blind, plain or recessed.
          *
          *     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
          *     ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
@@ -2614,6 +2672,12 @@ export interface components {
          *     face reference degrades exactly as the ``on_face`` datum does
          *     (``subshape_unresolved`` / ``subshape_ambiguous``) — planar faces only carry a
          *     signature, so a non-planar pick cannot be authored.
+         *
+         *     ``type`` is a :data:`HoleType`: ``simple`` (the default when omitted — the
+         *     slice-1 plain bore) or a bore PLUS a coaxial recess at the face —
+         *     ``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess
+         *     whose diameter does not exceed the bore is ``hole_cbore_invalid`` /
+         *     ``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.
          */
         HoleParamsV1: {
             /**
@@ -2630,6 +2694,29 @@ export interface components {
             face: components["schemas"]["SubshapeRef"];
             /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
             position: components["schemas"]["Vec3"];
+            /**
+             * Type
+             * @description Hole type: a plain bore (`simple`, the default when omitted — slice-1 behaviour) or a bore plus a coaxial counterbore / countersink recess at the face (:data:`HoleType`)
+             */
+            type?: components["schemas"]["HoleSimple"] | components["schemas"]["HoleCounterbore"] | components["schemas"]["HoleCountersink"];
+        };
+        /**
+         * HoleSimple
+         * @description A plain straight drilled hole — no recess (``kind: "simple"``, the default).
+         *
+         *     The slice-1 shape: the bore alone (``diameter_mm`` + the through-all|blind
+         *     ``depth``), with no counterbore/countersink recess at the face. ``kind``
+         *     DEFAULTS to ``"simple"`` so a legacy :class:`HoleParamsV1` that carries NO
+         *     ``type`` validates unchanged — the discriminated :data:`HoleType` is a purely
+         *     ADDITIVE member (NO ``param_version`` bump; the RevolveAxis / DatumParams
+         *     idiom).
+         */
+        HoleSimple: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "simple";
         };
         /**
          * HoleThroughAll

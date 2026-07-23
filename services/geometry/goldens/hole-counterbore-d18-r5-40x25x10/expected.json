@@ -1,0 +1,28 @@
+{
+  "description": "A 40x25x10 mm block with a COUNTERBORE hole drilled by the dedicated HoleFeature at the centre of the top (+Z) face: a Ø10 (r=5) bore fully through the material PLUS a larger coaxial Ø18 (R=9) cylindrical recess sunk 4 mm from the top face (seats a socket-head cap screw). Locks that the counterbore removes exactly the bore cylinder plus the annular-difference recess (π·r²·H + π·(R²−r²)·h_cbore) and that volume/area/topology match an independent hand-built two-step sketch+extrude-cut of the same bore + recess.",
+  "derivation": [
+    "Block: 40 x 25 x 10 = 10000 mm^3.",
+    "Bore removed (Ø10 through the 10 mm thickness): π·r²·H = π·5²·10 = 250π = 785.398163397448 mm^3.",
+    "Counterbore ANNULAR recess (Ø18 ring beyond the bore, 4 mm deep): π·(R²−r²)·h = π·(9²−5²)·4 = π·56·4 = 224π = 703.716754321073 mm^3.",
+    "Total removed = 250π + 224π = 474π = 1489.114917718521 mm^3.",
+    "Volume = 10000 − 474π = 8510.885082198438 mm^3 (matches analytic to machine precision; equal to the independent two-cut path).",
+    "Surface area: block faces 3300 mm^2; the top face loses the Ø18 mouth disc πR²=81π and the bottom loses the Ø10 bore disc πr²=25π; the counterbore adds a cylindrical wall 2πR·h=2π·9·4=72π and a flat-bottom annulus π(R²−r²)=56π; the bore adds a cylindrical wall from the recess bottom (z=6) to the bottom face over 6 mm: 2πr·6=60π. Area = 3300 + (−81−25+72+56+60)π = 3300 + 82π = 3557.6105975943624 mm^2.",
+    "Centroid: on the central axis (20, 12.5). z = (50000 − 3042π) / (10000 − 474π) = 4.7519470369035925 mm — BELOW the mid-plane 5.0, because the recess removes material from the TOP, so more mass sits low (confirms the recess is at the placement face, not the far face).",
+    "AABB unchanged: the hole is interior to the envelope, so (0,0,0)-(40,25,10).",
+    "Topology: 6 block planar faces + counterbore cylindrical wall + counterbore flat-bottom annulus + bore cylindrical wall = 9 faces; 18 edges; 1 shell. Cross-checked IDENTICAL (faces/edges/shells + volume + area) to a hand-built two-step extrude-cut (Ø18 4 mm deep, then Ø10 through) — a true mirror image (recess on the opposite face), so its centroid mirrors to 5.248 but its volume/area/topology agree exactly.",
+    "Mesh (linear_deflection 0.1): 1036 vertices / 1024 triangles from the HoleFeature harness."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "The counterbore is a pure boolean of two right cylinders from a box; GProp integrates the analytic quadrics exactly, observed deviation from the closed-form volume/area is ~1e-12 (machine precision). 1e-9 mm^3/mm^2 ceiling matches the kernel's 1e-7 m linear posture and the simple-hole / box / cylinder goldens.",
+  "properties": {
+    "volume": 8510.885082198438,
+    "surface_area": 3557.6105975943624,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 4.7519470369035925 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 9, "edges": 18, "shells": 1 },
+  "mesh": { "vertices": 1036, "triangles": 1024 }
+}

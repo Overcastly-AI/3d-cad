@@ -1051,10 +1051,15 @@ class DraftParamsV1(BaseModel):
 # feature_dependencies (deleting the placement-face's feature is a write-time
 # 409-with-dependents; a reorder re-checks strict-backward).
 #
-# v1 SCOPE (slice 1): a SIMPLE straight drilled hole — through-all OR a blind
-# depth. Counterbore / countersink / tapped (a `HoleType`-discriminated member)
-# and standard drill-size tables are slice 2 — additive members with NO
-# `param_version` bump (the RevolveAxis / DatumParams idiom).
+# SCOPE: a SIMPLE straight drilled hole — through-all OR a blind depth (slice 1)
+# — PLUS an optional coaxial RECESS at the placement face (slice 2): a larger
+# cylindrical `counterbore` (seats a socket-head cap screw) or a `countersink`
+# cone (seats a flat-head screw). The recess is a `HoleType`-discriminated member
+# (:data:`HoleType`) added to `HoleParamsV1` ADDITIVELY — the base bore is
+# unchanged and a legacy hole with no `type` reads `simple`, so NO `param_version`
+# bump (the RevolveAxis / DatumParams / PatternGeometry idiom). Tapped holes (a
+# thread callout, not v1 geometry) and standard drill-size tables remain future
+# additive members.
 
 
 class HoleThroughAll(BaseModel):
@@ -1086,13 +1091,91 @@ class HoleBlindDepth(BaseModel):
 
 
 #: A hole's depth mode — cut fully through, or a blind pocket — discriminated on
-#: ``kind``. A future ``counterbore`` / ``countersink`` shape is a SEPARATE param
-#: (the hole TYPE), not a depth mode; this union stays through-all|blind.
+#: ``kind``. The ``counterbore`` / ``countersink`` shape is a SEPARATE param
+#: (the hole TYPE — :data:`HoleType`), not a depth mode; this union stays
+#: through-all|blind (a recess is measured from the face independently of it).
 HoleDepth = Annotated[HoleThroughAll | HoleBlindDepth, Field(discriminator="kind")]
 
 
+class HoleSimple(BaseModel):
+    """A plain straight drilled hole — no recess (``kind: "simple"``, the default).
+
+    The slice-1 shape: the bore alone (``diameter_mm`` + the through-all|blind
+    ``depth``), with no counterbore/countersink recess at the face. ``kind``
+    DEFAULTS to ``"simple"`` so a legacy :class:`HoleParamsV1` that carries NO
+    ``type`` validates unchanged — the discriminated :data:`HoleType` is a purely
+    ADDITIVE member (NO ``param_version`` bump; the RevolveAxis / DatumParams
+    idiom).
+    """
+
+    kind: Literal["simple"] = "simple"
+
+
+class HoleCounterbore(BaseModel):
+    """A larger coaxial CYLINDRICAL recess at the face (``kind: "counterbore"``).
+
+    Seats a socket-head cap screw: a flat-bottomed cylinder of
+    ``cbore_diameter_mm`` sunk ``cbore_depth_mm`` from the placement face, coaxial
+    with the bore, subtracted ALONGSIDE the bore. The recess diameter must exceed
+    the bore ``diameter_mm`` and its depth must fit within the body's thickness —
+    an invalid recess degrades to a typed ``hole_cbore_invalid`` (diameter) /
+    ``hole_too_deep`` (depth) rebuild error, never a raise or a silently wrong
+    body (the never-500 posture the simple hole already holds).
+    """
+
+    kind: Literal["counterbore"]
+    cbore_diameter_mm: float = Field(
+        gt=0,
+        description="Counterbore recess diameter (mm); must EXCEED the bore "
+        "`diameter_mm` (a `hole_cbore_invalid` rebuild error otherwise)",
+    )
+    cbore_depth_mm: float = Field(
+        gt=0,
+        description="Depth of the counterbore recess from the face into the "
+        "material (mm); must fit the body thickness (a `hole_too_deep` otherwise)",
+    )
+
+
+class HoleCountersink(BaseModel):
+    """A coaxial CONICAL recess at the face (``kind: "countersink"``).
+
+    Seats a flat-head screw: a truncated cone — ``csink_diameter_mm`` wide at the
+    surface, tapering at the ``csink_angle_deg`` INCLUDED angle (82° and 90° are
+    the fastener standards) down to the bore diameter — subtracted alongside the
+    bore. The mouth diameter must exceed the bore ``diameter_mm`` and the cone
+    depth the angle implies must fit the body — an invalid recess degrades to a
+    typed ``hole_csink_invalid`` (diameter) / ``hole_too_deep`` (depth) rebuild
+    error, never a raise.
+    """
+
+    kind: Literal["countersink"]
+    csink_diameter_mm: float = Field(
+        gt=0,
+        description="Countersink mouth diameter at the face surface (mm); must "
+        "EXCEED the bore `diameter_mm` (a `hole_csink_invalid` otherwise)",
+    )
+    csink_angle_deg: float = Field(
+        gt=0.0,
+        lt=180.0,
+        description="INCLUDED cone angle (degrees); 82 and 90 are the flat-head "
+        "fastener standards. The cone tapers from the mouth diameter down to the "
+        "bore diameter over a depth the angle implies.",
+    )
+
+
+#: A hole's TYPE — a plain bore, or a bore PLUS a coaxial recess at the face —
+#: discriminated on ``kind``. ADDITIVE to :class:`HoleParamsV1` (the base bore is
+#: unchanged; the type only ADDS the recess): a legacy hole with no ``type`` reads
+#: ``simple``, so NO ``param_version`` bump (the RevolveAxis / DatumParams /
+#: PatternGeometry idiom). A future ``tapped`` member (a thread callout, not v1
+#: geometry) joins here additively.
+HoleType = Annotated[
+    HoleSimple | HoleCounterbore | HoleCountersink, Field(discriminator="kind")
+]
+
+
 class HoleParamsV1(BaseModel):
-    """A face-placed cylindrical hole — through-all or blind (slice 1).
+    """A face-placed cylindrical hole — through-all or blind, plain or recessed.
 
     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
     ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
@@ -1118,6 +1201,12 @@ class HoleParamsV1(BaseModel):
     face reference degrades exactly as the ``on_face`` datum does
     (``subshape_unresolved`` / ``subshape_ambiguous``) — planar faces only carry a
     signature, so a non-planar pick cannot be authored.
+
+    ``type`` is a :data:`HoleType`: ``simple`` (the default when omitted — the
+    slice-1 plain bore) or a bore PLUS a coaxial recess at the face —
+    ``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess
+    whose diameter does not exceed the bore is ``hole_cbore_invalid`` /
+    ``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.
     """
 
     face: SubshapeRef = Field(
@@ -1131,6 +1220,12 @@ class HoleParamsV1(BaseModel):
     diameter_mm: float = Field(gt=0, description="Hole diameter (mm)")
     depth: HoleDepth = Field(
         description="Through-all, or a blind pocket depth (:data:`HoleDepth`)"
+    )
+    type: HoleType = Field(
+        default_factory=HoleSimple,
+        description="Hole type: a plain bore (`simple`, the default when omitted "
+        "— slice-1 behaviour) or a bore plus a coaxial counterbore / countersink "
+        "recess at the face (:data:`HoleType`)",
     )
 
 

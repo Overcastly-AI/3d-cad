@@ -61,8 +61,11 @@ from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.hole import (
     HoleError,
     HoleOffBodyError,
+    HoleRecessInvalidError,
     HoleTooDeepError,
     bore_hole,
+    cut_counterbore,
+    cut_countersink,
 )
 from geometry.kernel.imports import (
     ImportNoSolidError,
@@ -150,6 +153,7 @@ __all__ = [
     "FilletError",
     "HoleError",
     "HoleOffBodyError",
+    "HoleRecessInvalidError",
     "HoleTooDeepError",
     "ImportNoSolidError",
     "ImportParseError",
@@ -200,6 +204,8 @@ __all__ = [
     "circular_pattern_cut",
     "combine_body",
     "combine_properties",
+    "cut_counterbore",
+    "cut_countersink",
     "draft_body",
     "edge_signature_dto",
     "enumerate_edges",

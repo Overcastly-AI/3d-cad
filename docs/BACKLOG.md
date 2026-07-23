@@ -243,12 +243,24 @@ frame refactor are v2/§11. Spike de-collected.
       a through-all + a blind hole in the UI on the real isolated stack (feature
       lands + body re-renders + reload holds); 13 `hole.test.ts` units; founder
       shots (1440 + 1280×800). [done 2026-07-23]
-- [ ] (P2, M) Dedicated Hole feature — SLICE 2: counterbore / countersink /
-      tapped hole types, standard drill-size tables (+ a follow-up MCP/scripting
-      exposure). Seeds Drawings hole callouts. Slice-2 hole types join
-      `HoleParamsV1` as an additive `HoleType`-discriminated member (no
-      `param_version` bump); the `HoleEditor` grows a type select + the tables.
-      [src: AUDIT-PRODUCT.md 2026-07-23; roadmap, product-auditor, competitive]
+- [x] (P2, S) Dedicated Hole feature — SLICE 2 GEOMETRY CORE (counterbore +
+      countersink): additive `HoleType`-discriminated member on `HoleParamsV1`
+      (`simple` default = byte-identical slice-1, no `param_version` bump — the
+      RevolveAxis/DatumParams idiom); kernel `cut_counterbore` (larger coaxial
+      cylinder) + `cut_countersink` (coaxial cone from mouth Ø to bore Ø at the
+      included angle), coaxial with the bore via the shared face-normal axis.
+      Goldens `hole-counterbore-d18-r5-40x25x10` (analytic π·r²·H+π·(R²-r²)·h,
+      cross-checked vs a 2-step extrude-cut) + `hole-countersink-d18-90deg-...`
+      (analytic frustum); typed degradation `hole_cbore_invalid` /
+      `hole_csink_invalid` / `hole_too_deep` (never-500). gen-check + apps/web
+      typecheck clean (no other schema perturbed). [done 2026-07-23]
+- [ ] (P2, M) Dedicated Hole feature — SLICE 2 REMAINDER: web `HoleEditor` grows
+      a type select (Ø + depth + cbore/csink params); tapped hole type (a thread
+      callout, not v1 geometry — DEFERRED); standard drill-size tables (+ a
+      follow-up MCP/scripting exposure). Seeds Drawings hole callouts. Web slot
+      needs: `type.kind` ∈ {simple,counterbore,countersink}; counterbore
+      {`cbore_diameter_mm`,`cbore_depth_mm`}; countersink {`csink_diameter_mm`,
+      `csink_angle_deg` (82/90 std)}. [src: AUDIT-PRODUCT.md 2026-07-23]
 - [x] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
       state (or typed-fail if they reference the suppressed feature directly). A

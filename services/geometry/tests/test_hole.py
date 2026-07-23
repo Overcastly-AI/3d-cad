@@ -33,10 +33,14 @@ from geometry.kernel.extrude import BooleanError, combine_body
 from geometry.kernel.faces import planar_faces
 from geometry.kernel.hole import (
     HoleError,
+    HoleRecessInvalidError,
     HoleTooDeepError,
     bore_hole,
+    cut_counterbore,
+    cut_countersink,
 )
 from geometry.kernel.lumps import lump_count
+from geometry.kernel.types import BodyShape
 from geometry.main import app
 from py_kit.schemas.features import (
     FEATURE_REGISTRY,
@@ -360,7 +364,256 @@ def test_blind_hole_removes_exact_pocket_and_keeps_bottom_intact() -> None:
     assert result.properties.bounding_box.min.z == _approx(0.0)
 
 
+# --- Slice 2: counterbore / countersink (analytic parity + regression) --------------
+
+
+def _hole_typed(
+    feature_id: uuid.UUID,
+    diameter_mm: float,
+    depth: dict[str, Any],
+    hole_type: dict[str, Any],
+) -> dict[str, Any]:
+    """A hole input carrying an explicit ``type`` (counterbore/countersink/simple)."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "hole",
+            "version": 1,
+            "params": {
+                "face": _face_ref(EXTRUDE_ID, *TOP_FACE),
+                "position": {"x": 20.0, "y": 12.5, "z": 10.0},
+                "diameter_mm": diameter_mm,
+                "depth": depth,
+                "type": hole_type,
+            },
+        },
+    }
+
+
+#: Counterbore Ø18 (R=9) 4 mm deep over a Ø10 (r=5) through-bore in the 10 mm block.
+_CBORE_REMOVED = math.pi * RADIUS * RADIUS * 10.0 + math.pi * (9.0**2 - 5.0**2) * 4.0
+#: Countersink Ø18 (R=9) 90° included over the same bore: bore + annular cone.
+_CSINK_H = (9.0 - 5.0) / math.tan(math.radians(45.0))
+_CSINK_FRUSTUM = math.pi * _CSINK_H / 3.0 * (9.0**2 + 9.0 * 5.0 + 5.0**2)
+_CSINK_REMOVED = (
+    math.pi * RADIUS * RADIUS * 10.0
+    + _CSINK_FRUSTUM
+    - math.pi * RADIUS * RADIUS * _CSINK_H
+)
+
+
+def test_counterbore_matches_analytic_and_extrude_cut() -> None:
+    """A counterbore removes EXACTLY π·r²·H + π·(R²-r²)·h_cbore (the bore plus the
+    annular-difference recess), and its volume/area/topology match an independent
+    hand-built two-step sketch+extrude-cut (Ø18 4 mm, then Ø10 through). The recess
+    sits at the placement (top) face, so more mass is low: centroid z < 5."""
+    result = _post(
+        _request(
+            [
+                block_sketch(SKETCH_ID),
+                extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+                _hole_typed(
+                    HOLE_ID,
+                    10.0,
+                    THROUGH,
+                    {
+                        "kind": "counterbore",
+                        "cbore_diameter_mm": 18.0,
+                        "cbore_depth_mm": 4.0,
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == _approx(BLOCK_VOLUME - _CBORE_REMOVED)
+    assert (
+        result.properties.topology.faces,
+        result.properties.topology.edges,
+        result.properties.topology.shells,
+    ) == (9, 18, 1)
+    # Recess at the top face -> centroid pulled below the mid-plane.
+    assert result.properties.centroid.z < 5.0
+
+    # Independent path: two extrude-cuts of the same bore + recess (from the bottom,
+    # a true mirror image — so volume/area/topology agree but the centroid mirrors).
+    cut = _post(
+        _request(
+            [
+                block_sketch(SKETCH_ID),
+                extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+                circle_cut_sketch(
+                    uuid.UUID("00000000-0000-0000-0000-0000000f00a1"), (20.0, 12.5), 9.0
+                ),
+                extrude_cut(
+                    uuid.UUID("00000000-0000-0000-0000-0000000f00a2"),
+                    uuid.UUID("00000000-0000-0000-0000-0000000f00a1"),
+                    4.0,
+                ),
+                circle_cut_sketch(
+                    uuid.UUID("00000000-0000-0000-0000-0000000f00b1"), (20.0, 12.5), 5.0
+                ),
+                extrude_cut(
+                    uuid.UUID("00000000-0000-0000-0000-0000000f00b2"),
+                    uuid.UUID("00000000-0000-0000-0000-0000000f00b1"),
+                    10.0,
+                ),
+            ]
+        )
+    )
+    assert cut.properties is not None
+    assert result.properties.volume == _approx(cut.properties.volume)
+    assert result.properties.surface_area == _approx(cut.properties.surface_area)
+    assert result.properties.topology.faces == cut.properties.topology.faces
+    assert result.properties.topology.edges == cut.properties.topology.edges
+
+
+def test_countersink_matches_analytic_frustum() -> None:
+    """A countersink removes EXACTLY the bore plus the annular cone (the frustum
+    π·h/3·(R²+R·r+r²) minus the already-bored π·r²·h), with h set by the 90°
+    included angle. 8 faces (block + cone + bore wall); recess at the top face."""
+    result = _post(
+        _request(
+            [
+                block_sketch(SKETCH_ID),
+                extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+                _hole_typed(
+                    HOLE_ID,
+                    10.0,
+                    THROUGH,
+                    {
+                        "kind": "countersink",
+                        "csink_diameter_mm": 18.0,
+                        "csink_angle_deg": 90.0,
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == _approx(BLOCK_VOLUME - _CSINK_REMOVED)
+    assert (
+        result.properties.topology.faces,
+        result.properties.topology.edges,
+        result.properties.topology.shells,
+    ) == (8, 17, 1)
+    assert result.properties.centroid.z < 5.0
+
+
+def test_simple_hole_omitted_type_is_byte_identical_to_explicit() -> None:
+    """The additive `type` default is INERT: a simple hole with the field OMITTED
+    (the slice-1 wire shape) and one with an explicit `{"kind":"simple"}` produce
+    byte-identical evaluate responses (incl. mesh_glb_id) — the backward-compat
+    regression proving slice 2 did not perturb the simple-hole geometry."""
+    omitted = _request(
+        [
+            block_sketch(SKETCH_ID),
+            extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+            hole_input(HOLE_ID, TOP_FACE, (20.0, 12.5, 10.0), 10.0, THROUGH),
+        ]
+    )
+    explicit = _request(
+        [
+            block_sketch(SKETCH_ID),
+            extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+            _hole_typed(HOLE_ID, 10.0, THROUGH, {"kind": "simple"}),
+        ]
+    )
+    r_omitted = client.post("/api/v1/evaluate", json=omitted)
+    r_explicit = client.post("/api/v1/evaluate", json=explicit)
+    assert r_omitted.status_code == r_explicit.status_code == 200
+    assert r_omitted.content == r_explicit.content
+    # And still the exact slice-1 through-hole geometry (7/15/1, analytic volume).
+    props = EvaluateTreeResult.model_validate(r_omitted.json()).properties
+    assert props is not None
+    assert props.volume == _approx(THROUGH_VOLUME)
+    assert (props.topology.faces, props.topology.edges, props.topology.shells) == (
+        7,
+        15,
+        1,
+    )
+
+
 # --- Typed degradation — per-feature errors, never 500 -------------------------------
+
+
+def test_counterbore_not_larger_than_bore_is_hole_cbore_invalid() -> None:
+    """A counterbore diameter <= the bore seats nothing -> hole_cbore_invalid
+    (a per-feature error, tree still 200), never a raise or a wrong body."""
+    result = _post(
+        _request(
+            [
+                block_sketch(SKETCH_ID),
+                extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+                _hole_typed(
+                    HOLE_ID,
+                    10.0,
+                    THROUGH,
+                    {
+                        "kind": "counterbore",
+                        "cbore_diameter_mm": 8.0,
+                        "cbore_depth_mm": 4.0,
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in result.features] == ["ok", "ok", "error"]
+    assert result.features[2].error is not None
+    assert result.features[2].error.code == "hole_cbore_invalid"
+
+
+def test_countersink_not_larger_than_bore_is_hole_csink_invalid() -> None:
+    """A countersink mouth <= the bore -> hole_csink_invalid (per-feature error)."""
+    result = _post(
+        _request(
+            [
+                block_sketch(SKETCH_ID),
+                extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+                _hole_typed(
+                    HOLE_ID,
+                    10.0,
+                    THROUGH,
+                    {
+                        "kind": "countersink",
+                        "csink_diameter_mm": 10.0,
+                        "csink_angle_deg": 90.0,
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in result.features] == ["ok", "ok", "error"]
+    assert result.features[2].error is not None
+    assert result.features[2].error.code == "hole_csink_invalid"
+
+
+def test_counterbore_deeper_than_body_is_hole_too_deep() -> None:
+    """A counterbore recess deeper than the 10 mm block cannot form its annulus ->
+    hole_too_deep (reuses the bore's over-deep posture), never a silent breakthrough."""
+    result = _post(
+        _request(
+            [
+                block_sketch(SKETCH_ID),
+                extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+                _hole_typed(
+                    HOLE_ID,
+                    10.0,
+                    THROUGH,
+                    {
+                        "kind": "counterbore",
+                        "cbore_diameter_mm": 18.0,
+                        "cbore_depth_mm": 14.0,
+                    },
+                ),
+            ]
+        )
+    )
+    assert [r.status for r in result.features] == ["ok", "ok", "error"]
+    assert result.features[2].error is not None
+    assert result.features[2].error.code == "hole_too_deep"
 
 
 def test_hole_off_body_is_typed_error() -> None:
@@ -689,3 +942,121 @@ def test_bore_hole_is_deterministic_across_repeated_kernel_eval() -> None:
             )
         )
     assert len(signatures) == 1
+
+
+# --- Slice 2 recess cuts — kernel-level analytic + degradation (off-centre) ----------
+#
+# Drive cut_counterbore / cut_countersink DIRECTLY (past the schema) on an
+# already-drilled body, OFF-CENTRE and off axis-aligned so the golden's centred +Z
+# symmetry cannot hide an axis/normal mistake, and over the degradation paths the
+# API tests reach only through the evaluator.
+
+
+def _drilled(
+    body: Solid, position: tuple[float, float, float], diameter: float
+) -> BodyShape:
+    """A through-bored body at ``position`` (the recess cut's precondition)."""
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    return bore_hole(body, top, position, diameter, through_all=True, depth_mm=None)
+
+
+def test_cut_counterbore_removes_exact_annulus_off_center_and_tilted() -> None:
+    """Off-centre counterbore on a 30°-tilted block removes EXACTLY
+    π·(R²-r²)·h_cbore beyond the bore — proving the recess tracks the face normal
+    (not a hardcoded axis) and the analytic annulus, staying one valid lump."""
+    body = _block(40.0, 25.0, 10.0).rotate(Axis((0, 0, 0), (1, 0, 0)), 30.0)
+    normal = (0.0, -math.sin(math.radians(30)), math.cos(math.radians(30)))
+    top = _face_plane_with_normal(body, normal)
+    # A point on the (tilted) top face, off the centroid axis.
+    pos = top.origin + top.x_dir * 6.0
+    bored = bore_hole(
+        body, top, (pos.X, pos.Y, pos.Z), 8.0, through_all=True, depth_mm=None
+    )
+    after_bore = float(bored.volume)
+    recessed = cut_counterbore(
+        bored,
+        top,
+        (pos.X, pos.Y, pos.Z),
+        bore_diameter_mm=8.0,
+        cbore_diameter_mm=16.0,
+        cbore_depth_mm=3.0,
+    )
+    removed = after_bore - float(recessed.volume)
+    assert removed == _kvol(math.pi * (8.0**2 - 4.0**2) * 3.0)
+    assert lump_count(recessed) == 1
+
+
+def test_cut_countersink_removes_exact_annular_cone_off_center() -> None:
+    """Off-centre countersink removes EXACTLY the frustum minus the already-bored
+    inner cylinder (π·h/3·(R²+R·r-2r²)), with h from the 82° included angle — the
+    other fastener standard, so a non-45° slope exercises the tan(angle/2) math."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    pos = (12.0, 9.0, 10.0)
+    bored = bore_hole(body, top, pos, 6.0, through_all=True, depth_mm=None)
+    after_bore = float(bored.volume)
+    recessed = cut_countersink(
+        bored,
+        top,
+        pos,
+        bore_diameter_mm=6.0,
+        csink_diameter_mm=12.0,
+        csink_angle_deg=82.0,
+    )
+    removed = after_bore - float(recessed.volume)
+    r_bore, r_csink = 3.0, 6.0
+    h = (r_csink - r_bore) / math.tan(math.radians(41.0))
+    frustum = math.pi * h / 3.0 * (r_csink**2 + r_csink * r_bore + r_bore**2)
+    expected = frustum - math.pi * r_bore * r_bore * h
+    assert removed == _kvol(expected)
+    assert lump_count(recessed) == 1
+
+
+def test_cut_counterbore_not_larger_than_bore_raises_recess_invalid() -> None:
+    """A counterbore diameter <= the bore is a typed HoleRecessInvalidError
+    (the feature layer maps it to hole_cbore_invalid), never a raw geometry op."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    bored = _drilled(body, (20.0, 12.5, 10.0), 10.0)
+    with pytest.raises(HoleRecessInvalidError):
+        cut_counterbore(
+            bored,
+            top,
+            (20.0, 12.5, 10.0),
+            bore_diameter_mm=10.0,
+            cbore_diameter_mm=10.0,
+            cbore_depth_mm=3.0,
+        )
+
+
+def test_cut_countersink_not_larger_than_bore_raises_recess_invalid() -> None:
+    """A countersink mouth <= the bore is a typed HoleRecessInvalidError."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    bored = _drilled(body, (20.0, 12.5, 10.0), 10.0)
+    with pytest.raises(HoleRecessInvalidError):
+        cut_countersink(
+            bored,
+            top,
+            (20.0, 12.5, 10.0),
+            bore_diameter_mm=10.0,
+            csink_diameter_mm=9.0,
+            csink_angle_deg=90.0,
+        )
+
+
+def test_cut_counterbore_deeper_than_body_raises_too_deep() -> None:
+    """A counterbore recess deeper than the block cannot form its full annulus ->
+    HoleTooDeepError (mapped to hole_too_deep), never a silent breakthrough."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    bored = _drilled(body, (20.0, 12.5, 10.0), 10.0)
+    with pytest.raises(HoleTooDeepError):
+        cut_counterbore(
+            bored,
+            top,
+            (20.0, 12.5, 10.0),
+            bore_diameter_mm=10.0,
+            cbore_diameter_mm=18.0,
+            cbore_depth_mm=14.0,
+        )

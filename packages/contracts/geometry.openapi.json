@@ -3396,6 +3396,65 @@
         "title": "HoleBlindDepth",
         "type": "object"
       },
+      "HoleCounterbore": {
+        "description": "A larger coaxial CYLINDRICAL recess at the face (``kind: \"counterbore\"``).\n\nSeats a socket-head cap screw: a flat-bottomed cylinder of\n``cbore_diameter_mm`` sunk ``cbore_depth_mm`` from the placement face, coaxial\nwith the bore, subtracted ALONGSIDE the bore. The recess diameter must exceed\nthe bore ``diameter_mm`` and its depth must fit within the body's thickness \u2014\nan invalid recess degrades to a typed ``hole_cbore_invalid`` (diameter) /\n``hole_too_deep`` (depth) rebuild error, never a raise or a silently wrong\nbody (the never-500 posture the simple hole already holds).",
+        "properties": {
+          "cbore_depth_mm": {
+            "description": "Depth of the counterbore recess from the face into the material (mm); must fit the body thickness (a `hole_too_deep` otherwise)",
+            "exclusiveMinimum": 0.0,
+            "title": "Cbore Depth Mm",
+            "type": "number"
+          },
+          "cbore_diameter_mm": {
+            "description": "Counterbore recess diameter (mm); must EXCEED the bore `diameter_mm` (a `hole_cbore_invalid` rebuild error otherwise)",
+            "exclusiveMinimum": 0.0,
+            "title": "Cbore Diameter Mm",
+            "type": "number"
+          },
+          "kind": {
+            "const": "counterbore",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "cbore_diameter_mm",
+          "cbore_depth_mm"
+        ],
+        "title": "HoleCounterbore",
+        "type": "object"
+      },
+      "HoleCountersink": {
+        "description": "A coaxial CONICAL recess at the face (``kind: \"countersink\"``).\n\nSeats a flat-head screw: a truncated cone \u2014 ``csink_diameter_mm`` wide at the\nsurface, tapering at the ``csink_angle_deg`` INCLUDED angle (82\u00b0 and 90\u00b0 are\nthe fastener standards) down to the bore diameter \u2014 subtracted alongside the\nbore. The mouth diameter must exceed the bore ``diameter_mm`` and the cone\ndepth the angle implies must fit the body \u2014 an invalid recess degrades to a\ntyped ``hole_csink_invalid`` (diameter) / ``hole_too_deep`` (depth) rebuild\nerror, never a raise.",
+        "properties": {
+          "csink_angle_deg": {
+            "description": "INCLUDED cone angle (degrees); 82 and 90 are the flat-head fastener standards. The cone tapers from the mouth diameter down to the bore diameter over a depth the angle implies.",
+            "exclusiveMaximum": 180.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Csink Angle Deg",
+            "type": "number"
+          },
+          "csink_diameter_mm": {
+            "description": "Countersink mouth diameter at the face surface (mm); must EXCEED the bore `diameter_mm` (a `hole_csink_invalid` otherwise)",
+            "exclusiveMinimum": 0.0,
+            "title": "Csink Diameter Mm",
+            "type": "number"
+          },
+          "kind": {
+            "const": "countersink",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "csink_diameter_mm",
+          "csink_angle_deg"
+        ],
+        "title": "HoleCountersink",
+        "type": "object"
+      },
       "HoleFeature": {
         "description": "``{\"type\": \"hole\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-MODIFYING feature (design \u00a77.6): it drills a cylinder into the current\nbody at a point on a picked planar face (through-all or blind). ``params`` is\n:class:`HoleParamsV1`.",
         "properties": {
@@ -3427,7 +3486,7 @@
         "type": "object"
       },
       "HoleParamsV1": {
-        "description": "A face-placed cylindrical hole \u2014 through-all or blind (slice 1).\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the current body at ``position`` on the planar ``face``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD-space point; the geometry service projects it onto the\nresolved face plane to fix the drill axis (a pick that lands a hair off-plane\nstill drills clean and perpendicular). A point that projects OUTSIDE the body\n\u2014 or a resolved direction into empty space \u2014 removes no material and is a\n``hole_off_body`` rebuild error, never a silent no-op.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.",
+        "description": "A face-placed cylindrical hole \u2014 through-all or blind, plain or recessed.\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the current body at ``position`` on the planar ``face``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD-space point; the geometry service projects it onto the\nresolved face plane to fix the drill axis (a pick that lands a hair off-plane\nstill drills clean and perpendicular). A point that projects OUTSIDE the body\n\u2014 or a resolved direction into empty space \u2014 removes no material and is a\n``hole_off_body`` rebuild error, never a silent no-op.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.\n\n``type`` is a :data:`HoleType`: ``simple`` (the default when omitted \u2014 the\nslice-1 plain bore) or a bore PLUS a coaxial recess at the face \u2014\n``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess\nwhose diameter does not exceed the bore is ``hole_cbore_invalid`` /\n``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.",
         "properties": {
           "depth": {
             "description": "Through-all, or a blind pocket depth (:data:`HoleDepth`)",
@@ -3461,6 +3520,29 @@
           "position": {
             "$ref": "#/components/schemas/Vec3",
             "description": "World-space placement point, projected onto the face plane to fix the drill axis (mm)"
+          },
+          "type": {
+            "description": "Hole type: a plain bore (`simple`, the default when omitted \u2014 slice-1 behaviour) or a bore plus a coaxial counterbore / countersink recess at the face (:data:`HoleType`)",
+            "discriminator": {
+              "mapping": {
+                "counterbore": "#/components/schemas/HoleCounterbore",
+                "countersink": "#/components/schemas/HoleCountersink",
+                "simple": "#/components/schemas/HoleSimple"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HoleSimple"
+              },
+              {
+                "$ref": "#/components/schemas/HoleCounterbore"
+              },
+              {
+                "$ref": "#/components/schemas/HoleCountersink"
+              }
+            ],
+            "title": "Type"
           }
         },
         "required": [
@@ -3470,6 +3552,19 @@
           "depth"
         ],
         "title": "HoleParamsV1",
+        "type": "object"
+      },
+      "HoleSimple": {
+        "description": "A plain straight drilled hole \u2014 no recess (``kind: \"simple\"``, the default).\n\nThe slice-1 shape: the bore alone (``diameter_mm`` + the through-all|blind\n``depth``), with no counterbore/countersink recess at the face. ``kind``\nDEFAULTS to ``\"simple\"`` so a legacy :class:`HoleParamsV1` that carries NO\n``type`` validates unchanged \u2014 the discriminated :data:`HoleType` is a purely\nADDITIVE member (NO ``param_version`` bump; the RevolveAxis / DatumParams\nidiom).",
+        "properties": {
+          "kind": {
+            "const": "simple",
+            "default": "simple",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "HoleSimple",
         "type": "object"
       },
       "HoleThroughAll": {

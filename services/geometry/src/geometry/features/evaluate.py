@@ -85,6 +85,8 @@ from py_kit.schemas.features import (
     FeatureResult,
     FilletFeature,
     HoleBlindDepth,
+    HoleCounterbore,
+    HoleCountersink,
     HoleFeature,
     ImportFeature,
     LinearPatternParamsV1,
@@ -117,6 +119,7 @@ from geometry.kernel import (
     DraftError,
     FilletError,
     HoleOffBodyError,
+    HoleRecessInvalidError,
     HoleTooDeepError,
     ImportNoSolidError,
     ImportParseError,
@@ -157,6 +160,8 @@ from geometry.kernel import (
     circular_pattern_cut,
     combine_body,
     combine_properties,
+    cut_counterbore,
+    cut_countersink,
     draft_body,
     extrude_face,
     fillet_body,
@@ -1634,22 +1639,25 @@ def _evaluate_hole(
 ) -> FeatureError | None:
     """Drill a cylindrical hole into the current body at a point on a face (§4.3).
 
-    The dedicated Hole feature (BACKLOG P2, slice 1 — the simple hole). Like
-    fillet/shell/draft it modifies the implicit single body chain (design §7.6),
-    so it needs a prior body-affecting feature (``no_prior_body`` otherwise). The
-    placement FACE is resolved by the SAME stage-1 planar-face signature the
-    ``on_face`` datum / shell openings use (:func:`resolve_face_plane`, via
+    The dedicated Hole feature (BACKLOG P2, slice 1 — the simple bore; slice 2 —
+    the optional coaxial counterbore / countersink recess). Like fillet/shell/draft
+    it modifies the implicit single body chain (design §7.6), so it needs a prior
+    body-affecting feature (``no_prior_body`` otherwise). The placement FACE is
+    resolved by the SAME stage-1 planar-face signature the ``on_face`` datum /
+    shell openings use (:func:`resolve_face_plane`, via
     :func:`_resolve_face_datum_plane` — offset 0): a ref that no longer resolves
     is ``subshape_unresolved``, a congruent twin ``subshape_ambiguous``, a
     non-planar / missing face likewise (planar faces only carry a signature). The
     drill cuts INTO the material (opposite the face's outward normal — the correct
-    direction, automatically) through the shared cut boolean; failures degrade to
+    direction, automatically) through the shared cut boolean; a counterbore /
+    countersink then sinks a larger coaxial recess at the face. Failures degrade to
     typed per-feature errors, never a 500 or a silently wrong body:
     ``hole_off_body`` (the point is off the face / the direction is wrong — no
-    material removed), ``hole_too_deep`` (a blind depth exceeds the available
-    material / overhangs the face edge), or ``boolean_failed`` (a kernel cut
-    failure / lump-count change). The active body is only replaced on success
-    (strict-prefix rule tessellates the last-good body, §4.3).
+    material removed), ``hole_too_deep`` (a blind depth OR a recess depth exceeds
+    the available material / overhangs the face edge), ``hole_cbore_invalid`` /
+    ``hole_csink_invalid`` (a recess no wider than the bore), or ``boolean_failed``
+    (a kernel cut failure / lump-count change). The active body is only replaced on
+    success (strict-prefix rule tessellates the last-good body, §4.3).
     """
     feature = item.feature
     assert isinstance(feature, HoleFeature), "registry dispatches on type='hole'"
@@ -1673,15 +1681,44 @@ def _evaluate_hole(
     depth_mm = (
         params.depth.depth_mm if isinstance(params.depth, HoleBlindDepth) else None
     )
+    point = (params.position.x, params.position.y, params.position.z)
     try:
         drilled = bore_hole(
             active,
             plane,
-            (params.position.x, params.position.y, params.position.z),
+            point,
             params.diameter_mm,
             through_all=not blind,
             depth_mm=depth_mm,
         )
+        # Slice 2: sink the optional coaxial recess (counterbore / countersink) at
+        # the face, cut ALONGSIDE the bore (design: HoleType additive member).
+        hole_type = params.type
+        if isinstance(hole_type, HoleCounterbore):
+            drilled = cut_counterbore(
+                drilled,
+                plane,
+                point,
+                bore_diameter_mm=params.diameter_mm,
+                cbore_diameter_mm=hole_type.cbore_diameter_mm,
+                cbore_depth_mm=hole_type.cbore_depth_mm,
+            )
+        elif isinstance(hole_type, HoleCountersink):
+            drilled = cut_countersink(
+                drilled,
+                plane,
+                point,
+                bore_diameter_mm=params.diameter_mm,
+                csink_diameter_mm=hole_type.csink_diameter_mm,
+                csink_angle_deg=hole_type.csink_angle_deg,
+            )
+    except HoleRecessInvalidError as exc:
+        code = (
+            "hole_cbore_invalid"
+            if isinstance(params.type, HoleCounterbore)
+            else "hole_csink_invalid"
+        )
+        return FeatureError(code=code, message=str(exc))
     except HoleOffBodyError as exc:
         return FeatureError(code="hole_off_body", message=str(exc))
     except HoleTooDeepError as exc:
