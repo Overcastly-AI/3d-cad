@@ -22,6 +22,7 @@ from py_kit.schemas.features import (
     FeatureCreate,
     FeatureMutationResponse,
     FeatureResponse,
+    FeatureSuppressRequest,
     FeatureTreeResponse,
     SketchFeature,
     UndoRedoRequest,
@@ -179,6 +180,11 @@ CREATE_BODY = {
             {"expected_tree_version": 0, "name": "x"},
         ),
         (
+            "PATCH",
+            f"/api/v1/parts/{PART}/features/{FEATURE}/suppress",
+            {"expected_tree_version": 0, "suppressed": True},
+        ),
+        (
             "DELETE",
             f"/api/v1/parts/{PART}/features/{FEATURE}?expected_tree_version=0",
             None,
@@ -250,6 +256,30 @@ def test_delete_feature_forwards_concurrency_query_param(
     [upstream] = seen
     assert upstream.url.path == f"/api/v1/parts/{PART}/features/{FEATURE}"
     assert upstream.url.params["expected_tree_version"] == "7"
+
+
+def test_suppress_feature_forwards_principal_body_and_bump(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """PATCH .../suppress forwards the principal + toggle body to documents and
+    surfaces the returned tree_version bump."""
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        response = client.patch(
+            f"/api/v1/parts/{PART}/features/{FEATURE}/suppress",
+            json={"expected_tree_version": 1, "suppressed": True},
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    assert FeatureMutationResponse.model_validate(response.json()).tree_version == 2
+    [upstream] = seen
+    assert upstream.method == "PATCH"
+    assert upstream.url.path == f"/api/v1/parts/{PART}/features/{FEATURE}/suppress"
+    assert upstream.headers[PRINCIPAL_HEADER] == user_id
+    parsed = FeatureSuppressRequest.model_validate_json(upstream.content)
+    assert parsed.suppressed is True
+    assert parsed.expected_tree_version == 1
 
 
 def test_tree_and_rollback_passthrough(db_url: str, seen: list[httpx.Request]) -> None:

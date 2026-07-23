@@ -80,6 +80,10 @@ async def _serialize_state(session: AsyncSession, part: db.Part) -> dict[str, An
                 "name": feature.name,
                 "type": feature.type,
                 "param_version": feature.param_version,
+                # Envelope-level suppress flag (feature-tree.md §4.3a): part of
+                # the feature's mutable state, so the suppress toggle is undoable
+                # (undo restores the previous suppressed value verbatim).
+                "suppressed": feature.suppressed,
                 # Deep-copy: the baseline is captured pre-op and flushed later
                 # in the transaction; holding a reference to the live row's
                 # params dict would let any future in-place mutation silently
@@ -127,6 +131,9 @@ async def _apply_state(
                 type=row["type"],
                 param_version=row["param_version"],
                 params=row["params"],
+                # Pre-suppress snapshots (persisted before this column) carry no
+                # key → default False (additive-optional, feature-tree.md §4.3a).
+                suppressed=row.get("suppressed", False),
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
             )

@@ -2336,17 +2336,37 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
             version += 1
         return params
 
-    def load(self, feature_type: str, version: int, params: JsonObject) -> ModelT:
+    def load(
+        self,
+        feature_type: str,
+        version: int,
+        params: JsonObject,
+        *,
+        suppressed: bool = False,
+    ) -> ModelT:
         """Stored columns → current-version validated envelope (read path).
 
         Design §1.4 mapping-to-JSONB rule: columns → envelope dict → upcast if
         needed → validate. The rest of the system only ever sees
         current-version params.
+
+        ``suppressed`` is the ENVELOPE-level suppress flag
+        (:class:`FeatureEnvelopeBase`, feature-tree.md §4.3a). It lives beside
+        ``params`` (not inside it), so documents persists it in its own column
+        and must pass the stored value BACK through here on every read path —
+        both the CRUD response and the evaluation-request the geometry service
+        consumes. Absent (the default) reads ``False``, so callers that do not
+        persist suppress (goldens, tests) are unaffected.
         """
         current = self.current_version(feature_type)
         upcast = self.upcast_params(feature_type, version, params)
         return self._models[feature_type].model_validate(
-            {"type": feature_type, "version": current, "params": upcast}
+            {
+                "type": feature_type,
+                "version": current,
+                "params": upcast,
+                "suppressed": suppressed,
+            }
         )
 
 
@@ -2799,6 +2819,29 @@ class FeatureUpdate(BaseModel):
         if self.name is None and self.feature is None:
             raise ValueError("provide at least one of 'name' or 'feature'")
         return self
+
+
+class FeatureSuppressRequest(BaseModel):
+    """Toggle ONLY a feature's suppress flag (feature-tree.md §4.3a).
+
+    A DEDICATED, minimal mutation — distinct from :class:`FeatureUpdate` — so
+    suppressing/un-suppressing never touches ``params`` (no re-validation of
+    the payload, no dependency-edge rewrite): it flips the envelope-level
+    ``suppressed`` flag and bumps ``tree_version`` under the same
+    optimistic-concurrency guard as every other write (stale value → 422). A
+    suppressed feature is SKIPPED at rebuild (the body is built from the
+    non-suppressed prefix), so this changes what an evaluation of the part
+    means and is a normal history-recording tree edit (undoable)."""
+
+    expected_tree_version: int = Field(
+        ge=0,
+        description="Optimistic-concurrency guard: the tree_version the client "
+        "last saw; a stale value is rejected 422 (design §1.2)",
+    )
+    suppressed: bool = Field(
+        description="New suppress state: True skips the feature at rebuild, "
+        "False re-includes it (feature-tree.md §4.3a)."
+    )
 
 
 class FeatureResponse(BaseModel):

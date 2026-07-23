@@ -197,6 +197,53 @@ def test_old_param_versions_are_upcast_on_read(
     assert [entity.id for entity in item.feature.params.entities] == ["e1"]
 
 
+def test_created_suppressed_feature_carries_suppressed_to_geometry(
+    client: TestClient,
+) -> None:
+    """The load-bearing end-to-end proof: a feature stored with suppressed=true
+    reaches geometry as a suppressed envelope in the evaluation-request (without
+    this the whole feature is a dead capability — feature-tree.md §4.3a)."""
+    part_id = _create_part(client)
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={
+            "name": "Sketch1",
+            "feature": {
+                "type": "sketch",
+                "version": 1,
+                "suppressed": True,
+                "params": SKETCH_PARAMS,
+            },
+            "expected_tree_version": 0,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 201, response.text
+
+    (item,) = _evaluation_request(client, part_id).features
+    assert isinstance(item.feature, SketchFeature)
+    assert item.feature.suppressed is True
+
+
+def test_suppress_toggle_marks_the_evaluation_request(client: TestClient) -> None:
+    """Toggling a stored feature suppressed flips the flag geometry receives on
+    the evaluation-request envelope (geometry-then-skips is a slice-1 concern)."""
+    part_id = _create_part(client)
+    feature_id = _create_sketch(client, part_id, "Sketch1", 0)
+
+    assert _evaluation_request(client, part_id).features[0].feature.suppressed is False
+
+    response = client.patch(
+        f"/api/v1/parts/{part_id}/features/{feature_id}/suppress",
+        json={"expected_tree_version": 1, "suppressed": True},
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+
+    (item,) = _evaluation_request(client, part_id).features
+    assert item.feature.suppressed is True
+
+
 def test_foreign_and_unknown_parts_are_a_uniform_404(client: TestClient) -> None:
     part_id = _create_part(client)
     for target, headers in (

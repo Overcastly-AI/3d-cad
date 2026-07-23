@@ -2293,6 +2293,28 @@
         "title": "FeatureResponse",
         "type": "object"
       },
+      "FeatureSuppressRequest": {
+        "description": "Toggle ONLY a feature's suppress flag (feature-tree.md \u00a74.3a).\n\nA DEDICATED, minimal mutation \u2014 distinct from :class:`FeatureUpdate` \u2014 so\nsuppressing/un-suppressing never touches ``params`` (no re-validation of\nthe payload, no dependency-edge rewrite): it flips the envelope-level\n``suppressed`` flag and bumps ``tree_version`` under the same\noptimistic-concurrency guard as every other write (stale value \u2192 422). A\nsuppressed feature is SKIPPED at rebuild (the body is built from the\nnon-suppressed prefix), so this changes what an evaluation of the part\nmeans and is a normal history-recording tree edit (undoable).",
+        "properties": {
+          "expected_tree_version": {
+            "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "suppressed": {
+            "description": "New suppress state: True skips the feature at rebuild, False re-includes it (feature-tree.md \u00a74.3a).",
+            "title": "Suppressed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "expected_tree_version",
+          "suppressed"
+        ],
+        "title": "FeatureSuppressRequest",
+        "type": "object"
+      },
       "FeatureTreeResponse": {
         "description": "The ordered feature tree of a part plus its concurrency token.",
         "properties": {
@@ -8789,6 +8811,88 @@
           }
         },
         "summary": "Update Feature",
+        "tags": [
+          "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
+      "patch": {
+        "description": "Flip ONLY a feature's suppress flag (feature-tree.md \u00a74.3a).\n\nA dedicated, minimal mutation: unlike :func:`update_feature` it never\ntouches ``params`` (no re-validation, no dependency-edge rewrite) \u2014 it sets\nthe envelope-level ``suppressed`` column and, like every tree write, bumps\n``tree_version`` under the optimistic-concurrency guard (stale \u2192 422) and\nrecords a history snapshot so the toggle is undoable. A suppressed feature\nis SKIPPED at rebuild (the evaluation-request marks it, geometry skips it),\nso this changes what an evaluation of the part means.",
+        "operationId": "suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Feature Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureSuppressRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suppress Feature",
         "tags": [
           "features"
         ]

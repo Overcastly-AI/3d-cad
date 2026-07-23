@@ -654,6 +654,34 @@ export interface paths {
         patch: operations["update_feature_api_v1_parts__part_id__features__feature_id__patch"];
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Suppress Feature
+         * @description Flip ONLY a feature's suppress flag (feature-tree.md §4.3a).
+         *
+         *     A dedicated, minimal mutation: unlike :func:`update_feature` it never
+         *     touches ``params`` (no re-validation, no dependency-edge rewrite) — it sets
+         *     the envelope-level ``suppressed`` column and, like every tree write, bumps
+         *     ``tree_version`` under the optimistic-concurrency guard (stale → 422) and
+         *     records a history snapshot so the toggle is undoable. A suppressed feature
+         *     is SKIPPED at rebuild (the evaluation-request marks it, geometry skips it),
+         *     so this changes what an evaluation of the part means.
+         */
+        patch: operations["suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch"];
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/redo": {
         parameters: {
             query?: never;
@@ -2376,6 +2404,31 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * FeatureSuppressRequest
+         * @description Toggle ONLY a feature's suppress flag (feature-tree.md §4.3a).
+         *
+         *     A DEDICATED, minimal mutation — distinct from :class:`FeatureUpdate` — so
+         *     suppressing/un-suppressing never touches ``params`` (no re-validation of
+         *     the payload, no dependency-edge rewrite): it flips the envelope-level
+         *     ``suppressed`` flag and bumps ``tree_version`` under the same
+         *     optimistic-concurrency guard as every other write (stale value → 422). A
+         *     suppressed feature is SKIPPED at rebuild (the body is built from the
+         *     non-suppressed prefix), so this changes what an evaluation of the part
+         *     means and is a normal history-recording tree edit (undoable).
+         */
+        FeatureSuppressRequest: {
+            /**
+             * Expected Tree Version
+             * @description Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (design §1.2)
+             */
+            expected_tree_version: number;
+            /**
+             * Suppressed
+             * @description New suppress state: True skips the feature at rebuild, False re-includes it (feature-tree.md §4.3a).
+             */
+            suppressed: boolean;
         };
         /**
          * FeatureTreeResponse
@@ -6457,6 +6510,45 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["FeatureUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+                feature_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeatureSuppressRequest"];
             };
         };
         responses: {

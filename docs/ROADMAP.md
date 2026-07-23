@@ -370,10 +370,19 @@ item:
       mm³), un-suppressed → filleted (material actually removed); a suppressed
       MIDDLE extrude rebuilds the trailing fillet off the reduced body (max z=10
       not 20); ref-to-suppressed is a 200 typed error; default-false is a
-      byte-identical no-op (goldens unchanged). feature-tree.md §4.3a. SLICE 2
-      (documents persistence — a `suppressed` column, the CRUD/evaluation-request
-      read-back, a `PATCH .../suppress` toggle — then the web tree toggle + dimmed
-      row) remains (BACKLOG P2).
+      byte-identical no-op (goldens unchanged). feature-tree.md §4.3a. SLICE 2a
+      SHIPPED (2026-07-23, backend-builder): documents now PERSISTS the flag — a
+      `features.suppressed` NOT NULL BOOLEAN column (migration `0009`,
+      `metadata.create_all` renders it for the native/e2e path), create/update
+      store it (create no longer silently drops `suppressed:true`), and both read
+      paths — `_to_response` and the evaluation-request builder — pass it back
+      through `FEATURE_REGISTRY.load(..., suppressed=…)` so a stored suppressed
+      feature reaches geometry marked (the load-bearing proof:
+      test_evaluation_request.py). A dedicated `PATCH .../features/{id}/suppress`
+      toggle (py-kit `FeatureSuppressRequest`) flips ONLY the flag — no param
+      replace — bumps `tree_version` under the OCC guard (stale → 422), records
+      history (undoable), and is gateway-proxied auth-gated. SLICE 2b (the web
+      tree suppress toggle + dimmed row) remains (BACKLOG P2).
 - ✅ Dedicated Hole feature — SLICE 1 END-TO-END (2026-07-23): first-class
       `HoleFeature` (face-placed point + diameter + through-all|blind, auto inward
       cut direction), NOT a sketched circle. Analytic + sketch-cut-parity golden

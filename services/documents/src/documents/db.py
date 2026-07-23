@@ -151,6 +151,18 @@ class Feature(Base):
     type: Mapped[str] = mapped_column(sa.String(64), nullable=False)
     param_version: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     params: Mapped[dict[str, Any]] = mapped_column(_JSON_VARIANT, nullable=False)
+    #: Envelope-level suppress flag (py-kit :class:`FeatureEnvelopeBase`,
+    #: feature-tree.md §4.3a): True skips this feature at rebuild — the body is
+    #: built from the non-suppressed prefix and later features rebuild off the
+    #: last non-suppressed body. Persisted BESIDE ``params`` (it is orthogonal to
+    #: every feature type, never a modeling parameter), so the read paths
+    #: (``_to_response``, the evaluation-request) pass it back through
+    #: ``FEATURE_REGISTRY.load(...)``. NOT NULL, server-default false so pre-
+    #: suppress rows backfill to unsuppressed (the migration adds the same
+    #: default; ``metadata.create_all`` renders it too — the native/e2e path).
+    suppressed: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,

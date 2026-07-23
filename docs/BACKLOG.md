@@ -266,12 +266,20 @@ frame refactor are v2/§11. Spike de-collected.
             middle-suppress rebuilds downstream off the reduced body; ref-to-suppressed
             → 200 typed error (test_evaluate_tree.py). feature-tree.md §4.3a.
             2026-07-23 (kernel-architect).
-      - [ ] Slice 2 — documents persistence + toggle endpoint. Add a `suppressed`
-            column (envelope-level, NOT in `params`), store/read it in
-            create/update_feature + `_to_response` + the `/evaluation-request`
-            builder (pass `suppressed` into `FEATURE_REGISTRY.load`), and a
-            `PATCH .../features/{id}/suppress` toggle that bumps `tree_version`
-            without a param replace. Then the web tree suppress toggle + dimmed row.
+      - [x] Slice 2a — documents persistence + toggle endpoint + gateway proxy.
+            `features.suppressed` NOT NULL BOOLEAN column (migration `0009`,
+            server-default false; `metadata.create_all` renders it for native/e2e).
+            create/update store it (create no longer drops `suppressed:true`);
+            `_to_response` + the `/evaluation-request` builder pass it back through
+            `FEATURE_REGISTRY.load(..., suppressed=…)` (proof: a created-suppressed
+            feature reaches geometry marked; test_evaluation_request.py). Dedicated
+            `PATCH .../features/{id}/suppress` (py-kit `FeatureSuppressRequest`,
+            body `{expected_tree_version, suppressed}`) flips ONLY the flag, bumps
+            `tree_version` (stale → 422), records history (undoable); gateway proxy
+            auth-gated. History serialize/apply carry `suppressed` so undo restores
+            it. 2026-07-23 (backend-builder).
+      - [ ] Slice 2b — web tree suppress toggle + dimmed row (against the
+            `PATCH .../features/{id}/suppress` endpoint above).
 - [x] (P2, S) Mirror feature — mirror a feature/body about a plane (origin/datum),
       one op in every incumbent. **END-TO-END 2026-07-23** (geometry+DTO
       kernel-architect; web authoring frontend-builder): `MirrorFeature`/

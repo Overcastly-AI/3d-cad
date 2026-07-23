@@ -35,6 +35,7 @@ from py_kit.schemas.features import (
     FeatureMutationResponse,
     FeatureReorderRequest,
     FeatureResponse,
+    FeatureSuppressRequest,
     FeatureTreeResponse,
     FeatureUpdate,
     RollbackBarMove,
@@ -247,7 +248,10 @@ def _to_response(feature: db.Feature, bar_index: int | None) -> FeatureResponse:
         order_index=feature.order_index,
         name=feature.name,
         feature=FEATURE_REGISTRY.load(
-            feature.type, feature.param_version, feature.params
+            feature.type,
+            feature.param_version,
+            feature.params,
+            suppressed=feature.suppressed,
         ),
         rolled_back=bar_index is not None and feature.order_index > bar_index,
         created_at=feature.created_at,
@@ -309,7 +313,10 @@ async def get_evaluation_request(
             EvaluatedFeatureInput(
                 id=feature.id,
                 feature=FEATURE_REGISTRY.load(
-                    feature.type, feature.param_version, feature.params
+                    feature.type,
+                    feature.param_version,
+                    feature.params,
+                    suppressed=feature.suppressed,
                 ),
             )
             for feature in prefix
@@ -361,6 +368,9 @@ async def create_feature(
         type=request.feature.type,
         param_version=request.feature.version,
         params=request.feature.params.model_dump(mode="json"),
+        # A feature CAN be born suppressed (slice-1 review 🔴: create must NOT
+        # silently drop `suppressed: true`) — persist the envelope flag verbatim.
+        suppressed=request.feature.suppressed,
     )
     session.add(feature)
     await session.flush()  # row must exist before its edges (FK)
@@ -414,6 +424,10 @@ async def update_feature(
         )
         feature.param_version = request.feature.version
         feature.params = request.feature.params.model_dump(mode="json")
+        # The envelope carries `suppressed`; a params replace persists it too so
+        # an update never resets the flag (the dedicated toggle is the usual
+        # path, but a full-envelope PATCH must round-trip it — feature-tree §4.3a).
+        feature.suppressed = request.feature.suppressed
         await _rewrite_edges(session, part.id, feature.id, target_ids)
     if request.name is not None:
         feature.name = request.name
@@ -425,6 +439,46 @@ async def update_feature(
         "feature_updated",
         part_id=str(part.id),
         feature_id=str(feature.id),
+        tree_version=part.tree_version,
+    )
+    bar_index = _bar_index(part, await _ordered_features(session, part.id))
+    return FeatureMutationResponse(
+        feature=_to_response(feature, bar_index), tree_version=part.tree_version
+    )
+
+
+@router.patch("/{part_id}/features/{feature_id}/suppress")
+async def suppress_feature(
+    part_id: uuid.UUID,
+    feature_id: uuid.UUID,
+    request: FeatureSuppressRequest,
+    owner_id: Principal,
+    session: SessionDep,
+) -> FeatureMutationResponse:
+    """Flip ONLY a feature's suppress flag (feature-tree.md §4.3a).
+
+    A dedicated, minimal mutation: unlike :func:`update_feature` it never
+    touches ``params`` (no re-validation, no dependency-edge rewrite) — it sets
+    the envelope-level ``suppressed`` column and, like every tree write, bumps
+    ``tree_version`` under the optimistic-concurrency guard (stale → 422) and
+    records a history snapshot so the toggle is undoable. A suppressed feature
+    is SKIPPED at rebuild (the evaluation-request marks it, geometry skips it),
+    so this changes what an evaluation of the part means.
+    """
+    part = await get_owned_part(session, owner_id, part_id, for_update=True)
+    _ensure_fresh(part, request.expected_tree_version)
+    pre_op = await history.PART_HISTORY.baseline_state(session, part)
+    feature = await _get_feature(session, part, feature_id)
+
+    feature.suppressed = request.suppressed
+    part.tree_version += 1
+    await history.PART_HISTORY.record(session, part, pre_op)
+    await session.commit()
+    _logger.info(
+        "feature_suppress_toggled",
+        part_id=str(part.id),
+        feature_id=str(feature.id),
+        suppressed=feature.suppressed,
         tree_version=part.tree_version,
     )
     bar_index = _bar_index(part, await _ordered_features(session, part.id))

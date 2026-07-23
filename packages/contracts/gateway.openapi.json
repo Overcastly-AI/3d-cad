@@ -4096,6 +4096,28 @@
         "title": "FeatureResult",
         "type": "object"
       },
+      "FeatureSuppressRequest": {
+        "description": "Toggle ONLY a feature's suppress flag (feature-tree.md \u00a74.3a).\n\nA DEDICATED, minimal mutation \u2014 distinct from :class:`FeatureUpdate` \u2014 so\nsuppressing/un-suppressing never touches ``params`` (no re-validation of\nthe payload, no dependency-edge rewrite): it flips the envelope-level\n``suppressed`` flag and bumps ``tree_version`` under the same\noptimistic-concurrency guard as every other write (stale value \u2192 422). A\nsuppressed feature is SKIPPED at rebuild (the body is built from the\nnon-suppressed prefix), so this changes what an evaluation of the part\nmeans and is a normal history-recording tree edit (undoable).",
+        "properties": {
+          "expected_tree_version": {
+            "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (design \u00a71.2)",
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "suppressed": {
+            "description": "New suppress state: True skips the feature at rebuild, False re-includes it (feature-tree.md \u00a74.3a).",
+            "title": "Suppressed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "expected_tree_version",
+          "suppressed"
+        ],
+        "title": "FeatureSuppressRequest",
+        "type": "object"
+      },
       "FeatureTreeResponse": {
         "description": "The ordered feature tree of a part plus its concurrency token.",
         "properties": {
@@ -12766,6 +12788,75 @@
           }
         ],
         "summary": "Update Feature",
+        "tags": [
+          "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
+      "patch": {
+        "description": "Toggle a feature's suppress flag (feature-tree.md \u00a74.3a).\n\nFlips ONLY ``suppressed`` (a suppressed feature is skipped at rebuild),\nbumping ``tree_version`` under the same optimistic-concurrency guard as\nevery other feature write \u2014 a stale version is documents' 422 envelope,\nre-surfaced verbatim.",
+        "operationId": "suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Feature Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureSuppressRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Suppress Feature",
         "tags": [
           "features"
         ]

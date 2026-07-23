@@ -458,6 +458,107 @@ def test_any_mutation_bumps_tree_version_including_rename(client: TestClient) ->
     assert response.json()["feature"]["name"] == "Base sketch"
 
 
+# --- §4.3a feature suppress -----------------------------------------------------------
+
+
+def test_create_with_suppressed_persists(client: TestClient, any_db_url: str) -> None:
+    """A feature CAN be born suppressed (slice-1 review: create must NOT drop
+    `suppressed: true`). It round-trips true in the response AND the DB column."""
+    part_id = _create_part(client)
+    envelope = {**_sketch_envelope(), "suppressed": True}
+    body = _create_feature(client, part_id, "Sketch1", envelope, 0)
+    assert body["feature"]["feature"]["suppressed"] is True
+
+    tree = _tree(client, part_id)
+    assert tree["features"][0]["feature"]["suppressed"] is True
+
+    rows = asyncio.run(_fetch_all(any_db_url, sa.select(Feature.suppressed)))
+    assert [row[0] for row in rows] == [True]
+
+
+def test_suppress_toggle_flips_flag_bumps_version_and_restores(
+    client: TestClient,
+) -> None:
+    """The dedicated toggle flips only `suppressed`, bumps tree_version, and is
+    reversible — un-suppress restores the feature."""
+    part_id = _create_part(client)
+    sketch_id, _ = _sketch_and_extrude(client, part_id)  # tree_version == 2
+
+    suppressed = client.patch(
+        f"/api/v1/parts/{part_id}/features/{sketch_id}/suppress",
+        json={"expected_tree_version": 2, "suppressed": True},
+        headers=_headers(),
+    )
+    assert suppressed.status_code == 200, suppressed.text
+    assert suppressed.json()["tree_version"] == 3
+    assert suppressed.json()["feature"]["feature"]["suppressed"] is True
+    # Params are untouched by the toggle (no re-validation / edge rewrite).
+    assert suppressed.json()["feature"]["feature"]["params"] == SKETCH_PARAMS
+
+    restored = client.patch(
+        f"/api/v1/parts/{part_id}/features/{sketch_id}/suppress",
+        json={"expected_tree_version": 3, "suppressed": False},
+        headers=_headers(),
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["tree_version"] == 4
+    assert restored.json()["feature"]["feature"]["suppressed"] is False
+
+
+def test_suppress_toggle_stale_version_is_422_no_change(client: TestClient) -> None:
+    """A stale expected_tree_version is rejected 422 and leaves the flag intact."""
+    part_id = _create_part(client)
+    sketch_id, _ = _sketch_and_extrude(client, part_id)  # tree_version == 2
+
+    response = client.patch(
+        f"/api/v1/parts/{part_id}/features/{sketch_id}/suppress",
+        json={"expected_tree_version": 1, "suppressed": True},  # stale
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _envelope_error(response.json())["code"] == "stale_tree_version"
+
+    tree = _tree(client, part_id)
+    assert tree["tree_version"] == 2
+    assert tree["features"][0]["feature"]["suppressed"] is False
+
+
+def test_suppress_toggle_undoable(client: TestClient) -> None:
+    """The suppress toggle records history, so undo restores the prior flag."""
+    part_id = _create_part(client)
+    sketch_id, _ = _sketch_and_extrude(client, part_id)  # tree_version == 2
+
+    client.patch(
+        f"/api/v1/parts/{part_id}/features/{sketch_id}/suppress",
+        json={"expected_tree_version": 2, "suppressed": True},
+        headers=_headers(),
+    )
+    undo = client.post(
+        f"/api/v1/parts/{part_id}/undo",
+        json={"expected_tree_version": 3},
+        headers=_headers(),
+    )
+    assert undo.status_code == 200, undo.text
+    assert undo.json()["features"][0]["feature"]["suppressed"] is False
+
+
+def test_suppress_toggle_owner_scoped_and_404(client: TestClient) -> None:
+    part_id = _create_part(client)
+    sketch_id, _ = _sketch_and_extrude(client, part_id)
+    foreign = client.patch(
+        f"/api/v1/parts/{part_id}/features/{sketch_id}/suppress",
+        json={"expected_tree_version": 2, "suppressed": True},
+        headers=_headers(OTHER),
+    )
+    assert foreign.status_code == 404
+    unknown = client.patch(
+        f"/api/v1/parts/{part_id}/features/{uuid.uuid4()}/suppress",
+        json={"expected_tree_version": 2, "suppressed": True},
+        headers=_headers(),
+    )
+    assert unknown.status_code == 404
+
+
 # --- §2.2 reference rules ------------------------------------------------------------
 
 
