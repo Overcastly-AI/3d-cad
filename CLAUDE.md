@@ -72,6 +72,11 @@ and intentional** — never templated. Standing rules:
    before calling UI work done.
 4. **Show, don't tell.** UI changes ship with before/after screenshots
    (desktop + small-laptop widths) surfaced to the founder at milestones.
+   **"Surfaced" means the orchestrator SENDS the screenshots to the founder
+   (the file-send tool), not merely generates them into `docs/screenshots/`.**
+   Every UI change → pass the before/after shots to the founder in chat;
+   generating a PNG the founder never sees does not count (founder directive
+   2026-07-23).
 5. **Never break the product for looks.** Preserve test hooks (`data-testid`,
    roles, accessible names). Quality floor: WCAG-AA contrast, visible focus,
    `prefers-reduced-motion`, self-hosted fonts, responsive to 1280×800.
