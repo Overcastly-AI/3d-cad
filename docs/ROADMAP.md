@@ -17,6 +17,15 @@ gap to be *measured*, not asserted: `docs/design/sheet-metal-parity.md`
 status, re-checked as each feature lands. **Do not flip the scorecard row
 until that matrix says so.**
 
+**Groomer note (2026-07-23):** the sheet-metal campaign's WF-1/PB-1 layer +
+the drawings dead-capability drain (D1-D4) both converged this batch (see
+Phase 4/4b entries below). A fresh product-audit pass the same night named
+**assembly STEP export/interference/import** the next highest-value gap
+("the assembly is a one-way street") — those 3 items now lead
+`docs/BACKLOG.md`'s Ready queue ahead of the remaining sheet-metal
+extensions (open/teardrop/rolled hems, miters, tabs, gauge tables), pending
+founder direction on sequencing.
+
 **In flight right now:** authoring UI ✅ (base + edge flange, **and now closed
 hem + corner relief editors 2026-07-19** — all four shipped sheet-metal features
 are click-drivable in-app, **hem + corner-relief editors frontend-qa spot-checked
@@ -1094,6 +1103,24 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       part views unaffected. Enum stays for the WIRE fast-follow (BACKLOG Drawings
       parity #4 — assembly views + BOM/balloons). Gateway pytest + `just gen-check`
       (no drift) green.
+      **D1b (DOM half) SHIPPED** (2026-07-23): on-screen `TitleBlock` stamps the
+      same DRAWN/DATE/NOTES rows the SVG/PDF/DXF emit, shared `titleBlockFields`
+      helper. **D3 SHIPPED** (2026-07-23): `bounds_aware_layout` branches on
+      `layout.projection` — first-angle drops top below front + right to the left
+      (ISO 128), third-angle stays the byte-identical default; first-angle compose
+      golden doubles as the process-guard. **D2 SHIPPED** (2026-07-23):
+      `build_dimension_annotation` seeds the linear offset from a non-zero
+      `placement.offset_mm` and honors `placement.text_pos` verbatim; default
+      placement (every shipped dim) stays byte-identical. **D5/D6 remain open**
+      (orientation authoring, multi-sheet compose) — BACKLOG Ready.
+      **MB-4c tail (wire + frontend) SHIPPED** (2026-07-19/23): `EvaluateTreeResult.
+      bodies[{base_feature_id, lumps}]` (additive) + a Bodies-panel "N solids"
+      badge — a disjoint union / multi-solid import now reads as multi-solid at a
+      glance.
+      **Section views v1 — design + spike done (`f75214b`, `b7bf40d`), build IN
+      FLIGHT** (kernel-architect, uncommitted as of this groom pass 2026-07-23):
+      cutting plane by datum reference, half-space cut + coplanar hatch faces
+      through a frame-generalized `project_view`; spike verdict TRACTABLE, sizing M.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a

@@ -16,336 +16,152 @@ independently each pass; this note only points the queue at it, no
 duplication.
 
 - **✅ rows:** Sketching, Part modeling, Price/freedom.
-- **➖ rows (usable, short of incumbent parity):** Assemblies (no
-  collision/exploded views, recursive BOM, assembly-STEP, part-version
-  pinning), Interop (no IGES/named-assembly-structure/healing), Drawings (no
-  assembly drawings/section+detail views/GD&T), Sheet metal (bend chains +
-  corner relief + closed hem shipped AND all four features now click-authorable
-  in-app — base/edge flange, hem, corner relief editors; still no open/teardrop/
-  rolled hems, miters, tabs, or gauge tables).
-- **❌ rows (untouched, no design doc yet):** Performance (no benchmark suite
-  — the cheapest concrete next move, Ready #1), Collaboration & versioning
-  (Phase 3, unstarted), Extensibility/scripting + MCP (Phase 5, unstarted).
-- **Correction this pass:** VISION's Interop row Notes call "the untrusted-
-  parse wall-clock/DoS bound" a tracked P1 fast-follow — **stale**. The hard
-  SIGKILLed-subprocess bound (`483d5ae`, 2026-07-13) already closed that P1 six
-  days before the current VISION pass; flagged for the vision-steward to correct
-  next re-score. The one remaining tail — CI/production flakiness under CPU
-  contention — is now **closed too** (2026-07-19): the wall-clock bound was
-  replaced with a contention-invariant `RLIMIT_CPU` ceiling + a wall-clock
-  liveness backstop (see Done archive). The Interop-row residual note (item 5,
-  "the untrusted-parse wall-clock/DoS bound is a tracked P1 fast-follow") is now
-  wholly stale — left for the vision-steward to re-score.
-- **`docs/COMPETITIVE.md`** still mostly dates from the 2026-07-12 first pass
-  (only Sheet metal 07-17 + AEC/BIM scoping 07-19 added since) — stale
-  against Assemblies/Drawings/Multi-body; flagged for the vision-steward to
-  refresh.
+- **➖ rows (usable, short of incumbent parity):** **Assemblies — headline gap
+  is now "one-way street"** (fresh product-audit pass 2026-07-23): you can
+  build+solve a bolted assembly but cannot export it (no assembly STEP),
+  nothing checks it fits (no interference/collision), and you cannot bring one
+  in (no assembly-STEP import/product-structure) — also still no exploded
+  views, recursive BOM, part-version pinning. Interop (STEP two-way is real
+  for a *part*; **no assembly-level STEP either direction** — the same gap as
+  above, part/assembly split now explicit). Drawings (dead-capability drain
+  mostly closed this batch — title-block/first-angle/dimension-placement/notes
+  all wired; still no section/detail views [section-view IN FLIGHT,
+  kernel-architect, uncommitted], assembly views/BOM/balloons, GD&T). Sheet
+  metal (bend chains + corner relief + closed hem + edge-flange WIDTH EXTENTS
+  + auto bend-end relief shipped, all click-authorable in-app; still no open/
+  teardrop/rolled hems, miters, tabs, or gauge tables).
+- **❌ rows (untouched, no design doc yet):** Performance (benchmark-suite
+  infra shipped, no real-part corpus yet), Collaboration & versioning (Phase
+  3, unstarted), Extensibility/scripting + MCP (Phase 5, unstarted).
+- **Stale VISION note (unchanged since last pass, still unfixed):** VISION's
+  Interop row Notes still call "the untrusted-parse wall-clock/DoS bound" a
+  tracked P1 fast-follow — closed twice over (`483d5ae` 2026-07-13 hard bound,
+  `f5a9038` 2026-07-19 contention-invariant `RLIMIT_CPU`); flagged for the
+  vision-steward to correct next re-score.
+- **`docs/COMPETITIVE.md`** still dates from 2026-07-12 (+Sheet metal 07-17 +
+  AEC/BIM scoping 07-19) — stale against Assemblies/Drawings/Multi-body and
+  now against the fresh assembly-interop gaps below; flagged for the
+  vision-steward to refresh. Ready queue restocked from BACKLOG-native audit
+  findings this pass, not from COMPETITIVE.
 
 ## Ready (top of queue)
 
-Restocked 2026-07-19 (HEAD `a6a5814`) — six pillars converged since the last
-restock (`36dc3d9`, 2026-07-15): Assemblies, Drawings + server-composed
-export, Multi-body/booleans, Units, Undo/redo, Sheet metal v1. Every shipped
-item is archived below (Done, one line each — full evidence in
-`CHANGELOG.md`). **No single founder-directed initiative is in flight**;
-this restock orders by the standing rules (P0 wrong-geometry/security →
-scorecard impact → core capability → polish).
+Restocked 2026-07-23 (HEAD `0ed9f74`) — the overnight batch converged 18
+Ready items (WF-1/PB-1 width extents, drawings dead-capability drain D1-D4,
+MB-4c wire+frontend, e2e hardening) — all archived below (Done, one line
+each). Fresh product-audit pass (2026-07-23) reframes assemblies as **"a
+one-way street"** — buildable and solvable, but no export, no collision
+check, no import — that gap now leads the queue (P0/P1). **Section views v1
+is IN FLIGHT right now** (kernel-architect, uncommitted
+`services/geometry/src/geometry/drawings/section.py` + spike design landed
+`f75214b` — do not re-file; next groom ticks + archives it once committed).
 
-- [x] (P0, M) Sheet metal: cut-after-fold flat pattern (WF-1) — **BOTH layers
-      SHIPPED 2026-07-22** (kernel-architect). Layer 1: runtime fold-back
-      invariant (live coaxial bend widths vs developed fold widths) →
-      cut-after-fold typed-rejects. **Layer 2 (design §4.5): EDGE-FLANGE WIDTH
-      EXTENTS** — optional `width_mm`/`offset_mm` (offset from canonical
-      `end_a`; absent = full width, goldens byte-identical), auto rectangular
-      bend-END relief at interior span ends (1×gauge, cut into the base flat →
-      fold-back exact by construction), and a partial-star emitter developing
-      the base's TRUE outline + per-span strips into one closed loop. Founder
-      case (50-wide × 50-tall flange on a 100 mm edge) directly authorable —
-      goldens `partial-flange-founder-unfold` / `-centered-` (analytic
-      volume/area, hash + restart pins) + schema/feature rejects. Cut-after-fold
-      stays typed-rejected BY DESIGN (width extents replace the cut hack).
-      RESIDUALS (open, folded into the P3 area-invariant item): a cut that
-      misses every bend (hole in a flat) still develops without it; hem width
-      extents out of scope; partial + corner-relief combo typed-rejects.
-      [src: founder dogfooding — WF-1; layers 1+2 2026-07-22]
-- [x] (P2, S) Sheet metal: width-extents EDITOR UI (apps/web) — DONE
-      2026-07-22 (frontend-builder). Edge Flange editor gains a Full / Centered
-      / Offset extent choice (`SegmentedControl`) + width/offset fields wired to
-      `width_mm`/`offset_mm` (absent ⇒ Full; legacy features round-trip absent),
-      an in-scene brass span preview off the picked edge's `end_a`
-      (`FlangeSpanOverlay`, reusing `Segments`/`measure`), a bend-end relief
-      caption, and client-side width/offset validation. Founder case authored by
-      clicking (e2e sheet-metal-authoring + 3 founder shots).
-- [x] (P1, S) e2e: make the 6 raster-fragile specs container-robust — DONE
-      2026-07-23 (qa-tester). ROOT CAUSE was NOT raster for the 5 measure specs:
-      the picks already target DOM `measure-vertex-N` overlay nodes (raster-
-      independent) and land correctly — the readout renders the golden √1400 as
-      "37.4166 mm", but the specs asserted the STALE pre-units string "37.42"
-      (+ "+10.00" deltas). The units convention (`70ce39d`, 2026-07-17,
-      `formatLength` w/ unit suffix + 4 max fraction digits) is an ancestor of
-      all bisect commits, so the specs were deterministically red there too —
-      the bisect misread "text never equals 37.42" as "readout never appears."
-      Fixed to exact current format ("37.4166 mm" / "10 mm" deltas — still tied
-      to the geometry golden, a missed pick reads a different value). Only the
-      undo-redo 1280 band-fit was real sub-pixel drift → documented ≤2px
-      tolerance (real clip overflows by tens of px, still caught). 16/16 pass
-      (6 targets + 10 collateral). [src: orchestrator bisect 2026-07-22]
-- [x] (P2, M) Sheet metal: PARTIAL-WIDTH flange flat pattern (PB-1) — **SHIPPED
-      2026-07-22, fell out of the WF-1 layer-2 outline machinery** (design
-      §4.5.3, as hoped, verified not assumed): a full-width flange on a
-      notch-split edge segment now develops — base keeps its notch, the
-      [BA][leg] strip replaces only its span, single closed union loop, exact
-      closed-form volume/area, fold-back green through the pipeline
-      (`test_sheet_metal_width_extents.py::test_pb1_*`). Bend-END relief was
-      designed together with it (§4.5.2) exactly as this item asked.
-      [src: founder dogfooding — PB-1; sheet-metal-parity.md §3]
-- [x] (P2, S) Drawing export DE-4 — content-addressed stored artifact via the
-      mesh_store/S3 seam (§8.3). **SHIPPED 2026-07-23:** `geometry.drawing_store`
-      caches composed SVG/PDF/DXF bytes keyed on `drawing_artifact_key` (SHA-256 of
-      the whole `ComposeDrawingRequest`, incl. `format`), so a repeat export is a
-      `X-Loft-Artifact-Cache: hit` served from storage (no recompose) and any edit
-      misses + recomposes. Shared `S3DrawingArtifactStore` when `S3_URL` set,
-      in-process LRU fallback otherwise — the mesh-store seam reused (no guard: a
-      compose-cache miss just recomposes). [src: drawing-export.md §8.3]
-- [x] (P1, S) Drawings D1 (EXPORT half) — title-block author/date/notes silently
-      dropped. SHIPPED: `_title_block()` now threads the authored `TitleBlock`
-      free-text onto `ComposedTitleBlock.author/date/notes` (blank→None), and all
-      three serializers (SVG/PDF/DXF) stamp them as labeled left-cell rows
-      (DRAWN/DATE/NOTES) below the title. Non-default-title-block compose golden
-      added (`tests/compose_title_block_goldens/`) — the "golden that would have
-      gone red" (seeds the D-process guard); no-title-block goldens stay
-      byte-identical (the 2 flat-pattern-sheet MODEL-hash goldens refresh for the
-      additive null fields, precedent b0cb16a; serialized SVG/PDF/DXF unchanged).
-      DOM half split → D1b. [src: AUDIT-ENGINEERING.md D1]
-- [x] (P2, S) e2e: heavy founder-flow specs hardened against CPU contention
-      (2026-07-23). Gave the solve/eval-gated intermediate waits in
-      `full-flow.spec.ts` + `sketch-on-face.spec.ts` an explicit 30s timeout
-      (matching the sibling `eval-status` wait), each with a comment noting the
-      geometry round-trip it waits on: `new-extrude` toBeEnabled (canExtrude =
-      hasSolvedSketch), `sketch-strip` toHaveCount(0) (post-solve UI close),
-      `feature-row` toHaveCount(2) + `body-inspector` toBeVisible (extrude eval).
-      Values/testids/behavior unchanged — only the timeout; a never-satisfied
-      condition still fails at 30s (proved: throwaway spec, disabled button →
-      toBeEnabled failed at 30012ms). Both specs 8/8 green on an isolated stack.
-      [src: orchestrator 2026-07-23]
-- [x] (P1, XS) Drawings D1b (DOM half) — the on-screen `TitleBlock` now stamps the
-      authored author/date/notes as the SAME labeled DRAWN/DATE/NOTES rows the
-      SVG/PDF/DXF emit (`title-block-{author,date,notes}`), via a shared
-      `titleBlockFields` helper (the DOM twin of the server's `_tb_fields`; a null
-      field renders nothing). New `drawing.titleFieldCaptionMm`/`titleFieldValueMm`
-      tokens match the composer's `_TB_FIELD_*_MM`. Unit test (row selection) +
-      Playwright (an authored block's free-text on-screen). [src: AUDIT-ENGINEERING.md D1, paired frontend follow-on]
-- [x] (P2, S) Drawings D3 — `first_angle` projection silently composes as
-      third-angle (dead-cap audit D3). WIRED: `bounds_aware_layout` now branches
-      on `layout.projection` — first-angle drops the top view below the front and
-      the right-side view to its left (ISO 128), iso corner unchanged; third-angle
-      is the default and stays byte-identical. First-angle compose golden
-      (SVG/PDF/DXF + restart determinism) proves the swap; it doubles as the
-      non-default-authored-field process guard. [src: AUDIT-ENGINEERING.md D3]
-- [x] (P2, S) Drawings D4 — assembly drawing views 404 the composer (dead-cap
-      audit D4). GATED honestly at the gateway compose path: an assembly-kind view
-      (`ref_document_kind="assembly"`, still persistable + pin-ready) now fails FAST
-      with a typed 422 `assembly_views_unsupported` ("reference a part") BEFORE any
-      `/parts/{id}/evaluation-request` hop, instead of the opaque downstream 404.
-      The `assembly` enum member stays in the schema for the WIRE fast-follow.
-      (`gateway/drawings.py` `_aggregate_compose_request`; export+sheet proxy tests.)
-      [src: AUDIT-ENGINEERING.md D4]
+- [ ] (P0, M) Assembly STEP export — AP214 product structure. `evaluate_assembly`
+      already resolves each instance to a solved world `Placement` + a solved
+      body; compose them into ONE multi-instance STEP (the multi-body path
+      already writes a `Compound` to AP214 — this is assembly-level composition,
+      not new kernel work). Acceptance: an export path (gateway/geometry) returns
+      a valid ISO-10303-21 file for a ≥2-instance assembly; reopening it (e.g.
+      `build123d.import_step`) recovers N part bodies at their solved placements
+      (bbox-centroid check to tolerance); each part traceable to a PRODUCT
+      name/id; single-part export unchanged; worked round-trip test (export →
+      reimport → placement match). [src: AUDIT-PRODUCT.md 2026-07-23 #1
+      do-this-next]
+- [ ] (P1, M) Assembly interference/collision detection. Pairwise
+      `BRepAlgoAPI_Common` over solved instance bodies (already available in
+      `services/geometry`) → a typed clash list with overlap volume. Acceptance:
+      new endpoint/evaluate-extension returns `clashes: [{instance_a, instance_b,
+      overlap_volume_mm3}]`; a non-overlapping assembly returns `[]`; two
+      deliberately-overlapping instances return the correct overlap volume within
+      tolerance; N² pairwise cost documented as the accepted v1 bound; worked
+      test. [src: AUDIT-PRODUCT.md 2026-07-23]
+- [ ] (P1, M) Assembly STEP import with product structure. Read AP214
+      PRODUCT/NEXT_ASSEMBLY_USAGE_OCCURRENCE into positioned, NAMED Loft
+      assembly instances — not one anonymous multi-lump body (today's MB-4b
+      behavior). Acceptance: importing a multi-part assembly STEP creates an
+      `assembly` document with N instances, each at the placement the STEP
+      encodes (matched to tolerance) and named from its PRODUCT entity when
+      present; a STEP with NO assembly structure still falls back to today's
+      MB-4b single-body import (backward compatible); worked test against a
+      real multi-part STEP fixture. [src: AUDIT-PRODUCT.md 2026-07-23]
 - [ ] (P2, M) Drawings parity #4 — assembly drawing views + BOM/balloons (WIRE).
-      The real capability behind the D4 gate: compose a drawing view that projects
-      an ASSEMBLY (not a single part). Needs an assembly-side evaluation-request /
-      compose branch (assembly graph → projected geometry, an assembly analogue of
-      `/parts/{id}/evaluation-request`), plus BOM table + balloon authoring/compose.
-      When it lands, remove the `assembly_views_unsupported` gate in
-      `gateway/drawings.py`. Supervised M feature (kernel + gateway + documents +
-      web). [src: AUDIT-ENGINEERING.md D4 follow-on]
-- [x] (P2, S) Drawings D2 — authored `DimensionPlacement` (offset_mm/text_pos)
-      ignored: composer recomputed placement via its own penalty engine, never
-      read `.placement`. **SHIPPED:** `build_dimension_annotation` seeds the
-      linear dimension-line offset from a non-zero `placement.offset_mm` (bypassing
-      the auto penalty; signed along the composer's `away` normal) and overrides the
-      text anchor verbatim from `placement.text_pos` for any dimension type. Default
-      placement (offset 0 / text_pos None — every shipped dim) runs the auto path
-      byte-identically. Guard golden `compose_placement_goldens` (non-zero offset +
-      text_pos, authored position asserted) + default byte-identity gate. [src:
-      AUDIT-ENGINEERING.md D2]
-- [ ] (P3, S) Drawings D5/D6 — portrait orientation (consumer exists, no
-      authoring — add to the sheet-size UI) + multi-sheet (only `sheets[0]`
-      composed/exported; note the v1 limit in the export route docstring or gate
-      extra sheets). [src: AUDIT-ENGINEERING.md D5/D6]
+      The real capability behind the D4 gate: compose a drawing view that
+      projects an ASSEMBLY (not a single part) — an assembly-side
+      evaluation-request / compose branch, plus BOM table + balloon
+      authoring/compose. Removes the `assembly_views_unsupported` gate in
+      `gateway/drawings.py` once landed. Supervised M feature (kernel + gateway
+      + documents + web). [src: AUDIT-ENGINEERING.md D4 follow-on]
+- [ ] (P2, M) Dedicated Hole feature — through/blind depth, counterbore/
+      countersink/tapped, standard drill sizes, auto-through-all + correct cut
+      direction; face-based placement (point on a face + depth), distinct from a
+      sketched-circle cut. Erases the highest-frequency everyday modeling
+      friction and seeds Drawings hole callouts (blocked on this today).
+      Acceptance: `HoleFeature`/`HoleParamsV1` registered across all feature-
+      registry arms; a simple through-hole matches a hand-built sketch+extrude-cut
+      golden (analytic volume parity); typed degradation for an over-deep/off-body
+      hole; worked e2e. Split into S slices (simple hole, then
+      counterbore/countersink) if M proves too coarse for one pass. [src:
+      AUDIT-PRODUCT.md 2026-07-23; roadmap, product-auditor, competitive]
+- [ ] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
+      rebuild skips it, downstream features rebuild off the last non-suppressed
+      state (or typed-fail if they reference the suppressed feature directly). A
+      daily incumbent verb, currently absent (`grep suppress` → empty).
+      Acceptance: toggle in the feature tree; suppressing a fillet re-evaluates to
+      the un-filleted body; un-suppressing restores it; worked e2e. [src:
+      AUDIT-PRODUCT.md 2026-07-23]
+- [ ] (P2, S) Mirror feature — mirror a feature/body about a plane (origin/datum),
+      one op in every incumbent, currently absent (`PatternGeometry` union has no
+      mirror member). Acceptance: `MirrorFeature` referencing a source
+      feature/body + a mirror plane produces the mirrored geometry unioned into
+      the tree (matches pattern-feature semantics); golden test with analytic
+      volume (source + its mirror); typed degradation for a non-planar/missing
+      reference. [src: AUDIT-PRODUCT.md 2026-07-23]
 - [ ] (P2, S) Drawings — PROCESS GUARD: a non-default-value compose golden per
-      optional authored field (title_block free-text, placement offset/text_pos,
-      projection convention, orientation). Converts the dead-capability class
-      from case-by-case discovery into a standing gate — the "golden that would
-      have gone red" the notes/title-block bugs both lacked. Land the first such
-      golden with D1; backfill the rest as D2/D3/D5 are wired. [src:
+      optional authored field. **Nearly closed** — title-block (D1), first-angle
+      (D3), and dimension-placement (D2) goldens all landed this batch; only the
+      D5 orientation (portrait) golden remains once D5 authoring ships. [src:
       AUDIT-ENGINEERING.md cross-cutting]
-- [x] (P2, S) MB-4c tail (WIRE half) — per-body lump count on the evaluate
-      wire. **SHIPPED:** `EvaluateTreeResult.bodies: [{base_feature_id, lumps}]`
-      (additive, no `param_version` bump), populated in `evaluate_tree` from the
-      last-good `state.bodies` set via a new `geometry.kernel.lumps.lump_count`
-      primitive (`len(body.solids())`, the counting sibling of `assemble_lumps`).
-      A single-lump body reports `lumps: 1`; a disjoint boolean union / multi-
-      solid import reports the true lump count. Goldens pin hand-derived
-      properties/topology/mesh (not the full result), so all stay byte-identical;
-      round-trip DTO test + new per-body assertions (test_boolean, test_multibody)
-      green; contracts + ts-client regenerated. [src: frontend-builder, MB-4c
-      honest wire gap]
-- [x] (P2, S) MB-4c tail (FRONTEND half) — Bodies-panel multi-lump badge.
-      Consumes `EvaluateTreeResult.bodies` (keyed by base feature id in PartPage):
-      a `BodiesPanel` row shows a quiet "N solids" badge (`body-lumps-{i}`) when
-      `lumps > 1`, so a disjoint-union / multi-solid-import body reads as
-      multi-solid at a glance; single-lump rows unchanged. `lumpBadgeLabel` helper
-      (unit-tested) + e2e on the disjoint two-cube union. [src:
-      frontend-builder, MB-4c honest wire gap]
-- [ ] (P2, S) SM-fmt-1 — bend-table ONE format, ONE layout pass (frontend +
-      geometry). The deeper DRY the 2026-07-19 export-consistency fix
-      deferred: pre-format display-ready cell strings into `ComposedBendTable`
-      server-side (`cells: list[list[str]]` alongside the numeric `rows`) so
-      `DrawingSheet.tsx` and all three serializers become a pure layout pass
-      over shared strings, closing the Python↔TS drift risk the current
-      comment-anchored spec only mitigates. Acceptance: DOM `BendTable` and
-      SVG/PDF/DXF render identical cell text from the same server strings;
-      byte goldens updated + the cross-serializer consistency test still
-      passes. [src: docs/UI-REVIEW.md 2026-07-19 P2]
-- [x] (P2, S) SM-relief-ui-1 — CornerReliefEditor: highlight the picked flange
-      in the viewport on Bend A/B select (frontend). **SHIPPED 2026-07-22:**
-      `BendHighlightOverlay` draws each selected flange's stored fold-edge as a
-      brass line (shared `Segments` + `measure` tokens, dimension-line
-      depth-test idiom) with a `Chip` "Bend A"/"Bend B" callout at mid-span
-      (drei Html, e2e-assertable); editor mirrors selection up via
-      `onBendsChange`. Bundled nits all in: autofocus on Bend A; edit-mode
-      guard for an unresolvable stored ref (disabled "Missing edge flange"
-      option + error + submit off — SelectField gained per-option `disabled`);
-      `aria-live="polite"` notch preview. Full viewport bend-face pick stays a
-      roadmap follow-up. Evidence: 718 web unit tests, sheet-metal e2e extended
-      (tags, A·B collapse, rollback-staleness guard) 3/3 green on native stack,
-      new founder shot `sheet-metal-corner-relief-editor-1440.png`. [src:
-      docs/UI-REVIEW.md 2026-07-19 frontend-qa]
-- [x] (P1, S) Drawings — incumbent-parity matrix (vision-steward RESEARCH
-      half, done — campaign slicing left for the groomer). **SHIPPED
-      2026-07-22:** `docs/design/drawings-parity.md` — full sourced
-      SolidWorks/Fusion matrix (§1 Views, §2 Dimensioning, §3
-      Annotations/callouts, §4 Assembly drawings/BOM, §5 Sheet/document
-      infra, §6 Export), same pattern `sheet-metal-parity.md` set. Verdict:
-      ➖ HOLDS (not moved to ✅ by this research alone) — VISION's residual
-      list was incomplete on two fronts the matrix corrects: note
-      annotations are a DEAD capability (schema+CRUD ship, nothing renders
-      them — same defect class as pre-`ad5e819` corner relief; the existing
-      WB-64 note-render item below is this row's #1) and multi-sheet/
-      sheet-size are BACKEND-READY but UI-blocked (zero DB/kernel work
-      needed — `sheets.order_index` already supports N sheets,
-      `DrawingPage.tsx` just never offers "add a sheet"). Full ordered
-      campaign (12 items, highest value first: note render → multi-sheet UI
-      → section view → assembly views/BOM/balloons → detail view +
-      centerlines → tolerances → ordinate dims → auxiliary view → hole
-      callouts/tables → GD&T → title-block/revision infra) lives in the
-      matrix's §Parity roadmap — groomer restocks Ready from there. [src:
-      founder dogfooding — WB-64 + retro]
-- [ ] (P2, M) Engineering audit — DEAD-CAPABILITY sweep (engineering-auditor,
-      read-only + audit doc). Third instance of the same defect class found
-      case-by-case (corner relief pre-ad5e819, drawing annotations, gauge-table
-      fields TBD): schema + CRUD + storage exist, but NO user-visible surface
-      consumes them. One systematic pass: walk every persisted py-kit schema
-      and route, ask "where does a user SEE/DRIVE this?", table the orphans in
-      AUDIT-ENGINEERING.md with a wire-it/delete-it verdict each. Cheap
-      insurance against shipping API surface that demos as capability but
-      isn't. [src: WB-64 retro]
-- [ ] (P2, M, recurring) Model-a-REAL-part dogfooding gate — once per phase
-      (or ~quarterly), an agent models a complete real product end-to-end
-      through the actual app + APIs, verifies against closed-form analytics
-      (the WB-64 harness pattern: per-step kernel-vs-analytic volume asserts,
-      1 ppm bar), ships the full package (screenshots, drawing, STEP/STL), and
-      files every friction point. Scenario queue (one per pass, rotate):
-      sheet-metal enclosure (hems + reliefs + flat DXF), prismatic bracket
-      (patterns + holes + dimensioned drawing), imported-STEP remix (interop),
-      bolted assembly (mates + BOM), spline/loft ergonomic handle (surfacing).
-      WB-64 (revolve/shell/booleans/assembly/drawing) = pass #1, 2026-07-20:
-      geometry clean, 3 drawing findings. [src: WB-64 retro]
-- [ ] (P2, L — spike first, S) Kernel: helical sweep → threads. Any screw
-      closure (the default cap fastening for bottles/jars/enclosures) is
-      unbuildable today — WB-64 shipped a snap bead legitimately, but threads
-      are the incumbent-standard path (SolidWorks Thread feature / Fusion Coil).
-      Spike: OCCT helix wire (`Geom_CylindricalSurface` + 2D line → curve-on-
-      surface) swept via the shipped profile-along-path machinery; assess
-      robustness + cost on a real M-profile and a bottle-neck thread. Then
-      size the feature slice (params: pitch, turns, profile, handedness,
-      taper). Sequence AFTER the current sheet-metal campaign commitments.
-      [src: WB-64 retro]
-- [x] (P2, S) Drawings: note annotations persist but NEVER render — EXPORT half.
-      **SHIPPED 2026-07-23:** the three server-composed serializers now draw notes.
-      `place_sheet` threads the request's authored `annotations` into a
-      `ComposedNote` list (verbatim at each note's `SheetPoint`, request order
-      preserved); `compose.py` gained SVG/PDF/DXF note emitters (left-anchored
-      graphite ink, consistent with the title-block stamped text; DXF emits real
-      TEXT on an additive `NOTES` layer). `annotations` added to
-      `ComposeDrawingRequest` (was absent → DE-4 cache key picks it up
-      automatically). New `compose_note_goldens/` proves the note lands at its
-      point in all three formats + byte-determinism across restart; a note-free
-      sheet stays byte-identical (additive). The paired DOM-sheet render is the
-      follow-on below. [src: founder dogfooding — WB-64]
-- [x] (P2, S) Drawings: note render — DOM sheet half. **SHIPPED 2026-07-23:**
-      `DrawingSheet.tsx` now draws `composed.notes` as `<text data-testid=
-      "drawing-note">` verbatim at each note's final-sheet-mm point (left-anchored
-      graphite, `drawing.noteTextMm` = 3.2 matching the server `_NOTE_TEXT_MM`).
-      Also built the MISSING authoring surface the export half assumed: a Notes
-      panel (add/list/delete) in `DrawingPage.tsx` + `createAnnotation`/
-      `deleteAnnotation` in `api/drawings.ts`, invalidating the tree+compose so a
-      new note appears live. **Found+fixed a real gap:** the gateway `_compose_
-      request` never threaded persisted `sheet.annotations` into the compose
-      request, so `ComposedSheet.notes` was ALWAYS empty — the export half was
-      itself non-functional from persisted state. Wired `annotations=[a.annotation
-      for a in sheet_content.annotations]` (1 line, gateway). New drawings e2e
-      authors a note and asserts `drawing-note` at (16,22) on the DOM sheet, then
-      deletes it. Founder shot: `docs/screenshots/drawings-note-1440.png`.
-      [src: founder dogfooding — WB-64]
-- [x] (P3, S) Drawings: auto-layout sheet-size control. **SHIPPED 2026-07-23:**
-      a sheet-SIZE picker (`SHEET_SIZE_OPTIONS`, A4→A0 + ANSI, labels carry the
-      landscape mm extents) in the drawing command band, the SAME `SelectField`
-      the scale picker uses; pre-layout it selects, post-layout it is a readout
-      derived from the persisted `sheet.size` (mirrors the scale readout). Wired
-      into BOTH `handleLayout` and `handleFlatPattern` in `DrawingPage.tsx`: the
-      chosen size flows to `createSheet({size})` AND `sheetDimensions/standardLayout/
-      fitScale` (was hardcoded "A4"), so fit-scale now fits the four views to the
-      CHOSEN sheet — the 200×140×30 e2e part gets 1:5 on A4 but 1:2 on A3. 5 new
-      unit cases (size→dims→fit + options/labels) + a new drawings e2e (pick A3,
-      viewBox 420×297, 1:2 readout); founder shots `drawings-size-picker-1440.png`
-      + `drawings-sheet-size-a3-1440.png`. [src: founder dogfooding — WB-64]
-- [ ] (P3, S) Drawings: flat-pattern auto-fit to the sheet. The lone
-      `flat_pattern` view now inherits the CHOSEN sheet size (2026-07-23) but is
-      not yet fit-scaled the way the four standard views are — a flat-pattern fit
-      needs the UNFOLDED blank extents (not the 3D bbox `fitScale` reads off the
-      part evaluate), a distinct data source, so it is split out here. [src:
-      founder dogfooding — WB-64]
-- [ ] (P3, S) Drawings: projected-coincident circle edges create ambiguous
-      pick targets + duplicate dims (founder dogfooding 2026-07-20). A cylinder
-      with several same-Ø edges (body + band edges all Ø120) projects stacked
-      circles in the top view; each gets its own pick target, "the mouth circle"
-      is hard to hit, and the same Ø can be dimensioned twice (coincident,
-      invisible on the sheet, visible in the panel). Dedupe projection-coincident
-      pick targets (prefer the visible edge) and warn on an exact-duplicate
-      dimension. [src: founder dogfooding — WB-64]
 - [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
-      trap, product audit #4) — marking the on-axis edge `construction: true`
-      (the natural SolidWorks/Fusion idiom) excludes it from the profile wire
-      → `422 profile_not_closed`; today only a real profile-boundary edge
-      used *as* the axis works. Acceptance: sketch a half-profile + a
-      construction centerline on the axis → revolve succeeds using the
-      centerline; existing real-edge-as-axis path unaffected; worked e2e.
-      [src: product-auditor]
+      trap — named independently in three product-audit passes, 07-12/07-15/
+      07-23) — marking the on-axis edge `construction: true` (the natural
+      SolidWorks/Fusion idiom) excludes it from the profile wire → `422
+      profile_not_closed`; today only a real profile-boundary edge used *as*
+      the axis works. Acceptance: sketch a half-profile + a construction
+      centerline on the axis → revolve succeeds using the centerline; existing
+      real-edge-as-axis path unaffected; worked e2e. [src: product-auditor]
 - [ ] (P2, S) Datum editor: midplane FACE-sides + `on_face` authoring —
-      deferred from the 2026-07-16 authoring-UI slice. The editor authors
-      `offset_from` + `midplane` over dropdown sides (origin datums + earlier
-      datums); the `MidplaneSide` SUBSHAPE (picked planar face) and the
-      standalone `on_face` datum kind still need the `FacePickOverlay` wired
-      into the standalone `DatumEditor` (arm a pick session, echo the face
-      signature into a `SubshapeRef`). Backend + `on_face` via the
-      sketch-on-face picker already exist; this is the editor-side pick
-      integration only. Acceptance: pick a model face as a midplane side or
-      as an `on_face` base in the DatumEditor; resolved basis matches the
-      kernel's; worked e2e. [src: frontend-builder]
+      deferred from the 2026-07-16 authoring-UI slice. The `MidplaneSide`
+      SUBSHAPE (picked planar face) and the standalone `on_face` datum kind
+      need the `FacePickOverlay` wired into the standalone `DatumEditor`.
+      Backend + `on_face` via the sketch-on-face picker already exist;
+      editor-side pick integration only. Acceptance: pick a model face as a
+      midplane side or an `on_face` base in the DatumEditor; resolved basis
+      matches the kernel's; worked e2e. [src: frontend-builder]
 
 ## Next (P2)
 
+- [ ] (P2, M, recurring) Model-a-REAL-part dogfooding gate — once per phase
+      (or ~quarterly), an agent models a complete real product end-to-end
+      through the actual app + APIs, verifies against closed-form analytics,
+      ships the full package, files every friction point. WB-64 (pass #1,
+      2026-07-20) and TB-1 (site toolbox, pass #2, 2026-07-20) both ran; the
+      2026-07-23 product-audit pass doubles as a bolted-assembly check (found
+      the STEP-export/interference/import gaps now leading Ready). Next
+      scenario due: imported-STEP remix (interop) or spline/loft ergonomic
+      handle (surfacing). [src: WB-64 retro]
+- [ ] (P2, S) SM-fmt-1 — bend-table ONE format, ONE layout pass (frontend +
+      geometry). Pre-format display-ready cell strings into `ComposedBendTable`
+      server-side (`cells: list[list[str]]` alongside numeric `rows`) so
+      `DrawingSheet.tsx` and all three serializers become a pure layout pass over
+      shared strings, closing the Python↔TS drift risk the current
+      comment-anchored spec only mitigates. Acceptance: DOM `BendTable` and
+      SVG/PDF/DXF render identical cell text from the same server strings; byte
+      goldens updated + the cross-serializer consistency test still passes.
+      [src: docs/UI-REVIEW.md 2026-07-19 P2]
+- [ ] (P2, L — spike first, S) Kernel: helical sweep → threads. Any screw closure
+      is unbuildable today; OCCT helix wire spike, then size the feature slice
+      (pitch, turns, profile, handedness, taper). Sequence after the sheet-metal
+      + assembly-interop commitments ahead of it. [src: WB-64 retro; competitive]
 - [ ] (P2, M) Assemblies — RECURSIVE / indented BOM (documents) — the
       follow-up to the flat v1 BOM read-model. Expand rigid sub-assembly
       instances into their own lines, rolling quantities through the nesting
@@ -415,9 +231,25 @@ scorecard impact → core capability → polish).
       currently degrades every import to `parse_failed` via an uncaught
       `math.ceil`). Pre-existing, non-attacker-reachable footguns + a real
       memory-DoS gap. [src: code-reviewer]
-- [ ] (P3, M) Hole feature — face-based placement (point on a face + depth,
-      optionally counterbore/countersink), distinct from a sketched-circle
-      extrude cut. [src: roadmap, product-auditor, competitive]
+- [ ] (P3, S) Drawings D5/D6 — portrait orientation (consumer exists, no
+      authoring — add to the sheet-size UI) + multi-sheet (only `sheets[0]`
+      composed/exported; note the v1 limit in the export route docstring or
+      gate extra sheets). [src: AUDIT-ENGINEERING.md D5/D6]
+- [ ] (P3, S) Drawings: flat-pattern auto-fit to the sheet — needs the
+      UNFOLDED blank extents (not the 3D bbox `fitScale` reads off the part
+      evaluate), a distinct data source from the shipped standard-view fit.
+      [src: founder dogfooding — WB-64]
+- [ ] (P3, S) Drawings: projected-coincident circle edges create ambiguous
+      pick targets + duplicate dims (founder dogfooding 2026-07-20). Dedupe
+      projection-coincident pick targets (prefer the visible edge) and warn on
+      an exact-duplicate dimension. [src: founder dogfooding — WB-64]
+- [ ] (P3, M) Exploded views + assembly drawings — the presentation half of
+      the assembly; sequence after the assembly-STEP/interference/import P0/P1
+      trio and Drawings' own assembly-view work (Ready). [src: AUDIT-PRODUCT.md
+      2026-07-23]
+- [ ] (P3, S) Part-version pinning for assemblies — instances track a part's
+      live tip today; immutable part versions give deterministic, frozen
+      assemblies. [src: AUDIT-PRODUCT.md 2026-07-23]
 - [ ] (P3, S) Spline profile builder: named tolerance + non-consecutive-
       coincidence guard (engineering audit **F5**) — promote the inline
       `abs_tol=1e-9` (kernel/extrude.py:186) to the module's existing
@@ -434,8 +266,10 @@ scorecard impact → core capability → polish).
       `MakeThickSolid`). Not urgent: showcase routed around it. [src:
       qa-tester showcase-QA]
 - [ ] (P3, M) STEP import v2: blob-backed storage for large files — the
-      additive `kind:"blob"` migration path is already seeded. [src: roadmap,
-      step-import.md]
+      additive `kind:"blob"` migration path is already seeded; a real
+      engineering/scaling concern once imported-part assemblies bloat the tree
+      (re-confirmed 2026-07-23). [src: roadmap, step-import.md; AUDIT-PRODUCT.md
+      2026-07-23]
 - [ ] (P3, L) STEP import v2: IGES, assembly product-structure, sew/repair
       healing — (1) IGES as a second import format; (2) named ASSEMBLY
       product-structure (STEP AP242 hierarchy → an assembly of instances,
@@ -506,11 +340,13 @@ scorecard impact → core capability → polish).
       never fetches. DRY-sanctioned for now; add a body-only eval entry
       point when drawing-eval volume makes it matter. [src: code-review of
       `d65caff`]
-- [ ] (P3, S) History-tree drag-reorder / suppress a mid-tree feature —
-      distinct from the rollback bar (which moves the build point, not an
-      action stack). [src: product-auditor Pass 2]
-- [ ] (P3, M) Feature-mirror + 2-direction linear pattern — pattern breadth
-      gaps named but not yet built. [src: product-auditor Pass 2]
+- [ ] (P3, S) History-tree drag-reorder — distinct from the rollback bar
+      (which moves the build point, not an action stack) and from Feature
+      suppress (promoted to Ready P2, AUDIT-PRODUCT.md 2026-07-23). [src:
+      product-auditor Pass 2]
+- [ ] (P3, M) 2-direction linear pattern — pattern breadth gap (mirror-feature
+      promoted to Ready P2, AUDIT-PRODUCT.md 2026-07-23). [src: product-auditor
+      Pass 2]
 - [ ] (P3, S) A friendlier `boolean_failed` error message (today's is the
       generic OCCT-raise catch-all). [src: product-auditor Pass 2]
 - [ ] **SPECULATIVE — not sized, not sequenced, candidate future vertical
@@ -534,175 +370,70 @@ scorecard impact → core capability → polish).
 
 ## Done — archive
 
-Full evidence for every line below lives in `CHANGELOG.md`.
+Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
+`CHANGELOG.md`; one line per item below per token economy.
 
-### Recently shipped
+### Recently shipped (2026-07-23 batch)
 
-- [x] (P1, S) Drawings D1 (EXPORT half) — title-block author/date/notes stamped.
-      **SHIPPED 2026-07-23.** `_title_block()` threads authored `TitleBlock`
-      free-text onto `ComposedTitleBlock` (blank→None); SVG/PDF/DXF stamp
-      DRAWN/DATE/NOTES rows. Non-default golden added; empty title block
-      byte-identical. DOM half → D1b. [src: AUDIT-ENGINEERING.md D1]
-- [x] (P2, M) Sheet metal: hem on a FLANGE top edge cannot flat-pattern
-      (kernel-architect). **SHIPPED 2026-07-22.** Root cause: bend flank
-      resolution counted every planar face COPLANAR with a tangent plane of the
-      hem's inner cylinder — with TB-1's numbers (2·r_hem = base radius) the
-      perpendicular walls' end faces land exactly in the return's tangent plane
-      → "flanked by 4 planar faces" typed reject. Fix (a): flanks must SHARE an
-      edge with the bend cylinder (`resolve._shares_edge_with`, topological);
-      (b): with reliefs present, axis-parallel returns off depth-1 arms are
-      split out BY FOLD PROVENANCE (`_partition_arm_returns`) and develop as
-      arm extensions `[BA][return leg]`; perpendicular-axis depth-2 + reliefs
-      stays a typed reject. New golden `hemmed-wall-tray-unfold` (full TB-1
-      tray: 4 walls + 2 hems + 4 reliefs; fold-back invariant on the REAL
-      bodies — cyl-face widths + volume witnesses; minimal plate+wall+hem and
-      unrelieved tree variants; restart determinism). All existing goldens
-      byte-unchanged. Residual (failed-view caption overlap) split to P3.
+- [x] (P1, S) Drawings D1 (export + DOM) — title-block author/date/notes now
+      stamped in SVG/PDF/DXF and on-screen. [src: AUDIT-ENGINEERING.md D1]
+- [x] (P2, S) Drawings D2 — authored `DimensionPlacement` (offset/text_pos) now
+      honored by the composer. [src: AUDIT-ENGINEERING.md D2]
+- [x] (P2, S) Drawings D3 — `first_angle` projection wired (ISO 128 view swap).
+      [src: AUDIT-ENGINEERING.md D3]
+- [x] (P2, S) Drawings D4 — assembly-kind views typed-422-gated instead of an
+      opaque downstream 404. [src: AUDIT-ENGINEERING.md D4]
+- [x] (P2, M) Engineering audit — DEAD-CAPABILITY systematic sweep: 6 orphaned/
+      half-wired drawing capabilities found + verdicted (D1-D6). [src: WB-64 retro]
+- [x] (P2, S) Drawing export DE-4 — content-addressed drawing-artifact cache
+      (SVG/PDF/DXF) on the mesh_store/S3 seam. [src: drawing-export.md §8.3]
+- [x] (P2, S) Drawings — note annotations render end-to-end (export SVG/PDF/DXF
+      + DOM + authoring panel); fixed a real gateway gap (annotations never
+      threaded to compose). [src: founder dogfooding — WB-64]
+- [x] (P3, S) Drawings — auto-layout sheet-SIZE control (A4→A0+ANSI); fit-scale
+      now respects the chosen sheet. [src: founder dogfooding — WB-64]
+- [x] (P2, S) MB-4c tail (wire + frontend) — per-body lump count on the evaluate
+      wire + Bodies-panel "N solids" badge. [src: MB-4c honest wire gap]
+- [x] (P1, S) e2e — 6 raster-fragile specs fixed (root cause: stale pre-units
+      format string, not raster drift) + 1 real ≤2px band-fit tolerance. [src:
+      orchestrator bisect]
+- [x] (P2, S) e2e — heavy founder-flow specs hardened against CPU contention
+      (explicit 30s solve/eval waits). [src: orchestrator]
+- [x] (P0, M) Sheet metal WF-1 — cut-after-fold fold-back invariant (layer 1) +
+      edge-flange WIDTH EXTENTS/auto bend-end relief/partial-width flat pattern
+      (layer 2, design §4.5); PB-1 fell out of the same machinery. [src: founder
+      dogfooding — WF-1/PB-1]
+- [x] (P2, S) Sheet metal — width-extents EDITOR UI (Full/Centered/Offset +
+      in-scene span preview). [src: founder dogfooding — WF-1]
+- [x] (P2, M) Sheet metal — hem on a FLANGE top edge now flat-patterns
+      (topological flank resolution + fold-provenance return partitioning).
       [src: founder dogfooding — TB-1]
-- [x] (P1, M) Sheet metal — closed-hem + corner-relief AUTHORING UI
-      (frontend-builder). **SHIPPED 2026-07-19.** Both API-only features made
-      click-drivable, mirroring the base/edge-flange pattern (`47c88f4`): a
-      `HemEditor` (single-select edge pick, brass `length_mm` handle, fixed
-      "180° (closed)" fold readout, inherited radius/K overrides) and a
-      `CornerReliefEditor` (references the two edge-flange FEATURES via Bend A/B
-      selects — not an edge pick — with ratio + size-override, gated on ≥2 edge
-      flanges, typed `corner_relief_failed`/`reference_unresolved` in-editor).
-      New SHEET METAL toolbar actions + Hem/CornerRelief icons; e2e models a
-      hemmed plate and a relieved tray by clicking (body + flat pattern render);
-      founder shots `sheet-metal-hem-*.png` + `sheet-metal-corner-relief-*.png`.
-      Design-system primitives only, WCAG-AA, keyboard-first. A viewport bend-
-      face pick for corner relief is a noted follow-up.
-      [src: design/sheet-metal-parity.md §2/§3]
-- [x] (P1, M) Sheet metal — FULL 4-CORNER PAN corner relief (geometry,
-      kernel-architect). **SHIPPED 2026-07-19.** Closed two blocker gaps (code
-      review) that stopped the canonical pan/box use case. (1) A relief SHARING a
-      flange with an earlier relief failed `subshape_unresolved` — the earlier notch
-      shifts the shared bend's centroid past match tolerance on the LIVE body; now
-      resolution is split from the cut (`corner_relief_tools` resolves against a CLEAN
-      un-notched reference, `cut_relief_tools` cuts accumulated notches from the live
-      body). (2) A flange authored AFTER a relief gave a silently-ok body with a broken
-      flat pattern — the un-notched reference was snapshotted at the first relief; now
-      it's maintained by the FOLDS regardless of order (`_fold_flange_off_edge`), so the
-      late flange develops correctly (option (a)). Flagship golden
-      `pan-four-corner-relieved` (4 flanges + 4 reliefs, one shell, fold-back over 8
-      flange notches) + `test_sheet_metal_four_corner_pan.py` (10 tests); all existing
-      goldens BYTE-UNCHANGED. Unblocks auto-relief as a genuine fast-follow.
-      [src: design/sheet-metal.md §4.4.4]
-- [x] (P2, S) Sheet metal — CLOSED HEM (geometry, kernel-architect). **SHIPPED**
-      2026-07-19. First-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`,
-      edge ref + `length_mm` + optional `bend_radius_mm`/`k_factor`,
-      `hem_type="closed"`; open/teardrop/rolled forward-declared, deferred). A
-      closed hem is a fixed **180°** fold of the return flat onto the parent,
-      reusing `build_edge_flange` + the shipped `unfold_sheet_metal` verbatim
-      (BA = π·(r+K·t); the edge-flange and hem evaluators DRY-share
-      `_fold_flange_off_edge`). **Kernel finding: the near-flat fold is tractable
-      and even freer than predicted** — it produces ONE clean valid solid
-      (BRepCheck-valid, one shell) and CANNOT self-intersect (the return sits
-      ~2·radius above the base with an air gap, verified valid to r=1e-6), so no
-      guard/rescope was needed. Golden `closed-hem-plate` (valid solid + analytic
-      unfold + area conservation + byte-determinism across an interpreter
-      restart). Honest degradation (parity §3): zero-radius/zero-gap hem → typed
-      schema reject, kernel fold failure → typed `edge_flange_failed`. Registered
-      in all arms (Feature union / FeatureEnvelope / FEATURE_REGISTRY /
-      BODY_AFFECTING_FEATURE_TYPES / feature_references / geometry
-      `_BODY_AFFECTING_TYPES` + `FEATURE_HANDLERS`); contracts+ts-client regen;
-      all existing goldens BYTE-UNCHANGED. Deferred: a Hem authoring UI slice
-      (closed hem is API-only today) + open/teardrop/rolled (curved
-      cross-section). [src: design/sheet-metal-parity.md §2]
-- [x] (P2, M) Sheet metal — CORNER RELIEF v1 (geometry, kernel-architect).
-      **SHIPPED** + **fold-back bug reconciled** (P0 code-review request-changes,
-      same day). v1 = **rectangular** relief for a **depth-1 adjacent-flange tray
-      corner**: `apply_corner_relief` cuts the 3D notch, `unfold_sheet_metal(...,
-      reliefs=...)` develops the relieved blank (single closed outline,
-      byte-deterministic across an interpreter restart). **Bug:** the 3D box and the
-      flat's full-length flange inset modeled DIFFERENT reliefs → the flat blank did
-      not fold back to the 3D body. **Fix:** both halves now model the SAME LOCAL
-      corner notch (width `size`, developed depth `BA+size`, wall full above); the 3D
-      cut is one per-flange slot reaching the folded wall (`_flange_notch_box`), and
-      a new **fold-back cross-consistency gate** asserts relieved-body bend-face
-      widths == flat `bend_widths_mm` AND removed volume == removed area×t + the
-      bend neutral-vs-mean-radius term. Golden `corner-tray-relieved-unfold` fixed to
-      a valid `size=3=bend_radius` (§4.4.3 floor) + corrected geometry; 13 tests; all
-      depth-1/2 goldens BYTE-UNCHANGED (empty relief set → verbatim paths). Honest
-      degradation preserved: welded depth-2 box corner stays a TYPED reject even WITH
-      relief, parallel/unresolvable/non-axis-aligned relief → typed error, never a
-      wrong blank or raw crash. Deferred: obround/tear variants, auto-relief policy,
-      the relieved-flat-pattern DRAWING view. [src: design/sheet-metal.md §4.4]
-- [x] (P2, M) Sheet metal — CORNER RELIEF as an AUTHORABLE FEATURE (geometry,
-      kernel-architect). **SHIPPED 2026-07-19.** The shipped relief geometry was
-      DEAD capability (called only from tests). Now a `SheetMetalCornerReliefParamsV1`
-      feature (`type="sheet_metal_corner_relief"`, `bend_a`/`bend_b` FeatureRefs at
-      the two edge flanges + `relief_ratio`/`size_mm`; EXPLICIT per §4.4.2, auto is
-      the now-unblocked follow-on) registered in all 6 arms; its evaluator cuts the
-      3D notch AND records the relief so the flat-pattern unfold + the drawing
-      `flat_pattern` view develop the matching relieved blank. The unfold resolves
-      bends on a PRE-relief snapshot (the notch shifts the bend-face centroid past
-      match tolerance). Fold-back invariant now proven at the **pipeline** level: new
-      golden `corner-tray-relieved-feature` (flat pattern byte-identical to the unit
-      golden's pinned hash) + 12 end-to-end tests; existing goldens byte-unchanged;
-      contracts/ts-client regenerated. Honest degradation: non-bend ref →
-      `reference_unresolved`, parallel bends → `corner_relief_failed`, no body →
-      `no_prior_body`. Deferred: auto-relief policy layer, Corner-Relief authoring UI.
-      [src: design/sheet-metal.md §4.4]
-- [x] (P2, M) Sheet metal v2 #2 — depth-≥2 bend-TREE unfold FEATURE (geometry,
-      kernel-architect). **SHIPPED** — the spike graduated into the real
-      `unfold_sheet_metal`: the uniform depth-2 rejection is LIFTED for cases that
-      develop without self-overlap. Dispatches by tree depth → **depth-1 goldens
-      byte-identical** (pinned hashes green); depth-≥2 routes to `_unfold_bend_tree`
-      (spike frame math folded IN; `_spike_bend_chain` + `spike-bend-chain-*`
-      RETIRED — DRY). Adds: ONE union outline (grid-cell rectilinear union, single
-      closed loop; reentrant-L box corner / rectangle Z), a self-OVERLAP gate
-      (typed `UnfoldOverlapError`, §7 relief case), an axis-aligned guard (typed
-      `UnfoldStarError`). New goldens `bend-chain-corner-unfold` (L-with-return) +
-      `bend-chain-parallel-unfold` (Z), authored via two shipped `build_edge_flange`
-      folds: hand-derived area-conservation + exact outline-tiling (shoelace area ==
-      flat_area) + byte-determinism. Negative: full box corner (cyclic returns
-      needing relief) → typed, no crash. **Finding:** valid-tree axis-aligned
-      developments don't self-overlap (real relief cases are cyclic, caught earlier);
-      overlap gate is defense-in-depth. Deferred: corner RELIEF geometry, the
-      non-axis-aligned emitter, a declarative depth-2 EvaluateTreeRequest golden.
-      [src: design/sheet-metal.md §4.3, §10]
-- [x] (P2, M) Sheet metal v2 Spike — bend-chain (depth ≥2) unfold tractability
-      proof (geometry, kernel-architect). **VERDICT: TRACTABLE, no wall.** A
-      flange folded off ANOTHER flange (box corner / return / hat channel) —
-      the graph-relaxation case v1 defers — unfolds with a clean
-      **recursive-compositional tree walk**: place the base at identity, then
-      walk the bend tree outward placing each child flange in its parent's
-      ALREADY-flattened frame (`child_2d = parent_2d(tangent) + BA·w_parent`).
-      No relaxation, no iteration, no error accumulation beyond FP. Proven on a
-      hand-built PERPENDICULAR box corner AND a PARALLEL chain (both built via
-      two shipped `build_edge_flange` folds, real provenance): BA-strip offset
-      residual ~3e-15, per-flange isometry residual 0.0, area conservation
-      exact, byte-deterministic in-proc + fresh-restart, flanges occupy
-      disjoint 2D regions (no overlap → idealised zero-relief blank valid).
-      Isolated `_spike_bend_chain.py` + 2 goldens (`spike-bend-chain-corner`,
-      `spike-bend-chain-parallel`); shipped depth-1 `unfold_sheet_metal`
-      byte-UNCHANGED (still rejects depth-2). Follow-on feature slices named in
-      design §4.3. [src: design/sheet-metal.md §10, §4.3]
-- [x] (P2, M) Sheet metal v2 #1 — non-parallel depth-1 bend stars (geometry,
-      kernel-architect). Spike-first verdict: **TRACTABLE**, no wall — the 2D
-      plus/cross layout works and even shared-corner (adjacent perpendicular)
-      flanges are in scope: the arms occupy disjoint 2D cardinals and the built
-      3D body has exactly-additive volume (no overlap, measured ~1e-12 residual).
-      Generalized `unfold_sheet_metal` to branch: all-parallel bends keep the
-      verbatim 1D strip path (L-bracket/U-channel goldens byte-identical), while
-      non-parallel bends off a rectangular base lay out as a 2D plus. New golden
-      `corner-tray-perp-unfold` (base + 2 perpendicular flanges) at 1e-9 tol,
-      area-conservation + shoelace-outline witness + byte-determinism (in-proc +
-      fresh-restart). The `UnfoldStarError` narrowed to genuinely-unsupported:
-      non-rectangular/angled base, angled bend axis, depth≥2. [src:
-      design/sheet-metal.md §4.3, "documented next increment"]
-- [x] (P2, S) STEP import — parse-timeout bound hardened against CPU-contention
-      flakiness. Replaced the single 5 s **wall-clock** subprocess bound (which
-      false-fired on slow-but-legit imports under load) with a **CPU-time**
-      ceiling (`RLIMIT_CPU` in the worker, env `STEP_IMPORT_TIMEOUT_SECONDS`,
-      default 20 s — invariant to machine load, the primary DoS bound) plus a
-      generous **wall-clock liveness backstop** (env
-      `STEP_IMPORT_WALL_TIMEOUT_SECONDS`, default 60 s, kills only a *wedged*
-      child). Proven: the two previously-flaky STEP tests pass 8× under 2×
-      CPU oversubscription with zero false-timeouts; the DoS guard still fires
-      (RLIMIT_CPU kills a real CPU burn; `-SIGXCPU` maps to
-      `import_parse_timeout`). No schema/contract change. [src: code-reviewer]
+- [x] (P2, S) Sheet metal — CornerReliefEditor in-scene Bend A/B highlight +
+      edit-mode guards (SM-relief-ui-1). [src: docs/UI-REVIEW.md 2026-07-19]
+- [x] (P1, S) Drawings — incumbent-parity matrix (`drawings-parity.md`, sourced
+      SolidWorks/Fusion) + 12-item ordered campaign. [src: founder dogfooding —
+      WB-64 + retro]
+
+### Sheet metal v1/v2 + corner relief + hem + STEP hardening (2026-07-19)
+
+- [x] (P1, M) Sheet metal — closed-hem + corner-relief authoring UI
+      (HemEditor + CornerReliefEditor). [src: design/sheet-metal-parity.md §2/§3]
+- [x] (P1, M) Sheet metal — FULL 4-CORNER PAN corner relief (shared-flange +
+      late-flange fold-back fixes). [src: design/sheet-metal.md §4.4.4]
+- [x] (P2, S) Sheet metal — CLOSED HEM feature (180° fold, reuses edge-flange
+      machinery). [src: design/sheet-metal-parity.md §2]
+- [x] (P2, M) Sheet metal — CORNER RELIEF v1 geometry + fold-back
+      cross-consistency gate. [src: design/sheet-metal.md §4.4]
+- [x] (P2, M) Sheet metal — CORNER RELIEF wired as an authorable feature. [src:
+      design/sheet-metal.md §4.4]
+- [x] (P2, M) Sheet metal v2 #2 — depth-≥2 bend-TREE unfold feature (box
+      corner/return/Z). [src: design/sheet-metal.md §4.3, §10]
+- [x] (P2, M) Sheet metal v2 spike — bend-chain depth-≥2 tractability proof
+      (TRACTABLE, recursive tree walk). [src: design/sheet-metal.md §10]
+- [x] (P2, M) Sheet metal v2 #1 — non-parallel depth-1 bend stars (2D
+      plus/cross layout). [src: design/sheet-metal.md §4.3]
+- [x] (P2, S) STEP import — parse-timeout hardened against CPU-contention
+      (`RLIMIT_CPU` + wall-clock liveness backstop). [src: code-reviewer]
 
 ### Phase 0 (through commit 322a988)
 
@@ -826,6 +557,23 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-23 — **Groom + restock (backlog-groomer):** reconciled BACKLOG +
+  ROADMAP against `a6a5814..0ed9f74` (18 Ready items archived as one-liners);
+  formalized the fresh product-audit findings into 3 P0/P1 assembly-interop
+  Ready items + Hole/suppress/mirror P2 items; marked section-views v1 IN
+  FLIGHT (kernel-architect, uncommitted); pruned pre-07-22 entries here into
+  `CHANGELOG.md`.
+- 2026-07-23 — **Product audit — "the assembly is a one-way street":** a
+  bolted assembly builds+solves but has no STEP export, no interference
+  check, no product-structure import; filed as the new P0/P1 Ready trio.
+  Also named suppress/mirror/dedicated-Hole as the top everyday-ergonomics gaps.
+- 2026-07-23 — **Drawings dead-capability drain (D1-D4) + engineering-audit
+  sweep:** title-block, first-angle, dimension-placement, and the
+  assembly-view 404 all wired/gated; sweep found 6 orphans total (D1-D6),
+  D5/D6 + the process-guard tail remain.
+- 2026-07-23 — **Drawings note-render, DE-4 artifact cache, sheet-size
+  picker, MB-4c wire/frontend tail, e2e hardening** (raster-format fix +
+  CPU-contention timeouts) — see Done archive for one-liners.
 - 2026-07-22 — **WF-1 fold-back coaxial fix (kernel-architect, code review):**
   fold-back invariant now measures each bend FACE once (dedup by identity,
   `resolve.live_bend_face_widths`) + `find_cylindrical_face` disambiguates by span;
@@ -845,67 +593,4 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   rotation):** 3 fold widths (70 partial / 200 / 120) on a notched base — 3D
   exact to closed form; flat pattern typed-rejects (filed P2, matrix row
   upgraded). Snap views, real-pointer orbit, pick-after-rotate all pass.
-- 2026-07-20 — **Founder dogfooding pass #2 — TB-1 site toolbox (all queued
-  scenarios, one assembly):** tray (4 walls + 2 hems + 4 reliefs — first
-  coexistence, 12 features OK), pattern ×4 (exact to 0.01 mm³), spline-loft
-  grip, 8-instance assembly + BOM, authz probes clean. ONE new kernel finding:
-  hem-on-flange-top can't flat-pattern (typed reject, filed P2).
-- 2026-07-20 — **Drawings auto-layout FIT-SCALE (from WB-64 findings):**
-  `fitScale` picks the largest standard scale fitting the quadrant cells
-  (user's pick = ceiling); 6 unit cases, drawings e2e green. Sheet-size
-  select + flat-pattern fit remain (P3). Retro items filed: Drawings parity
-  campaign (P1), dead-capability sweep, recurring dogfooding gate, threads.
-- 2026-07-20 — **Founder dogfooding — WB-64 64 oz bottle (full product pass):**
-  bottle/cap/assembly/GA modeled + verified in-app (cavity kernel-vs-analytic
-  Δ=2 mm³ in 2.11 L); 3 drawing findings filed (Ready), no geometry defects.
-- 2026-07-19 — **Sheet-metal CLOSED HEM (kernel-architect):** first-class
-  `sheet_metal_hem` feature — a fixed 180° fold reusing `build_edge_flange` + the
-  shipped unfold verbatim. Finding: the near-flat fold cannot self-intersect
-  (return sits ~2·radius above base), so it's one clean valid solid, no guard.
-  Golden `closed-hem-plate`; existing goldens byte-unchanged. Open/teardrop/rolled
-  + a Hem UI deferred.
-- 2026-07-19 — **Sheet-metal CORNER RELIEF v1 (kernel-architect):** reconciled +
-  finished container-restart-stranded work (`_Rect` defined after first use →
-  import `NameError`; 12 ruff errors — cleared). `apply_corner_relief` cuts the
-  rectangular 3D notch; `unfold_sheet_metal(reliefs=...)` develops the relieved
-  depth-1 tray (reentrant notch, area conservation, byte-deterministic). Golden
-  `corner-tray-relieved-unfold` + 12 tests; all depth-1/2 goldens byte-unchanged.
-- 2026-07-19 — **Sheet-metal depth-≥2 bend-TREE unfold FEATURE (kernel-architect):**
-  spike graduated into `unfold_sheet_metal`; depth-2 (box corner / return / Z) now
-  unfolds to ONE union outline, self-overlap → typed `UnfoldOverlapError`. Depth-1
-  goldens byte-identical; new `bend-chain-{corner,parallel}-unfold`; spike retired.
-- 2026-07-19 — **Sheet-metal depth-≥2 bend-chain unfold SPIKE (kernel-architect):**
-  VERDICT **TRACTABLE, no wall.** Recursive-compositional tree walk unfolds a
-  box corner (flange off a flange) — each child placed in its parent's already-
-  flattened frame; BA-strip residual ~3e-15, isometry residual 0.0, exact area
-  conservation, byte-deterministic. Isolated `_spike_bend_chain.py` + 2 goldens
-  (perp corner + parallel chain); shipped depth-1 unfold byte-unchanged.
-  Follow-on feature slices named in design §4.3.
-- 2026-07-19 — **Sheet-metal depth-2 no-crash + N=4 pan golden (kernel-architect):**
-  code-review follow-up on the non-parallel unfold. Author-reachable depth-2
-  bodies (flange off a flange) now raise a UNIFORM typed `UnfoldStarError` before
-  the layout — the perpendicular box corner no longer leaks a raw kernel
-  `Standard_ConstructionError`; plus-pattern assembler guards its full-width
-  closed-loop assumption; `BendLine.flat_start/end` 2D-frame semantics documented;
-  new `pan-four-flange-perp-unfold` golden. Parallel goldens byte-identical.
-- 2026-07-19 — **Sheet metal v2 #1 — non-parallel bend stars (kernel-architect):**
-  spike proved the 2D plus/cross layout tractable (shared corners included —
-  disjoint arms, exactly-additive volume). `unfold_sheet_metal` branches
-  parallel (byte-identical 1D strip) vs non-parallel (2D tray); new
-  `corner-tray-perp-unfold` golden + narrowed `UnfoldStarError`. Full geometry
-  suite green.
-- 2026-07-19 — **STEP parse-timeout hardened (kernel-architect):** wall-clock
-  bound → CPU-time ceiling (`RLIMIT_CPU`, default 20 s) + wall-clock liveness
-  backstop (default 60 s); kills the CPU-contention false-fire flake while
-  preserving the DoS guard. Full geometry suite green; flaky tests 8× clean
-  under 2× CPU oversubscription. No contract change.
-- 2026-07-19 — **Groom + restock (backlog-groomer):** reconciled BACKLOG +
-  ROADMAP against `36dc3d9..a6a5814` (six converged pillars: Assemblies,
-  Drawings+export, Multi-body, Units, Undo/redo, Sheet metal); archived
-  ~950 lines of shipped items to one-liners, backfilled two missing
-  CHANGELOG.md batches, fixed 5 stale ROADMAP phase/sub-item markers, closed
-  two stale unchecked duplicate items (already shipped) and two stale Next
-  items superseded by shipped pillars. Restocked Ready with 9 items — see
-  BACKLOG Ready section for the current queue.
-
-Older entries live in `CHANGELOG.md`.
+Entries before 2026-07-22 live in `CHANGELOG.md`.
