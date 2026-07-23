@@ -7,6 +7,88 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — Revolve construction-centerline axis (`1605a11`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the centerline-closes-open-
+profile fix (`kernel/revolve.py::build_revolve_profile_face`: try the shared
+`build_profile_face`; on `ProfileNotClosedError` retry with the axis LINE
+promoted to a real closing edge). The shipped suite (14 tests + the new golden
+`revolve-centerline-cylinder-r12-h20`, 2880π) proves the happy path (cylinder,
+90° partial, open-away-from-axis rejection). I pushed on the two failure modes
+that a green suite can hide: the retry silently **bridging a wrong solid**, and
+a **wrong volume** when the axis promotion straddles/partially-closes the
+profile. **VERDICT: geometry is CORRECT — no P0/P1/P2 geometric defect.** All
+seven probe families matched their analytic / Pappus oracle to ≤3e-15, and every
+must-reject case errors safely (`profile_not_closed` / `axis_intersects_profile`),
+never a solid. Gaps were TEST-COVERAGE only; closed with 6 guard tests in
+`services/geometry/tests/test_revolve.py` (14 → 20, all green; ruff + pyright
+clean). Golden's own gates (mass/topology/mesh + STEP round-trip) re-verified.
+
+### 1. Washer via offset axis + open-at-inner-radius — CORRECT (no bore fill)
+Closed rectangle [6,12]×[0,20] about a separate centerline at x=0 → **6785.840131753952**
+mm³ vs Pappus `2π·R_c·A = 2π·9·(6·20)` = 6785.840131753952 (R_c=9, A=120) — exact.
+The dangerous inverse: the SAME rectangle left OPEN at the inner radius (x=6) with
+the centerline at x=0 does **not** wrongly fill the bore into a cylinder
+(9047.787) — it returns `profile_not_closed` (the promoted axis at x=0 cannot
+reach the open endpoints at x=6). Already covered by
+`test_profile_open_away_from_axis_still_profile_not_closed` (axis_gap=5).
+
+### 2. Axis line SHORTER than the open span — `profile_not_closed` (silent-bridge guard) ✅ NEW
+Half-profile open along x=0 for y∈[0,20], centerline only y∈[0,10]. Promoting the
+short axis edge leaves (0,20) dangling (10 mm gap ≫ 1e-4 wire tol) → correctly
+`profile_not_closed`, NOT a bridged partial solid.
+`test_axis_shorter_than_open_span_is_profile_not_closed`.
+
+### 3. Open at the axis AND elsewhere — `profile_not_closed` (partial-close guard) ✅ NEW
+Profile missing BOTH its on-axis edge and its top edge. The fallback supplies only
+the axis edge, so the top stays open → `profile_not_closed`, never a partially
+closed / wrong solid. `test_profile_open_at_axis_and_elsewhere_is_profile_not_closed`.
+
+### 4. Tilted (non-principal) centerline — CORRECT solid of revolution ✅ NEW
+Closed square [3,5]×[0,1] about the 45° line y=x through the origin → **31.100180567108566**
+mm³ vs Pappus `2π·d·A` with d=|4−0.5|/√2=2.4748737, A=2 → 31.100180567108563
+(**err 3e-15**). The kernel is not restricted to principal axes; a tilted
+construction line resolves to `Axis(origin, dir)` and revolves correctly.
+`test_tilted_construction_centerline_revolves_about_the_tilted_axis`.
+
+### 5. Partial angle 120° + open half-profile — exact one-third ✅ NEW
+120° of the r12/h20 open half-profile → **3015.928947446201** = (120/360)·2880π =
+960π = 3015.9289474462018 exact. Complements the shipped 90° quarter case with a
+non-quarter fraction. `test_construction_centerline_partial_angle_120_is_exact_third`.
+
+### 6. Real on-axis edge vs. open+centerline — BYTE-IDENTICAL body (anti-seam/double-count) ✅ NEW
+The design claim is "closes exactly the face a real on-axis edge would give." A
+rectangle [0,12]×[0,20] closed by a REAL on-axis edge, and the same rectangle left
+open and closed by the retry — with the **same** axis-line direction — produce the
+**same disc**: identical volume (9047.786842338604) AND byte-identical GLB content
+hash (`sha256:218fde…`, 506 v / 500 t / topology 3-3-1). Kernel cross-check: both
+faces = 4 edges / area 240, both solids faces=3 edges=3 verts=2 shells=1, identical
+vertex set. No doubled edge, no extra seam.
+`test_real_on_axis_edge_and_centerline_close_yield_identical_body`.
+*Note (not a defect):* reversing the axis-line direction changes the GLB hash
+(`218fde…`→`51c69a…`) at identical volume/topology — legitimate seam/parametrization
+placement from the revolution direction, expected physics, not nondeterminism.
+
+### 7. Straddling profile closable by the centerline — `axis_intersects_profile` (order guard) ✅ NEW
+The fix reordered evaluate to build the face BEFORE `check_axis_clears_profile`. An
+open profile whose two ends sit on the axis but whose body crosses to BOTH sides
+(x∈[−6,6]) — so the centerline CAN close it into a face — is still rejected
+`axis_intersects_profile`, never a self-intersecting swept solid. The pre-existing
+closed-straddle case ([−5,5]) also still fires. `test_straddling_profile_closable_by_centerline_still_axis_intersects`.
+
+### Usability note (LOW, not a defect — errs safe)
+A centerline drawn LONGER than the profile (endpoints overhang both open ends, e.g.
+axis y∈[−5,25] over a profile y∈[0,20]) returns `profile_not_closed` rather than
+closing — SolidWorks/Fusion tolerate an over-long centerline. This is
+UNDER-acceptance (rejects a valid idiom), never wrong geometry. Filing to the
+groomer as a P3 usability item on the revolve editor, separate from this fix.
+
+### Evidence
+20/20 `test_revolve.py` green; `revolve-centerline-cylinder-r12-h20` golden gates
+(4/4) + STEP round-trip green; byte-deterministic response test green. Probe
+scripts under scratchpad; guard tests are the durable record. build123d 0.11.1 /
+OCCT 7.9 / planegcs, 2026-07-23.
+
 ## 2026-07-23 — Assembly STEP import: XCAF product-structure reader (`f75fb26`) — adversarial geometry QA (geometry-qa)
 
 **Scope.** Independent adversarial verification of STEP import slice 1
