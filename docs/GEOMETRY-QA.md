@@ -7,6 +7,104 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — Assembly STEP export (`b7408fd`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the assembly export P0 beyond
+the two committed 2-instance goldens: determinism completeness, round-trip
+fidelity at scale (3+ instances / non-axis-aligned rotation / repeated part),
+PRODUCT traceability under a repeated part, STL parity, and the `solve_assembly`
+extraction. **VERDICT: geometrically sound — no P0/P1 defects.** One 🟡 test-
+coverage gap found and CLOSED with a guard test.
+
+### 1. Rotation convention — PASS (correct order, no transpose)
+`_placed_body` builds `gp_Quaternion(x,y,z,w)` → `gp_Trsf.SetRotation` +
+`SetTranslationPart`, i.e. `world = R(q)·local + t`. Verified across THREE
+independent implementations for a 50° rotation about the off-axis (1,2,3),
+`local=(3,−7,11)`, `t=(5,−2,8)`:
+
+| implementation | world point |
+|---|---|
+| Rodrigues reference (numpy, no quat) | `(16.29325812, −5.78631373, 14.09312312)` |
+| `Pose.apply_point` (numpy quat matrix) | `(16.29325812, −5.78631373, 14.09312312)` |
+| OCCT `gp_Quaternion`→`gp_Trsf` (path under test) | `(16.29325812, −5.78631373, 14.09312312)` |
+
+Agree to ~1e-14. A transpose (→ rotation by −θ) or a `(w,x,y,z)` component swap
+would diverge here; they do not.
+
+### 2. Round-trip at scale — PASS (3 instances, repeated part, rotated)
+Synthetic 3-instance assembly, ALL sharing one `part_key` (repeated part), inst-3
+rotated 50° about (1,2,3), no mates (grounded → seed == solved). Export STEP →
+`import_step` → 3 solids recovered, bijectively matched to solved poses:
+
+| instance | centroid err | vol err | area err |
+|---|---|---|---|
+| id 1 (identity) | 1.07e-13 | 4.55e-11 | 4.14e-11 |
+| id 2 (t=(100,0,0)) | 9.95e-14 | 4.73e-11 | 4.14e-11 |
+| id 3 (rotated) | 1.28e-11 | 4.55e-11 | 4.14e-11 |
+
+Worst 4.7e-11, ~3 orders inside `ROUNDTRIP_TOL` (1e-7). Solve status
+`well_constrained`; 0 solids lost.
+
+### 3. PRODUCT traceability under a repeated part — PASS
+3 instances / 1 part_key → PRODUCT names `{root(0x270f), id1, id2, id3}`, each
+instance id appearing exactly once. Repeated part does NOT collide/dedup the
+occurrences (the XCAF label per placed child is distinct). Distinct-name count
+`{id1:1, id2:1, id3:1}`.
+
+### 4. Determinism completeness — PASS (canonicalisation is COMPLETE)
+The builder's claim is that `NEXT_ASSEMBLY_USAGE_OCCURRENCE` ids are the ONLY
+nondeterministic byte range beyond the pinned `FILE_NAME` timestamp. **Stressed
+by diffing two RAW (pre-canonicalisation) exports of an identical 3-instance
+structure separated by 5 counter-advancing exports** — every byte range OCCT
+varies is exposed:
+
+```
+raw1 71350 bytes / raw2 71353 bytes — differing lines: 3
+  #548  NAUO('1' → '19')
+  #1065 NAUO('2' → '20')
+  #1582 NAUO('3' → '21')
+NON-NAUO differing lines: 0    ← canonicalisation is complete
+canonicalised(raw1) == canonicalised(raw2): True
+```
+
+Zero non-NAUO drift: no entity `#N` id, PRODUCT id, or label tag leaks a global
+counter. End-to-end `export_assembly` confirmed byte-identical for the same
+request after interleaving 3 STEP + 3 STL + 3 evaluate calls (in-process), and
+the shipped restart/hash-seed gate passes. Input reordering yields *different*
+bytes (a different request — expected), and forward order is stable across a
+reorder in between.
+
+### 5. STL parity — PASS
+3-instance rotated assembly → binary STL, 3084 triangles, 154284 bytes; vertex
+bbox `[−9.08,−2.52,−5.32]..[140,43.23,25.67]` covers the far instance at x=100
+(placements baked correctly). Byte-identical under interleaved STL exports.
+
+### 6. `solve_assembly` extraction — PASS (pure refactor, no regression)
+`evaluate_assembly` now delegates to the extracted `solve_assembly` and runs the
+identical `instances_out`/roll-up loop; `test_assembly_goldens` +
+`test_assembly_evaluate` (both bolted + gap goldens, mass-property + solve golden
+values) stay green. No result changed.
+
+### 🟡 Coverage gap found → CLOSED (geometry-qa contribution)
+**Both** shipped goldens (`assembly-two-plates-{bolted,gap}`) solve EVERY instance
+to the IDENTITY orientation (verified in each `expected.json`). So the shipped
+round-trip suite **never exercised a non-identity rotation through the
+`_placed_body` gp_Quaternion path**, nor 3+ instances, nor a repeated part — a
+transpose or `(w,x,y,z)` swap maps identity→identity and would have passed the
+entire suite while placing every rotated body wrong (the "green suite, wrong
+geometry" failure mode). Added guard
+`test_step_assembly_export_nonidentity_rotation_roundtrip` to
+`test_assembly_export.py`: 3 instances of one repeated part, inst-3 rotated 50°
+about (1,2,3), round-tripped against an INDEPENDENT Rodrigues world-centroid
+oracle (hand-derived plate props, measured == OCCT to 0.0) within `roundtrip_tol`,
+plus distinct-PRODUCT-name assertions. **Runs green** (`pytest -k
+nonidentity_rotation` → 1 passed; full `test_assembly_export.py` → 14 passed;
+`ruff format`/`check` clean). Recommend the kernel-architect ALSO commit a
+persistent rotated multi-instance golden under `goldens-assembly/` so the case is
+locked as a golden, not only a synthetic guard (🟡 backlog item, not a defect).
+
+---
+
 ## 2026-07-23 — Assembly STEP export (AP214 product structure) — determinism decision (kernel-architect self-report)
 
 **Feature:** `POST /api/v1/assembly/export` composes a solved assembly into ONE

@@ -124,6 +124,15 @@ frame refactor are v2/§11. Spike de-collected.
       (D3), and dimension-placement (D2) goldens all landed this batch; only the
       D5 orientation (portrait) golden remains once D5 authoring ships. [src:
       AUDIT-ENGINEERING.md cross-cutting]
+- [ ] (P2, S) Assembly export — persistent ROTATED multi-instance golden under
+      `goldens-assembly/`. Both shipped export goldens
+      (`assembly-two-plates-bolted`, `assembly-two-plates-gap`) solve every
+      instance to IDENTITY orientation, so the `gp_Quaternion` placement path is
+      only guarded by a synthetic test (`test_step_assembly_export_nonidentity_
+      rotation_roundtrip`, added by geometry-QA 2026-07-23). Lock a 3-instance /
+      repeated-part / non-identity-rotation assembly as a committed golden so the
+      "green suite, wrong rotated geometry" hazard is a permanent gate, not a
+      synthetic one. [src: GEOMETRY-QA.md 2026-07-23 assembly-export QA]
 - [ ] (P2, S) Revolve: construction-centerline axis opens the profile (UX
       trap — named independently in three product-audit passes, 07-12/07-15/
       07-23) — marking the on-axis edge `construction: true` (the natural
