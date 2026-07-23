@@ -107,6 +107,48 @@ scorecard impact → core capability → polish).
       misses + recomposes. Shared `S3DrawingArtifactStore` when `S3_URL` set,
       in-process LRU fallback otherwise — the mesh-store seam reused (no guard: a
       compose-cache miss just recomposes). [src: drawing-export.md §8.3]
+- [ ] (P1, S) Drawings D1 — title-block author/date/notes silently dropped
+      (dead-cap audit 2026-07-23, AUDIT-ENGINEERING.md; the NOTES-class bug
+      repeated — the founder's WB-64 GA exported with its author/date/material
+      notes missing). `TitleBlock` free-text is threaded to compose
+      (`gateway/drawings.py:442` → `SheetLayout.title_block`) but `_title_block()`
+      (`compose.py:1016-1038`) stamps ONLY title+scale+size; author/date/notes
+      are placed by no serializer nor `DrawingSheet.tsx`, and no golden catches
+      it. Fix: stamp author/date/notes across all three serializers (+ the
+      on-screen block as the paired follow-on) AND add a NON-DEFAULT-title-block
+      compose golden (the "golden that would have gone red" — this also seeds the
+      D-process guard below). [src: AUDIT-ENGINEERING.md D1]
+- [ ] (P2, S) Drawings D3 — `first_angle` projection silently composes as
+      third-angle (dead-cap audit D3). The convention is persisted + threaded to
+      `SheetLayout.projection` but `compose.py` never branches on it (first vs
+      third swaps top/bottom + left/right placement — a real drafting standard).
+      A shipped standards toggle that silently no-ops is worse than none: either
+      branch `boundsAwareLayout` on convention (+ a first-angle golden) or gate
+      the enum to `third_angle` until honored. [src: AUDIT-ENGINEERING.md D3]
+- [ ] (P2, S) Drawings D4 — assembly drawing views 404 the composer (dead-cap
+      audit D4). `ViewCreate.ref_document_kind="assembly"` is persistable
+      (documents validates existence) but the gateway compose path always fetches
+      `/parts/{id}/evaluation-request` → an assembly view 404s. Gate the enum to
+      `"part"` until assembly compose lands, OR wire an assembly-evaluation-request
+      branch (this is also parity slice #4 — assembly drawings/BOM). [src:
+      AUDIT-ENGINEERING.md D4]
+- [ ] (P2, S) Drawings D2 — authored `DimensionPlacement` (offset_mm/text_pos)
+      ignored: composer recomputes placement via its own penalty engine, never
+      reads `.placement`. Wire it (seed the composer offset from
+      `placement.offset_mm`, honor `text_pos`) or drop the fields until
+      drag-to-place ships. Benign-by-default but orphaned authoring. [src:
+      AUDIT-ENGINEERING.md D2]
+- [ ] (P3, S) Drawings D5/D6 — portrait orientation (consumer exists, no
+      authoring — add to the sheet-size UI) + multi-sheet (only `sheets[0]`
+      composed/exported; note the v1 limit in the export route docstring or gate
+      extra sheets). [src: AUDIT-ENGINEERING.md D5/D6]
+- [ ] (P2, S) Drawings — PROCESS GUARD: a non-default-value compose golden per
+      optional authored field (title_block free-text, placement offset/text_pos,
+      projection convention, orientation). Converts the dead-capability class
+      from case-by-case discovery into a standing gate — the "golden that would
+      have gone red" the notes/title-block bugs both lacked. Land the first such
+      golden with D1; backfill the rest as D2/D3/D5 are wired. [src:
+      AUDIT-ENGINEERING.md cross-cutting]
 - [ ] (P2, S) MB-4c tail — per-body lump count on the evaluate wire +
       Bodies-panel indicator. `EvaluateTreeResult` carries no per-body list
       today (only a whole-part aggregate `properties.topology.shells`,
