@@ -42,6 +42,13 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
     "The mirror plane can no longer be found — its datum was removed or changed. Choose another plane.",
   mirror_failed:
     "The reflection couldn't be joined to the body — the mirrored copy doesn't meet the original across this plane. Choose a plane the body straddles.",
+  // Revolve (#5b) rebuild errors — readable guidance for the axis idiom.
+  no_axis:
+    "The chosen axis isn't a usable line. Pick a construction centerline — or a straight profile edge with length — that lies in this sketch.",
+  profile_not_closed:
+    "This profile isn't a closed region to build. Close every gap between its edges — for a revolve, snap a construction centerline's two ends onto the profile's open corners on the axis so it closes the open side.",
+  axis_intersects_profile:
+    "The axis passes through the profile, so revolving would sweep material through itself. Move the axis to one side — a solid of revolution turns about a centerline the profile clears.",
 };
 
 /**

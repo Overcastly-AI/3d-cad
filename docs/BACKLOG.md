@@ -347,6 +347,20 @@ frame refactor are v2/§11. Spike de-collected.
       picker should allow selecting a construction line as the axis (the sketcher
       already authors construction lines; verify the pick filter doesn't exclude
       them). [src: product-auditor]
+- [x] (P2, S) Revolve construction-centerline axis — WEB end-to-end —
+      SHIPPED 2026-07-23 (frontend-builder). Verified the axis picker already
+      offers `construction: true` sketch lines (`axisOptions` ranks them FIRST,
+      `defaultAxisId` selects the centerline) — NO filter fix needed; the
+      capability was already reachable in-app. Added the regression guard: a
+      Playwright e2e (`revolve-ui.spec.ts` "construction centerline closes a
+      half-profile → solid cylinder") sketches the golden half-profile (open
+      only along x=0, centerline ends snapped to the on-axis corners), picks the
+      construction line as the axis, and asserts a solid cylinder r12/h20
+      (V=2880π) lands Solved in the tree. Humanised the typed revolve rebuild
+      errors (`no_axis`, `profile_not_closed`, `axis_intersects_profile`) in
+      `featureErrors.ts` — `profile_not_closed` now names the snap-ends-to-open-
+      corners requirement. Founder shots: `revolve-centerline-{sketch,body}-
+      {1440,1280}.png`.
 - [x] (P2, S) Datum editor: midplane FACE-sides + `on_face` authoring —
       SHIPPED 2026-07-23 (frontend-builder). The `FacePickOverlay` is wired into
       the standalone `DatumEditor`: an `on_face` kind and midplane FACE-sides

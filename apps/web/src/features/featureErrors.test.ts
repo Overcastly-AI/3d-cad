@@ -29,8 +29,20 @@ describe("friendlyFeatureError", () => {
     );
   });
 
+  it("humanises the revolve rebuild codes", () => {
+    expect(friendlyFeatureError("no_axis", "raw")).toMatch(
+      /construction centerline|usable line/i,
+    );
+    expect(friendlyFeatureError("profile_not_closed", "raw")).toMatch(
+      /closed region|construction centerline/i,
+    );
+    expect(friendlyFeatureError("axis_intersects_profile", "raw")).toMatch(
+      /through the profile|to one side/i,
+    );
+  });
+
   it("falls back to the server message for unmapped codes", () => {
-    expect(friendlyFeatureError("axis_intersects_profile", "server msg")).toBe(
+    expect(friendlyFeatureError("revolve_failed", "server msg")).toBe(
       "server msg",
     );
   });

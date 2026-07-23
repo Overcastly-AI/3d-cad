@@ -347,7 +347,8 @@ item:
       driving/driven, typed over-constraint diagnosis.
       **Sketching row flips ❌→➖→✅** (2026-07-12 → `a1c42be` 2026-07-15).
 - ✅ Feature breadth — revolve (incl. **construction-centerline axis** closing
-      an open half-profile — the SolidWorks/Fusion idiom, 2026-07-23), sweep,
+      an open half-profile — the SolidWorks/Fusion idiom, in-app end-to-end +
+      regression e2e 2026-07-23), sweep,
       loft, linear/circular pattern
       (incl. pattern-arrays-a-cut), offset/datum planes, multi-loop closed
       profiles → holes (incl. multi-disjoint-loop cut), shell, draft.
