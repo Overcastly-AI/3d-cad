@@ -24,6 +24,7 @@ express:
 """
 
 import math
+import uuid
 from typing import Any
 
 import pytest
@@ -275,6 +276,12 @@ def test_allow_disjoint_union_is_one_multilump_body() -> None:
     assert props.topology.shells == 2  # two lumps kept in one body
     assert props.topology.faces == 12
     assert isinstance(evaluation.body, Compound)
+    # MB-4 wire: ONE body (the union survives in the target's slot, keyed by e1),
+    # carrying TWO disjoint lumps — the per-body count the whole-part shells
+    # aggregate cannot distinguish from a single-lump body.
+    assert [(b.base_feature_id, b.lumps) for b in evaluation.result.bodies] == [
+        (uuid.UUID(e1), 2)
+    ]
 
 
 def test_allow_disjoint_false_still_errors() -> None:

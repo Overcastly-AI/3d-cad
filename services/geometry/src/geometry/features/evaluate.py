@@ -61,6 +61,7 @@ from dataclasses import dataclass, field
 from build123d import Compound, Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
+    BodyLumpInfo,
     BooleanFeature,
     ChamferFeature,
     CircularPatternParamsV1,
@@ -166,6 +167,7 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
 )
+from geometry.kernel.lumps import lump_count
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
 from geometry.sheet_metal import (
@@ -2124,11 +2126,22 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         glb, mesh = tessellate_glb(shape, request.linear_deflection)
         mesh_glb_id = store_mesh_glb(glb)
 
+    # Per-body lump count (§MB-4): tree/insertion-ordered over the last-good body
+    # set, each entry keyed by the feature that created that body (§MB-0 identity).
+    # The whole-part ``properties.topology.shells`` aggregate cannot distinguish a
+    # disjoint-union / multi-solid-import body (one body, several lumps) from a
+    # single-lump one, so this carries the honest per-body count for the consumer.
+    bodies = [
+        BodyLumpInfo(base_feature_id=base_id, lumps=lump_count(body))
+        for base_id, body in state.bodies.items()
+    ]
+
     return TreeEvaluation(
         result=EvaluateTreeResult(
             part_id=request.part_id,
             tree_version=request.tree_version,
             features=results,
+            bodies=bodies,
             mesh_glb_id=mesh_glb_id,
             properties=properties,
             last_good_feature_id=last_good_feature_id,

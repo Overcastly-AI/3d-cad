@@ -1623,6 +1623,35 @@ export interface components {
             radius_mm: number;
         };
         /**
+         * BodyLumpInfo
+         * @description Per-body lump count of an evaluated tree (docs/design/multi-body.md §MB-4).
+         *
+         *     The whole-part aggregate ``properties.topology.shells`` cannot tell a
+         *     disjoint-union / multi-solid-import body (one body, several disjoint LUMPS)
+         *     from a single-lump body: a sealed hollow inflates the shell count, and the
+         *     aggregate sums across every body. This per-body entry carries the honest
+         *     lump count so a consumer (the Bodies panel) can flag a multi-lump body.
+         *
+         *     ``base_feature_id`` is the body's identity — the id of the feature that
+         *     CREATED it (§MB-0 Decision 1), the same key ``EvaluationState.bodies`` uses —
+         *     so a caller maps the count back to the body/row it names. ``lumps`` is the
+         *     number of disjoint connected solids (``>= 1``; a single-lump body reports
+         *     ``1``), counted by ``geometry.kernel.lumps.lump_count``.
+         */
+        BodyLumpInfo: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature that created this body (its §MB-0 identity)
+             */
+            base_feature_id: string;
+            /**
+             * Lumps
+             * @description Number of disjoint connected solids (lumps) of this body; 1 for a single-lump body, >1 for a disjoint union / multi-solid import.
+             */
+            lumps: number;
+        };
+        /**
          * BomLine
          * @description One line of an assembly's bill of materials (a flat, direct-instance BOM).
          *
@@ -3480,6 +3509,11 @@ export interface components {
          *     the envelope stays reserved for transport/validation failures (§4.3).
          */
         EvaluateTreeResult: {
+            /**
+             * Bodies
+             * @description Per-body lump count of the last-good body set (§MB-4), tree-ordered by the feature that created each body. Lets a consumer flag a multi-lump (disjoint-union / multi-solid-import) body the whole-part `properties.topology.shells` aggregate cannot distinguish. Additive: absent/empty for a tree with no body-affecting feature.
+             */
+            bodies?: components["schemas"]["BodyLumpInfo"][];
             /**
              * Features
              * @description Same order as the request

@@ -132,6 +132,12 @@ def test_merge_false_starts_a_second_body() -> None:
     assert props.topology.shells == 2
     assert props.volume == pytest.approx(16000.0, rel=1e-9)
     assert isinstance(evaluation.body, Compound)
+    # MB-4 wire: TWO bodies, EACH a single lump (keyed by their base extrudes in
+    # tree order) — distinct from a boolean disjoint union (ONE body, 2 lumps).
+    assert [(b.base_feature_id, b.lumps) for b in evaluation.result.bodies] == [
+        (uuid.UUID(e1), 1),
+        (uuid.UUID(e2), 1),
+    ]
 
 
 def test_merge_true_default_fuses_into_one_body() -> None:
@@ -154,6 +160,11 @@ def test_merge_true_default_fuses_into_one_body() -> None:
     assert props is not None
     assert props.topology.shells == 1
     assert isinstance(evaluation.body, Solid)
+    # MB-4 wire: ONE body, ONE lump (the fused single-body part) — the additive
+    # field is byte-identical to the pre-multi-body single-solid path.
+    assert [(b.base_feature_id, b.lumps) for b in evaluation.result.bodies] == [
+        (uuid.UUID(e1), 1)
+    ]
 
 
 # --- Decision 1: body-scoped resolution (no false cross-body ambiguity) ---------

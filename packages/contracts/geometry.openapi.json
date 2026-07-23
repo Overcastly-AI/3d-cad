@@ -218,6 +218,29 @@
         "title": "BendTableRow",
         "type": "object"
       },
+      "BodyLumpInfo": {
+        "description": "Per-body lump count of an evaluated tree (docs/design/multi-body.md \u00a7MB-4).\n\nThe whole-part aggregate ``properties.topology.shells`` cannot tell a\ndisjoint-union / multi-solid-import body (one body, several disjoint LUMPS)\nfrom a single-lump body: a sealed hollow inflates the shell count, and the\naggregate sums across every body. This per-body entry carries the honest\nlump count so a consumer (the Bodies panel) can flag a multi-lump body.\n\n``base_feature_id`` is the body's identity \u2014 the id of the feature that\nCREATED it (\u00a7MB-0 Decision 1), the same key ``EvaluationState.bodies`` uses \u2014\nso a caller maps the count back to the body/row it names. ``lumps`` is the\nnumber of disjoint connected solids (``>= 1``; a single-lump body reports\n``1``), counted by ``geometry.kernel.lumps.lump_count``.",
+        "properties": {
+          "base_feature_id": {
+            "description": "Id of the feature that created this body (its \u00a7MB-0 identity)",
+            "format": "uuid",
+            "title": "Base Feature Id",
+            "type": "string"
+          },
+          "lumps": {
+            "description": "Number of disjoint connected solids (lumps) of this body; 1 for a single-lump body, >1 for a disjoint union / multi-solid import.",
+            "minimum": 1.0,
+            "title": "Lumps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base_feature_id",
+          "lumps"
+        ],
+        "title": "BodyLumpInfo",
+        "type": "object"
+      },
       "BooleanFeature": {
         "description": "``{\"type\": \"boolean\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature that fuses two independently-built bodies\n(docs/design/multi-body.md \u00a7Decisions-3 / \u00a7MB-1): unlike extrude/revolve/\u2026\nit consumes no sketch and produces no new primitive \u2014 it combines two\nexisting bodies named by their base features. ``params`` is\n:class:`BooleanParamsV1` (``union`` wired in MB-1a; ``subtract``/``intersect``\ndefined, wired in MB-2).",
         "properties": {
@@ -2438,6 +2461,14 @@
       "EvaluateTreeResult": {
         "description": "Statuses plus object-storage references \u2014 never kernel types, never\ninline meshes (\u00a74.1). A feature failure is a 200 with per-feature errors;\nthe envelope stays reserved for transport/validation failures (\u00a74.3).",
         "properties": {
+          "bodies": {
+            "description": "Per-body lump count of the last-good body set (\u00a7MB-4), tree-ordered by the feature that created each body. Lets a consumer flag a multi-lump (disjoint-union / multi-solid-import) body the whole-part `properties.topology.shells` aggregate cannot distinguish. Additive: absent/empty for a tree with no body-affecting feature.",
+            "items": {
+              "$ref": "#/components/schemas/BodyLumpInfo"
+            },
+            "title": "Bodies",
+            "type": "array"
+          },
           "features": {
             "description": "Same order as the request",
             "items": {
