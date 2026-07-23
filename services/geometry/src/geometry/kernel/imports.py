@@ -147,8 +147,14 @@ def _count(shape: object, kind: object) -> int:
     return total
 
 
-def _read_brep(path: str) -> TopoDS_Shape:
-    """Deserialize the worker's BREP output back into a shape (parent side)."""
+def read_brep_shape(path: str) -> TopoDS_Shape:
+    """Deserialize a worker's BREP output back into a shape (parent side).
+
+    Shared by both readers (the single-body :func:`_run_parse_worker` and the
+    assembly :func:`geometry.kernel.step_assembly.read_step_assembly`): each parse
+    worker crosses the process boundary as a native BREP file, and the parent
+    reads it back here.
+    """
     shape = TopoDS_Shape()
     BRepTools.Read_s(shape, path, BRep_Builder())
     return shape
@@ -212,20 +218,31 @@ def solid_from_brep_bytes(data: bytes) -> BodyShape:
 _CPU_LIMIT_SIGNALS = frozenset({-signal.SIGXCPU, -signal.SIGKILL})
 
 
-def _run_parse_worker(
-    step_text: str, *, cpu_timeout_s: float, wall_timeout_s: float
-) -> TopoDS_Shape:
-    """Parse *step_text* in a killable subprocess and return the transferred shape.
+def run_bounded_parse_worker(
+    argv: list[str], *, cpu_timeout_s: float, wall_timeout_s: float
+) -> None:
+    """Run a by-path OCCT parse worker under the CPU-time + wall-clock KILL bound.
 
-    The subprocess does exactly the two unbounded-time OCCT calls under two
-    ceilings: a **CPU-time** limit it applies to itself (``RLIMIT_CPU``, the
-    contention-invariant primary bound) and the parent's **wall-clock** backstop
-    (``subprocess.run(..., timeout=wall_timeout_s)``, a hang guard). On either
-    kill the child is reaped — ``subprocess.run`` kills then waits before
-    re-raising ``TimeoutExpired`` for the wall-clock case, and a signal-killed
-    child is already reaped when ``run`` returns — so no process or file
-    descriptor leaks across repeated calls. The temp dir — holding the STEP in
-    and the BREP out — is removed on every exit path by the context manager.
+    THE single source of the killable-subprocess DoS bound (design §6): both the
+    single-body reader (:func:`_run_parse_worker`) and the assembly XCAF reader
+    (:func:`geometry.kernel.step_assembly.read_step_assembly`) run their untrusted
+    OCCT parse through here, so neither reinvents the signal→timeout mapping. The
+    worker (*argv*'s script) applies a **CPU-time** ``RLIMIT_CPU`` to itself (the
+    contention-invariant primary bound); the parent adds a generous **wall-clock**
+    backstop (``subprocess.run(..., timeout=wall_timeout_s)``, a hang guard for a
+    child that is *wedged*, not CPU-burning). On either kill the child is reaped —
+    ``subprocess.run`` kills then waits before re-raising ``TimeoutExpired``, and a
+    signal-killed child is already reaped when ``run`` returns — so no process or
+    file descriptor leaks across repeated calls.
+
+    The caller owns the temp dir holding the worker's input/output files (so it
+    stays alive while the parent reads them back). Returns ``None`` on a clean
+    exit; every failure mode raises a typed error so an untrusted-input outcome is
+    never a 500:
+
+    * a CPU-limit or wall-clock kill → :class:`ImportParseTimeoutError`;
+    * any other non-zero exit (``EXIT_PARSE_FAILED``, a crash) →
+      :class:`ImportParseError`.
 
     The child's stdout/stderr are sent to ``DEVNULL``, not captured: OCCT's STEP
     reader is chatty on malformed input (per-entity warnings ∝ input size), and
@@ -233,41 +250,59 @@ def _run_parse_worker(
     *parent* — which the kill does not reclaim. We never read the output, so
     discarding it both closes that amplification vector and is strictly simpler.
     """
+    try:
+        completed = subprocess.run(
+            argv,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=wall_timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ImportParseTimeoutError(
+            "STEP import exceeded its "
+            f"{wall_timeout_s:g}s wall-clock liveness limit and was aborted; "
+            "the parse appears wedged. Simplify or repair the part and try "
+            "again."
+        ) from exc
+    if completed.returncode in _CPU_LIMIT_SIGNALS:
+        raise ImportParseTimeoutError(
+            "STEP import exceeded its "
+            f"{cpu_timeout_s:g}s CPU-time limit and was aborted; the file may "
+            "be pathologically large or geometrically degenerate. Simplify "
+            "or repair the part and try again."
+        )
+    if completed.returncode != 0:
+        # EXIT_PARSE_FAILED, a crash, or any non-timeout non-zero exit: the
+        # untrusted bytes could not be read/transferred. Never a 500.
+        raise ImportParseError(
+            "The STEP payload could not be parsed or transferred (worker "
+            f"exit {completed.returncode}); it may be malformed, truncated, "
+            "or not a STEP file."
+        )
+
+
+def _run_parse_worker(
+    step_text: str, *, cpu_timeout_s: float, wall_timeout_s: float
+) -> TopoDS_Shape:
+    """Parse *step_text* in a killable subprocess and return the transferred shape.
+
+    A thin wrapper over :func:`run_bounded_parse_worker` (the shared DoS bound):
+    it stages the STEP into a temp dir, runs the single-body OCP worker under the
+    CPU-time + wall-clock ceilings, and — on a clean exit — deserialises the BREP
+    the worker wrote. The temp dir (STEP in, BREP out) is removed on every exit
+    path by the context manager.
+    """
     with tempfile.TemporaryDirectory(prefix="loft-step-import-") as tmp:
         in_path = os.path.join(tmp, "part.step")
         out_path = os.path.join(tmp, "part.brep")
         with open(in_path, "wb") as handle:
             handle.write(step_text.encode("utf-8"))
-        try:
-            completed = subprocess.run(
-                [sys.executable, _WORKER_PATH, in_path, out_path, repr(cpu_timeout_s)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=wall_timeout_s,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ImportParseTimeoutError(
-                "STEP import exceeded its "
-                f"{wall_timeout_s:g}s wall-clock liveness limit and was aborted; "
-                "the parse appears wedged. Simplify or repair the part and try "
-                "again."
-            ) from exc
-        if completed.returncode in _CPU_LIMIT_SIGNALS:
-            raise ImportParseTimeoutError(
-                "STEP import exceeded its "
-                f"{cpu_timeout_s:g}s CPU-time limit and was aborted; the file may "
-                "be pathologically large or geometrically degenerate. Simplify "
-                "or repair the part and try again."
-            )
-        if completed.returncode != 0:
-            # EXIT_PARSE_FAILED, a crash, or any non-timeout non-zero exit: the
-            # untrusted bytes could not be read/transferred. Never a 500.
-            raise ImportParseError(
-                "The STEP payload could not be parsed or transferred (worker "
-                f"exit {completed.returncode}); it may be malformed, truncated, "
-                "or not a STEP file."
-            )
-        return _read_brep(out_path)
+        run_bounded_parse_worker(
+            [sys.executable, _WORKER_PATH, in_path, out_path, repr(cpu_timeout_s)],
+            cpu_timeout_s=cpu_timeout_s,
+            wall_timeout_s=wall_timeout_s,
+        )
+        return read_brep_shape(out_path)
 
 
 def import_step_solid(

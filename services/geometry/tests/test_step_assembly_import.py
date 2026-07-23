@@ -25,6 +25,7 @@ Coverage:
 
 from __future__ import annotations
 
+import hashlib
 import io
 import math
 
@@ -39,7 +40,12 @@ from build123d import (
 )
 from fastapi.testclient import TestClient
 from geometry.assembly.import_step import import_step_assembly
-from geometry.kernel import ImportNoSolidError, ImportParseError
+from geometry.kernel import (
+    ImportNoSolidError,
+    ImportParseError,
+    ImportParseTimeoutError,
+    import_step_solid,
+)
 from geometry.kernel.export import (
     AssemblyComponent,
     export_step_assembly_bytes,
@@ -223,6 +229,161 @@ def test_flat_multi_lump_step_is_one_product() -> None:
     assert len(result.products) == 1
     assert result.products[0].properties is not None
     assert result.products[0].properties.volume == pytest.approx(16000.0, abs=1e-7)
+
+
+# --- slice 2a: DoS parse bound wired to the XCAF reader (SECURITY hard gate) -----
+# The untrusted STEPCAFControl read + product-tree walk now run in the SAME
+# killable subprocess bound the single-body reader uses (kernel/imports.py §6):
+# a CPU-time RLIMIT_CPU ceiling + a wall-clock liveness backstop. A pathological
+# assembly can no longer pin a FastAPI worker in-process before slice-2b exposes
+# the untrusted gateway upload.
+
+
+def test_read_step_assembly_wall_bound_trips_typed_timeout() -> None:
+    """A sub-100 ms wall-clock backstop ALWAYS trips: the spawned OCP-only worker
+    costs ~0.9 s of cold OCCT import before it can read, so the kill is forced
+    deterministically (mirroring the single-body wall-timeout test). The parse
+    bound is REAL and wired — not a hang, not a 500 — and surfaces as the typed
+    ``ImportParseTimeoutError``. The call must return promptly (bound + reap).
+    """
+    import time
+
+    data = export_step_assembly_bytes(
+        "dos-asm",
+        [
+            AssemblyComponent(
+                name="x", body=_BOX, translation=(0, 0, 0), quaternion=(0, 0, 0, 1)
+            )
+        ],
+    )
+    start = time.monotonic()
+    with pytest.raises(ImportParseTimeoutError):
+        read_step_assembly(
+            data.decode("utf-8"), wall_timeout_s=0.05, cpu_timeout_s=30.0
+        )
+    assert time.monotonic() - start < 5.0
+
+
+def test_route_maps_parse_timeout_to_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured tiny bound surfaces at the HTTP route as a clean 422
+    ``import_parse_timeout`` (not a 500), the same per-request posture the
+    single-body import uses — so slice-2b's untrusted upload is DoS-safe."""
+    monkeypatch.setenv("STEP_IMPORT_WALL_TIMEOUT_SECONDS", "0.05")
+    monkeypatch.setenv("STEP_IMPORT_TIMEOUT_SECONDS", "30.0")
+    data = export_step_assembly_bytes(
+        "dos-route",
+        [
+            AssemblyComponent(
+                name="x", body=_BOX, translation=(0, 0, 0), quaternion=(0, 0, 0, 1)
+            )
+        ],
+    )
+    response = client.post(
+        "/api/v1/assembly/import", json={"data": data.decode("utf-8")}
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "import_parse_timeout"
+
+
+# --- slice 2a: walk/tessellate phase guarded (never a raw 500) -------------------
+# Only ReadFile/Transfer were wrapped in slice 1; the post-transfer body
+# normalisation (reader) and tessellate/measure/export (service) were unguarded,
+# so an adversarial-but-transferable STEP with a degenerate solid could raise raw
+# → 500. Both phases now wrap any failure into the typed import taxonomy.
+
+
+def test_reader_walk_phase_failure_wraps_typed_not_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post-transfer body-normalisation raise (a transferable-but-degenerate
+    solid) becomes a typed ``ImportParseError``, never the raw exception."""
+
+    def boom(_shape: object) -> object:
+        raise RuntimeError("degenerate solid: assemble_lumps blew up")
+
+    monkeypatch.setattr("geometry.kernel.step_assembly._body_from_shape", boom)
+    data = export_step_bytes(Solid.make_box(3, 4, 5))
+    with pytest.raises(ImportParseError):
+        read_step_assembly(data.decode("utf-8"))
+
+
+def test_service_tessellate_phase_failure_wraps_typed_not_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post-transfer tessellate/measure raise in the service layer becomes a
+    typed ``ImportParseError`` (→ 422), never a raw 500."""
+
+    def boom(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("degenerate solid: tessellation blew up")
+
+    monkeypatch.setattr("geometry.assembly.import_step.tessellate_glb", boom)
+    data = export_step_bytes(Solid.make_box(3, 4, 5))
+    with pytest.raises(ImportParseError):
+        import_step_assembly(StepAssemblyImportRequest(data=data.decode("utf-8")))
+
+
+# --- slice 2a: per-product LOCAL B-rep (editable body for documents) -------------
+
+
+def test_local_brep_roundtrips_to_local_solid_and_dedups(
+    roundtrip_tol: float,
+) -> None:
+    """Each product carries an editable LOCAL-frame B-rep (a STEP fragment) that
+    re-imports to the correct LOCAL solid — volume + bbox at the LOCAL origin,
+    placement cleanly separated — and a repeated part dedups to ONE stored B-rep
+    (shared ``body_step_id``) with two DISTINCT placements. This is the field
+    slice-2b feeds verbatim to ImportParamsV1.data to build N editable parts.
+    """
+    specs = [
+        ("copy-A", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), 40.0),
+        ("copy-B", (200.0, 10.0, -5.0), (0.0, 0.0, 1.0), 75.0),
+    ]
+    components = [
+        AssemblyComponent(
+            name=name, body=_BOX, translation=pos, quaternion=_quat(axis, ang)
+        )
+        for name, pos, axis, ang in specs
+    ]
+    data = export_step_assembly_bytes("local-brep-asm", components)
+    result = import_step_assembly(StepAssemblyImportRequest(data=data.decode("utf-8")))
+    by_name = {p.name: p for p in result.products}
+    assert set(by_name) == {"copy-A", "copy-B"}
+
+    # Repeated part → ONE stored B-rep (byte-identical fragment + shared id).
+    ids = {p.body_step_id for p in result.products}
+    assert len(ids) == 1, f"repeated part did not share one body_step_id: {ids}"
+    frags = {p.body_step for p in result.products}
+    assert len(frags) == 1, "repeated part local B-rep fragments are not identical"
+
+    # ...but two DISTINCT world placements.
+    pa, pb = by_name["copy-A"].placement, by_name["copy-B"].placement
+    assert (pa.position.x, pa.position.y, pa.position.z) != (
+        pb.position.x,
+        pb.position.y,
+        pb.position.z,
+    )
+
+    for product in result.products:
+        assert product.body_step is not None
+        want_id = f"sha256:{hashlib.sha256(product.body_step.encode()).hexdigest()}"
+        assert product.body_step_id == want_id
+        # Re-import the fragment through the EXISTING single-body ingest — the
+        # exact path slice-2b's import feature uses — and prove it is the LOCAL
+        # solid: bbox anchored at the local origin, NOT at the world placement.
+        local = import_step_solid(product.body_step)
+        bbox = local.bounding_box()
+        assert local.volume == pytest.approx(_BOX_VOLUME, abs=roundtrip_tol)
+        for got, want in zip(
+            (bbox.min.X, bbox.min.Y, bbox.min.Z), (0.0, 0.0, 0.0), strict=True
+        ):
+            assert got == pytest.approx(want, abs=roundtrip_tol), (
+                f"{product.name}: local B-rep bbox.min {got!r} not at local origin "
+                f"— placement leaked into the body (should be in `placement`)"
+            )
+        for got, want in zip(
+            (bbox.max.X, bbox.max.Y, bbox.max.Z), (10.0, 20.0, 30.0), strict=True
+        ):
+            assert got == pytest.approx(want, abs=roundtrip_tol)
 
 
 # --- never-500 taxonomy ---------------------------------------------------------

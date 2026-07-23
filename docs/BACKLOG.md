@@ -154,9 +154,20 @@ frame refactor are v2/§11. Spike de-collected.
       N products + placements (world centroid/vol within `roundtrip_tol`) +
       PRODUCT names recovered, incl. off-axis rotation + repeated part;
       flat/single-body STEP → `has_assembly_structure=false` (MB-4b path
-      intact). **SLICE 2 remains**: documents assembly-document creation from
-      the products + gateway upload endpoint + wire the false-flag fallback to
-      the single-body import.
+      intact). **SLICE 2a shipped 2026-07-23 (reader hardened + editable body)**:
+      the DoS parse-bound is now WIRED to the XCAF reader — the untrusted
+      `ReadFile`/`Transfer` + product-tree walk run in the SAME killable
+      subprocess (CPU-time `RLIMIT_CPU` + wall-clock backstop) the single-body
+      reader uses, surfacing `import_parse_timeout` (422); the post-transfer
+      walk/tessellate/measure/export phase is guarded so a transferable-but-
+      degenerate solid is a typed 422, never a raw 500; each `ImportedProduct`
+      now carries `body_step` (the LOCAL-frame, placement-stripped STEP fragment
+      the single-body `import` feature ingests verbatim) + `body_step_id`
+      (content-address dedup key — repeated part → one stored B-rep, N instances).
+      **SLICE 2b remains** (now DoS-safe to expose): documents assembly-document
+      creation from the products (seed each part with `ImportParamsV1(data=
+      body_step)`, group by `body_step_id`) + gateway upload endpoint + wire the
+      false-flag fallback to the single-body import.
 - [ ] (P2, M) Drawings parity #4 — assembly drawing views + BOM/balloons (WIRE).
       The real capability behind the D4 gate: compose a drawing view that
       projects an ASSEMBLY (not a single part) — an assembly-side
@@ -691,6 +702,15 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-23 — **Assembly STEP import SLICE 2a — reader hardened + editable body
+  (kernel-architect):** DoS parse-bound WIRED to the XCAF reader (untrusted
+  `ReadFile`/`Transfer` + walk now in the single-body reader's killable
+  `RLIMIT_CPU` + wall-clock subprocess → `import_parse_timeout`); walk/tessellate/
+  measure/export phase guarded (degenerate-but-transferable solid → typed 422, not
+  a raw 500); `ImportedProduct` gains `body_step` (LOCAL-frame STEP fragment the
+  single-body `import` feature ingests verbatim) + `body_step_id` (content-address
+  dedup key). Slice 2b (documents assembly creation + gateway upload) can now land
+  on a proven-safe reader.
 - 2026-07-23 — **Assembly STEP import SLICE 1 — geometry XCAF reader
   (kernel-architect):** `POST /api/v1/assembly/import` + `kernel/step_assembly.py`
   (XDE `STEPCAFControl_Reader` walk, mirror of the export composer) →

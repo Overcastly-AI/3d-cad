@@ -8,38 +8,55 @@ documents service to turn into positioned, named Loft instances (BACKLOG
 
 Pipeline:
 
-1. :func:`~geometry.kernel.step_assembly.read_step_assembly` walks the XDE
-   product tree (``STEPCAFControl_Reader`` → ``XCAFDoc_ShapeTool``) into
-   per-product ``{name, world placement, LOCAL-frame kernel body}`` plus the
+1. :func:`~geometry.kernel.step_assembly.read_step_assembly` runs the untrusted
+   XCAF read + product-tree walk in a **killable subprocess** (the CPU-time +
+   wall-clock DoS bound — design §6) into per-product
+   ``{name, world placement, LOCAL-frame kernel body}`` plus the
    ``has_assembly_structure`` flag (the mirror of the export's XCAF composer).
-2. Each UNIQUE product body is tessellated ONCE and stored content-addressed
-   (:mod:`geometry.mesh_store`, reused), so two occurrences of one part share a
-   single mesh (the §6.4 dedup contract, applied to import), and its mass
-   properties are measured. The service builds the pure-pydantic
-   :class:`StepAssemblyImportResult` — no kernel type crosses the boundary.
+2. Each UNIQUE product body is turned ONCE into (a) a LOCAL-frame STEP AP214
+   fragment — ``body_step``, the exact input the single-body ``import`` feature
+   ingests (:class:`py_kit.schemas.features.ImportParamsV1`), so slice 2b seeds N
+   editable parts with ZERO new ingest path — plus its content address
+   ``body_step_id``; (b) a content-addressed presentation mesh
+   (:mod:`geometry.mesh_store`, reused); and (c) its mass properties. Repeated
+   occurrences of one part have a byte-identical LOCAL body → identical fragment,
+   id, and mesh (the §6.4 dedup contract, applied to import), so the caller
+   collapses them into ONE stored B-rep with N instances; the per-body work runs
+   once, keyed by the body's BREP content address.
 
-Never-500 (design §4.3, mirroring the single-body import taxonomy): a
-malformed / bodyless file surfaces as a typed
+Never-500 (design §5, mirroring the single-body import taxonomy): a
+malformed / bodyless / adversarial file surfaces as a typed
 :class:`~geometry.kernel.imports.ImportParseError` /
+:class:`~geometry.kernel.imports.ImportParseTimeoutError` /
 :class:`~geometry.kernel.imports.ImportNoSolidError`, which the API layer maps to
-a clean 422 envelope. Deterministic (RESEARCH §9): the read pins units to mm and
-the per-product meshes are content-addressed, so the same bytes yield an
-identical result in-process and across an interpreter restart.
+a clean 422 envelope — including a transferable-but-degenerate solid that fails
+the post-transfer tessellate/measure/export here. Deterministic (RESEARCH §9):
+the read pins units to mm and the per-product artifacts are content-addressed, so
+the same bytes yield an identical result in-process and across an interpreter
+restart.
 """
 
 from __future__ import annotations
 
+import hashlib
+
 from py_kit.schemas.assemblies import Placement, Quat
-from py_kit.schemas.geometry import Vec3
+from py_kit.schemas.geometry import ShapeProperties, Vec3
 from py_kit.schemas.step_import import (
     ImportedProduct,
     StepAssemblyImportRequest,
     StepAssemblyImportResult,
 )
 
-from geometry.kernel import measure_shape, tessellate_glb
+from geometry.kernel import (
+    export_step_bytes,
+    measure_shape,
+    solid_to_brep_bytes,
+    tessellate_glb,
+)
+from geometry.kernel.imports import ImportNoSolidError, ImportParseError
 from geometry.kernel.step_assembly import ReadProduct, read_step_assembly
-from geometry.mesh_store import store_mesh_glb
+from geometry.mesh_store import mesh_glb_key, store_mesh_glb
 
 
 def _placement(product: ReadProduct) -> Placement:
@@ -52,33 +69,84 @@ def _placement(product: ReadProduct) -> Placement:
     )
 
 
+def _step_import_bounds() -> tuple[float, float]:
+    """The configured (CPU-time, wall-clock) bounds for the untrusted parse (§6).
+
+    Resolved from ``GeometrySettings`` (the SAME knobs the single-body import
+    reads — ``step_import_timeout_seconds`` / ``step_import_wall_timeout_seconds``)
+    rather than hardcoded, so the assembly reader's DoS ceiling is tuned by one
+    config surface. Imported lazily to avoid a cycle (``geometry.main`` imports
+    the API which imports this module).
+    """
+    from geometry.main import GeometrySettings
+
+    settings = GeometrySettings()
+    return (
+        settings.step_import_timeout_seconds,
+        settings.step_import_wall_timeout_seconds,
+    )
+
+
 def import_step_assembly(
     request: StepAssemblyImportRequest,
 ) -> StepAssemblyImportResult:
     """Read an assembly STEP into structured, positioned, named products (§4).
 
-    Reuses :func:`~geometry.kernel.step_assembly.read_step_assembly` (the XDE
-    product-tree walk) then tessellates + stores each UNIQUE product body once
-    (content-addressed dedup) and measures its mass properties. Never raises for
-    a geometry outcome beyond the typed import errors the reader emits (mapped to
-    a clean 422 by the API layer). Deterministic (RESEARCH §9; module docstring).
+    Reuses :func:`~geometry.kernel.step_assembly.read_step_assembly` (the killable
+    XCAF read + product-tree walk) then, per UNIQUE product body, exports a
+    LOCAL-frame STEP fragment + tessellates + measures ONCE (keyed by the body's
+    BREP content address, so a part instanced twice does the work once and its two
+    instances share one stored B-rep, mesh, and mass properties — distinct
+    placements). Never raises for a geometry outcome beyond the typed import errors
+    (mapped to a clean 422 by the API layer): the reader's parse/timeout/no-solid
+    errors propagate, and a transferable-but-degenerate solid that fails the
+    per-product export/tessellate/measure here is wrapped into an
+    :class:`~geometry.kernel.imports.ImportParseError` (design §5). Deterministic
+    (RESEARCH §9; module docstring).
     """
-    read = read_step_assembly(request.data)
+    cpu_timeout_s, wall_timeout_s = _step_import_bounds()
+    read = read_step_assembly(
+        request.data, cpu_timeout_s=cpu_timeout_s, wall_timeout_s=wall_timeout_s
+    )
 
-    # Repeated occurrences of one part have byte-identical local BREP → identical
-    # GLB → the SAME content-addressed mesh id (the §6.4 dedup contract): the
-    # content-addressed store makes the sharing automatic (an identical GLB `put`
-    # returns the identical key), so no separate dedup bookkeeping is needed.
+    # Cache the per-body artifacts keyed by the LOCAL body's BREP content address:
+    # two occurrences of one part have byte-identical BREP → one export, one
+    # tessellation, one measure, one stored B-rep (the §6.4 dedup contract). The
+    # content-addressed mesh store makes the mesh sharing automatic; the STEP
+    # fragment + its id are shared explicitly so the caller (slice 2b) groups
+    # repeated products into ONE part + N instances by body_step_id.
+    cache: dict[str, tuple[str, str, str, ShapeProperties]] = {}
     products: list[ImportedProduct] = []
     for product in read.products:
-        glb, _stats = tessellate_glb(product.body, request.linear_deflection)
-        mesh_id = store_mesh_glb(glb)
+        try:
+            body_key = mesh_glb_key(solid_to_brep_bytes(product.body))
+            cached = cache.get(body_key)
+            if cached is None:
+                step_bytes = export_step_bytes(product.body)
+                body_step = step_bytes.decode("utf-8")
+                body_step_id = f"sha256:{hashlib.sha256(step_bytes).hexdigest()}"
+                glb, _stats = tessellate_glb(product.body, request.linear_deflection)
+                mesh_id = store_mesh_glb(glb)
+                properties = measure_shape(product.body)
+                cached = (body_step, body_step_id, mesh_id, properties)
+                cache[body_key] = cached
+        except (ImportParseError, ImportNoSolidError):
+            raise
+        except Exception as exc:  # degenerate solid → typed 422, never a raw 500
+            raise ImportParseError(
+                "The assembly STEP transferred but a product could not be "
+                "meshed, measured, or re-exported; it may be geometrically "
+                "degenerate."
+            ) from exc
+        body_step, body_step_id, mesh_id, properties = cached
         products.append(
             ImportedProduct(
                 name=product.name,
                 placement=_placement(product),
                 mesh_glb_id=mesh_id,
-                properties=measure_shape(product.body),
+                body_step=body_step,
+                body_step_id=body_step_id,
+                properties=properties,
             )
         )
 

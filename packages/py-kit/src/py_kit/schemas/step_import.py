@@ -3,23 +3,29 @@
 The inverse contract of the assembly export (:mod:`py_kit.schemas.assemblies`
 ``ExportAssemblyRequest``): where export composes a solved assembly into ONE
 AP214 STEP with named PRODUCTs at solved placements, this reads such a STEP back
-into N structured products — each a PRODUCT **name**, a world **placement**, and
-a content-addressed **body reference** (mesh + mass properties) — plus a
+into N structured products — each a PRODUCT **name**, a world **placement**, an
+editable **LOCAL-frame B-rep** (a STEP fragment), and content-addressed
+presentation/analysis surfaces (mesh + mass properties) — plus a
 ``has_assembly_structure`` flag. Pure pydantic only: no kernel (OCP/build123d)
 type appears here (CLAUDE.md service boundaries); the geometry service resolves
-the XDE product tree internally and surfaces only these plain models, and
-``just gen`` exports them to ``packages/contracts`` / ``packages/ts-client``.
+the XDE product tree internally and surfaces only these plain models (the B-rep
+as plain STEP text, never a kernel object), and ``just gen`` exports them to
+``packages/contracts`` / ``packages/ts-client``.
 
-The body is surfaced exactly as the single-body import surfaces an imported body
-(docs/design/step-import.md; multi-body §MB-4b): a content-addressed
-``mesh_glb_id`` (shared across repeated occurrences of one part — the dedup
-contract) plus the body's own :class:`~py_kit.schemas.geometry.ShapeProperties`.
-No B-rep crosses the wire.
+Each product carries the editable body as ``body_step`` — a LOCAL-frame STEP
+AP214 fragment (placement stripped), exactly what the single-body ``import``
+feature ingests — content-addressed by ``body_step_id`` and shared across
+repeated occurrences of one part (the dedup contract, as meshes share
+``mesh_glb_id``). ``mesh_glb_id`` is the shared presentation mesh; ``properties``
+the body's own mass properties.
 
-This slice (geometry-side reader) returns the structured result; the SLICE-2
-follow-up (documents assembly-document creation + a gateway upload endpoint)
-turns each product into a positioned, named Loft assembly instance and wires the
-``has_assembly_structure=False`` case to the existing single-body MB-4b import.
+This slice (2a: geometry-side reader, hardened — the DoS bound is now wired and
+the walk/tessellate phase is guarded) returns the structured result; SLICE-2b
+(documents assembly-document creation + a gateway upload endpoint) turns each
+product into a positioned, named Loft instance — seeding each part's ``import``
+feature with ``ImportParamsV1(data=body_step)`` (zero new ingest path) and
+grouping by ``body_step_id`` — and wires the ``has_assembly_structure=False`` case
+to the existing single-body MB-4b import.
 """
 
 from pydantic import BaseModel, Field
@@ -60,17 +66,30 @@ class StepAssemblyImportRequest(BaseModel):
 
 
 class ImportedProduct(BaseModel):
-    """One product recovered from an assembly STEP — name + placement + body ref.
+    """One product recovered from an assembly STEP — name + placement + body.
 
     ``name`` is the STEP PRODUCT name (``None`` when the file names no product —
     the caller supplies a fallback instance name). ``placement`` is the
     product's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` —
     identity for a flat single-body STEP), matched to the exported placement
-    within the kernel round-trip tolerance. The body is surfaced by reference
-    (no B-rep crosses the wire): ``mesh_glb_id`` is a content-addressed
-    presentation mesh, SHARED across repeated occurrences of one part (the dedup
-    contract), and ``properties`` are the body's OWN (local-frame) mass
-    properties for BOM / inspection.
+    within the kernel round-trip tolerance.
+
+    Two body surfaces, both content-addressed and SHARED across repeated
+    occurrences of one part (the dedup contract, as slice 1 does for meshes):
+
+    * ``body_step`` — the product's editable **LOCAL-frame B-rep**, as a STEP
+      AP214 part-21 fragment with the instance placement STRIPPED (that is
+      ``placement``, kept separate). It is exactly what the single-body
+      ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`
+      ``data``), so the documents service seeds each part with ``ImportParamsV1(
+      data=body_step)`` — ZERO new ingest path. A mesh is not editable geometry;
+      this is the field that lets 2b build a REAL part per instance.
+    * ``mesh_glb_id`` — a content-addressed presentation mesh for the viewport.
+
+    ``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;
+    it is EQUAL for two occurrences of one part, so the caller groups products by
+    it to create ONE stored B-rep (one part) with N instances. ``properties`` are
+    the body's OWN (local-frame) mass properties for BOM / inspection.
     """
 
     name: str | None = Field(
@@ -78,6 +97,19 @@ class ImportedProduct(BaseModel):
     )
     placement: Placement = Field(
         description="World placement of this product (identity for a flat STEP)"
+    )
+    body_step: str | None = Field(
+        default=None,
+        description="The product's LOCAL-frame B-rep as a STEP AP214 part-21 "
+        "fragment (placement stripped — see `placement`); consumed verbatim as "
+        "ImportParamsV1.data to seed an editable part (the single-body import "
+        "path). Null when the product produced no solid.",
+    )
+    body_step_id: str | None = Field(
+        default=None,
+        description="Content address (sha256:<hex>) of `body_step`; EQUAL across "
+        "repeated occurrences of one part, so the caller creates ONE part and N "
+        "instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.",
     )
     mesh_glb_id: str | None = Field(
         description="Content-addressed shared presentation mesh (sha256:<hex>), "

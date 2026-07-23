@@ -98,10 +98,12 @@ export interface paths {
          *     Deterministic (RESEARCH §9): units pinned to mm, per-product meshes
          *     content-addressed.
          *
-         *     A malformed / bodyless file is a clean 422 (``import_parse_failed`` /
-         *     ``import_no_solid``), never a 500 — the same typed taxonomy the single-body
-         *     import uses (design §5); the py-kit error envelope stays reserved for
-         *     transport/validation failures of this call itself.
+         *     A malformed / bodyless / adversarial file is a clean 422
+         *     (``import_parse_failed`` / ``import_no_solid`` / ``import_parse_timeout`` — the
+         *     untrusted XCAF read runs under the SAME killable CPU/wall DoS bound as the
+         *     single-body import, design §6), never a 500 — the same typed taxonomy the
+         *     single-body import uses (design §5); the py-kit error envelope stays reserved
+         *     for transport/validation failures of this call itself.
          */
         post: operations["import_assembly_route_api_v1_assembly_import_post"];
         delete?: never;
@@ -3249,19 +3251,42 @@ export interface components {
         };
         /**
          * ImportedProduct
-         * @description One product recovered from an assembly STEP — name + placement + body ref.
+         * @description One product recovered from an assembly STEP — name + placement + body.
          *
          *     ``name`` is the STEP PRODUCT name (``None`` when the file names no product —
          *     the caller supplies a fallback instance name). ``placement`` is the
          *     product's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` —
          *     identity for a flat single-body STEP), matched to the exported placement
-         *     within the kernel round-trip tolerance. The body is surfaced by reference
-         *     (no B-rep crosses the wire): ``mesh_glb_id`` is a content-addressed
-         *     presentation mesh, SHARED across repeated occurrences of one part (the dedup
-         *     contract), and ``properties`` are the body's OWN (local-frame) mass
-         *     properties for BOM / inspection.
+         *     within the kernel round-trip tolerance.
+         *
+         *     Two body surfaces, both content-addressed and SHARED across repeated
+         *     occurrences of one part (the dedup contract, as slice 1 does for meshes):
+         *
+         *     * ``body_step`` — the product's editable **LOCAL-frame B-rep**, as a STEP
+         *       AP214 part-21 fragment with the instance placement STRIPPED (that is
+         *       ``placement``, kept separate). It is exactly what the single-body
+         *       ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`
+         *       ``data``), so the documents service seeds each part with ``ImportParamsV1(
+         *       data=body_step)`` — ZERO new ingest path. A mesh is not editable geometry;
+         *       this is the field that lets 2b build a REAL part per instance.
+         *     * ``mesh_glb_id`` — a content-addressed presentation mesh for the viewport.
+         *
+         *     ``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;
+         *     it is EQUAL for two occurrences of one part, so the caller groups products by
+         *     it to create ONE stored B-rep (one part) with N instances. ``properties`` are
+         *     the body's OWN (local-frame) mass properties for BOM / inspection.
          */
         ImportedProduct: {
+            /**
+             * Body Step
+             * @description The product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment (placement stripped — see `placement`); consumed verbatim as ImportParamsV1.data to seed an editable part (the single-body import path). Null when the product produced no solid.
+             */
+            body_step?: string | null;
+            /**
+             * Body Step Id
+             * @description Content address (sha256:<hex>) of `body_step`; EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.
+             */
+            body_step_id?: string | null;
             /**
              * Mesh Glb Id
              * @description Content-addressed shared presentation mesh (sha256:<hex>), or null when the product produced no mesh

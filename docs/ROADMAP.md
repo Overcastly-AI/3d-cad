@@ -429,9 +429,20 @@ structure, products[{name, placement, mesh_glb_id, properties}]}`; export↔impo
 round-trip recovers N products + world placements (centroid/vol within
 `roundtrip_tol`) + PRODUCT names, incl. off-axis rotation + repeated part; a
 flat/single-body STEP reports `has_assembly_structure=false`, MB-4b path intact.
-**Slice 2 remains**: documents assembly-document creation from the products +
-gateway upload endpoint + wiring the false-flag fallback to the single-body
-import). Still deferred past v1 (design doc §5): exploded views, BOM
+**SLICE 2a landed 2026-07-23 — reader hardened + editable-body field**: the
+untrusted XCAF `ReadFile`/`Transfer` + product-tree walk now run in the SAME
+killable subprocess (CPU-time `RLIMIT_CPU` + wall-clock backstop) the single-body
+reader uses — the DoS parse-bound is now WIRED, so slice-2b's gateway upload can
+land safely; the post-transfer walk/tessellate/measure/export phase is wrapped so
+any degenerate-but-transferable solid is a typed 422, never a raw 500; each
+product now carries an editable **LOCAL-frame B-rep** (`body_step`, a
+placement-stripped STEP fragment the single-body `import` feature ingests
+verbatim) content-addressed by `body_step_id` (repeated part → one stored B-rep,
+N instances). **Slice 2b remains**: documents assembly-document creation from the
+products (seed each part's `import` feature with `ImportParamsV1(data=body_step)`,
+group by `body_step_id`) + gateway upload endpoint + wiring the false-flag
+fallback to the single-body import — now on a proven-safe, DoS-bounded reader.
+Still deferred past v1 (design doc §5): exploded views, BOM
 formatting, flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6

@@ -87,6 +87,7 @@ from geometry.features import evaluate_tree, tree_no_body_error
 from geometry.kernel import (
     ImportNoSolidError,
     ImportParseError,
+    ImportParseTimeoutError,
     evaluate_export,
     evaluate_tessellation,
     export_solid,
@@ -270,13 +271,17 @@ def import_assembly_route(
     Deterministic (RESEARCH §9): units pinned to mm, per-product meshes
     content-addressed.
 
-    A malformed / bodyless file is a clean 422 (``import_parse_failed`` /
-    ``import_no_solid``), never a 500 — the same typed taxonomy the single-body
-    import uses (design §5); the py-kit error envelope stays reserved for
-    transport/validation failures of this call itself.
+    A malformed / bodyless / adversarial file is a clean 422
+    (``import_parse_failed`` / ``import_no_solid`` / ``import_parse_timeout`` — the
+    untrusted XCAF read runs under the SAME killable CPU/wall DoS bound as the
+    single-body import, design §6), never a 500 — the same typed taxonomy the
+    single-body import uses (design §5); the py-kit error envelope stays reserved
+    for transport/validation failures of this call itself.
     """
     try:
         return import_step_assembly(request)
+    except ImportParseTimeoutError as exc:
+        raise ValidationApiError(str(exc), code="import_parse_timeout") from exc
     except ImportNoSolidError as exc:
         raise ValidationApiError(str(exc), code="import_no_solid") from exc
     except ImportParseError as exc:

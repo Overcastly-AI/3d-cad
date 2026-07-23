@@ -3412,8 +3412,32 @@
         "type": "object"
       },
       "ImportedProduct": {
-        "description": "One product recovered from an assembly STEP \u2014 name + placement + body ref.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance. The body is surfaced by reference\n(no B-rep crosses the wire): ``mesh_glb_id`` is a content-addressed\npresentation mesh, SHARED across repeated occurrences of one part (the dedup\ncontract), and ``properties`` are the body's OWN (local-frame) mass\nproperties for BOM / inspection.",
+        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both content-addressed and SHARED across repeated\noccurrences of one part (the dedup contract, as slice 1 does for meshes):\n\n* ``body_step`` \u2014 the product's editable **LOCAL-frame B-rep**, as a STEP\n  AP214 part-21 fragment with the instance placement STRIPPED (that is\n  ``placement``, kept separate). It is exactly what the single-body\n  ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`\n  ``data``), so the documents service seeds each part with ``ImportParamsV1(\n  data=body_step)`` \u2014 ZERO new ingest path. A mesh is not editable geometry;\n  this is the field that lets 2b build a REAL part per instance.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;\nit is EQUAL for two occurrences of one part, so the caller groups products by\nit to create ONE stored B-rep (one part) with N instances. ``properties`` are\nthe body's OWN (local-frame) mass properties for BOM / inspection.",
         "properties": {
+          "body_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment (placement stripped \u2014 see `placement`); consumed verbatim as ImportParamsV1.data to seed an editable part (the single-body import path). Null when the product produced no solid.",
+            "title": "Body Step"
+          },
+          "body_step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Content address (sha256:<hex>) of `body_step`; EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.",
+            "title": "Body Step Id"
+          },
           "mesh_glb_id": {
             "anyOf": [
               {
@@ -7095,7 +7119,7 @@
     },
     "/api/v1/assembly/import": {
       "post": {
-        "description": "Read an assembly STEP into its structured product list (BACKLOG P1, \u00a74).\n\nStateless (CLAUDE.md): the inverse of ``/assembly/export`` \u2014 geometry walks\nthe file's AP214 XDE product tree (``STEPCAFControl_Reader`` \u2192\n``XCAFDoc_ShapeTool``) into N positioned, NAMED products, each surfaced by\nreference: a content-addressed shared presentation mesh + its own mass\nproperties (no B-rep / kernel type crosses the boundary). ``has_assembly_\nstructure`` is true when the file carried ``NEXT_ASSEMBLY_USAGE_OCCURRENCE``\nproduct structure; a flat / single-body STEP returns false with one product\nat identity, the backward-compatible signal to fall back to the single-body\nMB-4b import (slice 2 wires that + the documents assembly-document creation).\nDeterministic (RESEARCH \u00a79): units pinned to mm, per-product meshes\ncontent-addressed.\n\nA malformed / bodyless file is a clean 422 (``import_parse_failed`` /\n``import_no_solid``), never a 500 \u2014 the same typed taxonomy the single-body\nimport uses (design \u00a75); the py-kit error envelope stays reserved for\ntransport/validation failures of this call itself.",
+        "description": "Read an assembly STEP into its structured product list (BACKLOG P1, \u00a74).\n\nStateless (CLAUDE.md): the inverse of ``/assembly/export`` \u2014 geometry walks\nthe file's AP214 XDE product tree (``STEPCAFControl_Reader`` \u2192\n``XCAFDoc_ShapeTool``) into N positioned, NAMED products, each surfaced by\nreference: a content-addressed shared presentation mesh + its own mass\nproperties (no B-rep / kernel type crosses the boundary). ``has_assembly_\nstructure`` is true when the file carried ``NEXT_ASSEMBLY_USAGE_OCCURRENCE``\nproduct structure; a flat / single-body STEP returns false with one product\nat identity, the backward-compatible signal to fall back to the single-body\nMB-4b import (slice 2 wires that + the documents assembly-document creation).\nDeterministic (RESEARCH \u00a79): units pinned to mm, per-product meshes\ncontent-addressed.\n\nA malformed / bodyless / adversarial file is a clean 422\n(``import_parse_failed`` / ``import_no_solid`` / ``import_parse_timeout`` \u2014 the\nuntrusted XCAF read runs under the SAME killable CPU/wall DoS bound as the\nsingle-body import, design \u00a76), never a 500 \u2014 the same typed taxonomy the\nsingle-body import uses (design \u00a75); the py-kit error envelope stays reserved\nfor transport/validation failures of this call itself.",
         "operationId": "import_assembly_route_api_v1_assembly_import_post",
         "requestBody": {
           "content": {

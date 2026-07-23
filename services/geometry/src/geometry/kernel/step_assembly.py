@@ -13,14 +13,26 @@ LOCAL-frame **B-rep body** (the referred prototype shape). Two occurrences of
 one part therefore share an identical local body — the dedup contract the
 assembly evaluator relies on — with distinct placements.
 
-**Structure detection (``has_assembly_structure``).** True when the file
-carries ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure — surfaced here as
-``XCAFDoc_ShapeTool.IsAssembly_s`` on a free (root) label, which is exactly the
-XDE view of a NAUO occurrence graph. A flat / single-body STEP has no assembly
-root, so the flag is False and the reader returns the whole shape as ONE product
-at identity — the backward-compatible signal the caller uses to fall back to the
-single-body MB-4b import path (:func:`geometry.kernel.imports.import_step_solid`)
-unchanged.
+**Hard parse bound — the SAME killable-subprocess DoS ceiling the single-body
+reader applies (design §6, BACKLOG P1).** An assembly STEP is untrusted external
+input and OCCT's XCAF transfer is not guaranteed linear in input size, so a
+degenerate/adversarial part-21 can be super-linear and pin its worker. The read
+therefore runs the untrusted ``ReadFile`` → ``Transfer`` **and** the product-tree
+walk in a **separate, killable process**
+(:mod:`geometry.kernel._step_assembly_parse_worker`) under a **CPU-time**
+``RLIMIT_CPU`` ceiling (the contention-invariant primary bound) plus a generous
+**wall-clock** liveness backstop, reusing
+:func:`geometry.kernel.imports.run_bounded_parse_worker` — the ONE bound both
+readers share. A killed parse is reaped and surfaces as
+:class:`~geometry.kernel.imports.ImportParseTimeoutError` → ``import_parse_timeout``.
+
+The walk runs in the child (not the parent) because the XDE document does not
+survive a SaveAs/Open round-trip in this OCP build, so the child serialises each
+leaf occurrence as ``(name, world placement, LOCAL-frame BREP file)`` and the
+parent reads that back, applying only the build123d normalisation
+(:func:`~geometry.kernel.lumps.assemble_lumps`) here where it is tested. So no
+kernel-object taxonomy is duplicated, only relocated off the parent's unbounded
+in-process path.
 
 **Body taxonomy (MB-4b, reused).** Each product's prototype is normalised
 through :func:`~geometry.kernel.lumps.assemble_lumps` exactly like the
@@ -31,31 +43,29 @@ product at all is an honest :class:`~geometry.kernel.imports.ImportNoSolidError`
 
 **Determinism (RESEARCH §9).** The read is a pure function of the file bytes
 plus the process-global ``Interface_Static`` unit setting, which is pinned to
-millimetres on every call (mirroring the single-body worker) so the result is
+millimetres in the worker's fresh process on every call so the result is
 independent of process history. The product order follows the deterministic
 XDE component order of the fixed bytes; each placement's quaternion is read
 straight off the ``gp_Trsf`` (measured to match the exported placement to 1e-12).
 
-**Never-500 posture (design §5).** Every OCCT failure mode is wrapped into a
-typed :class:`~geometry.kernel.imports.ImportParseError` /
+**Never-500 posture (design §5).** Every failure mode is wrapped into a typed
+:class:`~geometry.kernel.imports.ImportParseError` /
+:class:`~geometry.kernel.imports.ImportParseTimeoutError` /
 :class:`~geometry.kernel.imports.ImportNoSolidError` — the same taxonomy the
 single-body reader raises — so the caller maps a bad file to a clean per-request
-error, never an unhandled 500. The killable-subprocess CPU/wall DoS bound the
-single-body reader applies to the untrusted parse (:mod:`geometry.kernel.imports`
-§6) is NOT yet wired here: this slice's route is geometry-internal, and extending
-that bound to the XCAF reader lands with the untrusted gateway upload endpoint
-(slice 2).
+error, never an unhandled 500. Both the worker's read/transfer/walk phase (a
+non-zero exit) AND the parent's post-transfer body normalisation (a raise on a
+transferable-but-degenerate solid) resolve to one of those typed errors.
 
 Kernel objects never leave ``geometry.kernel``: :class:`ReadProduct` is
 service-internal (its ``body`` is a kernel shape), and the service layer
 (:func:`geometry.assembly.import_step.import_step_assembly`) converts it to the
 pure-pydantic boundary DTO.
 
-The OCP wheel ships no type stubs, so the raw XDE / OCCT calls below are opaque
-to pyright; the directives scope that relaxation to this file only (same posture
-as :mod:`geometry.kernel.imports` / :mod:`geometry.kernel.export`), and the
-fully-typed :class:`ReadProduct` / :class:`StepAssemblyRead` results keep the
-boundary honest.
+The OCP wheel ships no type stubs, so the raw BREP calls below are opaque to
+pyright; the directives scope that relaxation to this file only (same posture as
+:mod:`geometry.kernel.imports`), and the fully-typed :class:`ReadProduct` /
+:class:`StepAssemblyRead` results keep the boundary honest.
 """
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
@@ -63,33 +73,36 @@ boundary honest.
 
 from __future__ import annotations
 
+import json
 import os
+import sys
 import tempfile
 from dataclasses import dataclass
 
 from build123d import Solid
-from OCP.IFSelect import IFSelect_ReturnStatus
-from OCP.Interface import Interface_Static
-from OCP.STEPCAFControl import STEPCAFControl_Reader
-from OCP.TCollection import TCollection_ExtendedString
-from OCP.TDataStd import TDataStd_Name
-from OCP.TDF import TDF_Label, TDF_LabelSequence
-from OCP.TDocStd import TDocStd_Document
 from OCP.TopAbs import TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
-from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS, TopoDS_Shape
-from OCP.XCAFApp import XCAFApp_Application
-from OCP.XCAFDoc import XCAFDoc_DocumentTool
 
-from geometry.kernel.imports import ImportNoSolidError, ImportParseError
+from geometry.kernel.imports import (
+    DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S,
+    DEFAULT_STEP_IMPORT_WALL_TIMEOUT_S,
+    ImportNoSolidError,
+    ImportParseError,
+    read_brep_shape,
+    run_bounded_parse_worker,
+)
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.types import BodyShape
 
-#: The OCCT target unit, pinned to millimetres on every read so the transferred
-#: coordinates are independent of ambient ``Interface_Static`` state (RESEARCH
-#: §9) — the same pin the single-body parse worker applies in its fresh process.
-_CASCADE_UNIT_KEY = "xstep.cascade.unit"
+#: Absolute path of the OCP-only assembly parse worker (a sibling module), invoked
+#: BY PATH (not ``-m``) so the spawn does not drag in ``geometry.kernel.__init__``
+#: (build123d + every kernel module, ~3 s of cold-start); by path it is ~0.9 s of
+#: OCP alone. Referenced as a file, not imported, so there is no partial-package-
+#: init coupling with ``geometry.kernel``.
+_ASSEMBLY_WORKER_PATH = os.path.join(
+    os.path.dirname(__file__), "_step_assembly_parse_worker.py"
+)
 
 
 @dataclass(frozen=True)
@@ -128,32 +141,6 @@ class StepAssemblyRead:
     products: list[ReadProduct]
 
 
-def _label_name(label: TDF_Label) -> str | None:
-    """The ``TDataStd_Name`` of *label* as a Python string, or ``None``."""
-    attr = TDataStd_Name()
-    if label.FindAttribute(TDataStd_Name.GetID_s(), attr):
-        return str(attr.Get().ToExtString())
-    return None
-
-
-def _placement_of(
-    location: TopLoc_Location,
-) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
-    """A ``TopLoc_Location`` as ``(translation, (x, y, z, w) quaternion)``.
-
-    Reads the rigid pose straight off the accumulated ``gp_Trsf`` — the exact
-    inverse of the ``place_body`` quaternion → ``gp_Trsf`` the export applies, so
-    a round-trip recovers the authored placement (measured to 1e-12).
-    """
-    trsf = location.Transformation()
-    quat = trsf.GetRotation()
-    xyz = trsf.TranslationPart()
-    return (
-        (float(xyz.X()), float(xyz.Y()), float(xyz.Z())),
-        (float(quat.X()), float(quat.Y()), float(quat.Z()), float(quat.W())),
-    )
-
-
 def _body_from_shape(shape: TopoDS_Shape) -> BodyShape | None:
     """Normalise a prototype shape into one lump-sorted body, or ``None``.
 
@@ -175,154 +162,82 @@ def _body_from_shape(shape: TopoDS_Shape) -> BodyShape | None:
     return assemble_lumps(solids)
 
 
-def _transfer_document(step_text: str) -> TDocStd_Document:
-    """Parse *step_text* through XCAF into a rooted, kept-alive XDE document.
-
-    Units are pinned to mm BEFORE the read (determinism, RESEARCH §9). The
-    document is created through ``XCAFApp_Application`` and returned by the
-    caller VERBATIM so it stays referenced: the ``XCAFDoc_ShapeTool`` labels are
-    views into the document's data framework, so a collected document would
-    invalidate every label mid-walk. Any OCCT failure is wrapped into a typed
-    :class:`ImportParseError` — never an unhandled raise.
-    """
-    Interface_Static.SetCVal_s(_CASCADE_UNIT_KEY, "MM")
-    application = XCAFApp_Application.GetApplication_s()
-    document = TDocStd_Document(TCollection_ExtendedString("XmlXCAF"))
-    application.InitDocument(document)
-
-    with tempfile.TemporaryDirectory(prefix="loft-step-assembly-") as tmp:
-        path = os.path.join(tmp, "assembly.step")
-        with open(path, "wb") as handle:
-            handle.write(step_text.encode("utf-8"))
-        reader = STEPCAFControl_Reader()
-        reader.SetNameMode(True)
-        try:
-            status = reader.ReadFile(path)
-        except Exception as exc:  # OCCT can raise on malformed part-21
-            raise ImportParseError(
-                "The assembly STEP payload could not be read; it may be "
-                "malformed, truncated, or not a STEP file."
-            ) from exc
-        if status != IFSelect_ReturnStatus.IFSelect_RetDone:
-            raise ImportParseError(
-                "The assembly STEP payload could not be read (STEP reader "
-                f"status {status}); it may be malformed or not a STEP file."
-            )
-        try:
-            transferred = reader.Transfer(document)
-        except Exception as exc:
-            raise ImportParseError(
-                "The assembly STEP payload could not be transferred into the "
-                "product structure; it may be malformed or degenerate."
-            ) from exc
-        if not transferred:
-            raise ImportParseError(
-                "The assembly STEP payload transferred no geometry; it may be "
-                "empty, surfaces-only, or not a STEP file."
-            )
-    return document
-
-
-def _collect_leaf(
-    shape_tool: object,
-    ref_label: TDF_Label,
-    world_location: TopLoc_Location,
-    name: str | None,
-    into: list[ReadProduct],
-) -> None:
-    """Emit one product for a leaf occurrence, recursing into a sub-assembly.
-
-    A component references a prototype (``ref_label``); when that prototype is
-    itself an assembly (a rigid sub-assembly) the walk recurses, composing the
-    child location under *world_location* so every leaf carries its full WORLD
-    placement. A leaf prototype's LOCAL shape is normalised into one body; a
-    non-solid prototype is dropped.
-    """
-    if shape_tool.IsAssembly_s(ref_label):  # type: ignore[attr-defined]
-        _collect_components(shape_tool, ref_label, world_location, into)
-        return
-    body = _body_from_shape(shape_tool.GetShape_s(ref_label))  # type: ignore[attr-defined]
-    if body is None:
-        return
-    translation, quaternion = _placement_of(world_location)
-    into.append(
-        ReadProduct(
-            name=name, body=body, translation=translation, quaternion=quaternion
-        )
-    )
-
-
-def _collect_components(
-    shape_tool: object,
-    assembly_label: TDF_Label,
-    parent_location: TopLoc_Location,
-    into: list[ReadProduct],
-) -> None:
-    """Walk every component (NAUO occurrence) of an assembly label.
-
-    For each occurrence: compose its location under *parent_location* (so nested
-    sub-assemblies accumulate to a world placement), resolve its referred
-    prototype, and take the occurrence NAME from the PRODUCT (referred) label,
-    falling back to the component (NAUO) label.
-    """
-    components = TDF_LabelSequence()
-    shape_tool.GetComponents_s(assembly_label, components)  # type: ignore[attr-defined]
-    for index in range(1, components.Length() + 1):
-        component = components.Value(index)
-        component_location = shape_tool.GetLocation_s(component)  # type: ignore[attr-defined]
-        world_location = parent_location.Multiplied(component_location)
-        referred = TDF_Label()
-        if not shape_tool.GetReferredShape_s(component, referred):  # type: ignore[attr-defined]
-            continue
-        name = _label_name(referred) or _label_name(component)
-        _collect_leaf(shape_tool, referred, world_location, name, into)
-
-
-def read_step_assembly(step_text: str) -> StepAssemblyRead:
+def read_step_assembly(
+    step_text: str,
+    *,
+    cpu_timeout_s: float = DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S,
+    wall_timeout_s: float = DEFAULT_STEP_IMPORT_WALL_TIMEOUT_S,
+) -> StepAssemblyRead:
     """Parse *step_text* into a structured, positioned, named product list.
 
     Walks the XDE product tree (module docstring): an assembly root expands into
     one product per occurrence — its PRODUCT name, WORLD placement, and
     LOCAL-frame body — while a flat / single-body STEP returns ONE product at
     identity with ``has_assembly_structure=False`` (the backward-compatible
-    fallback signal). Deterministic (units pinned to mm; RESEARCH §9).
+    fallback signal). The untrusted OCCT read + walk runs in a killable
+    subprocess bounded by a CPU-time ceiling (*cpu_timeout_s*, the primary DoS
+    bound, invariant to machine load) and a wall-clock liveness backstop
+    (*wall_timeout_s*) — design §6, the SAME bound the single-body reader applies.
+    Deterministic (units pinned to mm in the worker; RESEARCH §9).
 
     Raises:
-        ImportParseError: OCCT could not read/transfer the payload (bad/empty/
-            truncated STEP) — the same code the single-body reader raises.
+        ImportParseTimeoutError: the read exceeded its CPU-time ceiling or the
+            wall-clock backstop and the worker was killed (``import_parse_timeout``).
+        ImportParseError: OCCT could not read/transfer/walk the payload (bad/empty/
+            truncated STEP, worker non-zero exit), OR a transferred-but-degenerate
+            product failed the parent's body normalisation — the same code the
+            single-body reader raises (``import_parse_failed``).
         ImportNoSolidError: the file parsed but yielded NO solid product
-            (surfaces-only / wireframe / open shells) — carries the honest
-            "no solids" phrasing the single-body reader uses.
+            (surfaces-only / wireframe / open shells) — ``import_no_solid``.
     """
-    document = _transfer_document(step_text)
-    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(document.Main())
-
-    free = TDF_LabelSequence()
-    shape_tool.GetFreeShapes(free)
-
-    has_assembly_structure = False
-    products: list[ReadProduct] = []
-    for index in range(1, free.Length() + 1):
-        root = free.Value(index)
-        root_location = shape_tool.GetLocation_s(root)
-        if shape_tool.IsAssembly_s(root):
-            has_assembly_structure = True
-            _collect_components(shape_tool, root, root_location, products)
-        else:
-            # Flat / single-body free shape: surface the whole located shape as
-            # one product at identity — the single-body MB-4b fallback signal.
-            body = _body_from_shape(shape_tool.GetShape_s(root))
-            if body is None:
-                continue
-            translation, quaternion = _placement_of(root_location)
-            products.append(
-                ReadProduct(
-                    name=_label_name(root),
-                    body=body,
-                    translation=translation,
-                    quaternion=quaternion,
+    with tempfile.TemporaryDirectory(prefix="loft-step-assembly-") as tmp:
+        in_path = os.path.join(tmp, "assembly.step")
+        out_dir = os.path.join(tmp, "out")
+        os.makedirs(out_dir)
+        with open(in_path, "wb") as handle:
+            handle.write(step_text.encode("utf-8"))
+        run_bounded_parse_worker(
+            [
+                sys.executable,
+                _ASSEMBLY_WORKER_PATH,
+                in_path,
+                out_dir,
+                repr(cpu_timeout_s),
+            ],
+            cpu_timeout_s=cpu_timeout_s,
+            wall_timeout_s=wall_timeout_s,
+        )
+        # Post-transfer: read the worker's manifest + per-product BREPs and apply
+        # the build123d body normalisation HERE. A transferable-but-degenerate
+        # solid can raise in assemble_lumps/Solid extraction — wrap it so any
+        # post-transfer failure is a typed ImportParseError, never a raw 500
+        # (design §5, consistent with the single-body taxonomy).
+        try:
+            with open(os.path.join(out_dir, "manifest.json"), encoding="utf-8") as fh:
+                manifest = json.load(fh)
+            products: list[ReadProduct] = []
+            for entry in manifest["products"]:
+                body = _body_from_shape(
+                    read_brep_shape(os.path.join(out_dir, entry["brep"]))
                 )
-            )
+                if body is None:
+                    continue
+                products.append(
+                    ReadProduct(
+                        name=entry["name"],
+                        body=body,
+                        translation=tuple(entry["translation"]),
+                        quaternion=tuple(entry["quaternion"]),
+                    )
+                )
+            has_assembly_structure = bool(manifest["has_assembly_structure"])
+        except (ImportParseError, ImportNoSolidError):
+            raise
+        except Exception as exc:  # degenerate solid / corrupt manifest → typed 422
+            raise ImportParseError(
+                "The assembly STEP transferred but a product could not be "
+                "normalised into a body; it may be geometrically degenerate."
+            ) from exc
 
     if not products:
         raise ImportNoSolidError(
