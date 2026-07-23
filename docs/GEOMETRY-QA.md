@@ -7,6 +7,112 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — SECTION VIEWS v1 independent audit (commit 137a929) — 🔴 WRONG-HALF BUG
+
+**VERDICT: 🔴 P0 correctness defect found — the FRONT (XZ / Y-normal) section cuts the
+WRONG HALF.** Section-face geometry, hatch carve, honest degradation, determinism, and
+no-perturbation-of-shipped-goldens all PASS. But the flip/eye/tool-sign coupling is
+correct on only TWO of the three principal planes; the front view (the single most
+common section, "Section A-A" on the front) silently removes the far half and keeps
+the eye-side stub. This is exactly the WF-1 "silently-wrong drawing" class.
+
+**Root cause (single, precise).** `section.py::_half_space_tool` derives which half to
+remove from the **sign of the cut plane's `z_dir`**:
+```
+normal_sign = +1 if plane.z_dir[axis] >= 0 else -1
+remove_dir  = tool_sign * normal_sign        # <-- WRONG driver
+```
+Design §4 and the module's own `resolve_section_frame` say the removed half must key off
+the **standard-view eye** `eye_N = view_normal(view)`, NOT the datum's normal sign
+("keying off the axis (not the sign) is what makes this single-valued"). The two agree
+only when `eye_N` points along `+axis`:
+
+| plane | view | eye_N (view_normal) | datum z_dir | agree? |
+|---|---|---|---|---|
+| XY | top | **+Z** | +Z | yes → correct |
+| YZ | right | **+X** | +X | yes → correct |
+| XZ | **front** | **−Y** | +Y | **NO → wrong half** |
+
+**Evidence (independent, `section_cut` on a box `[0,10]` along each axis, cut at 5,
+flip=false — flip=false must remove the eye-side half, so `remaining` must be the FAR
+half):**
+```
+axis=YZ  view=right  remaining coord[0]=(0.000, 5.000)  expected far=(0,5)   OK
+axis=XZ  view=front  remaining coord[1]=(0.000, 5.000)  expected far=(5,10)  *** WRONG HALF ***
+axis=XY  view=top    remaining coord[2]=(0.000, 5.000)  expected far=(0,5)   OK
+```
+For the front section, flip=false keeps y∈[0,5] (the −Y / eye side) and removes y∈[5,10]
+(the +Y / far side) — the exact inverse of the reviewed top-view convention. On an
+along-N-asymmetric part (slab y∈[0,10] + boss on the +Y face) the rendered front section
+therefore shows the plain slab when it should show the slab+boss, and vice-versa for
+flip=true — a wrong drawing with no error raised.
+
+**Second symptom, same root cause (sign-dependence).** Because the driver is `plane.z_dir`
+sign, the SAME geometric XZ plane authored with `z_dir=+Y` vs `z_dir=−Y` removes OPPOSITE
+halves for the same `flip` — non-canonical; a datum's arbitrary orientation must not
+change the cut. (`test_flip_is_not_datum_normal_sign_dependent`.)
+
+**Why the shipped 14 tests missed it.** (a) The wrong-half golden exercises ONLY the XY /
+top plane — the one plane where the sign bug is invisible. (b) The boss is always on the
+`+axis` side and the code always removes the `+axis` half, so a naive "boss cut away"
+assertion passes for the front too — but its *semantic label* ("removes the eye-side
+boss") is false there. Testing all three planes against `view_normal` as ground truth is
+what exposes it (the audit's explicit ask).
+
+**One-line fix for the builder (do NOT apply here — territory is tests/docs):** in
+`_half_space_tool`, replace `normal_sign` with the eye sign of the resolved view,
+`eye_sign = view_normal(view)[axis]`, and `remove_dir = tool_sign * eye_sign`. Verified by
+hand to make all three planes correct AND remove the z_dir-sign dependence. The strict
+`xfail`s I added flip to failures the moment this lands, forcing their removal.
+
+### The other four gates — PASS (independent verification)
+
+**2. Section face + hatch (PASS).** Bored 40×25×10 plate, two Ø10 through-holes, cut z=5:
+section area = **842.9204 mm²** vs analytic `1000 − 2·π·5² = 842.9204` (exact to 1e-4);
+one outer loop + two hole loops. Hatch carve is REAL, not "less length": sampling every
+segment of the 40×40-with-10×10-hole crosshatch, **0** interior points fall inside the
+hole (point-in-polygon), i.e. no segment crosses the carved region. Byte-determinism
+re-confirmed in-process and across a fresh interpreter (shipped
+`test_section_hatch_is_deterministic_across_interpreter_restart`, green).
+
+**Off-centre-offset half vs. notch (PASS, audit 🟡3).** A body spanning `[0,40]` cut at
+25 (well off centre) on each principal axis yields a single clean slab (vol 30000 =
+30·30·25, one lump, cut face at 25) — a HALF, never a notch — on all three axes.
+`test_off_centre_offset_is_a_clean_half_not_a_notch[0,1,2]` green. NB the front axis still
+half-cuts cleanly; it just keeps the wrong half (orthogonal to the notch concern).
+
+**3. No perturbation of shipped drawings (PASS).** Full standard-view / flat-pattern /
+export / composer golden suites (`test_drawings_compose`, `_project`, `_evaluate`,
+`test_goldens`, `test_export`, `test_sheet_metal_flat_pattern_{bytes,sheet}`) are
+byte-identical — the additive `section` branch shifted no existing projected geometry.
+
+**4. Honest degradation (PASS).** All five typed outcomes hold, never a crash/500/wrong
+output: non-principal normal → `SectionPlaneNotPrincipalError` / `section_plane_not_principal`;
+plane misses body → `SectionMissesBodyError` / `section_plane_misses_body`; whole-body
+removal → `SectionEmptyError` / `section_empty`; coincident face → `section_empty`;
+unresolved datum ref → `subshape_unresolved`; missing params → `section_params_missing`.
+
+**5. STEP round-trip / export (N/A — confirmed).** A section is a DRAWING view: the
+`remaining` body is projected to 2D edges + hatch and never STEP-exported. `test_export`
+is untouched and green — no body-export path is affected.
+
+### Adversarial goldens/tests added — `services/geometry/tests/test_drawings_section_audit.py`
+- `test_flip_false_removes_the_eye_side_half[0,1,2]` — all-3-planes eye-side check vs
+  `view_normal`; front (`[1]`) marked `xfail(strict)` (the 🔴).
+- `test_flip_true_removes_the_far_side_half[0,1,2]` — the mirror; front `xfail(strict)`.
+- `test_flip_is_not_datum_normal_sign_dependent` — `xfail(strict)` (sign-dependence 🔴).
+- `test_off_centre_offset_is_a_clean_half_not_a_notch[0,1,2]` — half-not-notch (PASS).
+- `test_bored_section_face_area_is_analytic_exact` — 842.9204 mm² (PASS).
+- `test_no_hatch_segment_crosses_a_hole_interior` — point-in-polygon carve (PASS).
+- `test_section_cut_loops_are_deterministic_in_process` (PASS).
+
+Result: **10 passed, 3 xfailed** (the 3 strict-xfails ARE the 🔴 — they will XPASS→fail
+and demand removal the instant the fix lands). `ruff`/`pyright` clean.
+
+**Action for the groomer:** file **P0 — front (XZ) section view cuts the wrong half**
+against the section-views item, with this root cause + one-line fix. Reachable from the
+UI (any XZ-plane / offset-XZ datum section, flip default).
+
 ## 2026-07-19 — Sheet-metal FULL 4-CORNER PAN corner relief (kernel-architect self-report)
 
 **SHIPPED.** The canonical sheet-metal use case — a pan/box with ALL FOUR corners
