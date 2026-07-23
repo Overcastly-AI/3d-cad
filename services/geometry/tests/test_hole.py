@@ -27,7 +27,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from build123d import Axis, Location, Plane, Solid, Vector
 from fastapi.testclient import TestClient
+from geometry.kernel.extrude import BooleanError, combine_body
+from geometry.kernel.faces import planar_faces
+from geometry.kernel.hole import (
+    HoleError,
+    HoleTooDeepError,
+    bore_hole,
+)
+from geometry.kernel.lumps import lump_count
 from geometry.main import app
 from py_kit.schemas.features import (
     FEATURE_REGISTRY,
@@ -449,3 +458,234 @@ def test_hole_feature_registry_roundtrip() -> None:
     assert len(refs) == 1
     assert refs[0].slot == "face"
     assert refs[0].ref.feature_id == EXTRUDE_ID
+
+
+# --- Kernel-level geometric guards (geometry-QA 2026-07-23) ---------------------------
+#
+# The golden ``hole-through-r5-40x25x10`` and the API tests above only exercise a
+# Ø10 through-hole at the CENTRE of an AXIS-ALIGNED (+Z / -Z) face of a prismatic
+# block. These guards drive :func:`geometry.kernel.bore_hole` DIRECTLY (the same
+# entry the feature layer calls, past the schema) over the cases that single
+# centred/axis-aligned golden structurally cannot catch: a tilted placement face
+# (would expose a hardcoded/transposed drill axis), a partial edge breakout
+# (partial-volume correctness + valid-solid invariant), a stepped body with an
+# internal air gap (through-all must clear ALL solid segments, not the gap), a
+# flat blind bottom off-centre, an oversize/degenerate diameter (typed, never a
+# raw kernel raise reachable from the UI), and cross-restart determinism.
+#
+# Tolerance: analytic-volume parity uses abs=1e-6 mm^3 (KERNEL_VOL_TOL). The
+# measured residual on every case below is <=1.5e-12 mm^3 (observed 2026-07-23,
+# build123d 0.11.1 / OCCT 7.9); 1e-6 sits ~6 orders above that float-noise floor
+# and >8 orders below the whole-mm^3 volumes a real bore removes, so it never
+# false-passes a wrong-volume bore. It is a NEW assertion (not a loosening of the
+# golden's 1e-9) sized for the boolean residual on rotated/stepped bodies.
+
+KERNEL_VOL_TOL = 1e-6
+
+
+def _kvol(value: float) -> Any:
+    return pytest.approx(value, abs=KERNEL_VOL_TOL)
+
+
+def _block(dx: float, dy: float, dz: float) -> Solid:
+    """A dx*dy*dz box with its min corner at the origin (top face +Z at z=dz)."""
+    return Solid.make_box(dx, dy, dz)
+
+
+def _face_plane_with_normal(
+    body: Any, normal: tuple[float, float, float], *, tol: float = 1e-6
+) -> Plane:
+    """The deterministic sketch plane of the planar face whose OUTWARD normal is
+    ``normal`` (the SAME record :func:`resolve_face_plane` would return). Asserts
+    exactly one such face so the test never silently drills the wrong face."""
+    want = Vector(*normal).normalized()
+    matches = [
+        r.plane for r in planar_faces(body) if (r.plane.z_dir - want).length < tol
+    ]
+    assert len(matches) == 1, (
+        f"expected 1 face with normal {normal}, got {len(matches)}"
+    )
+    return matches[0]
+
+
+def _circular_segment_area(radius: float, dist: float) -> float:
+    """Area of the disk (``radius``) lying BEYOND a chord ``dist`` from centre
+    (the part clipped off when the bore centre sits ``dist`` inside an edge)."""
+    return radius * radius * math.acos(dist / radius) - dist * math.sqrt(
+        radius * radius - dist * dist
+    )
+
+
+def test_hole_axis_follows_nonaxis_aligned_face_normal() -> None:
+    """A through-hole on a face whose normal is NOT +-X/+-Y/+-Z drills along that
+    face normal (into the solid), removing EXACTLY pi*r^2*thickness. A hardcoded
+    -Z axis or a transposed normal would remove the wrong volume (or nothing).
+
+    The 40x25x10 block is rotated 30deg about global X, so the (formerly +Z) top
+    face now has normal (0, -sin30, cos30) and the drill axis must track it."""
+    body = _block(40.0, 25.0, 10.0).rotate(Axis((0, 0, 0), (1, 0, 0)), 30.0)
+    top = _face_plane_with_normal(
+        body, (0.0, -math.sin(math.radians(30)), math.cos(math.radians(30)))
+    )
+    before = float(body.volume)
+    drilled = bore_hole(
+        body,
+        top,
+        (top.origin.X, top.origin.Y, top.origin.Z),
+        10.0,
+        through_all=True,
+        depth_mm=None,
+    )
+    removed = before - float(drilled.volume)
+    assert removed == _kvol(math.pi * RADIUS * RADIUS * 10.0)
+    # A clean through-bore: same 7/15/1 topology as the axis-aligned golden, 1 lump.
+    assert (
+        len(drilled.faces()),
+        len(drilled.edges()),
+        len(drilled.shells()),
+    ) == (7, 15, 1)
+    assert lump_count(drilled) == 1
+
+
+def test_hole_partial_breakout_matches_analytic_partial_volume() -> None:
+    """A through-hole whose bore partially EXITS the side wall removes LESS than
+    pi*r^2*h: exactly the volume of the disk-segment still inside the body. The
+    result stays a single valid solid (positive volume, one lump) — it must never
+    silently produce an invalid body. Centre 3 mm from the x=0 wall, r=5 => the
+    bore pokes 2 mm past the wall."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    before = float(body.volume)
+    drilled = bore_hole(
+        body, top, (3.0, 12.5, 10.0), 10.0, through_all=True, depth_mm=None
+    )
+    removed = before - float(drilled.volume)
+    full = math.pi * RADIUS * RADIUS * 10.0
+    inside_area = math.pi * RADIUS * RADIUS - _circular_segment_area(RADIUS, 3.0)
+    assert removed == _kvol(inside_area * 10.0)
+    assert removed < full  # strictly less than a fully-embedded bore
+    assert float(drilled.volume) > 0.0
+    assert lump_count(drilled) == 1
+    assert len(drilled.shells()) == 1
+
+
+def test_blind_hole_partial_edge_breakout_is_too_deep_error() -> None:
+    """A BLIND bore that overhangs the face edge removes less than its analytic
+    pocket, so it cannot form its full depth -> HoleTooDeepError (the documented
+    over-deep/overhang posture), never a silently short pocket."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    with pytest.raises(HoleTooDeepError):
+        bore_hole(body, top, (3.0, 12.5, 10.0), 10.0, through_all=False, depth_mm=4.0)
+
+
+def test_through_all_clears_stepped_body_segments_only() -> None:
+    """Through-all on a NON-prismatic body with an internal air gap clears ALL
+    solid along the axis and removes the SUM of the solid segments — NOT the gap.
+
+    A C-channel (two 3 mm flanges at z in [0,3] and [12,15], joined by a web at
+    x in [0,3]) is ONE solid with a 9 mm gap. Drilling Ø6 at x=20 (clear of the
+    web) passes flange1 (3 mm), the 9 mm gap, then flange2 (3 mm): the correct
+    removed volume is pi*r^2*(3+3), NOT pi*r^2*15 (which would wrongly fill the
+    gap) and NOT pi*r^2*3 (a through-all that stopped at the first solid)."""
+    bottom = _block(40.0, 25.0, 3.0)
+    top_flange = _block(40.0, 25.0, 3.0).located(Location((0.0, 0.0, 12.0)))
+    web = _block(3.0, 25.0, 15.0)
+    body = combine_body(combine_body(bottom, web, "add"), top_flange, "add")
+    assert lump_count(body) == 1
+    # Two +Z faces exist (the top flange at z=15 and the exposed step at z=3);
+    # drill from the highest so the axis spans BOTH flanges and the air gap.
+    top = max(
+        (
+            r.plane
+            for r in planar_faces(body)
+            if (r.plane.z_dir - Vector(0, 0, 1)).length < 1e-6
+        ),
+        key=lambda p: p.origin.Z,
+    )
+    before = float(body.volume)
+    drilled = bore_hole(
+        body, top, (20.0, 12.5, 15.0), 6.0, through_all=True, depth_mm=None
+    )
+    removed = before - float(drilled.volume)
+    r = 3.0
+    assert removed == _kvol(math.pi * r * r * (3.0 + 3.0))
+    assert removed < math.pi * r * r * 15.0  # did not fill the 9 mm air gap
+    assert lump_count(drilled) == 1
+
+
+def test_blind_hole_flat_bottom_sits_at_exact_depth_off_center() -> None:
+    """An OFF-CENTRE blind hole (flat-drill v1) leaves a flat bottom cap at
+    exactly ``depth`` below the face and the far face intact: removed volume is
+    pi*r^2*depth, and a +Z planar cap of area pi*r^2 sits at z = thickness-depth.
+    Off-centre so the golden's on-axis-centroid symmetry can't hide a mistake."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    radius, depth = 4.0, 6.5
+    drilled = bore_hole(
+        body, top, (12.0, 10.0, 10.0), 2.0 * radius, through_all=False, depth_mm=depth
+    )
+    removed = 40.0 * 25.0 * 10.0 - float(drilled.volume)
+    assert removed == _kvol(math.pi * radius * radius * depth)
+    assert abs(drilled.bounding_box().min.Z) < KERNEL_VOL_TOL
+    caps = [
+        r
+        for r in planar_faces(drilled)
+        if (r.plane.z_dir - Vector(0, 0, 1)).length < 1e-6
+        and abs(r.signature.area_mm2 - math.pi * radius * radius) < 1e-3
+    ]
+    assert len(caps) == 1, "exactly one +Z bore-bottom cap"
+    assert abs(caps[0].plane.origin.Z - (10.0 - depth)) < KERNEL_VOL_TOL
+
+
+def test_oversize_diameter_degrades_to_typed_boolean_error() -> None:
+    """A bore whose diameter covers the WHOLE face consumes the entire body: the
+    lump-preserving cut leaves no material -> a typed BooleanError (mapped to
+    ``boolean_failed`` at the feature layer), never an invalid solid or a 500."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    with pytest.raises(BooleanError):
+        bore_hole(body, top, (20.0, 12.5, 10.0), 100.0, through_all=True, depth_mm=None)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "DEFECT (geometry-QA 2026-07-23): a NEGATIVE diameter raises a raw OCCT "
+        "Standard_ConstructionError from Solid.make_cylinder, NOT a typed HoleError "
+        "— it would escape _evaluate_hole's HoleError/BooleanError handlers as a 500. "
+        "UNREACHABLE from the API today (HoleParamsV1.diameter_mm is Field(gt=0)), so "
+        "this is a defence-in-depth gap, not a P0. Flip to a plain raises() when the "
+        "kernel guards diameter/radius > 0 with a typed HoleError."
+    ),
+)
+def test_negative_diameter_is_typed_hole_error() -> None:
+    """bore_hole should reject a non-positive diameter with a typed HoleError."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    with pytest.raises(HoleError):
+        bore_hole(body, top, (20.0, 12.5, 10.0), -10.0, through_all=True, depth_mm=None)
+
+
+def test_bore_hole_is_deterministic_across_repeated_kernel_eval() -> None:
+    """The drilled body is a pure function of its inputs (RESEARCH §9): N repeats
+    yield byte-identical volume, surface area, and topology metadata. Complements
+    the API byte-determinism golden and the manually-verified cross-restart check
+    (two fresh interpreters produced identical volume/SA reprs, 2026-07-23)."""
+    body = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
+    signatures: set[tuple[str, str, int, int, int]] = set()
+    for _ in range(8):
+        drilled = bore_hole(
+            body, top, (20.0, 12.5, 10.0), 10.0, through_all=True, depth_mm=None
+        )
+        signatures.add(
+            (
+                repr(float(drilled.volume)),
+                repr(float(drilled.area)),
+                len(drilled.faces()),
+                len(drilled.edges()),
+                len(drilled.shells()),
+            )
+        )
+    assert len(signatures) == 1

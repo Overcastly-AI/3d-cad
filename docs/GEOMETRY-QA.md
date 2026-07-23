@@ -4130,3 +4130,85 @@ boundaries hold; equal-radius bends disambiguate correctly. Two QA contributions
 landed (byte-pin + STEP round-trip, both filling real coverage holes).
 **One 🟡 finding (not a defect):** no non-90° golden is committed though the
 capability is correct — file a "120° edge-flange golden" backlog item to lock it.
+
+---
+
+## 2026-07-23 — Hole feature slice 1 (`352000a`) adversarial geometry QA (geometry-qa)
+
+Adversarial probe of `services/geometry/kernel/hole.py::bore_hole` past the single
+committed golden `hole-through-r5-40x25x10` (Ø10 through-hole at the CENTRE of an
+axis-aligned +Z face of a prismatic block). Drove the kernel op DIRECTLY (the same
+entry `_evaluate_hole` calls, past the schema) over the cases that centred /
+axis-aligned golden structurally cannot catch. Six added guard tests in
+`services/geometry/tests/test_hole.py` (kernel-level section), all green
+(16 passed + 1 documented xfail). Numbers observed build123d 0.11.1 / OCCT 7.9.
+
+### 1. Non-axis-aligned placement face — PASS (no hardcoded/transposed axis)
+40×25×10 block rotated 30° about X → top face normal (0, −0.5, 0.866). Through-drill
+along that normal. removed = **785.3981634** vs analytic π·5²·10 = **785.3981634**
+(diff **−1.14e-12**). Topology 7/15/1, 1 lump — identical to the axis-aligned golden.
+The drill axis tracks the resolved face normal into the solid; a hardcoded −Z or a
+transposed normal would remove the wrong volume or nothing.
+Guard: `test_hole_axis_follows_nonaxis_aligned_face_normal`.
+
+### 2. Partial edge breakout — PASS (analytic partial volume, valid solid)
+Through-hole centre 3 mm from the x=0 wall (r=5 pokes 2 mm past it). removed =
+**673.574359** = (π·5² − segment)·10 analytic **673.574359** (diff **0.0e0**),
+strictly < full 785.398. Result stays 1 shell / 1 lump, volume > 0 — never a silent
+invalid body. Blind counterpart (depth 4 mm, same overhang) → `HoleTooDeepError`
+as documented.
+Guards: `test_hole_partial_breakout_matches_analytic_partial_volume`,
+`test_blind_hole_partial_edge_breakout_is_too_deep_error`.
+
+### 3. Blind flat bottom, off-centre — PASS
+Ø8 blind pocket 6.5 mm deep at (12,10) on a 10 mm block. removed = **9673.274364e-…**
+matches π·4²·6.5 (diff <1e-6). Far face intact (bbox min.z = 0). Exactly one +Z
+bore-bottom cap, area π·16 = **50.265482**, sitting at z = **3.5000000000** (=10−6.5).
+Guard: `test_blind_hole_flat_bottom_sits_at_exact_depth_off_center`.
+
+### 4. Through-all on a stepped/gapped single body — PASS (clears segments, not the gap)
+C-channel: two 3 mm flanges (z∈[0,3],[12,15]) joined by a web (x∈[0,3]) — ONE solid,
+9 mm internal air gap. Ø6 through-drill at x=20 (clear of the web) spans flange1 → gap
+→ flange2. removed = **169.646003** = π·3²·(3+3) analytic **169.646003** (diff
+**+1.48e-12**); NOT π·3²·15 = 424.115 (would wrongly fill the gap), NOT π·3²·3
+(a through-all that stopped at the first solid). 1 lump preserved. The 3×-diagonal
+tool span clears all material along the axis; removed = sum of solid segments only.
+Guard: `test_through_all_clears_stepped_body_segments_only`.
+
+### 5. Degenerate / oversize diameter — typed, with ONE defence-in-depth gap
+- Ø100 (covers the whole 40×25 face) through-all → `BooleanError` "cut consumed the
+  entire body" (→ `boolean_failed` at the feature layer). Typed, no invalid solid.
+  Guard: `test_oversize_diameter_degrades_to_typed_boolean_error`.
+- Ø0 (through and blind) → `HoleOffBodyError` (removed no material). Typed, sane.
+- **Ø negative → RAW `Standard_ConstructionError` from `Solid.make_cylinder`, NOT a
+  typed `HoleError`.** It would escape `_evaluate_hole`'s HoleError/BooleanError
+  handlers as an uncaught 500. **UNREACHABLE from the API today** — `HoleParamsV1.
+  diameter_mm` is `Field(gt=0)` (and `depth_mm` likewise) — so this is a defence-in-
+  depth gap, not a P0. Filed 🟢 P3 (below). Guard: `test_negative_diameter_is_typed_
+  hole_error` (xfail strict=True; flips to a plain raises() when the kernel guards it).
+
+### 6. Determinism — PASS (in-process + cross-restart)
+8× repeated kernel eval → single distinct (volume, surface-area, faces/edges/shells)
+signature. Two FRESH interpreters produced byte-identical reprs: through-hole vol
+**9214.601836602551**, SA **3457.079632679489**. Complements the API byte-determinism
+golden. Guard: `test_bore_hole_is_deterministic_across_repeated_kernel_eval`.
+
+### Findings filed
+- 🟢 **P3 (defence-in-depth)** — `bore_hole` lets a non-positive `diameter_mm` reach
+  `Solid.make_cylinder`, which raises a raw `Standard_ConstructionError` (untyped →
+  500) instead of a `HoleError`. Not reachable from the UI (schema `gt=0`), so low
+  severity; fix = guard `radius > 0` at the top of `bore_hole` with `HoleError`, then
+  the xfail guard flips green. Kernel-architect item.
+- 🟡 **Coverage note** — the shipped capability has ONE golden (centred, axis-aligned,
+  through). The six guards above now cover tilted-face / partial-breakout / stepped-
+  body / off-centre-blind / degenerate / determinism at the kernel level, but no
+  COMMITTED golden model exercises a non-axis-aligned or blind hole through the golden
+  harness. Suggest a "hole on a rotated face" and a "blind counterbore-depth" golden
+  next cycle to lock these in the mass-property/topology harness.
+
+### VERDICT: HOLE SLICE 1 IS GEOMETRICALLY SOUND — no P0/P1/P2 defects
+Drill axis follows the resolved face normal on tilted faces (diff 1e-12), partial
+breakouts and stepped-body through-alls match analytic volume exactly (removed = solid
+segments only, never the air gap), blind bottoms sit at the exact depth, oversize/zero
+diameters degrade to typed errors, and results are byte-deterministic across restart.
+The only blemish is an unreachable negative-diameter raw raise (🟢 P3 defence-in-depth).
