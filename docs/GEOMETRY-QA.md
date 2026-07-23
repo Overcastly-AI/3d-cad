@@ -7,6 +7,85 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — Assembly STEP import: XCAF product-structure reader (`f75fb26`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of STEP import slice 1
+(`kernel/step_assembly.py`: `STEPCAFControl_Reader` → `XCAFDoc_ShapeTool` walk
+into per-product `{name, world placement, LOCAL body}`; `has_assembly_structure`
+= `IsAssembly_s` on a free root; `assembly/import_step.py` tessellate +
+content-address + measure; `POST /api/v1/assembly/import`). The shipped 10-test
+suite proves the FLAT round-trip (one XDE level: root → N leaves, incl. ONE 50°
+off-axis case vs a Rodrigues oracle). I pushed past what a flat round-trip can
+reach — location composition under nesting, name↔placement pairing at scale, the
+`has_assembly_structure` boundary, repeated-part poses, and cross-restart
+determinism. **VERDICT: geometry is CORRECT — no P0/P1/P2 geometric defect.**
+Every probe matched an independent Rodrigues oracle (built without a quaternion,
+so a shared quat-convention bug cannot hide). Gaps were TEST-COVERAGE only;
+closed with 7 guard tests in `test_step_assembly_import.py` (10 → 17, all green;
+pyright + ruff clean).
+
+### 1. Nested sub-assembly placement composition (parent∘child order) — PASS
+The highest-value probe: a flat round-trip cannot reach the reader's recursion
+(`_collect_components` → `world = parent_location.Multiplied(component_location)`),
+so a child∘parent order bug would be invisible to the shipped suite. Authored a
+genuine nested assembly (a Compound-of-Compound → OCCT writes real NAUO
+sub-assembly structure, NAUO count 3) with a sub-assembly at 30°/Z @ (100,0,0)
+whose children carry their OWN local placements (leafA 45°/X @ (0,50,0); leafB
+identity @ (0,0,20)). Recovered WORLD centroid vs oracle `R_sub·R_child·c +
+R_sub·ct + st`:
+
+| leaf | expected world centroid | recovered | max abs err |
+|------|-------------------------|-----------|-------------|
+| leafA | (81.09789, 42.73941, 17.67767) | identical | **4.4e-12** |
+| leafB | (99.33013, 11.16025, 35.0) | identical | 4.4e-12 |
+
+3-level deep nesting (25°/Z ∘ 40°/X ∘ 20°/Y) also composes correctly: max err
+**4.4e-12**. Composition order is right (`Multiplied` = parent·child).
+
+### 2. Repeated sub-assembly instanced twice (deepest composition) — PASS
+One sub-assembly (2 leaves) instanced twice under root at different placements
+(30°/Z @ (100,0,0) and 60°/Y @ (-100,20,5)); NAUO count 6 → 4 leaf products.
+Each leaf's two occurrences recovered at their own correct world pose, matched
+as unordered sets: max err **0.0** (at 4-dp), well within tol. Shared-prototype
+expansion is correct.
+
+### 3. Many products, 5 distinct off-axis rotations — PASS (no swap)
+5 products, each a different non-axis-aligned quaternion. Every name recovered,
+name↔placement pairing intact (no swap across dedup + XDE ordering). Per-product
+world-centroid err ≤ **9.7e-12**, rotation-matrix err ≤ **5.0e-13** vs Rodrigues.
+
+### 4. `has_assembly_structure` boundary — PASS (both sides)
+| file | NAUO | expected | actual |
+|------|------|----------|--------|
+| single-component "assembly" (1 NAUO) | 1 | true | **true** (name + placement recovered) |
+| flat multi-solid part (Compound of 3 solids) | 0 | false → MB-4b | **false**, 1 product |
+| flat single body | 0 | false | **false**, 1 product |
+
+A single-NAUO file genuinely carries product structure → `true` is correct; a
+flat multi-lump part is correctly NOT mis-detected as an assembly.
+
+### 5. Repeated part at DIFFERENT placements — PASS
+Two occurrences of one box at 37°/X @ origin and 88°/Z @ (200,10,0): ONE shared
+content-addressed mesh id (dedup intact) BUT two DISTINCT placements, each world
+centroid correct to **≤2.5e-12**. Dedup does not collapse distinct poses.
+
+### 6. Determinism across interpreter restart — PASS
+The `TDocStd_Document`-kept-alive / process-global `Interface_Static` gotcha:
+ran the read in 3 fresh interpreters over a 3-product assembly incl. two off-axis
+rotations → **byte-identical** placement digests (float `repr` identical, no
+drift/leak). Guard test uses two `sys.executable` subprocesses.
+
+**Guard tests added** (test code only; no kernel/app source touched):
+`test_nested_subassembly_composes_parent_then_child`,
+`test_repeated_subassembly_instanced_twice`,
+`test_many_products_distinct_rotations_no_swap`,
+`test_single_component_assembly_is_true_at_boundary`,
+`test_flat_multi_lump_has_no_assembly_structure`,
+`test_repeated_part_distinct_placements_both_correct`,
+`test_structured_read_is_deterministic_across_restart`. All tol assertions use
+the documented `roundtrip_tol` (1e-7); measured deviations are ~1e-12, so the
+bound is a ceiling with ~5 orders of margin, not a fit. No defects filed.
+
 ## 2026-07-23 — Assembly interference/collision detection (`e46db16`) — adversarial geometry QA (geometry-qa)
 
 **Scope.** Independent adversarial verification of the clash-detection P1
