@@ -17,6 +17,7 @@ from py_kit.schemas.assemblies import (
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
     ExportAssemblyRequest,
+    InterferenceResult,
 )
 from py_kit.schemas.drawings import (
     EvaluateDrawingViewsRequest,
@@ -291,6 +292,31 @@ async def assembly_evaluate(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return EvaluateAssemblyResult.model_validate_json(upstream.content)
+
+
+@router.post("/assembly/interference", dependencies=[COMPUTE_RATE_LIMIT])
+async def assembly_interference(
+    request: EvaluateAssemblyRequest, user: CurrentUser, http_request: Request
+) -> InterferenceResult:
+    """Proxy an assembly interference check to the geometry service (assemblies §4).
+
+    Auth-protected (an assembly graph belongs to a signed-in user); the geometry
+    hop stays identity-free, so the principal never travels upstream (same posture
+    as ``/assembly/evaluate`` + measure/overlay, RESEARCH §3). The shared
+    :class:`EvaluateAssemblyRequest` DTO validates at the gateway before anything
+    goes upstream. Geometry solves the assembly and runs a pairwise
+    ``BRepAlgoAPI_Common`` over the solved world-placed instance bodies, returning
+    the clash list ``[{instance_a, instance_b, overlap_volume_mm3}]`` (each pair
+    once, a merely-touching pair is NO clash) plus the solve status/diagnosis. A
+    non-overlapping assembly is ``clashes: []``; a bad part/mate/solve is a 200
+    with a typed status and a (possibly empty) clash list (design §4), never a
+    4xx/5xx from the check itself. The envelope stays reserved for
+    transport/validation failures of this call.
+    """
+    upstream = await _forward(http_request, "/api/v1/assembly/interference", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return InterferenceResult.model_validate_json(upstream.content)
 
 
 @router.post("/drawing/evaluate", dependencies=[COMPUTE_RATE_LIMIT])

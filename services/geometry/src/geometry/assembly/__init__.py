@@ -14,6 +14,7 @@ from geometry.assembly.evaluate import (
     solve_assembly,
 )
 from geometry.assembly.export import AssemblyExportError, export_assembly
+from geometry.assembly.interference import check_interference
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,
     AssemblyOverconstraintClass,
@@ -60,6 +61,7 @@ __all__ = [
     "SolverInstance",
     "SolverMate",
     "build_assembly_solve_input",
+    "check_interference",
     "evaluate_assembly",
     "export_assembly",
     "resolve_mate_geometry",

@@ -150,23 +150,37 @@ class AssemblyComponent:
     quaternion: tuple[float, float, float, float]
 
 
-def _placed_body(component: AssemblyComponent) -> BodyShape:
-    """Copy *component*'s body to its world placement (``world = R·local + t``).
+def place_body(
+    body: BodyShape,
+    translation: tuple[float, float, float],
+    quaternion: tuple[float, float, float, float],
+) -> BodyShape:
+    """Copy *body* to a world placement (``world = R(q)·local + t``).
 
-    Builds an OCCT rigid transform from the unit quaternion + translation and
-    returns a LOCATED copy (build123d ``.located`` leaves the original — and its
-    shared underlying geometry — untouched, so composing two instances of one
-    part never mutates the shared body). Deterministic: a fixed sequence of
-    OCCT ops on the numeric pose.
+    THE single source of the assembly rigid-placement transform (CLAUDE.md DRY
+    rule): the STEP/STL composer (:func:`_placed_body`) and the interference
+    check (:mod:`geometry.kernel.interference`) both position a solved instance
+    through here, so no path reinvents the quaternion→``gp_Trsf`` conversion
+    (rotation order geometry-QA-verified to 1e-14). ``quaternion`` is
+    ``(x, y, z, w)`` matching :class:`py_kit.schemas.assemblies.Quat`. Returns a
+    LOCATED copy — build123d ``.located`` leaves the original (and its shared
+    underlying geometry) untouched, so placing two instances of one part never
+    mutates the shared body. Deterministic: a fixed sequence of OCCT ops on the
+    numeric pose.
     """
-    qx, qy, qz, qw = component.quaternion
+    qx, qy, qz, qw = quaternion
     rotation = gp_Quaternion(qx, qy, qz, qw)
     rotation.Normalize()  # belt-and-braces; the solver already emits unit q
     trsf = gp_Trsf()
     trsf.SetRotation(rotation)
-    tx, ty, tz = component.translation
+    tx, ty, tz = translation
     trsf.SetTranslationPart(gp_Vec(tx, ty, tz))
-    return component.body.located(Location(trsf))
+    return body.located(Location(trsf))
+
+
+def _placed_body(component: AssemblyComponent) -> BodyShape:
+    """Copy *component*'s body to its world placement (see :func:`place_body`)."""
+    return place_body(component.body, component.translation, component.quaternion)
 
 
 #: Matches the id (first) field of every ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` in a

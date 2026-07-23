@@ -18,11 +18,11 @@ duplication.
 - **✅ rows:** Sketching, Part modeling, Price/freedom.
 - **➖ rows (usable, short of incumbent parity):** **Assemblies — headline gap
   is now "one-way street"** (fresh product-audit pass 2026-07-23): you can
-  build+solve a bolted assembly and now **export it (assembly STEP, AP214
-  product structure — shipped 2026-07-23)**, but nothing checks it fits (no
-  interference/collision), and you cannot bring one in (no assembly-STEP
-  import/product-structure) — also still no exploded views, recursive BOM,
-  part-version pinning. Interop (STEP two-way is real for a *part*; assembly
+  build+solve a bolted assembly, now **export it (assembly STEP, AP214
+  product structure — shipped 2026-07-23)** and **check it fits (interference/
+  collision detection — shipped 2026-07-23)**, but you cannot bring one in (no
+  assembly-STEP import/product-structure) — also still no exploded views,
+  recursive BOM, part-version pinning. Interop (STEP two-way is real for a *part*; assembly
   STEP **export** now real, **import** still missing — the one-way gap narrowed
   to inbound-only). Drawings (dead-capability drain
   mostly closed this batch — title-block/first-angle/dimension-placement/notes
@@ -91,14 +91,16 @@ frame refactor are v2/§11. Spike de-collected.
       "authoring is a follow-up slice" note if split). This is the same
       dead-capability class as the drawings D1-D4 drain. [src: AUDIT-ENGINEERING.md
       E1 2026-07-23]
-- [ ] (P1, M) Assembly interference/collision detection. Pairwise
-      `BRepAlgoAPI_Common` over solved instance bodies (already available in
-      `services/geometry`) → a typed clash list with overlap volume. Acceptance:
-      new endpoint/evaluate-extension returns `clashes: [{instance_a, instance_b,
-      overlap_volume_mm3}]`; a non-overlapping assembly returns `[]`; two
-      deliberately-overlapping instances return the correct overlap volume within
-      tolerance; N² pairwise cost documented as the accepted v1 bound; worked
-      test. [src: AUDIT-PRODUCT.md 2026-07-23]
+- [x] (P1, M) Assembly interference/collision detection. **Shipped 2026-07-23**
+      — `POST /api/v1/assembly/interference` (geometry) + auth'd/rate-limited
+      gateway proxy; reuses `EvaluateAssemblyRequest` input + new
+      `InterferenceResult`/`ClashPair` DTOs. `solve_assembly` (shared solve →
+      placed kernel bodies) + `kernel/interference.intersection_volume`
+      (`BRepAlgoAPI_Common` via build123d, GProp volume) scanned pairwise
+      (`assembly/interference.py`). Volume floor = one kernel-tolerance cube
+      (1e-12 mm³) so a coincident-face touch is NOT a clash. N² over bodied
+      instances documented as the accepted v1 bound (AABB broad-phase = v2).
+      See Done archive.
 - [ ] (P1, M) Assembly STEP import with product structure. Read AP214
       PRODUCT/NEXT_ASSEMBLY_USAGE_OCCURRENCE into positioned, NAMED Loft
       assembly instances — not one anonymous multi-lump body (today's MB-4b
@@ -421,6 +423,20 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-23 batch)
 
+- [x] (P1, M) Assembly interference/collision detection. `POST /api/v1/assembly/
+      interference` (geometry) + auth'd/rate-limited gateway proxy; reuses
+      `EvaluateAssemblyRequest`, adds `InterferenceResult`/`ClashPair`. Reuses
+      `solve_assembly` (shared solve → world-placed kernel bodies), places each
+      body via the shared `kernel/export.place_body` transform, pairwise
+      `BRepAlgoAPI_Common` (`kernel/interference.intersection_volume`, GProp
+      volume) → `clashes: [{instance_a, instance_b, overlap_volume_mm3}]` (each
+      unordered pair once). Principled volume floor = one kernel-tolerance cube
+      (1e-12 mm³): coincident-face touch ⇒ no clash. N² over bodied instances =
+      accepted v1 bound (broad-phase AABB pre-filter = additive v2). Gates: 6
+      worked tests — empty/non-overlapping, analytic 2500 mm³ overlap (measured
+      2499.99999999999955, err 4.5e-13, rel-tol 1e-6), repeated-part single-pair,
+      just-touching zero-volume no-clash, HTTP route. Never-500 (typed status +
+      clash list). [src: AUDIT-PRODUCT.md 2026-07-23]
 - [x] (P0, M) Assembly STEP export — AP214 product structure. `POST /api/v1/
       assembly/export` (geometry) + auth'd/rate-limited gateway proxy;
       `ExportAssemblyRequest` (shared DTO = evaluate fields + export format).

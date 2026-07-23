@@ -789,6 +789,74 @@ class EvaluateAssemblyResult(BaseModel):
     )
 
 
+# --- §interference contract (documents → geometry → gateway → web) --------------
+#
+# The clash-detection sibling of the evaluate contract: the SAME
+# ``EvaluateAssemblyRequest`` graph (so an assembly that evaluates can always be
+# checked — the ShapeRequest → derived-request discipline), run through the
+# identical solve, then a pairwise B-rep intersection over the solved
+# world-placed instance bodies. Pure pydantic — the clash list is plain
+# floats/uuids, no kernel type crosses the boundary (CLAUDE.md). Never-500: a
+# bad part/mate/solve is the same typed status/diagnosis as ``evaluate_assembly``
+# with an empty (or partial) clash list, never a 4xx/5xx (design §4).
+
+
+class ClashPair(BaseModel):
+    """One interfering instance pair + the volume of their B-rep overlap (§4).
+
+    ``instance_a`` / ``instance_b`` are the two clashing instances — reported as
+    an UNORDERED pair exactly once (``instance_a`` precedes ``instance_b`` in the
+    request's instance order, so the same physical clash is never double-listed).
+    ``overlap_volume_mm3`` is the exact volume of the solved-world intersection
+    solid (``BRepAlgoAPI_Common``), always positive and above the kernel-tolerance
+    floor (a merely-touching, coincident-face pair reports NO clash, §4).
+    """
+
+    instance_a: uuid.UUID = Field(description="First clashing instance (request order)")
+    instance_b: uuid.UUID = Field(
+        description="Second clashing instance (later in request order)"
+    )
+    overlap_volume_mm3: float = Field(
+        ge=0.0,
+        description="Exact volume of the two instances' solved-world intersection "
+        "solid (mm³); above the kernel-tolerance clash floor",
+    )
+
+
+class InterferenceResult(BaseModel):
+    """Pairwise clash list over a solved assembly's instances (§4).
+
+    The output of ``POST /api/v1/assembly/interference``: the SAME solve as
+    ``evaluate_assembly`` (so ``status`` / ``diagnosis`` / ``mate_errors`` carry
+    the identical solve context — why the instances sit where they do), plus the
+    ``clashes`` — every unordered instance pair whose solved-world part bodies
+    interfere with non-trivial volume. A non-overlapping assembly is
+    ``clashes: []``. Deterministic (RESEARCH §9): the pairwise scan runs in a
+    fixed request-instance order over the BLAS-pinned solve, so identical graphs
+    yield an identical clash list. A bad part/mate/solve is a typed per-entry
+    error or a non-``well_constrained`` status inside a 200 (never a 4xx/5xx),
+    consistent with ``evaluate_assembly``; the envelope stays reserved for
+    transport/validation failures of the call itself.
+    """
+
+    assembly_id: uuid.UUID
+    version: int
+    clashes: list[ClashPair] = Field(
+        description="Interfering instance pairs (request-order, each pair once); "
+        "empty for a clash-free assembly"
+    )
+    status: AssemblySolveStatus = Field(description="Assembly-level solve outcome")
+    diagnosis: AssemblySolveDiagnosis | None = Field(
+        default=None,
+        description="Remaining DOF + offending mate ids; None for a clean "
+        "well_constrained solve (design §2.4)",
+    )
+    mate_errors: list[MateEvaluationError] = Field(
+        default_factory=list["MateEvaluationError"],
+        description="Per-mate resolution failures (dropped from the solve, §4)",
+    )
+
+
 # --- assembly export contract (documents → geometry → gateway → web) ------------
 #
 # The interop sibling of the part-level ``ExportRequest`` (schemas.geometry): the

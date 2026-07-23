@@ -37,6 +37,7 @@ from geometry.kernel.export import (
     export_step_bytes,
     export_stl_assembly_bytes,
     export_stl_bytes,
+    place_body,
 )
 from geometry.kernel.extrude import (
     BooleanError,
@@ -64,6 +65,10 @@ from geometry.kernel.imports import (
     import_step_solid,
     solid_from_brep_bytes,
     solid_to_brep_bytes,
+)
+from geometry.kernel.interference import (
+    CLASH_VOLUME_FLOOR_MM3,
+    intersection_volume,
 )
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
@@ -113,6 +118,7 @@ from geometry.schemas import (
 )
 
 __all__ = [
+    "CLASH_VOLUME_FLOOR_MM3",
     "DATUM_PLANES",
     "AssemblyComponent",
     "AxisIntersectsProfileError",
@@ -180,6 +186,7 @@ __all__ = [
     "fillet_body",
     "glb_stats",
     "import_step_solid",
+    "intersection_volume",
     "linear_pattern",
     "linear_pattern_cut",
     "loft_sections",
@@ -187,6 +194,7 @@ __all__ = [
     "measure_targets",
     "midplane_between",
     "offset_plane",
+    "place_body",
     "planar_faces",
     "resolve_axis_line",
     "resolve_edge",

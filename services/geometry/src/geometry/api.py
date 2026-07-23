@@ -18,6 +18,7 @@ from py_kit.schemas.assemblies import (
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
     ExportAssemblyRequest,
+    InterferenceResult,
     assembly_export_filename,
 )
 from py_kit.schemas.drawings import (
@@ -58,7 +59,12 @@ from py_kit.schemas.sketch import (
     SketchOffsetResult,
 )
 
-from geometry.assembly import AssemblyExportError, evaluate_assembly, export_assembly
+from geometry.assembly import (
+    AssemblyExportError,
+    check_interference,
+    evaluate_assembly,
+    export_assembly,
+)
 from geometry.drawing_store import (
     drawing_artifact_key,
     fetch_drawing_artifact,
@@ -167,6 +173,31 @@ def evaluate_assembly_route(
     failures of this call itself.
     """
     return evaluate_assembly(request)
+
+
+@router.post("/assembly/interference")
+def assembly_interference_route(
+    request: EvaluateAssemblyRequest,
+) -> InterferenceResult:
+    """Detect interfering instance pairs in a solved assembly (design §4).
+
+    Stateless (CLAUDE.md): documents sends the SAME assembly graph the evaluate
+    route takes; geometry solves it through the identical pipeline
+    (``solve_assembly`` — each unique part evaluated once, the mate graph solved
+    to per-instance world placements), then runs a pairwise ``BRepAlgoAPI_Common``
+    over the solved world-placed instance bodies. The response is the clash list
+    ``[{instance_a, instance_b, overlap_volume_mm3}]`` (each unordered pair once,
+    a merely-touching pair reported as NO clash) plus the solve's own status /
+    diagnosis / per-mate errors. A non-overlapping assembly is ``clashes: []``.
+    O(N²) over bodied instances (accepted v1 bound; broad-phase AABB pre-filter is
+    the v2 follow-up).
+
+    A bad part / mate / solve is a **200 with a typed status / diagnosis and a
+    (possibly empty) clash list** (mirroring ``/assembly/evaluate``'s never-500
+    posture, §4.3); the py-kit envelope stays reserved for transport/validation
+    failures of this call itself.
+    """
+    return check_interference(request)
 
 
 @router.post(

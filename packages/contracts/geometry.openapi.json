@@ -451,6 +451,36 @@
         "title": "CircularPatternParamsV1",
         "type": "object"
       },
+      "ClashPair": {
+        "description": "One interfering instance pair + the volume of their B-rep overlap (\u00a74).\n\n``instance_a`` / ``instance_b`` are the two clashing instances \u2014 reported as\nan UNORDERED pair exactly once (``instance_a`` precedes ``instance_b`` in the\nrequest's instance order, so the same physical clash is never double-listed).\n``overlap_volume_mm3`` is the exact volume of the solved-world intersection\nsolid (``BRepAlgoAPI_Common``), always positive and above the kernel-tolerance\nfloor (a merely-touching, coincident-face pair reports NO clash, \u00a74).",
+        "properties": {
+          "instance_a": {
+            "description": "First clashing instance (request order)",
+            "format": "uuid",
+            "title": "Instance A",
+            "type": "string"
+          },
+          "instance_b": {
+            "description": "Second clashing instance (later in request order)",
+            "format": "uuid",
+            "title": "Instance B",
+            "type": "string"
+          },
+          "overlap_volume_mm3": {
+            "description": "Exact volume of the two instances' solved-world intersection solid (mm\u00b3); above the kernel-tolerance clash floor",
+            "minimum": 0.0,
+            "title": "Overlap Volume Mm3",
+            "type": "number"
+          }
+        },
+        "required": [
+          "instance_a",
+          "instance_b",
+          "overlap_volume_mm3"
+        ],
+        "title": "ClashPair",
+        "type": "object"
+      },
       "CoincidentConstraint": {
         "description": "Two named points share a location.",
         "properties": {
@@ -3434,6 +3464,67 @@
           "placement"
         ],
         "title": "InstancePlacementResult",
+        "type": "object"
+      },
+      "InterferenceResult": {
+        "description": "Pairwise clash list over a solved assembly's instances (\u00a74).\n\nThe output of ``POST /api/v1/assembly/interference``: the SAME solve as\n``evaluate_assembly`` (so ``status`` / ``diagnosis`` / ``mate_errors`` carry\nthe identical solve context \u2014 why the instances sit where they do), plus the\n``clashes`` \u2014 every unordered instance pair whose solved-world part bodies\ninterfere with non-trivial volume. A non-overlapping assembly is\n``clashes: []``. Deterministic (RESEARCH \u00a79): the pairwise scan runs in a\nfixed request-instance order over the BLAS-pinned solve, so identical graphs\nyield an identical clash list. A bad part/mate/solve is a typed per-entry\nerror or a non-``well_constrained`` status inside a 200 (never a 4xx/5xx),\nconsistent with ``evaluate_assembly``; the envelope stays reserved for\ntransport/validation failures of the call itself.",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "clashes": {
+            "description": "Interfering instance pairs (request-order, each pair once); empty for a clash-free assembly",
+            "items": {
+              "$ref": "#/components/schemas/ClashPair"
+            },
+            "title": "Clashes",
+            "type": "array"
+          },
+          "diagnosis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssemblySolveDiagnosis"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Remaining DOF + offending mate ids; None for a clean well_constrained solve (design \u00a72.4)"
+          },
+          "mate_errors": {
+            "description": "Per-mate resolution failures (dropped from the solve, \u00a74)",
+            "items": {
+              "$ref": "#/components/schemas/MateEvaluationError"
+            },
+            "title": "Mate Errors",
+            "type": "array"
+          },
+          "status": {
+            "description": "Assembly-level solve outcome",
+            "enum": [
+              "well_constrained",
+              "under_constrained",
+              "over_constrained",
+              "conflicting",
+              "not_converged"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assembly_id",
+          "version",
+          "clashes",
+          "status"
+        ],
+        "title": "InterferenceResult",
         "type": "object"
       },
       "LinearDimensionParams": {
@@ -6898,6 +6989,48 @@
           }
         },
         "summary": "Export Assembly Route",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/assembly/interference": {
+      "post": {
+        "description": "Detect interfering instance pairs in a solved assembly (design \u00a74).\n\nStateless (CLAUDE.md): documents sends the SAME assembly graph the evaluate\nroute takes; geometry solves it through the identical pipeline\n(``solve_assembly`` \u2014 each unique part evaluated once, the mate graph solved\nto per-instance world placements), then runs a pairwise ``BRepAlgoAPI_Common``\nover the solved world-placed instance bodies. The response is the clash list\n``[{instance_a, instance_b, overlap_volume_mm3}]`` (each unordered pair once,\na merely-touching pair reported as NO clash) plus the solve's own status /\ndiagnosis / per-mate errors. A non-overlapping assembly is ``clashes: []``.\nO(N\u00b2) over bodied instances (accepted v1 bound; broad-phase AABB pre-filter is\nthe v2 follow-up).\n\nA bad part / mate / solve is a **200 with a typed status / diagnosis and a\n(possibly empty) clash list** (mirroring ``/assembly/evaluate``'s never-500\nposture, \u00a74.3); the py-kit envelope stays reserved for transport/validation\nfailures of this call itself.",
+        "operationId": "assembly_interference_route_api_v1_assembly_interference_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateAssemblyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterferenceResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assembly Interference Route",
         "tags": [
           "geometry"
         ]

@@ -21,10 +21,10 @@ until that matrix says so.**
 the drawings dead-capability drain (D1-D4) both converged this batch (see
 Phase 4/4b entries below). A fresh product-audit pass the same night named
 **assembly STEP export/interference/import** the next highest-value gap
-("the assembly is a one-way street") — those 3 items now lead
-`docs/BACKLOG.md`'s Ready queue ahead of the remaining sheet-metal
-extensions (open/teardrop/rolled hems, miters, tabs, gauge tables), pending
-founder direction on sequencing.
+("the assembly is a one-way street") — export ✅ + interference ✅ both shipped
+2026-07-23, leaving **assembly STEP import** leading `docs/BACKLOG.md`'s Ready
+queue ahead of the remaining sheet-metal extensions (open/teardrop/rolled hems,
+miters, tabs, gauge tables), pending founder direction on sequencing.
 
 **In flight right now:** authoring UI ✅ (base + edge flange, **and now closed
 hem + corner relief editors 2026-07-19** — all four shipped sheet-metal features
@@ -402,9 +402,14 @@ conventions pinned + goldens + frontend authoring UI). **Assembly STEP export
 landed 2026-07-23** (P0 — `POST /api/v1/assembly/export`, AP214 product
 structure: each instance a named PRODUCT at its solved world placement via
 build123d's XCAF writer; byte-deterministic; worked export→re-import→placement
-round-trip over the bolted goldens). Still deferred past v1 (design doc §5):
-interference detection, exploded views, BOM formatting, flexible
-sub-assemblies, part-version pinning-as-default.
+round-trip over the bolted goldens). **Assembly interference/collision
+detection landed 2026-07-23** (P1 — `POST /api/v1/assembly/interference`,
+pairwise `BRepAlgoAPI_Common` over the solved world-placed bodies →
+`clashes: [{instance_a, instance_b, overlap_volume_mm3}]`; principled volume
+floor = one kernel-tolerance cube so a coincident-face touch is no clash; N²
+over bodied instances = accepted v1 bound; analytic 2500 mm³ overlap verified
+to 4.5e-13). Still deferred past v1 (design doc §5): exploded views, BOM
+formatting, flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
       items, backend→gateway→frontend); "bolt two parts together and see it" is
