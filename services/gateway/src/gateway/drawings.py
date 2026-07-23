@@ -494,6 +494,26 @@ async def _aggregate_compose_request(
             "The drawing has no views to export; lay out its standard views first.",
             code="drawing_not_composable",
         )
+    # Assembly-kind views are a pin-ready schema member (documents persists them),
+    # but the compose wire is part-only: geometry drafts a single referenced part's
+    # projected geometry, and the part `evaluation-request` hop below has no assembly
+    # analogue. Rather than let an assembly-referencing view fetch a non-existent
+    # `/parts/{id}/evaluation-request` (an opaque downstream 404), reject it here,
+    # fast and legibly, BEFORE any part/compose hop. The real capability (assembly
+    # drawing views + BOM/balloons) is Drawings parity slice #4 — see BACKLOG.
+    assembly_views = [
+        view for view in tree.sheets[0].views if view.ref_document_kind == "assembly"
+    ]
+    if assembly_views:
+        raise ValidationApiError(
+            "Assembly drawing views are not yet supported — reference a part. "
+            "(Assembly views + BOM/balloons are a planned fast-follow.)",
+            code="assembly_views_unsupported",
+            details={
+                "view_ids": [str(view.id) for view in assembly_views],
+                "ref_document_kind": "assembly",
+            },
+        )
     referenced_part_id = tree.sheets[0].views[0].ref_document_id
 
     part_upstream = await forward_documents(

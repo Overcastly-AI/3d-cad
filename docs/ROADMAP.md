@@ -1084,6 +1084,16 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       for the additive null fields, precedent b0cb16a). Contracts regenerated
       (`ComposedTitleBlock` +author/date/notes). Geometry pytest + `just gen-check`
       green. DOM half (on-screen `DrawingSheet.tsx`) split → BACKLOG D1b.
+      **Drawings D4 — assembly-view dead-cap GATED honestly SHIPPED** (2026-07-23):
+      `ref_document_kind="assembly"` is a persistable, pin-ready schema member, but
+      the part-only compose wire made an assembly-referencing view fetch a
+      non-existent `/parts/{id}/evaluation-request` → an opaque downstream 404. The
+      gateway compose aggregation (`_aggregate_compose_request`, both `/export` +
+      `/sheet`) now rejects an assembly-kind view FAST with a typed 422
+      `assembly_views_unsupported` ("reference a part") BEFORE any part/compose hop;
+      part views unaffected. Enum stays for the WIRE fast-follow (BACKLOG Drawings
+      parity #4 — assembly views + BOM/balloons). Gateway pytest + `just gen-check`
+      (no drift) green.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
 ## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a

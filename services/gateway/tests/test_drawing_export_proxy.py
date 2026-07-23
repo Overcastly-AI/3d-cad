@@ -163,6 +163,16 @@ def _drawing_tree() -> DrawingTreeResponse:
     )
 
 
+def _assembly_drawing_tree() -> DrawingTreeResponse:
+    """A one-sheet drawing whose single view references an ASSEMBLY (pin-ready
+    schema member) — not composable by the part-only wire (D4)."""
+    tree = _drawing_tree()
+    view = tree.sheets[0].views[0]
+    view.ref_document_kind = "assembly"
+    tree.sheets[0].views = [view]
+    return tree
+
+
 def _empty_drawing_tree() -> DrawingTreeResponse:
     """A drawing with no sheet/views — nothing to compose."""
     drawing = DrawingResponse(
@@ -482,6 +492,58 @@ def test_drawing_without_views_is_422(db_url: str) -> None:
 
     assert response.status_code == 422
     assert _envelope(response.json())["code"] == "drawing_not_composable"
+    assert geometry_seen == []
+
+
+def test_assembly_view_export_is_422_not_downstream_404(db_url: str) -> None:
+    """A view referencing an assembly (pin-ready schema member) can't be composed by
+    the part-only wire. The gateway rejects it FAST with a legible typed error
+    BEFORE any part `evaluation-request` / geometry compose hop — never the opaque
+    downstream 404 that the missing `/parts/{assembly_id}/evaluation-request` gave
+    (engineering audit D4)."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_assembly(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        return httpx.Response(200, content=_assembly_drawing_tree().model_dump_json())
+
+    with make_client(
+        db_url, documents_assembly, _geometry_pdf(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf", headers=bearer
+        )
+
+    assert response.status_code == 422, response.text
+    error = _envelope(response.json())
+    assert error["code"] == "assembly_views_unsupported"
+    assert error["details"]["ref_document_kind"] == "assembly"
+    # Only the drawing tree GET happened — no part evaluation-request, no compose.
+    assert [r.url.path for r in documents_seen] == [f"/api/v1/drawings/{DRAWING}"]
+    assert geometry_seen == []
+
+
+def test_assembly_view_sheet_is_422_not_downstream_404(db_url: str) -> None:
+    """The JSON `/sheet` proxy runs the SAME aggregation, so an assembly-kind view is
+    rejected identically (typed 422, no part/compose hop)."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_assembly(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        return httpx.Response(200, content=_assembly_drawing_tree().model_dump_json())
+
+    with make_client(
+        db_url, documents_assembly, _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 422, response.text
+    assert _envelope(response.json())["code"] == "assembly_views_unsupported"
+    assert [r.url.path for r in documents_seen] == [f"/api/v1/drawings/{DRAWING}"]
     assert geometry_seen == []
 
 

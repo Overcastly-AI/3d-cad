@@ -144,13 +144,22 @@ scorecard impact → core capability → polish).
       is the default and stays byte-identical. First-angle compose golden
       (SVG/PDF/DXF + restart determinism) proves the swap; it doubles as the
       non-default-authored-field process guard. [src: AUDIT-ENGINEERING.md D3]
-- [ ] (P2, S) Drawings D4 — assembly drawing views 404 the composer (dead-cap
-      audit D4). `ViewCreate.ref_document_kind="assembly"` is persistable
-      (documents validates existence) but the gateway compose path always fetches
-      `/parts/{id}/evaluation-request` → an assembly view 404s. Gate the enum to
-      `"part"` until assembly compose lands, OR wire an assembly-evaluation-request
-      branch (this is also parity slice #4 — assembly drawings/BOM). [src:
-      AUDIT-ENGINEERING.md D4]
+- [x] (P2, S) Drawings D4 — assembly drawing views 404 the composer (dead-cap
+      audit D4). GATED honestly at the gateway compose path: an assembly-kind view
+      (`ref_document_kind="assembly"`, still persistable + pin-ready) now fails FAST
+      with a typed 422 `assembly_views_unsupported` ("reference a part") BEFORE any
+      `/parts/{id}/evaluation-request` hop, instead of the opaque downstream 404.
+      The `assembly` enum member stays in the schema for the WIRE fast-follow.
+      (`gateway/drawings.py` `_aggregate_compose_request`; export+sheet proxy tests.)
+      [src: AUDIT-ENGINEERING.md D4]
+- [ ] (P2, M) Drawings parity #4 — assembly drawing views + BOM/balloons (WIRE).
+      The real capability behind the D4 gate: compose a drawing view that projects
+      an ASSEMBLY (not a single part). Needs an assembly-side evaluation-request /
+      compose branch (assembly graph → projected geometry, an assembly analogue of
+      `/parts/{id}/evaluation-request`), plus BOM table + balloon authoring/compose.
+      When it lands, remove the `assembly_views_unsupported` gate in
+      `gateway/drawings.py`. Supervised M feature (kernel + gateway + documents +
+      web). [src: AUDIT-ENGINEERING.md D4 follow-on]
 - [ ] (P2, S) Drawings D2 — authored `DimensionPlacement` (offset_mm/text_pos)
       ignored: composer recomputes placement via its own penalty engine, never
       reads `.placement`. Wire it (seed the composer offset from
