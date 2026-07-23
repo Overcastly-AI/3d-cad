@@ -17,7 +17,7 @@
  * blind — a positive depth". Off-body / too-deep / unresolved-face are per-
  * feature REBUILD errors surfaced in the tree (see `./featureErrors`).
  */
-import type { LengthUnit } from "@loft/design";
+import { formatLength, type LengthUnit } from "@loft/design";
 
 import type { HoleParams, PlanarFaceSignature, Vec3 } from "../api/parts";
 import { faceSubshapeRef } from "./face";
@@ -25,6 +25,27 @@ import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 
 /** Through-all cuts fully through; blind drills a finite pocket depth. */
 export type HoleDepthMode = "through_all" | "blind";
+
+/**
+ * The recess at the mouth of the bore: a plain bore (`simple`), a larger coaxial
+ * CYLINDER (`counterbore`, seats a socket-head cap screw), or a coaxial CONE
+ * (`countersink`, seats a flat-head screw). Discriminates the generated
+ * `HoleParamsV1.type` (`kind`), which defaults to `simple` when omitted — so a
+ * slice-1 hole with no `type` still edits as a simple hole (backward-compatible).
+ */
+export type HoleTypeKind = "simple" | "counterbore" | "countersink";
+
+/**
+ * The flat-head fastener included-angle standards the countersink offers as
+ * one-click presets. The angle is otherwise free within the open interval the
+ * kernel accepts (0, 180); 82° (imperial) and 90° (metric) cover the everyday
+ * screws, so the editor surfaces them as chips beside the free angle field.
+ */
+export const CSINK_STANDARD_ANGLES = [82, 90] as const;
+
+/** Open interval the backend accepts for the countersink included angle. */
+const CSINK_ANGLE_MIN_DEG = 0;
+const CSINK_ANGLE_MAX_DEG = 180;
 
 /**
  * A picked planar model face, as the hole editor carries it: the full-precision
@@ -82,9 +103,23 @@ export interface HoleForm {
   depthMode: HoleDepthMode;
   /** Blind pocket depth (mm), as typed — only read when `depthMode === "blind"`. */
   depthInput: string;
+  /** Plain bore, counterbore, or countersink — the recess at the face. */
+  typeKind: HoleTypeKind;
+  /** Counterbore recess diameter (mm), as typed — read when `typeKind === "counterbore"`. */
+  cboreDiameterInput: string;
+  /** Counterbore recess depth (mm), as typed — read when `typeKind === "counterbore"`. */
+  cboreDepthInput: string;
+  /** Countersink mouth diameter (mm), as typed — read when `typeKind === "countersink"`. */
+  csinkDiameterInput: string;
+  /** Countersink included angle (deg), as typed — read when `typeKind === "countersink"`. */
+  csinkAngleInput: string;
 }
 
-/** The default new-hole form: a Ø6 through-all — the common first bolt hole. */
+/**
+ * The default new-hole form: a Ø6 through-all simple hole — the common first
+ * bolt hole. The recess fields carry ready M6-scale defaults (an ~Ø11 cbore, an
+ * ~Ø12 90° csink) so switching type is one click, not four fields to fill.
+ */
 export function defaultHoleForm(): HoleForm {
   return {
     face: null,
@@ -92,6 +127,11 @@ export function defaultHoleForm(): HoleForm {
     diameterInput: "6",
     depthMode: "through_all",
     depthInput: "10",
+    typeKind: "simple",
+    cboreDiameterInput: "11",
+    cboreDepthInput: "6",
+    csinkDiameterInput: "12",
+    csinkAngleInput: "90",
   };
 }
 
@@ -101,6 +141,8 @@ export function formFromHoleParams(
   unit: LengthUnit,
 ): HoleForm {
   const depth = params.depth;
+  const type = params.type;
+  const base = defaultHoleForm();
   return {
     face: {
       signature: params.face.selector.signature,
@@ -111,7 +153,31 @@ export function formFromHoleParams(
     depthMode: depth.kind === "blind" ? "blind" : "through_all",
     depthInput:
       depth.kind === "blind" ? lengthInputValue(depth.depth_mm, unit) : "10",
+    // `type` is optional on the wire and DEFAULTS to simple — a slice-1 hole
+    // with no `type` seeds a simple form (backward-compatible).
+    typeKind: type?.kind ?? "simple",
+    cboreDiameterInput:
+      type?.kind === "counterbore"
+        ? lengthInputValue(type.cbore_diameter_mm, unit)
+        : base.cboreDiameterInput,
+    cboreDepthInput:
+      type?.kind === "counterbore"
+        ? lengthInputValue(type.cbore_depth_mm, unit)
+        : base.cboreDepthInput,
+    csinkDiameterInput:
+      type?.kind === "countersink"
+        ? lengthInputValue(type.csink_diameter_mm, unit)
+        : base.csinkDiameterInput,
+    csinkAngleInput:
+      type?.kind === "countersink"
+        ? formatAngle(type.csink_angle_deg)
+        : base.csinkAngleInput,
   };
+}
+
+/** A countersink angle rendered without a unit suffix (the cell shows `°`). */
+function formatAngle(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 /**
@@ -145,6 +211,46 @@ export function depthError(input: string, unit: LengthUnit): string | null {
 }
 
 /**
+ * Field-level recess-diameter message, or null when valid (empty is pending).
+ * The recess (counterbore / countersink) mouth must be a positive length AND
+ * strictly exceed the bore — a recess no wider than the hole is no recess (the
+ * backend's `hole_cbore_invalid` / `hole_csink_invalid` precondition, guarded
+ * client-side so the modeler gets it before a round-trip).
+ */
+export function recessDiameterError(
+  recessInput: string,
+  boreInput: string,
+  unit: LengthUnit,
+): string | null {
+  if (recessInput.trim() === "") return null;
+  const recess = parsePositiveLengthMm(recessInput, unit);
+  if (recess === null) return "Diameter must be a positive length.";
+  const bore = parsePositiveLengthMm(boreInput, unit);
+  if (bore !== null && recess <= bore) {
+    return `Must be wider than the Ø${formatLength(bore, unit)} bore.`;
+  }
+  return null;
+}
+
+/** Parse the countersink included angle → degrees, or null when empty/out of (0, 180). */
+export function parseCsinkAngleDeg(input: string): number | null {
+  const trimmed = input.trim();
+  if (trimmed === "") return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return null;
+  if (value <= CSINK_ANGLE_MIN_DEG || value >= CSINK_ANGLE_MAX_DEG) return null;
+  return value;
+}
+
+/** Field-level countersink-angle message, or null when valid (empty is pending). */
+export function csinkAngleError(input: string): string | null {
+  if (input.trim() === "") return null;
+  return parseCsinkAngleDeg(input) === null
+    ? "Angle must be between 0 and 180 degrees."
+    : null;
+}
+
+/**
  * Build the hole params from the form, or null when a required field is
  * missing/invalid (the submit gate). Server-side rebuild resolves the face and
  * projects the point — this only guards the shape: a face, a point, a positive
@@ -167,12 +273,42 @@ export function buildHoleParams(
     depth = { kind: "through_all" };
   }
 
-  return {
+  // The recess type. `simple` OMITS `type` on the wire (the schema default), so
+  // a simple hole is byte-identical to a slice-1 hole (backward-compatible); a
+  // recess whose mouth doesn't exceed the bore fails the client guard (null).
+  let type: HoleParams["type"] | undefined;
+  if (form.typeKind === "counterbore") {
+    const cboreDia = parsePositiveLengthMm(form.cboreDiameterInput, unit);
+    const cboreDepth = parsePositiveLengthMm(form.cboreDepthInput, unit);
+    if (cboreDia === null || cboreDepth === null || cboreDia <= diameter) {
+      return null;
+    }
+    type = {
+      kind: "counterbore",
+      cbore_diameter_mm: cboreDia,
+      cbore_depth_mm: cboreDepth,
+    };
+  } else if (form.typeKind === "countersink") {
+    const csinkDia = parsePositiveLengthMm(form.csinkDiameterInput, unit);
+    const csinkAngle = parseCsinkAngleDeg(form.csinkAngleInput);
+    if (csinkDia === null || csinkAngle === null || csinkDia <= diameter) {
+      return null;
+    }
+    type = {
+      kind: "countersink",
+      csink_diameter_mm: csinkDia,
+      csink_angle_deg: csinkAngle,
+    };
+  }
+
+  const params: HoleParams = {
     face: faceSubshapeRef(form.face.anchorId, form.face.signature),
     position: form.position,
     diameter_mm: diameter,
     depth,
   };
+  if (type !== undefined) params.type = type;
+  return params;
 }
 
 /** True when the form can be submitted (all required fields present + valid). */

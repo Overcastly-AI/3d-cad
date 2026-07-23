@@ -7,12 +7,15 @@ import {
   buildHoleParams,
   canSubmitHole,
   coplanarVertexIndices,
+  csinkAngleError,
   defaultHoleForm,
   depthError,
   diameterError,
   formFromHoleParams,
   type HoleForm,
+  parseCsinkAngleDeg,
   positionReadout,
+  recessDiameterError,
   samePoint,
 } from "./hole";
 
@@ -31,12 +34,13 @@ const withFace = (): HoleForm =>
   });
 
 describe("defaultHoleForm", () => {
-  it("is a Ø6 through-all with nothing picked yet", () => {
+  it("is a Ø6 through-all SIMPLE hole with nothing picked yet", () => {
     const f = defaultHoleForm();
     expect(f.face).toBeNull();
     expect(f.position).toBeNull();
     expect(f.diameterInput).toBe("6");
     expect(f.depthMode).toBe("through_all");
+    expect(f.typeKind).toBe("simple");
   });
 });
 
@@ -104,6 +108,84 @@ describe("buildHoleParams", () => {
     const inch: HoleForm = { ...withFace(), diameterInput: "0.5" };
     expect(buildHoleParams(inch, "in")?.diameter_mm).toBeCloseTo(12.7, 6);
   });
+
+  it("OMITS `type` for a simple hole (backward-compatible slice-1 shape)", () => {
+    const params = buildHoleParams(withFace(), "mm");
+    expect(params).not.toBeNull();
+    expect(params).not.toHaveProperty("type");
+  });
+
+  it("builds a counterbore recess, guarding Ø-exceeds-bore + positive depth", () => {
+    const cbore: HoleForm = {
+      ...withFace(),
+      typeKind: "counterbore",
+      cboreDiameterInput: "11",
+      cboreDepthInput: "6",
+    };
+    expect(buildHoleParams(cbore, "mm")?.type).toEqual({
+      kind: "counterbore",
+      cbore_diameter_mm: 11,
+      cbore_depth_mm: 6,
+    });
+    // Recess Ø must exceed the Ø6 bore.
+    expect(
+      buildHoleParams({ ...cbore, cboreDiameterInput: "6" }, "mm"),
+    ).toBeNull();
+    expect(
+      buildHoleParams({ ...cbore, cboreDiameterInput: "5" }, "mm"),
+    ).toBeNull();
+    // Depth must be a positive length.
+    expect(
+      buildHoleParams({ ...cbore, cboreDepthInput: "0" }, "mm"),
+    ).toBeNull();
+  });
+
+  it("builds a countersink recess, guarding Ø-exceeds-bore + angle range", () => {
+    const csink: HoleForm = {
+      ...withFace(),
+      typeKind: "countersink",
+      csinkDiameterInput: "12",
+      csinkAngleInput: "90",
+    };
+    expect(buildHoleParams(csink, "mm")?.type).toEqual({
+      kind: "countersink",
+      csink_diameter_mm: 12,
+      csink_angle_deg: 90,
+    });
+    expect(
+      buildHoleParams({ ...csink, csinkDiameterInput: "6" }, "mm"),
+    ).toBeNull();
+    // Angle must be within the open interval (0, 180).
+    expect(
+      buildHoleParams({ ...csink, csinkAngleInput: "0" }, "mm"),
+    ).toBeNull();
+    expect(
+      buildHoleParams({ ...csink, csinkAngleInput: "180" }, "mm"),
+    ).toBeNull();
+  });
+});
+
+describe("recessDiameterError", () => {
+  it("flags a non-positive or not-wider-than-bore recess, passes a wider one", () => {
+    expect(recessDiameterError("", "6", "mm")).toBeNull(); // pending
+    expect(recessDiameterError("0", "6", "mm")).not.toBeNull();
+    expect(recessDiameterError("6", "6", "mm")).not.toBeNull(); // equal ≠ wider
+    expect(recessDiameterError("5", "6", "mm")).not.toBeNull();
+    expect(recessDiameterError("11", "6", "mm")).toBeNull();
+  });
+});
+
+describe("parseCsinkAngleDeg / csinkAngleError", () => {
+  it("accepts the open interval (0, 180) and rejects the rest", () => {
+    expect(parseCsinkAngleDeg("90")).toBe(90);
+    expect(parseCsinkAngleDeg("82")).toBe(82);
+    expect(parseCsinkAngleDeg("0")).toBeNull();
+    expect(parseCsinkAngleDeg("180")).toBeNull();
+    expect(parseCsinkAngleDeg("abc")).toBeNull();
+    expect(csinkAngleError("")).toBeNull();
+    expect(csinkAngleError("90")).toBeNull();
+    expect(csinkAngleError("200")).not.toBeNull();
+  });
 });
 
 describe("canSubmitHole", () => {
@@ -131,7 +213,53 @@ describe("formFromHoleParams round-trip", () => {
     expect(form.depthInput).toBe("3");
     expect(form.diameterInput).toBe("8");
     expect(form.face?.anchorId).toBe("extrude-1");
+    expect(form.typeKind).toBe("simple");
     // The seeded form rebuilds to the same params.
+    expect(buildHoleParams(form, "mm")).toEqual(params);
+  });
+
+  const face: HoleParams["face"] = {
+    kind: "subshape",
+    feature_id: "extrude-1",
+    subshape_type: "face",
+    selector: { selector_version: 1, signature: TOP },
+  };
+
+  it("round-trips a counterbore hole", () => {
+    const params: HoleParams = {
+      face,
+      position: { x: 5, y: 5, z: 10 },
+      diameter_mm: 6,
+      depth: { kind: "through_all" },
+      type: {
+        kind: "counterbore",
+        cbore_diameter_mm: 11,
+        cbore_depth_mm: 6,
+      },
+    };
+    const form = formFromHoleParams(params, "mm");
+    expect(form.typeKind).toBe("counterbore");
+    expect(form.cboreDiameterInput).toBe("11");
+    expect(form.cboreDepthInput).toBe("6");
+    expect(buildHoleParams(form, "mm")).toEqual(params);
+  });
+
+  it("round-trips a countersink hole", () => {
+    const params: HoleParams = {
+      face,
+      position: { x: 5, y: 5, z: 10 },
+      diameter_mm: 6,
+      depth: { kind: "through_all" },
+      type: {
+        kind: "countersink",
+        csink_diameter_mm: 12,
+        csink_angle_deg: 82,
+      },
+    };
+    const form = formFromHoleParams(params, "mm");
+    expect(form.typeKind).toBe("countersink");
+    expect(form.csinkDiameterInput).toBe("12");
+    expect(form.csinkAngleInput).toBe("82");
     expect(buildHoleParams(form, "mm")).toEqual(params);
   });
 });

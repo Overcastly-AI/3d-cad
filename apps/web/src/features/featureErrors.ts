@@ -28,7 +28,11 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
   hole_off_body:
     "The hole misses the body — no material is removed. Move the point onto solid material on the face.",
   hole_too_deep:
-    "This blind hole would break through the far side of the body. Reduce the depth, or switch to Through all.",
+    "This hole would break through the far side of the body. Reduce the depth or recess, or switch to Through all.",
+  hole_cbore_invalid:
+    "The counterbore doesn't fit — its diameter must be wider than the bore, and it must be shallower than the material. Widen the recess or reduce its depth.",
+  hole_csink_invalid:
+    "The countersink doesn't fit — its mouth must be wider than the bore. Widen the countersink, or reduce its angle so the cone sits shallower.",
   no_prior_body:
     "There's no body to modify yet. Add a feature that creates a body before this one.",
   subshape_unresolved:

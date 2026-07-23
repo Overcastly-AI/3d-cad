@@ -264,6 +264,107 @@ test.describe("hole — drill a through-all hole in the UI", () => {
   });
 });
 
+test.describe("hole — counterbore + countersink recesses in the UI", () => {
+  /** Build a box, open the Hole command, and pick the top face — the shared
+   * lead-in for both recess tests (the recess is set AFTER a face is chosen). */
+  async function armFaceAndTopPick(page: Page): Promise<void> {
+    await buildBaseBox(page);
+    await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId("new-hole").click();
+    await expect(page.getByTestId("hole-editor")).toBeVisible();
+    await page.getByTestId("hole-face-pick").click();
+    await clickTopFace(page);
+    await expect(page.getByTestId("hole-face")).toContainText("10");
+  }
+
+  test("counterbore: recess fields reveal, the Ø-exceeds-bore guard bites, then drills", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Counterbore");
+    await page.goto(`/parts/${part.id}`);
+    await armFaceAndTopPick(page);
+
+    // Switch to Counterbore → the two recess fields reveal with defaults.
+    await page.getByTestId("hole-type-counterbore").click();
+    await expect(page.getByTestId("hole-type-counterbore")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("hole-cbore-diameter")).toHaveValue("11");
+    await expect(page.getByTestId("hole-cbore-depth")).toHaveValue("6");
+
+    // The guard: a recess no wider than the Ø6 bore blocks Create with a reason.
+    await page.getByTestId("hole-cbore-diameter").fill("5");
+    await expect(page.getByTestId("hole-submit")).toBeDisabled();
+    await expect(page.getByTestId("hole-editor")).toContainText(
+      "wider than the Ø6 mm bore",
+    );
+
+    // A valid Ø11 × 6 mm counterbore into the 10 mm box drills clean.
+    await page.getByTestId("hole-cbore-diameter").fill("11");
+    const write = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/parts/${part.id}/features`) &&
+        r.request().method() === "POST",
+    );
+    await expect(page.getByTestId("hole-submit")).toBeEnabled();
+    await page.getByTestId("hole-submit").click();
+    expect((await write).status()).toBe(201);
+
+    // THE PROOF: the kernel cut the bore + the coaxial cylindrical recess — the
+    // tree evaluates to Solved (an invalid recess would be a hole_cbore_invalid
+    // ERR row) and the body re-renders with the counterbored hole.
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+    await expectRenderedBody(page);
+  });
+
+  test("countersink: mouth Ø + angle presets reveal, then drills", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Countersink");
+    await page.goto(`/parts/${part.id}`);
+    await armFaceAndTopPick(page);
+
+    // Switch to Countersink → the mouth Ø + angle field (default 90°) reveal.
+    await page.getByTestId("hole-type-countersink").click();
+    await expect(page.getByTestId("hole-csink-diameter")).toHaveValue("12");
+    await expect(page.getByTestId("hole-csink-angle")).toHaveValue("90");
+
+    // The fastener-standard presets fill the angle field; 82° reads back on the
+    // chip and the field.
+    await page.getByTestId("hole-csink-angle-82").click();
+    await expect(page.getByTestId("hole-csink-angle")).toHaveValue("82");
+    await expect(page.getByTestId("hole-csink-angle-82")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // Back to 90° for a shallow cone that fits the 10 mm box.
+    await page.getByTestId("hole-csink-angle-90").click();
+    await expect(page.getByTestId("hole-csink-angle")).toHaveValue("90");
+
+    const write = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/parts/${part.id}/features`) &&
+        r.request().method() === "POST",
+    );
+    await expect(page.getByTestId("hole-submit")).toBeEnabled();
+    await page.getByTestId("hole-submit").click();
+    expect((await write).status()).toBe(201);
+
+    // THE PROOF: the conical recess cut clean — Solved, no ERR row, body redraws.
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+    await expectRenderedBody(page);
+  });
+});
+
 test.describe("hole — founder screenshots", () => {
   async function armedHoleEditor(page: Page, part: { id: string }) {
     await page.goto(`/parts/${part.id}`);
@@ -337,5 +438,102 @@ test.describe("hole — founder screenshots", () => {
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/hole-authoring-laptop.png`,
     });
+  });
+
+  /**
+   * The AUTHORING founder shot: build a box, pick a face, choose the recess
+   * type, and capture the EDITOR (recess params revealed) over the body — no
+   * submit, so any pickable face is fine (`clickUnoccludedFace` is reliable at
+   * every width). This is the primary deliverable — the type selector + recess
+   * fields the founder asked to see, over the viewport hero.
+   */
+  async function recessAuthoringShot(
+    page: Page,
+    part: { id: string },
+    type: "counterbore" | "countersink",
+    tag: string,
+  ): Promise<void> {
+    await page.goto(`/parts/${part.id}`);
+    await buildBaseBox(page);
+    await page.getByTestId("new-hole").click();
+    await expect(page.getByTestId("hole-editor")).toBeVisible();
+    await page.getByTestId("hole-face-pick").click();
+    await clickUnoccludedFace(page);
+    await expect(page.getByTestId("hole-face")).toBeVisible();
+    await page.getByTestId(`hole-type-${type}`).click();
+    const revealed =
+      type === "counterbore" ? "hole-cbore-diameter" : "hole-csink-diameter";
+    await expect(page.getByTestId(revealed)).toBeVisible();
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/hole-${type}-${tag}.png`,
+    });
+  }
+
+  /**
+   * The RESULT founder shot (desktop): drill the recess into the TOP face — the
+   * 10 mm-thick face that has room below for a Ø11 × 6 mm counterbore / a Ø12
+   * 90° countersink — and capture the RECESSED hole in the viewport. The top
+   * face is clickable at 1440 (unlike the short-laptop width, where the taller
+   * editor occludes its node), so the result shot runs desktop-only.
+   */
+  async function recessResultShot(
+    page: Page,
+    part: { id: string },
+    type: "counterbore" | "countersink",
+  ): Promise<void> {
+    await page.goto(`/parts/${part.id}`);
+    await buildBaseBox(page);
+    await page.getByTestId("new-hole").click();
+    await expect(page.getByTestId("hole-editor")).toBeVisible();
+    await page.getByTestId("hole-face-pick").click();
+    await clickTopFace(page);
+    await expect(page.getByTestId("hole-face")).toContainText("10");
+    await page.getByTestId(`hole-type-${type}`).click();
+    await expect(page.getByTestId("hole-submit")).toBeEnabled();
+    await page.getByTestId("hole-submit").click();
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+    await expectRenderedBody(page);
+    // Wait for the recessed mesh to finish shading — a shot taken mid-regen
+    // shows only the wireframe silhouette, not the studio-shaded recess.
+    await expect(page.getByTestId("body-status")).toHaveText("Up to date", {
+      timeout: 30_000,
+    });
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/hole-${type}-result-desktop.png`,
+    });
+  }
+
+  for (const width of [1440, 1280] as const) {
+    const tag = width === 1440 ? "desktop" : "laptop";
+    const height = width === 1440 ? 900 : 800;
+    test(`counterbore authoring (${width}×${height})`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      const account = await seedSession(page);
+      const part = await createPartViaApi(page, account.token, "Cbore shot");
+      await recessAuthoringShot(page, part, "counterbore", tag);
+    });
+    test(`countersink authoring (${width}×${height})`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      const account = await seedSession(page);
+      const part = await createPartViaApi(page, account.token, "Csink shot");
+      await recessAuthoringShot(page, part, "countersink", tag);
+    });
+  }
+
+  test("counterbore result (desktop 1440×900)", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Cbore result");
+    await recessResultShot(page, part, "counterbore");
+  });
+
+  test("countersink result (desktop 1440×900)", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Csink result");
+    await recessResultShot(page, part, "countersink");
   });
 });

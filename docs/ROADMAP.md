@@ -423,8 +423,18 @@ item:
       (`hole-counterbore-d18-r5-40x25x10` — π·r²·H+π·(R²-r²)·h, cross-checked vs an
       independent 2-step extrude-cut; `hole-countersink-d18-90deg-r5-40x25x10` —
       cone frustum); typed degradation `hole_cbore_invalid`/`hole_csink_invalid`/
-      `hole_too_deep` (never-500). Web `HoleEditor` type-select + tapped + drill
-      tables remain (BACKLOG P2).
+      `hole_too_deep` (never-500).
+- ✅ Dedicated Hole feature — SLICE 2 WEB authoring (counterbore + countersink,
+      2026-07-23): the `HoleEditor` grows a quiet `Type` SegmentedControl
+      (Simple | C'bore | C'sink) that reveals the recess fields — cbore Ø + depth,
+      csink Ø + included angle with 82°/90° fastener-standard preset chips. The
+      recess-Ø-exceeds-bore precondition is guarded client-side (inline field
+      error + disabled Create); `hole_cbore_invalid`/`hole_csink_invalid` are
+      humanised via `friendlyFeatureError`. Simple omits `type` on the wire so an
+      existing hole edits unchanged (backward-compatible). e2e drills a counterbore
+      AND a countersink in the UI on the real stack (Solved + a studio-shaded
+      recessed body); +11 `hole.test.ts` units. Hole slice 2 is END-TO-END in-app;
+      tapped hole type + drill-size tables remain (BACKLOG P2 tail).
 - ✅ Mirror feature — END-TO-END (geometry+DTO 2026-07-23; web authoring
       2026-07-23): `MirrorFeature`/`MirrorParamsV1` reflect the current body about a
       plane (origin datum XY/XZ/YZ or a `datum` feature — the SAME `GeomRef` a

@@ -254,13 +254,22 @@ frame refactor are v2/§11. Spike de-collected.
       (analytic frustum); typed degradation `hole_cbore_invalid` /
       `hole_csink_invalid` / `hole_too_deep` (never-500). gen-check + apps/web
       typecheck clean (no other schema perturbed). [done 2026-07-23]
-- [ ] (P2, M) Dedicated Hole feature — SLICE 2 REMAINDER: web `HoleEditor` grows
-      a type select (Ø + depth + cbore/csink params); tapped hole type (a thread
+- [x] (P2, S) Dedicated Hole feature — SLICE 2 WEB authoring (counterbore +
+      countersink): the `HoleEditor` grows a quiet `Type` SegmentedControl
+      (Simple | C'bore | C'sink) revealing the recess fields — counterbore
+      {`cbore_diameter_mm`,`cbore_depth_mm`}, countersink {`csink_diameter_mm`,
+      `csink_angle_deg` with 82°/90° fastener-standard preset chips}. The
+      "recess Ø must exceed bore Ø" precondition is guarded client-side (inline
+      field error + disabled Create); typed rebuild errors `hole_cbore_invalid` /
+      `hole_csink_invalid` humanised via `friendlyFeatureError`. Simple omits
+      `type` on the wire (byte-identical slice-1 — backward-compatible edit). e2e
+      drills a counterbore AND a countersink in the UI on the real stack (Solved +
+      recessed body); +11 `hole.test.ts` units; founder cbore/csink authoring +
+      result shots. Hole slice 2 is now END-TO-END in-app. [done 2026-07-23]
+- [ ] (P2, S) Dedicated Hole feature — SLICE 2 TAIL: tapped hole type (a thread
       callout, not v1 geometry — DEFERRED); standard drill-size tables (+ a
-      follow-up MCP/scripting exposure). Seeds Drawings hole callouts. Web slot
-      needs: `type.kind` ∈ {simple,counterbore,countersink}; counterbore
-      {`cbore_diameter_mm`,`cbore_depth_mm`}; countersink {`csink_diameter_mm`,
-      `csink_angle_deg` (82/90 std)}. [src: AUDIT-PRODUCT.md 2026-07-23]
+      follow-up MCP/scripting exposure). Seeds Drawings hole callouts. [src:
+      AUDIT-PRODUCT.md 2026-07-23]
 - [x] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
       state (or typed-fail if they reference the suppressed feature directly). A

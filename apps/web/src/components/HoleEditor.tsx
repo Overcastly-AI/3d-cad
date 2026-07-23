@@ -39,6 +39,8 @@ import {
   applyHolePosition,
   buildHoleParams,
   canSubmitHole,
+  csinkAngleError,
+  CSINK_STANDARD_ANGLES,
   depthError,
   diameterError,
   type HoleDepthMode,
@@ -48,7 +50,9 @@ import {
   type HolePickTarget,
   type HolePointPick,
   type HolePreview,
+  type HoleTypeKind,
   positionReadout,
+  recessDiameterError,
 } from "../features/hole";
 
 const DEPTH_OPTIONS: ReadonlyArray<SegmentOption<HoleDepthMode>> = [
@@ -63,6 +67,27 @@ const DEPTH_OPTIONS: ReadonlyArray<SegmentOption<HoleDepthMode>> = [
     label: "Blind",
     "data-testid": "hole-depth-blind",
     "aria-label": "Depth: blind pocket",
+  },
+];
+
+const TYPE_OPTIONS: ReadonlyArray<SegmentOption<HoleTypeKind>> = [
+  {
+    value: "simple",
+    label: "Simple",
+    "data-testid": "hole-type-simple",
+    "aria-label": "Type: simple bore",
+  },
+  {
+    value: "counterbore",
+    label: "C'bore",
+    "data-testid": "hole-type-counterbore",
+    "aria-label": "Type: counterbore",
+  },
+  {
+    value: "countersink",
+    label: "C'sink",
+    "data-testid": "hole-type-countersink",
+    "aria-label": "Type: countersink",
   },
 ];
 
@@ -130,6 +155,40 @@ function PickButton({
       )}
     >
       {armed ? armedLabel : label}
+    </button>
+  );
+}
+
+/**
+ * A quiet fastener-standard preset chip (82° / 90°) that fills the countersink
+ * angle. Brass when it matches the current value — the standard you're on reads
+ * back, so the field and the chips stay in sync.
+ */
+function AnglePreset({
+  angle,
+  active,
+  onClick,
+}: {
+  angle: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={`hole-csink-angle-${angle}`}
+      aria-pressed={active}
+      aria-label={`Set countersink angle to ${angle} degrees`}
+      onClick={onClick}
+      className={cx(
+        "rounded-sm border px-2 py-1 font-data text-xs tabular-nums transition-colors duration-fast",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
+        active
+          ? "border-brass text-brass"
+          : "border-etch text-gauge hover:border-gauge hover:text-mist",
+      )}
+    >
+      {angle}°
     </button>
   );
 }
@@ -237,6 +296,22 @@ export function HoleEditor({
   const diameterMsg = diameterError(form.diameterInput, unit);
   const depthMsg =
     form.depthMode === "blind" ? depthError(form.depthInput, unit) : null;
+  const cboreDiameterMsg =
+    form.typeKind === "counterbore"
+      ? recessDiameterError(form.cboreDiameterInput, form.diameterInput, unit)
+      : null;
+  const cboreDepthMsg =
+    form.typeKind === "counterbore"
+      ? depthError(form.cboreDepthInput, unit)
+      : null;
+  const csinkDiameterMsg =
+    form.typeKind === "countersink"
+      ? recessDiameterError(form.csinkDiameterInput, form.diameterInput, unit)
+      : null;
+  const csinkAngleMsg =
+    form.typeKind === "countersink"
+      ? csinkAngleError(form.csinkAngleInput)
+      : null;
 
   return (
     <div
@@ -343,6 +418,102 @@ export function HoleEditor({
                 }
                 onFocus={(e) => e.currentTarget.select()}
               />
+            ) : null}
+
+            {/* Type — a plain bore, or a coaxial recess at the face (a
+                counterbore cylinder for a cap screw, a countersink cone for a
+                flat head). Simple is the default; the recess fields reveal. */}
+            <SegmentedControl
+              label="Type"
+              value={form.typeKind}
+              options={TYPE_OPTIONS}
+              onChange={(typeKind) => setForm((f) => ({ ...f, typeKind }))}
+            />
+            {form.typeKind === "counterbore" ? (
+              <div className="flex gap-2">
+                <NumberField
+                  className="flex-1"
+                  label="C'bore Ø"
+                  unit={unit}
+                  data-testid="hole-cbore-diameter"
+                  value={form.cboreDiameterInput}
+                  error={cboreDiameterMsg}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      cboreDiameterInput: e.target.value,
+                    }))
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <NumberField
+                  className="flex-1"
+                  label="C'bore depth"
+                  unit={unit}
+                  data-testid="hole-cbore-depth"
+                  value={form.cboreDepthInput}
+                  error={cboreDepthMsg}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, cboreDepthInput: e.target.value }))
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              </div>
+            ) : null}
+            {form.typeKind === "countersink" ? (
+              <div className="flex flex-col gap-2">
+                <NumberField
+                  label="C'sink Ø"
+                  unit={unit}
+                  data-testid="hole-csink-diameter"
+                  value={form.csinkDiameterInput}
+                  error={csinkDiameterMsg}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      csinkDiameterInput: e.target.value,
+                    }))
+                  }
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <div className="flex items-end gap-2">
+                  <NumberField
+                    className="flex-1"
+                    label="C'sink angle"
+                    unit="°"
+                    data-testid="hole-csink-angle"
+                    aria-label="Countersink included angle (degrees)"
+                    value={form.csinkAngleInput}
+                    error={csinkAngleMsg}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        csinkAngleInput: e.target.value,
+                      }))
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <div
+                    role="group"
+                    aria-label="Standard countersink angles"
+                    className="flex shrink-0 items-center gap-1 pb-1"
+                  >
+                    {CSINK_STANDARD_ANGLES.map((angle) => (
+                      <AnglePreset
+                        key={angle}
+                        angle={angle}
+                        active={Number(form.csinkAngleInput) === angle}
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            csinkAngleInput: String(angle),
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : null}
 
             {pickError ? (
