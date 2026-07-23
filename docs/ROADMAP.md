@@ -985,8 +985,27 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       the real stack — lay out + dimension, click Export DXF, catch the download,
       assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
       **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
-      pillar: section/detail/assembly views (DE-1c client-placement cutover DONE —
-      see below).
+      pillar: detail/assembly views (section views v1 SHIPPED — see below; DE-1c
+      client-placement cutover DONE — see below).
+      **Drawings SECTION VIEWS v1 SHIPPED + VERIFIED-GREEN (2026-07-23,
+      `137a929`→`57dca7a`):** single planar full section of a single-body part by
+      principal / axis-aligned-offset datum reference — `drawings/section.py`
+      half-space cut (`boolean_bodies(allow_disjoint=True)`), exact coplanar
+      section-face loops (`BRepTools_WireExplorer` emitting exact wire vertices +
+      sampling only curved edges — replaced a 128-gon arc sampler that dropped
+      corners), behind-geometry HLR via the shipped `project_view`, and a
+      `ComposedHatch` (ANSI-45° even-odd scanline clip) rendered across all three
+      serializers (SVG/PDF/DXF); `views.section_params` jsonb (migration 0008,
+      nullable). Independent **code-review + geometry-QA both** caught a P0
+      wrong-half bug — a front (XZ) section removed the half keyed off
+      `plane.z_dir`'s sign instead of the standard-view EYE — fixed `57dca7a`:
+      `resolve_section_frame` single-sources the removed-half sign through
+      `view_normal(view)` and passes it verbatim to `_half_space_tool`. Adversarial
+      audit suite (`test_drawings_section_audit.py`, 14 tests, **0 xfail** after
+      the fix, incl. `..._four_exact_corners`) + full quiet-window sweep green:
+      `just lint`, full geometry pytest (exit 0), `just e2e` (geometry gates 153 +
+      Playwright **191** passed). Oblique cut planes + the `project_view` view-frame
+      refactor are deferred to v2 (design doc §11).
       **Drawing export DE-1b — JSON compose endpoint (`ComposedSheet` model) SHIPPED**
       (2026-07-18): the backend prerequisite for the DE-1c client cutover — the
       frontend must RENDER from the server's placement, so it needs the placed model

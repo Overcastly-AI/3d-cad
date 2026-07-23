@@ -25,8 +25,8 @@ duplication.
   for a *part*; **no assembly-level STEP either direction** — the same gap as
   above, part/assembly split now explicit). Drawings (dead-capability drain
   mostly closed this batch — title-block/first-angle/dimension-placement/notes
-  all wired; still no section/detail views [section-view IN FLIGHT,
-  kernel-architect, uncommitted], assembly views/BOM/balloons, GD&T). Sheet
+  all wired; section views v1 SHIPPED + verified-green 2026-07-23; still no
+  detail views, assembly views/BOM/balloons, GD&T). Sheet
   metal (bend chains + corner relief + closed hem + edge-flange WIDTH EXTENTS
   + auto bend-end relief shipped, all click-authorable in-app; still no open/
   teardrop/rolled hems, miters, tabs, or gauge tables).
@@ -378,6 +378,16 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-23 batch)
 
+- [x] (P2, M) Drawings — SECTION VIEWS v1: single planar full section (principal /
+      axis-aligned-offset datum) — `drawings/section.py` half-space cut + exact
+      coplanar loops (`BRepTools_WireExplorer`, exact corners) + `ComposedHatch`
+      (ANSI-45° even-odd scanline clip) across SVG/PDF/DXF; `views.section_params`
+      jsonb (0008). Independent code-review + geometry-QA caught a wrong-half bug
+      (front/XZ section keyed removal off `plane.z_dir` not the eye normal) — fixed
+      `57dca7a`: removal single-sourced through `view_normal(view)`; adversarial
+      suite (14 tests, 0 xfail) + full sweep green (lint + geometry + e2e 191).
+      Oblique + `project_view` frame refactor are v2/§11. [src: drawings pillar;
+      AUDIT-PRODUCT; GEOMETRY-QA 2026-07-23]
 - [x] (P1, S) Drawings D1 (export + DOM) — title-block author/date/notes now
       stamped in SVG/PDF/DXF and on-screen. [src: AUDIT-ENGINEERING.md D1]
 - [x] (P2, S) Drawings D2 — authored `DimensionPlacement` (offset/text_pos) now
