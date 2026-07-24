@@ -24,6 +24,7 @@ from typing import Annotated, Any
 import httpx2 as httpx
 from fastapi import APIRouter, Query, Request, Response, status
 from py_kit.errors import ValidationApiError
+from py_kit.schemas.assemblies import EvaluateAssemblyRequest
 from py_kit.schemas.drawings import (
     ARTIFACT_MEDIA_TYPES,
     AnnotationCreate,
@@ -51,7 +52,7 @@ from py_kit.schemas.drawings import (
     ViewUpdate,
     artifact_filename,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from py_kit.schemas.features import EvaluatedFeatureInput, EvaluateTreeRequest
 
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
@@ -404,19 +405,29 @@ async def delete_annotation(
 
 def _compose_request(
     tree: DrawingTreeResponse,
-    evaluation_request: EvaluateTreeRequest,
     artifact_format: ArtifactFormat,
+    *,
+    part: EvaluateTreeRequest | None = None,
+    assembly: EvaluateAssemblyRequest | None = None,
 ) -> ComposeDrawingRequest:
     """Assemble the geometry `ComposeDrawingRequest` from persisted drawing state.
 
     Mirrors the on-screen sheet the frontend evaluates (``apps/web`` DrawingPage):
     v1 composes the drawing's FIRST sheet — its views (projection + placement +
     scale) become the :class:`SheetLayout`, its dimensions (each tagged with the
-    projection of the view it annotates) become the measured inputs, and the
-    referenced part's ``evaluation-request`` (part id + tree version + feature
-    prefix) supplies the projection intent. The composer re-derives view anchors
-    from the projected bounds (``boundsAwareLayout``), so the persisted per-view
-    ``position`` rides along for generality but ``projection``/``scale`` drive v1.
+    projection of the view it annotates) become the measured inputs, and the source
+    document's ``evaluation-request`` supplies the projection intent. The composer
+    re-derives view anchors from the projected bounds (``boundsAwareLayout``), so the
+    persisted per-view ``position`` rides along for generality but ``projection`` /
+    ``scale`` drive v1.
+
+    Exactly ONE source is threaded (design §7): a PART view carries ``part`` (part id
+    + tree version + feature prefix — geometry projects the single body); an ASSEMBLY
+    view carries ``assembly`` (the resolved instance+mate graph — geometry projects the
+    SOLVED assembly compound), with the inherited part fields then echoing the
+    assembly's id/version + an empty feature list. Both fold their per-view HLR edges
+    into the SAME sheet via the SAME ``place_sheet`` (the edges are the identical
+    neutral :class:`ProjectedViewEdge` shape) — one composition path for both.
     """
     sheet_content: SheetContent = tree.sheets[0]
     sheet = sheet_content.sheet
@@ -447,10 +458,24 @@ def _compose_request(
             for v in views
         ],
     )
+    # Thread exactly one source (§7). An assembly view echoes the assembly's id +
+    # version into the inherited part fields and an EMPTY feature list (geometry does
+    # not evaluate them — it projects `assembly`); a part view carries the real prefix.
+    if assembly is not None:
+        part_id = assembly.assembly_id
+        tree_version = assembly.version
+        features: list[EvaluatedFeatureInput] = []
+    else:
+        assert part is not None, "a compose source (part or assembly) is required"
+        part_id = part.part_id
+        tree_version = part.tree_version
+        features = part.features
+
     return ComposeDrawingRequest(
-        part_id=evaluation_request.part_id,
-        tree_version=evaluation_request.tree_version,
-        features=evaluation_request.features,
+        part_id=part_id,
+        tree_version=tree_version,
+        features=features,
+        assembly=assembly,
         views=[v.projection for v in views],
         # Thread each persisted view's section datum + flip into the per-view
         # `section_params` map (keyed by the view's INDEX into `views`, mirroring the
@@ -487,12 +512,15 @@ async def _aggregate_compose_request(
 ) -> ComposeDrawingRequest:
     """The shared two-hop aggregation behind both the export and the sheet route.
 
-    Fetches the drawing tree AND the referenced part's evaluation-request from
-    documents (principal attached, uniform 404 re-surfaced verbatim), then assembles
-    the geometry :class:`ComposeDrawingRequest` from that persisted state. A drawing
-    with no laid-out views is a gateway-side ``drawing_not_composable`` 422 (no part
-    hop, no compose). ``artifact_format`` rides along for the bytes ``/export`` route;
-    the JSON ``/sheet`` route passes the default and the composer ignores it.
+    Fetches the drawing tree AND the referenced part/assembly's evaluation-request
+    from documents (principal attached, uniform 404 re-surfaced verbatim), then
+    assembles the geometry :class:`ComposeDrawingRequest` from that persisted state.
+    The first sheet's source-document KIND selects the hop: a part view fetches
+    ``/parts/{id}/evaluation-request`` (§4.2), an assembly view
+    ``/assemblies/{id}/evaluation-request`` (§7) threaded as ``assembly``. A drawing
+    with no laid-out views is a gateway-side ``drawing_not_composable`` 422 (no
+    document hop, no compose). ``artifact_format`` rides along for the bytes
+    ``/export`` route; the JSON ``/sheet`` route passes the default and ignores it.
     """
     drawing_upstream = await forward_documents(
         http_request, user, "GET", f"/api/v1/drawings/{drawing_id}"
@@ -506,39 +534,43 @@ async def _aggregate_compose_request(
             "The drawing has no views to export; lay out its standard views first.",
             code="drawing_not_composable",
         )
-    # Assembly-kind views are a pin-ready schema member (documents persists them),
-    # but the compose wire is part-only: geometry drafts a single referenced part's
-    # projected geometry, and the part `evaluation-request` hop below has no assembly
-    # analogue. Rather than let an assembly-referencing view fetch a non-existent
-    # `/parts/{id}/evaluation-request` (an opaque downstream 404), reject it here,
-    # fast and legibly, BEFORE any part/compose hop. The real capability (assembly
-    # drawing views + BOM/balloons) is Drawings parity slice #4 — see BACKLOG.
-    assembly_views = [
-        view for view in tree.sheets[0].views if view.ref_document_kind == "assembly"
-    ]
-    if assembly_views:
-        raise ValidationApiError(
-            "Assembly drawing views are not yet supported — reference a part. "
-            "(Assembly views + BOM/balloons are a planned fast-follow.)",
-            code="assembly_views_unsupported",
-            details={
-                "view_ids": [str(view.id) for view in assembly_views],
-                "ref_document_kind": "assembly",
-            },
+    # v1 composes the first sheet's single source document (the sheet's views share a
+    # part/assembly, mirroring the on-screen DrawingPage); its kind selects the
+    # documents evaluation-request hop + the compose source (design §7).
+    source_view = tree.sheets[0].views[0]
+    referenced_document_id = source_view.ref_document_id
+
+    if source_view.ref_document_kind == "assembly":
+        # Assembly-kind view (§7): resolve the referenced assembly's instance+mate
+        # graph → the reused `EvaluateAssemblyRequest` (documents owns the graph read
+        # + per-instance part-prefix resolution; the kernel-free INTENT posture), and
+        # thread it as the compose source so geometry projects the SOLVED assembly
+        # compound and folds its per-view HLR edges into the sheet exactly as a part
+        # view. Replaces the old fast-reject `assembly_views_unsupported` 422.
+        assembly_upstream = await forward_documents(
+            http_request,
+            user,
+            "GET",
+            f"/api/v1/assemblies/{referenced_document_id}/evaluation-request",
         )
-    referenced_part_id = tree.sheets[0].views[0].ref_document_id
+        if assembly_upstream.status_code != status.HTTP_200_OK:
+            raise_upstream_error(assembly_upstream, service=_SERVICE)
+        assembly_request = EvaluateAssemblyRequest.model_validate_json(
+            assembly_upstream.content
+        )
+        return _compose_request(tree, artifact_format, assembly=assembly_request)
 
     part_upstream = await forward_documents(
         http_request,
         user,
         "GET",
-        f"/api/v1/parts/{referenced_part_id}/evaluation-request",
+        f"/api/v1/parts/{referenced_document_id}/evaluation-request",
     )
     if part_upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(part_upstream, service=_SERVICE)
     evaluation_request = EvaluateTreeRequest.model_validate_json(part_upstream.content)
 
-    return _compose_request(tree, evaluation_request, artifact_format)
+    return _compose_request(tree, artifact_format, part=evaluation_request)
 
 
 _EXPORT_RESPONSES: dict[int | str, dict[str, Any]] = {

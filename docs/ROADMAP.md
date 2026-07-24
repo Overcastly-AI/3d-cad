@@ -1336,6 +1336,27 @@ all done; IGES and healing remain ⬜, keeping the phase 🚧.
       in-process determinism. Geometry pytest + `just lint` + `just gen-check`
       green. Gateway-gate-removal + documents-resolution + BOM/balloons + web
       remain (BACKLOG D4 next slices).
+      **Drawings parity #4 — SLICE 2 (gateway gate-removal + documents
+      resolution) SHIPPED** (2026-07-24, backend-builder): the
+      `assembly_views_unsupported` fast-reject 422 is REMOVED from
+      `_aggregate_compose_request` (both `/export` + `/sheet`). documents grows
+      `GET /assemblies/{id}/evaluation-request` (`build_evaluate_assembly_request`
+      — the graph read `ordered_instances`/`ordered_mates` reused + each part
+      instance's rollback-applied prefix via the extracted shared
+      `documents.features.evaluation_prefix`, DRY); the gateway resolves an
+      assembly-kind view through it and threads the reused
+      `EvaluateAssemblyRequest` as the NEW additive
+      `ComposeDrawingRequest.assembly` field (part fields echo id/version +
+      empty features; `assembly=None` keeps part composes byte-identical).
+      Single-LEVEL assemblies fully resolve; NESTED sub-assembly instances
+      contribute an empty prefix (typed per-instance `no_body` downstream) —
+      flatten deferred. documents + gateway suites, `just lint`, `just gen`
+      (documents/geometry contracts + ts-client) green. **Remaining before
+      silhouettes render end-to-end: the ~10-line geometry compose branch**
+      (`compose_drawing_route`/`compose_sheet_route`: `request.assembly` →
+      `evaluate_assembly_drawing_views` → map `views` into the
+      `EvaluateDrawingViewsResult` `place_sheet` consumes — kernel-architect,
+      geometry territory) + BOM/balloons + web rendering (BACKLOG D4).
       **D1b (DOM half) SHIPPED** (2026-07-23): on-screen `TitleBlock` stamps the
       same DRAWN/DATE/NOTES rows the SVG/PDF/DXF emit, shared `titleBlockFields`
       helper. **D3 SHIPPED** (2026-07-23): `bounds_aware_layout` branches on

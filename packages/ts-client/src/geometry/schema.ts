@@ -1215,6 +1215,19 @@ export interface components {
          *     views) and the requested ``format``. The geometry service evaluates the part
          *     ONCE, places the sheet (``place_sheet``), and serializes to the requested
          *     artifact — deterministic (RESEARCH §9): same request ⇒ byte-identical artifact.
+         *
+         *     **Assembly source (design §7, Drawings #4).** A view referencing an ASSEMBLY
+         *     (not a single part) carries the resolved assembly graph in ``assembly`` — the
+         *     reused :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest` (instances +
+         *     mates + version) documents resolves for the referenced assembly document. When
+         *     ``assembly`` is set the geometry service projects the SOLVED assembly compound
+         *     (``evaluate_assembly_drawing_views`` — the ``/drawing/assembly/evaluate``
+         *     machinery) INSTEAD of a single part body, then folds the resulting per-view HLR
+         *     edges into the sheet exactly as a part view (the SAME ``place_sheet``); the
+         *     inherited part fields (``part_id`` / ``tree_version`` / ``features``) then carry
+         *     the assembly's echoed id/version + an empty feature list and are not evaluated.
+         *     ``None`` (the default) is a PART compose, byte-identical to the pre-assembly
+         *     contract — the additive posture the ``section_params`` / notes fields carry.
          */
         ComposeDrawingRequest: {
             /**
@@ -1222,6 +1235,8 @@ export interface components {
              * @description Sheet annotations (v1: free-text notes) placed at their authored sheet positions; empty by default. Composed onto the sheet + serialized in all three formats. Part of the content-addressed artifact cache key (DE-4), so a note edit misses the cache and recomposes.
              */
             annotations?: components["schemas"]["NoteAnnotationParams"][];
+            /** @description The resolved assembly graph for an ASSEMBLY-referencing view (design §7): geometry projects the solved assembly compound instead of a single part body, folding the per-view HLR edges into the sheet exactly as a part view. NULL (default) = a part compose (byte-identical to the pre-assembly contract); the inherited part fields are then ignored. */
+            assembly?: components["schemas"]["EvaluateAssemblyRequest"] | null;
             /**
              * Dimensions
              * @description Dimensions to measure against the evaluated body, each tagged with its view (design §3/§5). Empty (the default) → no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).

@@ -214,9 +214,9 @@ frame refactor are v2/§11. Spike de-collected.
       The real capability behind the D4 gate: compose a drawing view that
       projects an ASSEMBLY (not a single part) — an assembly-side
       evaluation-request / compose branch, plus BOM table + balloon
-      authoring/compose. Removes the `assembly_views_unsupported` gate in
-      `gateway/drawings.py` once landed. Supervised M feature (kernel + gateway
-      + documents + web). [src: AUDIT-ENGINEERING.md D4 follow-on]
+      authoring/compose. The `assembly_views_unsupported` gate in
+      `gateway/drawings.py` is REMOVED (slice 2). Supervised M feature (kernel +
+      gateway + documents + web). [src: AUDIT-ENGINEERING.md D4 follow-on]
     - [x] SLICE 1 (geometry projection core): `evaluate_assembly_drawing_views`
           (`geometry/drawings/assembly_project.py`) — `solve_assembly` (reused
           verbatim) → `place_body` each instance at its solved world pose →
@@ -229,17 +229,34 @@ frame refactor are v2/§11. Spike de-collected.
           instance silhouette; single-instance == part (byte-identical); typed
           degradation (bodyless instance / all-bodyless / unsupported view kind);
           determinism. [done 2026-07-23]
-    - [ ] NEXT SLICES (scoped): (a) gateway — remove the per-view
-          `assembly_views_unsupported` gate in `services/gateway/src/gateway/
-          drawings.py`, resolve an `assembly`-kind view's referenced assembly
-          document to an `EvaluateAssemblyRequest`, and call
-          `/drawing/assembly/evaluate`; (b) documents — resolve an
-          `assembly`-kind `ViewResponse.ref_document_id` to the assembly's
-          instances+mates (flatten sub-assemblies) as the compose request needs;
-          (c) BOM table + balloons authoring/compose; (d) web — render assembly
-          views + BOM/balloons. Compose request for assembly views: the geometry
-          `EvaluateAssemblyDrawingViewsRequest` shape (no part `features`; an
-          `EvaluateAssemblyRequest` instead).
+    - [x] SLICE 2 (gateway gate-removal + documents resolution): the
+          `assembly_views_unsupported` fast-reject is GONE from both compose
+          paths (`_aggregate_compose_request`); documents serves
+          `GET /assemblies/{id}/evaluation-request`
+          (`build_evaluate_assembly_request` — reuses `ordered_instances`/
+          `ordered_mates` + the extracted shared `features.evaluation_prefix`);
+          the gateway threads the resolved `EvaluateAssemblyRequest` as the new
+          additive `ComposeDrawingRequest.assembly` (None = part compose,
+          byte-identical). Single-level assemblies fully resolve; nested
+          sub-assembly instances → empty prefix (typed `no_body`), flatten
+          deferred. Contracts + ts-client regenerated. [done 2026-07-24]
+    - [ ] NEXT SLICES (scoped): (a) **geometry compose branch (kernel-architect,
+          SMALL, unblocks silhouettes end-to-end)**: in `compose_drawing_route` +
+          `compose_sheet_route`, when `request.assembly` is set run
+          `evaluate_assembly_drawing_views(EvaluateAssemblyDrawingViewsRequest(
+          assembly=request.assembly, views=request.views, scale=request.scale))`
+          and map its `views` (same `DrawingViewResult` shape) +
+          `assembly_error`→`part_error` into the `EvaluateDrawingViewsResult`
+          `place_sheet` consumes (dimensions empty — assembly-view dims out of
+          v1); include `assembly` in the DE-4 artifact cache key (it already is —
+          the key hashes the whole request). Until it lands an assembly view
+          composes VIEW-FAILED placeholders (typed, never 500), not a 422;
+          (b) BOM table + balloons authoring/compose; (c) web — render assembly
+          views + BOM/balloons (web reads the SAME `/drawings/{id}/sheet`
+          `ComposedSheet`, so (a) alone lights the on-screen sheet up; balloon
+          authoring + BOM table need their own DTO/compose slice); (d) documents
+          — nested sub-assembly FLATTEN (recursive instance walk composing
+          placements; today a nested instance degrades to typed `no_body`).
 - [x] (P2, S) Dedicated Hole feature — SLICE 1 (simple hole): `HoleFeature`/
       `HoleParamsV1` registered across ALL feature-registry arms (Feature union,
       FeatureEnvelope, FEATURE_REGISTRY, BODY_AFFECTING_FEATURE_TYPES,
@@ -877,6 +894,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-24 — **Drawings #4 SLICE 2 — gateway gate-removal + documents resolution
+  (backend-builder):** `assembly_views_unsupported` gone; documents
+  `GET /assemblies/{id}/evaluation-request` resolves the graph; gateway threads it as
+  additive `ComposeDrawingRequest.assembly`. Geometry compose branch next (Ready).
 - 2026-07-23 — **Mirror feature WEB AUTHORING (frontend-builder):** Modify-band
   Mirror command (shortcut I) + `MirrorEditor` in the shared editor seat, reusing
   the sketch/section plane picker (origin XY/XZ/YZ radios + datum FeatureRef);

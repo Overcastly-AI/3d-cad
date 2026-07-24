@@ -92,6 +92,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/evaluation-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Evaluation Request
+         * @description The evaluation-ready assembly graph (design §4/§7), for the gateway to forward
+         *     to the geometry service verbatim.
+         *
+         *     The assembly sibling of ``GET /parts/{id}/evaluation-request``: documents resolves
+         *     the instance + mate graph + each instanced part's rollback-applied feature prefix
+         *     into the :class:`EvaluateAssemblyRequest` geometry solves (uniform 404 for an
+         *     unknown / foreign assembly). Kernel-free — pure INTENT crosses the boundary
+         *     (CLAUDE.md). The gateway threads this into an assembly-kind drawing view's
+         *     ``ComposeDrawingRequest.assembly`` so the view projects the SOLVED assembly compound
+         *     (§7), then folds the per-view HLR edges into the sheet exactly as a part view.
+         */
+        get: operations["get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/instances": {
         parameters: {
             query?: never;
@@ -2178,6 +2207,44 @@ export interface components {
             kind: "equal";
         };
         /**
+         * EvaluateAssemblyRequest
+         * @description Evaluate an assembly graph to solved placements + shared meshes (§4).
+         *
+         *     Documents flattens rigid sub-assemblies into this recursive structure
+         *     before sending (or geometry recurses — the rigid-group result is identical,
+         *     §1.4/§4). Deterministic (RESEARCH §9): the same request yields an identical
+         *     result — bitwise-stable mesh ids AND solved transforms — in-process and
+         *     across an interpreter restart.
+         */
+        EvaluateAssemblyRequest: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Instances
+             * @description The assembly's instances (result order preserved)
+             */
+            instances: components["schemas"]["EvaluatedInstance"][];
+            /**
+             * Linear Deflection
+             * @description Presentation tessellation parameter (mm), never persisted
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /**
+             * Mates
+             * @description The mate graph; processed in order_index order (determinism)
+             */
+            mates?: components["schemas"]["EvaluatedMate"][];
+            /**
+             * Version
+             * @description Echoed back; cache/correlation key
+             */
+            version: number;
+        };
+        /**
          * EvaluateTreeRequest
          * @description Evaluate an ordered, validated, current-version feature list (§4.2).
          *
@@ -2220,6 +2287,87 @@ export interface components {
              * @description Feature identity for refs + result keying
              */
             id: string;
+        };
+        /**
+         * EvaluatedInstance
+         * @description One assembly instance as the evaluator sees it (design §4).
+         *
+         *     ``part_key`` is the DEDUP key — ``f"{ref_document_id}@{version-or-tip}"`` —
+         *     so two instances of the SAME part evaluate once and share one
+         *     content-addressed mesh (the central perf win, design §4 step 1). ``features``
+         *     is the part's ordered feature prefix (reuses the feature-tree §4 contract
+         *     VERBATIM), so geometry stays the sole evaluator and documents sends intent,
+         *     never a kernel body. ``placement`` is the authored seed pose the solver
+         *     starts from; ``grounded`` fixes it at that pose (0 DOF — the solver anchor).
+         */
+        EvaluatedInstance: {
+            /**
+             * Features
+             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Grounded
+             * @description Fix this instance at its placement (0 DOF) — the solver anchor; an assembly with none grounded floats (under_constrained, §1.2)
+             * @default false
+             */
+            grounded: boolean;
+            /**
+             * Instance Id
+             * Format: uuid
+             * @description Instance identity (result keying)
+             */
+            instance_id: string;
+            /**
+             * Part Key
+             * @description Dedup key f'{ref_document_id}@{version-or-tip}': instances sharing it evaluate once and share one content-addressed mesh (§4)
+             */
+            part_key: string;
+            /**
+             * @description Authored seed pose (§2.3)
+             * @default {
+             *       "orientation": {
+             *         "w": 1,
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       },
+             *       "position": {
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       }
+             *     }
+             */
+            placement: components["schemas"]["Placement"];
+        };
+        /**
+         * EvaluatedMate
+         * @description One mate plus the persisted-row identity the solver + diagnosis need.
+         *
+         *     ``mate_id`` names the mate in the diagnosis (offending / redundant sets) and
+         *     in a per-mate resolution error; ``order_index`` fixes the deterministic
+         *     processing order (design §2.2). ``mate`` is the discriminated
+         *     :data:`Mate` union member. Mirrors :class:`MateResponse` minus the
+         *     assembly id (the request already scopes one assembly).
+         */
+        EvaluatedMate: {
+            /**
+             * Mate
+             * @description The mate (discriminated on `type`)
+             */
+            mate: components["schemas"]["CoincidentMate"] | components["schemas"]["ConcentricMate"] | components["schemas"]["DistanceMate"] | components["schemas"]["AngleMate"] | components["schemas"]["LockMate"];
+            /**
+             * Mate Id
+             * Format: uuid
+             * @description Persisted mate id (names it in diagnosis)
+             */
+            mate_id: string;
+            /**
+             * Order Index
+             * @description Deterministic processing order (design §2.2)
+             */
+            order_index: number;
         };
         /**
          * ExtrudeFeature
@@ -5355,6 +5503,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyBomResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateAssemblyRequest"];
                 };
             };
             /** @description Validation Error */

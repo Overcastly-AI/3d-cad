@@ -31,6 +31,9 @@ from py_kit.schemas.assemblies import (
     AssemblyUndoRedoRequest,
     AssemblyUpdate,
     BomLine,
+    EvaluateAssemblyRequest,
+    EvaluatedInstance,
+    EvaluatedMate,
     InstanceCreate,
     InstanceMutationResponse,
     InstanceResponse,
@@ -39,9 +42,11 @@ from py_kit.schemas.assemblies import (
     MateCreate,
     MateMutationResponse,
     MateResponse,
+    Placement,
     RefDocumentKind,
     mate_instance_ids,
 )
+from py_kit.schemas.features import EvaluatedFeatureInput
 from pydantic import TypeAdapter
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -53,6 +58,7 @@ from documents.assembly_history import (
     ordered_instances,
     ordered_mates,
 )
+from documents.features import evaluation_prefix
 from documents.history_core import Direction
 from documents.parts import (
     Principal,
@@ -247,6 +253,94 @@ async def graph_response(
     )
 
 
+# --- evaluation-request (documents → geometry INTENT, design §4/§7) ---------------
+
+
+def _instance_part_key(instance: db.Instance) -> str:
+    """The dedup key ``f"{ref_document_id}@{version-or-tip}"`` (design §4).
+
+    Instances sharing it evaluate once and share one content-addressed mesh — the
+    SAME key the web's ``buildEvaluateAssemblyRequest`` derives
+    (``apps/web/src/assembly/evaluateRequest.ts``), so a server- and client-built
+    request address identically. v1 tracks tip (``ref_pinned_version`` NULL) → ``tip``.
+    """
+    version = (
+        "tip"
+        if instance.ref_pinned_version is None
+        else str(instance.ref_pinned_version)
+    )
+    return f"{instance.ref_document_id}@{version}"
+
+
+async def _instance_feature_prefix(
+    session: AsyncSession, owner_id: uuid.UUID, instance: db.Instance
+) -> list[EvaluatedFeatureInput]:
+    """The instanced part's evaluation-ready feature prefix, or an empty list.
+
+    A PART instance resolves to its referenced part's rollback-applied, upcast prefix
+    (:func:`documents.features.evaluation_prefix`, reused VERBATIM — one rollback/upcast
+    implementation, DRY). Two cases yield an EMPTY prefix (never a 500), which geometry
+    reports as a typed per-instance ``no_body`` (dropped from the projection, the rest
+    still project — the §4 degrade-don't-fail posture):
+
+    - a referenced part DELETED while still instanced (a dangling ref);
+    - a rigid SUB-ASSEMBLY instance (``ref_document_kind == "assembly"``): v1 does NOT
+      flatten nested sub-assemblies into their leaf part-instances (an explicit
+      follow-up — see BACKLOG); a single-LEVEL assembly (direct part instances) is fully
+      projected.
+
+    Owner-scoping is defense-in-depth (references are same-owner enforced at write).
+    """
+    if instance.ref_document_kind != "part":
+        return []  # nested sub-assembly flatten deferred (v1) — geometry no_body
+    part = await session.get(db.Part, instance.ref_document_id)
+    if part is None or part.owner_id != owner_id:
+        return []  # deleted / foreign referenced part → typed no_body downstream
+    return await evaluation_prefix(session, part)
+
+
+async def build_evaluate_assembly_request(
+    session: AsyncSession, assembly: db.Assembly
+) -> EvaluateAssemblyRequest:
+    """Resolve an assembly's graph → the ``EvaluateAssemblyRequest`` geometry solves.
+
+    The documents-side twin of the web's ``buildEvaluateAssemblyRequest`` (design §4):
+    each instance becomes an :class:`EvaluatedInstance` (dedup key + part feature prefix
+    + authored seed pose + grounded flag), each mate an :class:`EvaluatedMate`. Reuses
+    the SAME assembly-graph read the assembly endpoints use (:func:`ordered_instances` /
+    :func:`ordered_mates`) and the SAME part-prefix resolution the part
+    evaluation-request uses — documents sends INTENT, never a kernel body (CLAUDE.md
+    boundaries). v1 flattens single-LEVEL assemblies (direct part instances); nested
+    sub-assemblies degrade to a typed per-instance ``no_body`` (flatten is a follow-up).
+    """
+    instances = await ordered_instances(session, assembly.id)
+    mates = await ordered_mates(session, assembly.id)
+    return EvaluateAssemblyRequest(
+        assembly_id=assembly.id,
+        version=assembly.doc_version,
+        instances=[
+            EvaluatedInstance(
+                instance_id=instance.id,
+                part_key=_instance_part_key(instance),
+                features=await _instance_feature_prefix(
+                    session, assembly.owner_id, instance
+                ),
+                placement=Placement.model_validate(instance.placement),
+                grounded=instance.grounded,
+            )
+            for instance in instances
+        ],
+        mates=[
+            EvaluatedMate(
+                mate_id=mate.id,
+                order_index=mate.order_index,
+                mate=_MATE_ADAPTER.validate_python(mate.params),
+            )
+            for mate in mates
+        ],
+    )
+
+
 # --- assembly routes --------------------------------------------------------------
 
 
@@ -295,6 +389,25 @@ async def get_assembly(
     """One owned assembly with its full instance + mate graph (uniform 404)."""
     assembly = await get_owned_assembly(session, owner_id, assembly_id)
     return await graph_response(session, assembly)
+
+
+@router.get("/{assembly_id}/evaluation-request")
+async def get_assembly_evaluation_request(
+    assembly_id: uuid.UUID, owner_id: Principal, session: SessionDep
+) -> EvaluateAssemblyRequest:
+    """The evaluation-ready assembly graph (design §4/§7), for the gateway to forward
+    to the geometry service verbatim.
+
+    The assembly sibling of ``GET /parts/{id}/evaluation-request``: documents resolves
+    the instance + mate graph + each instanced part's rollback-applied feature prefix
+    into the :class:`EvaluateAssemblyRequest` geometry solves (uniform 404 for an
+    unknown / foreign assembly). Kernel-free — pure INTENT crosses the boundary
+    (CLAUDE.md). The gateway threads this into an assembly-kind drawing view's
+    ``ComposeDrawingRequest.assembly`` so the view projects the SOLVED assembly compound
+    (§7), then folds the per-view HLR edges into the sheet exactly as a part view.
+    """
+    assembly = await get_owned_assembly(session, owner_id, assembly_id)
+    return await build_evaluate_assembly_request(session, assembly)
 
 
 async def _resolve_document_names(

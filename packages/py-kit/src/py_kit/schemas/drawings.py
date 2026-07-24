@@ -1158,9 +1158,30 @@ class ComposeDrawingRequest(EvaluateDrawingViewsRequest):
     views) and the requested ``format``. The geometry service evaluates the part
     ONCE, places the sheet (``place_sheet``), and serializes to the requested
     artifact — deterministic (RESEARCH §9): same request ⇒ byte-identical artifact.
+
+    **Assembly source (design §7, Drawings #4).** A view referencing an ASSEMBLY
+    (not a single part) carries the resolved assembly graph in ``assembly`` — the
+    reused :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest` (instances +
+    mates + version) documents resolves for the referenced assembly document. When
+    ``assembly`` is set the geometry service projects the SOLVED assembly compound
+    (``evaluate_assembly_drawing_views`` — the ``/drawing/assembly/evaluate``
+    machinery) INSTEAD of a single part body, then folds the resulting per-view HLR
+    edges into the sheet exactly as a part view (the SAME ``place_sheet``); the
+    inherited part fields (``part_id`` / ``tree_version`` / ``features``) then carry
+    the assembly's echoed id/version + an empty feature list and are not evaluated.
+    ``None`` (the default) is a PART compose, byte-identical to the pre-assembly
+    contract — the additive posture the ``section_params`` / notes fields carry.
     """
 
     layout: SheetLayout = Field(description="Sheet layout (size + title block + views)")
+    assembly: EvaluateAssemblyRequest | None = Field(
+        default=None,
+        description="The resolved assembly graph for an ASSEMBLY-referencing view "
+        "(design §7): geometry projects the solved assembly compound instead of a "
+        "single part body, folding the per-view HLR edges into the sheet exactly as a "
+        "part view. NULL (default) = a part compose (byte-identical to the "
+        "pre-assembly contract); the inherited part fields are then ignored.",
+    )
     annotations: list[Annotation] = Field(
         default_factory=list["Annotation"],
         description="Sheet annotations (v1: free-text notes) placed at their authored "

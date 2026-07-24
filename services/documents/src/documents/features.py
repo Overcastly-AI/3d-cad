@@ -285,6 +285,35 @@ async def get_feature_tree(
     return await _tree_response(session, part)
 
 
+async def evaluation_prefix(
+    session: AsyncSession, part: db.Part
+) -> list[EvaluatedFeatureInput]:
+    """The part's evaluation-ready feature prefix (design §4.2 / §3 / §1.4).
+
+    The shared body behind :func:`get_evaluation_request` AND the assembly
+    evaluation-request (``documents.assemblies``, which needs the SAME prefix per
+    instanced part — DRY, one rollback/upcast implementation). The rollback bar is
+    applied HERE (only the prefix up to and including the bar, §3) and every params
+    blob is upcast to its current version on read (§1.4), so geometry only ever sees
+    a current-version, rollback-applied list — never a hint that rollback exists.
+    """
+    features = await _ordered_features(session, part.id)
+    bar_index = _bar_index(part, features)
+    return [
+        EvaluatedFeatureInput(
+            id=feature.id,
+            feature=FEATURE_REGISTRY.load(
+                feature.type,
+                feature.param_version,
+                feature.params,
+                suppressed=feature.suppressed,
+            ),
+        )
+        for feature in features
+        if bar_index is None or feature.order_index <= bar_index
+    ]
+
+
 @router.get("/{part_id}/evaluation-request")
 async def get_evaluation_request(
     part_id: uuid.UUID, owner_id: Principal, session: SessionDep
@@ -299,28 +328,10 @@ async def get_evaluation_request(
     along as the cache/correlation key.
     """
     part = await get_owned_part(session, owner_id, part_id)
-    features = await _ordered_features(session, part.id)
-    bar_index = _bar_index(part, features)
-    prefix = [
-        feature
-        for feature in features
-        if bar_index is None or feature.order_index <= bar_index
-    ]
     return EvaluateTreeRequest(
         part_id=part.id,
         tree_version=part.tree_version,
-        features=[
-            EvaluatedFeatureInput(
-                id=feature.id,
-                feature=FEATURE_REGISTRY.load(
-                    feature.type,
-                    feature.param_version,
-                    feature.params,
-                    suppressed=feature.suppressed,
-                ),
-            )
-            for feature in prefix
-        ],
+        features=await evaluation_prefix(session, part),
     )
 
 

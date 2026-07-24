@@ -1743,6 +1743,51 @@
         "title": "EqualConstraint",
         "type": "object"
       },
+      "EvaluateAssemblyRequest": {
+        "description": "Evaluate an assembly graph to solved placements + shared meshes (\u00a74).\n\nDocuments flattens rigid sub-assemblies into this recursive structure\nbefore sending (or geometry recurses \u2014 the rigid-group result is identical,\n\u00a71.4/\u00a74). Deterministic (RESEARCH \u00a79): the same request yields an identical\nresult \u2014 bitwise-stable mesh ids AND solved transforms \u2014 in-process and\nacross an interpreter restart.",
+        "properties": {
+          "assembly_id": {
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "instances": {
+            "description": "The assembly's instances (result order preserved)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedInstance"
+            },
+            "title": "Instances",
+            "type": "array"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Presentation tessellation parameter (mm), never persisted",
+            "exclusiveMinimum": 0.0,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "mates": {
+            "description": "The mate graph; processed in order_index order (determinism)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedMate"
+            },
+            "title": "Mates",
+            "type": "array"
+          },
+          "version": {
+            "description": "Echoed back; cache/correlation key",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assembly_id",
+          "version",
+          "instances"
+        ],
+        "title": "EvaluateAssemblyRequest",
+        "type": "object"
+      },
       "EvaluateTreeRequest": {
         "description": "Evaluate an ordered, validated, current-version feature list (\u00a74.2).\n\nDocuments applies the rollback bar BEFORE sending: geometry receives\nexactly the prefix to evaluate and never needs to know rollback exists.",
         "properties": {
@@ -1881,6 +1926,115 @@
           "feature"
         ],
         "title": "EvaluatedFeatureInput",
+        "type": "object"
+      },
+      "EvaluatedInstance": {
+        "description": "One assembly instance as the evaluator sees it (design \u00a74).\n\n``part_key`` is the DEDUP key \u2014 ``f\"{ref_document_id}@{version-or-tip}\"`` \u2014\nso two instances of the SAME part evaluate once and share one\ncontent-addressed mesh (the central perf win, design \u00a74 step 1). ``features``\nis the part's ordered feature prefix (reuses the feature-tree \u00a74 contract\nVERBATIM), so geometry stays the sole evaluator and documents sends intent,\nnever a kernel body. ``placement`` is the authored seed pose the solver\nstarts from; ``grounded`` fixes it at that pose (0 DOF \u2014 the solver anchor).",
+        "properties": {
+          "features": {
+            "description": "The part's ordered feature prefix (feature-tree \u00a74 contract)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedFeatureInput"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "grounded": {
+            "default": false,
+            "description": "Fix this instance at its placement (0 DOF) \u2014 the solver anchor; an assembly with none grounded floats (under_constrained, \u00a71.2)",
+            "title": "Grounded",
+            "type": "boolean"
+          },
+          "instance_id": {
+            "description": "Instance identity (result keying)",
+            "format": "uuid",
+            "title": "Instance Id",
+            "type": "string"
+          },
+          "part_key": {
+            "description": "Dedup key f'{ref_document_id}@{version-or-tip}': instances sharing it evaluate once and share one content-addressed mesh (\u00a74)",
+            "title": "Part Key",
+            "type": "string"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/Placement",
+            "default": {
+              "orientation": {
+                "w": 1.0,
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0
+              },
+              "position": {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0
+              }
+            },
+            "description": "Authored seed pose (\u00a72.3)"
+          }
+        },
+        "required": [
+          "instance_id",
+          "part_key",
+          "features"
+        ],
+        "title": "EvaluatedInstance",
+        "type": "object"
+      },
+      "EvaluatedMate": {
+        "description": "One mate plus the persisted-row identity the solver + diagnosis need.\n\n``mate_id`` names the mate in the diagnosis (offending / redundant sets) and\nin a per-mate resolution error; ``order_index`` fixes the deterministic\nprocessing order (design \u00a72.2). ``mate`` is the discriminated\n:data:`Mate` union member. Mirrors :class:`MateResponse` minus the\nassembly id (the request already scopes one assembly).",
+        "properties": {
+          "mate": {
+            "description": "The mate (discriminated on `type`)",
+            "discriminator": {
+              "mapping": {
+                "angle": "#/components/schemas/AngleMate",
+                "coincident": "#/components/schemas/CoincidentMate",
+                "concentric": "#/components/schemas/ConcentricMate",
+                "distance": "#/components/schemas/DistanceMate",
+                "lock": "#/components/schemas/LockMate"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CoincidentMate"
+              },
+              {
+                "$ref": "#/components/schemas/ConcentricMate"
+              },
+              {
+                "$ref": "#/components/schemas/DistanceMate"
+              },
+              {
+                "$ref": "#/components/schemas/AngleMate"
+              },
+              {
+                "$ref": "#/components/schemas/LockMate"
+              }
+            ],
+            "title": "Mate"
+          },
+          "mate_id": {
+            "description": "Persisted mate id (names it in diagnosis)",
+            "format": "uuid",
+            "title": "Mate Id",
+            "type": "string"
+          },
+          "order_index": {
+            "description": "Deterministic processing order (design \u00a72.2)",
+            "minimum": 0.0,
+            "title": "Order Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mate_id",
+          "order_index",
+          "mate"
+        ],
+        "title": "EvaluatedMate",
         "type": "object"
       },
       "ExtrudeFeature": {
@@ -6462,6 +6616,68 @@
           }
         },
         "summary": "Get Assembly Bom",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/evaluation-request": {
+      "get": {
+        "description": "The evaluation-ready assembly graph (design \u00a74/\u00a77), for the gateway to forward\nto the geometry service verbatim.\n\nThe assembly sibling of ``GET /parts/{id}/evaluation-request``: documents resolves\nthe instance + mate graph + each instanced part's rollback-applied feature prefix\ninto the :class:`EvaluateAssemblyRequest` geometry solves (uniform 404 for an\nunknown / foreign assembly). Kernel-free \u2014 pure INTENT crosses the boundary\n(CLAUDE.md). The gateway threads this into an assembly-kind drawing view's\n``ComposeDrawingRequest.assembly`` so the view projects the SOLVED assembly compound\n(\u00a77), then folds the per-view HLR edges into the sheet exactly as a part view.",
+        "operationId": "get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateAssemblyRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Assembly Evaluation Request",
         "tags": [
           "assemblies"
         ]
