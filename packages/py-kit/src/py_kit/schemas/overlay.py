@@ -27,6 +27,7 @@ naming (Phase 2, feature-tree design §2.4) — this is deliberately NOT that.
 """
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -109,6 +110,20 @@ class OverlayFace(BaseModel):
         description="Stage-1 face signature (normal/centroid/area) for a planar "
         "face; null for a non-planar face. Echo it into a SubshapeRef to place a "
         "datum-on-a-face sketch here.",
+    )
+    feature_id: UUID | None = Field(
+        default=None,
+        description="Feature that OWNS this face (created it, or last modified it "
+        "into its current form) — the tree feature id (FeatureResult.feature_id / "
+        "the evaluate request's feature.id), for feature-localized selection "
+        "highlighting (FINDINGS #9). Map a selected feature id to its faces by "
+        "collecting every OverlayFace whose feature_id equals it; each face's "
+        "`index` is its body.faces() ordinal (== the GLB primitive ordinal, one "
+        "glTF primitive per B-rep face), so those indices are the mesh face set to "
+        "highlight. Best-effort provenance for RENDERING (a cylindrical hole wall "
+        "attributes to the hole, the untouched base faces to the extrude); NOT a "
+        "rebuild-surviving reference (that is the signature). Null when the server "
+        "did not compute attribution (older payloads / no body-affecting feature).",
     )
 
 

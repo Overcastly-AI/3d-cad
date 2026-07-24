@@ -5860,6 +5860,19 @@
       "OverlayFace": {
         "description": "One face of the evaluated body \u2014 pickable for a sketch datum-on-a-face.\n\nA PLANAR face carries a stage-1\n:class:`~py_kit.schemas.features.PlanarFaceSignature` \u2014 the SAME fingerprint\na datum-on-face ``SubshapeRef`` stores and the geometry resolver matches\nagainst (one enumeration: the pick side and the resolve side share\n``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To\nplace a sketch on a face, echo its ``signature`` into a ``SubshapeRef`` \u2014 the\nsame round-trip a vertex makes into a ``PointTarget``. A NON-planar face has\n``signature = null`` and is not sketchable in v1 (topological naming's face\nsignatures are planar-only until edge/curved-surface support lands).\n\n``index`` is TRANSIENT \u2014 the ``body.faces()`` position for THIS tree only,\nnot stable across edits (the persisted reference is the signature, never the\nindex \u2014 topological naming, feature-tree design \u00a72.4).",
         "properties": {
+          "feature_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Feature that OWNS this face (created it, or last modified it into its current form) \u2014 the tree feature id (FeatureResult.feature_id / the evaluate request's feature.id), for feature-localized selection highlighting (FINDINGS #9). Map a selected feature id to its faces by collecting every OverlayFace whose feature_id equals it; each face's `index` is its body.faces() ordinal (== the GLB primitive ordinal, one glTF primitive per B-rep face), so those indices are the mesh face set to highlight. Best-effort provenance for RENDERING (a cylindrical hole wall attributes to the hole, the untouched base faces to the extrude); NOT a rebuild-surviving reference (that is the signature). Null when the server did not compute attribution (older payloads / no body-affecting feature).",
+            "title": "Feature Id"
+          },
           "index": {
             "description": "Transient 0-based body.faces() index (this tree only; NOT stable across edits \u2014 the stored reference is the signature)",
             "title": "Index",

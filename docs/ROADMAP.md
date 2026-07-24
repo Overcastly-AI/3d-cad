@@ -986,7 +986,12 @@ flexible sub-assemblies, part-version pinning-as-default.
       row-rename+delete, laptop width) green; founder shots
       `extrude-ghost-{desktop,laptop}.png` +
       `{viewport,tree}-context-menu-desktop.png`. Feature-localized selection
-      (#9) is the remaining interaction-depth item.
+      (#9) is the remaining interaction-depth item — **geometry enabler shipped
+      2026-07-24 (kernel-architect):** per-face feature provenance via additive
+      `OverlayFace.feature_id` (body.faces() order == GLB primitive order;
+      `attribute_faces` tags each face with the feature that created/last-modified
+      it — hole wall → hole, base sides → extrude), so the frontend can highlight
+      only a selected feature's mesh faces; frontend wiring is the follow-up.
       **Interaction-polish + jargon clusters ✅ 2026-07-24 (frontend-builder;
       FINDINGS #19 + #20):** #19 — (a) a face pick now reads as TOPOLOGY: the
       face under the cursor (hover/armed) gets a translucent brass patch laid ON

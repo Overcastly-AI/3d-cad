@@ -26,6 +26,8 @@ fully-typed :class:`OverlayResult` DTO keeps the boundary honest.
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
+import uuid
+
 from build123d import Edge, GeomType, Vector, Vertex
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GCPnts import GCPnts_QuasiUniformDeflection
@@ -82,7 +84,11 @@ def _edge_polyline(edge: Edge, linear_deflection: float) -> list[Vec3]:
     return points
 
 
-def selection_overlay(body: BodyShape, linear_deflection: float) -> OverlayResult:
+def selection_overlay(
+    body: BodyShape,
+    linear_deflection: float,
+    face_features: list[uuid.UUID | None] | None = None,
+) -> OverlayResult:
     """Pickable vertices + edges of *body* (transient indices, world mm).
 
     ``edges`` is in ``body.edges()`` order — byte-for-byte the enumeration
@@ -97,6 +103,12 @@ def selection_overlay(body: BodyShape, linear_deflection: float) -> OverlayResul
     stage-1 signature :func:`geometry.kernel.faces.resolve_face_plane` matches a
     datum-on-face ``SubshapeRef`` against — one enumeration, pick side ==
     resolve side. Deterministic (RESEARCH §9).
+
+    *face_features*, when supplied, is the per-face feature provenance
+    (:func:`geometry.kernel.provenance.attribute_faces`) index-aligned with
+    ``body.faces()``; each ``OverlayFace.feature_id`` is set from it (FINDINGS #9,
+    feature-localized selection). ``None`` leaves every ``feature_id`` unset (the
+    plain overlay), so this is a purely additive contract.
     """
     vertices = [_vertex_point(vertex) for vertex in body.vertices()]
 
@@ -124,8 +136,18 @@ def selection_overlay(body: BodyShape, linear_deflection: float) -> OverlayResul
     faces: list[OverlayFace] = []
     for index, face in enumerate(body.faces()):
         signature = face_signature_dto(face)
+        feature_id = (
+            face_features[index]
+            if face_features is not None and index < len(face_features)
+            else None
+        )
         faces.append(
-            OverlayFace(index=index, planar=signature is not None, signature=signature)
+            OverlayFace(
+                index=index,
+                planar=signature is not None,
+                signature=signature,
+                feature_id=feature_id,
+            )
         )
 
     return OverlayResult(vertices=vertices, edges=edges, faces=faces)

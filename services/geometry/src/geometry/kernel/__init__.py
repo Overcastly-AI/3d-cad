@@ -105,6 +105,7 @@ from geometry.kernel.pattern import (
     linear_pattern_cut,
 )
 from geometry.kernel.properties import combine_properties, measure_shape
+from geometry.kernel.provenance import attribute_faces
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
     NoAxisError,
@@ -192,6 +193,7 @@ __all__ = [
     "SubshapeAmbiguousError",
     "SubshapeUnresolvedError",
     "SweepError",
+    "attribute_faces",
     "boolean_bodies",
     "bore_hole",
     "bore_tool",

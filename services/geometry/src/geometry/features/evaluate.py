@@ -215,6 +215,23 @@ from geometry.step_cache import import_step_solid_cached
 _SOLVER: SketchSolver = PlanegcsSketchSolver()
 
 
+def _snapshot_shape(bodies: dict[uuid.UUID, BodyShape]) -> BodyShape:
+    """The current body set as ONE shape — a bare :class:`~build123d.Solid` (a
+    single body) or a FLATTENED :class:`~build123d.Compound` of every body's lumps
+    (multi-body §MB-4).
+
+    The single construction (CLAUDE.md DRY) shared by the final tessellated shape
+    and the per-feature provenance snapshots (:attr:`EvaluationState.body_history`),
+    so a face has byte-identical geometry between a mid-tree snapshot and the final
+    body — the invariant :func:`geometry.kernel.attribute_faces` matches on.
+    Callers guard a non-empty ``bodies`` (a body-less tree tessellates nothing).
+    """
+    body_list = list(bodies.values())
+    if len(body_list) == 1:
+        return body_list[0]
+    return Compound([solid for body in body_list for solid in body.solids()])
+
+
 def _step_import_bounds() -> tuple[float, float]:
     """The configured (CPU-time, wall-clock) bounds for the untrusted parse (§6).
 
@@ -273,6 +290,18 @@ class EvaluationState:
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
     bodies: dict[uuid.UUID, BodyShape] = field(
         default_factory=dict[uuid.UUID, BodyShape]
+    )
+    #: Snapshot of the WHOLE body set after each ok BODY-AFFECTING feature, in
+    #: evaluation order (earliest first): ``(feature id, shape)``. Per-face feature
+    #: provenance (FINDINGS #9, :func:`geometry.kernel.attribute_faces`) walks these
+    #: earliest-first to attribute each final face to the feature that created or
+    #: last modified it, so the frontend can highlight one feature's faces instead
+    #: of clay-swapping the whole body. Each snapshot is built exactly like the
+    #: final tessellated shape (:func:`_snapshot_shape` — bare solid or flattened
+    #: Compound), so a face matches across snapshots by geometry. Service-internal
+    #: kernel shapes, never serialized — exactly like ``bodies``.
+    body_history: list[tuple[uuid.UUID, BodyShape]] = field(
+        default_factory=list[tuple[uuid.UUID, BodyShape]]
     )
     #: The part's sheet-metal defaults (gauge/K/bend-radius) keyed by the
     #: base-flange feature id that created the sheet body (docs/design/
@@ -2281,6 +2310,15 @@ class TreeEvaluation:
     #: resolves it here — the SAME plane the sketch/extrude path resolved during this
     #: evaluation, never a re-resolution. Empty for a part with no datum feature.
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
+    #: Snapshot of the body set after each ok body-affecting feature (evaluation
+    #: order): ``(feature id, shape)``. Service-internal like ``body``. Per-face
+    #: feature provenance (FINDINGS #9) — the overlay service threads
+    #: :func:`geometry.kernel.attribute_faces` over ``(body, body_history)`` onto
+    #: ``OverlayFace.feature_id`` for feature-localized selection. Empty for a
+    #: body-less tree.
+    body_history: list[tuple[uuid.UUID, BodyShape]] = field(
+        default_factory=list[tuple[uuid.UUID, BodyShape]]
+    )
 
 
 def tree_no_body_error(
@@ -2402,6 +2440,11 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
             # pattern itself.
             if item.feature.type in _BODY_AFFECTING_TYPES:
                 state.prev_body_feature = item.feature
+                # Snapshot the body set for per-face feature provenance
+                # (FINDINGS #9): each final face is attributed to the earliest
+                # feature after which it exists in its final form.
+                if state.bodies:
+                    state.body_history.append((item.id, _snapshot_shape(state.bodies)))
         else:
             results.append(
                 FeatureResult(feature_id=item.id, status="error", error=error)
@@ -2426,20 +2469,22 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         # tessellates a COMPOUND of all bodies in the fixed base-order, which
         # ``glb_stats`` sums over. Both are deterministic (RESEARCH §9).
         body_list = list(state.bodies.values())
+        # The tessellated shape — a bare solid (one body) or a FLATTENED Compound
+        # of every body's lumps (§MB-4). Same construction the provenance
+        # snapshots use (:func:`_snapshot_shape`), so the final faces match the
+        # last snapshot exactly (CLAUDE.md DRY).
+        shape = _snapshot_shape(state.bodies)
         if len(body_list) == 1:
             # ONE body — which may itself be a multi-lump Compound (a disjoint
             # boolean / multi-solid import, §MB-4): measure it directly (GProp +
             # .shells() count across its lumps), byte-identical to the single-solid
             # path when it is a bare Solid.
-            shape = body_list[0]
             properties = measure_shape(body_list[0])
         else:
-            # >1 body: roll up mass properties ANALYTICALLY per body, and tessellate
-            # a FLATTENED Compound of every body's lumps (§MB-4) — flattening avoids
-            # a nested Compound (a body that is itself a Compound), which would give
-            # ``glb_stats`` a nondeterministic traversal. Each body's lumps are
-            # already in explicit lump order; bodies stay tree-ordered.
-            shape = Compound([s for b in body_list for s in b.solids()])
+            # >1 body: roll up mass properties ANALYTICALLY per body (no re-mesh/
+            # boolean — the assembly pattern). Flattening the Compound avoids a
+            # nested Compound (a body that is itself a Compound), which would give
+            # ``glb_stats`` a nondeterministic traversal.
             properties = combine_properties([measure_shape(b) for b in body_list])
         glb, mesh = tessellate_glb(shape, request.linear_deflection)
         mesh_glb_id = store_mesh_glb(glb)
@@ -2473,4 +2518,5 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         corner_reliefs=list(state.corner_reliefs.values()),
         unfold_body=state.sheet_metal_unfold_body,
         datum_planes=dict(state.datum_planes),
+        body_history=list(state.body_history),
     )

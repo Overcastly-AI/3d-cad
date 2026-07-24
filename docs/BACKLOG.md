@@ -458,10 +458,12 @@ frame refactor are v2/§11. Spike de-collected.
       [src: UI-REVIEW 2026-07-24 / FINDINGS #8]
 - [ ] (P1, M) Hard-audit P1 — feature-localized selection language: kill the
       whole-body clay swap; keep matcap luminance, mark selection with brass
-      edge emphasis + a subtle overlay on the SELECTED feature's faces only
-      (needs the geometry face→feature attribution slice noted in Batch 3
-      remainder); distinct body-select vs feature-select states. [src:
-      UI-REVIEW 2026-07-24]
+      edge emphasis + a subtle overlay on the SELECTED feature's faces only;
+      distinct body-select vs feature-select states. **Geometry enabler SHIPPED
+      2026-07-24** — `OverlayFace.feature_id` (nullable UUID, body.faces() order ==
+      GLB primitive order) maps a selected feature id → its face set; frontend
+      consumes it to highlight only those mesh primitives. [src: UI-REVIEW 2026-07-24
+      / FINDINGS #9]
 - [x] (P1, M) FINDINGS #10 right-click context menus (`apps/web`,
       `packages/design`). One reusable token-styled `ContextMenu` primitive
       backs the viewport menu (fit / home / front·top·right·iso / new-sketch /
@@ -734,6 +736,15 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-24 batch)
 
+- [x] (P1, S) FINDINGS #9 geometry enabler — per-face feature provenance
+      (`services/geometry`, `packages/py-kit`). Evaluation snapshots the body after
+      each ok body-affecting feature; `attribute_faces` tags each final face with
+      the feature that created/last-modified it (fingerprint = surface+area+centroid,
+      reusing the stage-1 face tolerances). Additive `OverlayFace.feature_id`
+      (body.faces() order == GLB primitive order) lets the frontend map a feature
+      id → its face set. Test `test_provenance.py`: hole wall → hole, base sides →
+      extrude; goldens/STEP byte-stable. Frontend consumption stays open below.
+      [src: FINDINGS.md #9]
 - [x] (P2, S) FINDINGS #16 undo bypasses cross-doc protection (`services/documents`).
       Part undo/redo restored a datum a drawing section view references, silently
       breaking the view (`failed: true`). Fix: undo/redo restore now runs the SAME

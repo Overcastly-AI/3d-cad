@@ -4342,6 +4342,11 @@ export interface components {
          */
         OverlayFace: {
             /**
+             * Feature Id
+             * @description Feature that OWNS this face (created it, or last modified it into its current form) — the tree feature id (FeatureResult.feature_id / the evaluate request's feature.id), for feature-localized selection highlighting (FINDINGS #9). Map a selected feature id to its faces by collecting every OverlayFace whose feature_id equals it; each face's `index` is its body.faces() ordinal (== the GLB primitive ordinal, one glTF primitive per B-rep face), so those indices are the mesh face set to highlight. Best-effort provenance for RENDERING (a cylindrical hole wall attributes to the hole, the untouched base faces to the extrude); NOT a rebuild-surviving reference (that is the signature). Null when the server did not compute attribution (older payloads / no body-affecting feature).
+             */
+            feature_id?: string | null;
+            /**
              * Index
              * @description Transient 0-based body.faces() index (this tree only; NOT stable across edits — the stored reference is the signature)
              */
