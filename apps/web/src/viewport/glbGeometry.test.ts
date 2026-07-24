@@ -1,7 +1,7 @@
-import { BufferGeometry } from "three";
+import { BufferGeometry, EdgesGeometry, Float32BufferAttribute } from "three";
 import { describe, expect, it, vi } from "vitest";
 
-import { loadGlbGeometry, parseGlbGeometry } from "./glbGeometry";
+import { loadGlbGeometry, parseGlbGeometry, subsetEdges } from "./glbGeometry";
 
 const notCancelled = () => false;
 
@@ -126,5 +126,57 @@ describe("parseGlbGeometry", () => {
     // Valid GLB magic ("glTF") but a truncated body — the wire-corruption case.
     const truncated = new Uint8Array([0x67, 0x6c, 0x54, 0x46, 2, 0, 0, 0]);
     await expect(parseGlbGeometry(truncated.buffer)).rejects.toThrow();
+  });
+});
+
+describe("subsetEdges", () => {
+  /**
+   * A quad split into two triangles that read as two B-rep "faces" — one draw
+   * group each (group ordinal === face ordinal), exactly as the GLB merge lays
+   * a real body out (one glTF primitive per face).
+   */
+  function twoFaceQuad(): BufferGeometry {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0], 3),
+    );
+    geometry.setIndex([0, 1, 2, 2, 1, 3]);
+    geometry.addGroup(0, 3, 0);
+    geometry.addGroup(3, 3, 1);
+    return geometry;
+  }
+
+  it("traces only the requested face ordinals", () => {
+    const geometry = twoFaceQuad();
+    const one = subsetEdges(geometry, new Set([0]));
+    const both = subsetEdges(geometry, new Set([0, 1]));
+    expect(one).toBeInstanceOf(EdgesGeometry);
+    expect(both).toBeInstanceOf(EdgesGeometry);
+    // One triangle has fewer boundary edges than the merged pair.
+    const oneCount = one?.getAttribute("position")?.count ?? 0;
+    const bothCount = both?.getAttribute("position")?.count ?? 0;
+    expect(oneCount).toBeGreaterThan(0);
+    expect(bothCount).toBeGreaterThan(oneCount);
+    one?.dispose();
+    both?.dispose();
+    geometry.dispose();
+  });
+
+  it("returns null for an empty subset (nothing to emphasise)", () => {
+    const geometry = twoFaceQuad();
+    expect(subsetEdges(geometry, new Set())).toBeNull();
+    geometry.dispose();
+  });
+
+  it("returns null for an ungrouped geometry (single-material body)", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+    geometry.setIndex([0, 1, 2]);
+    expect(subsetEdges(geometry, new Set([0]))).toBeNull();
+    geometry.dispose();
   });
 });

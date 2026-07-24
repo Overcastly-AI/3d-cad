@@ -456,14 +456,19 @@ frame refactor are v2/§11. Spike de-collected.
       web unit 810 pass; e2e `interaction-depth.spec.ts` (ghost pre-Save +
       distance-live + laptop); shots `extrude-ghost-{desktop,laptop}.png`.
       [src: UI-REVIEW 2026-07-24 / FINDINGS #8]
-- [ ] (P1, M) Hard-audit P1 — feature-localized selection language: kill the
-      whole-body clay swap; keep matcap luminance, mark selection with brass
-      edge emphasis + a subtle overlay on the SELECTED feature's faces only;
-      distinct body-select vs feature-select states. **Geometry enabler SHIPPED
-      2026-07-24** — `OverlayFace.feature_id` (nullable UUID, body.faces() order ==
-      GLB primitive order) maps a selected feature id → its face set; frontend
-      consumes it to highlight only those mesh primitives. [src: UI-REVIEW 2026-07-24
-      / FINDINGS #9]
+- [x] (P1, M) FINDINGS #9 feature-localized selection (`apps/web`,
+      `packages/design`). The GLB merge keeps one draw group per B-rep face
+      (`mergeGeometries(parts, true)`; group ordinal == `OverlayFace.index`);
+      the `/overlay` per-face `feature_id` maps a selected feature → its face
+      set, which takes a deeper warm-brass matcap multiply
+      (`viewport.featureSelect`) + brass boundary edges (`subsetEdges`) while the
+      studio matcap is PRESERVED on the rest. Feature-select (proper subset) and
+      whole-body select (a feature owning every face) are distinct states.
+      Raster-independent QA hooks (`data-body-highlight`, `data-selected-faces`/
+      `data-total-faces`); web unit 818 + design pass; e2e
+      `feature-selection.spec.ts` green on the live stack; founder shots
+      `finding9-{feature-localized,whole-body}-{desktop,laptop}.png`. [src:
+      UI-REVIEW 2026-07-24 / FINDINGS #9]
 - [x] (P1, M) FINDINGS #10 right-click context menus (`apps/web`,
       `packages/design`). One reusable token-styled `ContextMenu` primitive
       backs the viewport menu (fit / home / front·top·right·iso / new-sketch /

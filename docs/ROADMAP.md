@@ -985,13 +985,17 @@ flexible sub-assemblies, part-version pinning-as-default.
       `interaction-depth.spec.ts` (ghost-appears-pre-Save, view-snap-acts,
       row-rename+delete, laptop width) green; founder shots
       `extrude-ghost-{desktop,laptop}.png` +
-      `{viewport,tree}-context-menu-desktop.png`. Feature-localized selection
-      (#9) is the remaining interaction-depth item — **geometry enabler shipped
-      2026-07-24 (kernel-architect):** per-face feature provenance via additive
-      `OverlayFace.feature_id` (body.faces() order == GLB primitive order;
-      `attribute_faces` tags each face with the feature that created/last-modified
-      it — hole wall → hole, base sides → extrude), so the frontend can highlight
-      only a selected feature's mesh faces; frontend wiring is the follow-up.
+      `{viewport,tree}-context-menu-desktop.png`. **Feature-localized selection
+      ✅ 2026-07-24 (frontend-builder; FINDINGS #9):** the GLB merge keeps one
+      draw group per B-rep face (group ordinal == `OverlayFace.index`); the
+      `/overlay` per-face `feature_id` provenance (kernel enabler, same day) maps
+      a selected feature → its face set, which takes a deeper warm-brass matcap
+      multiply + brass boundary edges while the studio matcap is PRESERVED on the
+      rest — feature-select (proper subset) and whole-body select (a feature
+      owning every face) are distinct states. e2e `feature-selection.spec.ts` +
+      raster-independent QA hooks (`data-selected-faces`/`data-total-faces`);
+      founder shots `finding9-{feature-localized,whole-body}-{desktop,laptop}.png`.
+      This closes the interaction-depth trio (#8 preview, #9 selection, #10 menus).
       **Interaction-polish + jargon clusters ✅ 2026-07-24 (frontend-builder;
       FINDINGS #19 + #20):** #19 — (a) a face pick now reads as TOPOLOGY: the
       face under the cursor (hover/armed) gets a translucent brass patch laid ON

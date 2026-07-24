@@ -97,8 +97,19 @@ a concrete fix; the top block is already being actioned.
   (client-side `profileRegions`→`ExtrudeGeometry`, no kernel round-trip; studio
   matcap + `viewport.preview` tokens). Datum/fillet live previews are the
   follow-ups. _Was: typed extrude distance changed nothing until Save._
-- **Selection is a whole-body clay swap** (UI): any selection replaces the
-  studio matcap with flat tan; never feature-localized.
+- ✅ **Selection is a whole-body clay swap — FIXED 2026-07-24**
+  (frontend-builder, #9): selecting a feature in the tree now highlights ONLY
+  the faces that feature owns — the GLB merge keeps one draw group per B-rep
+  face (group ordinal == `OverlayFace.index`), and the `/overlay` per-face
+  `feature_id` provenance maps the selected feature → its face set, which takes
+  a deeper warm-brass matcap multiply + brass boundary edges while the studio
+  matcap is PRESERVED on every other face. Feature-select (a proper subset) and
+  whole-body select (a feature that owns every face, e.g. the base extrude of a
+  plain box) are visually distinct states. Raster-independent QA hooks
+  (`data-body-highlight` "feature"/"selected"; `data-selected-faces` vs
+  `data-total-faces`) + e2e `feature-selection.spec.ts` prove the subset is
+  proper (matcap kept) and tracks the selection. _Was: any selection replaced
+  the studio matcap with flat tan across the whole body._
 - ✅ **Right-click is dead everywhere — FIXED 2026-07-24** (frontend-builder,
   #10): one reusable token-styled `ContextMenu` primitive now backs two
   surfaces — the viewport menu (fit / home / front-top-right-iso snaps /
@@ -209,7 +220,7 @@ signup→solid→STEP.
 4. **Non-overlapping sheet layout + drag-to-place; surface view errors on
    the sheet; guard undo against breaking dependent drawings.**
 5. **Real names in assembly STEP (out + in).**
-6. **The interaction-depth trio** (✅ live edit preview #8, feature-localized
+6. **The interaction-depth trio** (✅ live edit preview #8, ✅ feature-localized
    selection #9, ✅ viewport + tree context menus #10 — 2026-07-24) + **the
    novice trio** (✅ Esc promise, dimension hints, ✅ per-feature error copy).
 

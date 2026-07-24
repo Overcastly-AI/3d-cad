@@ -1418,6 +1418,38 @@ export function PartPage() {
     }
   }, [shellPicking, shellOverlayQuery.error, setShellOverlayError]);
 
+  // ---------------------------------------------------------------------
+  // Feature-localized selection (FINDINGS #9). Selecting a feature in the tree
+  // highlights ONLY the faces that feature owns — the studio matcap stays on
+  // the rest of the body (never a whole-body clay swap). The overlay carries
+  // per-face `feature_id` provenance; the selected feature's faces are every
+  // OverlayFace whose `feature_id` matches it, and each face's `index` is its
+  // GLB primitive ordinal — the mesh face set to tint. Fetched through the SAME
+  // request/key as every other overlay (one cache entry, faces line up with the
+  // rendered body). Mirrors `bodySelected` exactly (selecting a feature opens
+  // its editor, so it must NOT gate on `editor === null`) — it localizes the
+  // same warm the body already shows, refining whole-body → this feature's faces.
+  // ---------------------------------------------------------------------
+  const selectionActive =
+    mode === "off" && selectedFeatureId !== null && !measureActive;
+  const selectionOverlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: selectionActive && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const selectedFaceIndices = useMemo<number[] | null>(() => {
+    if (!selectionActive || selectedFeatureId === null) return null;
+    const faces = selectionOverlayQuery.data?.faces;
+    if (faces === undefined) return null;
+    const owned = faces
+      .filter((face) => face.feature_id === selectedFeatureId)
+      .map((face) => face.index);
+    return owned.length > 0 ? owned : null;
+  }, [selectionActive, selectedFeatureId, selectionOverlayQuery.data]);
+
   /** Latest tree version, refetched if the query has none yet. */
   const freshTreeVersion = useCallback(async (): Promise<number> => {
     if (tree.data !== undefined) return tree.data.tree_version;
@@ -3551,6 +3583,7 @@ export function PartPage() {
             bodySelected={
               mode === "off" && selectedFeatureId !== null && !measureActive
             }
+            bodySelectedFaces={selectedFaceIndices}
             hud={
               <>
                 <SketchDro solving={syncPending || evaluation.isFetching} />

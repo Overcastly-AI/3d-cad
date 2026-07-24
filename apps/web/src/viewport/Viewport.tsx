@@ -287,6 +287,13 @@ export interface ViewportProps {
   /** The body's feature is selected in the tree (the tree→geometry link). */
   bodySelected?: boolean;
   /**
+   * `body.faces()` ordinals owned by the selected feature (FINDINGS #9). A
+   * proper subset localizes the selection to just those faces — the studio
+   * matcap is preserved on the rest — distinguishing feature-select from the
+   * whole-body select. Null/every-face falls back to the whole-body state.
+   */
+  bodySelectedFaces?: readonly number[] | null;
+  /**
    * Right-click on the scene (UI-REVIEW #10): the workspace opens its viewport
    * context menu at the pointer. The container forwards the raw event so the
    * caller can `preventDefault` and read `clientX`/`clientY`.
@@ -319,6 +326,7 @@ export function Viewport({
   fitKey,
   bodyInteractive = false,
   bodySelected = false,
+  bodySelectedFaces = null,
   onContextMenu,
   groundShadow = true,
 }: ViewportProps) {
@@ -359,6 +367,18 @@ export function Viewport({
   const handleHighlight = useCallback((highlight: BodyHighlight) => {
     const node = containerRef.current;
     if (node !== null) node.dataset["bodyHighlight"] = highlight;
+  }, []);
+
+  /**
+   * QA hook: the highlighted face count vs the body's total face count. Proves
+   * a feature-localized selection lights a PROPER subset (matcap preserved on
+   * the rest) without reading WebGL pixels (FINDINGS #9).
+   */
+  const handleFaceSelection = useCallback((selected: number, total: number) => {
+    const node = containerRef.current;
+    if (node === null) return;
+    node.dataset["selectedFaces"] = String(selected);
+    node.dataset["totalFaces"] = String(total);
   }, []);
 
   /** QA hook: the settled view + camera position, stamped on the container. */
@@ -428,7 +448,9 @@ export function Viewport({
             onError={handleError}
             interactive={bodyInteractive}
             selected={bodySelected}
+            selectedFaceIndices={bodySelectedFaces}
             onHighlightChange={handleHighlight}
+            onFaceSelectionChange={handleFaceSelection}
           />
         ) : null}
         {children}

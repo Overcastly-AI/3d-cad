@@ -76,6 +76,25 @@ export const viewport = {
    */
   hoverSurfaceTint: "#F3E9D8",
   restSurfaceTint: "#FFFFFF",
+  /**
+   * Feature-localized selection (FINDINGS #9). Selecting a feature in the tree
+   * (e.g. a hole) highlights ONLY the faces that feature owns — the studio
+   * matcap is PRESERVED on the rest of the body, never a whole-body clay swap.
+   * The selected subset takes a deeper warm-brass multiply than the whole-body
+   * `selectedSurfaceTint` so it POPS against its machined-aluminum neighbours
+   * (Plasticity's "addressed feature under a worklight" read), and its B-rep
+   * boundary edges brass to trace the feature. A feature that owns EVERY face
+   * (the base extrude of a plain box) stays the gentler whole-body select — one
+   * selection language, two ranges (subset vs whole).
+   */
+  featureSelect: {
+    /** Selected-feature face tint — multiplies the studio matcap toward brass,
+     *  a step deeper than the whole-body select so a subset reads as focused.
+     *  Matcaps carry no emissive channel, so the machined-metal read survives. */
+    faceTint: "#E4BE85",
+    /** Selected-feature B-rep edge emphasis — the selection brass. */
+    edge: color.brass,
+  },
   /** Surface tint of a clashing/interfering body — multiplies the studio matcap
    * toward a warm red (matcaps carry no emissive channel), so the body reads
    * red-flushed but still metal. The single source `assembly.clashTint` reads. */
