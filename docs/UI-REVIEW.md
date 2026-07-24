@@ -1610,3 +1610,176 @@ edge+tint (shared token, reduced-motion snap) ✅ · `SectionAuthorPanel`
 `aria-pressed`) ✅ · `DrawingCommandBand` Section action ✅ · `DrawingSheet`
 `SectionHatch` (token-matched ink, `aria-hidden`, typed failed-view guidance)
 ✅. 4× P3 polish, zero blockers.
+
+## 2026-07-24 — HARD AUDIT (founder-directed): "a competitor of Fusion 360 and Plasticity"
+
+**Trigger (founder, verbatim):** "Also audit the ui hard. It should be a
+competitor of fusion 360 and plasticity." This is design-mandate 3a applied
+to the WHOLE product: tool-grade viewport, judged side-by-side, every chrome
+element functional, "premium dashboard" explicitly not the bar.
+
+**Method.** Real native stack on isolated ports (gateway :8030, documents
+:8031, geometry :8032, Vite :5193), driven in real Chromium at 1440×900 and
+1280×800. Every surface exercised: sign-in, three registers, part workspace
+(empty / bracket / deep 16-feature tree / broken rebuild), sketch mode
+(plane pick, rubber band, snap, dimension input), feature editors, measure,
+assembly (2-instance mate flow, 8-instance dense, 6-instance clash stress),
+drawings (setup, sheet). 45 evidence shots in `docs/screenshots/audit-ui/`
+(01–40 from the first pass of this audit, 41–45 regenerated/extended this
+relaunch). Source cross-referenced for every finding; no app code touched.
+
+### Executive verdict
+
+**The 2026-07-16 P0s are genuinely fixed and it shows.** The grid reads to
+the horizon, bodies carry the studio matcap ("machined aluminum"), the
+ViewCube + view rail are persistent, panels float over a full-bleed canvas,
+and the instrument chrome is honest — every tile on the part inspector
+(mass, bbox, topology, status, export) is live data; the old decorative
+badges are gone. The part workspace at rest (`11-bracket-default-1440.png`)
+now reads Plasticity-adjacent at a glance, and the failure surfaces (broken
+rebuild `24`, clash inspector `43`) are *ahead* of the hobby-tool bar —
+typed errors, per-pair interference volumes, honest SKIP chips.
+
+**What still breaks the peer-tool claim is one regression and a depth gap.**
+The regression: the command band has outgrown its width-tier arithmetic and
+silently hides whole tool groups (SHEET METAL, INSPECT/MEASURE) at 1440 and
+even 1600 wide — and hovering a hidden tool horizontally scrolls the entire
+app. A Fusion user at 1440×900 would conclude the tools don't exist. The
+depth gap: no live preview while editing, no feature-localized selection
+(everything tints whole-body clay), no context menu, pre-pick affordances
+rendered as blankets of DOM squares. Fusion/Plasticity feel comes from the
+scene *responding* — ours still mostly responds after commit.
+
+### Findings (P0 breaks the peer-tool claim · P1 clearly behind · P2 parity polish · P3 nit)
+
+- **P0 — command band — labeled tier overflows the frame at 1440–1600;
+  hidden groups + root horizontal scroll.** At 1440 the band cuts off at
+  COMBINE (`11-bracket-default-1440.png`, right edge); at 1600 SHEET METAL
+  is half-clipped and INSPECT is gone (`29-band-1600.png`); hovering the
+  off-frame MEASURE scrolls the whole app sideways leaving half the frame
+  black (`19-bracket-measure-armed-1440.png`). At 1280 the icon-only tier
+  fits perfectly (`25-bracket-default-1280.png`) — the bug lives only in the
+  labeled tier. Root cause: `ToolButton.tsx:51-57` sheds labels below 1360px
+  on arithmetic ("labeled band ≈ 1315px natural") written before the SHEET
+  METAL + INSPECT groups landed; `TopToolbar.tsx` is `overflow-visible` flex
+  with no overflow management. **Fix (primitive):** recompute the label tier
+  (labels only ≥ ~1800px, or shed per-group), and clamp the band so it can
+  NEVER widen the root (`overflow-x-clip` + assert no horizontal scroll).
+  Backlog-sized; add a Playwright guard: `top-toolbar` scrollWidth ==
+  clientWidth at 1280/1440/1600 and INSPECT visible at all three.
+- **P1 — tool tooltips (incl. disabled reasons) occluded by floating
+  panels.** The gate-reason tooltip work (aria-describedby, hover+focus on
+  `aria-disabled`) is right, but visually the tooltip loses to the feature
+  tree: `TopToolbar` `relative z-10` creates a stacking context, so its
+  tooltips' `z-30` can never beat the panels' `z-30` outside it — the CREATE
+  group's tooltips render *behind* the tree panel
+  (`27-disabled-tooltip-occlusion-1440.png`; the orphan "Import" sliver
+  visible across `21`–`24`). Screen readers get the reason; sighted mice
+  don't. **Fix (primitive):** lift the band's stacking context above panels
+  (band z-40) or portal ToolButton tooltips to the root.
+- **P1 — selection language: whole-body clay swap, never feature-localized.**
+  Selecting ANY feature or body replaces the studio matcap with a flat warm
+  tan across the entire body (`14`, `15`, `18`); selecting `Sketch1` gives
+  no sketch-specific feedback at all (same whole-body tint). The tint reads
+  as a material change (clay render), kills the machined look, and persists
+  in every later glance; tree and geometry still never point at each other
+  at feature granularity. Fusion tints the *feature's faces*; Plasticity
+  outlines. **Fix (primitive, `ModelMesh` + face maps):** keep matcap
+  luminance and mark selection with brass edge emphasis + a subtle overlay
+  on the selected feature's faces only; distinct body-select vs
+  feature-select states.
+- **P1 — feature editors still commit blind (no live preview).** Open since
+  2026-07-16: distance 30 typed in Edit Extrude, viewport still shows the
+  12 mm body, no ghost (`20-bracket-extrude-editing-no-preview-1440.png`).
+  Extrude ghost first, then datum/fillet. This is the single biggest
+  "responds while you work" gap vs both benchmarks.
+- **P1 — right-click is dead everywhere.** No context menu on body, canvas,
+  tree, or anywhere (`17-bracket-rightclick-1440.png`; `grep onContextMenu
+  apps/web/src` → zero hits). Fusion's marking menu is its speed backbone.
+  **Fix:** one small token-styled viewport context menu (fit, view snaps,
+  sketch-on-face, measure, suppress/delete selected) + tree-row menu.
+- **P2 — pre-pick affordances are DOM-square blankets, not topology
+  highlights.** Mate face-pick scatters white squares over every candidate
+  face (`34-assembly-mate-hud-1440.png`); measure does the same for every
+  vertex (`19`). Functional and test-friendly, but it reads as debug
+  markers — the benchmarks highlight the face/edge *under the cursor*.
+  **Fix:** raycast hover highlight on real topology; keep the DOM nodes as
+  invisible test hooks (`measure-vertex-N` stays).
+- **P2 — body hover is imperceptible.** Hover only brightens edges
+  (`ModelMesh.tsx:82` "hover only brightens the edges") — `12` vs `11` are
+  pixel-identical at a glance. Pre-selection glow should be unmistakable.
+- **P2 — orbit/pan/zoom have zero discoverability.** ViewCube + view rail
+  are good (`18-bracket-top-view-1440.png` — snaps work, tooltips name
+  them), but nothing anywhere teaches drag/pan/zoom bindings — no status
+  legend (Fusion), no first-run hint. A quiet mouse-legend chip near the
+  view rail would close it.
+- **P2 — registers (parts/assemblies/drawings homes) are consistent but
+  templated.** Plain centered web tables on a faint grid
+  (`02-parts-home-1440.png`) — none of the machine-shop identity the
+  workspaces carry (frontend-design calibration: "generic but consistent"
+  is still a finding). Low priority vs the modeling surfaces, but a
+  thumbnail strip or engraved register treatment would make the first
+  screen after sign-in feel like the same product.
+- **P2 — assembly framing/read is the flattest of the three scenes.** Same
+  matcap, but top-down default fit + small-in-frame parts + balloon squares
+  (`41-assembly-dense-8-1440.png`) read flatter than the part studio; the
+  2-instance mate flow frames both parts but low in-frame (`34`). A
+  slightly lower default orbit + fit padding would let the studio shading
+  actually model the faces.
+- **P3 — solve readout shows a bare "—" in a fresh sketch**
+  (`44-sketch-mode-1280.png` SOLVE panel) — an em-dash with no meaning
+  attached; say "No constraints yet."
+- **P3 — top/ortho views show rectangular shading bands** (ground-shadow
+  plane seams visible from directly above, `18`); clamp the shadow plane or
+  fade it in ortho top.
+- **P3 — sketch-mode 1280 icon strip** (`44`): fits and works; MODIFY's 9
+  unlabeled glyphs are scannable only via tooltips — acceptable, revisit
+  with the band-tier fix.
+
+### Side-by-side verdicts (would a Fusion/Plasticity user read it as a peer at a glance?)
+
+| Surface | Verdict | Top visual reason where not |
+| --- | --- | --- |
+| Part workspace (rest) | **Yes** — `11` vs Plasticity holds up | band-hidden tool groups at 1440 (P0) |
+| Part workspace (interacting) | **Not yet** | no preview / clay selection / dead right-click |
+| Sketch mode | **Yes** — grid, DRO, snap chip, mode strip are instrument-grade (`05`, `08`, `44`) | — |
+| Assembly | **Mostly** — solve-state + clash inspector (`43`) are ahead of the bar | pick-square blankets, flat framing |
+| Drawings | **Yes (scoped)** — sheet, title block, hidden lines read real (`40`) | sparse sheet interactions (no zoom/pan evident) |
+| Registers / sign-in | Sign-in distinctive (`01`); registers templated (`02`) | web-table look |
+
+**States under stress:** deep 16-feature tree stays legible with honest
+ERR→SKIP cascade (`23`); broken rebuild is exemplary — typed error, message,
+rollback, last-good body preserved (`24`); clash stress with 14 interfering
+pairs renders red tint + per-pair mm³ without layout strain (`43`). Busy
+states exist in code (Solving…/Projecting…/aria-busy) — not visually
+audited this pass.
+
+**Consistency & tokens:** zero hex literals in `apps/web/src`; the viewport
+imports `@loft/design/tokens` (one palette, two renderers holds); primitives
+carry the surfaces. Signature element (brass scribe + engraved data panels)
+is present on every workspace. Discipline: intact.
+
+### The five changes that most move "reads as a Fusion/Plasticity competitor"
+
+1. **Fix the command-band width tiers + overflow clamp** (P0) — tools must
+   never vanish or scroll the app; add the e2e width guard.
+2. **Selection that keeps the studio look and localizes to the feature** —
+   kill the whole-body clay swap; brass edges + feature-face overlay.
+3. **Live extrude ghost while editing** — the first surface where Loft
+   *responds before commit*; template for fillet/datum/draft.
+4. **Cursor-driven topology highlight** replacing candidate-square blankets
+   (mate + measure), plus a visible body hover glow.
+5. **A viewport right-click menu** (fit, snaps, sketch-on-face, measure,
+   suppress) — the cheapest large step toward incumbent muscle memory.
+
+Running checklist (this pass): `TopToolbar`/`ToolButton` width tiers 🔴 (P0)
+· tooltip stacking 🔴 · `ModelMesh` selection/hover 🔴 · feature editors
+(preview) 🔴 · context menus 🔴 · viewport atmosphere/grid/ViewCube ✅ ·
+chrome honesty (part+assembly inspectors, view rail, units, export) ✅ ·
+error/stress states (`23`/`24`/`43`) ✅ · sketch mode ✅ · drawings sheet ✅
+· registers 🟡 (templated) · token discipline ✅.
+
+**Process note (relaunch):** predecessor's evidence 01–40 reviewed and kept;
+41–45 (dense assembly, clash stress, 1280 sketch/editor) regenerated this
+session. Stack :8030–:8032 + Vite :5193 booted and torn down; other
+auditors' stacks untouched.
