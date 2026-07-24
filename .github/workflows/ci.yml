@@ -5,7 +5,9 @@
 #   ts        — eslint + prettier, tsc typecheck, vitest across the pnpm workspace
 #   contracts — `just gen-check`: regenerate OpenAPI contracts + TS client into a
 #               tempdir and diff against the committed output (fails on drift)
-#   compose   — `docker compose config -q` for the base stack and base+dev overlay
+#   compose   — `docker compose config -q` for the base stack and base+dev
+#               overlay, plus scripts/check-compose.py (audit G1/G3 invariants:
+#               geometry S3 creds == MinIO's; internal services unpublished)
 #
 # Notes:
 # - The geometry golden suite and Playwright e2e get their OWN workflow later
@@ -104,6 +106,12 @@ jobs:
         run: docker compose config -q
       - name: Validate dev-overlay compose config
         run: docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
+      # Structural invariants from the 2026-07-24 audit (G1: geometry S3 creds
+      # match MinIO's; G3: documents/geometry never host-published in the base
+      # file, dev-overlay debug ports loopback-only). Stdlib-only, renders via
+      # `docker compose config` — no daemon, no image pulls, no Python deps.
+      - name: Compose invariants (audit G1/G3 guard)
+        run: python3 scripts/check-compose.py
 
   geometry-minio-smoke:
     # Real-MinIO cross-process smoke for the §7.8 mesh-store swap (audit F6):

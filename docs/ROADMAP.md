@@ -284,6 +284,17 @@ carry forward as blocked board items.
       has no docker daemon — images and stack runtime are unproven).
       **Environment-blocked**, does not gate phase advances; first
       Docker-capable session picks it up
+- ✅ Compose deploy-config audit fixes (2026-07-24 engineering audit G1/G3/G4,
+      platform-builder): geometry now receives `S3_ACCESS_KEY_ID`/
+      `S3_SECRET_ACCESS_KEY` anchor-sourced from the MinIO root credentials
+      (G1 — the active S3 mesh store 403'd on every put/get without them);
+      documents/geometry host ports REMOVED from the base compose (G3 —
+      documents trusts `X-Loft-User`; debug ports now loopback-bound in the
+      dev overlay only); stale "S3 not consumed yet / single-worker only"
+      comment rewritten to reality (G4). New stdlib-only
+      `scripts/check-compose.py` renders `docker compose config --format json`
+      and asserts all three invariants; wired into the CI `compose` job so
+      these regressions can't return unexercised
 - ✅ Contract pipeline: OpenAPI generated from pydantic → committed to
       `packages/contracts` → `packages/ts-client` generated (`just gen`);
       drift check ready as `just gen-check` (CI wiring lands with the CI

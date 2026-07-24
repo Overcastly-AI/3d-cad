@@ -660,7 +660,9 @@ frame refactor are v2/§11. Spike de-collected.
 
 - [ ] (P2, S) Verify full `docker compose up` runtime on a Docker-capable
       host — this sandbox has no docker daemon; images and stack runtime are
-      unproven. First Docker-capable session picks it up. [src: roadmap]
+      unproven (compose config + G1/G3 invariants ARE structurally guarded by
+      `scripts/check-compose.py`; runtime mesh round-trip still needs a live
+      stack). First Docker-capable session picks it up. [src: roadmap]
 - [ ] (P2, S) Watchdog — arm the stall-recovery routine per
       `docs/AUTONOMOUS-LOOP.md` §1.4 once the loop runs unattended.
       [src: retro]
@@ -669,6 +671,14 @@ frame refactor are v2/§11. Spike de-collected.
 
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
+
+### Recently shipped (2026-07-24 batch)
+
+- [x] (P1, S) Compose audit fixes G1/G3/G4 — geometry S3 creds anchor-sourced
+      from MinIO's (G1); documents/geometry host ports removed from base compose,
+      loopback-bound in dev overlay (G3); stale S3 comment rewritten (G4); new
+      `scripts/check-compose.py` invariant guard in CI compose job.
+      [src: AUDIT-ENGINEERING.md 2026-07-24]
 
 ### Recently shipped (2026-07-23 batch)
 
