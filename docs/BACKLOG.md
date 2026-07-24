@@ -484,6 +484,16 @@ frame refactor are v2/§11. Spike de-collected.
       dashed+solid. Regressions: 5-view zero-overlap, honored-position, typed-error-
       preserved, partial-occlusion split. Goldens refreshed (additive `error` field);
       `just gen`/`gen-check` clean. [src: FINDINGS #6/#15/#21]
+- [x] (P1, S) FINDINGS #7 assembly STEP writes UUIDs as PRODUCT names
+      (`services/geometry`, `services/documents`, `packages/py-kit`). New optional
+      `EvaluatedInstance.name` threads the human-readable instance name (populated at
+      the documents `build_evaluate_assembly_request` seam) → `PlacedInstance` → the
+      STEP PRODUCT name (falls back to the id when absent); import already preferred
+      the stored PRODUCT name, so a Loft→STEP→Loft round trip now recovers
+      `Base Plate`/`Top Plate` not `c8f8baa9-…`, placements intact. Regression
+      `test_step_assembly_export_preserves_human_readable_product_names_roundtrip` +
+      documents seam assertion; additive ts-client, `gen-check` clean.
+      [src: FINDINGS #7 / AUDIT-PRODUCT.md]
 
 ## Next (P2)
 

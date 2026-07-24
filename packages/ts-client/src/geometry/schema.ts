@@ -2960,6 +2960,11 @@ export interface components {
              */
             instance_id: string;
             /**
+             * Name
+             * @description Human-readable instance name ('Bracket <1>'), threaded into the STEP export as the PRODUCT name so a Loft->STEP->Loft round trip preserves part identity instead of writing the instance UUID (FINDINGS #7). Optional: evaluate/interference ignore it; the export path falls back to the instance id when absent (a nameless request stays valid).
+             */
+            name?: string | null;
+            /**
              * Part Key
              * @description Dedup key f'{ref_document_id}@{version-or-tip}': instances sharing it evaluate once and share one content-addressed mesh (§4)
              */

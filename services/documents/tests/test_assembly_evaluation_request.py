@@ -185,6 +185,10 @@ def test_resolves_the_graph_to_an_evaluate_assembly_request(
     for instance in request.instances:
         assert [str(item.id) for item in instance.features] == [feature_id]
         assert isinstance(instance.features[0].feature, SketchFeature)
+    # The human-readable instance name rides along so the STEP export writes it as
+    # the PRODUCT name (round-trip identity), never the instance UUID (FINDINGS #7).
+    assert first.name == "Plate <1>"
+    assert second.name == "Plate <2>"
     # Authored seed pose + grounded flag ride along for the solver.
     assert first.grounded is True
     assert second.grounded is False

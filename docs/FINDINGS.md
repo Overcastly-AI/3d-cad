@@ -84,10 +84,13 @@ a concrete fix; the top block is already being actioned.
   is the frontend follow-up). Regression: a 5-view sheet composes with zero
   overlapping view boxes. _Was: the section view collided with TOP/ISO on the
   exported PDF/DXF and authored positions were ignored._
-- **Assembly STEP writes UUIDs as PRODUCT names** — a Loft→Loft round trip
-  yields parts named `c8f8baa9-…`; positions survive, identity doesn't
-  (product). _Fix: thread instance names into export; prefer stored names on
-  import._
+- ✅ **Assembly STEP writes UUIDs as PRODUCT names — FIXED 2026-07-24**
+  (kernel-architect, #7): the human-readable instance name now rides the
+  `EvaluatedInstance` DTO (populated at the documents seam) and becomes the STEP
+  PRODUCT name, so a Loft→STEP→Loft round trip recovers `Base Plate`/`Top Plate`,
+  not `c8f8baa9-…`; import already preferred the stored PRODUCT name. Positions/
+  rotations intact. Regression: `test_step_assembly_export_preserves_human_readable_product_names_roundtrip`.
+  _Was: parts round-tripped named by their instance UUID; identity lost._
 - ✅ **No live preview while editing — FIXED 2026-07-24** (frontend-builder,
   #8): the open extrude editor now paints a translucent brass-edged ghost of the
   swept profile that moves as the distance/direction change, BEFORE Save

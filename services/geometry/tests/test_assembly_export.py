@@ -46,6 +46,7 @@ from build123d import import_step  # pyright: ignore[reportUnknownVariableType]
 from fastapi.testclient import TestClient
 from geometry.assembly import evaluate_assembly
 from geometry.assembly.export import export_assembly
+from geometry.assembly.import_step import import_step_assembly
 from geometry.assembly.transform import Pose, as_vector
 from geometry.kernel import measure_shape
 from geometry.kernel.export import STEP_MAGIC
@@ -60,6 +61,7 @@ from py_kit.schemas.assemblies import (
 )
 from py_kit.schemas.features import EvaluatedFeatureInput
 from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, Vec3
+from py_kit.schemas.step_import import StepAssemblyImportRequest
 
 client = TestClient(app)
 
@@ -371,6 +373,74 @@ def _axis_angle_quat(
 def _plate_features() -> list[EvaluatedFeatureInput]:
     bolted = GOLDENS_DIR / "assembly-two-plates-bolted" / "model.json"
     return _load_request(bolted).instances[0].features
+
+
+def test_step_assembly_export_preserves_human_readable_product_names_roundtrip(
+    roundtrip_tol: float,
+) -> None:
+    """REGRESSION (FINDINGS #7): a Loft->STEP->Loft round trip preserves the
+    human-readable instance NAME as the PRODUCT name, never the instance UUID.
+
+    Before the fix the export wrote ``str(instance_id)`` as every PRODUCT name, so
+    a re-import recovered parts named ``c8f8baa9-…`` — positions survived but
+    identity did not. Here two GROUNDED, NAMED plate instances at distinct
+    positions export to STEP; the exported PRODUCT names are the human-readable
+    names (and the UUIDs are ABSENT), and re-importing through the assembly reader
+    recovers exactly those names paired with their authored placements — identity
+    AND position survive the round trip.
+    """
+    features = _plate_features()
+    named = [("Base Plate", (0.0, 0.0, 0.0)), ("Top Plate", (60.0, 0.0, 0.0))]
+    instances: list[EvaluatedInstance] = []
+    for n, (label, pos) in enumerate(named, start=1):
+        instances.append(
+            EvaluatedInstance(
+                instance_id=uuid.UUID(int=n),
+                part_key=f"plate-named-{n}@1",
+                name=label,
+                features=[f.model_copy(deep=True) for f in features],
+                placement=Placement(position=Vec3(x=pos[0], y=pos[1], z=pos[2])),
+                grounded=True,
+            )
+        )
+    request = ExportAssemblyRequest(
+        assembly_id=uuid.UUID(int=7),
+        version=1,
+        instances=instances,
+        mates=[],
+        linear_deflection=0.1,
+        format="step",
+    )
+
+    data = export_assembly(request)
+    assert data.startswith(STEP_MAGIC)
+
+    # Export side: the human-readable names are PRODUCT names; the UUIDs are NOT.
+    product_names = {n.decode("ascii") for n in _PRODUCT_RE.findall(data)}
+    for label, _pos in named:
+        assert label in product_names, (
+            f"human-readable name {label!r} is not a PRODUCT name in the exported "
+            f"STEP (found {sorted(product_names)}) — the UUID leaked instead"
+        )
+    for inst in instances:
+        assert str(inst.instance_id) not in product_names, (
+            f"instance UUID {inst.instance_id} leaked as a PRODUCT name — the "
+            f"FINDINGS #7 regression (found {sorted(product_names)})"
+        )
+
+    # Round trip: re-import and confirm the names AND placements both survived.
+    result = import_step_assembly(StepAssemblyImportRequest(data=data.decode("utf-8")))
+    assert {p.name for p in result.products} == {label for label, _ in named}, (
+        f"round-trip names {[p.name for p in result.products]} do not match the "
+        f"authored names {[label for label, _ in named]}"
+    )
+    by_name = {p.name: p for p in result.products}
+    for label, pos in named:
+        got = by_name[label].placement.position
+        assert (got.x, got.y, got.z) == pytest.approx(pos, abs=roundtrip_tol), (
+            f"{label!r} imported at {(got.x, got.y, got.z)}, authored {pos} — a "
+            f"placement regressed while fixing the name (tol {roundtrip_tol!r})"
+        )
 
 
 def test_step_assembly_export_nonidentity_rotation_roundtrip(

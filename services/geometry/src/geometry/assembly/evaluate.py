@@ -311,13 +311,17 @@ class PlacedInstance:
 
     Service-internal (``body`` is a kernel solid, never serialised). Produced
     only for instances that evaluated to a body; the export path applies
-    ``placement`` to ``body`` to compose the assembly file.
+    ``placement`` to ``body`` to compose the assembly file. ``name`` is the
+    instance's human-readable name (``None`` when the request carried none) — the
+    export threads it into the STEP PRODUCT name for round-trip identity (FINDINGS
+    #7), falling back to the instance id when absent.
     """
 
     instance_id: uuid.UUID
     part_key: str
     body: BodyShape
     placement: Placement
+    name: str | None
 
 
 @dataclass(frozen=True)
@@ -416,6 +420,7 @@ def solve_assembly(request: EvaluateAssemblyRequest) -> SolvedAssembly:
                 part_key=inst.part_key,
                 body=part.body,
                 placement=solved.get(inst.instance_id, inst.placement),
+                name=inst.name,
             )
         )
 

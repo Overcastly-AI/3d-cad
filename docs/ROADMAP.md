@@ -1062,6 +1062,19 @@ flexible sub-assemblies, part-version pinning-as-default.
       and solid. Regressions: 5-view zero-overlap sheet, honored-position, typed-error-
       preserved, partial-occlusion split; flat-pattern-sheet goldens refreshed for the
       additive `error` field; `just gen` clean.
+      **Assembly STEP name fidelity ✅ 2026-07-24 (kernel-architect; FINDINGS #7):**
+      the assembly STEP export wrote every PRODUCT name as the instance UUID, so a
+      Loft→STEP→Loft round trip recovered parts named `c8f8baa9-…` — positions
+      survived, identity did not. Fix threads the human-readable instance name on a
+      new optional `EvaluatedInstance.name` (populated at the documents
+      `build_evaluate_assembly_request` seam from `instance.name`) → `PlacedInstance`
+      → the STEP PRODUCT name, falling back to the id when absent (nameless requests
+      still valid). Import already preferred the stored PRODUCT name, so the round
+      trip now recovers `Base Plate`/`Top Plate` with placements intact. Regression
+      `test_step_assembly_export_preserves_human_readable_product_names_roundtrip`
+      (export names + full re-import fidelity) + a documents seam assertion; the
+      DTO is additive (`name?: string | null` in the regenerated ts-client), `just
+      gen-check` clean.
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive

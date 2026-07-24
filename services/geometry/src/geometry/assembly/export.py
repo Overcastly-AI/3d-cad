@@ -55,14 +55,17 @@ class AssemblyExportError(Exception):
 def _component(placed: PlacedInstance) -> AssemblyComponent:
     """A solved instance as a kernel :class:`AssemblyComponent` (name + world pose).
 
-    The instance id names the STEP PRODUCT / occurrence (traceability back to the
-    instance); the world placement is decomposed into a translation + unit
+    The instance's HUMAN-READABLE name (``PlacedInstance.name``) names the STEP
+    PRODUCT / occurrence, so a Loft->STEP->Loft round trip recovers the real part
+    name rather than the instance UUID (FINDINGS #7); a request that carries no
+    name falls back to the instance id (still traceable, never a nameless
+    PRODUCT). The world placement is decomposed into a translation + unit
     quaternion via the same :class:`Pose` the solver uses, so no representation
     drift happens between solve and export.
     """
     pose = Pose.from_placement(placed.placement)
     return AssemblyComponent(
-        name=str(placed.instance_id),
+        name=placed.name if placed.name is not None else str(placed.instance_id),
         body=placed.body,
         translation=(float(pose.t[0]), float(pose.t[1]), float(pose.t[2])),
         quaternion=(

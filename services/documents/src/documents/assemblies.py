@@ -324,6 +324,7 @@ async def build_evaluate_assembly_request(
             EvaluatedInstance(
                 instance_id=instance.id,
                 part_key=_instance_part_key(instance),
+                name=instance.name,
                 features=await _instance_feature_prefix(
                     session, assembly.owner_id, instance
                 ),
