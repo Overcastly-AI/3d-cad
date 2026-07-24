@@ -32,7 +32,7 @@ from fastapi.testclient import TestClient
 from geometry.kernel.extrude import BooleanError, combine_body
 from geometry.kernel.faces import planar_faces
 from geometry.kernel.hole import (
-    HoleError,
+    HoleInvalidDiameterError,
     HoleRecessInvalidError,
     HoleTooDeepError,
     bore_hole,
@@ -364,6 +364,88 @@ def test_blind_hole_removes_exact_pocket_and_keeps_bottom_intact() -> None:
     assert result.properties.bounding_box.min.z == _approx(0.0)
 
 
+# --- Same-face reference resilience (FINDINGS #3) -----------------------------------
+
+HOLE_A_ID = uuid.UUID("00000000-0000-0000-0000-0000000f00a1")
+HOLE_B_ID = uuid.UUID("00000000-0000-0000-0000-0000000f00b1")
+
+
+def _picked_top_signature(
+    diameter_mm: float, position: tuple[float, float, float]
+) -> Any:
+    """The +Z top-face signature of the 40x25x10 block AFTER an off-centre through
+    hole — the face a SIBLING hole would have been picked against (post-A). Built
+    from the kernel body the feature layer produces for the same inputs."""
+    box = _block(40.0, 25.0, 10.0)
+    top = _face_plane_with_normal(box, (0.0, 0.0, 1.0))
+    body = bore_hole(box, top, position, diameter_mm, through_all=True, depth_mm=None)
+    return next(r.signature for r in planar_faces(body) if r.signature.normal.z > 0.5)
+
+
+def _hole_from_signature(
+    feature_id: uuid.UUID,
+    signature: Any,
+    position: tuple[float, float, float],
+    diameter_mm: float,
+) -> dict[str, Any]:
+    """A hole input whose placement face carries an EXPLICIT captured signature
+    (vs the pristine ``TOP_FACE`` tuple) — how a sibling hole picked on an
+    already-drilled face is stored."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "hole",
+            "version": 1,
+            "params": {
+                "face": _face_ref(
+                    EXTRUDE_ID,
+                    (signature.normal.x, signature.normal.y, signature.normal.z),
+                    (signature.centroid.x, signature.centroid.y, signature.centroid.z),
+                    signature.area_mm2,
+                ),
+                "position": {"x": position[0], "y": position[1], "z": position[2]},
+                "diameter_mm": diameter_mm,
+                "depth": dict(THROUGH),
+            },
+        },
+    }
+
+
+def test_editing_one_holes_diameter_keeps_a_same_face_sibling_resolved() -> None:
+    """FINDINGS #3 acceptance (end to end, through /evaluate): two holes on the
+    SAME top face; editing hole A's diameter Ø6->Ø8 shifts that face's area &
+    centroid, yet the sibling hole B on the same face STILL resolves — no
+    ``subshape_unresolved``. Before the resilient re-match this orphaned B."""
+    pos_a = (12.0, 8.0, 10.0)
+    pos_b = (28.0, 17.0, 10.0)
+    # B was picked against the top face AFTER hole A(Ø6) — its stored signature
+    # carries the post-A area/centroid.
+    sig_b = _picked_top_signature(6.0, pos_a)
+
+    def tree(diameter_a: float) -> dict[str, Any]:
+        return _request(
+            [
+                block_sketch(SKETCH_ID),
+                extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+                hole_input(HOLE_A_ID, TOP_FACE, pos_a, diameter_a, THROUGH),
+                _hole_from_signature(HOLE_B_ID, sig_b, pos_b, 5.0),
+            ]
+        )
+
+    # Initial build: both holes resolve and evaluate (B strict-matches post-A).
+    initial = _post(tree(6.0))
+    assert [r.status for r in initial.features] == ["ok", "ok", "ok", "ok"]
+    assert initial.last_good_feature_id == HOLE_B_ID
+
+    # EDIT hole A Ø6 -> Ø8: B on the SAME face still resolves (FINDINGS #3).
+    edited = _post(tree(8.0))
+    assert [r.status for r in edited.features] == ["ok", "ok", "ok", "ok"]
+    assert edited.last_good_feature_id == HOLE_B_ID
+    # The edit really changed the geometry (a bigger bore A removes more material).
+    assert initial.properties is not None and edited.properties is not None
+    assert edited.properties.volume < initial.properties.volume
+
+
 # --- Slice 2: counterbore / countersink (analytic parity + regression) --------------
 
 
@@ -651,8 +733,10 @@ def test_blind_hole_over_deep_is_typed_error() -> None:
 
 
 def test_hole_unresolved_face_is_subshape_unresolved() -> None:
-    """A face signature that matches no current planar face (e.g. a non-existent
-    centroid) degrades exactly as the on_face datum does — subshape_unresolved."""
+    """A face signature whose supporting PLANE exists on no current face degrades
+    exactly as the on_face datum does — subshape_unresolved. The +Z plane at z=99
+    matches nothing, so neither the strict signature nor the resilient coplanar
+    re-match (FINDINGS #3) resolves it — an honest error, never a wrong face."""
     result = _post(
         _request(
             [
@@ -660,7 +744,7 @@ def test_hole_unresolved_face_is_subshape_unresolved() -> None:
                 extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
                 hole_input(
                     HOLE_ID,
-                    ((0.0, 0.0, 1.0), (999.0, 999.0, 10.0), 1000.0),
+                    ((0.0, 0.0, 1.0), (20.0, 12.5, 99.0), 1000.0),
                     (20.0, 12.5, 10.0),
                     10.0,
                     THROUGH,
@@ -901,23 +985,20 @@ def test_oversize_diameter_degrades_to_typed_boolean_error() -> None:
         bore_hole(body, top, (20.0, 12.5, 10.0), 100.0, through_all=True, depth_mm=None)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT (geometry-QA 2026-07-23): a NEGATIVE diameter raises a raw OCCT "
-        "Standard_ConstructionError from Solid.make_cylinder, NOT a typed HoleError "
-        "— it would escape _evaluate_hole's HoleError/BooleanError handlers as a 500. "
-        "UNREACHABLE from the API today (HoleParamsV1.diameter_mm is Field(gt=0)), so "
-        "this is a defence-in-depth gap, not a P0. Flip to a plain raises() when the "
-        "kernel guards diameter/radius > 0 with a typed HoleError."
-    ),
-)
 def test_negative_diameter_is_typed_hole_error() -> None:
-    """bore_hole should reject a non-positive diameter with a typed HoleError."""
+    """bore_hole rejects a non-positive diameter with a typed HoleError BEFORE it
+    reaches OCCT (FINDINGS #23). Guarded in :func:`bore_tool` (the shared drill
+    builder), so the pattern/mirror reconstruction path is covered too. Formerly
+    xfail: a raw OCCT ``Standard_ConstructionError`` would escape the feature
+    layer's HoleError handlers as a 500. Unreachable from the API
+    (``HoleParamsV1.diameter_mm`` is ``Field(gt=0)``) — this is defence-in-depth."""
     body = _block(40.0, 25.0, 10.0)
     top = _face_plane_with_normal(body, (0.0, 0.0, 1.0))
-    with pytest.raises(HoleError):
+    with pytest.raises(HoleInvalidDiameterError):
         bore_hole(body, top, (20.0, 12.5, 10.0), -10.0, through_all=True, depth_mm=None)
+    # a zero diameter is likewise a non-drill, not a raw kernel raise.
+    with pytest.raises(HoleInvalidDiameterError):
+        bore_hole(body, top, (20.0, 12.5, 10.0), 0.0, through_all=True, depth_mm=None)
 
 
 def test_bore_hole_is_deterministic_across_repeated_kernel_eval() -> None:

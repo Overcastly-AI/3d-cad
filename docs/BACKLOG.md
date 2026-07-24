@@ -720,6 +720,21 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       `mirror_union`. Two composed goldens (pattern-of-hole tol 1e-9, mirror-of-
       holed-plate tol 1e-8) assert analytic volume + exact topology, fail on the
       old behavior; `hole.py` tool builders factored (DRY). [src: FINDINGS.md #1–#2]
+- [x] (P0, M) FINDINGS #3 same-face reference resilience (`services/geometry`).
+      Editing Hole1 Ø6→Ø8 orphaned a same-face Hole2 (`subshape_unresolved`): the
+      planar-face signature pinned area+centroid, which any in-plane edit shifts.
+      Fix: two-tier match — strict signature first, then (only on zero strict
+      matches) a resilient coplanar re-match on the strongest invariant alone
+      (same-sense normal + coincident supporting plane `centroid·normal`), shared
+      by every face resolver. Still honest: distinct coplanar faces →
+      `subshape_ambiguous`, absent plane → `subshape_unresolved`. Regression: the
+      edit-A-then-B-resolves scenario at the resolver AND through `/evaluate`.
+      Frontend re-pick affordance keys off the unchanged typed
+      `subshape_unresolved` FeatureError. [src: FINDINGS.md #3]
+- [x] (P3, S) FINDINGS #23 bore negative-diameter guard (`services/geometry`).
+      `bore_tool`/`bore_hole` reject a non-positive diameter with a typed
+      `HoleInvalidDiameterError` (feature layer → `hole_invalid_diameter`) instead
+      of a raw OCCT raise; xfail flipped to a real assertion. [src: FINDINGS.md #23]
 - [x] (P1, M) FINDINGS UX P1 trio (novice flow, `apps/web`). #11 the Esc
       promise: one global window Esc handler in PartPage disarms any open
       feature editor from ANY focus (band advertised "CANCEL ESC" but cancel was

@@ -118,6 +118,7 @@ from geometry.kernel import (
     ChamferError,
     DraftError,
     FilletError,
+    HoleInvalidDiameterError,
     HoleOffBodyError,
     HoleRecessInvalidError,
     HoleTooDeepError,
@@ -1727,6 +1728,11 @@ def _evaluate_hole(
                 csink_diameter_mm=hole_type.csink_diameter_mm,
                 csink_angle_deg=hole_type.csink_angle_deg,
             )
+    except HoleInvalidDiameterError as exc:
+        # Unreachable from the API (HoleParamsV1.diameter_mm is Field(gt=0)); the
+        # typed guard keeps a script/pattern path from surfacing a raw OCCT raise
+        # as a 500 (FINDINGS #23).
+        return FeatureError(code="hole_invalid_diameter", message=str(exc))
     except HoleRecessInvalidError as exc:
         code = (
             "hole_cbore_invalid"

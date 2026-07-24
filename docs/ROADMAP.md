@@ -979,6 +979,24 @@ flexible sub-assemblies, part-version pinning-as-default.
       `mirror-hole-feature-plate-40x40x20` tol 1e-8) assert the analytic volume
       + exact topology and fail on the old behavior; pattern/mirror/hole/golden/
       step-roundtrip suites green, `hole.py` tool builders factored (DRY).
+      **Same-face reference resilience ✅ 2026-07-24 (kernel-architect; FINDINGS
+      #3):** editing one hole's diameter no longer orphans a sibling hole on the
+      SAME planar face (`subshape_unresolved`). Planar-face matching is now
+      two-tier: strict signature (normal+centroid+area) first, then — only when it
+      finds nothing — a resilient re-match on the strongest invariant alone
+      (same-sense normal + coincident supporting plane `centroid·normal`, invariant
+      under any in-plane boundary change), so a sibling reference survives the most
+      common parametric edit. Still honest: two distinct coplanar faces →
+      `subshape_ambiguous`, a genuinely-absent plane → `subshape_unresolved`. Shared
+      by every face resolver (`resolve_face_plane`/`resolve_faces` → hole/shell/
+      draft/on-face datum, one seam). Regression: the exact edit-A-then-B-resolves
+      scenario, at the resolver AND end-to-end through `/evaluate`. The frontend
+      keys its one-click re-pick affordance off the typed `subshape_unresolved`
+      FeatureError (code + `upstream_feature_id`), unchanged. **Bore
+      negative-diameter guard ✅ (FINDINGS #23):** `bore_tool`/`bore_hole` now reject
+      a non-positive diameter with a typed `HoleInvalidDiameterError` (mapped to
+      `hole_invalid_diameter`) instead of a raw OCCT `Standard_ConstructionError`;
+      xfail flipped to a real assertion (defence-in-depth past the API's `gt=0`).
       **Undo cross-doc protection ✅ 2026-07-24 (backend-builder; FINDINGS #16):**
       part undo/redo no longer bypasses the drawing-dependency guard. A section
       view whose cutting plane is a FeatureRef into a datum feature now blocks

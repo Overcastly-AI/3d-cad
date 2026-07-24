@@ -60,6 +60,7 @@ from geometry.kernel.faces import (
 from geometry.kernel.fillet import FilletError, fillet_body
 from geometry.kernel.hole import (
     HoleError,
+    HoleInvalidDiameterError,
     HoleOffBodyError,
     HoleRecessInvalidError,
     HoleTooDeepError,
@@ -155,6 +156,7 @@ __all__ = [
     "FaceResolutionError",
     "FilletError",
     "HoleError",
+    "HoleInvalidDiameterError",
     "HoleOffBodyError",
     "HoleRecessInvalidError",
     "HoleTooDeepError",

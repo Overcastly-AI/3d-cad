@@ -88,6 +88,18 @@ class HoleTooDeepError(HoleError):
     """
 
 
+class HoleInvalidDiameterError(HoleError):
+    """The bore diameter is not a positive length (defence-in-depth).
+
+    A negative or zero diameter cannot form a drill: ``Solid.make_cylinder`` would
+    raise a raw OCCT ``Standard_ConstructionError`` that escapes the feature
+    layer's HoleError handlers as a 500. The API already rejects it
+    (``HoleParamsV1.diameter_mm`` is ``Field(gt=0)``), so this guard is a
+    belt-and-braces typed failure for the scripting / pattern-reconstruction paths
+    that call the kernel past the schema — never a raw kernel raise, never a 500.
+    """
+
+
 class HoleRecessInvalidError(HoleError):
     """A counterbore/countersink recess is not larger than the bore it seats.
 
@@ -134,7 +146,18 @@ def bore_tool(
     re-running the cut. A pure function of ``(body, face_plane, position,
     diameter_mm, through_all, depth_mm)``: the tool starts a span OUTSIDE the face
     and drills inward, so it needs no coincident-face boolean and no ad-hoc epsilon
-    (RESEARCH §9 determinism)."""
+    (RESEARCH §9 determinism).
+
+    Raises:
+        HoleInvalidDiameterError: ``diameter_mm`` is not a positive length — a
+            typed guard (defence-in-depth past the API's ``gt=0``) so a
+            non-positive diameter never reaches the raw OCCT ``Solid.make_cylinder``
+            as an untyped ``Standard_ConstructionError``."""
+    if diameter_mm <= 0.0:
+        raise HoleInvalidDiameterError(
+            f"The hole diameter ({diameter_mm}mm) must be a positive length; a "
+            "non-positive diameter cannot form a drill. Enter a diameter above 0."
+        )
     radius = diameter_mm / 2.0
     center, normal, span = _drill_axis(body, face_plane, position)
     start = center + normal * span

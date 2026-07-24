@@ -25,9 +25,13 @@ from geometry.kernel import (
 )
 from geometry.kernel.faces import (
     PlanarFaceRecord,
+    coplanar_signatures_match,
     face_signature_dto,
     planar_face_signature,
+    planar_signatures_match,
 )
+from geometry.kernel.hole import bore_hole
+from geometry.kernel.types import BodyShape
 from py_kit.schemas.features import PlanarFaceSignature
 from py_kit.schemas.geometry import Vec3
 
@@ -130,6 +134,59 @@ def test_unmatched_signature_is_subshape_unresolved() -> None:
     )
     with pytest.raises(SubshapeUnresolvedError):
         resolve_face_plane(_box(), stale, 0.0)
+
+
+def _drilled_top(diameter_mm: float) -> tuple[PlanarFaceSignature, BodyShape]:
+    """The +Z top-face signature (and body) of the box after an OFF-CENTRE through
+    hole of ``diameter_mm`` — the face a SIBLING hole would have been picked
+    against. Off-centre so both the area AND the area-centroid shift with the
+    diameter (the exact drift that orphans a sibling reference)."""
+    box = _box()
+    top = next(r.plane for r in planar_faces(box) if r.plane.z_dir.Z > 0.5)
+    body = bore_hole(
+        box, top, (8.0, 8.0, 10.0), diameter_mm, through_all=True, depth_mm=None
+    )
+    sig = next(r.signature for r in planar_faces(body) if r.signature.normal.z > 0.5)
+    return sig, body
+
+
+def test_sibling_face_reference_survives_a_neighbours_diameter_edit() -> None:
+    """FINDINGS #3: editing hole A's diameter shifts the shared top face's area &
+    centroid but NOT its supporting plane, so a sibling hole B on the same face
+    STILL resolves. The exact edit-A-then-B-resolves scenario, at the resolver.
+
+    BEFORE (strict signature match): the sibling reference is orphaned
+    (``subshape_unresolved``). AFTER (resilient coplanar re-match): it resolves to
+    the same top plane."""
+    # Hole B was picked against the top face AFTER hole A(Ø6) was drilled.
+    sig_b, body6 = _drilled_top(6.0)
+    # Initial build: B's stored signature resolves against the Ø6 body (strict).
+    plane6 = resolve_face_plane(body6, sig_b, 0.0)
+    assert tuple(plane6.origin)[2] == pytest.approx(10.0, abs=TOL)
+
+    # EDIT hole A: Ø6 -> Ø8. The shared top face's area and centroid both move.
+    sig_a8, body8 = _drilled_top(8.0)
+    # The strict matcher (old behaviour) now FAILS on the drifted area/centroid ...
+    assert not planar_signatures_match(sig_a8, sig_b)
+    # ... but the strongest invariant (normal + supporting plane) is unchanged ...
+    assert coplanar_signatures_match(sig_a8, sig_b)
+    # ... so the sibling reference resolves to the same top plane (no orphaning).
+    plane8 = resolve_face_plane(body8, sig_b, 0.0)
+    assert tuple(plane8.z_dir) == pytest.approx((0.0, 0.0, 1.0), abs=TOL)
+    assert tuple(plane8.origin)[2] == pytest.approx(10.0, abs=TOL)
+
+
+def test_resilient_rematch_still_fails_honestly_when_the_plane_is_gone() -> None:
+    """The resilient tier does NOT paper over a genuinely-missing face: a signature
+    whose supporting plane exists on NO face of the body is still an honest
+    ``subshape_unresolved`` (best-effort, not a guess — §7.3)."""
+    gone = PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=0.0, y=0.0, z=42.0),  # +Z plane at z=42: no such face
+        area_mm2=123.0,
+    )
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_face_plane(_box(), gone, 0.0)
 
 
 def test_two_matching_faces_is_subshape_ambiguous(monkeypatch: Any) -> None:

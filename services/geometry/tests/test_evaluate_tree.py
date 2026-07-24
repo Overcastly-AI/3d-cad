@@ -652,10 +652,13 @@ def test_on_face_datum_without_prior_body_is_subshape_unresolved() -> None:
 
 
 def test_on_face_datum_with_stale_signature_is_subshape_unresolved() -> None:
-    """When the rebuilt body has no face matching the stored signature (here a
-    wrong area), the datum fails honestly — subshape_unresolved, never a silent
-    wrong plane — and downstream features are skipped (topo-naming §5)."""
-    stale_sig = {**_TOP_FACE_SIG, "area_mm2": 999.0}
+    """When the rebuilt body has no face on the stored signature's supporting
+    PLANE (here the +Z plane shifted to z=99), the datum fails honestly —
+    subshape_unresolved, never a silent wrong plane — and downstream features are
+    skipped (topo-naming §5). A merely-wrong AREA on the SAME plane is NOT a
+    failure: the resilient coplanar re-match (FINDINGS #3) resolves it, so the
+    stale signature here moves the plane, not just the area."""
+    stale_sig = {**_TOP_FACE_SIG, "centroid": {"x": 0.0, "y": 0.0, "z": 99.0}}
     result = _post(
         _request(
             [

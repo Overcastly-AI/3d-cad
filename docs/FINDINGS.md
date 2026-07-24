@@ -53,6 +53,12 @@ a concrete fix; the top block is already being actioned.
    brittle under the most common parametric edit. _Fix: face-signature
    resilience (tolerant re-match on the strongest invariants) + a one-click
    re-pick repair affordance; regression test: edit A, B still resolves._
+   **KERNEL RESILIENCE ✅ 2026-07-24 (kernel-architect):** two-tier planar-face
+   match — strict signature, then a coplanar re-match on the strongest invariant
+   alone (normal + supporting plane `centroid·normal`); the sibling reference now
+   resolves after an unrelated diameter edit. Regression at the resolver + through
+   `/evaluate`. Frontend re-pick affordance (keys off the typed
+   `subshape_unresolved` FeatureError) still pending separately.
 4. **UI P0 — command band overflows at 1440–1600** (UI audit): whole tool
    groups (SHEET METAL, INSPECT) hidden; hovering a hidden tool horizontally
    scrolls the app. Stale label-tier arithmetic + no overflow management.
@@ -122,6 +128,9 @@ a concrete fix; the top block is already being actioned.
 - "New part" doesn't open the part (product). On-face/offset-datum coordinate
   conventions are traps for the future scripting surface (product).
 - `bore_hole` negative-diameter raw error (unreachable; xfail-documented).
+  **✅ 2026-07-24 (kernel-architect):** typed `HoleInvalidDiameterError` guard in
+  `bore_tool`/`bore_hole` (feature layer → `hole_invalid_diameter`); xfail flipped
+  to a real assertion.
 - Stale docs: VISION rows stale in the *good* direction (interference +
   bidirectional assembly STEP + section views exist); COMPETITIVE.md status
   column stale since 07-12 (trim/offset/splines/expressions shipped). Groomer
