@@ -13,6 +13,11 @@ export interface TextFieldProps extends Omit<
   type?: "text" | "email" | "password";
   /** Validation message; sets aria-invalid + flag styling when present. */
   error?: string | null;
+  /**
+   * Visually hide the label (kept for assistive tech) — for tight inline seats
+   * like a feature-tree rename cell where the row already names the field.
+   */
+  hideLabel?: boolean;
 }
 
 /**
@@ -21,13 +26,19 @@ export interface TextFieldProps extends Omit<
  * Lives in the design system so app code never restyles a raw <input>.
  */
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
-  function TextField({ label, type = "text", error, className, ...rest }, ref) {
+  function TextField(
+    { label, type = "text", error, className, hideLabel = false, ...rest },
+    ref,
+  ) {
     const id = useId();
     const errorId = `${id}-error`;
     const invalid = Boolean(error);
     return (
       <div className={cx("flex flex-col gap-0.5", className)}>
-        <label htmlFor={id} className="font-body text-xs text-gauge">
+        <label
+          htmlFor={id}
+          className={cx("font-body text-xs text-gauge", hideLabel && "sr-only")}
+        >
           {label}
         </label>
         <div

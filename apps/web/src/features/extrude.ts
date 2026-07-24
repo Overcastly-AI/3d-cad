@@ -33,6 +33,35 @@ export interface ProfileOption {
   name: string;
 }
 
+/**
+ * The live-preview projection of the extrude form (UI-REVIEW 2026-07-24 #8):
+ * exactly what the viewport ghost needs to sweep the profile, or null when the
+ * form has no valid profile + distance yet. Decoupled from the editor component
+ * so the ghost math is unit-testable and PartPage never imports the form UI.
+ */
+export interface ExtrudePreviewState {
+  profileFeatureId: string;
+  /** Canonical mm, always positive (an empty/invalid field yields null). */
+  distanceMm: number;
+  direction: ExtrudeDirection;
+  operation: ExtrudeOperation;
+}
+
+/** The current form as a preview projection, or null while it is incomplete. */
+export function extrudePreviewState(
+  form: ExtrudeForm,
+  unit: LengthUnit,
+): ExtrudePreviewState | null {
+  const distanceMm = parseDistanceMm(form.distanceInput, unit);
+  if (distanceMm === null || form.profileFeatureId === "") return null;
+  return {
+    profileFeatureId: form.profileFeatureId,
+    distanceMm,
+    direction: form.direction,
+    operation: form.operation,
+  };
+}
+
 /** The default new-extrude form: 10 mm, add, normal — the common first cut. */
 export function defaultExtrudeForm(profileFeatureId: string): ExtrudeForm {
   return {

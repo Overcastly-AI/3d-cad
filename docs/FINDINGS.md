@@ -77,11 +77,21 @@ a concrete fix; the top block is already being actioned.
   yields parts named `c8f8baa9-…`; positions survive, identity doesn't
   (product). _Fix: thread instance names into export; prefer stored names on
   import._
-- **No live preview while editing** (UI): typed extrude distance changes
-  nothing until Save — "edit-blind."
+- ✅ **No live preview while editing — FIXED 2026-07-24** (frontend-builder,
+  #8): the open extrude editor now paints a translucent brass-edged ghost of the
+  swept profile that moves as the distance/direction change, BEFORE Save
+  (client-side `profileRegions`→`ExtrudeGeometry`, no kernel round-trip; studio
+  matcap + `viewport.preview` tokens). Datum/fillet live previews are the
+  follow-ups. _Was: typed extrude distance changed nothing until Save._
 - **Selection is a whole-body clay swap** (UI): any selection replaces the
   studio matcap with flat tan; never feature-localized.
-- **Right-click is dead everywhere** (UI): zero context menus in the app.
+- ✅ **Right-click is dead everywhere — FIXED 2026-07-24** (frontend-builder,
+  #10): one reusable token-styled `ContextMenu` primitive now backs two
+  surfaces — the viewport menu (fit / home / front-top-right-iso snaps /
+  new-sketch / sketch-on-face / measure / suppress-delete selected) and the
+  feature-tree row menu (edit / inline rename / suppress / delete). Every row is
+  a WIRED action (mandate 3a); keyboard-navigable, focus-visible, reduced-motion
+  safe. _Was: zero context menus in the app._
 - **The UI breaks its own Esc promise** (UX): band advertises "CANCEL ESC"
   but per-editor `onKeyDown` means Esc is dead when focus is outside the
   panel — the toolbar locks.
@@ -155,9 +165,9 @@ signup→solid→STEP.
 4. **Non-overlapping sheet layout + drag-to-place; surface view errors on
    the sheet; guard undo against breaking dependent drawings.**
 5. **Real names in assembly STEP (out + in).**
-6. **The interaction-depth trio** (live edit preview, feature-localized
-   selection, viewport context menu) + **the novice trio** (Esc promise,
-   dimension hints, per-feature error copy).
+6. **The interaction-depth trio** (✅ live edit preview #8, feature-localized
+   selection #9, ✅ viewport + tree context menus #10 — 2026-07-24) + **the
+   novice trio** (✅ Esc promise, dimension hints, ✅ per-feature error copy).
 
 — consolidated by the orchestrator; each source doc carries the full
 evidence chain. BACKLOG restock from this list is the groomer's next pass.

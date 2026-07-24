@@ -12,6 +12,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { PerspectiveCamera, Vector3, type BufferGeometry } from "three";
@@ -284,6 +285,12 @@ export interface ViewportProps {
   bodyInteractive?: boolean;
   /** The body's feature is selected in the tree (the tree→geometry link). */
   bodySelected?: boolean;
+  /**
+   * Right-click on the scene (UI-REVIEW #10): the workspace opens its viewport
+   * context menu at the pointer. The container forwards the raw event so the
+   * caller can `preventDefault` and read `clientX`/`clientY`.
+   */
+  onContextMenu?: (event: ReactMouseEvent) => void;
 }
 
 /**
@@ -304,6 +311,7 @@ export function Viewport({
   fitKey,
   bodyInteractive = false,
   bodySelected = false,
+  onContextMenu,
 }: ViewportProps) {
   const reducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -360,6 +368,7 @@ export function Viewport({
       className="relative h-full w-full min-h-0"
       data-testid="viewport"
       aria-label="3D viewport showing the tessellated model"
+      onContextMenu={onContextMenu}
       style={{
         // The scene's air — a skylight glow falling into the deep shop edge.
         // Painted behind the transparent canvas; tokens only.

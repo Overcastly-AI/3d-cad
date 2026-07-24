@@ -1052,6 +1052,73 @@ export async function suppressFeature(
 }
 
 /**
+ * Delete a feature from the tree (200; 422 on stale version). A history-
+ * recording, undoable tree edit under the SAME optimistic-concurrency guard as
+ * every write; downstream features rebuild off the shortened tree. The route +
+ * types are generated (`@loft/ts-client`, CLAUDE.md DRY rule). A stale
+ * `expected_tree_version` throws the typed `StaleTreeVersionError` so the caller
+ * can soft-resync and retry; every other failure surfaces the server envelope.
+ */
+export async function deleteFeature(
+  partId: string,
+  featureId: string,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureTreeResponse> {
+  const { data, error } = await client.DELETE(
+    "/api/v1/parts/{part_id}/features/{feature_id}",
+    {
+      params: {
+        path: { part_id: partId, feature_id: featureId },
+        query: { expected_tree_version: expectedTreeVersion },
+      },
+    },
+  );
+  if (error !== undefined) {
+    const message = envelopeMessage(
+      error,
+      "The feature could not be deleted — reload and try again.",
+    );
+    throw envelopeCode(error) === "stale_tree_version"
+      ? new StaleTreeVersionError(message)
+      : new Error(message);
+  }
+  return data;
+}
+
+/**
+ * Rename a feature (200; 422 on stale version). A minimal PATCH that sends ONLY
+ * the new `name` — the feature `params` are untouched (the update envelope's
+ * `feature` is optional), so a rename never re-solves geometry. Same OCC guard
+ * and typed stale-version error as every tree edit.
+ */
+export async function renameFeature(
+  partId: string,
+  featureId: string,
+  name: string,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureMutationResponse> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/parts/{part_id}/features/{feature_id}",
+    {
+      params: { path: { part_id: partId, feature_id: featureId } },
+      body: { expected_tree_version: expectedTreeVersion, name },
+    },
+  );
+  if (error !== undefined) {
+    const message = envelopeMessage(
+      error,
+      "The feature could not be renamed — reload and try again.",
+    );
+    throw envelopeCode(error) === "stale_tree_version"
+      ? new StaleTreeVersionError(message)
+      : new Error(message);
+  }
+  return data;
+}
+
+/**
  * Change the part's document display unit (docs/design/units.md §U2). DISPLAY
  * metadata only — the server never touches a stored mm value, so this is a pure
  * re-label; it bumps `tree_version` under the OCC guard like any part edit. The

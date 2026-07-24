@@ -6,6 +6,7 @@ import {
   defaultExtrudeForm,
   defaultProfileId,
   distanceError,
+  extrudePreviewState,
   formFromParams,
   parseDistanceMm,
   profileOptions,
@@ -155,5 +156,53 @@ describe("profileOptions / defaultProfileId", () => {
     expect(profileOptions(features).map((p) => p.id)).toEqual(["s1", "s2"]);
     expect(defaultProfileId(features)).toBe("s2");
     expect(defaultProfileId([])).toBe("");
+  });
+});
+
+describe("extrudePreviewState", () => {
+  it("projects a valid form to the live-ghost shape (mm)", () => {
+    const preview = extrudePreviewState(
+      {
+        ...defaultExtrudeForm("sk"),
+        distanceInput: "12",
+        direction: "reverse",
+      },
+      "mm",
+    );
+    expect(preview).toEqual({
+      profileFeatureId: "sk",
+      distanceMm: 12,
+      direction: "reverse",
+      operation: "add",
+    });
+  });
+
+  it("reads the distance in the document unit (2 in → 50.8 mm)", () => {
+    const preview = extrudePreviewState(
+      { ...defaultExtrudeForm("sk"), distanceInput: "2" },
+      "in",
+    );
+    expect(preview?.distanceMm).toBeCloseTo(50.8, 6);
+  });
+
+  it("is null while the form has no profile or no valid distance", () => {
+    expect(
+      extrudePreviewState(
+        { ...defaultExtrudeForm(""), distanceInput: "10" },
+        "mm",
+      ),
+    ).toBeNull();
+    expect(
+      extrudePreviewState(
+        { ...defaultExtrudeForm("sk"), distanceInput: "" },
+        "mm",
+      ),
+    ).toBeNull();
+    expect(
+      extrudePreviewState(
+        { ...defaultExtrudeForm("sk"), distanceInput: "0" },
+        "mm",
+      ),
+    ).toBeNull();
   });
 });

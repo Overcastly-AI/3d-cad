@@ -446,21 +446,32 @@ frame refactor are v2/§11. Spike de-collected.
       no root scroll, tier fits, tooltip z-order). Founder shots
       `toolbar-band-fix-{1440,1600}.png`,
       `toolbar-tooltip-above-panel-1440.png`. [src: UI-REVIEW 2026-07-24]
-- [ ] (P1, M) Hard-audit P1 — live preview while editing (extrude ghost
-      first, then datum/fillet): the biggest "responds while you work" gap vs
-      Fusion/Plasticity; the ghost-preview slice bundled in "Viewport
-      makeover Batch 3 remainder" (Next), promoted by the audit. [src:
-      UI-REVIEW 2026-07-24]
+- [x] (P1, M) FINDINGS #8 live preview while editing — extrude ghost
+      (`apps/web`, `packages/design`). The open extrude editor paints a
+      translucent brass-edged ghost of the swept profile that tracks the
+      distance/direction live, before Save; client-side
+      (`viewport/profileLoops.ts` → `three.ExtrudeGeometry`, no kernel round-
+      trip per keystroke), studio matcap + new `viewport.preview` tokens, GPU
+      resources disposed on change/unmount. Datum/fillet previews = follow-ups.
+      web unit 810 pass; e2e `interaction-depth.spec.ts` (ghost pre-Save +
+      distance-live + laptop); shots `extrude-ghost-{desktop,laptop}.png`.
+      [src: UI-REVIEW 2026-07-24 / FINDINGS #8]
 - [ ] (P1, M) Hard-audit P1 — feature-localized selection language: kill the
       whole-body clay swap; keep matcap luminance, mark selection with brass
       edge emphasis + a subtle overlay on the SELECTED feature's faces only
       (needs the geometry face→feature attribution slice noted in Batch 3
       remainder); distinct body-select vs feature-select states. [src:
       UI-REVIEW 2026-07-24]
-- [ ] (P1, M) Hard-audit P1 — right-click context menus: one token-styled
-      viewport menu (fit, view snaps, sketch-on-face, measure, suppress/
-      delete selected) + a tree-row menu; `grep onContextMenu apps/web/src`
-      is zero hits today. [src: UI-REVIEW 2026-07-24]
+- [x] (P1, M) FINDINGS #10 right-click context menus (`apps/web`,
+      `packages/design`). One reusable token-styled `ContextMenu` primitive
+      backs the viewport menu (fit / home / front·top·right·iso / new-sketch /
+      sketch-on-face / measure / suppress·delete selected) + the feature-tree
+      row menu (edit / inline rename / suppress / delete). Rename + delete use
+      the generated client's name-PATCH + DELETE-feature routes (OCC + stale-
+      retry, DRY); every row is a wired action. Keyboard-nav + focus-visible +
+      reduced-motion. web unit 810 + design 42 pass; e2e view-snap + row
+      rename/delete; shots `{viewport,tree}-context-menu-desktop.png`.
+      [src: UI-REVIEW 2026-07-24 / FINDINGS #10]
 
 ## Next (P2)
 

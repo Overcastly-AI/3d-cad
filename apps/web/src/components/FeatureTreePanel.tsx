@@ -8,7 +8,13 @@
  * (an extrude opens its editor); rolling the bar before a feature marks
  * everything below it inert without deleting it.
  */
-import { Button, Panel, PanelSection, SuppressIcon } from "@loft/design";
+import {
+  Button,
+  Panel,
+  PanelSection,
+  SuppressIcon,
+  TextField,
+} from "@loft/design";
 import type { ReactNode } from "react";
 
 import type {
@@ -48,6 +54,16 @@ export interface FeatureTreePanelProps {
   /** The feature id whose suppress toggle is mid-write — disables its control
    * so a double-click can't enqueue two flips. */
   suppressingId?: string | null;
+  /** Right-click on a row (UI-REVIEW #10): open the row context menu at the
+   * pointer. Absent = no menu (e.g. the assembly reuse, which has none). */
+  onRowContextMenu?: (feature: FeatureResponse, x: number, y: number) => void;
+  /** The feature id whose name is being edited inline (from the row menu's
+   * Rename); its label cell becomes a text field. */
+  renamingId?: string | null;
+  /** Commit an inline rename (Enter / blur) — a no-op upstream when unchanged. */
+  onCommitRename?: (feature: FeatureResponse, name: string) => void;
+  /** Abandon an inline rename (Escape) without writing. */
+  onCancelRename?: () => void;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -87,6 +103,10 @@ export function FeatureTreePanel({
   recoveringDisjoint = false,
   onToggleSuppress,
   suppressingId = null,
+  onRowContextMenu,
+  renamingId = null,
+  onCommitRename,
+  onCancelRename,
 }: FeatureTreePanelProps) {
   const resultById = new Map<string, FeatureResult>(
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
@@ -179,6 +199,7 @@ export function FeatureTreePanel({
                   (feature.feature.suppressed ?? false) ||
                   status === "suppressed";
                 const suppressBusy = feature.id === suppressingId;
+                const renaming = feature.id === renamingId;
                 return (
                   <FeatureRowGroup key={feature.id}>
                     <li
@@ -188,33 +209,81 @@ export function FeatureTreePanel({
                       data-testid="feature-row"
                       data-rolled-back={rolledBack || undefined}
                       data-suppressed={suppressed || undefined}
+                      onContextMenu={
+                        onRowContextMenu
+                          ? (event) => {
+                              event.preventDefault();
+                              onRowContextMenu(
+                                feature,
+                                event.clientX,
+                                event.clientY,
+                              );
+                            }
+                          : undefined
+                      }
                     >
-                      <button
-                        type="button"
-                        onClick={() => onSelectFeature(feature)}
-                        aria-pressed={selected}
-                        aria-label={`Select ${feature.name}`}
-                        data-testid={`feature-select-${index}`}
-                        className="flex grow items-baseline gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
-                      >
-                        <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span
-                          className={`grow truncate font-data text-base ${
-                            suppressed
-                              ? "text-gauge line-through decoration-etch"
-                              : rolledBack
-                                ? "text-gauge"
-                                : "text-mist"
-                          }`}
+                      {renaming ? (
+                        <div className="flex grow items-baseline gap-2">
+                          <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <TextField
+                            label={`Rename ${feature.name}`}
+                            hideLabel
+                            autoFocus
+                            defaultValue={feature.name}
+                            className="grow"
+                            data-testid={`feature-rename-${index}`}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                onCommitRename?.(
+                                  feature,
+                                  e.currentTarget.value,
+                                );
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onCancelRename?.();
+                              }
+                            }}
+                            onBlur={(e) =>
+                              onCommitRename?.(feature, e.currentTarget.value)
+                            }
+                          />
+                          <span className="shrink-0 font-body text-xs text-gauge">
+                            {featureTypeLabel(feature.feature.type)}
+                          </span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onSelectFeature(feature)}
+                          aria-pressed={selected}
+                          aria-label={`Select ${feature.name}`}
+                          data-testid={`feature-select-${index}`}
+                          className="flex grow items-baseline gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                         >
-                          {feature.name}
-                        </span>
-                        <span className="shrink-0 font-body text-xs text-gauge">
-                          {featureTypeLabel(feature.feature.type)}
-                        </span>
-                      </button>
+                          <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <span
+                            className={`grow truncate font-data text-base ${
+                              suppressed
+                                ? "text-gauge line-through decoration-etch"
+                                : rolledBack
+                                  ? "text-gauge"
+                                  : "text-mist"
+                            }`}
+                          >
+                            {feature.name}
+                          </span>
+                          <span className="shrink-0 font-body text-xs text-gauge">
+                            {featureTypeLabel(feature.feature.type)}
+                          </span>
+                        </button>
+                      )}
                       {/* Suppress toggle — quiet by default, brass when the
                           feature is suppressed. Struck-out row + this pressed
                           control read "held out of the build", reversibly. */}

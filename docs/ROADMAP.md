@@ -963,6 +963,30 @@ flexible sub-assemblies, part-version pinning-as-default.
       an open-profile extrude reads extrude advice, not revolve centerline text.
       e2e: Esc-outside-panel + extrude-specific copy + hint-on-select; founder
       shots `findings-{dimension-hint,extrude-error}-{desktop,laptop}.png`.
+      **Interaction-depth pair ✅ 2026-07-24 (frontend-builder; FINDINGS #8 +
+      #10):** (#8) the open extrude editor now paints a LIVE ghost of the swept
+      result that moves as the distance/direction change, before Save — the
+      viewport stops being "edit-blind." It is a client-side approximation
+      (`viewport/profileLoops.ts` stitches the solved profile into
+      outer/hole regions → `three.ExtrudeGeometry`), so there is no kernel
+      round-trip per keystroke; the ghost wears the studio matcap tinted toward
+      brass with brass B-rep edges (new `viewport.preview` tokens — one palette,
+      two renderers) and disposes its GPU resources on change/unmount. Datum +
+      fillet previews are the noted follow-ups. (#10) one reusable token-styled
+      `ContextMenu` design primitive now backs TWO right-click surfaces: the
+      viewport menu (fit / home / front·top·right·iso snaps + shortcuts /
+      new-sketch / sketch-on-face / measure + a selected-feature
+      suppress·delete section) and the feature-tree row menu (edit / inline
+      rename via a new `TextField hideLabel` seat / suppress / delete). Rename +
+      delete call the generated client's PATCH-name + DELETE-feature routes
+      (DRY, OCC + stale-retry like every tree write); every row is a wired action
+      (mandate 3a). Keyboard-navigable (roving focus, Home/End, Esc), focus-
+      visible, reduced-motion safe. web unit 810 + design 42 pass; e2e
+      `interaction-depth.spec.ts` (ghost-appears-pre-Save, view-snap-acts,
+      row-rename+delete, laptop width) green; founder shots
+      `extrude-ghost-{desktop,laptop}.png` +
+      `{viewport,tree}-context-menu-desktop.png`. Feature-localized selection
+      (#9) is the remaining interaction-depth item.
       **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
       #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
       longer duplicates the whole body and mirroring a holed plate about its

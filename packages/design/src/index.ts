@@ -40,6 +40,12 @@ export {
 } from "./primitives/CommandBand";
 export { Flyout, type FlyoutProps, type FlyoutItem } from "./primitives/Flyout";
 export {
+  ContextMenu,
+  type ContextMenuProps,
+  type ContextMenuItem,
+  type ContextMenuSection,
+} from "./primitives/ContextMenu";
+export {
   SegmentedControl,
   type SegmentedControlProps,
   type SegmentOption,

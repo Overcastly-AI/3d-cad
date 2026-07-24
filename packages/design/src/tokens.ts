@@ -112,6 +112,26 @@ export const viewport = {
     hover: color.brass,
     opacity: 0.92,
   },
+  /**
+   * Feature preview ghost (live extrude preview; UI-REVIEW 2026-07-24 #8). The
+   * result of the OPEN editor before Save — a translucent swept volume in the
+   * working-brass selection language, so it reads as "about to be", not
+   * committed. The surface takes the same studio matcap as the real body,
+   * tinted toward brass (the matcap carries the metal read; the tint is the
+   * "pending" cue); the edges take the selection brass. Opacities are design
+   * decisions, held here — not per-mesh magic numbers.
+   */
+  preview: {
+    /** Ghost surface tint — multiplies the studio matcap toward brass (shares
+     *  the body-selection tint: one "addressed" language, one source). */
+    surfaceTint: "#E8CDA4",
+    /** Ghost B-rep edge lines — the selection brass. */
+    edge: color.brass,
+    /** Ghost surface opacity (translucent — the "not yet committed" read). */
+    surfaceOpacity: 0.42,
+    /** Ghost edge opacity (a hair under solid so it reads as a preview). */
+    edgeOpacity: 0.85,
+  },
 } as const;
 
 /**

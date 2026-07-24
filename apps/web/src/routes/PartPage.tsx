@@ -1,6 +1,29 @@
-import { formatLength, Panel } from "@loft/design";
+import {
+  CloseIcon,
+  ContextMenu,
+  type ContextMenuSection,
+  DatumIcon,
+  formatLength,
+  MeasureIcon,
+  Panel,
+  SketchIcon,
+  SuppressIcon,
+  ViewFitIcon,
+  ViewFrontIcon,
+  ViewHomeIcon,
+  ViewIsoIcon,
+  ViewRightIcon,
+  ViewTopIcon,
+} from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import { fetchOverlay, measureTargets } from "../api/measure";
@@ -30,6 +53,8 @@ import {
   type DraftParams,
   draftFeatureCreate,
   draftFeatureUpdate,
+  deleteFeature,
+  renameFeature,
   type EdgeSignature,
   evaluatePart,
   type ExtrudeParams,
@@ -129,6 +154,7 @@ import {
   defaultExtrudeForm,
   defaultProfileId,
   type ExtrudeForm,
+  type ExtrudePreviewState,
   formFromParams,
   profileOptions,
 } from "../features/extrude";
@@ -266,6 +292,8 @@ import {
 } from "../api/drawings";
 import { sheetDimensions } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
+import { ExtrudePreview } from "../viewport/ExtrudePreview";
+import { useViewCommandStore } from "../viewport/viewCommands";
 import { Viewport } from "../viewport/Viewport";
 
 /** Constraint/dimension edits persist after this quiet gap (the live loop). */
@@ -1227,6 +1255,11 @@ export function PartPage() {
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState(false);
+  // Live extrude ghost (UI-REVIEW #8): the open extrude editor projects its
+  // form here on every keystroke; the viewport sweeps the profile at this
+  // distance before Save. Cleared the moment the editor closes.
+  const [extrudePreview, setExtrudePreview] =
+    useState<ExtrudePreviewState | null>(null);
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -1968,6 +2001,7 @@ export function PartPage() {
   const closeEditor = useCallback(() => {
     setEditor(null);
     setEditorError(null);
+    setExtrudePreview(null);
   }, []);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
@@ -2527,6 +2561,139 @@ export function PartPage() {
     [features, selectFeature],
   );
 
+  // ---------------------------------------------------------------------
+  // Right-click context menus (UI-REVIEW 2026-07-24 #10). Two surfaces, one
+  // reusable primitive: the viewport menu (view snaps, tools, selection) and
+  // the feature-tree row menu (edit / suppress / rename / delete). Both hold
+  // only WIRED actions — a decorative menu row is a defect (mandate 3a).
+  // ---------------------------------------------------------------------
+  const [viewportMenu, setViewportMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [treeMenu, setTreeMenu] = useState<{
+    x: number;
+    y: number;
+    feature: FeatureResponse;
+  } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [treeActionError, setTreeActionError] = useState<string | null>(null);
+
+  // Delete a feature (OCC, stale-version retry once) — the same write grammar
+  // suppress uses; a hard failure surfaces the server's message, never silent.
+  const deleteFeatureAction = useCallback(
+    (feature: FeatureResponse) => {
+      if (deletingId !== null) return;
+      useMeasureStore.getState().deactivate();
+      setDeletingId(feature.id);
+      setTreeActionError(null);
+      void (async () => {
+        try {
+          const attempt = (version: number) =>
+            deleteFeature(partId, feature.id, version);
+          try {
+            await attempt(await freshTreeVersion());
+          } catch (error) {
+            if (error instanceof StaleTreeVersionError) {
+              await attempt((await fetchFeatureTree(partId)).tree_version);
+            } else {
+              throw error;
+            }
+          }
+          if (selectedFeatureId === feature.id) {
+            setSelectedFeatureId(null);
+            closeEditor();
+          }
+          if (renamingId === feature.id) setRenamingId(null);
+          await refreshTreeAndBody();
+        } catch (error) {
+          setTreeActionError(
+            error instanceof Error
+              ? error.message
+              : "The feature could not be deleted.",
+          );
+        } finally {
+          setDeletingId(null);
+        }
+      })();
+    },
+    [
+      partId,
+      deletingId,
+      selectedFeatureId,
+      renamingId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      closeEditor,
+    ],
+  );
+
+  // Commit an inline rename: a no-op when unchanged/blank (the field just
+  // closes); otherwise a minimal name-only PATCH (never touches params).
+  const commitRename = useCallback(
+    (feature: FeatureResponse, nextName: string) => {
+      const name = nextName.trim();
+      setRenamingId(null);
+      if (name === "" || name === feature.name) return;
+      setTreeActionError(null);
+      void (async () => {
+        try {
+          const attempt = (version: number) =>
+            renameFeature(partId, feature.id, name, version);
+          try {
+            await attempt(await freshTreeVersion());
+          } catch (error) {
+            if (error instanceof StaleTreeVersionError) {
+              await attempt((await fetchFeatureTree(partId)).tree_version);
+            } else {
+              throw error;
+            }
+          }
+          await queryClient.invalidateQueries({
+            queryKey: ["features", partId],
+          });
+        } catch (error) {
+          setTreeActionError(
+            error instanceof Error
+              ? error.message
+              : "The feature could not be renamed.",
+          );
+        }
+      })();
+    },
+    [partId, freshTreeVersion, queryClient],
+  );
+
+  // Viewport right-click: open the menu at the pointer, but only when the view
+  // rig owns the camera (mode off) — sketch/plane modes own their own gestures.
+  const openViewportMenu = useCallback(
+    (event: ReactMouseEvent) => {
+      if (mode !== "off") return;
+      event.preventDefault();
+      setTreeMenu(null);
+      setViewportMenu({ x: event.clientX, y: event.clientY });
+    },
+    [mode],
+  );
+
+  // Feature-row right-click: open the row menu at the pointer.
+  const openTreeMenu = useCallback(
+    (feature: FeatureResponse, x: number, y: number) => {
+      setViewportMenu(null);
+      setTreeMenu({ x, y, feature });
+    },
+    [],
+  );
+
+  // "Sketch on face" from the viewport menu: begin a sketch and arm the
+  // face-pick step (the same flow the sketch strip's "Pick face" button drives).
+  const startSketchOnFace = useCallback(() => {
+    handleNewSketch();
+    setFacePicking(true);
+    setFacePlaneError(null);
+  }, [handleNewSketch]);
+
   // The inline "sketch at a height" path: author a datum feature, then enter
   // the sketcher on it. One extra field, not a separate multi-step ritual —
   // the datum write returns the feature id the sketch's plane FeatureRef needs.
@@ -3001,6 +3168,22 @@ export function PartPage() {
   // ink would only z-fight the solid). It returns, live, on sketch re-entry.
   const bodyPresent = body.data !== undefined;
   const solvedLayers = bodyPresent ? [] : solved;
+  // The extrude ghost's profile layer (UI-REVIEW #8): the SOLVED sketch the
+  // open extrude editor points at, resolved from the full `solved` set (not the
+  // body-gated `solvedLayers`) so the ghost shows whether or not a body already
+  // exists. Absent until the editor projects a valid form.
+  const extrudeGhostLayer = useMemo<SolvedSketchLayer | null>(() => {
+    if (extrudePreview === null) return null;
+    return (
+      solved.find((l) => l.featureId === extrudePreview.profileFeatureId) ??
+      null
+    );
+  }, [extrudePreview, solved]);
+  const showExtrudeGhost =
+    mode === "off" &&
+    editor?.kind === "extrude" &&
+    extrudePreview !== null &&
+    extrudeGhostLayer !== null;
   const bodyStatus: BodyStatus = regenFailed
     ? "error"
     : regenerating || (meshGlbId !== null && !bodyPresent && body.isFetching)
@@ -3032,6 +3215,178 @@ export function PartPage() {
   // No runtime fallback: COMMAND_LABEL is total over OpenEditor["kind"], so
   // an unmapped editor kind cannot compile, let alone unlock the band.
   const activeCommand = editor === null ? null : COMMAND_LABEL[editor.kind];
+
+  // Context-menu section builders (UI-REVIEW #10). Built on open (cheap), so
+  // every item reads the freshest state; each row is a WIRED action.
+  const requestView = (
+    kind: "fit" | "home" | "front" | "top" | "right" | "iso",
+  ) => useViewCommandStore.getState().request(kind);
+
+  const buildViewportSections = (): ContextMenuSection[] => {
+    const selected =
+      selectedFeatureId === null
+        ? undefined
+        : features.find((f) => f.id === selectedFeatureId);
+    const sections: ContextMenuSection[] = [
+      {
+        key: "view",
+        label: "View",
+        items: [
+          {
+            key: "fit",
+            label: "Fit to view",
+            icon: <ViewFitIcon />,
+            shortcut: "0",
+            onSelect: () => requestView("fit"),
+            "data-testid": "ctx-view-fit",
+          },
+          {
+            key: "home",
+            label: "Home",
+            icon: <ViewHomeIcon />,
+            shortcut: "Home",
+            onSelect: () => requestView("home"),
+            "data-testid": "ctx-view-home",
+          },
+          {
+            key: "front",
+            label: "Front",
+            icon: <ViewFrontIcon />,
+            shortcut: "1",
+            onSelect: () => requestView("front"),
+            "data-testid": "ctx-view-front",
+          },
+          {
+            key: "top",
+            label: "Top",
+            icon: <ViewTopIcon />,
+            shortcut: "2",
+            onSelect: () => requestView("top"),
+            "data-testid": "ctx-view-top",
+          },
+          {
+            key: "right",
+            label: "Right",
+            icon: <ViewRightIcon />,
+            shortcut: "3",
+            onSelect: () => requestView("right"),
+            "data-testid": "ctx-view-right",
+          },
+          {
+            key: "iso",
+            label: "Isometric",
+            icon: <ViewIsoIcon />,
+            shortcut: "4",
+            onSelect: () => requestView("iso"),
+            "data-testid": "ctx-view-iso",
+          },
+        ],
+      },
+      {
+        key: "tools",
+        label: "Tools",
+        items: [
+          {
+            key: "new-sketch",
+            label: "New sketch",
+            icon: <SketchIcon />,
+            onSelect: handleNewSketch,
+            "data-testid": "ctx-new-sketch",
+          },
+          {
+            key: "sketch-on-face",
+            label: "Sketch on face",
+            icon: <DatumIcon />,
+            disabled: !hasBody,
+            onSelect: startSketchOnFace,
+            "data-testid": "ctx-sketch-on-face",
+          },
+          {
+            key: "measure",
+            label: measureActive ? "Stop measuring" : "Measure",
+            icon: <MeasureIcon />,
+            shortcut: "M",
+            disabled: !hasBody,
+            onSelect: toggleMeasure,
+            "data-testid": "ctx-measure",
+          },
+        ],
+      },
+    ];
+    if (selected !== undefined) {
+      const suppressed = selected.feature.suppressed ?? false;
+      sections.push({
+        key: "selected",
+        label: selected.name,
+        items: [
+          {
+            key: "suppress",
+            label: suppressed ? "Unsuppress" : "Suppress",
+            icon: <SuppressIcon />,
+            onSelect: () => toggleSuppress(selected),
+            "data-testid": "ctx-selected-suppress",
+          },
+          {
+            key: "delete",
+            label: "Delete",
+            icon: <CloseIcon />,
+            danger: true,
+            disabled: deletingId === selected.id,
+            onSelect: () => deleteFeatureAction(selected),
+            "data-testid": "ctx-selected-delete",
+          },
+        ],
+      });
+    }
+    return sections;
+  };
+
+  const buildTreeSections = (
+    feature: FeatureResponse,
+  ): ContextMenuSection[] => {
+    const suppressed = feature.feature.suppressed ?? false;
+    return [
+      {
+        key: "feature",
+        label: feature.name,
+        items: [
+          {
+            key: "edit",
+            label: "Edit",
+            onSelect: () => selectFeature(feature),
+            "data-testid": "tree-ctx-edit",
+          },
+          {
+            key: "rename",
+            label: "Rename",
+            icon: <SketchIcon />,
+            onSelect: () => {
+              setSelectedFeatureId(feature.id);
+              setRenamingId(feature.id);
+            },
+            "data-testid": "tree-ctx-rename",
+          },
+          {
+            key: "suppress",
+            label: suppressed ? "Unsuppress" : "Suppress",
+            icon: <SuppressIcon />,
+            onSelect: () => toggleSuppress(feature),
+            "data-testid": "tree-ctx-suppress",
+          },
+          {
+            key: "delete",
+            label: "Delete",
+            icon: <CloseIcon />,
+            danger: true,
+            disabled: deletingId === feature.id,
+            onSelect: () => deleteFeatureAction(feature),
+            "data-testid": "tree-ctx-delete",
+          },
+        ],
+      },
+    ];
+  };
+
   // The breadcrumb's mode leaf: sketch step / measure / open command / model.
   const workspaceMode =
     mode === "draw"
@@ -3142,6 +3497,7 @@ export function PartPage() {
         <main className="relative min-h-0 grow">
           <Viewport
             glb={body.data}
+            onContextMenu={openViewportMenu}
             rotateEnabled={mode !== "draw"}
             groundGrid={mode !== "draw"}
             viewNav={mode === "off"}
@@ -3156,6 +3512,17 @@ export function PartPage() {
                 <SketchDro solving={syncPending || evaluation.isFetching} />
                 <SolveDiagnostic />
                 <MeasureReadout />
+                {/* Inert DOM signal that the live extrude ghost is on screen
+                    (the ghost itself is WebGL) — a raster-independent hook QA
+                    drives the "preview responds before Save" assertion from. */}
+                {showExtrudeGhost && extrudePreview !== null ? (
+                  <span
+                    hidden
+                    data-testid="extrude-preview-active"
+                    data-distance-mm={extrudePreview.distanceMm}
+                    data-direction={extrudePreview.direction}
+                  />
+                ) : null}
                 {isEmptyPart ? (
                   <div
                     data-testid="empty-viewport-hint"
@@ -3183,6 +3550,7 @@ export function PartPage() {
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}
+                      onPreviewChange={setExtrudePreview}
                     />
                   ) : editor.kind === "revolve" ? (
                     <RevolveEditor
@@ -3474,6 +3842,15 @@ export function PartPage() {
             }
           >
             <SketchScene solved={solvedLayers} facePicking={facePicking} />
+            {showExtrudeGhost &&
+            extrudeGhostLayer !== null &&
+            extrudePreview ? (
+              <ExtrudePreview
+                layer={extrudeGhostLayer}
+                distanceMm={extrudePreview.distanceMm}
+                direction={extrudePreview.direction}
+              />
+            ) : null}
             <MeasureOverlay />
             {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
             {mode === "off" && reliefBendHighlights.length > 0 ? (
@@ -3547,6 +3924,10 @@ export function PartPage() {
                 recoveringDisjoint={disjointRecovering}
                 onToggleSuppress={toggleSuppress}
                 suppressingId={suppressingId}
+                onRowContextMenu={openTreeMenu}
+                renamingId={renamingId}
+                onCommitRename={commitRename}
+                onCancelRename={() => setRenamingId(null)}
               />
               {bodies.length > 0 ? (
                 <BodiesPanel
@@ -3582,8 +3963,54 @@ export function PartPage() {
               </aside>
             </FloatingPanel>
           ) : null}
+          {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
+          {treeActionError !== null ? (
+            <div
+              role="alert"
+              data-testid="tree-action-error"
+              className="absolute bottom-3 left-3 z-hud max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+            >
+              <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                Action failed
+              </span>
+              <span className="mt-1 block font-body text-xs text-mist">
+                {treeActionError}
+              </span>
+              <button
+                type="button"
+                onClick={() => setTreeActionError(null)}
+                data-testid="tree-action-error-dismiss"
+                className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : null}
         </main>
       </div>
+      {/* Right-click menus (UI-REVIEW #10) — one primitive, two surfaces. */}
+      {viewportMenu !== null ? (
+        <ContextMenu
+          open
+          x={viewportMenu.x}
+          y={viewportMenu.y}
+          aria-label="Viewport actions"
+          data-testid="viewport-context-menu"
+          sections={buildViewportSections()}
+          onClose={() => setViewportMenu(null)}
+        />
+      ) : null}
+      {treeMenu !== null ? (
+        <ContextMenu
+          open
+          x={treeMenu.x}
+          y={treeMenu.y}
+          aria-label={`Actions for ${treeMenu.feature.name}`}
+          data-testid="tree-context-menu"
+          sections={buildTreeSections(treeMenu.feature)}
+          onClose={() => setTreeMenu(null)}
+        />
+      ) : null}
     </DocumentUnitProvider>
   );
 }
