@@ -406,9 +406,85 @@ artifact server-composed**; render-only-server-SVG is the honest fallback if the
 editor proves too heavy. Designed under the standing design mandate later.
 
 **Deferred (design §7):** PDF/DXF export (fast-follow), assembly drawings + BOM
-tables/balloons, section/detail/broken/auxiliary views, auto-dimensioning, GD&T +
+tables/balloons, detail/broken/auxiliary views, auto-dimensioning, GD&T +
 surface finish + hole callouts, sheet templates, poly-HLR preview wiring,
-true-length/drawing-driven dimensions, part-version pinning-as-default. **Smallest
+true-length/drawing-driven dimensions, part-version pinning-as-default.
+~~Section views~~ **shipped 2026-07-23** (planar full section + composed hatch,
+kernel `137a929`, web authoring `06fc019` — a P0 wrong-half sign defect an
+independent geometry-QA audit caught was root-caused and fixed same-day at
+`57dca7a`; VISION.md Drawings row, corrected 2026-07-24). **Smallest
 useful v1 = one part → auto-laid-out 3 orthographic + 1 iso views (exact HLR) → a
 few manual linear/diameter/radius/angular dimensions referencing `EdgeSignature`
 → byte-deterministic SVG export**, with a new golden in the same commit.
+
+## 12. Datum-plane coordinate conventions (scripting/MCP trap)
+
+**Status:** documented 2026-07-24 in response to FINDINGS.md P3 #24 — the
+on-face and offset-datum coordinate conventions were undocumented traps for
+the future scripting/MCP surface. Every claim below is read directly off the
+current kernel source (`geometry/kernel/datum.py`, `geometry/kernel/faces.py`,
+`py_kit/schemas/features.py`'s `DatumOffsetParams`/`DatumOnFaceParams`), not
+inferred — including two live checks against the installed `build123d` to
+pin exact signs.
+
+**Origin datum planes** (`DATUM_PLANES` in `kernel/datum.py`, from
+build123d's `Plane.XY`/`Plane.XZ`/`Plane.YZ`) — verified live, not assumed:
+
+| Datum | x_dir | y_dir | z_dir (sketch normal / extrude direction) |
+|---|---|---|---|
+| `XY` | +X | +Y | **+Z** |
+| `XZ` | +X | +Z | **−Y** (not +Y — a common wrong guess) |
+| `YZ` | +Y | +Z | **+X** |
+
+`y_dir` is always `z_dir × x_dir` (right-handed frame, OCCT `gp_Ax3`
+convention inside `build123d.Plane.__init__`) — never independently settable.
+A scripting caller sketching on the `XZ` origin datum and extruding by a
+positive distance extrudes toward **−Y**, not +Y.
+
+**Offset datum** (`offset_plane` in `kernel/datum.py`, backing
+`DatumOffsetParams`): slides the parent plane `offset_mm` along the
+**parent's own** `z_dir` (`Plane.offset`: `origin += z_dir * offset_mm`,
+`x_dir`/`z_dir` unchanged) — **not** a fixed world axis. Concretely: an
+`offset` datum off the `XZ` origin plane (`z_dir = −Y`) with `offset_mm = 5`
+lands at world `y = −5`, not `y = +5`. `flip = True` then negates `z_dir`
+and **keeps `x_dir`** — sketch +u (x_dir) is unchanged by flip, only +v
+(`y_dir = z_dir × x_dir`) flips sign. A chained `offset_from` datum applies
+the identical rule against its parent's already-**resolved** (possibly
+already-flipped) plane, hop by hop, so a chain off a flipped parent offsets
+along the flipped normal, not the origin datum's raw one.
+
+**On-face datum** (`resolve_face_plane` in `kernel/faces.py`, backing
+`DatumOnFaceParams` and every midplane face-side): origin = the picked
+face's exact-B-rep area centroid (`Face.center(CenterOf.MASS)`, never
+tessellated), shifted `offset_mm` along the face's **outward** normal
+(`Face.normal_at(centroid)`, orientation-aware). `z_dir` = that outward
+normal, so **positive `offset_mm` moves the datum AWAY from the solid
+(outward); negative moves it INTO the solid**. `x_dir` =
+`deterministic_x_dir(normal)` in `kernel/faces.py`: the world axis (X, Y, Z
+— ties broken X<Y<Z) **least** aligned with the face normal, with its
+component along the normal projected out and renormalized — e.g. a box's
+top face (normal +Z) gets `x_dir = +X`. This rule is **sign-symmetric**
+(`deterministic_x_dir(-n) == deterministic_x_dir(n)`), the same property
+that lets `flip` on an offset datum keep `x_dir` while `y_dir` flips.
+`DatumOnFaceParams` has **no `flip` field** — `z_dir` is always the picked
+face's outward normal, non-negotiable; to get the opposite normal, pick the
+opposite face.
+
+**Midplane datum** (`midplane_between` in `kernel/datum.py`): parallel
+sides → origin = midpoint of the two resolved origins, normal = **side A's**
+normal (order-dependent — swap the two sides in the request and the
+midplane's `z_dir` flips). Non-parallel sides → the angular-bisector plane
+through the intersection line, normal = `normalize(n_a + n_b)`, origin = the
+point on the intersection line nearest the world origin. `x_dir` uses the
+same `deterministic_x_dir` rule as on-face.
+
+**Net for a scripting/MCP caller:** `x_dir` is always a pure, deterministic
+function of `z_dir` alone (never independently settable), and `flip` always
+means "keep `x_dir`, negate `z_dir`" — consistent across offset/on-face
+(where it's absent, since the face normal already pins it)/midplane. But
+`z_dir`'s absolute world direction is **not guessable from the datum's name
+or kind** (`XZ`'s normal is −Y, an offset chain inherits its parent's
+already-resolved sign, on-face always follows the picked face) — a script
+must read the resolved plane back from the evaluated feature tree, or
+replicate `DATUM_PLANES`/`deterministic_x_dir` verbatim, rather than assume
+a sign.
