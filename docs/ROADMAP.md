@@ -1031,6 +1031,23 @@ flexible sub-assemblies, part-version pinning-as-default.
       both paths route through (DRY), so the view can no longer silently go
       `failed: true` on the print. Regression test in `test_drawings.py`
       (SQLite + Postgres); gateway resurfaces the new envelope verbatim (no change).
+      **Frontend polish wave 3 ✅ 2026-07-24 (frontend-builder; FINDINGS #17,
+      #18, #22, #3-fe):** (#17) part mass-props/bbox readouts now convert at the
+      display boundary through the SAME `@loft/design` units core the inputs use
+      (new `fromMmArea`/`fromMmVolume`/`areaUnitLabel`/`volumeUnitLabel`) — `in`
+      reads `0.61 in³`/`5.12 in²`, never raw mm; labels follow. (#18) a sheet
+      switcher (tabs + add) on the drawing page moves between sheets and appends
+      new ones (real `createSheet`/`createView` routes), each independently
+      set-up-able; paper compose/export stay first-sheet in v1 (gateway
+      `sheets[0]`), a laid-out secondary sheet reports its honest managed state
+      (per-sheet compose filed as a backend follow-up). (#22) creating a part
+      from the register navigates straight into its workspace. (#3-fe) a
+      genuinely-unresolvable hole face shows a one-click "Re-pick face" in the
+      tree error row (keys off the typed `subshape_unresolved` FeatureError) that
+      opens the hole editor + re-arms its face pick. web unit 815 + design 46
+      pass; e2e: units-readout / drawing-sheets / repick-face / parts-home green
+      on the live stack; founder shots `units-readout-{mm,in}-*`,
+      `drawing-sheet-switcher-*`, `repick-face-*`.
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive

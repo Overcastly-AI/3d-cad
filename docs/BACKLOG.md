@@ -472,6 +472,18 @@ frame refactor are v2/§11. Spike de-collected.
       reduced-motion. web unit 810 + design 42 pass; e2e view-snap + row
       rename/delete; shots `{viewport,tree}-context-menu-desktop.png`.
       [src: UI-REVIEW 2026-07-24 / FINDINGS #10]
+- [x] (P1/P2, M) FINDINGS #6/#15/#21 drawings/HLR burn-down wave 3
+      (`services/geometry`, `packages/py-kit` drawings schema). #6: non-overlapping
+      sheet layout — `place_sheet` free-slots additive section/flat_pattern views
+      clear of the standard quartet (was dead-centre collision) + honors authored
+      positions when `SheetViewPlacement.auto_place=false` (new additive field, the
+      drag-to-place seam). #15: `ComposedView.error` carries the typed per-view
+      `FeatureError` through compose; SVG/PDF/DXF stamp the reason. #21:
+      `_canonicalize` subtracts a visible line's collinear coverage from an
+      overlapping hidden line so a partially-occluded segment is never double-emitted
+      dashed+solid. Regressions: 5-view zero-overlap, honored-position, typed-error-
+      preserved, partial-occlusion split. Goldens refreshed (additive `error` field);
+      `just gen`/`gen-check` clean. [src: FINDINGS #6/#15/#21]
 
 ## Next (P2)
 
@@ -759,6 +771,34 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       extrude advice, not revolve centerline text. e2e: Esc-outside-panel
       (mirror.spec), extrude-specific copy (extrude-ui.spec), hint-on-select
       (dimension-expressions.spec) + founder shots. [src: FINDINGS.md #11–#13]
+- [x] (P2, S) FINDINGS #17 units don't convert readouts (`apps/web`,
+      `packages/design`). Part mass-props/bbox readouts (volume/area/centroid/
+      extents/bbox) convert at the display boundary through the SAME units core
+      the inputs use — new `fromMmArea`/`fromMmVolume`/`areaUnitLabel`/
+      `volumeUnitLabel` in `@loft/design`; `formatVolume`/`formatArea`/unit-aware
+      `formatVec3`/`formatExtents` in `apps/web`. `in` → `0.61 in³`/`5.12 in²`,
+      labels follow; mm is the identity (unchanged). Unit-tested + e2e
+      (document-units.spec). [src: FINDINGS.md #17]
+- [x] (P2, M) FINDINGS #18 multi-sheet drawings are API-only (`apps/web`). A
+      `SheetTabs` switcher (tabs + add) on the drawing page selects the active
+      sheet + appends new ones via the real `createSheet` route; the active sheet
+      drives the page's sheet-scoped state (setup/layout/views/dimensions/notes).
+      Paper compose/export stay first-sheet in v1 (gateway `sheets[0]`) — a
+      laid-out secondary sheet reports its honest managed state. e2e
+      (drawing-sheets.spec). [src: FINDINGS.md #18]
+- [x] (P3, S) FINDINGS #22 "New part" doesn't open it (`apps/web`). Creating a
+      part from the register now navigates into its workspace (still filed in the
+      register for next time). e2e (parts-home.spec). [src: FINDINGS.md #22]
+- [x] (P2, S) FINDINGS #3-fe re-pick repair affordance (`apps/web`). A
+      genuinely-unresolvable hole face shows a one-click "Re-pick face" in the
+      tree error row (keys off the typed `subshape_unresolved` FeatureError); it
+      opens the hole editor + re-arms its face pick so the reference re-attaches
+      through the same overlay. e2e (repick-face.spec). [src: FINDINGS.md #3]
+- [ ] (P2, M) Per-sheet drawing compose/export (`services/gateway` +
+      `services/geometry`). The compose/export aggregation is hardwired to
+      `tree.sheets[0]` (`_aggregate_compose_request`); thread a sheet
+      selector so the FINDINGS #18 switcher can render + export ANY sheet's
+      paper, not just the first. [src: FINDINGS.md #18 follow-up]
 - [x] (P2, M) Audit G2 — per-request work bounds (rate limiter caps frequency,
       not cost). Documented schema constants → typed 422s: deflection floors
       1e-3 mm / 1e-2 rad; pattern count ≤ 500 (+ kernel guard); features ≤

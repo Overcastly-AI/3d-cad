@@ -18,27 +18,20 @@ test.describe("parts home", () => {
     await expect(page.getByTestId("parts-register")).toBeVisible();
     await expect(page.getByTestId("parts-empty")).toBeVisible();
 
-    // Create a part from the UI (keyboard-first: Enter files it).
+    // Create a part from the UI (keyboard-first: Enter files it). Creating a
+    // part OPENS it (FINDINGS #22) — a modeler names a sheet to start drawing on
+    // it, so the create navigates straight into the new part's workspace.
     await page.getByTestId("create-part-name").fill("Bracket plate");
     await page.getByTestId("create-part-name").press("Enter");
-
-    // It appears in the register; the empty invitation is gone.
-    const row = page
-      .getByTestId("part-row")
-      .filter({ hasText: "Bracket plate" });
-    await expect(row).toBeVisible();
-    await expect(page.getByTestId("parts-empty")).toHaveCount(0);
-    await expect(page.getByTestId("parts-count")).toHaveText("1 part");
-
-    // Open the workspace — the register row is the door to the part.
-    await row.getByTestId("part-open").click();
     await expect(page).toHaveURL(/\/parts\/[0-9a-f-]+$/);
     await expect(page.getByTestId("part-name")).toHaveText("Bracket plate");
 
-    // Back to the register — the part is still filed.
+    // Back to the register — the part is filed there for next time.
     await page.goBack();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByTestId("part-row")).toHaveCount(1);
+    await expect(page.getByTestId("parts-empty")).toHaveCount(0);
+    await expect(page.getByTestId("parts-count")).toHaveText("1 part");
 
     // Delete with a confirm — nothing destructive on a single click.
     await page.getByTestId("part-delete").click();

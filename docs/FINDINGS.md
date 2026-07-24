@@ -57,8 +57,11 @@ a concrete fix; the top block is already being actioned.
    match — strict signature, then a coplanar re-match on the strongest invariant
    alone (normal + supporting plane `centroid·normal`); the sibling reference now
    resolves after an unrelated diameter edit. Regression at the resolver + through
-   `/evaluate`. Frontend re-pick affordance (keys off the typed
-   `subshape_unresolved` FeatureError) still pending separately.
+   `/evaluate`. **FRONTEND RE-PICK ✅ 2026-07-24 (frontend-builder):** a
+   genuinely-unresolvable hole face now shows a one-click "Re-pick face" in the
+   tree error row (keys off the typed `subshape_unresolved` FeatureError); it
+   opens the hole editor AND re-arms its face pick so the user re-attaches the
+   reference through the same overlay that authored it. e2e-proven end to end.
 4. **UI P0 — command band overflows at 1440–1600** (UI audit): whole tool
    groups (SHEET METAL, INSPECT) hidden; hovering a hidden tool horizontally
    scrolls the app. Stale label-tier arithmetic + no overflow management.
@@ -120,9 +123,19 @@ a concrete fix; the top block is already being actioned.
   that datum (409 `part_restore_conflict`); one shared detection
   (`section_view_feature_refs`) both paths route through (DRY). The section view
   can no longer silently go `failed: true`.
-- Units convert inputs but not mass-props/bbox readouts (`31,391.38 mm³`
-  under `UNITS in`) (product).
-- Multi-sheet drawings are API-only (no UI switcher) (product).
+- ✅ **Units convert inputs but not readouts — FIXED 2026-07-24**
+  (frontend-builder, #17): the part mass-props/bbox readouts (volume/area/
+  centroid/extents/bbox) now convert at the display boundary through the SAME
+  `@loft/design` units core the input cells use — `in` shows `0.61 in³` /
+  `5.12 in²`, never raw mm; labels follow (`in³`/`in²`/`in`). Unit-tested + e2e.
+  _Was: `31,391.38 mm³` under `UNITS in`._
+- ✅ **Multi-sheet drawings API-only — FIXED 2026-07-24** (frontend-builder,
+  #18): a sheet switcher (tabs + add) on the drawing page moves between sheets
+  and appends new ones (wired to the real `createSheet`/`createView` routes);
+  each sheet is independently set-up-able. Paper compose/export stay first-sheet
+  in v1 (gateway `_aggregate_compose_request` composes `sheets[0]`) — a laid-out
+  secondary sheet reports its honest managed state; per-sheet compose is a
+  backend follow-up (BACKLOG).
 - Pick affordances are DOM-square blankets vs cursor-driven topology
   highlights; body hover imperceptible; orbit/pan/zoom undiscoverable;
   registers read as templated web tables; assembly scene flattest of the
@@ -135,7 +148,10 @@ a concrete fix; the top block is already being actioned.
 
 ## P3 / hygiene
 
-- "New part" doesn't open the part (product). On-face/offset-datum coordinate
+- ✅ **"New part" doesn't open the part — FIXED 2026-07-24** (frontend-builder,
+  #22): creating a part from the register now navigates straight into its
+  workspace (a modeler names a sheet to start drawing on it); the register still
+  files it for next time. e2e-proven. On-face/offset-datum coordinate
   conventions are traps for the future scripting surface (product).
 - `bore_hole` negative-diameter raw error (unreachable; xfail-documented).
   **✅ 2026-07-24 (kernel-architect):** typed `HoleInvalidDiameterError` guard in

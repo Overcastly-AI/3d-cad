@@ -1,6 +1,6 @@
 import { Button, Chip, TextField } from "@loft/design";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   type FormEvent,
   useCallback,
@@ -341,16 +341,23 @@ function CreatePartForm({
   submitLabel: string;
 }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
 
   const create = useMutation({
     mutationFn: (value: string) => createPart(value),
-    onSuccess: async () => {
+    // Creating a part OPENS it (FINDINGS #22): a modeler names a sheet to start
+    // drawing on it, not to file it and stay in the register. Prime the register
+    // cache so a Back lands on the fresh part, then navigate into its workspace.
+    onSuccess: async (part) => {
       setName("");
       setFieldError(null);
       await queryClient.invalidateQueries({ queryKey: ["parts"] });
-      inputRef.current?.focus();
+      await navigate({
+        to: "/parts/$partId",
+        params: { partId: part.id },
+      });
     },
     onError: (error) => {
       if (error instanceof PartNameTakenError) {

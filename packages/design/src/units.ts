@@ -55,6 +55,36 @@ export function fromMm(mm: number, unit: LengthUnit): number {
   return mm / MM_PER_UNIT[unit];
 }
 
+/**
+ * Canonical square-millimetres → a display value in `unit²` (area scales with
+ * the square of the length factor, so mm²→in² divides by 25.4²). Storage/kernel
+ * are always mm²; this is the display boundary for an AREA readout.
+ */
+export function fromMmArea(mm2: number, unit: LengthUnit): number {
+  const factor = MM_PER_UNIT[unit];
+  return mm2 / (factor * factor);
+}
+
+/**
+ * Canonical cubic-millimetres → a display value in `unit³` (volume scales with
+ * the cube of the length factor, so mm³→in³ divides by 25.4³). Storage/kernel
+ * are always mm³; this is the display boundary for a VOLUME readout.
+ */
+export function fromMmVolume(mm3: number, unit: LengthUnit): number {
+  const factor = MM_PER_UNIT[unit];
+  return mm3 / (factor * factor * factor);
+}
+
+/** The area-unit label for a readout cell (`"mm²"`, `"in²"`). */
+export function areaUnitLabel(unit: LengthUnit): string {
+  return `${unit}²`;
+}
+
+/** The volume-unit label for a readout cell (`"mm³"`, `"in³"`). */
+export function volumeUnitLabel(unit: LengthUnit): string {
+  return `${unit}³`;
+}
+
 /** Suffix → unit, longest-first so `mm` wins over `m` and `cm` over `m`. */
 const SUFFIX_UNIT: ReadonlyArray<readonly [string, LengthUnit]> = [
   ["mm", "mm"],

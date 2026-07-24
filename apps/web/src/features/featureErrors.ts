@@ -107,6 +107,24 @@ export function friendlyFeatureError(
  * says "Keep as one body" produces the same-named recovery). */
 export const KEEP_AS_ONE_BODY_ACTION = "Keep as one body";
 
+/** The action label for the `subshape_unresolved` re-pick repair (FINDINGS #3). */
+export const REPICK_FACE_ACTION = "Re-pick face";
+
+/**
+ * True when a feature's error is a `subshape_unresolved` the user can repair by
+ * re-attaching the referenced face (FINDINGS #3). The kernel now re-matches a
+ * same-face reference resiliently, so this fires only for a GENUINELY
+ * unresolvable face — an earlier edit removed or fundamentally changed it — where
+ * the one-click fix is to re-arm face selection for the feature and re-pick.
+ * Offered only for feature types whose editor CAN re-arm a face pick.
+ */
+export function offersRepickFace(
+  feature: FeatureResponse,
+  code: string,
+): boolean {
+  return code === "subshape_unresolved" && feature.feature.type === "hole";
+}
+
 /**
  * True when a feature's error is a `boolean_disjoint` the user can recover from
  * in place (MB-4c): the feature is a `boolean` whose `allow_disjoint` is still

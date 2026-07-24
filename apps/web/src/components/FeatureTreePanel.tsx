@@ -27,6 +27,8 @@ import {
   friendlyFeatureError,
   KEEP_AS_ONE_BODY_ACTION,
   offersBooleanDisjointRecovery,
+  offersRepickFace,
+  REPICK_FACE_ACTION,
 } from "../features/featureErrors";
 import { barSlotIndex, rollbackIdForSlot } from "../features/rollback";
 
@@ -48,6 +50,10 @@ export interface FeatureTreePanelProps {
   /** True while a `boolean_disjoint` recovery write is in flight — disables the
    * recovery button so a double-click can't enqueue two updates. */
   recoveringDisjoint?: boolean;
+  /** Re-pick repair for a `subshape_unresolved` error (FINDINGS #3): re-arm face
+   * selection for this feature so the user can re-attach the lost reference.
+   * Absent = no repair offered (e.g. the assembly reuse). */
+  onRepickFace?: (feature: FeatureResponse) => void;
   /** Toggle a feature's suppress flag (feature-tree.md §4.3a): a suppressed
    * feature is skipped at rebuild but stays in the tree (reversible). */
   onToggleSuppress: (feature: FeatureResponse) => void;
@@ -101,6 +107,7 @@ export function FeatureTreePanel({
   rollbackBusy,
   onKeepAsOneBody,
   recoveringDisjoint = false,
+  onRepickFace,
   onToggleSuppress,
   suppressingId = null,
   onRowContextMenu,
@@ -358,6 +365,17 @@ export function FeatureTreePanel({
                             {recoveringDisjoint
                               ? "Combining…"
                               : KEEP_AS_ONE_BODY_ACTION}
+                          </Button>
+                        ) : null}
+                        {onRepickFace &&
+                        offersRepickFace(feature, result.error.code) ? (
+                          <Button
+                            variant="ghost"
+                            className="mt-1.5 py-0.5 text-xs"
+                            data-testid={`feature-repick-face-${index}`}
+                            onClick={() => onRepickFace(feature)}
+                          >
+                            {REPICK_FACE_ACTION}
                           </Button>
                         ) : null}
                       </li>

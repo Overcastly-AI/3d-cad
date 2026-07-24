@@ -1998,6 +1998,24 @@ export function PartPage() {
     [lengthUnit],
   );
 
+  // Re-pick repair for a `subshape_unresolved` feature error (FINDINGS #3). The
+  // kernel re-matches a same-face reference resiliently, so this fires only for a
+  // GENUINELY lost face; the one-click fix opens the feature's editor and re-arms
+  // its FACE pick, so the user re-attaches the reference through the same overlay
+  // that authored it. Batched with selectFeature: the hole pick-session effect
+  // only clears `holePick` when the open editor is NOT a hole, and after this
+  // render the editor IS the hole, so the armed pick survives.
+  const repickFace = useCallback(
+    (feature: FeatureResponse) => {
+      selectFeature(feature);
+      if (feature.feature.type === "hole") {
+        setHolePickError(null);
+        setHolePick("face");
+      }
+    },
+    [selectFeature],
+  );
+
   const closeEditor = useCallback(() => {
     setEditor(null);
     setEditorError(null);
@@ -3922,6 +3940,7 @@ export function PartPage() {
                 rollbackBusy={rollbackBusy || historyStep !== null}
                 onKeepAsOneBody={keepAsOneBody}
                 recoveringDisjoint={disjointRecovering}
+                onRepickFace={repickFace}
                 onToggleSuppress={toggleSuppress}
                 suppressingId={suppressingId}
                 onRowContextMenu={openTreeMenu}

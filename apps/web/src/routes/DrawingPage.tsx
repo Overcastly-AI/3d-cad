@@ -12,6 +12,7 @@ import {
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
   type SectionViewParams,
+  type SheetContent,
   type SheetSize,
   type ViewProjection,
   composeDrawingSheet,
@@ -98,8 +99,30 @@ export function DrawingPage() {
   });
   const tree = drawingQuery.data;
   const docVersion = tree?.doc_version ?? 0;
-  const sheet = tree?.sheets[0]?.sheet ?? null;
-  const views = useMemo(() => tree?.sheets[0]?.views ?? [], [tree]);
+
+  // Multi-sheet: the drawing stores an ORDERED list of sheets (the API has always
+  // supported many; FINDINGS #18 was the missing UI). `activeSheetIndex` selects
+  // which one the page reads + acts on; the switcher below moves it. Clamped when
+  // the tree changes (a delete/refetch can shrink the list under a stale index).
+  const sheetCount = tree?.sheets.length ?? 0;
+  const [activeSheetIndex, setActiveSheetIndex] = useState(0);
+  useEffect(() => {
+    if (sheetCount > 0 && activeSheetIndex >= sheetCount) {
+      setActiveSheetIndex(sheetCount - 1);
+    }
+  }, [sheetCount, activeSheetIndex]);
+  const activeIndex = activeSheetIndex < sheetCount ? activeSheetIndex : 0;
+  // v1 compose/export are first-sheet only (gateway `_aggregate_compose_request`
+  // composes `sheets[0]`); the paper preview + server exports therefore render the
+  // FIRST sheet. Every other sheet is fully set-up-able + managed (its own views/
+  // dimensions/notes), just not yet composable — tracked as a backend follow-up.
+  const isComposableSheet = activeIndex === 0;
+
+  const sheet = tree?.sheets[activeIndex]?.sheet ?? null;
+  const views = useMemo(
+    () => tree?.sheets[activeIndex]?.views ?? [],
+    [tree, activeIndex],
+  );
   // The projections actually persisted on the sheet — the SET we evaluate (so a
   // flat-pattern sheet evaluates `flat_pattern`, carrying its bend-table +
   // provenance + any typed failure). Falls back to the standard four before layout.
@@ -133,12 +156,12 @@ export function DrawingPage() {
     return map;
   }, [requestedViews, sectionView]);
   const dimensions = useMemo<readonly DimensionResponse[]>(
-    () => tree?.sheets[0]?.dimensions ?? [],
-    [tree],
+    () => tree?.sheets[activeIndex]?.dimensions ?? [],
+    [tree, activeIndex],
   );
   const annotations = useMemo<readonly AnnotationResponse[]>(
-    () => tree?.sheets[0]?.annotations ?? [],
-    [tree],
+    () => tree?.sheets[activeIndex]?.annotations ?? [],
+    [tree, activeIndex],
   );
   const hasLayout = sheet !== null && views.length > 0;
 
@@ -261,7 +284,7 @@ export function DrawingPage() {
       effectiveScaleValue,
       docVersion,
     ],
-    enabled: hasLayout && partTree !== undefined,
+    enabled: hasLayout && partTree !== undefined && isComposableSheet,
     queryFn: () => composeDrawingSheet(drawingId),
     staleTime: Infinity,
   });
@@ -509,6 +532,40 @@ export function DrawingPage() {
     setSectionError(null);
     setSectionOpen((open) => !open);
   }, []);
+
+  // Append a new (empty) sheet and switch to it (FINDINGS #18). The new sheet is
+  // laid out through the SAME flow the first sheet uses — selecting it makes the
+  // Set-up band + layout actions target its id (createView takes the sheet id, so
+  // no per-index guesswork). Appends at the tip → its index is the old count.
+  const [addingSheet, setAddingSheet] = useState(false);
+  const handleAddSheet = useCallback(() => {
+    if (addingSheet || sheetCount === 0) return;
+    setAddingSheet(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        await createSheet(drawingId, {
+          name: `Sheet ${sheetCount + 1}`,
+          size: sizeValue,
+          orientation: "landscape",
+          projection: "third_angle",
+          expected_version: docVersion,
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["drawing", drawingId],
+        });
+        setActiveSheetIndex(sheetCount);
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The sheet could not be added.",
+        );
+      } finally {
+        setAddingSheet(false);
+      }
+    })();
+  }, [addingSheet, sheetCount, drawingId, sizeValue, docVersion, queryClient]);
 
   const handleReproject = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -905,6 +962,18 @@ export function DrawingPage() {
           aria-hidden="true"
         />
 
+        {/* The sheet switcher (FINDINGS #18) — move between the drawing's sheets,
+            add a new one. Appears once the drawing has a sheet (post-layout). */}
+        {tree && sheetCount > 0 ? (
+          <SheetTabs
+            sheets={tree.sheets}
+            activeIndex={activeIndex}
+            onSelect={setActiveSheetIndex}
+            onAdd={handleAddSheet}
+            adding={addingSheet}
+          />
+        ) : null}
+
         {drawingQuery.isError ? (
           <CenterNote
             testId="drawing-load-error"
@@ -940,6 +1009,16 @@ export function DrawingPage() {
               onPickEndpoint={handlePickEndpoint}
             />
           </div>
+        ) : hasLayout && sheet && !isComposableSheet ? (
+          // A laid-out SECONDARY sheet: its views/dimensions/notes are managed in
+          // the right gutter, but v1 compose/export render the first sheet only
+          // (gateway limitation), so the paper preview lives on Sheet 1.
+          <CenterNote
+            testId="drawing-secondary-sheet"
+            tone="quiet"
+            title={`${sheet.name} · laid out`}
+            body="This sheet's views, dimensions and notes are managed in the panel at right. Printable preview and PDF/DXF export compose the first sheet in this version."
+          />
         ) : hasLayout && sheet && sheetQuery.isError ? (
           <CenterNote
             testId="drawing-compose-error"
@@ -1109,6 +1188,67 @@ function CenterNote({
         </p>
         <p className="mt-1 font-body text-sm text-mist">{body}</p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The sheet switcher (FINDINGS #18) — a compact tab strip that moves between the
+ * drawing's sheets and appends a new one. A quiet precision instrument in the
+ * top-left margin so the sheet stays the hero: brass underline on the active tab,
+ * keyboard-first (roving tablist), all wired to real state/actions (mandate 3a).
+ */
+function SheetTabs({
+  sheets,
+  activeIndex,
+  onSelect,
+  onAdd,
+  adding,
+}: {
+  sheets: readonly SheetContent[];
+  activeIndex: number;
+  onSelect: (index: number) => void;
+  onAdd: () => void;
+  adding: boolean;
+}) {
+  return (
+    <div
+      className="absolute left-3 top-3 z-overlay flex items-center gap-1 border border-hairline bg-anvil/95 px-1.5 py-1 shadow-float backdrop-blur-sm"
+      role="tablist"
+      aria-label="Drawing sheets"
+      data-testid="sheet-tabs"
+    >
+      {sheets.map((content, index) => {
+        const active = index === activeIndex;
+        return (
+          <button
+            key={content.sheet.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            data-testid={`sheet-tab-${index}`}
+            data-active={active || undefined}
+            onClick={() => onSelect(index)}
+            className={`border-b-2 px-2.5 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
+              active
+                ? "border-brass text-mist"
+                : "border-transparent text-gauge hover:text-mist"
+            }`}
+          >
+            {content.sheet.name}
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        onClick={onAdd}
+        disabled={adding}
+        data-testid="sheet-tab-add"
+        aria-label="Add sheet"
+        className="ml-0.5 shrink-0 rounded-sm px-1.5 py-1 font-display text-xs leading-none text-gauge transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+      >
+        {adding ? "…" : "+"}
+      </button>
     </div>
   );
 }

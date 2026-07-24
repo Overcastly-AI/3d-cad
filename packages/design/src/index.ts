@@ -1,7 +1,10 @@
 export * from "./tokens";
 export {
+  areaUnitLabel,
   formatLength,
   fromMm,
+  fromMmArea,
+  fromMmVolume,
   LENGTH_UNITS,
   type FormatLengthOptions,
   type LengthUnit,
@@ -9,6 +12,7 @@ export {
   MM_PER_UNIT,
   parseLength,
   toMm,
+  volumeUnitLabel,
 } from "./units";
 export { loftPreset } from "./tailwind-preset";
 export { cx } from "./cx";
