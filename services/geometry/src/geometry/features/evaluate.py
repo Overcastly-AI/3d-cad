@@ -148,6 +148,7 @@ from geometry.kernel import (
     SweepError,
     boolean_bodies,
     bore_hole,
+    bore_tool,
     build_datum_plane,
     build_loft_section,
     build_path_wire,
@@ -160,6 +161,8 @@ from geometry.kernel import (
     circular_pattern_cut,
     combine_body,
     combine_properties,
+    counterbore_tool,
+    countersink_tool,
     cut_counterbore,
     cut_countersink,
     draft_body,
@@ -170,6 +173,7 @@ from geometry.kernel import (
     loft_sections,
     measure_shape,
     midplane_between,
+    mirror_cut,
     mirror_union,
     offset_plane,
     resolve_axis_line,
@@ -304,11 +308,22 @@ class EvaluationState:
     sheet_metal_unfold_body: BodyShape | None = None
     active_body_id: uuid.UUID | None = None
     #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
-    #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern
-    #: reads it to infer whether it should array a CUT (source = a preceding
-    #: extrude-cut, BACKLOG #3) or union whole-body copies (the default). Holds a
-    #: validated feature envelope — never serialized, exactly like ``bodies``.
+    #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern or
+    #: mirror reads it to infer whether it should array/reflect a CUT (source = a
+    #: preceding extrude-cut or Hole, BACKLOG #3 / FINDINGS #1) or replicate
+    #: whole-body copies (the default). Holds a validated feature envelope — never
+    #: serialized, exactly like ``bodies``.
     prev_body_feature: FeatureEnvelope | None = None
+    #: The removal TOOL solid(s) the most-recent ok Hole feature cut (bore + any
+    #: counterbore/countersink recess), captured at hole-eval time from the SAME
+    #: pre-cut body so they reproduce the drilled geometry exactly (FINDINGS #1).
+    #: A pattern / mirror whose immediately-preceding feature is that Hole
+    #: (``prev_body_feature`` is a :class:`HoleFeature`) reflects/arrays THESE tools
+    #: — never re-resolving the placement face against the post-cut body (which the
+    #: seed hole would have perturbed, FINDINGS #3). Service-internal, like
+    #: ``bodies``; ``None`` until the first Hole and never read once a NON-Hole
+    #: body-affecting feature follows (the ``prev_body_feature`` type gate).
+    last_hole_tools: list[Solid] | None = None
 
     @property
     def active_body(self) -> BodyShape | None:
@@ -1726,28 +1741,76 @@ def _evaluate_hole(
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
     state.set_active_body(drilled)
+    # Capture the removal tool(s) for a following pattern / mirror of this hole
+    # (FINDINGS #1). Rebuilt from the SAME pre-cut ``active`` body the cuts used, so
+    # every tool is byte-identical to what was removed; the recess builders reuse the
+    # already-validated params (a bore diagonal is invariant to the seed bore, so the
+    # recess span matches). Pure geometry — the cut already succeeded above.
+    tools: list[Solid] = [
+        bore_tool(
+            active,
+            plane,
+            point,
+            params.diameter_mm,
+            through_all=not blind,
+            depth_mm=depth_mm,
+        )
+    ]
+    if isinstance(hole_type, HoleCounterbore):
+        tools.append(
+            counterbore_tool(
+                active,
+                plane,
+                point,
+                bore_diameter_mm=params.diameter_mm,
+                cbore_diameter_mm=hole_type.cbore_diameter_mm,
+                cbore_depth_mm=hole_type.cbore_depth_mm,
+            )
+        )
+    elif isinstance(hole_type, HoleCountersink):
+        tools.append(
+            countersink_tool(
+                active,
+                plane,
+                point,
+                bore_diameter_mm=params.diameter_mm,
+                csink_diameter_mm=hole_type.csink_diameter_mm,
+                csink_angle_deg=hole_type.csink_angle_deg,
+            )
+        )
+    state.last_hole_tools = tools
     return None
 
 
-def _pattern_cut_tools(state: EvaluationState) -> list[Solid] | None:
-    """The removal tools to array-cut, or ``None`` to array-union (BACKLOG #3).
+def _prev_cut_tools(state: EvaluationState) -> list[Solid] | None:
+    """The removal tools to array/reflect-cut, or ``None`` for whole-body (BACKLOG #3).
 
-    Option (a): a pattern infers its combine mode from the IMMEDIATELY-preceding
-    body-affecting feature (``state.prev_body_feature``, tree order — no new
-    schema field, no picked reference, so independent of topological naming #1).
-    When that source is an extrude-CUT, its removal tool(s) are RECONSTRUCTED
-    from the source's already-solved profile — a pure, deterministic function of
-    the same solved sketch + params the cut itself used (:func:`_resolve_profile_faces`
-    + :func:`extrude_face`), so the seed hole (placement 0) and the patterned
-    copies (placements 1..count-1) are the identical tool. Any other source (an
-    add, a fillet, an intervening feature) returns ``None`` — the pattern unions
-    whole-body copies exactly as before (the add-pattern path is unchanged).
+    Option (a): a pattern OR mirror infers its combine mode from the
+    IMMEDIATELY-preceding body-affecting feature (``state.prev_body_feature``, tree
+    order — no new schema field, no picked reference, so independent of topological
+    naming #1). Two cut sources produce removal tools (FINDINGS #1 — both verbs
+    reasoned about the body chain without cut-awareness):
+
+    * an extrude-CUT: its removal tool(s) are RECONSTRUCTED from the source's
+      already-solved profile — a pure, deterministic function of the same solved
+      sketch + params the cut itself used (:func:`_resolve_profile_faces` +
+      :func:`extrude_face`);
+    * a Hole: the exact bore (+ any counterbore/countersink recess) tool(s)
+      CAPTURED at hole-eval time (``state.last_hole_tools``), so the seed hole
+      (placement 0 / the source side) and the copies are the identical tool without
+      re-resolving the placement face against the post-cut body.
+
+    Any other source (an add, a fillet, an intervening feature) returns ``None`` —
+    the caller replicates whole-body copies exactly as before (the add-pattern /
+    reflect-and-union mirror path is unchanged).
 
     The source cut already succeeded in this prefix (strict-prefix rule), so
     reconstruction cannot fail; a defensive ``FeatureError`` from the resolver
     (which must not happen) falls back to ``None`` rather than crash.
     """
     source = state.prev_body_feature
+    if isinstance(source, HoleFeature):
+        return state.last_hole_tools
     if not isinstance(source, ExtrudeFeature) or source.params.operation != "cut":
         return None
     resolved = _resolve_profile_faces(source.params.profile, state)
@@ -1804,11 +1867,12 @@ def _evaluate_pattern(
     vectors (no picked sub-geometry — independent of topological naming, #1), so
     like fillet/chamfer it needs a prior body-affecting feature
     (``no_target_body`` otherwise). Two combine modes, inferred (option a) from
-    the IMMEDIATELY-preceding body-affecting feature (:func:`_pattern_cut_tools`):
+    the IMMEDIATELY-preceding body-affecting feature (:func:`_prev_cut_tools`):
 
-    * when it is an extrude-CUT (a bolt-circle hole, a lightening hole —
-      BACKLOG #3 / showcase F1), the copies of that cut's tool are REMOVED at
-      each placement, so one hole-cut + pattern makes N holes, not N bodies;
+    * when it is an extrude-CUT or a Hole (a bolt-circle hole, a lightening hole —
+      BACKLOG #3 / FINDINGS #1 / showcase F1), the copies of that cut's tool are
+      REMOVED at each placement, so one hole-cut + pattern makes N holes, not N
+      bodies;
     * otherwise the copies of the WHOLE current body are UNIONED into the chain
       (the original add-pattern, unchanged — BACKLOG #7).
 
@@ -1833,7 +1897,7 @@ def _evaluate_pattern(
             ),
         )
 
-    tools = _pattern_cut_tools(state)
+    tools = _prev_cut_tools(state)
     try:
         state.set_active_body(_apply_pattern(active, feature.params.pattern, tools))
     except PatternCountError as exc:
@@ -1856,25 +1920,37 @@ def _evaluate_pattern(
 def _evaluate_mirror(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Reflect the current body about a plane and union the reflection in (§4.3).
+    """Reflect the current body about a plane — cut-aware or reflect-and-union (§4.3).
 
     v1 DESIGN DECISION (docs/GEOMETRY-QA.md): a mirror reflects the CURRENT
-    evaluated body about ``plane`` and BOOLEAN-UNIONS the reflection into the
-    single body chain (design §7.6, option B — the reflective sibling of the ADD
-    pattern). Like fillet/chamfer/pattern it needs a prior body-affecting feature
-    (``no_target_body`` otherwise). The mirror plane is resolved through the SAME
-    :func:`resolve_sketch_plane` funnel a sketch uses (an origin datum name or an
-    earlier ``datum`` feature — no new plane taxonomy), so a plane that names a
-    missing / later / non-datum feature is a ``reference_unresolved`` pinned to
-    the referenced feature (documents rejects it at write time; geometry
-    re-checks because it must not trust its callers).
+    evaluated body about ``plane``. Like fillet/chamfer/pattern it needs a prior
+    body-affecting feature (``no_target_body`` otherwise). The mirror plane is
+    resolved through the SAME :func:`resolve_sketch_plane` funnel a sketch uses (an
+    origin datum name or an earlier ``datum`` feature — no new plane taxonomy), so
+    a plane that names a missing / later / non-datum feature is a
+    ``reference_unresolved`` pinned to the referenced feature (documents rejects it
+    at write time; geometry re-checks because it must not trust its callers).
 
-    UNLIKE a pattern, the union may be a DISJOINT two-lump body (the reflection
-    of a body that clears the plane — a valid ``2V`` multi-body, §MB-0), an
-    OVERLAPPING merge, or the unchanged body (a symmetric source). A degenerate
-    reflection / failed union is a per-feature ``mirror_failed`` error; the active
-    body is only replaced on success (strict-prefix rule tessellates the
-    last-good body, §4.3).
+    Two combine modes, inferred (option a) from the IMMEDIATELY-preceding
+    body-affecting feature (:func:`_prev_cut_tools`) — the SAME cut-awareness the
+    pattern uses, because mirror and pattern share the root defect (FINDINGS #1:
+    both reasoned about the body chain without it):
+
+    * when it is an extrude-CUT or a Hole, the mirror reflects THAT CUT's tool(s)
+      about ``plane`` and removes them (:func:`mirror_cut`), so a plate with a hole
+      on one side mirrors to a plate with a hole on BOTH sides — the #1 mirror use
+      case. Reflecting the whole filled body and unioning would instead FILL the
+      original hole (the featureless-brick bug);
+    * otherwise the mirror reflects the WHOLE current body and BOOLEAN-UNIONS the
+      reflection into the body chain (:func:`mirror_union` — option B, the
+      reflective sibling of the ADD pattern, unchanged). UNLIKE a pattern this union
+      may be a DISJOINT two-lump body (the reflection of a body that clears the
+      plane — a valid ``2V`` multi-body, §MB-0), an OVERLAPPING merge, or the
+      unchanged body (a symmetric source).
+
+    A degenerate reflection / failed union or cut is a per-feature ``mirror_failed``
+    error; the active body is only replaced on success (strict-prefix rule
+    tessellates the last-good body, §4.3).
     """
     feature = item.feature
     assert isinstance(feature, MirrorFeature), "registry dispatches on type='mirror'"
@@ -1893,8 +1969,12 @@ def _evaluate_mirror(
     if isinstance(plane, FeatureError):
         return plane
 
+    tools = _prev_cut_tools(state)
     try:
-        state.set_active_body(mirror_union(active, plane))
+        if tools is not None:
+            state.set_active_body(mirror_cut(active, tools, plane))
+        else:
+            state.set_active_body(mirror_union(active, plane))
     except MirrorError as exc:
         return FeatureError(code="mirror_failed", message=str(exc))
     return None

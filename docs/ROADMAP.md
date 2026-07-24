@@ -963,6 +963,22 @@ flexible sub-assemblies, part-version pinning-as-default.
       an open-profile extrude reads extrude advice, not revolve centerline text.
       e2e: Esc-outside-panel + extrude-specific copy + hint-on-select; founder
       shots `findings-{dimension-hint,extrude-error}-{desktop,laptop}.png`.
+      **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
+      #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
+      longer duplicates the whole body and mirroring a holed plate about its
+      midplane no longer fills the hole to a featureless brick. Root cause was
+      shared — both verbs inferred a cut source from the preceding feature but
+      recognized ONLY extrude-cut — so the fix is one seam: `_prev_cut_tools`
+      now also returns a Hole's captured bore(+recess) tools (`state.
+      last_hole_tools`, grabbed at hole-eval time from the pre-cut body so no
+      brittle post-cut face re-resolution), the pattern arrays those tools, and
+      `mirror_cut` reflects+removes them (vs `mirror_union`) when the source is a
+      cut. Volumes now analytically exact: pattern-of-hole 34492.04 (was 59497.3
+      whole-body union); mirror-of-holed-plate 29989.38 (was 32000.0 brick). Two
+      composed goldens (`pattern-cut-hole-feature-3x-60x60x10` tol 1e-9,
+      `mirror-hole-feature-plate-40x40x20` tol 1e-8) assert the analytic volume
+      + exact topology and fail on the old behavior; pattern/mirror/hole/golden/
+      step-roundtrip suites green, `hole.py` tool builders factored (DRY).
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive

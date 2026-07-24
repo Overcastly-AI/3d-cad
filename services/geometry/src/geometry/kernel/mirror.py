@@ -39,7 +39,9 @@ byte-identical bytes across interpreter restarts.
 """
 # pyright: reportUnknownMemberType=false
 
-from build123d import Plane
+from collections.abc import Sequence
+
+from build123d import Plane, Solid
 
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.types import BodyShape
@@ -89,4 +91,61 @@ def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
             "Mirror produced no solid — the reflected union is empty. This is "
             "unexpected for a valid body; check the mirror plane."
         )
+    return assemble_lumps(solids)
+
+
+def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodyShape:
+    """Reflect the cut *tools* about *plane* and subtract them from *body*.
+
+    The CUT-AWARE mirror (the reflective sibling of
+    :func:`geometry.kernel.pattern.circular_pattern_cut`): when the mirror's
+    immediately-preceding feature is a cut (an extrude-cut or a Hole), the mirror
+    must reflect that removal — a plate with a hole on one side of the plane
+    mirrors to a plate with a hole on BOTH sides — NOT reflect the whole filled
+    body and union it (which would fill the original hole, betraying the #1 mirror
+    use case). Each tool is reflected by ``Shape.mirror`` (the same exact
+    handedness-reversing isometry :func:`mirror_union` uses) and cut from *body* in
+    one variadic ``cut``, then ``clean()``-ed so the removed geometry's redundant
+    seams collapse and topology counts stay meaningful (and golden-assertable).
+
+    The result must keep *body*'s LUMP COUNT (``k`` — 1 for the common single-body
+    plate): a reflected hole cut interior to the body never severs or empties it.
+    A cut that removes the whole body, or splits a lump, is a
+    :class:`MirrorError` (never a silently wrong body).
+
+    Raises:
+        MirrorError: the OCCT reflection/cut failed, removed the entire body, or
+            changed the body's lump count.
+    """
+    lump_count = len(body.solids())
+    try:
+        reflected = [tool.mirror(plane) for tool in tools]
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        raise MirrorError(
+            f"Mirror reflection of the cut tool failed in the kernel "
+            f"({type(exc).__name__}); the mirror plane may be degenerate."
+        ) from exc
+
+    try:
+        cut = body.cut(*reflected)
+        solids = list(cut.clean().solids())
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        raise MirrorError(
+            f"Mirror cut failed in the kernel ({type(exc).__name__}); a reflected "
+            "tool may graze or self-intersect the body."
+        ) from exc
+
+    if not solids:
+        raise MirrorError(
+            "The mirrored cut removed the entire body — nothing remains. Check the "
+            "mirror plane and the cut it reflects."
+        )
+    if len(solids) != lump_count:
+        raise MirrorError(
+            f"The mirrored cut changed the body from {lump_count} to {len(solids)} "
+            "disjoint lumps — a reflected tool sliced a lump apart (design §7.6 / "
+            "§MB-4)."
+        )
+    if lump_count == 1:
+        return solids[0]
     return assemble_lumps(solids)

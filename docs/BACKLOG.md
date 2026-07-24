@@ -701,6 +701,16 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-24 batch)
 
+- [x] (P0, M) FINDINGS #1–#2 cut-aware pattern + mirror (silent-wrong-geometry
+      pair, `services/geometry`). Patterning a Hole duplicated the whole body
+      (59497.3 vs 34492.04) and mirroring a holed plate about its midplane filled
+      the hole to a solid brick (32000.0 vs 29989.38): both inferred a cut source
+      but recognized only extrude-cut. Fix: `_prev_cut_tools` also returns a
+      Hole's captured bore(+recess) tools (`state.last_hole_tools`, no post-cut
+      face re-resolution); mirror gains `mirror_cut` (reflect+remove the cut) vs
+      `mirror_union`. Two composed goldens (pattern-of-hole tol 1e-9, mirror-of-
+      holed-plate tol 1e-8) assert analytic volume + exact topology, fail on the
+      old behavior; `hole.py` tool builders factored (DRY). [src: FINDINGS.md #1–#2]
 - [x] (P1, M) FINDINGS UX P1 trio (novice flow, `apps/web`). #11 the Esc
       promise: one global window Esc handler in PartPage disarms any open
       feature editor from ANY focus (band advertised "CANCEL ESC" but cancel was

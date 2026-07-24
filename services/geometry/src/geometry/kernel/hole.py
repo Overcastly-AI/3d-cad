@@ -117,6 +117,34 @@ def _drill_axis(
     return center, normal, span
 
 
+def bore_tool(
+    body: BodyShape,
+    face_plane: Plane,
+    position: tuple[float, float, float],
+    diameter_mm: float,
+    *,
+    through_all: bool,
+    depth_mm: float | None,
+) -> Solid:
+    """The right-circular drill TOOL a :func:`bore_hole` subtracts (no cut yet).
+
+    Factored out (CLAUDE.md DRY rule) so a pattern / mirror of a Hole feature can
+    RECONSTRUCT the exact removal solid it must replicate — the same cylinder,
+    from the same projected axis + outward normal + bounding-box span — without
+    re-running the cut. A pure function of ``(body, face_plane, position,
+    diameter_mm, through_all, depth_mm)``: the tool starts a span OUTSIDE the face
+    and drills inward, so it needs no coincident-face boolean and no ad-hoc epsilon
+    (RESEARCH §9 determinism)."""
+    radius = diameter_mm / 2.0
+    center, normal, span = _drill_axis(body, face_plane, position)
+    start = center + normal * span
+    height = 3.0 * span if through_all else span + (depth_mm or 0.0)
+    into = -normal
+    return Solid.make_cylinder(
+        radius, height, Plane(origin=start, x_dir=face_plane.x_dir, z_dir=into)
+    )
+
+
 def bore_hole(
     body: BodyShape,
     face_plane: Plane,
@@ -144,15 +172,13 @@ def bore_hole(
         BooleanError: the kernel cut failed or changed the body's lump count.
     """
     radius = diameter_mm / 2.0
-    # The projected axis + outward normal + bounding-box span (shared with every
-    # recess cut): start the tool OUTSIDE the face and drill inward, so no ad-hoc
-    # epsilon and no coincident-face boolean at the opening.
-    center, normal, span = _drill_axis(body, face_plane, position)
-    start = center + normal * span
-    height = 3.0 * span if through_all else span + (depth_mm or 0.0)
-    into = -normal
-    tool: Solid = Solid.make_cylinder(
-        radius, height, Plane(origin=start, x_dir=face_plane.x_dir, z_dir=into)
+    tool = bore_tool(
+        body,
+        face_plane,
+        position,
+        diameter_mm,
+        through_all=through_all,
+        depth_mm=depth_mm,
     )
 
     before = float(body.volume)
@@ -177,6 +203,39 @@ def bore_hole(
                 "through-all hole, reduce the depth, or move the hole inward."
             )
     return result
+
+
+def counterbore_tool(
+    body: BodyShape,
+    face_plane: Plane,
+    position: tuple[float, float, float],
+    *,
+    bore_diameter_mm: float,
+    cbore_diameter_mm: float,
+    cbore_depth_mm: float,
+) -> Solid:
+    """The coaxial CYLINDRICAL counterbore recess TOOL (no cut yet).
+
+    Factored out (DRY) so a pattern / mirror of a counterbored Hole can replicate
+    the recess exactly. Validates the recess-larger-than-bore rule here (the same
+    :class:`HoleRecessInvalidError` :func:`cut_counterbore` raised) so a
+    reconstructed tool can never be a degenerate no-wider-than-bore cylinder."""
+    bore_radius = bore_diameter_mm / 2.0
+    radius = cbore_diameter_mm / 2.0
+    if radius <= bore_radius:
+        raise HoleRecessInvalidError(
+            f"The counterbore diameter ({cbore_diameter_mm}mm) must be larger than "
+            f"the bore diameter ({bore_diameter_mm}mm); a recess no wider than the "
+            "bore seats nothing. Increase the counterbore diameter."
+        )
+    center, normal, span = _drill_axis(body, face_plane, position)
+    start = center + normal * span
+    into = -normal
+    return Solid.make_cylinder(
+        radius,
+        span + cbore_depth_mm,
+        Plane(origin=start, x_dir=face_plane.x_dir, z_dir=into),
+    )
 
 
 def cut_counterbore(
@@ -204,22 +263,16 @@ def cut_counterbore(
             depth exceeds the material (broke through) or overhangs the face edge.
         BooleanError: the kernel cut failed or changed the body's lump count.
     """
+    tool = counterbore_tool(
+        body,
+        face_plane,
+        position,
+        bore_diameter_mm=bore_diameter_mm,
+        cbore_diameter_mm=cbore_diameter_mm,
+        cbore_depth_mm=cbore_depth_mm,
+    )
     bore_radius = bore_diameter_mm / 2.0
     radius = cbore_diameter_mm / 2.0
-    if radius <= bore_radius:
-        raise HoleRecessInvalidError(
-            f"The counterbore diameter ({cbore_diameter_mm}mm) must be larger than "
-            f"the bore diameter ({bore_diameter_mm}mm); a recess no wider than the "
-            "bore seats nothing. Increase the counterbore diameter."
-        )
-    center, normal, span = _drill_axis(body, face_plane, position)
-    start = center + normal * span
-    into = -normal
-    tool: Solid = Solid.make_cylinder(
-        radius,
-        span + cbore_depth_mm,
-        Plane(origin=start, x_dir=face_plane.x_dir, z_dir=into),
-    )
 
     before = float(body.volume)
     result = combine_body(body, tool, "cut")
@@ -235,6 +288,45 @@ def cut_counterbore(
             "Reduce the counterbore depth or diameter, or move the hole inward."
         )
     return result
+
+
+def countersink_tool(
+    body: BodyShape,
+    face_plane: Plane,
+    position: tuple[float, float, float],
+    *,
+    bore_diameter_mm: float,
+    csink_diameter_mm: float,
+    csink_angle_deg: float,
+) -> Solid:
+    """The coaxial CONICAL countersink recess TOOL (no cut yet).
+
+    Factored out (DRY) so a pattern / mirror of a countersunk Hole can replicate
+    the cone exactly. Validates the mouth-larger-than-bore rule here (the same
+    :class:`HoleRecessInvalidError` :func:`cut_countersink` raised)."""
+    bore_radius = bore_diameter_mm / 2.0
+    radius = csink_diameter_mm / 2.0
+    if radius <= bore_radius:
+        raise HoleRecessInvalidError(
+            f"The countersink diameter ({csink_diameter_mm}mm) must be larger than "
+            f"the bore diameter ({bore_diameter_mm}mm); a cone no wider than the "
+            "bore seats nothing. Increase the countersink diameter."
+        )
+    slope = math.tan(math.radians(csink_angle_deg / 2.0))
+    cone_depth = (radius - bore_radius) / slope
+    center, normal, span = _drill_axis(body, face_plane, position)
+    into = -normal
+    # Extend the wide mouth `span` ABOVE the face along the cone's slope, so the
+    # opening clears a coincident-face boolean while the radius is still exactly
+    # `radius` at the surface and exactly `bore_radius` at `cone_depth` below it.
+    mouth_radius = radius + span * slope
+    origin = center + normal * span
+    return Solid.make_cone(
+        mouth_radius,
+        bore_radius,
+        span + cone_depth,
+        Plane(origin=origin, x_dir=face_plane.x_dir, z_dir=into),
+    )
 
 
 def cut_countersink(
@@ -266,29 +358,18 @@ def cut_countersink(
             implied depth exceeds the material or overhangs the face edge.
         BooleanError: the kernel cut failed or changed the body's lump count.
     """
+    tool = countersink_tool(
+        body,
+        face_plane,
+        position,
+        bore_diameter_mm=bore_diameter_mm,
+        csink_diameter_mm=csink_diameter_mm,
+        csink_angle_deg=csink_angle_deg,
+    )
     bore_radius = bore_diameter_mm / 2.0
     radius = csink_diameter_mm / 2.0
-    if radius <= bore_radius:
-        raise HoleRecessInvalidError(
-            f"The countersink diameter ({csink_diameter_mm}mm) must be larger than "
-            f"the bore diameter ({bore_diameter_mm}mm); a cone no wider than the "
-            "bore seats nothing. Increase the countersink diameter."
-        )
     slope = math.tan(math.radians(csink_angle_deg / 2.0))
     cone_depth = (radius - bore_radius) / slope
-    center, normal, span = _drill_axis(body, face_plane, position)
-    into = -normal
-    # Extend the wide mouth `span` ABOVE the face along the cone's slope, so the
-    # opening clears a coincident-face boolean while the radius is still exactly
-    # `radius` at the surface and exactly `bore_radius` at `cone_depth` below it.
-    mouth_radius = radius + span * slope
-    origin = center + normal * span
-    tool: Solid = Solid.make_cone(
-        mouth_radius,
-        bore_radius,
-        span + cone_depth,
-        Plane(origin=origin, x_dir=face_plane.x_dir, z_dir=into),
-    )
 
     before = float(body.volume)
     result = combine_body(body, tool, "cut")

@@ -64,6 +64,9 @@ from geometry.kernel.hole import (
     HoleRecessInvalidError,
     HoleTooDeepError,
     bore_hole,
+    bore_tool,
+    counterbore_tool,
+    countersink_tool,
     cut_counterbore,
     cut_countersink,
 )
@@ -85,7 +88,7 @@ from geometry.kernel.interference import (
 )
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
-from geometry.kernel.mirror import MirrorError, mirror_union
+from geometry.kernel.mirror import MirrorError, mirror_cut, mirror_union
 from geometry.kernel.overlay import selection_overlay
 from geometry.kernel.pattern import (
     PatternAngleError,
@@ -189,6 +192,7 @@ __all__ = [
     "SweepError",
     "boolean_bodies",
     "bore_hole",
+    "bore_tool",
     "build_box",
     "build_cylinder",
     "build_datum_plane",
@@ -204,6 +208,8 @@ __all__ = [
     "circular_pattern_cut",
     "combine_body",
     "combine_properties",
+    "counterbore_tool",
+    "countersink_tool",
     "cut_counterbore",
     "cut_countersink",
     "draft_body",
@@ -227,6 +233,7 @@ __all__ = [
     "measure_shape",
     "measure_targets",
     "midplane_between",
+    "mirror_cut",
     "mirror_union",
     "offset_plane",
     "place_body",

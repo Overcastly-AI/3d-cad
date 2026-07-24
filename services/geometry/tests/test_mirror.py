@@ -19,6 +19,7 @@ assertions use the documented tree-golden tolerance (measured-then-set,
 """
 
 import json
+import math
 import uuid
 from pathlib import Path
 from typing import Any
@@ -507,6 +508,101 @@ def test_mirrored_lump_is_a_valid_positive_volume_solid() -> None:
     union = mirror_union(prism, Plane.YZ)
     assert union.volume == pytest.approx(72.0, abs=MIRROR_TOL)
     assert union.is_valid
+
+
+# --- Cut-aware mirror: reflect the CUT, don't fill the hole (FINDINGS #2) -------------
+
+HOLE_FEATURE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d2")
+
+
+def hole_feature_input(
+    feature_id: uuid.UUID,
+    face_feature: uuid.UUID,
+    face_centroid: tuple[float, float, float],
+    face_area: float,
+    position: tuple[float, float, float],
+    diameter_mm: float,
+) -> dict[str, Any]:
+    """A through-all Hole FEATURE on a body's +Z face (the flagship Hole)."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "hole",
+            "version": 1,
+            "params": {
+                "face": {
+                    "kind": "subshape",
+                    "feature_id": str(face_feature),
+                    "subshape_type": "face",
+                    "selector": {
+                        "selector_version": 1,
+                        "signature": {
+                            "subshape_type": "face",
+                            "surface": "plane",
+                            "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                            "centroid": {
+                                "x": face_centroid[0],
+                                "y": face_centroid[1],
+                                "z": face_centroid[2],
+                            },
+                            "area_mm2": face_area,
+                        },
+                    },
+                },
+                "position": {"x": position[0], "y": position[1], "z": position[2]},
+                "diameter_mm": diameter_mm,
+                "depth": {"kind": "through_all"},
+            },
+        },
+    }
+
+
+def test_mirror_of_a_holed_plate_reflects_the_hole_not_fills_it() -> None:
+    """FINDINGS #2 regression: mirroring a plate-with-hole about its own midplane
+    must reflect the HOLE (a hole on both sides), NOT reflect the filled body and
+    union it into a featureless brick.
+
+    Plate [0,40] x [0,40] x [0,20] (V=32000), a single r4 through-hole drilled by
+    the Hole feature at (10,20), mirrored about a YZ-offset datum at x=20 (the
+    plate midplane). The reflected hole lands at x=30, so the result is a plate
+    with TWO r4 through-holes -> V = 32000 - 2*pi*16*20. The pre-fix whole-body
+    union filled the hole and returned exactly 32000 (a solid brick, 6 faces): this
+    asserts BOTH the drilled volume AND the two cylinder walls (8 faces), so the old
+    behaviour FAILS on volume and on topology.
+    """
+    result = _post(
+        _request(
+            [
+                rect_sketch(SKETCH_ID, 0.0, 0.0, 40.0, 40.0),
+                extrude_input(BODY_ID, SKETCH_ID, 20.0),
+                hole_feature_input(
+                    HOLE_FEATURE_ID,
+                    BODY_ID,
+                    (20.0, 20.0, 20.0),
+                    1600.0,
+                    (10.0, 20.0, 20.0),
+                    8.0,
+                ),
+                datum_offset_input(DATUM_ID, "YZ", 20.0),
+                mirror_input(
+                    MIRROR_ID, {"kind": "feature", "feature_id": str(DATUM_ID)}
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "ok", "ok"]
+    assert result.properties is not None
+    two_holes = 2 * math.pi * 4.0**2 * 20.0
+    assert result.properties.volume == pytest.approx(
+        32000.0 - two_holes, abs=MIRROR_TOL
+    )
+    # A holed plate is one solid with two cylinder walls — NOT the filled 6-face brick.
+    assert result.properties.topology.faces == 8
+    assert result.properties.topology.shells == 1
+    # Holes at x=10,30 symmetric about the x=20 midplane -> centroid on it.
+    assert result.properties.centroid.x == pytest.approx(20.0, abs=MIRROR_TOL)
+    assert result.properties.centroid.y == pytest.approx(20.0, abs=MIRROR_TOL)
 
 
 # --- Error paths are per-feature values, never transport failures ---------------------

@@ -472,6 +472,92 @@ def test_pattern_after_an_intervening_fillet_unions_whole_body_not_recut() -> No
     assert result.properties.topology.shells == 1
 
 
+# --- Pattern of a HOLE FEATURE: array the drill, not the whole body (FINDINGS #1) -----
+
+HOLE_FEATURE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d2")
+
+#: The 60x60 plate's +Z face signature (area 3600, centroid (0,0,10)).
+PLATE_TOP_FACE: dict[str, Any] = {
+    "kind": "subshape",
+    "feature_id": str(BODY_ID),
+    "subshape_type": "face",
+    "selector": {
+        "selector_version": 1,
+        "signature": {
+            "subshape_type": "face",
+            "surface": "plane",
+            "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+            "centroid": {"x": 0.0, "y": 0.0, "z": 10.0},
+            "area_mm2": 3600.0,
+        },
+    },
+}
+
+
+def hole_feature_input(
+    feature_id: uuid.UUID, position: tuple[float, float, float], diameter_mm: float
+) -> dict[str, Any]:
+    """A through-all Hole FEATURE on the plate's +Z face (the flagship Hole, NOT a
+    hand-sketched extrude-cut) — the source whose pattern FINDINGS #1 broke."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "hole",
+            "version": 1,
+            "params": {
+                "face": PLATE_TOP_FACE,
+                "position": {"x": position[0], "y": position[1], "z": position[2]},
+                "diameter_mm": diameter_mm,
+                "depth": {"kind": "through_all"},
+            },
+        },
+    }
+
+
+def test_pattern_of_a_hole_feature_arrays_the_cut_not_the_whole_body() -> None:
+    """FINDINGS #1 regression: patterning a HOLE feature must array the CUT, not
+    duplicate the whole body. Plate 60x60x10, a single r4 through-hole drilled by
+    the Hole feature at (20,0), linear-patterned -X (spacing 20, count 3) -> three
+    holes at x = 20, 0, -20 in ONE plate. Volume = plate minus THREE r4 through-
+    holes; a single connected solid (9 faces).
+
+    Discriminator vs the old bug: the pre-fix path unioned three whole-body copies
+    of the drilled plate (measured ~59497 mm^3, body extended along -X), so this
+    asserts BOTH the exact drilled volume (< one 36000 plate) AND the AABB
+    unchanged from the single plate ([-30,30] in X) — a whole-body union would push
+    min.x to -70.
+    """
+    result = _post(
+        _request(
+            [
+                rect_sketch(SKETCH_ID, -30.0, -30.0, 30.0, 30.0),
+                extrude_input(BODY_ID, SKETCH_ID, 10.0),
+                hole_feature_input(HOLE_FEATURE_ID, (20.0, 0.0, 10.0), 8.0),
+                linear_pattern_input(
+                    PATTERN_ID, direction=(-1.0, 0.0, 0.0), spacing_mm=20.0, count=3
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "ok"]
+    assert result.properties is not None
+    plate = 60.0 * 60.0 * 10.0
+    three_holes = 3 * math.pi * 4.0**2 * 10.0
+    assert result.properties.volume == pytest.approx(
+        plate - three_holes, abs=PATTERN_TOL
+    )
+    assert result.properties.topology.shells == 1
+    assert result.properties.topology.faces == 9
+    # AABB unchanged from the single plate — a whole-body union would extend -X.
+    bbox = result.properties.bounding_box
+    assert bbox.min.x == pytest.approx(-30.0, abs=PATTERN_TOL)
+    assert bbox.max.x == pytest.approx(30.0, abs=PATTERN_TOL)
+    # Centroid on x=0 by the symmetric row {20,0,-20}, y=0.
+    assert result.properties.centroid.x == pytest.approx(0.0, abs=PATTERN_TOL)
+    assert result.properties.centroid.y == pytest.approx(0.0, abs=PATTERN_TOL)
+
+
 # --- Pattern of a MULTI-REGION (#4) cut: replicate ALL tools (#4 x #3) ----------------
 
 MULTI_HOLE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a4")
