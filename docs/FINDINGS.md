@@ -74,8 +74,16 @@ a concrete fix; the top block is already being actioned.
 
 ## P1 — daily friction / clearly behind the bar
 
-- **Sheet auto-layout collides a 5th (section) view into TOP/ISO** on
-  exported PDF/DXF; authored positions ignored; no drag-to-place (product).
+- ✅ **Sheet auto-layout collides a 5th (section) view into TOP/ISO — FIXED
+  2026-07-24** (kernel-architect, #6): `place_sheet` now resolves EVERY view's
+  anchor through one pass — the standard quartet bounds-aware as before, and the
+  additive section/flat_pattern views dropped into a NON-OVERLAPPING free slot
+  (right/below/left/above the placed block, gutter-clear) instead of dead-centre
+  onto TOP/ISO. Authored positions are HONORED when `SheetViewPlacement.auto_place`
+  is false (the drag-to-place seam — backend now respects stored positions; the UI
+  is the frontend follow-up). Regression: a 5-view sheet composes with zero
+  overlapping view boxes. _Was: the section view collided with TOP/ISO on the
+  exported PDF/DXF and authored positions were ignored._
 - **Assembly STEP writes UUIDs as PRODUCT names** — a Loft→Loft round trip
   yields parts named `c8f8baa9-…`; positions survive, identity doesn't
   (product). _Fix: thread instance names into export; prefer stored names on
@@ -113,8 +121,12 @@ a concrete fix; the top block is already being actioned.
 
 ## P2 — parity gaps / trust dents
 
-- Compose/export flattens typed view errors to bare `failed: true` — a
-  silently empty view on the print (product).
+- ✅ **Compose/export flattened typed view errors to bare `failed: true` —
+  FIXED 2026-07-24** (kernel-architect, #15): `ComposedView` now carries the source
+  view's typed `FeatureError` (code + message) through composition, and all three
+  serializers (SVG/PDF/DXF) stamp the reason under "VIEW FAILED" (+ a
+  `data-view-error-code` hook), so a failed view prints WHY it is empty. Regression:
+  a `section_params_missing` view composes with its typed reason intact + serialized.
 - ✅ **Undo bypasses cross-doc protection — FIXED 2026-07-24** (backend-builder,
   #16): the part undo/redo restore now runs the SAME feature-level cross-document
   guard a direct delete does — a drawing section view whose cutting plane is a
@@ -143,8 +155,12 @@ a concrete fix; the top block is already being actioned.
 - "Solve a sketch first" jargon on the most-hit gate; Hole editor covers its
   own pick target; DRIVING/DRIVEN jargon at first dimension; 32×16 px undo
   targets; errors land in the tree while the eye is on the editor (UX).
-- Shared-HLR `_canonicalize` emits a segment both dashed and solid under
-  partial occlusion (pre-existing, geometry-QA + engineering G5).
+- ✅ **Shared-HLR `_canonicalize` emitted a segment both dashed and solid under
+  partial occlusion — FIXED 2026-07-24** (kernel-architect, #21): the visible-wins
+  cull caught only EXACT coincidence; a hidden line that COLLINEARLY OVERLAPS a
+  visible one now has that coverage subtracted, leaving only the genuinely-occluded
+  residual dashed (split at the overlap boundary). Regression covering the
+  partial-occlusion overlap + full-containment cases.
 
 ## P3 / hygiene
 

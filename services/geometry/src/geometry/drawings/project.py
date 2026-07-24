@@ -391,6 +391,113 @@ def _classify(
     )
 
 
+#: Min length (mm) of a residual hidden sub-segment kept after subtracting the
+#: collinear visible coverage (§8 open Q2 partial-occlusion split). A residual
+#: shorter than this is a sub-tolerance endpoint touch, not a real dash, and is
+#: dropped. Sized to the coincidence-cull key tolerance (``_KEY_DECIMALS``).
+_SEG_MIN_MM = 1e-6
+
+#: Perpendicular tolerance (mm) for a visible line to count as COLLINEAR with a
+#: hidden line for the partial-occlusion subtraction — the same coordinate scale
+#: the coincidence-cull key rounds to (``_KEY_DECIMALS``).
+_COLLINEAR_TOL_MM = 10.0**-_KEY_DECIMALS
+
+
+def _visible_line_coverage(
+    hidden: ProjectedEdge, visible_lines: list[ProjectedEdge]
+) -> list[tuple[float, float]]:
+    """Parametric intervals of ``hidden`` (t in [0, 1] from ``start`` to ``end``)
+    covered by a COLLINEAR visible line, for the partial-occlusion split (§8 open Q2).
+
+    A visible line covers part of the hidden segment only when BOTH its endpoints lie
+    on the hidden segment's infinite line (perpendicular distance <= tolerance); the
+    covered range is that visible segment's projection onto the hidden axis, clipped
+    to [0, 1]. A sub-tolerance sliver is ignored (an endpoint touch, not real overlap).
+    """
+    dx = hidden.end.x - hidden.start.x
+    dy = hidden.end.y - hidden.start.y
+    len2 = dx * dx + dy * dy
+    if len2 <= 0.0:
+        return []
+    seg_len = math.sqrt(len2)
+    min_param = _SEG_MIN_MM / seg_len
+    ox, oy = hidden.start.x, hidden.start.y
+    covered: list[tuple[float, float]] = []
+    for vis in visible_lines:
+        # |(p - origin) x dir| / |dir| — perpendicular distance to the infinite line.
+        d_start = abs(dx * (vis.start.y - oy) - dy * (vis.start.x - ox)) / seg_len
+        d_end = abs(dx * (vis.end.y - oy) - dy * (vis.end.x - ox)) / seg_len
+        if d_start > _COLLINEAR_TOL_MM or d_end > _COLLINEAR_TOL_MM:
+            continue
+        t0 = ((vis.start.x - ox) * dx + (vis.start.y - oy) * dy) / len2
+        t1 = ((vis.end.x - ox) * dx + (vis.end.y - oy) * dy) / len2
+        lo = max(0.0, min(t0, t1))
+        hi = min(1.0, max(t0, t1))
+        if hi - lo > min_param:
+            covered.append((lo, hi))
+    return covered
+
+
+def _resolve_hidden_line(
+    hidden: ProjectedEdge, visible_lines: list[ProjectedEdge]
+) -> list[ProjectedEdge]:
+    """Split a hidden LINE edge so no part of it coincides with a visible line (§8
+    open Q2 partial-occlusion tie-break — VISIBLE WINS along the OVERLAP, not just on
+    exact coincidence).
+
+    Under partial occlusion HLR can emit a hidden segment that overlaps a collinear
+    visible one along a SUB-range (the coincident back edge of a box whose front twin
+    is itself split by an occluder): the exact-coincidence cull leaves both, so the
+    overlap draws BOTH solid and dashed. Subtracting the visible coverage yields the
+    residual dashed sub-segments only — the overlap is drawn solid alone. Non-line
+    hidden edges (circle/arc/polyline) pass through unchanged (v1 splits straight
+    edges — the segment case the double-emit manifests on).
+    """
+    if hidden.primitive != "line":
+        return [hidden]
+    covered = _visible_line_coverage(hidden, visible_lines)
+    if not covered:
+        return [hidden]
+    dx = hidden.end.x - hidden.start.x
+    dy = hidden.end.y - hidden.start.y
+    seg_len = math.sqrt(dx * dx + dy * dy)
+    min_param = _SEG_MIN_MM / seg_len
+    covered.sort()
+    merged: list[tuple[float, float]] = []
+    for lo, hi in covered:
+        if merged and lo <= merged[-1][1] + min_param:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+        else:
+            merged.append((lo, hi))
+    gaps: list[tuple[float, float]] = []
+    cursor = 0.0
+    for lo, hi in merged:
+        if lo - cursor > min_param:
+            gaps.append((cursor, lo))
+        cursor = max(cursor, hi)
+    if 1.0 - cursor > min_param:
+        gaps.append((cursor, 1.0))
+    if len(gaps) == 1 and gaps[0] == (0.0, 1.0):
+        return [hidden]  # coverage was all sub-tolerance — unchanged (byte-identical)
+
+    def _at(t: float) -> Point2D:
+        return Point2D(hidden.start.x + t * dx, hidden.start.y + t * dy)
+
+    residuals: list[ProjectedEdge] = []
+    for lo, hi in gaps:
+        residuals.append(
+            replace(
+                hidden,
+                start=_at(lo),
+                end=_at(hi),
+                midpoint=_at((lo + hi) / 2),
+                # A split fragment no longer names a single model endpoint pair.
+                start_is_end_a=None,
+            )
+        )
+    return residuals
+
+
 def _canonicalize(edges: list[ProjectedEdge]) -> tuple[ProjectedEdge, ...]:
     """De-dup, cull hidden-behind-visible, and impose the canonical order (§1.4).
 
@@ -398,18 +505,29 @@ def _canonicalize(edges: list[ProjectedEdge]) -> tuple[ProjectedEdge, ...]:
        identical projected verticals from front and back faces, §8 open Q2).
     2. Drop any hidden edge coincident with a visible edge — VISIBLE WINS (§8 open
        Q2 tie-break): a solid line is never also drawn dashed.
-    3. Sort by the pure-geometry :meth:`ProjectedEdge._sort_key` so the order is a
+    2b. Under PARTIAL occlusion, subtract a visible line's coverage from any collinear
+       hidden line it OVERLAPS (:func:`_resolve_hidden_line`), so a partially-occluded
+       segment is never emitted BOTH dashed and solid along the overlap (FINDINGS #21 /
+       engineering G5) — exact coincidence was the only case step 2 caught.
+    3. Sort by the pure-geometry :meth:`ProjectedEdge.sort_key` so the order is a
        function of geometry, not HLR's construction-history enumeration.
     """
     unique: dict[tuple[bool, tuple[object, ...]], ProjectedEdge] = {}
     for edge in edges:
         unique.setdefault((edge.visible, edge.geometry_key()), edge)
-    visible_geoms = {edge.geometry_key() for edge in unique.values() if edge.visible}
-    kept = [
-        edge
-        for edge in unique.values()
-        if edge.visible or edge.geometry_key() not in visible_geoms
-    ]
+    values = list(unique.values())
+    visible_geoms = {edge.geometry_key() for edge in values if edge.visible}
+    visible_lines = [e for e in values if e.visible and e.primitive == "line"]
+    kept: list[ProjectedEdge] = [e for e in values if e.visible]
+    # Hidden residuals can collide after a split (two hidden edges subtract down to the
+    # same remainder), so re-dedup them on the geometry key before ordering.
+    hidden_out: dict[tuple[object, ...], ProjectedEdge] = {}
+    for edge in values:
+        if edge.visible or edge.geometry_key() in visible_geoms:
+            continue
+        for residual in _resolve_hidden_line(edge, visible_lines):
+            hidden_out.setdefault(residual.geometry_key(), residual)
+    kept.extend(hidden_out.values())
     kept.sort(key=lambda e: e.sort_key())
     return tuple(kept)
 

@@ -38,6 +38,9 @@ from geometry.drawings import (
     canonical_edges_repr,
     project_view,
 )
+from geometry.drawings.project import (
+    _canonicalize,  # pyright: ignore[reportPrivateUsage]
+)
 from geometry.kernel import build_box, build_cylinder, combine_body
 
 # --- Documented per-model tolerances (design §8; docs/GEOMETRY-QA.md) ----------
@@ -607,6 +610,77 @@ def test_sort_key_is_a_total_order_on_the_golden_bodies() -> None:
                 f"{name}/{view}: duplicate sort key → order not a total order "
                 "(edges would sort by HLR enumeration, not geometry)"
             )
+
+
+def _line(
+    start: tuple[float, float], end: tuple[float, float], *, visible: bool
+) -> ProjectedEdge:
+    from geometry.drawings import Point2D
+
+    a, b = Point2D(*start), Point2D(*end)
+    mid = Point2D((a.x + b.x) / 2, (a.y + b.y) / 2)
+    return ProjectedEdge(
+        primitive="line", visible=visible, start=a, end=b, midpoint=mid
+    )
+
+
+def test_partial_occlusion_never_double_emits_dashed_and_solid() -> None:
+    """FINDINGS #21 / engineering G5: a hidden line that COLLINEARLY OVERLAPS a
+    visible one (partial occlusion — the coincident back edge of a box whose front
+    twin is split by an occluder) must not be drawn BOTH dashed and solid along the
+    overlap. `_canonicalize` subtracts the visible coverage so only the residual
+    (genuinely occluded) sub-segment stays dashed; the exact-coincidence cull alone
+    left both."""
+
+    visible = _line((0.0, 0.0), (6.0, 0.0), visible=True)
+    hidden = _line((0.0, 0.0), (10.0, 0.0), visible=True)
+    hidden = ProjectedEdge(
+        primitive="line",
+        visible=False,
+        start=hidden.start,
+        end=hidden.end,
+        midpoint=hidden.midpoint,
+    )
+
+    edges = _canonicalize([visible, hidden])
+    solids = [e for e in edges if e.visible]
+    dashes = [e for e in edges if not e.visible]
+
+    # The visible segment survives whole; exactly one dashed residual, the UNCOVERED
+    # tail [6,10], and it does not re-cover the solid span [0,6].
+    assert len(solids) == 1
+    assert (solids[0].start.x, solids[0].end.x) == (0.0, 6.0)
+    assert len(dashes) == 1
+    assert dashes[0].start.x == pytest.approx(6.0)
+    assert dashes[0].end.x == pytest.approx(10.0)
+    # No sheet-mm point is BOTH solid and dashed: the dashed span starts where the
+    # solid one ends — zero overlap.
+    for d in dashes:
+        assert d.start.x >= solids[0].end.x - 1e-9
+
+
+def test_fully_occluded_collinear_hidden_is_dropped() -> None:
+    """A hidden line entirely covered by a longer collinear visible one leaves NO
+    dashed residual (visible wins over the whole overlap) — the containment case the
+    exact-coincidence cull also missed (different endpoints)."""
+
+    visible = _line((0.0, 0.0), (10.0, 0.0), visible=True)
+    hidden = _line((2.0, 0.0), (8.0, 0.0), visible=False)
+    edges = _canonicalize([visible, hidden])
+    assert [e.visible for e in edges] == [True]
+
+
+def test_non_overlapping_hidden_line_is_untouched() -> None:
+    """A hidden line that does NOT overlap any visible line is passed through
+    byte-identically (the partial-occlusion split must never perturb the common
+    disjoint case)."""
+
+    visible = _line((0.0, 0.0), (6.0, 0.0), visible=True)
+    hidden = _line((0.0, 5.0), (10.0, 5.0), visible=False)
+    edges = _canonicalize([visible, hidden])
+    kept_hidden = [e for e in edges if not e.visible]
+    assert len(kept_hidden) == 1
+    assert kept_hidden[0] is hidden
 
 
 def test_polyline_key_disambiguates_by_points() -> None:

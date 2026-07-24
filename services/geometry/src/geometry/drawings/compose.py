@@ -379,6 +379,128 @@ def bounds_aware_layout(
     return {v: Vec2(rel[v].x + dx, rel[v].y + dy) for v in STANDARD_VIEWS}
 
 
+#: A view's y-UP axis-aligned bounding box on the sheet (min/max in sheet mm), used
+#: for the non-overlap free-slot search (FINDINGS #6). The SAME frame the auto
+#: anchors live in (y-up, bottom-left origin).
+class _YUpRect(NamedTuple):
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+
+
+def _view_half(result: DrawingViewResult | None) -> Vec2:
+    """Half the view's projected extent (0 when it has no drawable geometry)."""
+    if result is None or result.error is not None:
+        return Vec2(0.0, 0.0)
+    b = view_bounds(result.edges)
+    if b is None:
+        return Vec2(0.0, 0.0)
+    return Vec2((b.max.x - b.min.x) / 2, (b.max.y - b.min.y) / 2)
+
+
+def _yup_rect(center: Vec2, half: Vec2) -> _YUpRect:
+    return _YUpRect(
+        center.x - half.x, center.y - half.y, center.x + half.x, center.y + half.y
+    )
+
+
+def _rects_overlap(a: _YUpRect, b: _YUpRect) -> bool:
+    """True iff two y-up boxes overlap by positive area (a shared edge does not)."""
+    return (
+        a.min_x < b.max_x
+        and b.min_x < a.max_x
+        and a.min_y < b.max_y
+        and b.min_y < a.max_y
+    )
+
+
+def _free_slot_anchor(half: Vec2, occupied: Sequence[_YUpRect], dims: Vec2) -> Vec2:
+    """A non-overlapping y-up CENTRE for an additive view (section / flat_pattern).
+
+    The standard-4 auto-layout and any honored views are already placed; an additive
+    view must land clear of them (FINDINGS #6 — previously dropped dead-centre onto the
+    quartet). With no other views it keeps the historical sheet centre (a section- or
+    flat-pattern-ONLY sheet composes byte-identically). Otherwise it tries, in a fixed
+    deterministic order, the right / below / left / above of the occupied block's
+    bounding box (a gutter clear), taking the first that both fits inside the margins
+    and overlaps nothing; if none fits it falls back to the right of the block (clamped
+    vertically), still clear of the block horizontally.
+    """
+    if not occupied:
+        return Vec2(dims.x / 2, dims.y / 2)
+    ux0 = min(r.min_x for r in occupied)
+    uy0 = min(r.min_y for r in occupied)
+    ux1 = max(r.max_x for r in occupied)
+    uy1 = max(r.max_y for r in occupied)
+    ucx = (ux0 + ux1) / 2
+    ucy = (uy0 + uy1) / 2
+    g = VIEW_GUTTER_MM
+    m = SHEET_MARGIN_MM
+    candidates = (
+        Vec2(ux1 + g + half.x, ucy),  # right
+        Vec2(ucx, uy0 - g - half.y),  # below
+        Vec2(ux0 - g - half.x, ucy),  # left
+        Vec2(ucx, uy1 + g + half.y),  # above
+    )
+    for c in candidates:
+        rect = _yup_rect(c, half)
+        fits = (
+            rect.min_x >= m
+            and rect.max_x <= dims.x - m
+            and rect.min_y >= m
+            and rect.max_y <= dims.y - m
+        )
+        if fits and not any(_rects_overlap(rect, o) for o in occupied):
+            return c
+    return Vec2(ux1 + g + half.x, ucy)
+
+
+def _resolve_view_anchors(
+    layout: SheetLayout,
+    result_by_proj: dict[ViewProjection, DrawingViewResult],
+    dims: Vec2,
+) -> dict[ViewProjection, Vec2]:
+    """Resolve every placed view's y-up CENTRE anchor (FINDINGS #6).
+
+    Three deterministic passes so an additive/honored view sees the block it must
+    avoid: (1) the standard front/top/right/iso quartet that is ``auto_place`` — laid
+    out as a group by :func:`bounds_aware_layout` (unchanged, byte-identical);
+    (2) any ``auto_place=False`` view — honored verbatim at its authored ``position``
+    (the drag-to-place seam); (3) the additive ``auto_place`` views (section /
+    flat_pattern) — each dropped into a non-overlapping :func:`_free_slot_anchor`.
+    """
+    bounds_by_proj: dict[ViewProjection, ViewBounds | None] = {}
+    for proj in STANDARD_VIEWS:
+        r = result_by_proj.get(proj)
+        ok = r is not None and r.error is None
+        bounds_by_proj[proj] = view_bounds(r.edges) if (ok and r is not None) else None
+    auto = bounds_aware_layout(bounds_by_proj, dims, layout.projection)
+
+    anchors: dict[ViewProjection, Vec2] = {}
+    occupied: list[_YUpRect] = []
+
+    def place(proj: ViewProjection, center: Vec2) -> None:
+        anchors[proj] = center
+        occupied.append(_yup_rect(center, _view_half(result_by_proj.get(proj))))
+
+    for vp in layout.views:
+        if vp.auto_place and vp.projection in STANDARD_VIEWS:
+            place(vp.projection, auto[vp.projection])
+    for vp in layout.views:
+        if not vp.auto_place:
+            place(vp.projection, Vec2(vp.position.x_mm, vp.position.y_mm))
+    for vp in layout.views:
+        if vp.auto_place and vp.projection not in STANDARD_VIEWS:
+            place(
+                vp.projection,
+                _free_slot_anchor(
+                    _view_half(result_by_proj.get(vp.projection)), occupied, dims
+                ),
+            )
+    return anchors
+
+
 def view_transform(
     edges: Sequence[ProjectedViewEdge], anchor: Vec2, sheet_height: float
 ) -> ToSvg:
@@ -1189,6 +1311,10 @@ def _compose_view(
     return ComposedView(
         projection=projection,
         failed=failed,
+        # Carry the TYPED per-view reason through composition (FINDINGS #15) — a
+        # failed view prints WHY it is empty, not a bare "VIEW FAILED". None when the
+        # result is absent entirely (no typed reason to carry).
+        error=result.error if result is not None else None,
         anchor=ComposedPoint(x_mm=anchor_svg_x, y_mm=anchor_svg_y),
         label=VIEW_LABEL[projection].upper(),
         label_pos=ComposedPoint(x_mm=anchor_svg_x, y_mm=label_y),
@@ -1336,18 +1462,16 @@ def place_sheet(
         v.view: v for v in evaluation.views
     }
 
-    bounds_by_proj: dict[ViewProjection, ViewBounds | None] = {}
-    for proj in STANDARD_VIEWS:
-        r = result_by_proj.get(proj)
-        ok = r is not None and r.error is None
-        bounds_by_proj[proj] = view_bounds(r.edges) if (ok and r is not None) else None
-
-    anchors = bounds_aware_layout(bounds_by_proj, dims, layout.projection)
+    # Resolve every placed view's anchor once (FINDINGS #6): the standard quartet
+    # bounds-aware as before, additive section/flat_pattern views into a NON-OVERLAPPING
+    # free slot (never the old dead-centre collision), and any auto_place=False view
+    # honored at its authored position.
+    anchors = _resolve_view_anchors(layout, result_by_proj, dims)
 
     svg_rect_by_proj: dict[ViewProjection, SvgRect] = {}
     for proj in STANDARD_VIEWS:
         r = result_by_proj.get(proj)
-        if r is None or r.error is not None:
+        if r is None or r.error is not None or proj not in anchors:
             continue
         rect = view_content_svg_rect(r.edges, anchors[proj], sheet_h)
         if rect is not None:
@@ -1390,13 +1514,14 @@ def place_sheet(
 
     # Flat-pattern branch (sheet-metal.md §7) — ADDITIVE to the standard-4 layout
     # above. A flat-pattern sheet holds a single flat blank (already 2D, no HLR): it is
-    # placed CENTRED on the sheet from its projected extents through the SAME extent-
+    # placed at its RESOLVED anchor (`_resolve_view_anchors`) — the historical sheet
+    # centre for a flat-pattern-only sheet (byte-identical), a NON-OVERLAPPING free slot
+    # when it shares a sheet with standard views (FINDINGS #6) — via the SAME extent-
     # driven `_compose_view`/`view_to_svg_edges`/`view_bounds` machinery every standard
     # view uses (the edge machinery is generic over ProjectedViewEdge — never a fork),
     # and its bend table rides along as a quiet-corner annotation block. Standard sheets
     # (no flat_pattern in the layout) skip this entirely and compose byte-identically.
     bend_table_block: ComposedBendTable | None = None
-    flat_center = Vec2(sheet_w / 2, sheet_h / 2)
     for vp in layout.views:
         if vp.projection != FLAT_PATTERN_PROJECTION:
             continue
@@ -1404,7 +1529,7 @@ def place_sheet(
         composed_views.append(
             _compose_view(
                 FLAT_PATTERN_PROJECTION,
-                flat_center,
+                anchors[FLAT_PATTERN_PROJECTION],
                 sheet_w,
                 sheet_h,
                 flat_result,
@@ -1418,15 +1543,18 @@ def place_sheet(
             )
 
     # Section branch (drawings-section.md §5) — ADDITIVE to the standard-4 layout,
-    # exactly like flat_pattern: a section view is a single view placed CENTRED on the
-    # sheet from its projected extents through the SAME `_compose_view` machinery, and
-    # its crosshatch rides along, generated from the projected cross-section faces and
-    # clipped in the SAME `to_svg` frame so it lands on the drawn cut face. Standard
-    # sheets (no `section` in the layout) skip this and compose byte-identically.
-    section_center = Vec2(sheet_w / 2, sheet_h / 2)
+    # exactly like flat_pattern: a section view is a single view placed at its RESOLVED
+    # anchor (`_resolve_view_anchors`) — the historical sheet centre for a section-only
+    # sheet (byte-identical), a NON-OVERLAPPING free slot when it shares a sheet with
+    # standard quartet (FINDINGS #6 — previously it collided dead-centre with TOP/ISO) —
+    # through the SAME `_compose_view` machinery, and its crosshatch rides along,
+    # generated from the projected cross-section faces and clipped in the SAME `to_svg`
+    # frame so it lands on the drawn cut face. Standard sheets (no `section` in the
+    # layout) skip this and compose byte-identically.
     for vp in layout.views:
         if vp.projection != SECTION_PROJECTION:
             continue
+        section_center = anchors[SECTION_PROJECTION]
         section_result = result_by_proj.get(SECTION_PROJECTION)
         section_view = _compose_view(
             SECTION_PROJECTION,
@@ -1723,9 +1851,17 @@ def _emit_dimension(dim: ComposedDimension, out: list[str]) -> None:
 
 def _emit_view(view: ComposedView, out: list[str]) -> None:
     err = "true" if view.failed else "false"
+    # Surface the TYPED reason on the print (FINDINGS #15): the code as a data
+    # attribute (machine-readable, e.g. a Playwright/QA hook) and the human message
+    # stamped under the placeholder, so a failed view says WHY it is empty.
+    code_attr = (
+        f' data-view-error-code="{_esc(view.error.code)}"'
+        if view.error is not None
+        else ""
+    )
     out.append(
         f'    <g data-testid="drawing-view" data-view="{view.projection}" '
-        f'data-view-error="{err}">'
+        f'data-view-error="{err}"{code_attr}>'
     )
     if view.failed:
         ax = view.anchor.x_mm
@@ -1736,10 +1872,17 @@ def _emit_view(view: ComposedView, out: list[str]) -> None:
             f'stroke-width="{_fmt(_HIDDEN_W)}" stroke-dasharray="{_HIDDEN_DASH}"/>'
         )
         out.append(
-            f'      <text x="{_fmt(ax)}" y="{_fmt(ay + 1)}" text-anchor="middle" '
+            f'      <text x="{_fmt(ax)}" y="{_fmt(ay - 1)}" text-anchor="middle" '
             f'fill="{_LABEL}" font-family="{_FONT}" font-size="3" '
             f'letter-spacing="0.4">VIEW FAILED</text>'
         )
+        if view.error is not None:
+            out.append(
+                f'      <text data-testid="drawing-view-error" x="{_fmt(ax)}" '
+                f'y="{_fmt(ay + 4)}" text-anchor="middle" fill="{_LABEL}" '
+                f'font-family="{_FONT}" font-size="2.1" letter-spacing="0.2">'
+                f"{_esc(_fit(view.error.message, 40))}</text>"
+            )
     else:
         if view.hatch is not None:
             _emit_hatch(view.hatch, out)
@@ -2081,13 +2224,25 @@ def _pdf_view(c: Canvas, view: ComposedView) -> None:
         _pdf_text(
             c,
             ax,
-            ay + 1,
+            ay - 1,
             "VIEW FAILED",
             3.0,
             _LABEL,
             centred=True,
             central=False,
         )
+        # The typed reason on the print (FINDINGS #15).
+        if view.error is not None:
+            _pdf_text(
+                c,
+                ax,
+                ay + 4,
+                _fit(view.error.message, 40),
+                2.1,
+                _LABEL,
+                centred=True,
+                central=False,
+            )
     else:
         if view.hatch is not None:
             _pdf_hatch(c, view.hatch)
@@ -2405,8 +2560,20 @@ def _dxf_view(
         ]
         msp.add_lwpolyline(corners, close=True, dxfattribs={"layer": _LYR_HIDDEN})
         _dxf_text_entity(
-            msp, "VIEW FAILED", ax, fy(ay + 1), 3.0, 0.0, _LYR_TITLE, centred=True
+            msp, "VIEW FAILED", ax, fy(ay - 1), 3.0, 0.0, _LYR_TITLE, centred=True
         )
+        # The typed reason on the print (FINDINGS #15).
+        if view.error is not None:
+            _dxf_text_entity(
+                msp,
+                _fit(view.error.message, 40),
+                ax,
+                fy(ay + 4),
+                2.1,
+                0.0,
+                _LYR_TITLE,
+                centred=True,
+            )
     else:
         if view.hatch is not None:
             _dxf_hatch(msp, view.hatch, fy)

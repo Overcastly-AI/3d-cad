@@ -1048,6 +1048,20 @@ flexible sub-assemblies, part-version pinning-as-default.
       pass; e2e: units-readout / drawing-sheets / repick-face / parts-home green
       on the live stack; founder shots `units-readout-{mm,in}-*`,
       `drawing-sheet-switcher-*`, `repick-face-*`.
+      **Drawings/HLR burn-down wave 3 ✅ 2026-07-24 (kernel-architect; FINDINGS
+      #6, #15, #21):** (#6) `place_sheet` resolves every view's anchor in one pass
+      — the standard quartet bounds-aware, the additive section/flat_pattern views
+      into a NON-OVERLAPPING free slot (never the old dead-centre collision onto
+      TOP/ISO), and any `SheetViewPlacement.auto_place=false` view honored at its
+      authored position (the drag-to-place seam; new `auto_place` field, additive).
+      (#15) `ComposedView` carries the source view's typed `FeatureError` through
+      compose, and SVG/PDF/DXF stamp the reason (+ `data-view-error-code`) so a
+      failed view prints WHY it is empty, not a bare "VIEW FAILED". (#21) `_canonicalize`
+      subtracts a visible line's collinear coverage from an overlapping hidden line, so
+      a partially-occluded segment is split at the overlap and never drawn both dashed
+      and solid. Regressions: 5-view zero-overlap sheet, honored-position, typed-error-
+      preserved, partial-occlusion split; flat-pattern-sheet goldens refreshed for the
+      additive `error` field; `just gen` clean.
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive

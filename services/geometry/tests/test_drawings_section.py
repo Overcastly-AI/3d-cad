@@ -414,3 +414,209 @@ def test_unwired_section_params_reproduces_the_dead_capability_e1_fixes() -> Non
     assert section.error.code == "section_params_missing"
     assert not section.section_faces
     assert 'data-testid="drawing-hatch"' not in svg, "no params → no rendered section"
+
+
+# --- FINDINGS #6: non-overlapping 5-view sheet layout ----------------------------
+
+
+def _composed_view_box(view: object) -> tuple[float, float, float, float] | None:
+    """A composed view's drawn extent in FINAL SVG mm (min_x, min_y, max_x, max_y),
+    over its placed edges (+ hatch), or None when it drew nothing."""
+    from py_kit.schemas.drawings import (
+        ComposedCircleEdge,
+        ComposedLineEdge,
+        ComposedPolylineEdge,
+    )
+
+    xs: list[float] = []
+    ys: list[float] = []
+    for edge in view.edges:  # type: ignore[attr-defined]
+        if isinstance(edge, ComposedLineEdge):
+            xs += [edge.x1, edge.x2]
+            ys += [edge.y1, edge.y2]
+        elif isinstance(edge, ComposedCircleEdge):
+            xs += [edge.cx - edge.r, edge.cx + edge.r]
+            ys += [edge.cy - edge.r, edge.cy + edge.r]
+        elif isinstance(edge, ComposedPolylineEdge):
+            xs += [p.x_mm for p in edge.points]
+            ys += [p.y_mm for p in edge.points]
+    hatch = getattr(view, "hatch", None)
+    if hatch is not None:
+        for ln in hatch.lines:
+            xs += [ln.x1, ln.x2]
+            ys += [ln.y1, ln.y2]
+    if not xs:
+        return None
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _boxes_overlap(
+    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
+) -> bool:
+    # Positive-area overlap; a shared boundary (touch) is not an overlap. The tiny
+    # slack absorbs ulp-scale endpoint jitter so a clean gutter never reads as a touch.
+    eps = 1e-6
+    return (
+        a[0] < b[2] - eps
+        and b[0] < a[2] - eps
+        and a[1] < b[3] - eps
+        and b[1] < a[3] - eps
+    )
+
+
+def _five_view_section_request() -> ComposeDrawingRequest:
+    """A full standard quartet PLUS a section view on one A3 sheet (the audit's 5-view
+    case). The section datum binds to `views[4]` via the per-view section_params map."""
+    scale = ViewScale(numerator=1, denominator=1)
+    views = ["front", "top", "right", "iso", "section"]
+
+    def placement(projection: str) -> SheetViewPlacement:
+        return SheetViewPlacement(
+            projection=projection,  # type: ignore[arg-type]
+            position=SheetPoint(x_mm=0.0, y_mm=0.0),
+            scale=scale,
+        )
+
+    return ComposeDrawingRequest(
+        part_id=UUID(int=9),
+        tree_version=1,
+        features=_features("bored_model.json"),
+        views=views,  # type: ignore[arg-type]
+        section_params={
+            4: SectionViewParams(
+                plane=FeatureRef(kind="feature", feature_id=_BORED_DATUM), flip=False
+            )
+        },
+        scale=scale,
+        dimensions=[],
+        layout=SheetLayout(
+            size="A3",
+            orientation="landscape",
+            projection="third_angle",
+            title="Five View",
+            title_block=None,
+            views=[placement(v) for v in views],
+        ),
+        annotations=[],
+        format="svg",
+    )
+
+
+def test_five_view_sheet_composes_with_zero_overlapping_view_boxes() -> None:
+    """FINDINGS #6: a 5-view sheet (front/top/right/iso + section) must compose with
+    NO two view boxes overlapping — the section view previously dropped dead-centre
+    onto TOP/ISO. Every view still draws (the section hatches), and every pair of drawn
+    view boxes is disjoint."""
+    request = _five_view_section_request()
+    sheet = place_sheet(
+        evaluate_drawing_views(request), request.dimensions, request.layout
+    )
+    boxes = {v.projection: _composed_view_box(v) for v in sheet.views}
+    # All five views drew geometry (the section really cut + hatched — no empty view).
+    assert set(boxes) == {"front", "top", "right", "iso", "section"}
+    drawn = {p: b for p, b in boxes.items() if b is not None}
+    assert set(drawn) == set(boxes), f"a view drew nothing: {boxes}"
+    section_view = next(v for v in sheet.views if v.projection == "section")
+    assert section_view.error is None and section_view.hatch is not None
+    projs = sorted(drawn)
+    for i, pa in enumerate(projs):
+        for pb in projs[i + 1 :]:
+            assert not _boxes_overlap(drawn[pa], drawn[pb]), (
+                f"view boxes overlap: {pa}={drawn[pa]} vs {pb}={drawn[pb]}"
+            )
+
+
+def test_authored_position_is_honored_when_auto_place_is_false() -> None:
+    """FINDINGS #6: a view with ``auto_place=False`` is centred at its authored
+    ``position`` (the drag-to-place seam) instead of auto-laid-out. The composed
+    view's SVG anchor equals the authored point (y-up → y-down flip), so a
+    hand-placed view lands where authored."""
+    scale = ViewScale(numerator=1, denominator=1)
+    authored = SheetPoint(x_mm=210.0, y_mm=80.0)
+    request = ComposeDrawingRequest(
+        part_id=UUID(int=11),
+        tree_version=1,
+        features=_features("bored_model.json"),
+        views=["front"],
+        scale=scale,
+        dimensions=[],
+        layout=SheetLayout(
+            size="A3",
+            orientation="landscape",
+            title="Honored",
+            title_block=None,
+            views=[
+                SheetViewPlacement(
+                    projection="front", position=authored, scale=scale, auto_place=False
+                )
+            ],
+        ),
+        annotations=[],
+        format="svg",
+    )
+    sheet = place_sheet(
+        evaluate_drawing_views(request), request.dimensions, request.layout
+    )
+    front = next(v for v in sheet.views if v.projection == "front")
+    # Anchor is stored in SVG space (y-down): x verbatim, y flipped about sheet height.
+    assert front.anchor.x_mm == pytest.approx(authored.x_mm)
+    assert front.anchor.y_mm == pytest.approx(sheet.height_mm - authored.y_mm)
+
+
+def test_default_auto_place_ignores_position_and_auto_lays_out() -> None:
+    """The auto-layout default (auto_place True) is unchanged: the authored position
+    does NOT move the view — the composer still bounds-aware anchors it. Guards the
+    additive posture (existing sheets compose identically)."""
+    scale = ViewScale(numerator=1, denominator=1)
+    request = ComposeDrawingRequest(
+        part_id=UUID(int=12),
+        tree_version=1,
+        features=_features("bored_model.json"),
+        views=["front"],
+        scale=scale,
+        dimensions=[],
+        layout=SheetLayout(
+            size="A3",
+            orientation="landscape",
+            title="Auto",
+            title_block=None,
+            views=[
+                SheetViewPlacement(
+                    projection="front",
+                    position=SheetPoint(x_mm=999.0, y_mm=999.0),
+                    scale=scale,
+                )
+            ],
+        ),
+        annotations=[],
+        format="svg",
+    )
+    sheet = place_sheet(
+        evaluate_drawing_views(request), request.dimensions, request.layout
+    )
+    front = next(v for v in sheet.views if v.projection == "front")
+    # Auto-placed near the sheet centre, NOT the absurd authored (999, 999).
+    assert front.anchor.x_mm < 900.0
+    assert front.anchor.y_mm < 900.0
+
+
+# --- FINDINGS #15: typed view error preserved through compose + export -----------
+
+
+def test_failed_view_preserves_typed_error_through_compose_and_export() -> None:
+    """FINDINGS #15: a view that fails composes with its TYPED error intact (code +
+    message), not flattened to a bare `failed: true` — and the exported SVG stamps the
+    reason (a `data-view-error-code` hook + the human message), so a print says WHY the
+    view is empty."""
+    request = _multiview_section_request({})  # section_params missing → typed error
+    evaluation = evaluate_drawing_views(request)
+    sheet = place_sheet(evaluation, request.dimensions, request.layout)
+    section = next(v for v in sheet.views if v.projection == "section")
+    # Typed error preserved through composition — the reason survives, not just a flag.
+    assert section.failed is True
+    assert section.error is not None
+    assert section.error.code == "section_params_missing"
+    assert section.error.message
+    svg = serialize_svg(sheet)
+    assert 'data-view-error-code="section_params_missing"' in svg
+    assert 'data-testid="drawing-view-error"' in svg

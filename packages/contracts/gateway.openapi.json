@@ -1632,7 +1632,7 @@
         "type": "object"
       },
       "ComposedView": {
-        "description": "One placed view on the sheet \u2014 its edges, dimensions, caption (design \u00a74.2).\n\n``failed`` marks a view with no projection (an HLR failure or an absent\nresult): the serializer stamps a \"VIEW FAILED\" placeholder at ``anchor`` and\n``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space\n(the placeholder + caption reference it); ``label``/``label_pos`` are the\nstamped caption (\"FRONT\") and its position.",
+        "description": "One placed view on the sheet \u2014 its edges, dimensions, caption (design \u00a74.2).\n\n``failed`` marks a view with no projection (an HLR failure or an absent\nresult): the serializer stamps a \"VIEW FAILED\" placeholder at ``anchor`` and\n``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space\n(the placeholder + caption reference it); ``label``/``label_pos`` are the\nstamped caption (\"FRONT\") and its position.\n\n``error`` carries the TYPED per-view failure through composition (FINDINGS #15):\nthe :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the\nsource :class:`DrawingViewResult` \u2014 a ``view_projection_failed`` /\n``section_plane_not_principal`` / ``section_empty`` /\n``flat_pattern_not_sheet_metal`` / ``section_params_missing`` \u2014 so the sheet/print\ncan show WHY a view is empty instead of a bare \"VIEW FAILED\". Null on success and\non an ABSENT result (a requested view with no evaluation, ``failed`` set but no\ntyped reason to carry).",
         "properties": {
           "anchor": {
             "$ref": "#/components/schemas/ComposedPoint",
@@ -1685,6 +1685,17 @@
             },
             "title": "Edges",
             "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed per-view failure carried through composition (FINDINGS #15): the source view's FeatureError (code + message), so a failed view prints its reason instead of a bare 'VIEW FAILED'. Null on success or when the view had no evaluated result at all (no typed reason to carry)."
           },
           "failed": {
             "description": "True when the view has no projected geometry",

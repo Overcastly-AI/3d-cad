@@ -1131,18 +1131,39 @@ class SheetViewPlacement(BaseModel):
 
     GENERAL per-view intent (multi-part/assembly ready): each placed view names
     its ``projection`` direction, its authored sheet ``position``, and its
-    ``scale``. NB — the composer re-derives view ANCHORS from the projected bounds
-    (``boundsAwareLayout``, the on-screen renderer's behaviour), so ``position`` is
-    carried for generality/persistence but does not drive v1 anchoring; the field
-    that IS load-bearing here is ``projection`` (WHICH views to place and in what
-    order) and ``scale`` (the title-block stamp). v1 ships the 4 standard views at
-    one shared scale.
+    ``scale``.
+
+    Placement is a two-mode contract (drawing-export.md §4.2, FINDINGS #6):
+
+    * ``auto_place`` (default ``True``): the composer DERIVES the anchor. The
+      standard front/top/right/iso quartet is laid out by ``boundsAwareLayout`` (the
+      on-screen renderer's behaviour); an ADDITIVE ``section`` / ``flat_pattern``
+      view is placed in a FREE slot that never overlaps the already-placed views
+      (previously it was dropped dead-centre and collided with the quartet). Here
+      ``position`` is carried for generality/persistence but does not drive anchoring.
+    * ``auto_place = False``: the composer HONORS ``position`` verbatim — the view is
+      centred at that authored sheet point. This is the seam a drag-to-place UI
+      drives (the frontend follow-up): documents stores the dragged position and the
+      backend respects it, so a hand-placed view lands exactly where authored.
+
+    ``position`` (when honored) is the view CENTRE in sheet millimetres, y-UP from the
+    bottom-left origin — the SAME frame the auto anchors use, so an authored and an
+    auto-placed view are directly comparable. v1 ships the 4 standard views
+    auto-placed at one shared scale.
     """
 
     projection: ViewProjection = Field(description="Projection direction of the view")
     position: SheetPoint = Field(description="Authored sheet position (mm)")
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE, description="View scale (rational; 1:1 default)"
+    )
+    auto_place: bool = Field(
+        default=True,
+        description="True (default): the composer derives the anchor (bounds-aware "
+        "for the standard quartet, a non-overlapping free slot for section/"
+        "flat_pattern). False: honor `position` verbatim (the drag-to-place seam, "
+        "FINDINGS #6). Additive — an omitted value keeps the auto-layout behaviour "
+        "byte-identical.",
     )
 
 
@@ -1396,10 +1417,26 @@ class ComposedView(BaseModel):
     ``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space
     (the placeholder + caption reference it); ``label``/``label_pos`` are the
     stamped caption ("FRONT") and its position.
+
+    ``error`` carries the TYPED per-view failure through composition (FINDINGS #15):
+    the :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the
+    source :class:`DrawingViewResult` — a ``view_projection_failed`` /
+    ``section_plane_not_principal`` / ``section_empty`` /
+    ``flat_pattern_not_sheet_metal`` / ``section_params_missing`` — so the sheet/print
+    can show WHY a view is empty instead of a bare "VIEW FAILED". Null on success and
+    on an ABSENT result (a requested view with no evaluation, ``failed`` set but no
+    typed reason to carry).
     """
 
     projection: ViewProjection = Field(description="Projection direction")
     failed: bool = Field(description="True when the view has no projected geometry")
+    error: FeatureError | None = Field(
+        default=None,
+        description="Typed per-view failure carried through composition (FINDINGS "
+        "#15): the source view's FeatureError (code + message), so a failed view "
+        "prints its reason instead of a bare 'VIEW FAILED'. Null on success or when "
+        "the view had no evaluated result at all (no typed reason to carry).",
+    )
     anchor: ComposedPoint = Field(description="View-centre in SVG space")
     label: str = Field(description="Caption text (e.g. 'FRONT')")
     label_pos: ComposedPoint = Field(description="Caption position (SVG space)")

@@ -2598,6 +2598,15 @@ export interface components {
          *     ``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space
          *     (the placeholder + caption reference it); ``label``/``label_pos`` are the
          *     stamped caption ("FRONT") and its position.
+         *
+         *     ``error`` carries the TYPED per-view failure through composition (FINDINGS #15):
+         *     the :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the
+         *     source :class:`DrawingViewResult` — a ``view_projection_failed`` /
+         *     ``section_plane_not_principal`` / ``section_empty`` /
+         *     ``flat_pattern_not_sheet_metal`` / ``section_params_missing`` — so the sheet/print
+         *     can show WHY a view is empty instead of a bare "VIEW FAILED". Null on success and
+         *     on an ABSENT result (a requested view with no evaluation, ``failed`` set but no
+         *     typed reason to carry).
          */
         ComposedView: {
             /** @description View-centre in SVG space */
@@ -2612,6 +2621,8 @@ export interface components {
              * @description Placed projected edges
              */
             edges?: (components["schemas"]["ComposedLineEdge"] | components["schemas"]["ComposedCircleEdge"] | components["schemas"]["ComposedPolylineEdge"])[];
+            /** @description Typed per-view failure carried through composition (FINDINGS #15): the source view's FeatureError (code + message), so a failed view prints its reason instead of a bare 'VIEW FAILED'. Null on success or when the view had no evaluated result at all (no typed reason to carry). */
+            error?: components["schemas"]["FeatureError"] | null;
             /**
              * Failed
              * @description True when the view has no projected geometry
