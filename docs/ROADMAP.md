@@ -927,6 +927,29 @@ flexible sub-assemblies, part-version pinning-as-default.
       geometry-service face→feature attribution — OverlayResult carries none
       today), live ghost previews (item 12), resting datum sheets / origin triad
       + parts-home thumbnails (item 13 remainder — snapshot pipeline).
+      **Hard-audit band fix ✅ 2026-07-24 (frontend-builder; UI-REVIEW
+      "2026-07-24 — HARD AUDIT" P0 + tooltip P1):** the command band's label
+      tier is now MEASURED, not breakpoint arithmetic — new `CommandBand`
+      primitive (packages/design) probes whether the fully labeled row fits
+      its own width (sync `data-band-tier` probe + Resize/MutationObserver,
+      re-run on resize + content change) and steps labeled→icon; `ToolButton`
+      labels collapse via ancestor-attribute CSS (the stale "≥1360px"
+      viewport arithmetic that hid SHEET METAL + INSPECT at 1440–1600 is
+      deleted); `overflow-x: clip` clamps the band so it can never widen the
+      root — no app-level horizontal scroll, hover/focus can't scroll the
+      frame. New `zLayer` token scale (overlay<panel<hud<band<menu, Tailwind
+      `z-*` names) makes page-level stacking one audited order and lifts band
+      tooltips (incl. disabled-gate reasons) above the floating panels.
+      Regression guard `e2e/toolbar-overflow.spec.ts` (7 tests: every group
+      reachable + root scrollWidth==clientWidth + hover/focus no-scroll +
+      tier-fits invariant at 1280/1440/1600 + labels return at 2400 + tooltip
+      z-order probe over the tree panel) — all green on the live stack, plus
+      band-adjacent suites (nav-chrome, undo-redo, full-flow, drawings,
+      assembly, measure: 35 specs) green; web unit 793 + design 37 pass.
+      Founder shots `toolbar-band-fix-{1440,1600}.png` +
+      `toolbar-tooltip-above-panel-1440.png` (befores = audit evidence
+      `audit-ui/19`/`29`). Remaining audit P1s (live preview,
+      feature-localized selection, right-click menus) queued in BACKLOG.
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive

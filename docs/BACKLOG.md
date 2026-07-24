@@ -435,6 +435,32 @@ frame refactor are v2/§11. Spike de-collected.
       authored face-datum evaluates to "Solved" (kernel resolved the picked
       signature) and survives reload; Escape disarms an armed pick. Founder shots
       `datum-on-face-*` (1440 + 1280×800). [src: frontend-builder]
+- [x] (P0, M) 2026-07-24 hard-audit P0 + tooltip P1 — command band measured
+      tiers + z-layer scale. SHIPPED 2026-07-24 (frontend-builder): new
+      `CommandBand` primitive measures the labeled row against its own width
+      and steps labeled→icon (`data-band-tier`; ToolButton's stale ≥1360px
+      arithmetic deleted); `overflow-x: clip` — the band can never widen the
+      root or hide a group; `zLayer` tokens (overlay<panel<hud<band<menu)
+      lift band tooltips above the floating panels. Guard
+      `e2e/toolbar-overflow.spec.ts` (1280/1440/1600/2400: groups reachable,
+      no root scroll, tier fits, tooltip z-order). Founder shots
+      `toolbar-band-fix-{1440,1600}.png`,
+      `toolbar-tooltip-above-panel-1440.png`. [src: UI-REVIEW 2026-07-24]
+- [ ] (P1, M) Hard-audit P1 — live preview while editing (extrude ghost
+      first, then datum/fillet): the biggest "responds while you work" gap vs
+      Fusion/Plasticity; the ghost-preview slice bundled in "Viewport
+      makeover Batch 3 remainder" (Next), promoted by the audit. [src:
+      UI-REVIEW 2026-07-24]
+- [ ] (P1, M) Hard-audit P1 — feature-localized selection language: kill the
+      whole-body clay swap; keep matcap luminance, mark selection with brass
+      edge emphasis + a subtle overlay on the SELECTED feature's faces only
+      (needs the geometry face→feature attribution slice noted in Batch 3
+      remainder); distinct body-select vs feature-select states. [src:
+      UI-REVIEW 2026-07-24]
+- [ ] (P1, M) Hard-audit P1 — right-click context menus: one token-styled
+      viewport menu (fit, view snaps, sketch-on-face, measure, suppress/
+      delete selected) + a tree-row menu; `grep onContextMenu apps/web/src`
+      is zero hits today. [src: UI-REVIEW 2026-07-24]
 
 ## Next (P2)
 

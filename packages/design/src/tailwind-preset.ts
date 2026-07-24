@@ -13,6 +13,7 @@ import {
   layout,
   radius,
   spacing,
+  zLayer,
 } from "./tokens";
 
 const px = (n: number): string => `${n}px`;
@@ -77,6 +78,12 @@ export const loftPreset = {
         /** Floating instrument panels lifting off the scene (token ground). */
         float: `0 2px 6px ${color.carbide}99, 0 12px 32px ${color.carbide}CC`,
       },
+      /** Named page-level stacking layers (`z-overlay` … `z-menu`) — see
+          `zLayer` in tokens.ts. Page-level contexts use these, never bare
+          numbers, so paint order is one audited scale. */
+      zIndex: Object.fromEntries(
+        Object.entries<number>(zLayer).map(([k, v]) => [k, String(v)]),
+      ) as Record<keyof typeof zLayer, string>,
     },
   },
 } satisfies Partial<Config>;

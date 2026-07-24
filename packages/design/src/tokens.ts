@@ -488,3 +488,30 @@ export const layout = {
    */
   editorInset: 12 + 320 + 12,
 } as const;
+
+/**
+ * Stacking layers (z-index) — ONE named scale for every page-level stacking
+ * context, so no surface ever wins or loses a paint battle by an ad-hoc
+ * number (the 2026-07-24 audit P1: the band's `z-10` context trapped its
+ * tooltips underneath the `z-30` panels). Values inside a layer's own
+ * stacking context stay local (small relative numbers are fine there);
+ * anything that competes at the PAGE level must use this scale.
+ *
+ * Order, bottom → top:
+ * - `overlay` — transient sheets hanging off a surface into the viewport
+ *   (offset-plane author, constraint hints, save errors).
+ * - `panel` — floating instrument panels over the canvas (tree, inspector).
+ * - `hud` — viewport HUD chrome (DRO, view rail, status banners).
+ * - `band` — the command band. ABOVE panel/hud deliberately: its tooltips
+ *   and flyouts hang down into the viewport and must never be occluded by a
+ *   panel. The band itself never geometrically overlaps a panel (it sits
+ *   above the canvas in flow), so panels lose no pixels to it.
+ * - `menu` — context menus / popovers and their dismiss scrims.
+ */
+export const zLayer = {
+  overlay: 20,
+  panel: 30,
+  hud: 40,
+  band: 50,
+  menu: 60,
+} as const;

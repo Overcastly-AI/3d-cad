@@ -443,7 +443,7 @@ export function Viewport({
         zIndexRange [20, 0] in ConstraintGlyphs). The wrapper is inert;
         each strip re-enables its own pointer events.
       */}
-      <div className="pointer-events-none absolute inset-0 z-40 [&>*]:pointer-events-auto">
+      <div className="pointer-events-none absolute inset-0 z-hud [&>*]:pointer-events-auto">
         {viewNav ? <ViewBar /> : null}
         {hud}
       </div>
@@ -457,7 +457,7 @@ export function Viewport({
         <div
           role="alert"
           data-testid="viewport-error"
-          className="absolute left-1/2 top-3 z-40 max-w-sm -translate-x-1/2 rounded-sm border border-flag bg-anvil px-3 py-2"
+          className="absolute left-1/2 top-3 z-hud max-w-sm -translate-x-1/2 rounded-sm border border-flag bg-anvil px-3 py-2"
         >
           <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
             Mesh rejected · {parseError.name}

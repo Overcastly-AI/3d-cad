@@ -54,7 +54,7 @@ export function FloatingPanel({
         aria-expanded={false}
         onClick={() => setCollapsed(false)}
         className={cx(
-          "absolute top-3 z-30 border border-hairline bg-anvil px-2 py-1.5 shadow-float",
+          "absolute top-3 z-panel border border-hairline bg-anvil px-2 py-1.5 shadow-float",
           "font-display text-2xs uppercase tracking-[0.16em] text-gauge",
           "transition-colors duration-fast hover:text-brass",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass",
@@ -69,7 +69,7 @@ export function FloatingPanel({
   return (
     <div
       className={cx(
-        "absolute top-3 z-30 flex w-inspector max-w-[calc(100%-1.5rem)] flex-col",
+        "absolute top-3 z-panel flex w-inspector max-w-[calc(100%-1.5rem)] flex-col",
         maxHeightClassName,
         side === "left" ? "left-3" : "right-3",
       )}

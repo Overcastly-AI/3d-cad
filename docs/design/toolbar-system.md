@@ -1,10 +1,42 @@
 # Toolbar system — grouped icons + flyouts
 
 Status: shipped (2026-07-11, frontend-builder); **density revision
-2026-07-12** (founder feedback: too tall — the viewport is the hero). The
+2026-07-12** (founder feedback: too tall — the viewport is the hero); **measured
+band tiers + stacking scale 2026-07-24** (hard-audit P0/P1 — see below). The
 sketch toolbar is now a **single thin row** (~26 px, down from a ~110 px
 two-panel stack). Grouping model, flyouts, icon set, and machine-shop tokens
 are unchanged — only the vertical rhythm. Specifics of the revision:
+
+## Measured band tiers + stacking scale (2026-07-24, hard-audit P0/P1)
+
+The label tier used to be viewport-breakpoint arithmetic in `ToolButton`
+("labeled band ≈ 1315px natural → labels ≥1360px") — written before the
+Sheet-metal + Inspect groups landed, it went stale silently: at 1440–1600 the
+labeled band overflowed the frame, whole groups rendered off-screen, and
+hovering a hidden tool horizontally scrolled the entire app. Replaced at the
+primitive level:
+
+- **`CommandBand` primitive** (`packages/design`) now owns the band: it
+  MEASURES whether the fully labeled row fits its own width (a synchronous
+  `data-band-tier` probe + ResizeObserver + MutationObserver, re-run on
+  resize and any content change) and stamps `data-band-tier="labeled" |
+  "icon"`; `ToolButton` labels collapse via ancestor-attribute CSS. The
+  widest tier that fits is chosen categorically — a future tool group can
+  never re-introduce the stale-arithmetic clip. If even the icon tier ever
+  fails at the 1280 floor, grow an explicit "more" flyout; never clip
+  silently.
+- **Overflow clamp:** the band is `overflow-x: clip` (X only — tooltips,
+  flyouts and transient sheets still hang below), so band content can never
+  widen the root: no app-level horizontal scrollbar, and hover/focus can
+  never scroll the app sideways.
+- **`zLayer` token scale** (`tokens.ts` → `z-overlay/panel/hud/band/menu`):
+  page-level stacking is one audited order. The band sits ABOVE the floating
+  panels so its tooltips (incl. disabled-gate reasons) are never occluded by
+  the feature tree; the band never geometrically overlaps a panel, so panels
+  lose nothing.
+- Regression guard: `apps/web/e2e/toolbar-overflow.spec.ts` (all groups
+  reachable + no root scroll + tier-fits invariant at 1280/1440/1600/2400 +
+  tooltip-above-panel z-order probe).
 
 ## Layout — full-width top band (2026-07-12, founder feedback)
 

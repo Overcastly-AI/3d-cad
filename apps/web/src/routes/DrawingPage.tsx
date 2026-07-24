@@ -885,7 +885,7 @@ export function DrawingPage() {
             sketch strip's offset-plane idiom), so the Sheet actions stay one
             row above. Pre-layout only — a section is a lone-view sheet in v1. */}
         {sectionOpen && !hasLayout ? (
-          <div className="absolute left-3 top-full z-20 mt-2">
+          <div className="absolute left-3 top-full z-overlay mt-2">
             <SectionAuthorPanel
               datumPlanes={sectionDatumOptions}
               loadingDatums={sectionPartTreeQuery.isFetching}
@@ -1059,7 +1059,10 @@ export function DrawingPage() {
         {anchor && menuActionList.length > 0 ? (
           <>
             <div
-              className="fixed inset-0 z-40"
+              // Same layer as the menu it dismisses (the menu is the later
+              // sibling, so it paints above) — the scrim must cover EVERY
+              // page-level surface, including the band.
+              className="fixed inset-0 z-menu"
               aria-hidden="true"
               onClick={() => setAuthoring(IDLE)}
             />

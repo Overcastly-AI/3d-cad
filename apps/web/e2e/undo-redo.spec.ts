@@ -240,10 +240,11 @@ test.describe("undo/redo", () => {
       await page.goto(`/parts/${partId}`);
       await expect(page.getByTestId("feature-row")).toHaveCount(3);
 
-      // History leads and the whole band fits: below the ToolButton label
-      // tier (<1360px) the band sheds labels, so the last group's last tool
-      // (Measure) renders fully INSIDE the frame — no clip, no ellipsis
-      // (frontend-qa 2026-07-17 P2).
+      // History leads and the whole band fits: the CommandBand MEASURES its
+      // labeled row against its own width and steps to the icon tier when it
+      // cannot fit (no breakpoint arithmetic to go stale — 2026-07-24 audit
+      // P0), so the last group's last tool (Measure) renders fully INSIDE
+      // the frame — no clip, no ellipsis (frontend-qa 2026-07-17 P2).
       await expect(page.getByTestId("undo-button")).toBeVisible();
       const measure = await page.getByTestId("measure-tool").boundingBox();
       expect(measure).not.toBeNull();

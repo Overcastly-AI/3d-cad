@@ -92,7 +92,7 @@ export function DimensionAuthorMenu({
       role="menu"
       aria-label="Add dimension"
       data-testid="dimension-author-menu"
-      className="fixed z-50 min-w-[11rem] border border-hairline bg-anvil py-1 shadow-float"
+      className="fixed z-menu min-w-[11rem] border border-hairline bg-anvil py-1 shadow-float"
       style={{ left: x + 8, top: y + 8 }}
       onKeyDown={(event) => {
         const current = itemRefs.current.findIndex(

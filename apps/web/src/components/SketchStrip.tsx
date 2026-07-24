@@ -968,7 +968,7 @@ export function SketchStrip({
       {/* The inline offset-plane authoring panel hangs from the band during
           the plane-pick step, so the origin buttons stay one-click above. */}
       {mode === "plane" && offsetOpen && onAuthorOffsetPlane ? (
-        <div className="absolute left-editor top-full z-20 mt-2">
+        <div className="absolute left-editor top-full z-overlay mt-2">
           <OffsetPlanePanel
             onAuthor={onAuthorOffsetPlane}
             onClose={() => setOffsetOpen(false)}
@@ -981,7 +981,7 @@ export function SketchStrip({
       {/* The "Pick a face" guide, hung from the band while the mode is armed —
           the faces themselves are the affordance out in the viewport. */}
       {mode === "plane" && facePicking && onTogglePickFace ? (
-        <div className="absolute left-editor top-full z-20 mt-2">
+        <div className="absolute left-editor top-full z-overlay mt-2">
           <FacePickPrompt
             busy={authoringFace}
             error={facePickError}
@@ -998,7 +998,7 @@ export function SketchStrip({
       hint ||
       saveError ||
       editNote ? (
-        <div className="absolute left-editor top-full z-20 mt-2 flex max-w-sm flex-col gap-2">
+        <div className="absolute left-editor top-full z-overlay mt-2 flex max-w-sm flex-col gap-2">
           {mirror !== null ? (
             <MirrorPrompt mirror={mirror} onAdvance={advanceMirror} />
           ) : null}

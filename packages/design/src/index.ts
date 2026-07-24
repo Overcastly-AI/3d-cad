@@ -33,6 +33,11 @@ export {
   type ToolButtonProps,
   type ToolGroupProps,
 } from "./primitives/ToolButton";
+export {
+  CommandBand,
+  type CommandBandProps,
+  type CommandBandTier,
+} from "./primitives/CommandBand";
 export { Flyout, type FlyoutProps, type FlyoutItem } from "./primitives/Flyout";
 export {
   SegmentedControl,
