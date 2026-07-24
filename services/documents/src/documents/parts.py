@@ -24,6 +24,8 @@ from py_kit import (
     get_logger,
 )
 from py_kit.db import SessionDep
+from py_kit.schemas.drawings import SectionViewParams
+from py_kit.schemas.features import FeatureRef
 from py_kit.schemas.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
@@ -217,6 +219,50 @@ async def reject_if_instanced(
             code=code,
             details={"dependents": dependents},
         )
+
+
+async def section_view_feature_refs(
+    session: AsyncSession, owner_id: uuid.UUID, part_id: uuid.UUID
+) -> list[tuple[uuid.UUID, str, uuid.UUID]]:
+    """Feature-level cross-document drawing dependencies of *part_id*.
+
+    A section view specifies its cutting plane by DATUM REFERENCE
+    (:class:`~py_kit.schemas.drawings.SectionViewParams`); when that reference is
+    a ``FeatureRef`` it names a specific datum FEATURE of the referenced part, so
+    the view breaks if that feature is deleted OR removed by an undo/redo restore
+    (audit P2 #16). Returns ``(drawing_id, drawing_name, referenced_feature_id)``
+    for every section view of a drawing owned by *owner_id* whose plane is such a
+    FeatureRef into *part_id*.
+
+    The SINGLE source of truth for that dependency, so the feature-delete guard
+    and the undo/redo restore guard route through the same detection (DRY — the
+    finding's "one guard both paths"). Owner-scoped like
+    :func:`reject_if_instanced`; ``section_params`` is inspected in Python
+    (not a JSON WHERE) so the check is dialect-identical on SQLite and Postgres.
+    """
+    rows = (
+        await session.execute(
+            select(Drawing.id, Drawing.name, View.section_params)
+            .join(Sheet, Sheet.drawing_id == Drawing.id)
+            .join(View, View.sheet_id == Sheet.id)
+            .where(
+                View.ref_document_id == part_id,
+                View.section_params.is_not(None),
+                Drawing.owner_id == owner_id,
+            )
+            .order_by(Drawing.name)
+        )
+    ).all()
+    refs: list[tuple[uuid.UUID, str, uuid.UUID]] = []
+    for drawing_id, drawing_name, section_params in rows:
+        if section_params is None:
+            continue
+        # Reuse the shipped section DTO (never a parallel dict taxonomy): only a
+        # FeatureRef cutting plane names a specific feature this part must keep.
+        plane = SectionViewParams.model_validate(section_params).plane
+        if isinstance(plane, FeatureRef):
+            refs.append((drawing_id, drawing_name, plane.feature_id))
+    return refs
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

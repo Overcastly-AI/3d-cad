@@ -47,7 +47,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents import db, history
-from documents.parts import Principal, get_owned_part
+from documents.parts import Principal, get_owned_part, section_view_feature_refs
 
 _logger = get_logger("documents.features")
 
@@ -547,16 +547,30 @@ async def delete_feature(
         .scalars()
         .all()
     )
-    if dependents:
+    # Cross-document protection (audit P2 #16): a drawing section view whose
+    # cutting plane is a FeatureRef into this feature would be silently broken by
+    # the delete, exactly like an intra-part reference — route through the SAME
+    # shared detection the undo/redo restore guard uses (DRY) and surface it in
+    # the same 409-with-dependents (``kind: "drawing"``, mirroring the part-delete
+    # cross-doc listing in ``reject_if_instanced``).
+    drawing_dependents = [
+        {"id": str(drawing_id), "name": drawing_name, "kind": "drawing"}
+        for drawing_id, drawing_name, ref_feature_id in await section_view_feature_refs(
+            session, owner_id, part.id
+        )
+        if ref_feature_id == feature_id
+    ]
+    if dependents or drawing_dependents:
         raise ConflictError(
             f"Feature {feature.name!r} is referenced by "
-            f"{len(dependents)} other feature(s); delete or re-point them "
-            "first.",
+            f"{len(dependents) + len(drawing_dependents)} other document(s) "
+            "(features and/or drawing views); delete or re-point them first.",
             code="feature_has_dependents",
             details={
                 "dependents": [
                     {"id": str(row.id), "name": row.name} for row in dependents
                 ]
+                + drawing_dependents
             },
         )
 
@@ -691,6 +705,52 @@ async def move_rollback_bar(
     return await _tree_response(session, part)
 
 
+async def _reject_restore_feature_orphans(
+    session: AsyncSession, owner_id: uuid.UUID, part: db.Part
+) -> None:
+    """Post-restore cross-document integrity pass (audit P2 #16).
+
+    A restore re-enters the feature tree VERBATIM, so — like every direct write —
+    it must uphold the cross-document dependency invariant that
+    :func:`documents.features.delete_feature` enforces: a drawing section view
+    whose cutting plane is a ``FeatureRef`` into this part must not be left
+    pointing at a feature that no longer exists. An undo/redo can drop such a
+    feature (the world legally moved on since the snapshot — the datum was added
+    after the drawing was authored, so stepping back removes it), which would
+    silently break the drawing's section view (a ``failed: true`` empty box on
+    the print). Both paths route through the SAME detection
+    (:func:`section_view_feature_refs`) so the protection is defined once (DRY).
+
+    Runs over the restored-but-uncommitted tree. On violation: roll back —
+    cursor, ring and ``tree_version`` all unmoved, the snapshot stays restorable
+    once the drawing is re-pointed — and raise a single typed 409
+    ``part_restore_conflict`` (the assembly restore guard's shape; one code, not
+    the delete path's ``feature_has_dependents``, because this is a conflict
+    between HISTORY and the current world, not a bad request) naming the missing
+    feature and the dependent drawing view.
+    """
+    refs = await section_view_feature_refs(session, owner_id, part.id)
+    if not refs:
+        return
+    present = {feature.id for feature in await _ordered_features(session, part.id)}
+    for drawing_id, drawing_name, ref_feature_id in refs:
+        if ref_feature_id not in present:
+            await session.rollback()
+            raise ConflictError(
+                "Restoring this history step would remove a feature that drawing "
+                f"{drawing_name!r} references as a section-view cutting plane; the "
+                "section view would silently break. Re-point or remove that view "
+                "first.",
+                code="part_restore_conflict",
+                details={
+                    "reason": "section_view_feature_missing",
+                    "drawing_id": str(drawing_id),
+                    "drawing_name": drawing_name,
+                    "feature_id": str(ref_feature_id),
+                },
+            )
+
+
 async def _restore_history_step(
     part_id: uuid.UUID,
     request: UndoRedoRequest,
@@ -709,10 +769,16 @@ async def _restore_history_step(
     tree, ``tree_version`` untouched, nothing committed. The UI disables the
     controls via ``can_undo``/``can_redo`` on this same response, so a click
     racing a just-changed history state lands harmlessly here and resyncs.
+
+    Cross-document integrity (a drawing section view left pointing at a
+    now-removed feature) is re-checked post-restore —
+    :func:`_reject_restore_feature_orphans` (409 ``part_restore_conflict``) —
+    so undo honours the SAME protection as a direct feature delete (audit #16).
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     _ensure_fresh(part, request.expected_tree_version)
     if await history.PART_HISTORY.restore_adjacent(session, part, direction):
+        await _reject_restore_feature_orphans(session, owner_id, part)
         part.tree_version += 1
         await session.commit()
         _logger.info(

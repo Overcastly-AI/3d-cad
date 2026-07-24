@@ -245,6 +245,90 @@ def test_delete_part_referenced_by_drawing_view_is_409(client: TestClient) -> No
     assert dependents[0]["kind"] == "drawing"
 
 
+def _datum_envelope(offset_mm: float = 30.0) -> dict[str, Any]:
+    """An offset datum plane feature (the section-view cutting-plane target)."""
+    return {
+        "type": "datum",
+        "version": 1,
+        "params": {"base": "XY", "offset_mm": offset_mm, "flip": False},
+    }
+
+
+def _add_feature(
+    client: TestClient, part_id: str, name: str, feature: dict[str, Any], expected: int
+) -> str:
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={"name": name, "feature": feature, "expected_tree_version": expected},
+        headers=_headers(),
+    )
+    assert response.status_code == 201, response.text
+    feature_id: str = response.json()["feature"]["id"]
+    return feature_id
+
+
+def test_undo_removing_sectioned_feature_blocked_like_delete(
+    client: TestClient,
+) -> None:
+    """Audit P2 #16 — undo must honour the SAME cross-document protection a direct
+    delete does. A drawing section view whose cutting plane is a FeatureRef into a
+    datum feature depends on that feature; both a direct delete AND an undo that
+    would remove the datum are blocked with a typed 409, so the section view never
+    silently breaks (a `failed: true` empty box on the print)."""
+    part = _create_part(client, "sectioned")
+    # One part mutation → tree_version 1; undo from here reverts to the empty tree,
+    # removing the datum the section view references.
+    datum_id = _add_feature(client, part, "Plane1", _datum_envelope(), 0)
+
+    drawing_id = _create_drawing(client, "section-detail")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    rv = _add_view(
+        client,
+        drawing_id,
+        sheet_id,
+        part,
+        1,
+        projection="section",
+        section_params={
+            "plane": {"kind": "feature", "feature_id": datum_id},
+            "flip": False,
+        },
+    )
+    assert rv.status_code == 201, rv.text
+
+    # Direct delete of the depended-on datum is blocked and lists the drawing.
+    deleted = client.delete(
+        f"/api/v1/parts/{part}/features/{datum_id}",
+        params={"expected_tree_version": 1},
+        headers=_headers(),
+    )
+    assert deleted.status_code == 409, deleted.text
+    del_err = _error(deleted.json())
+    assert del_err["code"] == "feature_has_dependents"
+    assert {d["name"]: d.get("kind") for d in del_err["details"]["dependents"]} == {
+        "section-detail": "drawing"
+    }
+
+    # Undo would remove that SAME datum → now blocked identically (was silent).
+    undone = client.post(
+        f"/api/v1/parts/{part}/undo",
+        json={"expected_tree_version": 1},
+        headers=_headers(),
+    )
+    assert undone.status_code == 409, undone.text
+    undo_err = _error(undone.json())
+    assert undo_err["code"] == "part_restore_conflict"
+    assert undo_err["details"]["reason"] == "section_view_feature_missing"
+    assert undo_err["details"]["feature_id"] == datum_id
+    assert undo_err["details"]["drawing_name"] == "section-detail"
+
+    # Both were refused, not applied: the datum survives and tree_version is unmoved
+    # — the section view is NOT silently broken.
+    tree = client.get(f"/api/v1/parts/{part}/features", headers=_headers()).json()
+    assert [f["id"] for f in tree["features"]] == [datum_id]
+    assert tree["tree_version"] == 1
+
+
 # --- optimistic concurrency -------------------------------------------------------
 
 

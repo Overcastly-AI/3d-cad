@@ -701,6 +701,15 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-24 batch)
 
+- [x] (P2, S) FINDINGS #16 undo bypasses cross-doc protection (`services/documents`).
+      Part undo/redo restored a datum a drawing section view references, silently
+      breaking the view (`failed: true`). Fix: undo/redo restore now runs the SAME
+      feature-level cross-doc guard as a direct delete — one shared detection
+      (`parts.section_view_feature_refs`) both paths route through (DRY); direct
+      delete → 409 `feature_has_dependents` (now lists the drawing, kind="drawing"),
+      undo → 409 `part_restore_conflict` (mirrors the assembly restore guard).
+      Regression test: section view on a datum blocks both delete and undo, datum
+      survives. [src: FINDINGS.md #16]
 - [x] (P0, M) FINDINGS #1–#2 cut-aware pattern + mirror (silent-wrong-geometry
       pair, `services/geometry`). Patterning a Hole duplicated the whole body
       (59497.3 vs 34492.04) and mirroring a holed plate about its midplane filled

@@ -96,8 +96,14 @@ a concrete fix; the top block is already being actioned.
 
 - Compose/export flattens typed view errors to bare `failed: true` — a
   silently empty view on the print (product).
-- Undo bypasses cross-doc protection — silently broke a drawing's section
-  view (product).
+- ✅ **Undo bypasses cross-doc protection — FIXED 2026-07-24** (backend-builder,
+  #16): the part undo/redo restore now runs the SAME feature-level cross-document
+  guard a direct delete does — a drawing section view whose cutting plane is a
+  FeatureRef into a datum feature blocks BOTH the direct delete (409
+  `feature_has_dependents`, now listing the drawing) and an undo that would remove
+  that datum (409 `part_restore_conflict`); one shared detection
+  (`section_view_feature_refs`) both paths route through (DRY). The section view
+  can no longer silently go `failed: true`.
 - Units convert inputs but not mass-props/bbox readouts (`31,391.38 mm³`
   under `UNITS in`) (product).
 - Multi-sheet drawings are API-only (no UI switcher) (product).

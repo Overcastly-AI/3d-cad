@@ -979,6 +979,16 @@ flexible sub-assemblies, part-version pinning-as-default.
       `mirror-hole-feature-plate-40x40x20` tol 1e-8) assert the analytic volume
       + exact topology and fail on the old behavior; pattern/mirror/hole/golden/
       step-roundtrip suites green, `hole.py` tool builders factored (DRY).
+      **Undo cross-doc protection ✅ 2026-07-24 (backend-builder; FINDINGS #16):**
+      part undo/redo no longer bypasses the drawing-dependency guard. A section
+      view whose cutting plane is a FeatureRef into a datum feature now blocks
+      BOTH a direct feature delete (409 `feature_has_dependents`, the dependents
+      list now surfaces the drawing with `kind:"drawing"`) AND an undo/redo that
+      would remove that datum (409 `part_restore_conflict`, mirroring the assembly
+      restore guard) — one shared detection (`parts.section_view_feature_refs`)
+      both paths route through (DRY), so the view can no longer silently go
+      `failed: true` on the print. Regression test in `test_drawings.py`
+      (SQLite + Postgres); gateway resurfaces the new envelope verbatim (no change).
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive
