@@ -215,11 +215,8 @@ async function runFullFlow(
   await expect(page.getByTestId("session-email")).toHaveText(email);
   await page.getByTestId("create-part-name").fill("Baseplate");
   await page.getByTestId("create-part-name").press("Enter");
-  const row = page.getByTestId("part-row").filter({ hasText: "Baseplate" });
-  await expect(row).toBeVisible();
-
-  // Before a body exists the EXPORT strip is absent (no tree yet).
-  await row.getByTestId("part-open").click();
+  // #22 — creating a part now opens its workspace directly (no manual list-open
+  // step; the parts-list row is gone because we've navigated into the part).
   await expect(page).toHaveURL(/\/parts\/[0-9a-f-]+$/);
   await expect(page.getByTestId("part-name")).toHaveText("Baseplate");
 
