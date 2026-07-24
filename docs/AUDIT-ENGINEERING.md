@@ -587,3 +587,201 @@ harness), closing the determinism gate to match the correctness gate.
 - **Clean this pass:** lint / gen-check / targeted geometry gates green; zero new
   dependencies (no license exposure); `solve_assembly` refactor and `section.py`
   are boundary- and tolerance-clean; datum on-face is genuinely end-to-end.
+
+---
+
+## 2026-07-24 — Pass: FOUNDER HARD AUDIT (security / scaling / deploy)
+
+**Scope.** Founder-directed no-mercy pass at COMMITTED HEAD `6627f03` (audited
+in a clean `git worktree`; a backend-builder's in-flight uncommitted edits to
+`services/documents` + `services/gateway/src/gateway/drawings.py` were
+deliberately excluded). Emphasis per the brief: route-by-route gateway auth,
+DoS/work bounds, deploy config, tenancy, scaling cliffs, prior-finding status.
+
+### Gate re-verification (ran myself on the clean HEAD worktree)
+
+| Gate | Result | Evidence |
+|------|--------|----------|
+| `just lint` | **green** | `248 files already formatted / 0 errors, 0 warnings, 0 informations`; eslint + prettier + 4× tsc clean; `LINT_EXIT=0` (`scratchpad/lint.log`) |
+| `just test` | **green** | py `2244 passed, 1 skipped, 2 xfailed in 892.50s`; ts `apps/web 793 passed`, `packages/design 34 passed`; `TEST_EXIT=0` |
+| Dependency/license | **clean** | `git diff d980764..6627f03 -- '**/pyproject.toml' '**/package.json' uv.lock pnpm-lock.yaml` empty → zero new deps since last audit; no `gpl/agpl` string in `uv.lock`. Key pins current: fastapi 0.139.0, starlette 1.3.1, pydantic 2.13.4, pyjwt 2.13.0, boto3 1.43.49, vite 7.3.6, three 0.185.1, esbuild 0.28.1 — none at a known-CVE version I can substantiate. `httpx2` (5 gateway modules) is the legitimate pydantic-maintained httpx successor, **BSD-3-Clause** (verified `.dist-info/METADATA`), not a typosquat. |
+
+### Prior-finding status (re-verified)
+
+- **F1 / F6 (mesh LRU multi-worker/replica) — RESOLVED IN CODE.** The
+  content-addressed S3/MinIO backend shipped (`geometry/s3_store.py`,
+  `mesh_store.py:configure_mesh_store` + `S3MeshStore`); when `S3_URL` is set
+  `build_app` installs it and **lifts** the single-worker guard
+  (`geometry/main.py:82-90`). Correct design. **BUT the shipped compose wiring
+  makes it non-functional — see G1.**
+- **F7 (unauthenticated compute routes) — RESOLVED.** Every OCCT-CPU gateway
+  route now carries BOTH `user: CurrentUser` and `dependencies=[COMPUTE_RATE_LIMIT]`.
+  I enumerated all 8 routers (`grep -rn "@router" services/gateway/src`) and
+  traced auth per route: **no unauthenticated compute or data route remains.**
+  `tessellate`/`tessellate/meta`/`export`/`assembly/export`/`assembly/evaluate`/
+  `assembly/interference`/`drawing/evaluate`/`measure`/`overlay`/`sketch/*` are
+  all `CurrentUser` + rate-limited; `parts`/`features`/`assemblies`/`drawings`/
+  `step-import` CRUD all `CurrentUser`; `auth/register|login` are correctly
+  public, `auth/me` protected. JWT decode pins `algorithms=[HS256]` +
+  `require:[exp,sub]` (`auth/security.py:188-192`) — no `alg:none`/confusion
+  vector. Secret posture is genuinely fail-closed (`resolve_auth_config`,
+  `security.py:70-90`): unset/`!= "dev"` `LOFT_ENV` with no `JWT_SECRET`
+  **raises at boot** — a prod misconfig CANNOT fail open.
+- **E1 (section views not wired) — RESOLVED.** Gateway now threads per-view
+  `section_params` into an index-keyed map (`drawings.py:455-465`, the
+  cardinality mismatch fixed by keying on the view's index), and a real
+  authoring surface exists (`apps/web/src/components/SectionAuthorPanel.tsx`).
+  The prior false-SHIPPED claim is now true end-to-end.
+
+### Findings
+
+#### G1 — Shipped `docker compose` stack serves NO meshes: `S3_URL` activates the S3 backend but MinIO credentials are never passed to geometry · Severity High · Likelihood: certain on `docker compose up` · P1
+
+`docker-compose.yml:159` sets `S3_URL: http://minio:9000` on the geometry
+service. Since the F1/F6 swap landed, **any** non-empty `S3_URL` makes
+`configure_mesh_store` install `S3MeshStore` and `build_app` **lift** the
+single-worker guard (`geometry/main.py:82-90`) — the in-process LRU is NOT the
+active backend in compose. `S3MeshStore` builds its boto3 client with the
+credentials passed to it (`s3_store.py:120-130`), and the geometry `Settings`
+reads them from `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY`
+(`geometry/main.py:45-47`). **The compose file never sets those on geometry** —
+`grep -n "S3_ACCESS_KEY\|S3_SECRET" docker-compose.yml` → nothing; only MinIO's
+own `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` (lines 54-55) and the `minio-init`
+bucket bootstrap (line 76) use them. So geometry connects to MinIO through
+boto3's default credential chain, which is **empty** inside the container.
+MinIO with a root user configured requires auth and its buckets are private by
+default (`minio-init` only does `mc mb`, no anonymous policy), so every
+`put`/`get` fails (`NoCredentialsError` / 403), and `S3MeshStore` propagates
+put/get faults rather than masking them (`s3_store.py:133-148`) → `evaluate`
+500s or the viewport gets no mesh. Net: the **documented** `docker compose up
+-d --build` path (CLAUDE.md Commands, README) produces a stack where the core
+modeling flow is broken.
+
+- Evidence is **static** (the Docker registry is blocked in this container, so
+  I could not runtime-confirm the 403), but the chain is unambiguous from
+  `main.py:82`, `s3_store.py:120-130`, and the absent env vars.
+- **Recommend (Ready item):** add to the geometry service env in
+  `docker-compose.yml`:
+  `S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-loft-minio}` and
+  `S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-loft-minio-dev-only}`; add an
+  e2e/smoke assertion that a compose (or native-with-MinIO) `evaluate`→
+  `GET /meshes/{id}` round-trips 200 so this can't regress silently again.
+
+#### G2 — Compute routes have no PER-REQUEST work bound; the rate limiter caps frequency, not cost — single authenticated user can OOM/peg a geometry worker · Severity Med-High · Likelihood: med if internet-exposed · P2
+
+`COMPUTE_RATE_LIMIT` bounds request COUNT (default 120/60 s/principal,
+`config.py:43-45`) but nothing bounds the work of a **single** request. Four
+unbounded knobs on auth-gated-but-otherwise-open compute routes:
+
+1. **`linear_deflection` has no floor** — `TessellateRequest.linear_deflection`
+   is only `Field(gt=0)` (`schemas/geometry.py:123-125`) and flows straight into
+   OCCT (`kernel/tessellate.py:48`, guarded only `<= 0`). A `POST
+   /api/v1/geometry/tessellate` with `linear_deflection=1e-9` yields an enormous
+   mesh — CPU + memory blow-up in ONE request (`api.py:141-143`).
+2. **Pattern `count` has no upper bound** — `_check_count` rejects only
+   `count < 1` (`kernel/pattern.py:89-94`); `LinearPatternParamsV1.count` /
+   `CircularPatternParamsV1.count` carry no `le=` (`schemas/features.py:1299,1333`).
+   `count = 10_000_000` loops building millions of bodies with a boolean fuse each.
+3. **Assembly interference is O(N²) pairwise OCCT booleans** — `check_interference`
+   runs `for i … for j in range(i+1, len(world_bodies))` (`assembly/interference.py:95-97`),
+   the most expensive per-pair op, and **no instance/mate cap** exists in the
+   assembly schema (`grep "le=\|MAX_INSTANCE\|MAX_MATE"
+   schemas/assemblies.py` → none) or in documents `create_instance`/`create_mate`.
+   A 10k-instance assembly = ~50M booleans in one `assembly/interference` call.
+4. **No list-length caps** — `EvaluateTreeRequest.features`
+   (`schemas/features.py:3043`), drawing `views`/`dimensions`/`annotations`,
+   assembly instances — all unbounded; the JSON body is also fully buffered
+   (no starlette body-size limit), so a large tree is a memory amplifier.
+
+**Recommend (Ready item):** add per-field upper bounds — a `linear_deflection`
+FLOOR (e.g. `ge=1e-4` mm, or clamp server-side), a pattern `count` `le=` cap
+(e.g. 10_000), an assembly instance/mate count cap (documents-side, since
+interference is quadratic), and a `max_length` on the `features` list — plus a
+coarse total-triangle / total-body guard in the geometry worker as
+defence-in-depth. These are the "DoS bounds" the founder asked after and they
+are currently **absent** on every compute route.
+
+#### G3 — Compose publishes documents (:8001) + geometry (:8002) to the host, contradicting the file's own "never expose" comment; documents blindly trusts `X-Loft-User` → header-forge cross-tenant takeover · Severity Med (High on a non-loopback self-host) · Likelihood: low-med · P2
+
+Documents' trust model is "internal service, gateway forwards a verified
+principal in `X-Loft-User`, documents trusts it; **never expose its port to the
+public edge**" (`parts.py:1-13`, and the compose comment at
+`docker-compose.yml:93-96`). `get_principal` (`parts.py:45-66`) accepts ANY
+well-formed UUID in that header as the owner — no signature, no gateway
+attestation. **Yet the same compose file publishes documents on host `:8001`
+(`docker-compose.yml:135-136`) and geometry on `:8002` (`:161-162`)** with the
+default `0.0.0.0` bind. On any multi-user or cloud host — and "small self-host"
+is a stated deploy target (VISION / CLAUDE.md) — a request to `:8001` with
+`X-Loft-User: <victim-uuid>` reads/writes any tenant's parts/drawings/
+assemblies, fully bypassing the gateway's JWT. The compose contradicts its own
+security invariant.
+
+**Recommend (Ready item):** stop publishing documents/geometry host ports in
+`docker-compose.yml` (they are internal; only gateway `:8000` needs the edge),
+or bind them to `127.0.0.1:` explicitly. Keep the host-port override only in
+`docker-compose.dev.yml` for debugging. This is the cheapest correct fix and
+matches the stated trust model.
+
+#### G4 — Stale compose comment claims the mesh-store swap is unshipped / single-worker-only · Severity Low (doc-defect, but it directly caused G1's blind spot) · P3
+
+`docker-compose.yml:153-158` still states geometry is "SINGLE-WORKER ONLY until
+the MinIO-backed mesh store lands" and "`S3_URL`/`S3_BUCKET` are provisioned for
+that forward swap, **not consumed yet**." Both are now false: the swap shipped
+(`s3_store.py`, `mesh_store.py:configure_mesh_store`) and `S3_URL` IS consumed
+(`main.py:82`). CLAUDE.md classifies stale docs as a defect; this specific
+staleness is what let G1 (missing credentials) hide — the comment says the S3
+path is inert, so no one wired its creds. **Recommend:** rewrite the comment to
+"S3/MinIO mesh store is ACTIVE whenever `S3_URL` is set; it requires
+`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`" (folds into G1's fix).
+
+#### G5 — Reachable HLR correctness defect: composed drawings emit a segment BOTH hidden (dashed) and visible (solid) under partial occlusion · Severity Med (wrong user-visible output) · Likelihood: certain on the affected topology · P3
+
+`test_partial_occlusion_emits_no_hidden_over_visible_overlap`
+(`test_drawings_assembly_project.py:784-805`) is `xfail(strict=False)` on a
+**pre-existing, reachable** defect in `geometry.drawings.project._canonicalize`:
+visible-wins culling drops a hidden edge only when it is EXACTLY coincident with
+a visible one, not when it PARTIALLY overlaps a collinear visible segment. So
+under partial cross-instance occlusion (any multi-lump part or assembly drawing)
+a body edge is emitted both dashed and solid over the clear span — wrong drafting
+output a user sees, not a test-only artifact. Documented P3 by geometry-QA, but
+it is shipped wrong output, not a latent gap. **Recommend (Ready item):** fix
+the overlap culling in `_canonicalize` to subtract collinear visible spans from
+hidden edges; the xfail flips to XPASS (`strict=False` already set) and add a
+compose golden asserting no hidden-over-visible overlap.
+
+### Loop-health / process notes
+
+- **ROADMAP honest-ish, one watch item.** `ROADMAP.md:12` and `:1353` mark
+  section views + interference + STEP import SHIPPED; those are now genuinely
+  end-to-end (E1 closed), so the claim holds. No stale-✅ found this pass.
+- **The dead-capability guard the 2026-07-23 pass institutionalized is
+  holding** — the section-view fix carried the persisted-state threading the
+  guard demands. Good process signal.
+- **G1 + G3 + G4 are all in `docker-compose.yml`** — the one artifact no unit
+  test exercises (Docker registry blocked here, no compose in CI). This is the
+  bus-factor blind spot (founder Q7): a new engineer running the documented
+  `docker compose up` gets a broken mesh path (G1) and an unauthenticated
+  internal API on their LAN (G3), with a comment actively misdescribing the
+  state (G4). A compose-lint / a native-with-MinIO smoke in CI would close it.
+
+### Prioritized recommendations for the groomer
+
+- **P1 — G1.** Wire `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` onto the geometry
+  service in compose (+ a mesh round-trip smoke). The documented deploy path is
+  broken for the core flow; cheapest, highest-impact fix this pass.
+- **P2 — G2.** Add per-request work bounds (deflection floor, pattern `count`
+  cap, assembly instance cap, `features` `max_length`) + a coarse geometry-worker
+  work guard — the DoS bounds are currently absent on every compute route.
+- **P2 — G3.** Stop publishing documents/geometry host ports in
+  `docker-compose.yml` (or bind to loopback); documents trusts `X-Loft-User`
+  blindly, so exposing `:8001` is a cross-tenant takeover on any non-loopback host.
+- **P3 — G4** (fold into G1: fix the stale compose comment) and **G5** (fix the
+  `_canonicalize` hidden-over-visible overlap; flip the xfail).
+- **Clean this pass:** all gates green on the clean HEAD worktree; zero new deps
+  (no license/CVE exposure I can substantiate); gateway auth is complete
+  route-by-route and JWT posture is genuinely fail-closed; optimistic-concurrency
+  guards (`_ensure_fresh` + `for_update=True`) are present on **every** mutation
+  endpoint across features/assemblies/drawings (spot-checked all `@router`
+  mutations); no raw/ad-hoc SQL (only parameterized SQLAlchemy + a scoped
+  `pg_advisory_xact_lock`); STEP import remains a real kill-boundary; prior F1/F6,
+  F7, E1 all resolved in code.

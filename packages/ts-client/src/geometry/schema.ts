@@ -208,7 +208,9 @@ export interface paths {
          *
          *     Approach C's server-composed export: geometry OWNS drafting placement. Reuses
          *     ``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values
-         *     (no re-projection), places the sheet (``place_sheet`` — bounds-aware view
+         *     (no re-projection; an ASSEMBLY compose — ``request.assembly`` set — projects the
+         *     solved compound via ``evaluate_assembly_drawing_views`` instead, design §7),
+         *     places the sheet (``place_sheet`` — bounds-aware view
          *     anchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),
          *     then serializes to the requested ``format``: ``svg`` (dependency-free),
          *     ``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) — all

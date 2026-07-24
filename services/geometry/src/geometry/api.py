@@ -78,6 +78,7 @@ from geometry.drawing_store import (
     store_drawing_artifact,
 )
 from geometry.drawings import (
+    compose_drawing_evaluation,
     evaluate_assembly_drawing_views,
     evaluate_drawing_views,
     place_sheet,
@@ -381,13 +382,34 @@ _COMPOSE_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
+def _compose_sheet(request: ComposeDrawingRequest) -> ComposedSheet:
+    """The shared ``/drawing/compose`` + ``/drawing/compose/sheet`` pipeline.
+
+    ``compose_drawing_evaluation`` picks the projected-geometry source (design §7,
+    D4 slice a): a PART compose (``assembly is None``) delegates to
+    ``evaluate_drawing_views`` VERBATIM (byte-identical to the pre-assembly
+    contract); an ASSEMBLY compose projects the solved compound
+    (``evaluate_assembly_drawing_views``) and folds its per-view results into the
+    same envelope. Either way ``place_sheet`` consumes ONE result shape — an
+    assembly view is placed exactly as a part view. Assembly-view dimensioning is
+    out of v1, so an assembly compose places NO dimensions (the evaluation carries
+    none; passing the request's authored inputs would desynchronise the strict
+    input/measured pairing and 500 — never-500 posture instead: they are ignored).
+    """
+    evaluation = compose_drawing_evaluation(request)
+    dimensions = request.dimensions if request.assembly is None else []
+    return place_sheet(evaluation, dimensions, request.layout, request.annotations)
+
+
 @router.post("/drawing/compose", response_class=Response, responses=_COMPOSE_RESPONSES)
 def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
     """Compose a drawing into a placed sheet + serialized artifact (design §4.2).
 
     Approach C's server-composed export: geometry OWNS drafting placement. Reuses
     ``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values
-    (no re-projection), places the sheet (``place_sheet`` — bounds-aware view
+    (no re-projection; an ASSEMBLY compose — ``request.assembly`` set — projects the
+    solved compound via ``evaluate_assembly_drawing_views`` instead, design §7),
+    places the sheet (``place_sheet`` — bounds-aware view
     anchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),
     then serializes to the requested ``format``: ``svg`` (dependency-free),
     ``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) — all
@@ -408,10 +430,7 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
         body = cached
         cache_status = "hit"
     else:
-        evaluation = evaluate_drawing_views(request)
-        composed = place_sheet(
-            evaluation, request.dimensions, request.layout, request.annotations
-        )
+        composed = _compose_sheet(request)
         if request.format == "pdf":
             body = serialize_pdf(composed)
         elif request.format == "dxf":
@@ -447,10 +466,7 @@ def compose_sheet_route(request: ComposeDrawingRequest) -> ComposedSheet:
     request's ``format`` field is inert here (no serialization). Identity-free — the
     gateway owns auth. Deterministic (RESEARCH §9): same request ⇒ identical sheet.
     """
-    evaluation = evaluate_drawing_views(request)
-    return place_sheet(
-        evaluation, request.dimensions, request.layout, request.annotations
-    )
+    return _compose_sheet(request)
 
 
 _MESH_RESPONSES: dict[int | str, dict[str, Any]] = {

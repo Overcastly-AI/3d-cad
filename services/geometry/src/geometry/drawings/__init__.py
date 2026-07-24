@@ -16,6 +16,7 @@ endpoint are a later slice.
 
 from geometry.drawings.assembly_project import (
     compose_assembly_body,
+    compose_drawing_evaluation,
     evaluate_assembly_drawing_views,
 )
 from geometry.drawings.compose import (
@@ -75,6 +76,7 @@ __all__ = [
     "ViewProjectionError",
     "canonical_edges_repr",
     "compose_assembly_body",
+    "compose_drawing_evaluation",
     "evaluate_assembly_drawing_views",
     "evaluate_drawing_views",
     "flat_pattern_view_result",

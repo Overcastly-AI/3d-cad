@@ -1362,12 +1362,20 @@ all done; IGES and healing remain ⬜, keeping the phase 🚧.
       Single-LEVEL assemblies fully resolve; NESTED sub-assembly instances
       contribute an empty prefix (typed per-instance `no_body` downstream) —
       flatten deferred. documents + gateway suites, `just lint`, `just gen`
-      (documents/geometry contracts + ts-client) green. **Remaining before
-      silhouettes render end-to-end: the ~10-line geometry compose branch**
-      (`compose_drawing_route`/`compose_sheet_route`: `request.assembly` →
-      `evaluate_assembly_drawing_views` → map `views` into the
-      `EvaluateDrawingViewsResult` `place_sheet` consumes — kernel-architect,
-      geometry territory) + BOM/balloons + web rendering (BACKLOG D4).
+      (documents/geometry contracts + ts-client) green.
+      **Drawings parity #4 — SLICE (a) geometry compose branch SHIPPED**
+      (2026-07-24): `compose_drawing_route`/`compose_sheet_route` branch on
+      `request.assembly` → `evaluate_assembly_drawing_views` → mapped into the
+      `EvaluateDrawingViewsResult` `place_sheet` consumes (`assembly_error`→
+      `part_error`; dimensions empty, assembly-view dims out of v1). **Assembly
+      drawing views now compose REAL silhouettes (visible + hidden-dashed)
+      END-TO-END at the API**; `assembly=None` part composes byte-identical;
+      6 new compose gates + drawings regression suites green; stale
+      `project_view` docstring fixed. (Reconciled by the orchestrator after the
+      builder was killed by the session usage limit mid-regression; re-verified
+      green — format + contracts regen completed, gen-check + web typecheck
+      clean.) Remaining: BOM/balloons + web rendering + nested flatten
+      (BACKLOG D4).
       **D1b (DOM half) SHIPPED** (2026-07-23): on-screen `TitleBlock` stamps the
       same DRAWN/DATE/NOTES rows the SVG/PDF/DXF emit, shared `titleBlockFields`
       helper. **D3 SHIPPED** (2026-07-23): `bounds_aware_layout` branches on

@@ -656,9 +656,10 @@ def project_view(
     """Project *shape* to canonically-ordered visible/hidden 2D edges (design §1).
 
     *shape* is an exact body — the ``build123d`` ``Solid`` that
-    :func:`geometry.features.evaluate_tree` yields — fed straight to exact HLR
-    through its ``.wrapped`` ``TopoDS_Shape`` with no re-tessellation (§1.1). An
-    assembly compound (a view of an assembly, §1.2) is a later slice. *view*
+    :func:`geometry.features.evaluate_tree` yields, or the solved assembly
+    ``Compound`` that :func:`geometry.drawings.assembly_project.compose_assembly_body`
+    composes (a view of an assembly, §7) — fed straight to exact HLR
+    through its ``.wrapped`` ``TopoDS_Shape`` with no re-tessellation (§1.1). *view*
     selects a
     standard projection frame (§1.2); *scale* multiplies every emitted coordinate
     (model mm → sheet mm), and must be strictly positive so the canonical order is

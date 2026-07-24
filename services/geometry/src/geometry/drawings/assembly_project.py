@@ -41,15 +41,17 @@ from typing import cast
 from build123d import Compound
 from py_kit.schemas.assemblies import InstanceEvaluationError
 from py_kit.schemas.drawings import (
+    ComposeDrawingRequest,
     DrawingViewResult,
     EvaluateAssemblyDrawingViewsRequest,
     EvaluateAssemblyDrawingViewsResult,
+    EvaluateDrawingViewsResult,
 )
 from py_kit.schemas.features import FeatureError
 
 from geometry.assembly.evaluate import PlacedInstance, solve_assembly
 from geometry.assembly.transform import Pose
-from geometry.drawings.evaluate import projected_edge_dto
+from geometry.drawings.evaluate import evaluate_drawing_views, projected_edge_dto
 from geometry.drawings.project import ViewDirection, ViewProjectionError, project_view
 from geometry.kernel import place_body
 from geometry.kernel.types import BodyShape
@@ -198,4 +200,54 @@ def evaluate_assembly_drawing_views(
         instance_errors=instance_errors,
         mate_errors=solved.mate_errors,
         assembly_error=None,
+    )
+
+
+def compose_drawing_evaluation(
+    request: ComposeDrawingRequest,
+) -> EvaluateDrawingViewsResult:
+    """The projected-geometry source for a compose request (design §7, D4 slice a).
+
+    The single seam where the compose pipeline (``/drawing/compose`` +
+    ``/drawing/compose/sheet``) picks its evaluator:
+
+    * ``request.assembly is None`` (the default) — a PART compose: delegate to
+      :func:`geometry.drawings.evaluate.evaluate_drawing_views` VERBATIM, so an
+      existing part/section/flat-pattern sheet composes byte-identically to the
+      pre-assembly contract (the additive posture the ``section_params`` / notes
+      slices carry).
+    * ``request.assembly`` set — an ASSEMBLY compose: run
+      :func:`evaluate_assembly_drawing_views` on the resolved graph (same views +
+      scale) and fold its result into the :class:`EvaluateDrawingViewsResult`
+      envelope ``place_sheet`` consumes — ``views`` map 1:1 (the SAME
+      :class:`DrawingViewResult` shape, so a placed assembly view IS a placed part
+      view to the composer), ``assembly_error`` rides the ``part_error`` channel
+      (NO instance produced a body → every placed view a typed VIEW-FAILED
+      placeholder inside a 200), and ``dimensions`` stay empty (assembly-view
+      dimensioning is out of v1). ``part_id`` / ``tree_version`` echo the request's
+      inherited part fields (documents fills them with the assembly's id/version;
+      the composer never reads them). The richer solve context
+      (``instance_errors`` / ``mate_errors`` / ``status``) has no envelope slot
+      here — a bad instance is DROPPED from the projection by
+      :func:`evaluate_assembly_drawing_views` (the rest still project), and the
+      full context stays queryable via ``POST /drawing/assembly/evaluate``.
+
+    Total — never raises for an evaluation outcome (both branches are total), so
+    a failing solve / bodyless instance composes typed failed views, never a 500.
+    """
+    if request.assembly is None:
+        return evaluate_drawing_views(request)
+    assembly_result = evaluate_assembly_drawing_views(
+        EvaluateAssemblyDrawingViewsRequest(
+            assembly=request.assembly,
+            views=request.views,
+            scale=request.scale,
+        )
+    )
+    return EvaluateDrawingViewsResult(
+        part_id=request.part_id,
+        tree_version=request.tree_version,
+        views=assembly_result.views,
+        dimensions=[],
+        part_error=assembly_result.assembly_error,
     )

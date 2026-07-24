@@ -240,17 +240,18 @@ frame refactor are v2/§11. Spike de-collected.
           byte-identical). Single-level assemblies fully resolve; nested
           sub-assembly instances → empty prefix (typed `no_body`), flatten
           deferred. Contracts + ts-client regenerated. [done 2026-07-24]
-    - [ ] NEXT SLICES (scoped): (a) **geometry compose branch (kernel-architect,
-          SMALL, unblocks silhouettes end-to-end)**: in `compose_drawing_route` +
-          `compose_sheet_route`, when `request.assembly` is set run
-          `evaluate_assembly_drawing_views(EvaluateAssemblyDrawingViewsRequest(
-          assembly=request.assembly, views=request.views, scale=request.scale))`
-          and map its `views` (same `DrawingViewResult` shape) +
-          `assembly_error`→`part_error` into the `EvaluateDrawingViewsResult`
-          `place_sheet` consumes (dimensions empty — assembly-view dims out of
-          v1); include `assembly` in the DE-4 artifact cache key (it already is —
-          the key hashes the whole request). Until it lands an assembly view
-          composes VIEW-FAILED placeholders (typed, never 500), not a 422;
+    - [x] (a) **geometry compose branch — SHIPPED 2026-07-24**: compose routes
+          branch on `request.assembly` → `evaluate_assembly_drawing_views` →
+          mapped into the `EvaluateDrawingViewsResult` `place_sheet` consumes
+          (`assembly_error`→`part_error`, dimensions empty — assembly-view dims
+          out of v1). Assembly views now compose REAL silhouettes (visible +
+          hidden-dashed) END-TO-END at the API; part compose (`assembly=None`)
+          byte-identical; 6 new compose gates green; DE-4 cache key already
+          hashes the whole request. (Reconciled by the orchestrator after the
+          builder was killed by the session usage limit mid-regression-run —
+          work re-verified green: drawings regression suites 100%, format +
+          contracts regen completed, gen-check + web typecheck clean.)
+    - [ ] NEXT SLICES (scoped):
           (b) BOM table + balloons authoring/compose; (c) web — render assembly
           views + BOM/balloons (web reads the SAME `/drawings/{id}/sheet`
           `ComposedSheet`, so (a) alone lights the on-screen sheet up; balloon

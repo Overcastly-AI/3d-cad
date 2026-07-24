@@ -241,8 +241,12 @@ def test_repeat_export_is_a_cache_hit_serving_identical_bytes() -> None:
 
 
 def test_cache_hit_does_not_recompose(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The airtight signal: the second export never calls the compose path."""
-    from geometry.drawings import evaluate_drawing_views as real
+    """The airtight signal: the second export never calls the compose path.
+
+    The spy sits on ``geometry.api.compose_drawing_evaluation`` — the evaluation
+    seam ``_compose_sheet`` calls for BOTH the part and assembly branches (D4
+    slice a), so a hit skipping it proves no re-projection of either kind."""
+    from geometry.drawings import compose_drawing_evaluation as real
 
     calls = {"n": 0}
 
@@ -250,7 +254,7 @@ def test_cache_hit_does_not_recompose(monkeypatch: pytest.MonkeyPatch) -> None:
         calls["n"] += 1
         return real(request)
 
-    monkeypatch.setattr("geometry.api.evaluate_drawing_views", _spy)
+    monkeypatch.setattr("geometry.api.compose_drawing_evaluation", _spy)
     payload = _golden_payload()
     client.post("/api/v1/drawing/compose", json=payload)  # miss → composes
     client.post("/api/v1/drawing/compose", json=payload)  # hit → skips compose
