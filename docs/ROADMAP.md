@@ -987,6 +987,30 @@ flexible sub-assemblies, part-version pinning-as-default.
       `extrude-ghost-{desktop,laptop}.png` +
       `{viewport,tree}-context-menu-desktop.png`. Feature-localized selection
       (#9) is the remaining interaction-depth item.
+      **Interaction-polish + jargon clusters ✅ 2026-07-24 (frontend-builder;
+      FINDINGS #19 + #20):** #19 — (a) a face pick now reads as TOPOLOGY: the
+      face under the cursor (hover/armed) gets a translucent brass patch laid ON
+      its plane (built from the signature centroid/normal/area →
+      `viewport.facePick` tokens), not just a floating DOM square; (b) body hover
+      is perceptible — a quiet warm surface tint (`viewport.hoverSurfaceTint`) +
+      brass-hover edges, where the edge alone was invisible; (c) a discoverable,
+      dismissible NavCue teaches orbit/zoom/pan above the view rail (persisted,
+      gone after "Got it"); (d) the assembly scene gained depth — each instance
+      seats on its OWN contact pool (new Viewport `groundShadow` opt-out + per-
+      instance pools in AssemblyScene) instead of one flat blob. #20 — (a) the
+      most-hit gate drops solver jargon ("Solve a sketch first" → "Draw a
+      sketch…"); (b) the Hole editor slides to the right edge while a pick is
+      armed so it never covers its own pick target; (c) the dimension role
+      toggle is plain-language ("Sets size" / "Reference" + a gloss) not
+      DRIVING/DRIVEN; (d) icon-only ToolButtons (undo/redo) get a comfortable
+      ≥32px square target; (e) a just-saved feature's REBUILD error now mirrors
+      at the editor seat (`rebuild-notice`), not only across-screen in the tree.
+      web unit 815 + design 46 pass; lint/tsc green; e2e `findings-p2-shots`
+      (nav-cue, gate copy, body hover, assembly depth × 2 widths) + regression
+      of hole/datum-face-pick/dimension-expressions/makeover-batch3 green;
+      founder shots `findings-{nav-cue,extrude-gate-copy,body-hover,assembly-
+      depth}-{desktop,laptop}.png`. Deferred (noted): register de-templatizing
+      (#19, brief made optional).
       **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
       #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
       longer duplicates the whole body and mirroring a holed plate about its

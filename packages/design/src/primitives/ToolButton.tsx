@@ -138,8 +138,14 @@ export function ToolButton({
       className={cx(
         "group/tt relative inline-flex select-none items-center rounded-sm py-1.5",
         // Padding + gap follow the label tier: icon-only spacing when the
-        // enclosing CommandBand has measured itself into the icon tier.
-        showLabel ? "gap-2 px-3 [[data-band-tier=icon]_&]:px-2" : "px-2",
+        // enclosing CommandBand has measured itself into the icon tier. A
+        // pure icon-only tool (undo/redo, no `showLabel`) also gets a
+        // comfortable ≥32px square hit target — the 16px glyph alone left a
+        // cramped ~32×28 tap area (UX audit #20d); `min-h`/`min-w` grow the
+        // click surface without shifting the band's centered rows.
+        showLabel
+          ? "gap-2 px-3 [[data-band-tier=icon]_&]:px-2"
+          : "min-h-8 min-w-8 justify-center px-2",
         "transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
         isDisabled ? "cursor-not-allowed opacity-40" : "hover:bg-carbide",

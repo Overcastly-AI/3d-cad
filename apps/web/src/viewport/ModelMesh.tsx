@@ -78,14 +78,18 @@ export function ModelMesh({
     [surfaceMaterial, edgeMaterial],
   );
 
-  // Highlight cue (Batch 3, item 11): selection warms the surface + brasses the
-  // edges (the assembly selection language); hover only brightens the edges.
-  // Matcap tint multiplies the studio sphere — the machined read is preserved.
+  // Highlight cue (Batch 3, item 11; UI audit #19b): selection warms the
+  // surface + brasses the edges (the assembly selection language); hover gives
+  // a QUIET warm-up — a gentle surface tint + brass-hover edges, so pointing at
+  // the body reads (the edge brighten alone was imperceptible). Matcap tint
+  // multiplies the studio sphere — the machined read is preserved.
   useEffect(() => {
     surfaceMaterial.color.set(
       highlight === "selected"
         ? viewport.selectedSurfaceTint
-        : viewport.restSurfaceTint,
+        : highlight === "hover"
+          ? viewport.hoverSurfaceTint
+          : viewport.restSurfaceTint,
     );
     edgeMaterial.color.set(
       highlight === "selected"

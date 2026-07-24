@@ -804,6 +804,22 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       tree error row (keys off the typed `subshape_unresolved` FeatureError); it
       opens the hole editor + re-arms its face pick so the reference re-attaches
       through the same overlay. e2e (repick-face.spec). [src: FINDINGS.md #3]
+- [x] (P2, M) FINDINGS #19 viewport interaction polish (`apps/web`,
+      `packages/design`). Face picks read as topology (translucent brass patch on
+      the hovered/armed face plane — `viewport.facePick`); body hover is a
+      perceptible quiet warm-up (`viewport.hoverSurfaceTint` + brass edges); a
+      dismissible `NavCue` teaches orbit/zoom/pan above the view rail (persisted);
+      the assembly scene seats each instance on its OWN contact pool (Viewport
+      `groundShadow` opt-out + per-instance pools) vs one flat blob. Register
+      de-templatizing deferred (brief-optional). e2e (findings-p2-shots) + founder
+      shots. [src: FINDINGS.md #19 / UI-REVIEW]
+- [x] (P2, S) FINDINGS #20 jargon / ergonomics (`apps/web`, `packages/design`).
+      Gate copy teaches ("Draw a sketch…" not "Solve a sketch first"); Hole editor
+      slides to the right edge while a pick is armed (never covers its target);
+      dimension role toggle is plain ("Sets size" / "Reference" + gloss); icon-only
+      undo/redo get a ≥32px comfortable target; a just-saved feature's rebuild
+      error mirrors at the editor seat (`rebuild-notice`). e2e + regression green.
+      [src: FINDINGS.md #20 / UX-FLOW-AUDIT]
 - [ ] (P2, M) Per-sheet drawing compose/export (`services/gateway` +
       `services/geometry`). The compose/export aggregation is hardwired to
       `tree.sheets[0]` (`_aggregate_compose_request`); thread a sheet

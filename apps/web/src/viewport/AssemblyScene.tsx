@@ -8,6 +8,7 @@
  * never on a re-solve of the same set (the snap-together motion plays
  * without the camera jumping).
  */
+import { viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import { useMemo } from "react";
 import { Box3, Matrix4, Quaternion, Vector3 } from "three";
@@ -15,6 +16,7 @@ import { Box3, Matrix4, Quaternion, Vector3 } from "three";
 import type { OverlayResult } from "../api/measure";
 import type { SceneTransform } from "../assembly/placement";
 import { useMateAuthoringStore } from "../assembly/mateStore";
+import { groundShadowTexture } from "./groundShadow";
 import { InstanceMateOverlay } from "./InstanceMateOverlay";
 import { InstanceMesh } from "./InstanceMesh";
 import type { InstanceGeometry } from "./useInstanceGeometries";
@@ -78,6 +80,65 @@ export function assemblyBounds(
     }
   }
   return any ? box : null;
+}
+
+/** A pool oversize factor — the pool reads ~2× the part footprint (== part). */
+const SHADOW_FACTOR = 2;
+
+/**
+ * Per-instance contact pools + the scene floor (UI audit #19d). Each placed
+ * instance's transformed footprint (XZ extent) gets its own soft pool at the
+ * common floor plane, so every part in the assembly reads SEATED — the same
+ * grounded depth a lone part has, instead of one flat blob under the union.
+ */
+interface InstancePool {
+  id: string;
+  /** World XZ centre of the transformed footprint. */
+  center: readonly [number, number];
+  /** World XZ extent (pool scale before the oversize factor). */
+  size: readonly [number, number];
+}
+
+function useInstancePools(instances: readonly SceneInstance[]): {
+  pools: InstancePool[];
+  floor: number;
+} {
+  return useMemo(() => {
+    const pools: InstancePool[] = [];
+    let floor = 0;
+    for (const inst of instances) {
+      const geom = inst.geometry?.surface;
+      if (!geom) continue;
+      geom.computeBoundingBox();
+      const local = geom.boundingBox;
+      if (!local) continue;
+      const pos = new Vector3(...inst.transform.position);
+      const quat = new Quaternion(...inst.transform.quaternion);
+      const mat = new Matrix4().compose(pos, quat, new Vector3(1, 1, 1));
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (let i = 0; i < 8; i += 1) {
+        const c = new Vector3(
+          i & 1 ? local.max.x : local.min.x,
+          i & 2 ? local.max.y : local.min.y,
+          i & 4 ? local.max.z : local.min.z,
+        ).applyMatrix4(mat);
+        minX = Math.min(minX, c.x);
+        maxX = Math.max(maxX, c.x);
+        minZ = Math.min(minZ, c.z);
+        maxZ = Math.max(maxZ, c.z);
+        floor = Math.min(floor, c.y);
+      }
+      pools.push({
+        id: inst.id,
+        center: [(minX + maxX) / 2, (minZ + maxZ) / 2],
+        size: [Math.max(maxX - minX, 1), Math.max(maxZ - minZ, 1)],
+      });
+    }
+    return { pools, floor };
+  }, [instances]);
 }
 
 /** A drafting balloon — circled BOM item number, anchor mark when grounded. */
@@ -150,6 +211,7 @@ export function AssemblyScene({
   overlaysByInstance,
   clashingInstanceIds,
 }: AssemblySceneProps) {
+  const { pools, floor } = useInstancePools(instances);
   const tool = useMateAuthoringStore((s) => s.tool);
   const picks = useMateAuthoringStore((s) => s.picks);
   const pickFace = useMateAuthoringStore((s) => s.pickFace);
@@ -176,6 +238,30 @@ export function AssemblyScene({
 
   return (
     <group>
+      {/* Per-instance contact pools — each part seated on the bench floor. */}
+      {pools.map((pool) => (
+        <mesh
+          key={`sh-${pool.id}`}
+          position={[pool.center[0], floor - 0.02, pool.center[1]]}
+          scale={[
+            pool.size[0] * SHADOW_FACTOR,
+            pool.size[1] * SHADOW_FACTOR,
+            1,
+          ]}
+          rotation={[-Math.PI / 2, 0, 0]}
+        >
+          <planeGeometry args={[1, 1]} />
+          <meshBasicMaterial
+            color={viewport.groundShadow}
+            map={groundShadowTexture()}
+            transparent
+            opacity={viewport.groundShadowOpacity}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </mesh>
+      ))}
+
       {instances.map((inst) =>
         inst.geometry ? (
           <InstanceMesh

@@ -1254,6 +1254,15 @@ export function PartPage() {
   );
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  // UX audit #20e — a feature can SAVE cleanly yet fail to REBUILD (the create
+  // 200s, then the tree re-evaluation flags the feature). That error lands in
+  // the tree while the eye is still on the editor seat, so we mirror it right
+  // there. Keyed to the last-saved feature so merely selecting an old broken
+  // feature never nags; dismissible, and re-armed by the next save.
+  const [lastSavedFeatureId, setLastSavedFeatureId] = useState<string | null>(
+    null,
+  );
+  const [rebuildNoticeDismissed, setRebuildNoticeDismissed] = useState(false);
   const [rollbackBusy, setRollbackBusy] = useState(false);
   // Live extrude ghost (UI-REVIEW #8): the open extrude editor projects its
   // form here on every keystroke; the viewport sweeps the profile at this
@@ -2164,6 +2173,8 @@ export function PartPage() {
             );
           }
           setSelectedFeatureId(response.feature.id);
+          setLastSavedFeatureId(response.feature.id);
+          setRebuildNoticeDismissed(false);
           setEditor(null);
           await refreshTreeAndBody();
         } catch (error) {
@@ -3078,6 +3089,21 @@ export function PartPage() {
     [partId, rollbackBusy, freshTreeVersion, refreshTreeAndBody],
   );
 
+  // The last-saved feature's rebuild error (UX audit #20e), surfaced at the
+  // editor seat so it reads where the user just clicked Create/Save — not only
+  // in the tree across the screen. Dismissible; the next save re-arms it.
+  const rebuildNotice = useMemo<string | null>(() => {
+    if (lastSavedFeatureId === null || rebuildNoticeDismissed) return null;
+    const result = evaluation.data?.features.find(
+      (f) => f.feature_id === lastSavedFeatureId,
+    );
+    return result !== undefined &&
+      result.status === "error" &&
+      result.error != null
+      ? result.error.message
+      : null;
+  }, [lastSavedFeatureId, rebuildNoticeDismissed, evaluation.data]);
+
   // A solved sketch must exist before an extrude or revolve can consume one.
   const hasSolvedSketch =
     sketchProfiles.length > 0 &&
@@ -3853,6 +3879,27 @@ export function PartPage() {
                       className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
                     >
                       Re-evaluate
+                    </button>
+                  </div>
+                ) : editor === null && rebuildNotice !== null ? (
+                  <div
+                    role="alert"
+                    data-testid="rebuild-notice"
+                    className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      This feature couldn't build
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {rebuildNotice}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRebuildNoticeDismissed(true)}
+                      data-testid="rebuild-notice-dismiss"
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Dismiss
                     </button>
                   </div>
                 ) : null}

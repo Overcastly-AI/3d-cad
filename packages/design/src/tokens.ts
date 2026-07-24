@@ -67,6 +67,14 @@ export const viewport = {
    * read is preserved). The rest tint is the matcap multiply identity.
    */
   selectedSurfaceTint: "#E8CDA4",
+  /**
+   * Hover surface tint — a QUIET warm multiply of the studio matcap, held much
+   * closer to white than the selection tint so hovering the body reads as a
+   * gentle warm-up (not a commit). Paired with the brass-hover edge, it makes
+   * body hover perceptible where the edge alone was imperceptible (UI audit
+   * #19b). Selection still wins and reads clearly warmer.
+   */
+  hoverSurfaceTint: "#F3E9D8",
   restSurfaceTint: "#FFFFFF",
   /** Surface tint of a clashing/interfering body — multiplies the studio matcap
    * toward a warm red (matcaps carry no emissive channel), so the body reads
@@ -103,6 +111,19 @@ export const viewport = {
     shade: "#48525D",
     /** Cool fill rim (skylight bounce). */
     rim: "#93A9C1",
+  },
+  /**
+   * Face-pick highlight (UI audit #19a). A face pick used to read as a blanket
+   * of floating DOM squares; now the face UNDER the cursor (hovered or the
+   * armed pick) also gets a translucent brass patch laid ON its plane — the
+   * pick reads as the real surface, cursor-driven, not a square. Two strengths
+   * (hover / chosen); opacities are design decisions held here.
+   */
+  facePick: {
+    hover: color.brassHover,
+    selected: color.brass,
+    hoverOpacity: 0.16,
+    selectedOpacity: 0.3,
   },
   /** The view reference cube (orientation gizmo) — a machinist's block. */
   gizmo: {

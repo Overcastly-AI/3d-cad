@@ -310,9 +310,19 @@ export function HoleEditor({
       ? csinkAngleError(form.csinkAngleInput)
       : null;
 
+  // While a viewport pick is armed the card slides to the RIGHT edge so it
+  // never sits over the face/point the user must click (UX audit #20b — the
+  // editor was covering its own pick target at the left seat). It returns to
+  // the title-block seat once the pick is taken/disarmed.
+  const picking = activePick !== null;
   return (
     <div
-      className="absolute left-editor top-3 w-editor max-w-full"
+      data-testid="hole-editor-shell"
+      data-picking={picking ? "true" : "false"}
+      className={cx(
+        "absolute top-3 w-editor max-w-full",
+        picking ? "right-3" : "left-editor",
+      )}
       onKeyDown={onKeyDown}
     >
       <Panel aria-label="Hole" data-testid="hole-editor">

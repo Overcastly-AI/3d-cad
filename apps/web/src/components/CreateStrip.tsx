@@ -417,11 +417,11 @@ export function CreateStrip({
             aria-label={
               canExtrude
                 ? "Extrude — add or cut a sketch profile"
-                : "Extrude — solve a sketch first"
+                : "Extrude — draw a sketch first"
             }
             caption={captionFor(
               canExtrude && treeReady,
-              "Solve a sketch first",
+              "Draw a sketch to extrude",
             )}
             disabled={locked || !canExtrude || !treeReady}
             onClick={onNewExtrude}
@@ -434,11 +434,11 @@ export function CreateStrip({
             aria-label={
               canRevolve
                 ? "Revolve — sweep a sketch profile about an axis"
-                : "Revolve — solve a sketch first"
+                : "Revolve — draw a sketch first"
             }
             caption={captionFor(
               canRevolve && treeReady,
-              "Solve a sketch first",
+              "Draw a sketch to revolve",
             )}
             disabled={locked || !canRevolve || !treeReady}
             onClick={onNewRevolve}
@@ -610,9 +610,9 @@ export function CreateStrip({
             aria-label={
               baseFlangeReady
                 ? "Base flange — thicken a sketch profile to gauge (the sheet's first body)"
-                : "Base flange — solve a sketch first"
+                : "Base flange — draw a sketch first"
             }
-            caption={captionFor(baseFlangeReady, "Solve a sketch first")}
+            caption={captionFor(baseFlangeReady, "Draw a sketch first")}
             disabled={locked || !baseFlangeReady}
             onClick={onNewBaseFlange}
           />

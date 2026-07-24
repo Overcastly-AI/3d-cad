@@ -151,13 +151,22 @@ a concrete fix; the top block is already being actioned.
   in v1 (gateway `_aggregate_compose_request` composes `sheets[0]`) — a laid-out
   secondary sheet reports its honest managed state; per-sheet compose is a
   backend follow-up (BACKLOG).
-- Pick affordances are DOM-square blankets vs cursor-driven topology
-  highlights; body hover imperceptible; orbit/pan/zoom undiscoverable;
-  registers read as templated web tables; assembly scene flattest of the
-  three (UI).
-- "Solve a sketch first" jargon on the most-hit gate; Hole editor covers its
-  own pick target; DRIVING/DRIVEN jargon at first dimension; 32×16 px undo
-  targets; errors land in the tree while the eye is on the editor (UX).
+- ✅ **Viewport interaction polish — FIXED 2026-07-24** (frontend-builder, #19):
+  face picks read as topology (a translucent brass patch on the hovered/armed
+  face plane, `viewport.facePick`), body hover gives a perceptible quiet
+  warm-up (`viewport.hoverSurfaceTint` + brass edges), a dismissible NavCue
+  teaches orbit/zoom/pan above the view rail, and the assembly scene seats each
+  instance on its OWN contact pool (Viewport `groundShadow` opt-out + per-
+  instance pools) instead of one flat blob. _Register de-templatizing deferred
+  (brief-optional)._ Was: DOM-square blankets, imperceptible hover, undiscover-
+  able nav, flattest-of-three assembly scene.
+- ✅ **Jargon / ergonomics cluster — FIXED 2026-07-24** (frontend-builder, #20):
+  the most-hit gate teaches ("Draw a sketch…" not "Solve a sketch first"); the
+  Hole editor slides aside while a pick is armed so it never covers its pick
+  target; the dimension role toggle is plain ("Sets size" / "Reference" + a
+  gloss), not DRIVING/DRIVEN; icon-only undo/redo get a ≥32px comfortable
+  target; a just-saved feature's rebuild error mirrors at the editor seat
+  (`rebuild-notice`), not only in the tree.
 - ✅ **Shared-HLR `_canonicalize` emitted a segment both dashed and solid under
   partial occlusion — FIXED 2026-07-24** (kernel-architect, #21): the visible-wins
   cull caught only EXACT coincidence; a hidden line that COLLINEARLY OVERLAPS a

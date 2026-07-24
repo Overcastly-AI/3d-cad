@@ -772,6 +772,7 @@ export function AssemblyPage() {
           <Viewport
             worldBounds={sceneBounds}
             fitKey={sceneFitKey}
+            groundShadow={false}
             hud={
               <>
                 <MateHud

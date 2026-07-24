@@ -20,6 +20,7 @@ import type { Box3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { useReducedMotion } from "../lib/useReducedMotion";
+import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { groundShadowTexture } from "./groundShadow";
@@ -291,6 +292,13 @@ export interface ViewportProps {
    * caller can `preventDefault` and read `clientX`/`clientY`.
    */
   onContextMenu?: (event: ReactMouseEvent) => void;
+  /**
+   * Draw the single aggregate contact pool under `bounds`. The assembly turns
+   * this OFF and seats EACH instance on its own pool instead (UI audit #19d —
+   * one big blob under a multi-part scene reads flat; per-part shadows give the
+   * assembly the same grounded depth a lone part has).
+   */
+  groundShadow?: boolean;
 }
 
 /**
@@ -312,6 +320,7 @@ export function Viewport({
   bodyInteractive = false,
   bodySelected = false,
   onContextMenu,
+  groundShadow = true,
 }: ViewportProps) {
   const reducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -391,7 +400,7 @@ export function Viewport({
             sectionColor={viewport.gridMajor}
           />
         ) : null}
-        {viewNav && shadow !== null ? (
+        {groundShadow && viewNav && shadow !== null ? (
           <mesh
             position={[
               shadow.position[0],
@@ -454,6 +463,7 @@ export function Viewport({
       */}
       <div className="pointer-events-none absolute inset-0 z-hud [&>*]:pointer-events-auto">
         {viewNav ? <ViewBar /> : null}
+        {viewNav ? <NavCue /> : null}
         {hud}
       </div>
       {/*
