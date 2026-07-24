@@ -24,6 +24,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from py_kit.schemas.features import (
+    MAX_TREE_FEATURES,
     EdgeSignature,
     EvaluatedFeatureInput,
     FeatureError,
@@ -32,6 +33,8 @@ from py_kit.schemas.features import (
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
+    MIN_ANGULAR_DEFLECTION,
+    MIN_LINEAR_DEFLECTION,
     BoundingBox,
     ExportFormat,
     ShapeProperties,
@@ -41,6 +44,37 @@ from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 #: Upper bound for a user-facing assembly name ("Gearbox", "Bracket Stack").
 ASSEMBLY_NAME_MAX_LENGTH = 200
+
+# --- Per-request work bounds (engineering audit 2026-07-24 G2) -------------------
+#
+# The rate limiter caps request FREQUENCY; these constants cap the WORK one
+# assembly compute request (evaluate / export / interference / drawing) can
+# demand. Over-bound is a typed 422 at parse or at the handler, never a worker
+# OOM/monopolization.
+
+#: Ceiling on instances in one assembly compute request. Each instance costs a
+#: part evaluation (deduped per unique part) + a tessellation + a mate-solve
+#: variable block. 500 matches ``MAX_IMPORT_ASSEMBLY_PRODUCTS`` (the STEP-import
+#: fan-out cap — one consistent "instances per request" scale across the
+#: service) and is an order of magnitude beyond the assemblies this v1 targets.
+MAX_ASSEMBLY_INSTANCES = 500
+
+#: Ceiling on mates in one assembly compute request — 4x the instance cap: a
+#: real mate graph carries a low single-digit number of mates per instance
+#: (each mate is 1-3 solver constraint rows), so 2000 covers a fully-mated
+#: 500-instance assembly while bounding the solve.
+MAX_ASSEMBLY_MATES = 2000
+
+#: TIGHTER instance ceiling for ``/assembly/interference`` specifically —
+#: enforced in the geometry route handler (cross-route: the field-level
+#: ``MAX_ASSEMBLY_INSTANCES`` still applies at parse). Interference is O(N^2)
+#: exact OCCT booleans over bodied instances — N(N-1)/2 pairs: 200 instances is
+#: ~19,900 pairwise booleans (the accepted worst case for one request), while
+#: the schema-level 500 would allow ~124,750 — an order of magnitude past the
+#: budget for a single call. The v2 AABB broad-phase pre-filter (module note in
+#: ``geometry.assembly.interference``) is the path to raising this, not an
+#: ad-hoc bump. Over the cap is a typed 422 ``interference_too_many_instances``.
+MAX_INTERFERENCE_INSTANCES = 200
 
 #: Upper bound for a per-instance name ("Bracket <1>", "Bolt <3>").
 INSTANCE_NAME_MAX_LENGTH = 200
@@ -671,7 +705,9 @@ class EvaluatedInstance(BaseModel):
         "sharing it evaluate once and share one content-addressed mesh (§4)"
     )
     features: list[EvaluatedFeatureInput] = Field(
-        description="The part's ordered feature prefix (feature-tree §4 contract)"
+        max_length=MAX_TREE_FEATURES,
+        description="The part's ordered feature prefix (feature-tree §4 "
+        "contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
     )
     placement: Placement = Field(
         default=IDENTITY_PLACEMENT, description="Authored seed pose (§2.3)"
@@ -696,16 +732,21 @@ class EvaluateAssemblyRequest(BaseModel):
     assembly_id: uuid.UUID
     version: int = Field(description="Echoed back; cache/correlation key")
     instances: list[EvaluatedInstance] = Field(
-        description="The assembly's instances (result order preserved)"
+        max_length=MAX_ASSEMBLY_INSTANCES,
+        description="The assembly's instances (result order preserved), bounded "
+        "by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)",
     )
     mates: list[EvaluatedMate] = Field(
         default_factory=list["EvaluatedMate"],
-        description="The mate graph; processed in order_index order (determinism)",
+        max_length=MAX_ASSEMBLY_MATES,
+        description="The mate graph; processed in order_index order "
+        "(determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)",
     )
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
-        gt=0,
-        description="Presentation tessellation parameter (mm), never persisted",
+        ge=MIN_LINEAR_DEFLECTION,
+        description="Presentation tessellation parameter (mm), never persisted. "
+        "Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
     )
 
 
@@ -932,9 +973,10 @@ class ExportAssemblyRequest(EvaluateAssemblyRequest):
     )
     angular_deflection: float = Field(
         default=DEFAULT_ANGULAR_DEFLECTION,
-        gt=0,
+        ge=MIN_ANGULAR_DEFLECTION,
         description="STL facet angular deflection (rad) between adjacent "
-        "segments; ignored for STEP (exact B-rep)",
+        "segments; ignored for STEP (exact B-rep). Floored at "
+        "MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
     )
 
 

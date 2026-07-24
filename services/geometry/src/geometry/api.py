@@ -15,6 +15,7 @@ from py_kit.errors import NotFoundError, ValidationApiError
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
 from py_kit.schemas.assemblies import (
+    MAX_INTERFERENCE_INSTANCES,
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
     ExportAssemblyRequest,
@@ -210,11 +211,27 @@ def assembly_interference_route(
     O(N²) over bodied instances (accepted v1 bound; broad-phase AABB pre-filter is
     the v2 follow-up).
 
+    **Per-request work bound (audit G2):** because the scan is quadratic, this
+    route enforces a TIGHTER instance ceiling than the parse-time
+    ``MAX_ASSEMBLY_INSTANCES`` — ``MAX_INTERFERENCE_INSTANCES`` (~19,900
+    pairwise exact booleans at the cap; the constant's rationale comment in
+    :mod:`py_kit.schemas.assemblies` documents the N² math). Over the cap is a
+    typed 422 ``interference_too_many_instances``, never an unbounded scan.
+    Cross-field (route-specific, not a property of the shared request model),
+    so it is a handler check rather than a Field constraint.
+
     A bad part / mate / solve is a **200 with a typed status / diagnosis and a
     (possibly empty) clash list** (mirroring ``/assembly/evaluate``'s never-500
     posture, §4.3); the py-kit envelope stays reserved for transport/validation
     failures of this call itself.
     """
+    if len(request.instances) > MAX_INTERFERENCE_INSTANCES:
+        raise ValidationApiError(
+            f"Interference checking is limited to {MAX_INTERFERENCE_INSTANCES} "
+            f"instances per request (the pairwise clash scan is quadratic in "
+            f"instance count), got {len(request.instances)}.",
+            code="interference_too_many_instances",
+        )
     return check_interference(request)
 
 

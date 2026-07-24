@@ -28,6 +28,7 @@ from py_kit.db import SessionDep
 from py_kit.schemas.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
+    MAX_TREE_FEATURES,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     FeatureCreate,
@@ -363,6 +364,17 @@ async def create_feature(
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
 
     features = await _ordered_features(session, part.id)
+    # Write-side twin of the EvaluateTreeRequest `max_length=MAX_TREE_FEATURES`
+    # parse bound (audit G2): a part must never accumulate a tree the
+    # evaluation contract rejects, or every later evaluate/export read of the
+    # part would fail constructing the DTO (a persistent 500, not a work bound).
+    if len(features) >= MAX_TREE_FEATURES:
+        raise ValidationApiError(
+            f"A part holds at most {MAX_TREE_FEATURES} features (per-request "
+            "work bound); delete features before adding more.",
+            code="feature_limit_exceeded",
+            details={"max_features": MAX_TREE_FEATURES},
+        )
     features_by_id = {feature.id: feature for feature in features}
     bar_index = _bar_index(part, features)
     position = len(features) if bar_index is None else bar_index + 1

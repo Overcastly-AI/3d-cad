@@ -42,6 +42,7 @@ from py_kit.schemas.assemblies import (
     RefDocumentKind,
 )
 from py_kit.schemas.features import (
+    MAX_TREE_FEATURES,
     EdgeSignature,
     EvaluatedFeatureInput,
     FeatureError,
@@ -50,6 +51,27 @@ from py_kit.schemas.features import (
 
 #: Upper bound for a user-facing drawing name ("Bracket — Detail").
 DRAWING_NAME_MAX_LENGTH = 200
+
+# --- Per-request work bounds (engineering audit 2026-07-24 G2) -------------------
+#
+# The rate limiter caps request FREQUENCY; these constants cap the WORK one
+# drawing evaluate/compose request can demand. Over-bound is a typed 422 at
+# parse, never a worker OOM/monopolization.
+
+#: Ceiling on views in one drawing evaluate/compose request. Exact HLR
+#: (``HLRBRep_Algo``) runs PER VIEW — the expensive op — and a real sheet holds
+#: a handful of views (the standard front/top/right/iso plus sections), so 32
+#: is far beyond legitimate use while bounding the per-request HLR fan-out.
+MAX_DRAWING_VIEWS = 32
+
+#: Ceiling on dimensions in one drawing evaluate/compose request. Each is an
+#: exact B-rep measurement + a placement pass; a dense production sheet runs
+#: tens of dimensions, so 500 is generous.
+MAX_DRAWING_DIMENSIONS = 500
+
+#: Ceiling on note annotations in one compose request — placement/serialization
+#: work only, same generous scale as dimensions.
+MAX_DRAWING_ANNOTATIONS = 500
 
 #: Upper bound for a per-sheet name ("Sheet 1").
 SHEET_NAME_MAX_LENGTH = 200
@@ -992,11 +1014,15 @@ class EvaluateDrawingViewsRequest(BaseModel):
     part_id: uuid.UUID = Field(description="The referenced part's identity (echoed)")
     tree_version: int = Field(description="Echoed back; cache/correlation key")
     features: list[EvaluatedFeatureInput] = Field(
-        description="The part's ordered feature prefix (feature-tree §4 contract)"
+        max_length=MAX_TREE_FEATURES,
+        description="The part's ordered feature prefix (feature-tree §4 "
+        "contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
     )
     views: list[ViewProjection] = Field(
+        max_length=MAX_DRAWING_VIEWS,
         description="The standard views to project (subset of front/top/right/iso); "
-        "processed and returned in request order"
+        "processed and returned in request order. Bounded by MAX_DRAWING_VIEWS "
+        "(work bound, audit G2 — HLR runs per view).",
     )
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE,
@@ -1004,8 +1030,10 @@ class EvaluateDrawingViewsRequest(BaseModel):
     )
     dimensions: list[DrawingDimensionInput] = Field(
         default_factory=list["DrawingDimensionInput"],
+        max_length=MAX_DRAWING_DIMENSIONS,
         description="Dimensions to measure against the evaluated body, each tagged "
-        "with its view (design §3/§5). Empty (the default) → no measurement and the "
+        "with its view (design §3/§5), bounded by MAX_DRAWING_DIMENSIONS (work "
+        "bound, audit G2). Empty (the default) → no measurement and the "
         "response is projected edges only, byte-for-byte the slice-#3 behaviour "
         "(fully backward-compatible).",
     )
@@ -1144,7 +1172,9 @@ class SheetLayout(BaseModel):
         default=None, description="Free-text title block (design §9 q6; v1 unused)"
     )
     views: list[SheetViewPlacement] = Field(
-        description="The placed views (which projections to compose + their order)"
+        max_length=MAX_DRAWING_VIEWS,
+        description="The placed views (which projections to compose + their "
+        "order), bounded by MAX_DRAWING_VIEWS (work bound, audit G2)",
     )
 
 
@@ -1184,8 +1214,10 @@ class ComposeDrawingRequest(EvaluateDrawingViewsRequest):
     )
     annotations: list[Annotation] = Field(
         default_factory=list["Annotation"],
+        max_length=MAX_DRAWING_ANNOTATIONS,
         description="Sheet annotations (v1: free-text notes) placed at their authored "
-        "sheet positions; empty by default. Composed onto the sheet + serialized in "
+        "sheet positions; empty by default, bounded by MAX_DRAWING_ANNOTATIONS "
+        "(work bound, audit G2). Composed onto the sheet + serialized in "
         "all three formats. Part of the content-addressed artifact cache key (DE-4), "
         "so a note edit misses the cache and recomposes.",
     )
@@ -1542,9 +1574,11 @@ class EvaluateAssemblyDrawingViewsRequest(BaseModel):
         "evaluate/interference/export routes use"
     )
     views: list[ViewProjection] = Field(
+        max_length=MAX_DRAWING_VIEWS,
         description="The standard views to project (subset of front/top/right/iso); "
-        "processed and returned in request order. `flat_pattern` / `section` are "
-        "part-body view kinds — a typed per-view error for an assembly (§7)"
+        "processed and returned in request order, bounded by MAX_DRAWING_VIEWS "
+        "(work bound, audit G2). `flat_pattern` / `section` are "
+        "part-body view kinds — a typed per-view error for an assembly (§7)",
     )
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE,

@@ -295,6 +295,23 @@ carry forward as blocked board items.
       `scripts/check-compose.py` renders `docker compose config --format json`
       and asserts all three invariants; wired into the CI `compose` job so
       these regressions can't return unexercised
+- ✅ Per-request work bounds — G2 CLOSED (2026-07-24 engineering audit,
+      kernel-architect): the rate limiter caps request frequency, these cap
+      per-request COST. Documented constants (rationale comments, audit-G2
+      tagged) with pydantic Field constraints → typed 422s, never 500s:
+      deflection floors `MIN_LINEAR_DEFLECTION` 1e-3 mm /
+      `MIN_ANGULAR_DEFLECTION` 1e-2 rad on every tessellate/export/evaluate
+      path; pattern `count` ≤ `MAX_PATTERN_COUNT` 500 (+ kernel
+      defense-in-depth); tree `features` ≤ `MAX_TREE_FEATURES` 1000; assembly
+      `instances`/`mates` ≤ 500/2000 (import products cap now TIED to the
+      instance cap); interference handler-capped at
+      `MAX_INTERFERENCE_INSTANCES` 200 (N² documented) with typed
+      `interference_too_many_instances`; drawing views/dimensions/annotations
+      ≤ 32/500/500; sketch entities/constraints/spline points ≤ 2000/4000/500;
+      loft sections ≤ 100; selector refs ≤ 500. documents write-side twins
+      (typed `*_limit_exceeded` 422s on create) keep persisted docs
+      constructible into the bounded DTOs (no accumulated-rows 500). 42 new
+      reject/accept tests across py-kit + geometry + documents
 - ✅ Contract pipeline: OpenAPI generated from pydantic → committed to
       `packages/contracts` → `packages/ts-client` generated (`just gen`);
       drift check ready as `just gen-check` (CI wiring lands with the CI

@@ -22,6 +22,26 @@ DEFAULT_LINEAR_DEFLECTION = 0.1
 #: default, so "default quality" means the same mesh on both paths.
 DEFAULT_ANGULAR_DEFLECTION = 0.1
 
+#: FLOOR (mm) for any request-supplied linear deflection — a per-request work
+#: bound (engineering audit 2026-07-24 G2: the rate limiter caps request
+#: frequency, not cost). Tessellation segment count on a curved edge grows
+#: ~1/sqrt(deflection) per curve direction, so triangle count on doubly-curved
+#: faces grows ~1/deflection: an unbounded ``linear_deflection=1e-9`` is an
+#: OOM/CPU blow-up in ONE authenticated request. 1e-3 mm (1 micron chord
+#: error) is 100x finer than the 0.1 mm viewport default — ~10x the default's
+#: segment density per direction, ~100x its triangles — and far beyond any
+#: display or manufacturing need (machining tolerance is ~10 microns), so no
+#: legitimate request feels the ceiling. Below the floor is a typed 422 at
+#: parse, never a kernel blow-up.
+MIN_LINEAR_DEFLECTION = 1e-3
+
+#: FLOOR (rad) for any request-supplied angular deflection — the angular twin
+#: of :data:`MIN_LINEAR_DEFLECTION` (audit G2). Segments per full circle are
+#: ~2*pi/deflection: 1e-2 rad (~0.57 deg) caps a circle at ~628 segments, 10x
+#: the ~63 of the 0.1 rad default — generous for any STL consumer while
+#: bounding the mesh a single request can demand.
+MIN_ANGULAR_DEFLECTION = 1e-2
+
 #: Response header carrying compact-JSON ``TessellationMetadata`` next to a GLB.
 PROPERTIES_HEADER = "X-Loft-Properties"
 
@@ -122,9 +142,10 @@ class TessellateRequest(ShapeRequest):
 
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
-        gt=0,
+        ge=MIN_LINEAR_DEFLECTION,
         description=(
-            "Max distance (mm) between a curve and its tessellation; lower = finer mesh"
+            "Max distance (mm) between a curve and its tessellation; lower = "
+            "finer mesh. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2)."
         ),
     )
 
@@ -143,18 +164,20 @@ class ExportRequest(ShapeRequest):
     )
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
-        gt=0,
+        ge=MIN_LINEAR_DEFLECTION,
         description=(
             "STL facet linear deflection (mm), same semantics as tessellation; "
-            "ignored for STEP (exact B-rep)"
+            "ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION "
+            "(work bound, audit G2)."
         ),
     )
     angular_deflection: float = Field(
         default=DEFAULT_ANGULAR_DEFLECTION,
-        gt=0,
+        ge=MIN_ANGULAR_DEFLECTION,
         description=(
             "STL facet angular deflection (rad) between adjacent segments; "
-            "ignored for STEP (exact B-rep)"
+            "ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION "
+            "(work bound, audit G2)."
         ),
     )
 

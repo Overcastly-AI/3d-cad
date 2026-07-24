@@ -24,6 +24,9 @@ from fastapi import APIRouter, Query, status
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from py_kit.schemas.drawings import (
+    MAX_DRAWING_ANNOTATIONS,
+    MAX_DRAWING_DIMENSIONS,
+    MAX_DRAWING_VIEWS,
     AngularDimensionParams,
     Annotation,
     AnnotationCreate,
@@ -570,6 +573,16 @@ async def create_view(
         )
 
     position = await _count(session, db.View, db.View.sheet_id, sheet.id)
+    # Write-side twin of the compose/evaluate `max_length=MAX_DRAWING_VIEWS`
+    # parse bound (audit G2): a sheet must never accumulate views the compose
+    # contract rejects, or every later export read would fail building the DTO.
+    if position >= MAX_DRAWING_VIEWS:
+        raise ValidationApiError(
+            f"A sheet holds at most {MAX_DRAWING_VIEWS} views (per-request "
+            "work bound); delete views before adding more.",
+            code="view_limit_exceeded",
+            details={"max_views": MAX_DRAWING_VIEWS},
+        )
     view = db.View(
         id=uuid.uuid4(),
         sheet_id=sheet.id,
@@ -711,6 +724,15 @@ async def create_dimension(
     _validate_dimension(request.dimension)
 
     position = await _count(session, db.Dimension, db.Dimension.sheet_id, sheet.id)
+    # Write-side twin of the `max_length=MAX_DRAWING_DIMENSIONS` parse bound
+    # (audit G2) — same rationale as the view cap above.
+    if position >= MAX_DRAWING_DIMENSIONS:
+        raise ValidationApiError(
+            f"A sheet holds at most {MAX_DRAWING_DIMENSIONS} dimensions "
+            "(per-request work bound); delete dimensions before adding more.",
+            code="dimension_limit_exceeded",
+            details={"max_dimensions": MAX_DRAWING_DIMENSIONS},
+        )
     dimension = db.Dimension(
         id=uuid.uuid4(),
         sheet_id=sheet.id,
@@ -783,6 +805,15 @@ async def create_annotation(
     sheet = await _get_sheet(session, drawing, sheet_id)
 
     position = await _count(session, db.Annotation, db.Annotation.sheet_id, sheet.id)
+    # Write-side twin of the `max_length=MAX_DRAWING_ANNOTATIONS` parse bound
+    # (audit G2) — same rationale as the view cap above.
+    if position >= MAX_DRAWING_ANNOTATIONS:
+        raise ValidationApiError(
+            f"A sheet holds at most {MAX_DRAWING_ANNOTATIONS} annotations "
+            "(per-request work bound); delete annotations before adding more.",
+            code="annotation_limit_exceeded",
+            details={"max_annotations": MAX_DRAWING_ANNOTATIONS},
+        )
     annotation = db.Annotation(
         id=uuid.uuid4(),
         sheet_id=sheet.id,

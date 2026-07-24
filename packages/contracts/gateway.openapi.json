@@ -872,7 +872,8 @@
             "description": "A point on the world-space axis of rotation (mm)"
           },
           "count": {
-            "description": "TOTAL instances INCLUDING the seed; an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.",
+            "description": "TOTAL instances INCLUDING the seed; an integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 \u2014 over the ceiling is a parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.",
+            "maximum": 500.0,
             "title": "Count",
             "type": "integer"
           },
@@ -2913,25 +2914,27 @@
             "type": "string"
           },
           "instances": {
-            "description": "The assembly's instances (result order preserved)",
+            "description": "The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)",
             "items": {
               "$ref": "#/components/schemas/EvaluatedInstance"
             },
+            "maxItems": 500,
             "title": "Instances",
             "type": "array"
           },
           "linear_deflection": {
             "default": 0.1,
-            "description": "Presentation tessellation parameter (mm), never persisted",
-            "exclusiveMinimum": 0.0,
+            "description": "Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
+            "minimum": 0.001,
             "title": "Linear Deflection",
             "type": "number"
           },
           "mates": {
-            "description": "The mate graph; processed in order_index order (determinism)",
+            "description": "The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)",
             "items": {
               "$ref": "#/components/schemas/EvaluatedMate"
             },
+            "maxItems": 2000,
             "title": "Mates",
             "type": "array"
           },
@@ -3036,18 +3039,20 @@
         "description": "Project a part into its requested standard drawing views (design \u00a71.2/\u00a74).\n\ndocuments sends INTENT \u2014 the referenced part's ordered, rollback-applied\nfeature prefix (reusing the feature-tree \u00a74 contract VERBATIM, so geometry\nstays the sole evaluator and no kernel body crosses) plus the standard views to\nproject, the drawing scale, and (optionally) the drawing's dimensions to\nmeasure. geometry evaluates the part body ONCE (``evaluate_tree``) then runs\nexact HLR per requested view AND measures each dimension off the SAME exact body\n(design \u00a73.1 \u2014 model-true, never the projection). Deterministic (RESEARCH \u00a79):\nthe same request yields byte-identical projected edges + measured values,\nin-process AND across an interpreter restart.",
         "properties": {
           "dimensions": {
-            "description": "Dimensions to measure against the evaluated body, each tagged with its view (design \u00a73/\u00a75). Empty (the default) \u2192 no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).",
+            "description": "Dimensions to measure against the evaluated body, each tagged with its view (design \u00a73/\u00a75), bounded by MAX_DRAWING_DIMENSIONS (work bound, audit G2). Empty (the default) \u2192 no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).",
             "items": {
               "$ref": "#/components/schemas/DrawingDimensionInput"
             },
+            "maxItems": 500,
             "title": "Dimensions",
             "type": "array"
           },
           "features": {
-            "description": "The part's ordered feature prefix (feature-tree \u00a74 contract)",
+            "description": "The part's ordered feature prefix (feature-tree \u00a74 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
+            "maxItems": 1000,
             "title": "Features",
             "type": "array"
           },
@@ -3079,7 +3084,7 @@
             "type": "integer"
           },
           "views": {
-            "description": "The standard views to project (subset of front/top/right/iso); processed and returned in request order",
+            "description": "The standard views to project (subset of front/top/right/iso); processed and returned in request order. Bounded by MAX_DRAWING_VIEWS (work bound, audit G2 \u2014 HLR runs per view).",
             "items": {
               "enum": [
                 "front",
@@ -3091,6 +3096,7 @@
               ],
               "type": "string"
             },
+            "maxItems": 32,
             "title": "Views",
             "type": "array"
           }
@@ -3155,17 +3161,18 @@
         "description": "Evaluate an ordered, validated, current-version feature list (\u00a74.2).\n\nDocuments applies the rollback bar BEFORE sending: geometry receives\nexactly the prefix to evaluate and never needs to know rollback exists.",
         "properties": {
           "features": {
-            "description": "Ordered prefix (rollback already applied)",
+            "description": "Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
+            "maxItems": 1000,
             "title": "Features",
             "type": "array"
           },
           "linear_deflection": {
             "default": 0.1,
-            "description": "Presentation parameter (mm), NEVER persisted per feature (design \u00a78.3)",
-            "exclusiveMinimum": 0.0,
+            "description": "Presentation parameter (mm), NEVER persisted per feature (design \u00a78.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
+            "minimum": 0.001,
             "title": "Linear Deflection",
             "type": "number"
           },
@@ -3371,10 +3378,11 @@
         "description": "One assembly instance as the evaluator sees it (design \u00a74).\n\n``part_key`` is the DEDUP key \u2014 ``f\"{ref_document_id}@{version-or-tip}\"`` \u2014\nso two instances of the SAME part evaluate once and share one\ncontent-addressed mesh (the central perf win, design \u00a74 step 1). ``features``\nis the part's ordered feature prefix (reuses the feature-tree \u00a74 contract\nVERBATIM), so geometry stays the sole evaluator and documents sends intent,\nnever a kernel body. ``placement`` is the authored seed pose the solver\nstarts from; ``grounded`` fixes it at that pose (0 DOF \u2014 the solver anchor).",
         "properties": {
           "features": {
-            "description": "The part's ordered feature prefix (feature-tree \u00a74 contract)",
+            "description": "The part's ordered feature prefix (feature-tree \u00a74 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
+            "maxItems": 1000,
             "title": "Features",
             "type": "array"
           },
@@ -3481,8 +3489,8 @@
         "properties": {
           "angular_deflection": {
             "default": 0.1,
-            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)",
-            "exclusiveMinimum": 0.0,
+            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+            "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
           },
@@ -3501,25 +3509,27 @@
             "type": "string"
           },
           "instances": {
-            "description": "The assembly's instances (result order preserved)",
+            "description": "The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)",
             "items": {
               "$ref": "#/components/schemas/EvaluatedInstance"
             },
+            "maxItems": 500,
             "title": "Instances",
             "type": "array"
           },
           "linear_deflection": {
             "default": 0.1,
-            "description": "Presentation tessellation parameter (mm), never persisted",
-            "exclusiveMinimum": 0.0,
+            "description": "Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
+            "minimum": 0.001,
             "title": "Linear Deflection",
             "type": "number"
           },
           "mates": {
-            "description": "The mate graph; processed in order_index order (determinism)",
+            "description": "The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)",
             "items": {
               "$ref": "#/components/schemas/EvaluatedMate"
             },
+            "maxItems": 2000,
             "title": "Mates",
             "type": "array"
           },
@@ -3543,8 +3553,8 @@
         "properties": {
           "angular_deflection": {
             "default": 0.1,
-            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)",
-            "exclusiveMinimum": 0.0,
+            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+            "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
           },
@@ -3559,8 +3569,8 @@
           },
           "linear_deflection": {
             "default": 0.1,
-            "description": "STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep)",
-            "exclusiveMinimum": 0.0,
+            "description": "STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
+            "minimum": 0.001,
             "title": "Linear Deflection",
             "type": "number"
           },
@@ -3678,10 +3688,11 @@
             "type": "string"
           },
           "refs": {
-            "description": "The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body). EMPTY = a fully-enclosed hollow (no opening) \u2014 a valid selection, not a 422 (design decision).",
+            "description": "The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body), bounded by MAX_SELECTOR_REFS (work bound, audit G2). EMPTY = a fully-enclosed hollow (no opening) \u2014 a valid selection, not a 422 (design decision).",
             "items": {
               "$ref": "#/components/schemas/SubshapeRef"
             },
+            "maxItems": 500,
             "title": "Refs",
             "type": "array"
           }
@@ -5067,7 +5078,8 @@
         "description": "A linear (row/grid-line) pattern along a world-space direction.\n\n``count`` INCLUDES the seed (instance 0 = the existing body), so a row of\nN total bodies is ``count = N``; ``count = 1`` is a no-op (seed only).\nCopies are placed at ``spacing_mm * k`` along the unit ``direction`` for\n``k = 1..count-1``. See the module design note above for what \"the body\"\nmeans and the connected-solid requirement.",
         "properties": {
           "count": {
-            "description": "TOTAL instances INCLUDING the seed (instance 0); an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).",
+            "description": "TOTAL instances INCLUDING the seed (instance 0); an integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 \u2014 over the ceiling is a parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).",
+            "maximum": 500.0,
             "title": "Count",
             "type": "integer"
           },
@@ -5172,10 +5184,11 @@
             "type": "string"
           },
           "profiles": {
-            "description": "Ordered earlier sketch features (>= 2) to blend through; each forms a single closed profile wire or a single apex point (design \u00a72.2). Fewer than 2 is a request-validation 422.",
+            "description": "Ordered earlier sketch features (>= 2, bounded by MAX_LOFT_SECTIONS \u2014 work bound, audit G2) to blend through; each forms a single closed profile wire or a single apex point (design \u00a72.2). Fewer than 2 is a request-validation 422.",
             "items": {
               "$ref": "#/components/schemas/FeatureRef"
             },
+            "maxItems": 100,
             "minItems": 2,
             "title": "Profiles",
             "type": "array"
@@ -6175,10 +6188,11 @@
             "type": "string"
           },
           "refs": {
-            "description": "The specific picked edges (>= 1), each a stage-1 EdgeSignature reference resolved against the current body",
+            "description": "The specific picked edges (>= 1, bounded by MAX_SELECTOR_REFS \u2014 work bound, audit G2), each a stage-1 EdgeSignature reference resolved against the current body",
             "items": {
               "$ref": "#/components/schemas/EdgeSubshapeRef"
             },
+            "maxItems": 500,
             "minItems": 1,
             "title": "Refs",
             "type": "array"
@@ -7671,7 +7685,7 @@
             "type": "number"
           },
           "entities": {
-            "description": "The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line).",
+            "description": "The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).",
             "items": {
               "discriminator": {
                 "mapping": {
@@ -7701,6 +7715,7 @@
                 }
               ]
             },
+            "maxItems": 2000,
             "title": "Entities",
             "type": "array"
           }
@@ -7860,7 +7875,7 @@
         "description": "Input for a sketch trim or extend edit (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list (same shapes the solver\nconsumes \u2014 a construction entity is trimmed/extended like any other).\n``target`` names the entity being edited; it MUST be present in\n``entities`` (else a 422 ``sketch_target_not_found``). ``pick`` is the\n2D sketch-plane point the user clicked:\n\n* **trim** \u2014 ``pick`` selects WHICH segment of ``target`` to delete: the\n  target curve is cut at its nearest intersection(s) with the other\n  entities on each side of the pick, and the segment containing the pick\n  is removed (standard Onshape/Fusion \"cut at intersection\" gesture). With\n  no intersection bounding a side, that side runs to the curve's end; with\n  no intersection at all, the whole target is deleted. The pick must\n  project onto the target's drawn extent (else 422\n  ``sketch_pick_not_on_target``).\n* **extend** \u2014 ``pick`` selects WHICH END of ``target`` to lengthen (the\n  nearer endpoint): the curve grows along its own supporting line/circle\n  from that end to the nearest neighboring entity it meets in that\n  direction (else 422 ``sketch_extend_no_target``).\n\nUnits are millimetres (:mod:`py_kit.schemas.sketch` convention).",
         "properties": {
           "entities": {
-            "description": "The whole sketch's entities (the edit rewrites this set).",
+            "description": "The whole sketch's entities (the edit rewrites this set), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).",
             "items": {
               "discriminator": {
                 "mapping": {
@@ -7890,6 +7905,7 @@
                 }
               ]
             },
+            "maxItems": 2000,
             "title": "Entities",
             "type": "array"
           },
@@ -8002,7 +8018,7 @@
             "type": "string"
           },
           "entities": {
-            "description": "The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc).",
+            "description": "The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).",
             "items": {
               "discriminator": {
                 "mapping": {
@@ -8032,6 +8048,7 @@
                 }
               ]
             },
+            "maxItems": 2000,
             "title": "Entities",
             "type": "array"
           },
@@ -8110,7 +8127,7 @@
             "title": "Axis"
           },
           "entities": {
-            "description": "The whole sketch's entities (mirror ADDS to this set; the sources stay unchanged).",
+            "description": "The whole sketch's entities (mirror ADDS to this set; the sources stay unchanged), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).",
             "items": {
               "discriminator": {
                 "mapping": {
@@ -8140,16 +8157,18 @@
                 }
               ]
             },
+            "maxItems": 2000,
             "title": "Entities",
             "type": "array"
           },
           "targets": {
-            "description": "Ids of the entities to reflect; each must be in `entities`.",
+            "description": "Ids of the entities to reflect; each must be in `entities` (so the list shares its MAX_SKETCH_ENTITIES bound \u2014 audit G2).",
             "items": {
               "description": "Sketch-local entity id, e.g. 'e1'",
               "minLength": 1,
               "type": "string"
             },
+            "maxItems": 2000,
             "minItems": 1,
             "title": "Targets",
             "type": "array"
@@ -8216,7 +8235,7 @@
             "type": "number"
           },
           "entities": {
-            "description": "The whole sketch's entities (offset ADDS to this set; the source stays unchanged).",
+            "description": "The whole sketch's entities (offset ADDS to this set; the source stays unchanged), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).",
             "items": {
               "discriminator": {
                 "mapping": {
@@ -8246,6 +8265,7 @@
                 }
               ]
             },
+            "maxItems": 2000,
             "title": "Entities",
             "type": "array"
           },
@@ -8312,6 +8332,7 @@
         "description": "Sketch on a plane \u2014 an origin datum, or a ``datum`` feature (design \u00a72.1).\n\n``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the\nthree origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier\n``datum`` feature (an offset/parallel plane \u2014 docs/design/datum-planes.md).\nThe ``FeatureRef`` variant is now accepted when it resolves to a ``datum``\nfeature (widened in :func:`feature_references` from no acceptable target to\n``{datum}``); the stored shape is unchanged, so this is purely additive \u2014 no\n``param_version`` bump.\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
         "properties": {
           "constraints": {
+            "description": "The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)",
             "items": {
               "discriminator": {
                 "mapping": {
@@ -8369,10 +8390,12 @@
                 }
               ]
             },
+            "maxItems": 4000,
             "title": "Constraints",
             "type": "array"
           },
           "entities": {
+            "description": "The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)",
             "items": {
               "discriminator": {
                 "mapping": {
@@ -8402,6 +8425,7 @@
                 }
               ]
             },
+            "maxItems": 2000,
             "title": "Entities",
             "type": "array"
           },
@@ -8485,10 +8509,11 @@
             "type": "string"
           },
           "points": {
-            "description": "Ordered fit points (mm) the curve interpolates through; at least two. Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).",
+            "description": "Ordered fit points (mm) the curve interpolates through; at least two, at most MAX_SPLINE_POINTS (work bound, audit G2). Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).",
             "items": {
               "$ref": "#/components/schemas/Point2D"
             },
+            "maxItems": 500,
             "minItems": 2,
             "title": "Points",
             "type": "array"
@@ -8822,8 +8847,8 @@
         "properties": {
           "linear_deflection": {
             "default": 0.1,
-            "description": "Max distance (mm) between a curve and its tessellation; lower = finer mesh",
-            "exclusiveMinimum": 0.0,
+            "description": "Max distance (mm) between a curve and its tessellation; lower = finer mesh. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
+            "minimum": 0.001,
             "title": "Linear Deflection",
             "type": "number"
           },

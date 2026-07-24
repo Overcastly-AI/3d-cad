@@ -1349,7 +1349,7 @@ export interface components {
             axis_point: components["schemas"]["Vec3"];
             /**
              * Count
-             * @description TOTAL instances INCLUDING the seed; an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.
+             * @description TOTAL instances INCLUDING the seed; an integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 — over the ceiling is a parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.
              */
             count: number;
             /**
@@ -2224,18 +2224,18 @@ export interface components {
             assembly_id: string;
             /**
              * Instances
-             * @description The assembly's instances (result order preserved)
+             * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
              */
             instances: components["schemas"]["EvaluatedInstance"][];
             /**
              * Linear Deflection
-             * @description Presentation tessellation parameter (mm), never persisted
+             * @description Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
             /**
              * Mates
-             * @description The mate graph; processed in order_index order (determinism)
+             * @description The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
@@ -2254,12 +2254,12 @@ export interface components {
         EvaluateTreeRequest: {
             /**
              * Features
-             * @description Ordered prefix (rollback already applied)
+             * @description Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
              * Linear Deflection
-             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3)
+             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
@@ -2303,7 +2303,7 @@ export interface components {
         EvaluatedInstance: {
             /**
              * Features
-             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             * @description The part's ordered feature prefix (feature-tree §4 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
@@ -2448,7 +2448,7 @@ export interface components {
             kind: "faces";
             /**
              * Refs
-             * @description The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body). EMPTY = a fully-enclosed hollow (no opening) — a valid selection, not a 422 (design decision).
+             * @description The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body), bounded by MAX_SELECTOR_REFS (work bound, audit G2). EMPTY = a fully-enclosed hollow (no opening) — a valid selection, not a 422 (design decision).
              */
             refs?: components["schemas"]["SubshapeRef"][];
         };
@@ -3216,7 +3216,7 @@ export interface components {
         LinearPatternParamsV1: {
             /**
              * Count
-             * @description TOTAL instances INCLUDING the seed (instance 0); an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).
+             * @description TOTAL instances INCLUDING the seed (instance 0); an integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 — over the ceiling is a parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).
              */
             count: number;
             /** @description World-space direction of the row; only its DIRECTION is used (magnitude ignored; a zero-length vector is a `pattern_bad_direction` rebuild error) */
@@ -3340,7 +3340,7 @@ export interface components {
             operation: "add" | "cut";
             /**
              * Profiles
-             * @description Ordered earlier sketch features (>= 2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
+             * @description Ordered earlier sketch features (>= 2, bounded by MAX_LOFT_SECTIONS — work bound, audit G2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
              */
             profiles: components["schemas"]["FeatureRef"][];
         };
@@ -3736,7 +3736,7 @@ export interface components {
             kind: "edges";
             /**
              * Refs
-             * @description The specific picked edges (>= 1), each a stage-1 EdgeSignature reference resolved against the current body
+             * @description The specific picked edges (>= 1, bounded by MAX_SELECTOR_REFS — work bound, audit G2), each a stage-1 EdgeSignature reference resolved against the current body
              */
             refs: components["schemas"]["EdgeSubshapeRef"][];
         };
@@ -4771,9 +4771,15 @@ export interface components {
          *     design §2.4) on the documents write path and the geometry request path.
          */
         SketchParamsV1: {
-            /** Constraints */
+            /**
+             * Constraints
+             * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
+             */
             constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
-            /** Entities */
+            /**
+             * Entities
+             * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)
+             */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /** Plane */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
@@ -4862,7 +4868,7 @@ export interface components {
             kind: "spline";
             /**
              * Points
-             * @description Ordered fit points (mm) the curve interpolates through; at least two. Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
+             * @description Ordered fit points (mm) the curve interpolates through; at least two, at most MAX_SPLINE_POINTS (work bound, audit G2). Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
              */
             points: components["schemas"]["Point2D"][];
         };

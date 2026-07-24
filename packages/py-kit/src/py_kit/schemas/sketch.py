@@ -31,6 +31,32 @@ EntityId = Annotated[
     str, Field(min_length=1, description="Sketch-local entity id, e.g. 'e1'")
 ]
 
+# --- Per-request work bounds (engineering audit 2026-07-24 G2) -------------------
+#
+# The rate limiter caps request FREQUENCY; these constants cap the WORK one
+# sketch definition / edit request can demand of the solver and the stateless
+# edit ops. Sized an order of magnitude beyond any real sketch (the golden
+# suite's densest sketches run tens of entities) so no user feels them, while
+# an attacker cannot peg a worker with one request. Over-bound is a typed 422
+# at parse, never a solver blow-up.
+
+#: Ceiling on entities in one sketch (definition or stateless edit request).
+#: Constraint-solve cost grows superlinearly with system size; a real
+#: fully-dimensioned production sketch runs tens-to-low-hundreds of entities,
+#: so 2000 is far beyond legitimate use.
+MAX_SKETCH_ENTITIES = 2000
+
+#: Ceiling on constraints in one sketch — sized at 2x the entity ceiling
+#: (a fully-constrained sketch carries a low single-digit multiple of
+#: constraints per entity; 2x entities matches the mates-per-instance posture
+#: of MAX_ASSEMBLY_MATES).
+MAX_SKETCH_CONSTRAINTS = 4000
+
+#: Ceiling on one spline's fit points. Each fit point is an interpolation
+#: condition on the B-spline build (and a potential solver point); real design
+#: splines use a handful-to-dozens of fit points, so 500 is generous.
+MAX_SPLINE_POINTS = 500
+
 
 class Point2D(BaseModel):
     """A point in sketch-plane coordinates (mm)."""
@@ -155,9 +181,11 @@ class SketchSpline(SketchEntityBase):
     kind: Literal["spline"]
     points: list[Point2D] = Field(
         min_length=2,
+        max_length=MAX_SPLINE_POINTS,
         description=(
             "Ordered fit points (mm) the curve interpolates through; at least "
-            "two. Consecutive points must be distinct (a coincident pair is a "
+            "two, at most MAX_SPLINE_POINTS (work bound, audit G2). "
+            "Consecutive points must be distinct (a coincident pair is a "
             "degenerate spline, rejected at profile build)."
         ),
     )
@@ -488,8 +516,16 @@ class SketchDefinition(BaseModel):
     with the sketch plane, so persisted sketch params ARE valid solver input.
     """
 
-    entities: list[SketchEntity]
-    constraints: list[SketchConstraint]
+    entities: list[SketchEntity] = Field(
+        max_length=MAX_SKETCH_ENTITIES,
+        description="The sketch's entities, bounded by MAX_SKETCH_ENTITIES "
+        "(work bound, audit G2)",
+    )
+    constraints: list[SketchConstraint] = Field(
+        max_length=MAX_SKETCH_CONSTRAINTS,
+        description="The sketch's constraints, bounded by "
+        "MAX_SKETCH_CONSTRAINTS (work bound, audit G2)",
+    )
 
     @model_validator(mode="after")
     def _unique_entity_ids(self) -> "SketchDefinition":
@@ -780,7 +816,9 @@ class SketchEditRequest(BaseModel):
     """
 
     entities: list[SketchEntity] = Field(
-        description="The whole sketch's entities (the edit rewrites this set)."
+        max_length=MAX_SKETCH_ENTITIES,
+        description="The whole sketch's entities (the edit rewrites this set), "
+        "bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).",
     )
     target: EntityId = Field(
         description="Id of the entity to trim/extend; must be in `entities`."
@@ -886,8 +924,10 @@ class SketchOffsetRequest(BaseModel):
     """
 
     entities: list[SketchEntity] = Field(
+        max_length=MAX_SKETCH_ENTITIES,
         description="The whole sketch's entities (offset ADDS to this set; the "
-        "source stays unchanged)."
+        "source stays unchanged), bounded by MAX_SKETCH_ENTITIES (work bound, "
+        "audit G2).",
     )
     target: EntityId = Field(
         description="Id of the entity to offset; must be in `entities`."
@@ -1040,12 +1080,16 @@ class SketchMirrorRequest(BaseModel):
     """
 
     entities: list[SketchEntity] = Field(
+        max_length=MAX_SKETCH_ENTITIES,
         description="The whole sketch's entities (mirror ADDS to this set; the "
-        "sources stay unchanged)."
+        "sources stay unchanged), bounded by MAX_SKETCH_ENTITIES (work bound, "
+        "audit G2).",
     )
     targets: list[EntityId] = Field(
         min_length=1,
-        description="Ids of the entities to reflect; each must be in `entities`.",
+        max_length=MAX_SKETCH_ENTITIES,
+        description="Ids of the entities to reflect; each must be in `entities` "
+        "(so the list shares its MAX_SKETCH_ENTITIES bound — audit G2).",
     )
     axis: MirrorAxis = Field(
         description="The mirror axis: a line entity id or two points (see MirrorAxis)."
@@ -1167,8 +1211,10 @@ class SketchFilletRequest(BaseModel):
     """
 
     entities: list[SketchEntity] = Field(
+        max_length=MAX_SKETCH_ENTITIES,
         description="The whole sketch's entities (fillet rewrites the two "
-        "corner curves and ADDS the arc)."
+        "corner curves and ADDS the arc), bounded by MAX_SKETCH_ENTITIES "
+        "(work bound, audit G2).",
     )
     a: EntityId = Field(
         description="Id of the first corner line; must be in `entities`."
@@ -1207,8 +1253,10 @@ class SketchChamferRequest(BaseModel):
     """
 
     entities: list[SketchEntity] = Field(
+        max_length=MAX_SKETCH_ENTITIES,
         description="The whole sketch's entities (chamfer rewrites the two "
-        "corner curves and ADDS the bevel line)."
+        "corner curves and ADDS the bevel line), bounded by "
+        "MAX_SKETCH_ENTITIES (work bound, audit G2).",
     )
     a: EntityId = Field(
         description="Id of the first corner line; must be in `entities`."

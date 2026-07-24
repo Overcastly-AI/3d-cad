@@ -30,6 +30,8 @@ from pydantic import (
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
+    MIN_ANGULAR_DEFLECTION,
+    MIN_LINEAR_DEFLECTION,
     ExportFormat,
     ShapeProperties,
     Vec3,
@@ -52,6 +54,46 @@ FEATURE_NAME_MAX_LENGTH = 200
 #: parts fit inline" against "JSONB / request-size / parse-time DoS"; the
 #: content-addressed blob-ref successor (§2a) removes this ceiling from the tree.
 MAX_INLINE_STEP_CHARS = 16 * 1024 * 1024
+
+# --- Per-request work bounds (engineering audit 2026-07-24 G2) -------------------
+#
+# The rate limiter caps request FREQUENCY; these constants cap the WORK a single
+# authenticated compute request can demand. Sized like the kernel-tolerance
+# floors: an order of magnitude beyond any real model in the golden suite /
+# a working engineer's part, so a user never feels them, while an attacker
+# cannot OOM or monopolize a geometry worker with one request. Over-bound is a
+# typed 422 at parse (contract-visible), never a kernel blow-up.
+
+#: Ceiling on the features of ONE evaluate/export/measure/overlay/drawing tree
+#: request. Every feature is at least one kernel operation (usually a boolean);
+#: real parts run tens-to-low-hundreds of features, so 1000 is far above
+#: legitimate use while bounding the per-request kernel work + the buffered
+#: JSON body (audit G2 hole 4).
+MAX_TREE_FEATURES = 1000
+
+#: Ceiling on a pattern's TOTAL instance count (seed included). Every instance
+#: past the seed is a rigid kernel copy feeding one variadic boolean fuse/cut —
+#: unbounded ``count`` loops the kernel millions of times in one feature (audit
+#: G2 hole 2). 500 matches the MAX_IMPORT_ASSEMBLY_PRODUCTS scale (one bounded
+#: "instances per request" posture across the service) and dwarfs any real
+#: bolt-circle / perforation array. v1 patterns are SINGLE-direction (no grid
+#: variant), so the request total == ``count``; a future grid variant must cap
+#: the PRODUCT of its per-direction counts at this same ceiling, not each
+#: factor. The lower bound (count >= 1) deliberately stays a rebuild-time
+#: ``pattern_bad_count`` (see the pattern module note); only the DoS ceiling is
+#: parse-time.
+MAX_PATTERN_COUNT = 500
+
+#: Ceiling on loft sections. Each section is a profile-face build + a skin
+#: constraint in ONE OCCT loft; real lofts use a handful of sections, so 100 is
+#: generous while keeping a single loft feature bounded.
+MAX_LOFT_SECTIONS = 100
+
+#: Ceiling on picked-subshape refs in one edge/face selector. Each ref is one
+#: signature resolution against the current body plus one edge/face fed to a
+#: single fillet/chamfer/shell — 500 picked edges is beyond any real selection
+#: while bounding the resolve + kernel-op fan-out of one feature.
+MAX_SELECTOR_REFS = 500
 
 #: Non-empty (post-strip), bounded feature name.
 FeatureName = Annotated[
@@ -370,7 +412,9 @@ class PickedEdgesSelector(BaseModel):
     kind: Literal["edges"]
     refs: list[EdgeSubshapeRef] = Field(
         min_length=1,
-        description="The specific picked edges (>= 1), each a stage-1 "
+        max_length=MAX_SELECTOR_REFS,
+        description="The specific picked edges (>= 1, bounded by "
+        "MAX_SELECTOR_REFS — work bound, audit G2), each a stage-1 "
         "EdgeSignature reference resolved against the current body",
     )
 
@@ -421,8 +465,10 @@ class FaceSelector(BaseModel):
     kind: Literal["faces"]
     refs: list[SubshapeRef] = Field(
         default_factory=list[SubshapeRef],
+        max_length=MAX_SELECTOR_REFS,
         description="The planar faces to leave OPEN (each a stage-1 face "
-        "SubshapeRef resolved against the current body). EMPTY = a fully-enclosed "
+        "SubshapeRef resolved against the current body), bounded by "
+        "MAX_SELECTOR_REFS (work bound, audit G2). EMPTY = a fully-enclosed "
         "hollow (no opening) — a valid selection, not a 422 (design decision).",
     )
 
@@ -827,7 +873,9 @@ class LoftParamsV1(BaseModel):
 
     profiles: list[FeatureRef] = Field(
         min_length=2,
-        description="Ordered earlier sketch features (>= 2) to blend through; "
+        max_length=MAX_LOFT_SECTIONS,
+        description="Ordered earlier sketch features (>= 2, bounded by "
+        "MAX_LOFT_SECTIONS — work bound, audit G2) to blend through; "
         "each forms a single closed profile wire or a single apex point "
         "(design §2.2). Fewer than 2 is a request-validation 422.",
     )
@@ -1273,6 +1321,14 @@ class HoleParamsV1(BaseModel):
 # one uniform, legible per-feature error surface rather than splitting
 # single-field checks to 422s and cross-field checks to rebuild errors. (A
 # non-integer count is still a parse-time type error — `count` is typed ``int``.)
+#
+# ONE carve-out (engineering audit 2026-07-24 G2): the `count` DoS CEILING
+# (`le=MAX_PATTERN_COUNT`) IS a parse-time 422. It is not a semantic validity
+# check but a per-request work bound — an attacker's count=10_000_000 must be
+# rejected before the kernel loops, exactly like the deflection floors — and it
+# is single-field, so the cross-field rationale above does not apply. The
+# kernel's `_check_count` re-checks the same ceiling as defense-in-depth for
+# direct kernel callers.
 
 
 class LinearPatternParamsV1(BaseModel):
@@ -1297,9 +1353,12 @@ class LinearPatternParamsV1(BaseModel):
         "otherwise). Validated at rebuild, not at parse (see module note)."
     )
     count: int = Field(
+        le=MAX_PATTERN_COUNT,
         description="TOTAL instances INCLUDING the seed (instance 0); an "
-        "integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; "
-        "`count = 1` is a no-op (the body is unchanged)."
+        "integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 — over "
+        "the ceiling is a parse-time 422). `count < 1` is a "
+        "`pattern_bad_count` rebuild error; `count = 1` is a no-op (the body "
+        "is unchanged).",
     )
 
 
@@ -1331,9 +1390,11 @@ class CircularPatternParamsV1(BaseModel):
         "> 1 (a `pattern_bad_angle` rebuild error otherwise)."
     )
     count: int = Field(
-        description="TOTAL instances INCLUDING the seed; an integer >= 1. "
-        "`count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a "
-        "no-op."
+        le=MAX_PATTERN_COUNT,
+        description="TOTAL instances INCLUDING the seed; an integer >= 1, at "
+        "most MAX_PATTERN_COUNT (work bound, audit G2 — over the ceiling is a "
+        "parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; "
+        "`count = 1` is a no-op.",
     )
 
 
@@ -3041,13 +3102,15 @@ class EvaluateTreeRequest(BaseModel):
     part_id: uuid.UUID
     tree_version: int = Field(description="Echoed back; cache/correlation key")
     features: list[EvaluatedFeatureInput] = Field(
-        description="Ordered prefix (rollback already applied)"
+        max_length=MAX_TREE_FEATURES,
+        description="Ordered prefix (rollback already applied), bounded by "
+        "MAX_TREE_FEATURES (work bound, audit G2)",
     )
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
-        gt=0,
+        ge=MIN_LINEAR_DEFLECTION,
         description="Presentation parameter (mm), NEVER persisted per feature "
-        "(design §8.3)",
+        "(design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
     )
 
 
@@ -3076,10 +3139,11 @@ class ExportTreeRequest(EvaluateTreeRequest):
     )
     angular_deflection: float = Field(
         default=DEFAULT_ANGULAR_DEFLECTION,
-        gt=0,
+        ge=MIN_ANGULAR_DEFLECTION,
         description=(
             "STL facet angular deflection (rad) between adjacent segments; "
-            "ignored for STEP (exact B-rep)"
+            "ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION "
+            "(work bound, audit G2)."
         ),
     )
 

@@ -34,12 +34,17 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 from py_kit.schemas.assemblies import (
+    MAX_ASSEMBLY_INSTANCES,
     AssemblyGraphResponse,
     AssemblyName,
     Placement,
 )
 from py_kit.schemas.features import MAX_INLINE_STEP_CHARS
-from py_kit.schemas.geometry import DEFAULT_LINEAR_DEFLECTION, ShapeProperties
+from py_kit.schemas.geometry import (
+    DEFAULT_LINEAR_DEFLECTION,
+    MIN_LINEAR_DEFLECTION,
+    ShapeProperties,
+)
 from py_kit.schemas.parts import PartResponse
 
 #: Upper bound on how many products (== instances) a single assembly-STEP upload
@@ -50,8 +55,11 @@ from py_kit.schemas.parts import PartResponse
 #: gateway enforces this on the geometry read result BEFORE driving documents
 #: (so no partial assembly is ever created), and documents re-checks it as
 #: defense-in-depth. A few hundred instances comfortably covers real assemblies
-#: while bounding the fan-out (slice-2a security review, 2026-07-23).
-MAX_IMPORT_ASSEMBLY_PRODUCTS = 500
+#: while bounding the fan-out (slice-2a security review, 2026-07-23). Tied to
+#: :data:`~py_kit.schemas.assemblies.MAX_ASSEMBLY_INSTANCES` (audit G2): an
+#: import may not create more instances than one assembly compute request
+#: accepts, so the two ceilings can never drift apart.
+MAX_IMPORT_ASSEMBLY_PRODUCTS = MAX_ASSEMBLY_INSTANCES
 
 #: Absolute ceiling (bytes) on the TOTAL ``body_step`` payload the geometry read
 #: may emit across all products — a response-amplification DoS bound (slice-2b
@@ -97,9 +105,10 @@ class StepAssemblyImportRequest(BaseModel):
     )
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
-        gt=0,
+        ge=MIN_LINEAR_DEFLECTION,
         description="Presentation tessellation parameter (mm) for each product's "
-        "shared mesh; never persisted",
+        "shared mesh; never persisted. Floored at MIN_LINEAR_DEFLECTION (work "
+        "bound, audit G2).",
     )
 
 

@@ -23,6 +23,8 @@ from fastapi import APIRouter, Query, status
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from py_kit.schemas.assemblies import (
+    MAX_ASSEMBLY_INSTANCES,
+    MAX_ASSEMBLY_MATES,
     AssemblyBomResponse,
     AssemblyCreate,
     AssemblyGraphResponse,
@@ -628,6 +630,17 @@ async def create_instance(
 
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     position = await _count(session, db.Instance, assembly_id)
+    # Write-side twin of the EvaluateAssemblyRequest `max_length=
+    # MAX_ASSEMBLY_INSTANCES` parse bound (audit G2): an assembly must never
+    # accumulate a graph the evaluation contract rejects, or every later
+    # evaluate/export read would fail constructing the DTO.
+    if position >= MAX_ASSEMBLY_INSTANCES:
+        raise ValidationApiError(
+            f"An assembly holds at most {MAX_ASSEMBLY_INSTANCES} instances "
+            "(per-request work bound); delete instances before adding more.",
+            code="instance_limit_exceeded",
+            details={"max_instances": MAX_ASSEMBLY_INSTANCES},
+        )
     instance = db.Instance(
         id=uuid.uuid4(),
         assembly_id=assembly_id,
@@ -825,6 +838,15 @@ async def create_mate(
 
     pre_op = await ASSEMBLY_HISTORY.baseline_state(session, assembly)
     position = await _count(session, db.Mate, assembly_id)
+    # Write-side twin of the `max_length=MAX_ASSEMBLY_MATES` parse bound
+    # (audit G2) — same rationale as the instance cap above.
+    if position >= MAX_ASSEMBLY_MATES:
+        raise ValidationApiError(
+            f"An assembly holds at most {MAX_ASSEMBLY_MATES} mates "
+            "(per-request work bound); delete mates before adding more.",
+            code="mate_limit_exceeded",
+            details={"max_mates": MAX_ASSEMBLY_MATES},
+        )
     mate = db.Mate(
         id=uuid.uuid4(),
         assembly_id=assembly_id,

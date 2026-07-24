@@ -675,6 +675,14 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-24 batch)
 
+- [x] (P2, M) Audit G2 — per-request work bounds (rate limiter caps frequency,
+      not cost). Documented schema constants → typed 422s: deflection floors
+      1e-3 mm / 1e-2 rad; pattern count ≤ 500 (+ kernel guard); features ≤
+      1000; assembly instances/mates ≤ 500/2000; interference ≤ 200 instances
+      (N², typed handler 422); drawing views/dims/notes ≤ 32/500/500; sketch
+      entities/constraints ≤ 2000/4000; loft ≤ 100; selector refs ≤ 500.
+      documents write-side `*_limit_exceeded` twins. 42 new tests.
+      [src: AUDIT-ENGINEERING.md 2026-07-24 G2]
 - [x] (P1, S) Compose audit fixes G1/G3/G4 — geometry S3 creds anchor-sourced
       from MinIO's (G1); documents/geometry host ports removed from base compose,
       loopback-bound in dev overlay (G3); stale S3 comment rewritten (G4); new

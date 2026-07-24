@@ -2045,7 +2045,7 @@ export interface components {
             axis_point: components["schemas"]["Vec3"];
             /**
              * Count
-             * @description TOTAL instances INCLUDING the seed; an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.
+             * @description TOTAL instances INCLUDING the seed; an integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 — over the ceiling is a parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.
              */
             count: number;
             /**
@@ -3581,18 +3581,18 @@ export interface components {
             assembly_id: string;
             /**
              * Instances
-             * @description The assembly's instances (result order preserved)
+             * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
              */
             instances: components["schemas"]["EvaluatedInstance"][];
             /**
              * Linear Deflection
-             * @description Presentation tessellation parameter (mm), never persisted
+             * @description Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
             /**
              * Mates
-             * @description The mate graph; processed in order_index order (determinism)
+             * @description The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
@@ -3662,12 +3662,12 @@ export interface components {
         EvaluateDrawingViewsRequest: {
             /**
              * Dimensions
-             * @description Dimensions to measure against the evaluated body, each tagged with its view (design §3/§5). Empty (the default) → no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).
+             * @description Dimensions to measure against the evaluated body, each tagged with its view (design §3/§5), bounded by MAX_DRAWING_DIMENSIONS (work bound, audit G2). Empty (the default) → no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).
              */
             dimensions?: components["schemas"]["DrawingDimensionInput"][];
             /**
              * Features
-             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             * @description The part's ordered feature prefix (feature-tree §4 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
@@ -3698,7 +3698,7 @@ export interface components {
             tree_version: number;
             /**
              * Views
-             * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order
+             * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order. Bounded by MAX_DRAWING_VIEWS (work bound, audit G2 — HLR runs per view).
              */
             views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
         };
@@ -3747,12 +3747,12 @@ export interface components {
         EvaluateTreeRequest: {
             /**
              * Features
-             * @description Ordered prefix (rollback already applied)
+             * @description Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
              * Linear Deflection
-             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3)
+             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
@@ -3833,7 +3833,7 @@ export interface components {
         EvaluatedInstance: {
             /**
              * Features
-             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             * @description The part's ordered feature prefix (feature-tree §4 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
@@ -3918,7 +3918,7 @@ export interface components {
         ExportAssemblyRequest: {
             /**
              * Angular Deflection
-             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)
+             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             angular_deflection: number;
@@ -3935,18 +3935,18 @@ export interface components {
             format: "step" | "stl";
             /**
              * Instances
-             * @description The assembly's instances (result order preserved)
+             * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
              */
             instances: components["schemas"]["EvaluatedInstance"][];
             /**
              * Linear Deflection
-             * @description Presentation tessellation parameter (mm), never persisted
+             * @description Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
             /**
              * Mates
-             * @description The mate graph; processed in order_index order (determinism)
+             * @description The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
@@ -3967,7 +3967,7 @@ export interface components {
         ExportRequest: {
             /**
              * Angular Deflection
-             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)
+             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             angular_deflection: number;
@@ -3979,7 +3979,7 @@ export interface components {
             format: "step" | "stl";
             /**
              * Linear Deflection
-             * @description STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep)
+             * @description STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
@@ -4074,7 +4074,7 @@ export interface components {
             kind: "faces";
             /**
              * Refs
-             * @description The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body). EMPTY = a fully-enclosed hollow (no opening) — a valid selection, not a 422 (design decision).
+             * @description The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body), bounded by MAX_SELECTOR_REFS (work bound, audit G2). EMPTY = a fully-enclosed hollow (no opening) — a valid selection, not a 422 (design decision).
              */
             refs?: components["schemas"]["SubshapeRef"][];
         };
@@ -4886,7 +4886,7 @@ export interface components {
         LinearPatternParamsV1: {
             /**
              * Count
-             * @description TOTAL instances INCLUDING the seed (instance 0); an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).
+             * @description TOTAL instances INCLUDING the seed (instance 0); an integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 — over the ceiling is a parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).
              */
             count: number;
             /** @description World-space direction of the row; only its DIRECTION is used (magnitude ignored; a zero-length vector is a `pattern_bad_direction` rebuild error) */
@@ -5010,7 +5010,7 @@ export interface components {
             operation: "add" | "cut";
             /**
              * Profiles
-             * @description Ordered earlier sketch features (>= 2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
+             * @description Ordered earlier sketch features (>= 2, bounded by MAX_LOFT_SECTIONS — work bound, audit G2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
              */
             profiles: components["schemas"]["FeatureRef"][];
         };
@@ -5719,7 +5719,7 @@ export interface components {
             kind: "edges";
             /**
              * Refs
-             * @description The specific picked edges (>= 1), each a stage-1 EdgeSignature reference resolved against the current body
+             * @description The specific picked edges (>= 1, bounded by MAX_SELECTOR_REFS — work bound, audit G2), each a stage-1 EdgeSignature reference resolved against the current body
              */
             refs: components["schemas"]["EdgeSubshapeRef"][];
         };
@@ -6837,7 +6837,7 @@ export interface components {
             distance: number;
             /**
              * Entities
-             * @description The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line).
+             * @description The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
         };
@@ -6968,7 +6968,7 @@ export interface components {
         SketchEditRequest: {
             /**
              * Entities
-             * @description The whole sketch's entities (the edit rewrites this set).
+             * @description The whole sketch's entities (the edit rewrites this set), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /** @description Sketch-plane pick point (mm): the segment to delete (trim) or the end to lengthen (extend, nearest endpoint wins). */
@@ -7056,7 +7056,7 @@ export interface components {
             b: string;
             /**
              * Entities
-             * @description The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc).
+             * @description The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
@@ -7112,12 +7112,12 @@ export interface components {
             axis: components["schemas"]["MirrorAxisEntity"] | components["schemas"]["MirrorAxisPoints"];
             /**
              * Entities
-             * @description The whole sketch's entities (mirror ADDS to this set; the sources stay unchanged).
+             * @description The whole sketch's entities (mirror ADDS to this set; the sources stay unchanged), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
              * Targets
-             * @description Ids of the entities to reflect; each must be in `entities`.
+             * @description Ids of the entities to reflect; each must be in `entities` (so the list shares its MAX_SKETCH_ENTITIES bound — audit G2).
              */
             targets: string[];
         };
@@ -7165,7 +7165,7 @@ export interface components {
             distance: number;
             /**
              * Entities
-             * @description The whole sketch's entities (offset ADDS to this set; the source stays unchanged).
+             * @description The whole sketch's entities (offset ADDS to this set; the source stays unchanged), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
@@ -7212,9 +7212,15 @@ export interface components {
          *     design §2.4) on the documents write path and the geometry request path.
          */
         SketchParamsV1: {
-            /** Constraints */
+            /**
+             * Constraints
+             * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
+             */
             constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
-            /** Entities */
+            /**
+             * Entities
+             * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)
+             */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /** Plane */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
@@ -7303,7 +7309,7 @@ export interface components {
             kind: "spline";
             /**
              * Points
-             * @description Ordered fit points (mm) the curve interpolates through; at least two. Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
+             * @description Ordered fit points (mm) the curve interpolates through; at least two, at most MAX_SPLINE_POINTS (work bound, audit G2). Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
              */
             points: components["schemas"]["Point2D"][];
         };
@@ -7564,7 +7570,7 @@ export interface components {
         TessellateRequest: {
             /**
              * Linear Deflection
-             * @description Max distance (mm) between a curve and its tessellation; lower = finer mesh
+             * @description Max distance (mm) between a curve and its tessellation; lower = finer mesh. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
