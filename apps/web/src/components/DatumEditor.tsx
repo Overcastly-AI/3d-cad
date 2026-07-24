@@ -296,23 +296,20 @@ export function DatumEditor({
     onSubmit(params);
   }, [form, onSubmit, unit]);
 
-  // Enter commits, Escape cancels — except when a button (the footer / a
-  // segment) has focus: Enter must fire that control's own action. While a face
-  // pick is armed, the parent's window handler owns Escape (it disarms the
-  // pick), so the editor leaves Escape alone rather than cancelling outright.
+  // Enter commits — except when a button (the footer / a segment) has focus:
+  // Enter must fire that control's own action. Escape (cancel) is owned by the
+  // parent's window handler, the one cancel path for every editor (FINDINGS
+  // #11); while a face pick is armed the parent's pick handler takes Escape
+  // first to disarm the pick.
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === "Enter") {
         if (event.target instanceof HTMLButtonElement) return;
         event.preventDefault();
         if (!saving) submit();
-      } else if (event.key === "Escape") {
-        if (activeFacePickSlot !== null) return;
-        event.preventDefault();
-        onCancel();
       }
     },
-    [saving, submit, onCancel, activeFacePickSlot],
+    [saving, submit],
   );
 
   const canSubmit = canSubmitDatum(form, unit) && !saving;

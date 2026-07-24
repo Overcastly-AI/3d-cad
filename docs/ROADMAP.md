@@ -950,6 +950,19 @@ flexible sub-assemblies, part-version pinning-as-default.
       `toolbar-tooltip-above-panel-1440.png` (befores = audit evidence
       `audit-ui/19`/`29`). Remaining audit P1s (live preview,
       feature-localized selection, right-click menus) queued in BACKLOG.
+      **Novice-flow UX P1 trio ✅ 2026-07-24 (frontend-builder; FINDINGS
+      #11–#13):** (#11) the "CANCEL ESC" promise is now real from any focus — a
+      single global window Esc handler in PartPage disarms any open feature
+      editor (was per-editor onKeyDown, dead outside the panel); the 17 feature
+      editors dropped their Escape branch so there is ONE cancel path (DRY), and
+      the hole/datum pick-armed cascade is preserved (Esc disarms the pick
+      first). (#12) select-then-D is discoverable — a quiet `[D] dimension`
+      status-bar affordance (`dimensionVerbHint`, reusing the real
+      `applyConstraintAction` acceptance so it never advertises a dead key).
+      (#13) `friendlyFeatureError` keys `profile_not_closed` on feature type, so
+      an open-profile extrude reads extrude advice, not revolve centerline text.
+      e2e: Esc-outside-panel + extrude-specific copy + hint-on-select; founder
+      shots `findings-{dimension-hint,extrude-error}-{desktop,laptop}.png`.
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive

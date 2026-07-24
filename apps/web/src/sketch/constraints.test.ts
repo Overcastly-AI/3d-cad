@@ -6,6 +6,7 @@ import {
   constraintGlyphs,
   describeSelection,
   dimensionEditorAnchor,
+  dimensionVerbHint,
   formatDimensionMm,
   formatSolveCell,
   reconcileConstraints,
@@ -941,5 +942,40 @@ describe("constraint reconciliation after trim/extend", () => {
     const result = reconcileConstraints(before, after);
     expect(result.removed).toBe(0);
     expect(result.constraints).toEqual(before);
+  });
+});
+
+describe("dimensionVerbHint", () => {
+  it("offers D on a single selected line", () => {
+    expect(dimensionVerbHint([pickLine("e1")], entities, [])).toEqual({
+      key: "D",
+      label: "dimension",
+    });
+  });
+
+  it("offers R on a single selected circle or arc", () => {
+    expect(dimensionVerbHint([pickLine("e3")], entities, [])).toEqual({
+      key: "R",
+      label: "add a radius",
+    });
+    expect(dimensionVerbHint([pickLine("e5")], entities, [])).toEqual({
+      key: "R",
+      label: "add a radius",
+    });
+  });
+
+  it("stays silent with no selection", () => {
+    expect(dimensionVerbHint([], entities, [])).toBeNull();
+  });
+
+  it("stays silent when no single dimension verb applies", () => {
+    // Two lines: distance/radius both need exactly one — no dimension hint.
+    expect(
+      dimensionVerbHint([pickLine("e1"), pickLine("e2")], entities, []),
+    ).toBeNull();
+    // A bare point is neither a line nor a round.
+    expect(
+      dimensionVerbHint([pickPoint("e1", "start")], entities, []),
+    ).toBeNull();
   });
 });

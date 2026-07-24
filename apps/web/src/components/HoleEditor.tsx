@@ -271,22 +271,19 @@ export function HoleEditor({
     onSubmit(params);
   }, [form, onSubmit, unit]);
 
-  // Enter commits, Escape cancels — except when a button (footer / segment) has
-  // focus (Enter must fire that control) or a pick is armed (the parent's window
-  // handler owns Escape to disarm the pick).
+  // Enter commits — except when a button (footer / segment) has focus (Enter
+  // must fire that control). Escape (cancel) is owned by the parent's window
+  // handler, the one cancel path for every editor (FINDINGS #11); while a pick
+  // is armed the parent's pick handler takes Escape first to disarm it.
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === "Enter") {
         if (event.target instanceof HTMLButtonElement) return;
         event.preventDefault();
         if (!saving) submit();
-      } else if (event.key === "Escape") {
-        if (activePick !== null) return;
-        event.preventDefault();
-        onCancel();
       }
     },
-    [saving, submit, onCancel, activePick],
+    [saving, submit],
   );
 
   const canSubmit = canSubmitHole(form, unit) && !saving;

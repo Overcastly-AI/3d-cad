@@ -169,6 +169,10 @@ test.describe("extrude authoring", () => {
     const error = page.getByTestId("feature-error-1");
     await expect(error).toBeVisible();
     await expect(error).toContainText("profile_not_closed");
+    // The advice is EXTRUDE-specific, not the shared revolve axis copy
+    // (FINDINGS #13): it says "extrude" and never mentions a centerline/axis.
+    await expect(error).toContainText(/extrude/i);
+    await expect(error).not.toContainText(/centerline|axis/i);
     // No blank-viewport crash: the sketch still renders behind the failure.
     await expect(page.getByTestId("body-inspector")).toBeHidden({
       timeout: 30_000,

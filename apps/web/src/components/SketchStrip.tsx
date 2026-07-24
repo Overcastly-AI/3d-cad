@@ -34,6 +34,7 @@ import {
   Flyout,
   type FlyoutItem,
   HorizontalIcon,
+  Kbd,
   LineIcon,
   MirrorIcon,
   NumberField,
@@ -58,6 +59,7 @@ import { type ReactNode, useState } from "react";
 import type { DatumOffsetParams } from "../api/parts";
 import {
   describeSelection,
+  dimensionVerbHint,
   selectionAllConstruction,
   type ConstraintAction,
 } from "../sketch/constraints";
@@ -736,6 +738,7 @@ export function SketchStrip({
   const constraintCount = useSketchStore((state) => state.constraints.length);
   const selection = useSketchStore((state) => state.selection);
   const entities = useSketchStore((state) => state.entities);
+  const constraints = useSketchStore((state) => state.constraints);
   const applyConstraint = useSketchStore((state) => state.applyConstraint);
   const toggleConstruction = useSketchStore(
     (state) => state.toggleConstruction,
@@ -748,6 +751,14 @@ export function SketchStrip({
   const advanceMirror = useSketchStore((state) => state.advanceMirror);
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
+
+  // The dimension verb the current selection unlocks (select-then-D was
+  // undiscoverable — FINDINGS #12). Only while drawing, and only when the key
+  // would truly open the editor, so the affordance is never a dead promise.
+  const verbHint =
+    mode === "draw"
+      ? dimensionVerbHint(selection, entities, constraints)
+      : null;
 
   if (mode === "off") return null;
 
@@ -776,6 +787,24 @@ export function SketchStrip({
                 {describeSelection(selection)}
                 {constraintCount > 0 ? ` · ${constraintCount} applied` : ""}
               </span>
+              {/* Contextual verb hint — the selection's next likely move,
+                  keyboard-first. Quiet: a stamped key + plain verb, brass only
+                  on the keycap, so it reads as instrument guidance not a banner. */}
+              {verbHint ? (
+                <>
+                  <span aria-hidden className="text-etch">
+                    ·
+                  </span>
+                  <span
+                    role="status"
+                    data-testid="dimension-hint"
+                    className="flex items-center gap-1 text-gauge"
+                  >
+                    <Kbd>{verbHint.key}</Kbd>
+                    <span>{verbHint.label}</span>
+                  </span>
+                </>
+              ) : null}
             </>
           ) : null}
         </StatusCell>

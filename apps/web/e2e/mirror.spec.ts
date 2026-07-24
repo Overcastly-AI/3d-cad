@@ -141,6 +141,40 @@ test.describe("mirror authoring", () => {
     await expect(page.getByTestId("mirror-editor")).toHaveCount(0);
     await expect(page.getByTestId("feature-row")).toHaveCount(2);
   });
+
+  test("Escape cancels the editor even with focus outside the panel (FINDINGS #11)", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Esc promise");
+    await page.goto(`/parts/${part.id}`);
+
+    await extrudedSeed(page);
+    await page.getByTestId("new-mirror").click();
+    await expect(page.getByTestId("mirror-editor")).toBeVisible();
+    // The band advertises the promise: CANCEL · ESC.
+    await expect(page.getByTestId("in-command-cancel")).toContainText("Esc");
+
+    // Move focus OUT of the editor panel — the pre-fix per-editor onKeyDown only
+    // fired in-subtree, so Escape was dead here and the toolbar stayed locked.
+    await page.evaluate(() => {
+      const el = document.activeElement;
+      if (el instanceof HTMLElement) el.blur();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.activeElement?.tagName.toLowerCase()),
+      )
+      .toBe("body");
+
+    // The global Esc handler now honours the promise regardless of focus.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("mirror-editor")).toHaveCount(0);
+    await expect(page.getByTestId("feature-row")).toHaveCount(2);
+    // The toolbar is live again: the create tools are back (band unlocked).
+    await expect(page.getByTestId("in-command")).toHaveCount(0);
+    await expect(page.getByTestId("new-mirror")).toBeEnabled();
+  });
 });
 
 test.describe("mirror founder screenshots", () => {

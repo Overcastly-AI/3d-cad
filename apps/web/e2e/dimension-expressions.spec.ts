@@ -184,6 +184,12 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     // Horizontal on e1 — the first constraint persists the sketch (POST).
     await clickPlane(page, at, { x: 10, y: 0 });
     await expect(page.getByTestId("selection-readout")).toContainText("1 ent");
+    // Selecting one line surfaces the dimension affordance (FINDINGS #12):
+    // the status bar now teaches select-then-D instead of leaving it invisible.
+    const dimHint = page.getByTestId("dimension-hint");
+    await expect(dimHint).toBeVisible();
+    await expect(dimHint).toContainText("D");
+    await expect(dimHint).toContainText("dimension");
     await page.keyboard.press("h");
     await expect(page.getByTestId("glyph-0")).toHaveText("H");
 

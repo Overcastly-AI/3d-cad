@@ -1970,6 +1970,29 @@ export function PartPage() {
     setEditorError(null);
   }, []);
 
+  // Global cancel for an open feature editor (FINDINGS #11). The command band
+  // advertises "CANCEL ESC", so Escape MUST disarm the editor from any focus —
+  // the per-editor onKeyDown only fires when focus is inside the panel, so with
+  // focus in the viewport the band's own promise was dead and the toolbar stayed
+  // locked. This window-level handler is the ONE cancel path every editor's
+  // Cancel cell also routes through (`closeEditor`); the editors no longer carry
+  // their own Escape branch (DRY). It stands down while a hole/datum face pick is
+  // armed — those pick handlers own Escape then (first Escape disarms the pick,
+  // staying in the editor), exactly the cascade the Hole/Datum editors deferred
+  // to before. Not registered in sketch mode (the sketch cascade owns Escape).
+  useEffect(() => {
+    if (mode !== "off" || editor === null) return;
+    if (datumFacePick !== null || holePick !== null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      event.preventDefault();
+      closeEditor();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, editor, datumFacePick, holePick, closeEditor]);
+
   // Edge-pick session lifecycle: a fillet/chamfer editor opens a session
   // (seeded with its persisted picks + mode); anything else closes it. Keyed on
   // `editor` identity, which only changes on an open/select/close, so the store

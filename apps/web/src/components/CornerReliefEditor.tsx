@@ -92,12 +92,9 @@ export function CornerReliefEditor({
       if (event.key === "Enter") {
         event.preventDefault();
         if (!saving) submit();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
       }
     },
-    [saving, submit, onCancel],
+    [saving, submit],
   );
 
   // Edit-mode guard: a stored bend whose flange was rolled back or removed no

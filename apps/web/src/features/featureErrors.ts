@@ -1,5 +1,8 @@
 import type { FeatureResponse } from "../api/parts";
 
+/** A feature's kind on the wire (sketch / extrude / revolve / …). */
+type FeatureKind = FeatureResponse["feature"]["type"];
+
 /**
  * Friendly copy for per-feature REBUILD error codes (multi-body §MB-2). The
  * geometry service returns a stable `code` plus a technical `message`; the tree
@@ -49,21 +52,53 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
   // Revolve (#5b) rebuild errors — readable guidance for the axis idiom.
   no_axis:
     "The chosen axis isn't a usable line. Pick a construction centerline — or a straight profile edge with length — that lies in this sketch.",
+  // Generic profile-not-closed copy — the fallback for any feature that builds
+  // from a sketch profile. Feature-specific wording (a revolve's axis idiom, a
+  // sweep's section, a loft's per-section rule) lives in FEATURE_SPECIFIC_ERROR
+  // below so an EXTRUDE never reads revolve advice (FINDINGS #13).
   profile_not_closed:
-    "This profile isn't a closed region to build. Close every gap between its edges — for a revolve, snap a construction centerline's two ends onto the profile's open corners on the axis so it closes the open side.",
+    "This profile isn't a closed region to build. Close every gap between its edges so the sketch forms one continuous loop.",
   axis_intersects_profile:
     "The axis passes through the profile, so revolving would sweep material through itself. Move the axis to one side — a solid of revolution turns about a centerline the profile clears.",
 };
 
 /**
- * The user-facing copy for a per-feature error: friendly copy for the codes we
- * humanise, otherwise the server's own message (unchanged behaviour for every
- * other feature).
+ * Per-feature copy for codes that ARE shared across feature types but whose one
+ * generic string would misadvise — keyed `[code][featureType]` (FINDINGS #13:
+ * an open-profile extrude was told to snap a revolve centerline). A feature
+ * without an override here falls through to {@link FRIENDLY_FEATURE_ERROR}, so
+ * this table stays a targeted set of corrections, not a full matrix.
+ */
+const FEATURE_SPECIFIC_ERROR: Partial<
+  Record<string, Partial<Record<FeatureKind, string>>>
+> = {
+  profile_not_closed: {
+    extrude:
+      "This profile isn't a closed region to extrude. Close every gap between its edges so the sketch forms one continuous loop.",
+    revolve:
+      "This profile isn't a closed region to revolve. Close every gap between its edges — snap a construction centerline's two ends onto the profile's open corners on the axis so it closes the open side.",
+    sweep:
+      "The swept profile isn't a closed region. Close every gap between its edges so the section forms one continuous loop.",
+    loft: "A loft section isn't a closed region. Close every gap so each section forms one continuous loop.",
+  },
+};
+
+/**
+ * The user-facing copy for a per-feature error: the feature-specific override
+ * when one exists (so an extrude and a revolve read their own advice for the
+ * same `profile_not_closed` code — FINDINGS #13), else the friendly copy for
+ * codes we humanise, else the server's own message (unchanged for every other
+ * feature).
  */
 export function friendlyFeatureError(
   code: string,
   serverMessage: string,
+  featureType?: FeatureKind,
 ): string {
+  if (featureType !== undefined) {
+    const specific = FEATURE_SPECIFIC_ERROR[code]?.[featureType];
+    if (specific !== undefined) return specific;
+  }
   return FRIENDLY_FEATURE_ERROR[code] ?? serverMessage;
 }
 

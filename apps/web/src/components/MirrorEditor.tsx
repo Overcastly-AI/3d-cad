@@ -91,12 +91,9 @@ export function MirrorEditor({
         if (event.target instanceof HTMLButtonElement) return;
         event.preventDefault();
         if (canSubmit) submit();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
       }
     },
-    [canSubmit, submit, onCancel],
+    [canSubmit, submit],
   );
 
   return (

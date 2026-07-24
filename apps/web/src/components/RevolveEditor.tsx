@@ -127,12 +127,9 @@ export function RevolveEditor({
       if (event.key === "Enter") {
         event.preventDefault();
         if (!saving) submit();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
       }
     },
-    [saving, submit, onCancel],
+    [saving, submit],
   );
 
   // Changing the profile re-scopes the axis to the new sketch's lines.

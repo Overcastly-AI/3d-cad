@@ -701,6 +701,19 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-24 batch)
 
+- [x] (P1, M) FINDINGS UX P1 trio (novice flow, `apps/web`). #11 the Esc
+      promise: one global window Esc handler in PartPage disarms any open
+      feature editor from ANY focus (band advertised "CANCEL ESC" but cancel was
+      per-editor onKeyDown — dead outside the panel); the 17 editors drop their
+      Escape branch → one cancel path (DRY), pick-armed hole/datum cascade
+      preserved. #12 dimension discoverability: `dimensionVerbHint` surfaces a
+      quiet "[D] dimension" affordance in the sketch status bar on a single-line
+      selection, reusing `applyConstraintAction`'s own acceptance so it never
+      lies. #13 per-feature error copy: `friendlyFeatureError` keys
+      `profile_not_closed` on feature type — an open-profile extrude reads
+      extrude advice, not revolve centerline text. e2e: Esc-outside-panel
+      (mirror.spec), extrude-specific copy (extrude-ui.spec), hint-on-select
+      (dimension-expressions.spec) + founder shots. [src: FINDINGS.md #11–#13]
 - [x] (P2, M) Audit G2 — per-request work bounds (rate limiter caps frequency,
       not cost). Documented schema constants → typed 422s: deflection floors
       1e-3 mm / 1e-2 rad; pattern count ≤ 500 (+ kernel guard); features ≤

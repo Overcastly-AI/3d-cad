@@ -270,6 +270,7 @@ export function FeatureTreePanel({
                           {friendlyFeatureError(
                             result.error.code,
                             result.error.message,
+                            feature.feature.type,
                           )}
                         </span>
                         {onKeepAsOneBody &&

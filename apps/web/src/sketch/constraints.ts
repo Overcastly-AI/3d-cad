@@ -971,3 +971,39 @@ export function describeSelection(selection: readonly SketchPick[]): string {
   if (points > 0) parts.push(`${points} ${points === 1 ? "pt" : "pts"}`);
   return parts.join(" · ");
 }
+
+/** A surfaced keyboard verb — the key to press and its plain-verb label. */
+export interface SketchVerbHint {
+  key: string;
+  label: string;
+}
+
+/**
+ * The dimension verb the CURRENT selection makes available, surfaced as a quiet
+ * status-bar affordance so select-then-D stops being invisible (FINDINGS #12 —
+ * the probable novice give-up point). Reuses {@link applyConstraintAction}'s own
+ * acceptance: a hint appears only when the key would actually open the dimension
+ * editor (one line → **D** distance, one circle/arc → **R** radius), never a key
+ * that would just print "Select one line to dimension." Truthful by construction
+ * — the same predicate the keypress runs, no parallel rule to drift.
+ */
+export function dimensionVerbHint(
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+  constraints: readonly SketchConstraint[],
+): SketchVerbHint | null {
+  if (selection.length === 0) return null;
+  if (
+    applyConstraintAction("distance", selection, entities, constraints)
+      .outcome === "editor"
+  ) {
+    return { key: "D", label: "dimension" };
+  }
+  if (
+    applyConstraintAction("radius", selection, entities, constraints)
+      .outcome === "editor"
+  ) {
+    return { key: "R", label: "add a radius" };
+  }
+  return null;
+}
