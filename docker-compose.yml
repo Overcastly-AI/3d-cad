@@ -28,10 +28,16 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-loft}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-loft-dev-only}
       POSTGRES_DB: ${POSTGRES_DB:-loft}
+      # ONE DATABASE PER SCHEMA-OWNING SERVICE, created on first boot by
+      # deploy/docker/postgres-init (see that script for why sharing one
+      # database silently breaks the second service's migrations).
+      GATEWAY_DB: ${GATEWAY_DB:-loft_gateway}
+      DOCUMENTS_DB: ${DOCUMENTS_DB:-loft_documents}
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
+      - ./deploy/docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test:
         [
@@ -108,10 +114,13 @@ services:
       # and trusts that header; never expose its port to the public edge).
       DOCUMENTS_URL: http://documents:8001
       # Identity store for /api/v1/auth/* (readiness pings it HARD — a dead
-      # DB takes the gateway unready). Schema via alembic, run from the host:
-      #   POSTGRES_URL=postgresql://loft:loft-dev-only@localhost:${DB_PORT:-5432}/loft \
-      #     uv run alembic -c services/gateway/alembic.ini upgrade head
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-loft}:${POSTGRES_PASSWORD:-loft-dev-only}@db:5432/${POSTGRES_DB:-loft}
+      # DB takes the gateway unready). Its OWN database (see the db service):
+      # the gateway's alembic tree and the documents one both start at
+      # revision "0001" in the default alembic_version table. Create the
+      # schema with the image's baked-in migrations, no host toolchain:
+      #   docker compose run --rm gateway \
+      #     alembic -c /app/migrations/alembic.ini upgrade head
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-loft}:${POSTGRES_PASSWORD:-loft-dev-only}@db:5432/${GATEWAY_DB:-loft_gateway}
       # JWT posture — the gateway itself is FAIL-CLOSED (no LOFT_ENV default
       # in the app: unset LOFT_ENV + unset JWT_SECRET refuses to boot). This
       # dev stack opts into dev EXPLICITLY here: LOFT_ENV=dev tolerates an
@@ -141,10 +150,11 @@ services:
       PORT: "8001"
       LOG_FORMAT: ${LOG_FORMAT:-json}
       # Parts store (readiness pings it HARD — a dead DB takes documents
-      # unready). Schema via alembic, run from the host:
-      #   POSTGRES_URL=postgresql://loft:loft-dev-only@localhost:${DB_PORT:-5432}/loft \
-      #     uv run alembic -c services/documents/alembic.ini upgrade head
-      POSTGRES_URL: postgresql://${POSTGRES_USER:-loft}:${POSTGRES_PASSWORD:-loft-dev-only}@db:5432/${POSTGRES_DB:-loft}
+      # unready). Its OWN database (see the db service). Create the schema
+      # with the image's baked-in migrations, no host toolchain:
+      #   docker compose run --rm documents \
+      #     alembic -c /app/migrations/alembic.ini upgrade head
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-loft}:${POSTGRES_PASSWORD:-loft-dev-only}@db:5432/${DOCUMENTS_DB:-loft_documents}
     # NO host port on purpose (audit G3): documents trusts the gateway-verified
     # X-Loft-User principal header with no signature check, so publishing this
     # port on any non-loopback host is forged-header cross-tenant access. Only

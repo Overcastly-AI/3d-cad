@@ -725,11 +725,16 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Blocked (environment/timing — not build-blocked)
 
-- [ ] (P2, S) Verify full `docker compose up` runtime on a Docker-capable
-      host — this sandbox has no docker daemon; images and stack runtime are
-      unproven (compose config + G1/G3 invariants ARE structurally guarded by
-      `scripts/check-compose.py`; runtime mesh round-trip still needs a live
-      stack). First Docker-capable session picks it up. [src: roadmap]
+- [x] (P2, S) Verify full `docker compose up` runtime — **DONE 2026-07-25**
+      (platform-builder): unblocked by running it where Docker works, CI.
+      `scripts/compose-smoke.sh` (job `compose-stack-e2e`, `just
+      compose-smoke`) builds + boots the base stack, migrates both schemas
+      from the images, drives register → sketch → extrude → evaluate → mesh
+      fetch → STEP export over the gateway port only, and asserts the internal
+      ports are closed. Found + fixed: gateway/documents shared one database
+      although both alembic trees start at revision `0001` (second migration
+      silently no-ops), and no host-toolchain-free way to create the schema.
+      [src: roadmap]
 - [ ] (P2, S) Watchdog — arm the stall-recovery routine per
       `docs/AUTONOMOUS-LOOP.md` §1.4 once the loop runs unattended.
       [src: retro]

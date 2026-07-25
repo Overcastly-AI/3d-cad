@@ -8,6 +8,11 @@
 #   compose   — `docker compose config -q` for the base stack and base+dev
 #               overlay, plus scripts/check-compose.py (audit G1/G3 invariants:
 #               geometry S3 creds == MinIO's; internal services unpublished)
+#   compose-stack-e2e
+#             — the SELF-HOST PROOF: `docker compose up -d --build` on a real
+#               daemon, schemas from the images' alembic trees, then a real
+#               modeling round-trip through the published gateway port
+#               (scripts/compose-smoke.sh — runnable by hand, same script)
 #
 # Notes:
 # - The geometry golden suite and Playwright e2e get their OWN workflow later
@@ -112,6 +117,38 @@ jobs:
       # `docker compose config` — no daemon, no image pulls, no Python deps.
       - name: Compose invariants (audit G1/G3 guard)
         run: python3 scripts/check-compose.py
+
+  compose-stack-e2e:
+    # THE self-host proof: everything else in this file checks the compose
+    # files as TEXT. This job runs the documented install path on a real
+    # daemon — `docker compose up -d --build`, schemas created from the
+    # images' baked-in alembic trees, then a genuine modeling round-trip over
+    # the published gateway port only.
+    #
+    # It exists because a rendered-config check cannot catch a wrong runtime:
+    # the audit-G1 bug (geometry with S3_URL but no credentials → every mesh
+    # 403s → blank viewport) renders as perfectly valid YAML. The round-trip's
+    # mesh fetch is the assertion that would have caught it, and the closed-port
+    # check turns the G3 posture into a runtime fact instead of a config claim.
+    #
+    # Budget: the geometry image carries the ~700MB OCP wheel, so the build
+    # dominates; hence its own job (parallel with the fast ones) and a generous
+    # timeout rather than a weakened gate.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # One script, so a human can run the identical proof on any Docker host:
+      #   scripts/compose-smoke.sh   (or `just compose-smoke`)
+      # Build + boot + migrate + readiness + round-trip + closed-port posture.
+      - name: Compose stack end-to-end (build, boot, migrate, round-trip)
+        run: scripts/compose-smoke.sh
+      # The script dumps `docker compose ps/logs` itself on failure and tears
+      # the stack down in its own EXIT trap; this belt-and-braces step catches
+      # the case where the job is killed before the trap runs (e.g. timeout).
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans
 
   geometry-minio-smoke:
     # Real-MinIO cross-process smoke for the §7.8 mesh-store swap (audit F6):

@@ -361,10 +361,27 @@ carry forward as blocked board items.
       authored and config-validated; smoke + per-instance dev scripts;
       probes verified against bare-uvicorn boots (web joins compose with the
       web-shell item)
-- ⬜ Verify full `docker compose up` on a Docker-capable host (this sandbox
-      has no docker daemon — images and stack runtime are unproven).
-      **Environment-blocked**, does not gate phase advances; first
-      Docker-capable session picks it up
+- ✅ Verify full `docker compose up` — CLOSED 2026-07-25 (platform-builder):
+      the documented self-host path now runs on every push in CI
+      (`compose-stack-e2e` → `scripts/compose-smoke.sh`, also `just
+      compose-smoke` on any Docker host). It builds the three images, boots
+      the BASE stack `--wait` (long-running services only — a one-shot named
+      in a `--wait` list is read as a failure the moment it succeeds), runs
+      the `minio-init` bucket bootstrap as its own gate, creates both schemas
+      from alembic trees now BAKED INTO the images (`docker compose run --rm
+      <svc> alembic -c /app/migrations/alembic.ini upgrade head` — no host
+      Python), then drives a real round-trip through the published gateway
+      port ONLY: register → part → sketch → extrude → evaluate (volume
+      10 000 mm³) → **fetch the GLB out of MinIO** (the audit-G1 credential
+      path a config check cannot reach) → export STEP (part-21 + B-rep faces),
+      and asserts documents/geometry are unreachable from the host (G3 as a
+      runtime fact). Two real bugs the config gate could never have seen:
+      (1) gateway and documents shared ONE database while their alembic trees
+      both start at revision `0001` in the default `alembic_version` table —
+      the second service's first migration silently no-ops; now one database
+      per service, created by `deploy/docker/postgres-init` and guarded by a
+      new `check-compose.py` invariant; (2) the compose stack had NO documented
+      way to create a schema without a host uv/Python toolchain
 - ✅ Compose deploy-config audit fixes (2026-07-24 engineering audit G1/G3/G4,
       platform-builder): geometry now receives `S3_ACCESS_KEY_ID`/
       `S3_SECRET_ACCESS_KEY` anchor-sourced from the MinIO root credentials
