@@ -9,9 +9,12 @@ report — we should not proceed until all the items are fixed or implemented."*
 All 25 items in `docs/FINDINGS.md` (the consolidated 4-lens hard audit: P0
 silent-wrong-geometry, UI, novice-UX, engineering) are now fixed or
 implemented, plus two enhancements the work surfaced (per-sheet compose/export
-and drag-to-place view positioning). Certified at each batch boundary and
-finally at `b478100` — `just lint` + `just test` + `just e2e` green (geometry
-gates 188, Playwright 254). Highlights: the three **silent-wrong-geometry**
+and drag-to-place view positioning). Certified at each batch boundary; the
+last FULL sweep is `43d7eda` — `just lint` + `just test` + `just e2e` all
+green (geometry gates 188, Playwright 254). The two enhancement commits after
+it (`f6ae78c`, `b478100`) passed their own targeted gates; their full sweep is
+in flight and its result belongs here when it lands. Highlights: the three
+**silent-wrong-geometry**
 seams are gone with composed analytic goldens that fail on the old behaviour
 (cut-aware pattern/mirror `feb4318`, same-face reference resilience
 `2b6b72e`); **feature-localized selection** required a new geometry capability

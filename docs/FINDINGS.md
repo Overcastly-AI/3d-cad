@@ -32,8 +32,12 @@ would have shipped a broken compose stack. Every finding below is filed with
 a concrete fix; the top block is already being actioned.
 
 > **STATUS 2026-07-25 — CLOSED.** Every finding below (#1–#25, P0→P3) is
-> fixed or implemented and certified green (`just lint` + `just test` +
-> `just e2e`; geometry gates 188, Playwright 254). Per-item evidence is
+> fixed or implemented. Last FULL certification: `43d7eda` — `just lint` +
+> `just test` + `just e2e` all green (geometry gates 188, Playwright 254).
+> The two commits after it (`f6ae78c` + `b478100`, the per-sheet compose and
+> drag-to-place enhancements) carry their own targeted gates; their full
+> sweep is in flight and this line must be updated with its result — do not
+> cite the 188/254 numbers for them. Per-item evidence is
 > inline; the merged action order at the foot of this file carries the
 > commit for each. This file is now a historical record — new findings go
 > to a fresh audit pass, not here.

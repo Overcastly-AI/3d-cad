@@ -230,6 +230,15 @@ export function DrawingPage() {
   const evalQuery = useQuery({
     queryKey: [
       "drawing-eval",
+      // Sheet-scoped: the request body carries THIS sheet's section params
+      // (`sectionParamsByIndex`) and THIS sheet's dimensions
+      // (`dimensionInputs` ← `tree.sheets[activeIndex].dimensions`). Without
+      // the sheet id, two sheets of the same part at the same scale with the
+      // same projection list collide on one cache entry — sheet 2 would be
+      // served sheet 1's section cut while the composed paper (keyed
+      // correctly below) shows its own, and sheet 2's dimension ids would
+      // miss in `measuredById`. Audit H1.
+      activeSheetId,
       effectivePartId,
       partTree?.tree_version,
       effectiveScaleValue,
