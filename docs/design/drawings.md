@@ -273,6 +273,13 @@ order_index    integer -- UNIQUE(sheet_id,order)type         text     -- 'note'|
   the read before any compose hop. Per-view sources/scales (multi-part detail
   sheets) are a real feature — threading them through `ComposeDrawingRequest` +
   geometry is a separate slice (BACKLOG), not a silent default.
+- **One view per projection per sheet** — `("sheet_id", "projection")` is UNIQUE
+  (migration `0011`, audit **H3**). The composer keys anchors by projection and the
+  frontend keys its view maps by projection, so a duplicate collapsed to a single
+  composed view AND made a drag-to-place `PATCH /views/{id}` persist onto the other
+  row. Typed `duplicate_view_projection` 422 on create and on a re-projecting
+  update. Multi-section sheets ("SECTION A-A" / "B-B") need `ComposedView` to carry
+  a VIEW ID end-to-end — a design change, filed separately.
 
 ### 2.3 Version pinning — pin-ready schema, v1 tracks tip (the same honest constraint)
 

@@ -55,6 +55,7 @@ import {
   type SvgEdge,
 } from "../drawing/layout";
 import { titleBlockFields } from "../drawing/titleBlock";
+import { viewRowsByProjection } from "../drawing/views";
 
 /** A pick on a dimensionable projected edge — the seed of an authored dimension. */
 export interface EdgePickEvent {
@@ -1664,12 +1665,11 @@ export function DrawingSheet({
   const height = composed.height_mm;
   const margin = composed.margin_mm;
   const composedViews = composed.views ?? [];
-  const viewIdByProjection = new Map<ViewProjection, string>();
-  const viewByProjection = new Map<ViewProjection, ViewResponse>();
-  for (const view of views) {
-    viewIdByProjection.set(view.projection, view.id);
-    viewByProjection.set(view.projection, view);
-  }
+  // Composed views carry no ids, so each is correlated to its persisted ROW by
+  // projection (see drawing/views.ts — engineering audit H3): exact because
+  // `(sheet_id, projection)` is unique server-side, first-write-wins for any
+  // legacy row, and the source of the stable per-VIEW-ID React key below.
+  const viewByProjection = viewRowsByProjection(views);
 
   return (
     <svg
@@ -1707,27 +1707,28 @@ export function DrawingSheet({
         stroke={drawing.ink}
         strokeWidth={drawing.borderWeightMm}
       />
-      {composedViews.map((composedView) => (
-        <SheetView
-          key={composedView.projection}
-          composedView={composedView}
-          result={resultByProjection.get(composedView.projection)}
-          viewId={viewIdByProjection.get(composedView.projection) ?? null}
-          autoPlace={
-            viewByProjection.get(composedView.projection)?.auto_place ?? true
-          }
-          sheetHeightMm={height}
-          selectedEdgeKey={selectedEdgeKey}
-          armedEdgeKeys={armedEdgeKeys ?? []}
-          selectedVertexKeys={selectedVertexKeys ?? []}
-          endpointPickActive={endpointPickActive ?? false}
-          placementBusy={placementBusy ?? false}
-          onPickEdge={onPickEdge}
-          onPickEndpoint={onPickEndpoint}
-          onPlaceView={onPlaceView}
-          onResetView={onResetView}
-        />
-      ))}
+      {composedViews.map((composedView) => {
+        const row = viewByProjection.get(composedView.projection) ?? null;
+        return (
+          <SheetView
+            key={row?.id ?? composedView.projection}
+            composedView={composedView}
+            result={resultByProjection.get(composedView.projection)}
+            viewId={row?.id ?? null}
+            autoPlace={row?.auto_place ?? true}
+            sheetHeightMm={height}
+            selectedEdgeKey={selectedEdgeKey}
+            armedEdgeKeys={armedEdgeKeys ?? []}
+            selectedVertexKeys={selectedVertexKeys ?? []}
+            endpointPickActive={endpointPickActive ?? false}
+            placementBusy={placementBusy ?? false}
+            onPickEdge={onPickEdge}
+            onPickEndpoint={onPickEndpoint}
+            onPlaceView={onPlaceView}
+            onResetView={onResetView}
+          />
+        );
+      })}
       <TitleBlock block={composed.title_block} />
       {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
       {(composed.notes ?? []).map((note, i) => (

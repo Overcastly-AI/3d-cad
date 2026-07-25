@@ -963,7 +963,31 @@ gateway assertion and closes the wrong-print risk today.
 
 ---
 
-### H3 — Two views with the same projection on one sheet collapse at all three layers; the new drag-to-place PATCH then writes to the **wrong view row**. **P2 · CONFIRMED**
+### H3 — Two views with the same projection on one sheet collapse at all three layers; the new drag-to-place PATCH then writes to the **wrong view row**. **P2 · CONFIRMED · ✅ FIXED (owned layers)**
+
+> **Landed 2026-07-25 (backend-builder).** The cheap, honest option: DB
+> `uq_views_sheet_projection` UNIQUE `(sheet_id, projection)` + ORM twin
+> (`documents/db.py`, so `metadata.create_all` enforces it on the native/e2e
+> path) + **migration `0011_view_projection_unique`** — which first drops
+> pre-existing duplicates (keeping the LOWEST `order_index`, the row the composer
+> anchored; the shadowed rows were never renderable) and renumbers the remaining
+> views dense, parked out of range first so no row collides mid-statement under
+> the immediate `uq_views_sheet_order` check. Application twin
+> `_ensure_unique_projection` → typed `duplicate_view_projection` 422 on
+> `create_view` and on a re-projecting `update_view` (a no-op self re-projection
+> stays legal), so it is an honest refusal rather than an IntegrityError 500.
+> Web: `drawing/views.ts::viewRowsByProjection` (first-write-wins, unit-tested)
+> replaces the last-write-wins inline maps and supplies a stable per-VIEW-ID
+> React key, so element identity follows the row a drag targets.
+> Coverage: 3 documents regressions (duplicate rejected, per-sheet scoping still
+> allows one front view per sheet, re-projection clash), 2 migration
+> offline-SQL tests, 3 web unit tests.
+> **Residue (NOT fixed here — geometry is another agent's territory):**
+> `geometry/drawings/compose.py::_resolve_view_anchors` still keys anchors by
+> projection and `place_sheet` re-reads `anchors[SECTION_PROJECTION]` per matching
+> view, so two same-projection views would render twice at one anchor. Unreachable
+> now that the schema forbids duplicates; it is the layer to change when
+> multi-section sheets are implemented.
 
 The whole drawing stack keys views by **projection**, not by view id, while the
 schema keys them by id and permits duplicates:

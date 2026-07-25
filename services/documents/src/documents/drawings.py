@@ -281,6 +281,36 @@ def _ensure_sheet_source(
         )
 
 
+def _ensure_unique_projection(
+    siblings: list[db.View], projection: str, view_id: uuid.UUID | None = None
+) -> None:
+    """One view per projection per sheet (engineering audit **H3**) → 422.
+
+    The application twin of ``uq_views_sheet_projection`` (migration 0011): the
+    composer keys anchors by projection and the frontend keys its view maps by
+    projection, so a second ``front``/``section`` view on one sheet never composed
+    AND made a drag-to-place PATCH persist onto the other row. A typed 422 here
+    turns what would be an IntegrityError 500 into an honest refusal (and states
+    WHY, which the DB error cannot). ``view_id`` excludes the row being updated so
+    a no-op re-projection of a view onto itself stays legal.
+    """
+    clash = next(
+        (
+            other
+            for other in siblings
+            if other.projection == projection and other.id != view_id
+        ),
+        None,
+    )
+    if clash is not None:
+        raise ValidationApiError(
+            f"This sheet already carries a {projection!r} view. One view per "
+            "projection per sheet; use another sheet for a second one.",
+            code="duplicate_view_projection",
+            details={"projection": projection, "existing_view_id": str(clash.id)},
+        )
+
+
 def _validate_dimension(dimension: DimensionParams) -> None:
     """Write-time semantic checks a dimension can carry (design §3.1) → 422.
 
@@ -670,6 +700,7 @@ async def create_view(
     _ensure_sheet_source(
         siblings, request.ref_document_id, request.ref_document_kind, request.scale
     )
+    _ensure_unique_projection(siblings, request.projection)
     view = db.View(
         id=uuid.uuid4(),
         sheet_id=sheet.id,
@@ -736,6 +767,13 @@ async def update_view(
     drawing = await get_owned_drawing(session, owner_id, drawing_id, for_update=True)
     _ensure_fresh(drawing, request.expected_version)
     view, _sheet = await _get_view_and_sheet(session, drawing, view_id)
+
+    if request.projection is not None and request.projection != view.projection:
+        # H3: re-projecting onto a projection the sheet already carries would
+        # collapse two rows into one composed view (and mis-target later drags).
+        _ensure_unique_projection(
+            await _sheet_views(session, view.sheet_id), request.projection, view.id
+        )
 
     if request.scale is not None and (
         request.scale.numerator,

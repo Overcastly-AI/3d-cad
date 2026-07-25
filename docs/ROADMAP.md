@@ -29,7 +29,10 @@ evidence.
 Landed so far: **H2** — a drawing sheet may no longer mix source documents or
 scales (documents refuses the write with typed 422s; the gateway re-checks the
 read before any compose hop), closing a silently-wrong-print seam reachable
-through the gateway API. **Code-review regression A (kernel, same batch):** the
+through the gateway API. **H3** — a sheet may no longer carry two views of the
+same projection (migration `0011` UNIQUE `(sheet_id, projection)` + typed 422),
+which is what made a drag-to-place persist onto another view's row; the web
+sheet now keys per view id. **Code-review regression A (kernel, same batch):** the
 FINDINGS #3 resilient face re-match (`2b6b72e`) silently MOVED the resolved
 plane origin — a tier-2 match returned the matched face's CURRENT area centroid,
 so editing a neighbouring hole Ø6→Ø8 on a 40×40×10 plate translated every sketch/

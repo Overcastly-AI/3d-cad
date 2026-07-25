@@ -296,6 +296,33 @@ def test_0010_offline_downgrade_drops_auto_place(
     assert "ALTER TABLE views DROP COLUMN auto_place" in sql
 
 
+def test_0011_offline_sql_dedupes_then_adds_projection_unique(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0010:0011")
+    # audit H3 — the invariant the compose layer + frontend already assumed.
+    assert (
+        "ADD CONSTRAINT uq_views_sheet_projection UNIQUE (sheet_id, projection)" in sql
+    )
+    # Pre-existing duplicates are dropped (lowest order_index per projection kept)
+    # BEFORE the constraint, else the ALTER would fail on real data...
+    dedupe = sql.index("DELETE FROM views")
+    assert "PARTITION BY sheet_id, projection ORDER BY order_index, id" in sql
+    # ...and the holes that leaves are renumbered dense (the append position is
+    # count(*)), parked out of range first so no row collides mid-statement.
+    park = sql.index("order_index + 1000000")
+    renumber = sql.index("PARTITION BY sheet_id ORDER BY order_index, id")
+    constraint = sql.index("uq_views_sheet_projection")
+    assert dedupe < park < renumber < constraint
+
+
+def test_0011_offline_downgrade_drops_projection_unique(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0011:0010", downgrade=True)
+    assert "DROP CONSTRAINT uq_views_sheet_projection" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:

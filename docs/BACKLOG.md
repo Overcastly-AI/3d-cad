@@ -763,6 +763,15 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       `_assert_single_source` re-checks the READ before any part/compose hop
       (legacy rows). 8 regressions (documents + gateway).
       [src: AUDIT-ENGINEERING.md 2026-07-25 H2]
+- [x] (P2, S) **H3 — duplicate view projections collapsed at every layer; the
+      drag-to-place PATCH wrote to the WRONG row.** Now `uq_views_sheet_projection`
+      UNIQUE `(sheet_id, projection)` (migration `0011`: de-dupe keeping the lowest
+      `order_index`, dense renumber, then the constraint) + ORM twin + typed
+      `duplicate_view_projection` 422 on create/re-projection; web keys per VIEW ID
+      via the new pure `drawing/views.ts::viewRowsByProjection` (first-write-wins).
+      3 documents + 2 migration + 3 web regressions. Residue routed to the kernel
+      agent: `compose.py::_resolve_view_anchors` still keys anchors by projection.
+      [src: AUDIT-ENGINEERING.md 2026-07-25 H3]
 
 ### Recently shipped (2026-07-24 batch)
 
