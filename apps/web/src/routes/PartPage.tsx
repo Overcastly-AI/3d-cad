@@ -1866,6 +1866,7 @@ export function PartPage() {
           ref_document_kind: "part",
           scale: { numerator: 1, denominator: 1 },
           position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+          auto_place: true,
           expected_version: sheet.doc_version,
         });
         await navigate({

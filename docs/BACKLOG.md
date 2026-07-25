@@ -809,8 +809,8 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       `SheetTabs` switcher (tabs + add) on the drawing page selects the active
       sheet + appends new ones via the real `createSheet` route; the active sheet
       drives the page's sheet-scoped state (setup/layout/views/dimensions/notes).
-      Paper compose/export stay first-sheet in v1 (gateway `sheets[0]`) — a
-      laid-out secondary sheet reports its honest managed state. e2e
+      Paper compose/export followed later (see the frontend follow-up below,
+      2026-07-25) — the active sheet now composes + exports its own paper. e2e
       (drawing-sheets.spec). [src: FINDINGS.md #18]
 - [x] (P3, S) FINDINGS #22 "New part" doesn't open it (`apps/web`). Creating a
       part from the register now navigates into its workspace (still filed in the
@@ -848,6 +848,20 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       survives reload, threaded into `SheetViewPlacement.auto_place` so compose
       honors it verbatim. `just gen`/`gen-check` clean; documents + gateway
       pytest + new regressions green. Frontend drag UI consumes this next.
+      [src: FINDINGS.md #18 follow-up]
+- [x] (P2, M) Multi-sheet drawings — FRONTEND half (`apps/web` + `packages/design`).
+      Consumes the backend seam above: (1) compose/export follow the ACTIVE sheet —
+      `composeDrawingSheet`/`exportDrawing` thread the switcher's sheet id as
+      `?sheet=` (keyed on it so switching refetches), replacing the "managed
+      secondary sheet" placeholder with a real compose. (2) Drag-to-place: a new
+      instrument-grade blueprint-blue view-frame + corner grip on the sheet lets a
+      view be dragged (or arrow-key nudged) to author its centre, persisted via
+      `PATCH …/views/{id}` (`updateView`, `auto_place:false`, screen→y-up flip) so
+      it survives reload; an "AUTO" control returns the view to auto-layout. New
+      `drawing.placement*` tokens; SVG export strips the placement chrome. web unit
+      820 + design 46 green; e2e drawing-place-view (active-sheet compose +
+      drag-persist) + drawing-sheets + drawings green; founder shots
+      `drawing-place-view-*` + `drawing-active-sheet-compose-1440`.
       [src: FINDINGS.md #18 follow-up]
 - [x] (P2, M) Audit G2 — per-request work bounds (rate limiter caps frequency,
       not cost). Documented schema constants → typed 422s: deflection floors

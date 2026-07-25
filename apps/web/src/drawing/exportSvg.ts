@@ -55,6 +55,11 @@ export function serializeSheetSvg(svg: SVGSVGElement): string {
   // clip against the sheet's own edges in a standalone file).
   clone.removeAttribute("class");
   clone.removeAttribute("style");
+  // Interactive placement affordances (drag frame / grip / reset) are editor-only
+  // — drop them so the exported print carries only drafting geometry.
+  clone
+    .querySelectorAll("[data-placement-chrome]")
+    .forEach((node) => node.remove());
   const xml = new XMLSerializer().serializeToString(clone);
   return `<?xml version="1.0" encoding="UTF-8"?>\n${xml}\n`;
 }

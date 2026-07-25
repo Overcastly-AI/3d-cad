@@ -154,11 +154,11 @@ test.describe("drawings — multi-sheet switcher", () => {
     });
 
     // Lay out the SECOND sheet (still the persisted part) — createView targets
-    // sheet 2's id, so it lands there. A laid-out secondary sheet reports its
-    // honest managed state (v1 composes the first sheet's paper).
+    // sheet 2's id, so it lands there. Compose now honours the ACTIVE sheet, so
+    // sheet 2 renders its OWN composed paper (not sheet 1's).
     await page.getByTestId("drawing-part-select").selectOption(part.id);
     await page.getByTestId("drawing-autolayout").click();
-    await expect(page.getByTestId("drawing-secondary-sheet")).toBeVisible({
+    await expect(page.getByTestId("drawing-sheet")).toBeVisible({
       timeout: 30_000,
     });
 

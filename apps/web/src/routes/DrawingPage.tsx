@@ -24,6 +24,7 @@ import {
   deleteDimension,
   evaluateDrawingViews,
   fetchDrawing,
+  updateView,
 } from "../api/drawings";
 import { evaluatePart, fetchFeatureTree, fetchParts } from "../api/parts";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -112,13 +113,12 @@ export function DrawingPage() {
     }
   }, [sheetCount, activeSheetIndex]);
   const activeIndex = activeSheetIndex < sheetCount ? activeSheetIndex : 0;
-  // v1 compose/export are first-sheet only (gateway `_aggregate_compose_request`
-  // composes `sheets[0]`); the paper preview + server exports therefore render the
-  // FIRST sheet. Every other sheet is fully set-up-able + managed (its own views/
-  // dimensions/notes), just not yet composable — tracked as a backend follow-up.
-  const isComposableSheet = activeIndex === 0;
 
   const sheet = tree?.sheets[activeIndex]?.sheet ?? null;
+  // The active sheet's id threads through compose + export so BOTH render the
+  // sheet the switcher selects (not always sheet 0). Omitting it composes the
+  // first sheet (back-compat); the gateway now accepts `?sheet=<id>` on both.
+  const activeSheetId = sheet?.id ?? null;
   const views = useMemo(
     () => tree?.sheets[activeIndex]?.views ?? [],
     [tree, activeIndex],
@@ -279,13 +279,14 @@ export function DrawingPage() {
   const sheetQuery = useQuery({
     queryKey: [
       "drawing-sheet",
+      activeSheetId,
       effectivePartId,
       partTree?.tree_version,
       effectiveScaleValue,
       docVersion,
     ],
-    enabled: hasLayout && partTree !== undefined && isComposableSheet,
-    queryFn: () => composeDrawingSheet(drawingId),
+    enabled: hasLayout && partTree !== undefined && activeSheetId !== null,
+    queryFn: () => composeDrawingSheet(drawingId, activeSheetId),
     staleTime: Infinity,
   });
   const composed = sheetQuery.data;
@@ -367,6 +368,9 @@ export function DrawingPage() {
             ref_document_kind: "part",
             scale,
             position: { x_mm: anchor.x, y_mm: anchor.y },
+            // Auto-layout lands each standard view (bounds-aware); a later drag
+            // flips this view to auto_place:false with a persisted position.
+            auto_place: true,
             expected_version: version,
           });
           version = created.doc_version;
@@ -436,6 +440,7 @@ export function DrawingPage() {
           ref_document_kind: "part",
           scale: scaleFromValue(scaleValue),
           position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+          auto_place: true,
           expected_version: version,
         });
         version = created.doc_version;
@@ -498,6 +503,7 @@ export function DrawingPage() {
             scale: scaleFromValue(scaleValue),
             position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
             section_params: { plane, flip },
+            auto_place: true,
             expected_version: version,
           });
           setSectionOpen(false);
@@ -577,6 +583,71 @@ export function DrawingPage() {
   }, [queryClient, effectivePartId]);
 
   // ---------------------------------------------------------------------
+  // Drag-to-place: the sheet reports a dragged/nudged view centre (sheet mm,
+  // y-up); we persist it with `auto_place: false` so the composer honours it
+  // verbatim — the placement survives reload. "Reset" returns the view to
+  // bounds-aware auto-layout. One in-flight flag serialises the OCC writes.
+  // ---------------------------------------------------------------------
+  const [placingView, setPlacingView] = useState(false);
+  const handlePlaceView = useCallback(
+    (viewId: string, position: { x_mm: number; y_mm: number }) => {
+      if (placingView) return;
+      setPlacingView(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await updateView(drawingId, viewId, {
+            expected_version: docVersion,
+            position,
+            auto_place: false,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+          void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The view could not be moved.",
+          );
+        } finally {
+          setPlacingView(false);
+        }
+      })();
+    },
+    [placingView, drawingId, docVersion, queryClient],
+  );
+  const handleResetView = useCallback(
+    (viewId: string) => {
+      if (placingView) return;
+      setPlacingView(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await updateView(drawingId, viewId, {
+            expected_version: docVersion,
+            auto_place: true,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+          void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The view could not be returned to auto-layout.",
+          );
+        } finally {
+          setPlacingView(false);
+        }
+      })();
+    },
+    [placingView, drawingId, docVersion, queryClient],
+  );
+
+  // ---------------------------------------------------------------------
   // Export SVG (#5): serialize the already-rendered sheet <svg> to a
   // standalone, self-contained .svg and hand it to the browser as a download.
   // The renderer IS the export — no second drafting engine (DRY).
@@ -613,7 +684,11 @@ export function DrawingPage() {
       setActionError(null);
       void (async () => {
         try {
-          const { blob, filename } = await exportDrawing(drawingId, format);
+          const { blob, filename } = await exportDrawing(
+            drawingId,
+            format,
+            activeSheetId,
+          );
           downloadBlob(blob, filename);
         } catch (error) {
           setActionError(
@@ -626,7 +701,7 @@ export function DrawingPage() {
         }
       })();
     },
-    [hasLayout, exporting, drawingId],
+    [hasLayout, exporting, drawingId, activeSheetId],
   );
   const handleExportPdf = useCallback(
     () => runServerExport("pdf"),
@@ -1005,20 +1080,13 @@ export function DrawingPage() {
               armedEdgeKeys={armedEdgeKeys}
               selectedVertexKeys={selectedVertexKeys}
               endpointPickActive={endpointPickActive}
+              placementBusy={placingView}
               onPickEdge={handlePickEdge}
               onPickEndpoint={handlePickEndpoint}
+              onPlaceView={handlePlaceView}
+              onResetView={handleResetView}
             />
           </div>
-        ) : hasLayout && sheet && !isComposableSheet ? (
-          // A laid-out SECONDARY sheet: its views/dimensions/notes are managed in
-          // the right gutter, but v1 compose/export render the first sheet only
-          // (gateway limitation), so the paper preview lives on Sheet 1.
-          <CenterNote
-            testId="drawing-secondary-sheet"
-            tone="quiet"
-            title={`${sheet.name} · laid out`}
-            body="This sheet's views, dimensions and notes are managed in the panel at right. Printable preview and PDF/DXF export compose the first sheet in this version."
-          />
         ) : hasLayout && sheet && sheetQuery.isError ? (
           <CenterNote
             testId="drawing-compose-error"

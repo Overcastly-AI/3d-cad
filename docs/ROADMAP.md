@@ -1077,7 +1077,20 @@ flexible sub-assemblies, part-version pinning-as-default.
       `sheet_not_found` 404) threaded through `_aggregate_compose_request`, and a
       new `views.auto_place` column (migration 0010) + `ViewUpdate.auto_place`
       persists a dragged position (`auto_place=false`) that survives reload and is
-      honored in `SheetViewPlacement`. Frontend drag UI consumes it next. (#22)
+      honored in `SheetViewPlacement`. **Frontend follow-up B ✅ 2026-07-25
+      (frontend-builder):** the drawing page now (1) composes/exports the ACTIVE
+      sheet — `composeDrawingSheet`/`exportDrawing` thread the switcher's sheet id
+      as `?sheet=`, so sheet 2 renders its own paper (the old "managed secondary
+      sheet" placeholder is gone); and (2) authors a view's position by DRAGGING it
+      — an instrument-grade blueprint-blue view-frame + corner grip (drag or
+      arrow-key nudge) persists the dropped centre via `PATCH …/views/{id}`
+      (`auto_place:false`, y-flipped to the y-up SheetViewPlacement convention),
+      surviving reload, with an "AUTO" control returning the view to auto-layout.
+      New `updateView` client + `drawing.placement*` tokens; the SVG export strips
+      the placement chrome. web unit 820 + design 46 green; e2e
+      drawing-place-view (active-sheet compose + drag-persist-across-reload) +
+      drawing-sheets + drawings (10) green on the live stack; founder shots
+      `drawing-place-view-{before,after}-*` + `drawing-active-sheet-compose-1440`. (#22)
       creating a part
       from the register navigates straight into its workspace. (#3-fe) a
       genuinely-unresolvable hole face shows a one-click "Re-pick face" in the

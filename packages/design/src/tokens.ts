@@ -463,6 +463,24 @@ export const drawing = {
    *  92 mm block — the same `_BEND_COL_DX / _BEND_TABLE_W` ratio the server uses,
    *  named once here (BEND · ANGLE · RADIUS · DIR · ALLOW). */
   bendTableColumnFractions: [3 / 92, 26 / 92, 43 / 92, 62 / 92, 77 / 92],
+
+  // --- View placement — the drag-to-place affordance (drawing-export.md §4.2). ---
+  // A view is grabbable to author its position on the sheet: a thin blueprint-blue
+  // FRAME (the CAD view-border idiom, Fusion/Plasticity) reveals on hover/focus,
+  // with a corner grip you drag. Reused pick-blue (`pickHover`/`pickSelected`) so
+  // placement and dimensioning read as one instrument, not two accents — boldness
+  // stays spent on the sheet inversion, this chrome is quiet and precise.
+  /** Placement-frame stroke weight (mm) — a light annotation rule, not an object edge. */
+  placementFrameWeightMm: 0.35,
+  /** Placement-frame dash + gap (mm) — a phantom-line frame, distinct from an object edge. */
+  placementFrameDashMm: 2.4,
+  placementFrameGapMm: 1.8,
+  /** Padding (mm) between the view's geometry extents and its placement frame. */
+  placementPadMm: 5,
+  /** Corner-grip half-size (mm) — the square drag handle at the frame's top-left. */
+  placementGripMm: 2.6,
+  /** Keyboard nudge step (mm) per arrow press; the coarse step (Shift) is 5×. */
+  placementNudgeMm: 1,
 } as const;
 
 export const font = {

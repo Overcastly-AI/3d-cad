@@ -27,7 +27,7 @@ describe("exportDrawing", () => {
         },
       }),
     );
-    const file = await exportDrawing(DRAWING_ID, "pdf", client);
+    const file = await exportDrawing(DRAWING_ID, "pdf", undefined, client);
     expect(file.filename).toBe("Plate - sheet 1.pdf");
     const text = await file.blob.text();
     expect(text.startsWith("%PDF-")).toBe(true);
@@ -40,7 +40,7 @@ describe("exportDrawing", () => {
         headers: { "Content-Type": "application/pdf" },
       }),
     );
-    const file = await exportDrawing(DRAWING_ID, "pdf", client);
+    const file = await exportDrawing(DRAWING_ID, "pdf", undefined, client);
     expect(file.filename).toBe("drawing.pdf");
     expect(file.blob.size).toBe(PDF_BYTES.byteLength);
   });
@@ -56,10 +56,48 @@ describe("exportDrawing", () => {
         },
       }),
     );
-    const file = await exportDrawing(DRAWING_ID, "dxf", client);
+    const file = await exportDrawing(DRAWING_ID, "dxf", undefined, client);
     expect(file.filename).toBe("Plate - sheet 1.dxf");
     const text = await file.blob.text();
     expect(text).toContain("SECTION");
+  });
+
+  it("forwards the active sheet id as the ?sheet= query param", async () => {
+    let seenUrl = "";
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        seenUrl = request.url;
+        return Promise.resolve(
+          new Response(PDF_BYTES, {
+            status: 200,
+            headers: { "Content-Type": "application/pdf" },
+          }),
+        );
+      },
+    });
+    await exportDrawing(DRAWING_ID, "pdf", "sheet-2-id", client);
+    expect(seenUrl).toContain("format=pdf");
+    expect(seenUrl).toContain("sheet=sheet-2-id");
+  });
+
+  it("omits ?sheet= when no sheet id is given (first-sheet back-compat)", async () => {
+    let seenUrl = "";
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        seenUrl = request.url;
+        return Promise.resolve(
+          new Response(PDF_BYTES, {
+            status: 200,
+            headers: { "Content-Type": "application/pdf" },
+          }),
+        );
+      },
+    });
+    await exportDrawing(DRAWING_ID, "pdf", undefined, client);
+    expect(seenUrl).toContain("format=pdf");
+    expect(seenUrl).not.toContain("sheet=");
   });
 
   it("throws a labelled error when the gateway rejects the export", async () => {
@@ -69,8 +107,8 @@ describe("exportDrawing", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    await expect(exportDrawing(DRAWING_ID, "pdf", client)).rejects.toThrow(
-      /rejected the PDF export/,
-    );
+    await expect(
+      exportDrawing(DRAWING_ID, "pdf", undefined, client),
+    ).rejects.toThrow(/rejected the PDF export/);
   });
 });

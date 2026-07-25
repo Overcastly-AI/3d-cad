@@ -17,6 +17,10 @@ export type SheetResponse = components["schemas"]["SheetResponse"];
 export type SheetCreate = components["schemas"]["SheetCreate"];
 export type ViewResponse = components["schemas"]["ViewResponse"];
 export type ViewCreate = components["schemas"]["ViewCreate"];
+/** Re-frame / re-scale / re-place a view (design §2.2). The drag-to-place seam
+ * sends `position` + `auto_place: false`; the reset-to-auto seam sends
+ * `auto_place: true`. Every field optional; `expected_version` guards the OCC. */
+export type ViewUpdate = components["schemas"]["ViewUpdate"];
 export type ViewScale = components["schemas"]["ViewScale"];
 /** A section view's cutting plane + half selection (drawings-section.md §1). The
  * `plane` is the EXACT `GeomRef` union a sketch's plane uses (DatumPlaneRef |
@@ -203,6 +207,32 @@ export async function createView(
 }
 
 /**
+ * Re-place / re-scale / re-frame a stored view (200 with the bumped
+ * `doc_version`; 422 on a stale version). The drag-to-place authoring path sends
+ * `{ position, auto_place: false }` (the composer then honours the dragged
+ * centre verbatim); the return-to-auto path sends `{ auto_place: true }`. The
+ * caller re-fetches the tree + re-composes so the moved view repaints.
+ */
+export async function updateView(
+  drawingId: string,
+  viewId: string,
+  body: ViewUpdate,
+  client: GatewayClient = gatewayClient,
+): Promise<components["schemas"]["ViewMutationResponse"]> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/drawings/{drawing_id}/views/{view_id}",
+    {
+      params: { path: { drawing_id: drawingId, view_id: viewId } },
+      body,
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The view could not be updated."));
+  }
+  return data;
+}
+
+/**
  * Author a dimension against a view (201; 422 on a stale version, on a wrong
  * edge/type combo the documents write-time check rejects — e.g. a diameter on a
  * line). Returns the new dimension + the bumped `doc_version`; the caller re-
@@ -338,14 +368,25 @@ export async function evaluateDrawingViews(
  * in sheet-mm SVG space (y-flip applied). This is the SINGLE placement source the
  * sheet renders from (DE-1c) — the browser no longer computes any layout. The
  * route takes no body; it reads the drawing's persisted state server-side.
+ *
+ * `sheetId` picks WHICH sheet to compose (the active sheet of a multi-sheet
+ * drawing); omitting it composes the first sheet (back-compat). An unknown id is
+ * a `sheet_not_found` 404, a sheet with no views a `drawing_not_composable` 422 —
+ * both surface the server envelope's own message.
  */
 export async function composeDrawingSheet(
   drawingId: string,
+  sheetId?: string | null,
   client: GatewayClient = gatewayClient,
 ): Promise<ComposedSheet> {
   const { data, error } = await client.POST(
     "/api/v1/drawings/{drawing_id}/sheet",
-    { params: { path: { drawing_id: drawingId } } },
+    {
+      params: {
+        path: { drawing_id: drawingId },
+        query: sheetId ? { sheet: sheetId } : undefined,
+      },
+    },
   );
   if (error !== undefined) {
     throw new Error(
