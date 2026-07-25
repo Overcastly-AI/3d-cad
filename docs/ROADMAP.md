@@ -60,7 +60,9 @@ revolve-cut that removes nothing reports `ok` (Hole correctly errors) — **FIXE
 2026-07-25**: `combine_body` asks the same shared predicate before the boolean and
 the feature layer answers the typed `cut_removed_nothing`, so a pocket beside the
 part, a cut in free space, a duplicated cut and a clear revolve-cut all degrade
-honestly with the last-good body intact; **CM-4** a
+honestly with the last-good body intact (front end caught up 2026-07-25: the
+tree panel now reads per-verb copy for that code, naming the duplicate-cut case
+an extrude-cut actually hits); **CM-4** a
 pocket+fillet+shell body loses 2 edges across a STEP round-trip (96 -> 98) —
 **FIXED 2026-07-25**: the WRITE is faithful (96 `EDGE_CURVE` records for 96
 edges); the shell returned a `BRepCheck`-INVALID body whose pinched zero-width

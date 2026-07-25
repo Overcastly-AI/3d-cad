@@ -66,6 +66,41 @@ describe("friendlyFeatureError", () => {
     );
   });
 
+  it("keys cut_removed_nothing copy on the feature type (CM-3)", () => {
+    // The everyday trigger is the SAME pocket cut twice — the extrude copy has
+    // to name it, and must never send a modeler after a revolve axis.
+    const extrude = friendlyFeatureError(
+      "cut_removed_nothing",
+      "raw",
+      "extrude",
+    );
+    expect(extrude).toMatch(/nothing was removed/i);
+    expect(extrude).toMatch(/already cut once|duplicate/i);
+    expect(extrude).not.toMatch(/axis|path|sections/i);
+    // Each other subtractive verb names its OWN geometry, never the sketch.
+    const revolve = friendlyFeatureError(
+      "cut_removed_nothing",
+      "raw",
+      "revolve",
+    );
+    expect(revolve).toMatch(/axis/i);
+    expect(revolve).not.toMatch(/pocket|path/i);
+    expect(friendlyFeatureError("cut_removed_nothing", "raw", "sweep")).toMatch(
+      /path/i,
+    );
+    expect(friendlyFeatureError("cut_removed_nothing", "raw", "loft")).toMatch(
+      /sections/i,
+    );
+  });
+
+  it("gives a generic cut_removed_nothing message without a feature type", () => {
+    const generic = friendlyFeatureError("cut_removed_nothing", "raw kernel");
+    expect(generic).toMatch(/nothing was removed/i);
+    expect(generic).not.toBe("raw kernel");
+    // No verb-specific idiom leaks into the shared string.
+    expect(generic).not.toMatch(/axis|pocket|sections/i);
+  });
+
   it("uses the generic profile copy when no feature type is given", () => {
     const generic = friendlyFeatureError("profile_not_closed", "raw");
     expect(generic).toMatch(/closed region/i);

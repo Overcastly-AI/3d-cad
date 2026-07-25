@@ -60,6 +60,10 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
     "This profile isn't a closed region to build. Close every gap between its edges so the sketch forms one continuous loop.",
   axis_intersects_profile:
     "The axis passes through the profile, so revolving would sweep material through itself. Move the axis to one side — a solid of revolution turns about a centerline the profile clears.",
+  // A cut that reaches no material (composition matrix CM-3). Generic fallback;
+  // each subtractive verb names its own geometry in FEATURE_SPECIFIC_ERROR.
+  cut_removed_nothing:
+    "Nothing was removed — this cut passes clear of the body, or that material is already gone. Move it onto solid material, or delete it if the same cut is already in the tree.",
 };
 
 /**
@@ -80,6 +84,26 @@ const FEATURE_SPECIFIC_ERROR: Partial<
     sweep:
       "The swept profile isn't a closed region. Close every gap between its edges so the section forms one continuous loop.",
     loft: "A loft section isn't a closed region. Close every gap so each section forms one continuous loop.",
+  },
+  /**
+   * `cut_removed_nothing` (composition matrix CM-3): the kernel now refuses a
+   * subtractive feature whose tool never touches the body instead of reporting
+   * a silent `ok`. Every subtractive verb reaches it, and each one is missing
+   * the body for its OWN geometric reason — an extrude-cut's profile sits off
+   * the material, a revolve-cut's swept ring clears it, a sweep's path runs
+   * past it — so the advice is keyed per feature type (FINDINGS #13) rather
+   * than one string telling a revolve to move its sketch. The extrude entry
+   * leads with the everyday cause: the SAME pocket cut twice (duplicating a
+   * feature), where the second cut has nothing left to take.
+   */
+  cut_removed_nothing: {
+    extrude:
+      "Nothing was removed — this pocket misses the body, or it was already cut once and there's no material left to take. Move the sketch onto solid material, or delete this cut if it duplicates one above it.",
+    revolve:
+      "Nothing was removed — the revolved volume sweeps clear of the body. Move the profile or its axis so the swept ring passes through solid material.",
+    sweep:
+      "Nothing was removed — the swept volume runs clear of the body. Move the profile or its path so the sweep passes through solid material.",
+    loft: "Nothing was removed — the lofted volume passes clear of the body. Move its sections so the loft runs through solid material.",
   },
 };
 

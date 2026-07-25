@@ -59,6 +59,25 @@ function extrude(id: string, name: string): FeatureResponse {
   };
 }
 
+/** A subtractive extrude — the verb that raises `cut_removed_nothing` (CM-3). */
+function extrudeCut(id: string, name: string): FeatureResponse {
+  return {
+    ...sketch(id, name),
+    order_index: 1,
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: "f1" },
+        distance_mm: 10,
+        operation: "cut",
+        direction: "normal",
+        merge: true,
+      },
+    },
+  };
+}
+
 function revolve(id: string, name: string): FeatureResponse {
   return {
     ...sketch(id, name),
@@ -237,6 +256,34 @@ describe("FeatureTreePanel rebuild errors", () => {
     expect(
       screen.queryByTestId("feature-repick-face-1"),
     ).not.toBeInTheDocument();
+  });
+
+  it("reaches the DOM with per-verb copy for a cut that removed nothing (CM-3)", () => {
+    // The everyday trigger: the same pocket cut twice. The row must say so in
+    // the modeler's terms, not hand back the kernel's own sentence.
+    const { unmount } = renderPanel(
+      [sketch("f1", "Sketch 1"), extrudeCut("f2", "Extrude 2")],
+      failing(
+        "f2",
+        "cut_removed_nothing",
+        "cut tool does not reach the target body",
+      ),
+    );
+    const row = screen.getByTestId("feature-error-1");
+    expect(row).toHaveTextContent("cut_removed_nothing");
+    expect(row).toHaveTextContent("Nothing was removed");
+    expect(row).toHaveTextContent("duplicates one above it");
+    expect(row).not.toHaveTextContent("cut tool does not reach");
+    unmount();
+
+    // The SAME code on a revolve reads the revolve's own geometry.
+    renderPanel(
+      [sketch("f1", "Sketch 1"), revolve("f2", "Revolve 1")],
+      failing("f2", "cut_removed_nothing"),
+    );
+    const revolveRow = screen.getByTestId("feature-error-1");
+    expect(revolveRow).toHaveTextContent("sweeps clear of the body");
+    expect(revolveRow).not.toHaveTextContent("pocket");
   });
 
   it("shows no error row for a healthy tree", () => {

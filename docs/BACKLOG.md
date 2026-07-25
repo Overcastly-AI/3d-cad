@@ -110,10 +110,11 @@ frame refactor are v2/§11. Spike de-collected.
       `test_cm3_a_cut_that_removes_nothing_must_error`; 3 new guards in
       `test_extrude.py` incl. the 0.25 mm^3 grazing-cut boundary.
       [src: GEOMETRY-QA 2026-07-25 composition matrix]
-- [ ] (P3, XS) **Friendly copy for `cut_removed_nothing`** in
-      `apps/web/src/features/featureErrors.ts` (frontend territory). The code
-      falls back to the kernel's own message today, which already names the three
-      causes and the fix, so this is polish, not a gap.
+- [x] (P3, XS) **Friendly copy for `cut_removed_nothing`. Done 2026-07-25.**
+      Keyed PER VERB in `FEATURE_SPECIFIC_ERROR` (FINDINGS #13 pattern) so an
+      extrude-cut names the everyday cause — the same pocket cut twice — while
+      revolve/sweep/loft name their own geometry; generic fallback added too.
+      Covered in the jsdom tier (`FeatureTreePanel.test.tsx`) + unit lookups.
       [src: CM-3 fix 2026-07-25]
 - [x] (P2, S) **CM-4 — a composed body loses STEP round-trip topology
       fidelity.** `plate 40x40x10 -> pocket -> fillet r3 -> shell t2` re-imported
