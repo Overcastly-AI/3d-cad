@@ -785,3 +785,459 @@ compose golden asserting no hidden-over-visible overlap.
   mutations); no raw/ad-hoc SQL (only parameterized SQLAlchemy + a scoped
   `pg_advisory_xact_lock`); STEP import remains a real kill-boundary; prior F1/F6,
   F7, E1 all resolved in code.
+
+---
+
+## 2026-07-25 pass (post-burn-down)
+
+**Scope.** Branch `claude/open-source-3d-cad-o7hl49`. Brief said HEAD
+`b478100`; a docs-only commit `71a03e9` landed mid-audit, so the audited range
+is `ec03b89..71a03e9` (18 commits, ~181 files, ~1 day, ~10 parallel agents).
+Prior-pass findings **G1–G5 are closed and are NOT re-reported** (verified in
+`docker-compose.yml`, `packages/py-kit/src/py_kit/schemas/*` work-bound
+constants, `geometry/drawings/project.py` HLR). New findings are numbered
+**H1–H10** so they never collide with G/F/E ids.
+
+**Method note (constraint, stated for reproducibility).** A full batch
+`just lint && just test && just e2e` was running in this container for the
+duration of this pass, so per the brief this audit is **static**: no suite was
+re-run, no stack booted. Every finding below is traced in source with
+`file:line` and is verifiable by reading; where a claim needs a run I mark it
+**PLAUSIBLE** rather than CONFIRMED. This is a real weakening of the pass —
+the "re-verify, don't trust" rule could not be exercised on the gates
+themselves. See **H6**, which is about exactly that gap.
+
+### Clean this pass (checked, so the groomer can trust it)
+
+- **Zero dependency changes.** `git diff --name-only ec03b89..71a03e9 --
+  '*.toml' '*.lock' 'package.json' 'pnpm-lock.yaml'` → empty. No new licenses,
+  no new CVE surface. License audit (RESEARCH §8) is trivially clean for the
+  delta: no GPL/AGPL introduced because nothing was introduced.
+- **Service boundaries intact.** No `OCP`/`build123d` import outside
+  `services/geometry` (only prose mentions in py-kit docstrings); no
+  SQLAlchemy/asyncpg in `services/geometry`; `apps/web` still talks only to the
+  gateway (`apps/web/src/api/*` all go through `gatewayClient`).
+- **Gateway authz is complete route-by-route.** A mechanical sweep of every
+  `@router.{get,post,patch,delete}` in `services/gateway/src/gateway/*.py`
+  found no handler lacking a `CurrentUser` dependency. The new `?sheet=`
+  selection is **not** a tenancy hole: `_select_sheet`
+  (`services/gateway/src/gateway/drawings.py:515-550`) picks only from the
+  owner-scoped tree returned by `GET /api/v1/drawings/{id}`, so a foreign sheet
+  id is a `sheet_not_found` 404 with **no** documents part-hop and no compose —
+  and that is regression-tested
+  (`services/gateway/tests/test_drawing_export_proxy.py`, the stray-sheet test
+  asserts `documents_seen == [drawing GET]` and `geometry_seen == []`).
+- **Migration 0010 is sound.** Additive `NOT NULL DEFAULT true` (fast,
+  non-rewriting on PG11+), offline-SQL upgrade **and** downgrade both asserted
+  (`services/documents/tests/test_migrations.py`), ORM twin present
+  (`services/documents/src/documents/db.py:664-674`) so the documented
+  `metadata.create_all` native-boot path picks it up.
+- **Epsilon hygiene held on the geometry side.** The new provenance matcher
+  imports `AREA_REL_TOL`/`CENTROID_TOL_MM` from
+  `services/geometry/src/geometry/kernel/faces.py:73-74` instead of declaring
+  its own — exactly the DRY posture CLAUDE.md asks for.
+- **No untyped escapes in the new TS.** Repo-wide grep for `: any` / `as any` /
+  `@ts-ignore` / `@ts-expect-error` / `eslint-disable` across `apps/web/src` +
+  `packages/design/src` → zero hits.
+- **The new e2e specs are not tautological.** `feature-selection.spec.ts`
+  asserts `data-selected-faces < data-total-faces`, which fails if the feature
+  is reverted (revert → `selectedFaceIndices = null` → whole-body `selected` →
+  `lit === totalFaces`). `drawing-place-view.spec.ts` distinguishes sheets by
+  their **server-composed** note text, so it genuinely covers the `?sheet=`
+  wire rather than local state.
+
+---
+
+### H1 — Multi-sheet drawings share one `drawing-eval` cache entry: the active sheet can render another sheet's section geometry and lose its own dimensions. **P1 · CONFIRMED**
+
+`apps/web/src/routes/DrawingPage.tsx:230-239` keys the projection/measure query:
+
+```ts
+queryKey: [
+  "drawing-eval",
+  effectivePartId,
+  partTree?.tree_version,
+  effectiveScaleValue,
+  requestedViews.join(","),
+  docVersion,           // drawing-level, not sheet-level
+],
+```
+
+The **active sheet id is absent from the key**, yet two of the request's inputs
+are sheet-scoped:
+
+- `dimensionInputs` (`DrawingPage.tsx:174-184`) is built from
+  `tree.sheets[activeIndex].dimensions`;
+- `sectionParamsByIndex` (`DrawingPage.tsx:148-157`) is built from the active
+  sheet's `sectionView.section_params`.
+
+`docVersion` is `tree.doc_version` (`DrawingPage.tsx:102`) — a **drawing-level**
+counter, identical for every sheet at a given moment. So two sheets of the same
+drawing that draft the same part at the same scale with the same *projection
+list* produce a **byte-identical query key** and share one cached response.
+
+**Failure scenario (reproducible by hand).** Create a drawing on part P.
+Sheet 1: author a `section` view on the XY datum. Add Sheet 2 (the switcher's
+`+`), author a `section` view on the YZ datum (the section authoring UI gates on
+`hasLayout`, which is computed from the *active* sheet — `DrawingPage.tsx:164` —
+so a fresh sheet 2 permits it). Both sheets now have `requestedViews === ["section"]`,
+the same `effectivePartId`, the same `effectiveScaleValue`, and the same
+`docVersion`. Switch between the tabs: whichever sheet's eval landed first for
+that `docVersion` is served to the other. **Sheet 2 renders sheet 1's cut.**
+The composed *paper* is correct (`sheetQuery` at `DrawingPage.tsx:279-291`
+*does* include `activeSheetId`), so the picture and the pick provenance
+disagree — the "visual and pick move in lockstep" comment at `:274-278` is now
+false. The dimension twin of the same bug: sheet 2's authored dimensions are
+absent from `measuredById` (`DrawingPage.tsx:255-262`) because the cached
+evaluation carries sheet 1's dimension ids, so they render unmeasured/missing.
+
+This is the **silent-wrong-geometry class the burn-down just closed**, reopened
+by the multi-sheet frontend follow-up. It is on-screen only (the server
+`/export` path is correctly per-sheet), but "the drawing on screen is not the
+drawing that prints" is exactly the trust failure the project treats as P0-adjacent.
+
+**Fix.** Add `activeSheetId` to the `drawing-eval` key (one line,
+`DrawingPage.tsx:231-239`). Belt-and-braces: derive the key from the actual
+request object (`part_id`, `tree_version`, `views`, `dimensions.map(d => d.id)`,
+`section_params`) so a future sheet-scoped input cannot go missing again. Add a
+Playwright regression: two sheets, two different section planes, switch tabs,
+assert the two sheets' rendered edge sets differ.
+
+**Coverage gap:** no unit or e2e test exercises two sheets that differ only in
+sheet-scoped eval inputs. `apps/web/e2e/drawing-place-view.spec.ts:140-185`
+switches sheets but distinguishes them by the *composed note*, which comes from
+`sheetQuery` (correctly keyed) — so it passes right past this bug.
+
+---
+
+### H2 — A sheet whose views reference different documents composes **every** view from `views[0]`'s part. **P1 · CONFIRMED**
+
+Nothing constrains a sheet's views to one source document:
+
+- `services/documents/src/documents/drawings.py:545-620` (`create_view`)
+  validates only that the referenced document *exists and is owned*
+  (`referenced_document_exists`); there is no check against the sheet's other
+  views.
+- The gateway then picks one: `services/gateway/src/gateway/drawings.py:586`
+  `source_view = sheet_content.views[0]`, fetches **only that** document's
+  evaluation-request (`:589-619`), and builds the compose request with
+  `views=[v.projection for v in views]` (`:487`) — i.e. *all* views of the
+  sheet, projected from the single source it fetched.
+
+**Failure scenario.** Via the gateway API (or the Phase-5 scripting/MCP surface
+this is destined for), add a `front` view of part A and a `right` view of part B
+to one sheet. Export: the print shows a "RIGHT" view of **part A** captioned as
+the view the user created for part B. No error, no warning — a wrong drawing
+that a shop would cut from. The frontend does not currently *create* such a
+sheet, which is why this has not been seen; the API contract permits it and
+Phase 5 explicitly plans to expose these routes to agents.
+
+**Second, smaller instance in the same seam:** `services/gateway/src/gateway/drawings.py:502`
+`scale=views[0].scale`. `ViewCreate.scale`/`ViewResponse.scale` are per-view,
+persisted, and returned — but compose uses only view 0's. A view authored at 1:2
+composes at view 0's scale, silently. The inline comment calls this a v1
+simplification; the *API* does not, so a client (or agent) reading the contract
+is misled.
+
+**Fix (pick one, state it in `docs/design/drawings.md`):** (a) enforce it —
+`create_view` rejects a `ref_document_id`/`ref_document_kind` that differs from
+the sheet's existing views with a typed 422 (`sheet_source_document_mismatch`),
+and reject a `scale` that differs from view 0 until per-view scale is
+implemented; or (b) implement it — thread per-view source + per-view scale
+through `ComposeDrawingRequest`. (a) is a ~15-line documents change plus a
+gateway assertion and closes the wrong-print risk today.
+
+---
+
+### H3 — Two views with the same projection on one sheet collapse at all three layers; the new drag-to-place PATCH then writes to the **wrong view row**. **P2 · CONFIRMED**
+
+The whole drawing stack keys views by **projection**, not by view id, while the
+schema keys them by id and permits duplicates:
+
+- **DB:** `services/documents/src/documents/db.py:697` — the only per-sheet
+  uniqueness is `("sheet_id", "order_index")`. No `("sheet_id", "projection")`.
+- **documents:** `create_view` (`drawings.py:545-620`) has no projection
+  uniqueness check.
+- **geometry:** `_resolve_view_anchors` (`compose.py:459-500`) accumulates into
+  `anchors: dict[ViewProjection, Vec2]`; `compose.py:1480`
+  `layout_projs = {vp.projection for vp in layout.views}` is a **set**. The
+  second same-projection view is silently dropped from the composed sheet.
+- **web:** `apps/web/src/components/DrawingSheet.tsx:1667-1672` builds
+  `viewIdByProjection` / `viewByProjection` with last-write-wins, and
+  `:1712` renders `key={composedView.projection}`.
+
+**Failure scenario.** Create two `section` views on one sheet (two cutting
+planes — "SECTION A-A" and "SECTION B-B" is ordinary drafting, and the
+`?sheet=`/multi-sheet work makes it more likely to be attempted). Only one
+composes. Worse, with the new drag-to-place seam (`b478100`): dragging the
+visible section frame calls `onPlaceView(viewId, …)` with
+`viewIdByProjection.get("section")` — the **last** view of that projection —
+so the user drags view A and the `PATCH /views/{id}` persists a position onto
+view B. A subsequent auto/manual toggle likewise targets the wrong row. Data
+corruption of a persisted document, from a UI gesture.
+
+**Fix.** Add a `UniqueConstraint("sheet_id", "projection")` +
+migration `0011` + a typed `duplicate_view_projection` 422 in `create_view`
+(and in `update_view` when `projection` changes) — the cheap, honest option
+that makes the whole stack's projection-keying legal. If multi-section sheets
+are wanted (they will be), that is a design change: `ComposedView` and the
+frontend maps must key on **view id**, which is a larger slice worth filing
+separately.
+
+**Coverage gap:** zero tests anywhere exercise two views of the same
+projection on one sheet (grep across `services/*/tests` + `apps/web/e2e`).
+
+---
+
+### H4 — Per-face provenance made `evaluate_tree` retain O(features) intermediate B-reps on **every** compute path, and made `/overlay` quadratic in face count. **P2 (memory, all paths) / P1 (latency, `/overlay` on imported bodies) · CONFIRMED by code; magnitudes PLAUSIBLE (not measured — no stack this pass)**
+
+`406b89b` added, unconditionally, in `services/geometry/src/geometry/features/evaluate.py:2443-2447`:
+
+```python
+if item.feature.type in _BODY_AFFECTING_TYPES:
+    state.prev_body_feature = item.feature
+    if state.bodies:
+        state.body_history.append((item.id, _snapshot_shape(state.bodies)))
+```
+
+and returns it at `:2521`. Two distinct costs, both paid by callers that never
+use the result:
+
+**(a) Retained memory on every path.** `evaluate_tree` has nine call sites
+(`api.py:171`, `api.py:773`, `overlay.py:32`, `measure.py:41`,
+`drawings/evaluate.py:291`, `assembly/evaluate.py:192`, `harness.py:51,74`) —
+tessellate, export, measure, drawing compose, per-instance assembly evaluation.
+**Only `overlay.py:44` consumes `body_history`.** Every other path now keeps
+every intermediate body alive for the whole request instead of letting each one
+die as the next feature supersedes it. Bounded by `MAX_TREE_FEATURES = 1000`
+(so not unbounded — G2 helps here), but a 100-feature part now holds ~100
+intermediate solids; an assembly evaluation holds them per unique part. For the
+multi-body branch `_snapshot_shape` (`evaluate.py:216-229`) additionally
+*constructs* a fresh `Compound([...solids])` per body-affecting feature — real
+OCCT work, O(features × lumps), on the tessellate hot path.
+
+**(b) `/overlay` went from O(F) to O(F²) in face count.**
+`services/geometry/src/geometry/kernel/provenance.py:114-127`:
+
+```python
+snapshots = [(fid, [_fingerprint(f) for f in shape.faces()]) for fid, shape in body_history]
+for face in final_body.faces():
+    fingerprint = _fingerprint(face)
+    for feature_id, snapshot_fingerprints in snapshots:
+        if any(_matches(fingerprint, snap) for snap in snapshot_fingerprints):
+```
+
+`_fingerprint` (`:75-82`) is an exact-B-rep GProp call per face
+(`face.center(CenterOf.MASS)` + `face.area`). Cost is
+`S · F_snapshot` GProp evaluations plus up to `F_final · S · F_snapshot`
+pure-Python `_matches` calls. The pathological case needs **no** deep tree: a
+STEP import (`MAX_INLINE_STEP_CHARS = 16 MiB`, one body-affecting feature,
+`S = 1`) of a 20k-face model gives ~20k GProps and ~2×10⁸ `_matches` calls with
+the early `break`. That is a single authenticated request pinning a geometry
+worker for minutes, on the route the UI hits for measure / face pick / datum
+pick / hole pick / edge pick / feature select (all six share one query key —
+`apps/web/src/routes/PartPage.tsx:596,1306,1319,1335,1362,1397,1436`).
+`COMPUTE_RATE_LIMIT` caps frequency, not this cost — which is precisely the
+thesis G2 established six hours earlier, and this landed without a bound.
+
+**Fix.**
+1. Make history opt-in: `EvaluateTreeRequest`-level (or `evaluate_tree(...,
+   record_history: bool = False)`) so only `/overlay` pays. One-line change at
+   each of the two sites, zero behaviour change elsewhere.
+2. Bound and index the matcher: build a dict keyed on
+   `(surface, round(area, k), quantized centroid)` per snapshot so lookup is
+   O(1) instead of a linear `any(...)` scan — the fingerprint is already
+   designed for hashing. That turns `/overlay` back into O(S · F).
+3. Add a documented `MAX_PROVENANCE_FACES` cap with a typed degradation
+   (return all-`None` provenance → the frontend falls back to whole-body
+   select, which it already handles: `ModelMesh.tsx:95-96`) rather than a
+   multi-minute request.
+4. Add a perf gate (the golden harness already runs timed cases) asserting
+   `/overlay` on the largest golden stays under a documented budget.
+
+**Coverage gap:** `services/geometry/tests/test_provenance.py` is a good
+correctness test (hole wall → hole, base sides → extrude, determinism, GLB
+primitive parity) but has **no** size/latency case, so this regression is
+invisible to `just test`.
+
+---
+
+### H5 — Sheets-per-drawing is the one work bound G2 missed; `_tree_response` is N+1 over it. **P2 · CONFIRMED**
+
+G2 bounded views (32), dimensions (500), annotations (500), features (1000),
+instances (500), mates (2000) — each with a documents-side write twin. **There
+is no bound on sheets.** `grep -rn "MAX_SHEET" services packages` → empty;
+`create_sheet` (`services/documents/src/documents/drawings.py:422-460`) counts
+and appends with no ceiling; `DrawingTreeResponse.sheets` carries no
+`max_length` (`packages/py-kit/src/py_kit/schemas/drawings.py`).
+
+That matters more than it looks because `_tree_response`
+(`services/documents/src/documents/drawings.py:293-320`) issues **three
+queries per sheet** (views, dimensions, annotations) plus one for the sheet
+list — and it is the response body of `GET /drawings/{id}` *and* of every
+`delete_sheet` / `delete_view` / `delete_dimension` / `delete_annotation`.
+
+**Failure scenario.** An authenticated user (or a runaway agent script — the
+frontend's own `handleAddSheet` is one POST) creates 50k sheets. Every
+subsequent read of that drawing costs 150k round trips and serializes a
+multi-hundred-MB tree; the drawing page and every mutation on it become
+unusable, and the row set is not reclaimable except by deleting the drawing.
+Same class as G2, same fix shape.
+
+**Fix.** `MAX_DRAWING_SHEETS` (suggest 100) in
+`packages/py-kit/src/py_kit/schemas/drawings.py` with a `max_length` on
+`DrawingTreeResponse.sheets` and a typed `sheet_limit_exceeded` 422 write twin
+in `create_sheet` — mirroring the `view_limit_exceeded` pattern already at
+`documents/drawings.py:577-586`. Separately, collapse `_tree_response` to three
+scope-wide queries (`WHERE sheet_id IN (...)` grouped in Python) to kill the
+N+1 regardless of the cap.
+
+---
+
+### H6 — `docs/ROADMAP.md` and `docs/FINDINGS.md` assert a full-suite certification at `b478100` that could not have been run. **P2 · CONFIRMED (timeline) · process rot**
+
+`docs/ROADMAP.md:12-14` (added by `71a03e9`):
+
+> "Certified at each batch boundary and finally at `b478100` — `just lint` +
+> `just test` + `just e2e` green (geometry gates 188, Playwright 254)."
+
+and `docs/FINDINGS.md:34-37` / `:296` repeat it ("final sweep: geometry gates
+188, Playwright 254").
+
+Evidence it did not happen:
+
+- `b478100` is timestamped `2026-07-25 01:52:58`; `71a03e9` (which makes the
+  claim) is `2026-07-25 01:59:46` — **6 min 48 s later**. A full
+  `just lint && just test && just e2e` here is OCCT pytest + 800+ web unit
+  tests + 254 Playwright specs that boot geometry/gateway/Vite. It does not fit.
+- `git log -S "Playwright 254" -- docs/` returns exactly one commit — `71a03e9`.
+  The numbers have no prior appearance, so they are not a carried-forward
+  observation either; they were written, not measured.
+- The orchestrator's own brief for this audit states the batch
+  `just lint && just test && just e2e` is running **now** — i.e. the sweep that
+  would substantiate the claim postdates the doc asserting it.
+
+This is the exact defect class CLAUDE.md names ("Keep the docs in sync —
+NON-NEGOTIABLE", "never push a red build") and that `71a03e9`'s own commit
+message says it is fixing ("close out the FINDINGS burn-down **honestly**").
+Ironically it replaced under-claiming with over-claiming. A ROADMAP that states
+an unverified green is worse than a stale one: the next agent trusts it.
+
+**Fix.** (1) Amend the two sentences to name the commit the sweep *actually*
+covered and mark `b478100`/`71a03e9` as "sweep pending" until the in-flight run
+lands; then update with the real counts. (2) Process rule for the orchestrator:
+a certification line may only be written **after** the sweep exits 0, in a
+commit that postdates it, and must quote the run's tail (counts + duration) —
+same evidence standard this audit file is held to. (3) Cheap enforcement: have
+the batch-end sweep write `docs/.last-sweep` (commit sha + counts + timestamp)
+and require the ROADMAP claim to match it.
+
+---
+
+### H7 — Frontend re-fetches a full server-side tree evaluation on feature *selection*. **P3 · CONFIRMED**
+
+`apps/web/src/routes/PartPage.tsx:1430-1441`: selecting a feature in the tree
+enables a `/overlay` query, which server-side runs `evaluate_tree` over the
+whole feature tree (`services/geometry/src/geometry/overlay.py:32`) plus the
+new provenance pass (H4). Mitigated well — same `["overlay", partId,
+treeVersion, meshGlbId]` key as the other six overlay consumers,
+`staleTime: Infinity` — so it is one fetch per tree version, not per click.
+But it means the *first* click on any tree row after any edit pays a full
+kernel re-evaluation before the highlight appears, and it is the interaction
+that makes H4's quadratic pass user-visible.
+
+**Fix.** Return `OverlayFace.feature_id` from the evaluate/tessellate response
+the page already has (the provenance is computed from the same evaluation), or
+cache the overlay server-side keyed on `mesh_glb_id` — the mesh id is already a
+content-addressed cache key. Either removes a whole kernel round trip from the
+selection path.
+
+---
+
+### H8 — A second, approximate geometry path in the browser, with a fresh ad-hoc tolerance. **P3 · CONFIRMED**
+
+`apps/web/src/viewport/profileLoops.ts` (new, 196 lines) stitches solved sketch
+edges into loops and classifies nesting by even-odd containment, and
+`ExtrudePreview.tsx` sweeps the result with three.js. It is honestly documented
+as a pre-Save ghost ("the geometry service stays the source of truth"), and the
+project has precedent for that (`apps/web/src/sketch/spline.ts`). Two concerns:
+
+1. **Ad-hoc epsilon.** `profileLoops.ts:24` `const JOIN_TOL_MM = 1e-3;` is a
+   new, locally-invented geometric tolerance. CLAUDE.md: "Geometry tolerances:
+   linear 1e-7 m kernel-side; golden-suite assertions use documented per-model
+   tolerances, **never ad-hoc epsilons**." It is named and commented (better
+   than a magic number), but it is not traceable to any documented source and
+   it is 4 orders of magnitude looser than the kernel's linear tolerance.
+   *Fix:* move it next to the other web tolerances with a one-line rationale in
+   `docs/design/` (compare `apps/web/src/sketch/plane.ts:197-198`, which
+   explicitly names itself "the port of `MIDPLANE_PARALLEL_TOLERANCE`").
+2. **Direction risk, not a defect today.** The drawings work just *deleted* the
+   browser's duplicate placement engine (DE-1c) on exactly this reasoning. A
+   client-side profile arrangement that "aims to read right for the common
+   profiles" will, for a self-intersecting or tangent-touching profile, show a
+   ghost that differs from what Save produces. *Fix:* a note in
+   `docs/RESEARCH.md` §9 drawing the line — approximations are allowed for
+   pre-commit cues and never for anything persisted, measured, or printed —
+   plus a unit case pinning the known-wrong classes so the limit is documented
+   rather than discovered.
+
+---
+
+### H9 — Assembly instance names now flow verbatim into STEP `PRODUCT` names, unvalidated for STEP-hostile content. **P3 · PLAUSIBLE (needs a run to confirm)**
+
+`services/geometry/src/geometry/assembly/export.py:66-70` now uses
+`placed.name` (user-authored, from `documents.assemblies.build_evaluate_assembly_request`,
+`INSTANCE_NAME_MAX_LENGTH = 200`, no character class restriction) as the STEP
+PRODUCT name. OCCT's STEP writer is expected to escape `'` and encode non-ASCII
+via `\X2\`, so this is probably fine — but the regression test
+(`test_step_assembly_export_preserves_human_readable_product_names_roundtrip`)
+uses benign names ("Base Plate", "Top Plate") only.
+
+**Fix (cheap):** extend that test with an adversarial name — an apostrophe
+(`Bracket 'A'`), a non-ASCII character (`Öse`), a newline, and a
+200-character name — asserting the export parses and re-imports with the name
+recovered. Also worth an explicit decision on duplicate instance names (two
+instances both named "Bolt"), which the round trip must not merge.
+
+---
+
+### H10 — Smaller items, filed for completeness
+
+- **`docs/ROADMAP.md:1113-1116` has a garbled passage** — the
+  Frontend-follow-up-B insertion (`b478100`) overwrote a bullet's opening, so
+  the text now reads `… drawing-active-sheet-compose-1440. (#22)` / `creating a
+  part` / `from the register navigates straight into its workspace. (#3-fe) …`
+  — an orphaned sentence fragment starting mid-clause. Cosmetic, but this file
+  is the loop's source of truth and every agent reads it. *Fix:* doc-syncer pass.
+- **`handleAddSheet` (`apps/web/src/routes/DrawingPage.tsx:549-560`) creates a
+  new sheet at the pre-layout picker's `sizeValue`, not the active sheet's
+  size** — so "add sheet" on an A3 drawing silently makes an A4. P3.
+- **`bounds_aware_layout` includes hand-placed views in its group centring**
+  (`services/geometry/src/geometry/drawings/compose.py:478-492`: the quartet
+  layout is computed from *all four* projections' bounds, then `auto_place=False`
+  views are placed elsewhere), so dragging one view off leaves the auto trio
+  centred around a hole. Cosmetic layout artefact, deliberate-looking, but not
+  documented as intended. P3.
+- **`_tree_response`'s `isinstance` filters** (`documents/drawings.py:301-317`)
+  are dead defensive branches that silently drop rows if the invariant ever
+  broke — an `assert`/typed helper would fail loudly instead. P3, operational
+  honesty.
+
+---
+
+### Prioritized recommendations for the groomer
+
+| # | Sev | Item | Why now |
+|---|-----|------|---------|
+| 1 | **P1** | **H1** — add `activeSheetId` to the `drawing-eval` query key + a two-section-sheet e2e | One-line fix for a silent-wrong-geometry-on-screen bug in the feature that shipped last night. Cheapest P1 in the repo. |
+| 2 | **P1** | **H4(b)** — index the provenance matcher + make `body_history` opt-in | `/overlay` is now super-linear in face count on the interactive path, and every non-overlay evaluate pays retained memory it never uses. Regression introduced *after* G2 established the per-request-cost rule. |
+| 3 | **P1** | **H2** — reject (or implement) mixed source documents + per-view scale on a sheet | Wrong-print risk reachable through the public API today, and Phase 5 is about to hand that API to agents. |
+| 4 | **P2** | **H3** — `UniqueConstraint("sheet_id","projection")` + migration 0011 + typed 422 | The drag-to-place PATCH can write to the wrong view row. Data corruption from a UI gesture. |
+| 5 | **P2** | **H6** — correct the ROADMAP/FINDINGS certification claim; add the "certify only after the sweep exits 0" rule + `docs/.last-sweep` | Process rot compounds: the next agent trusts an unverified green. Fix the rule, not just the sentence. |
+| 6 | **P2** | **H5** — `MAX_DRAWING_SHEETS` + write twin; de-N+1 `_tree_response` | Closes the one work bound G2 missed; same pattern, ~30 lines. |
+| 7 | **P3** | **H7** (overlay on selection), **H8** (client geometry epsilon + a RESEARCH §9 line), **H9** (adversarial STEP-name test), **H10** (ROADMAP garble, sheet size, layout centring, dead isinstance filters) | Polish + honesty; batch into one grooming slice. |
+
+**Standing gap this pass could not close:** the audit was static by instruction.
+Before acting on the table above, the groomer should confirm the in-flight
+`just lint && just test && just e2e` result and reconcile it with H6 — if that
+sweep is red, its failures take precedence over everything here.
