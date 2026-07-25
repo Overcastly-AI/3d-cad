@@ -12,12 +12,16 @@ the XDE product tree internally and surfaces only these plain models (the B-rep
 as plain STEP text, never a kernel object), and ``just gen`` exports them to
 ``packages/contracts`` / ``packages/ts-client``.
 
-Each product carries the editable body as ``body_step`` — a LOCAL-frame STEP
-AP214 fragment (placement stripped), exactly what the single-body ``import``
-feature ingests — content-addressed by ``body_step_id`` and shared across
-repeated occurrences of one part (the dedup contract, as meshes share
-``mesh_glb_id``). ``mesh_glb_id`` is the shared presentation mesh; ``properties``
-the body's own mass properties.
+Each product references its editable body by CONTENT ADDRESS (``body_step_id``);
+the body text itself — a LOCAL-frame STEP AP214 fragment (placement stripped),
+exactly what the single-body ``import`` feature ingests — lives ONCE per address
+in :attr:`StepAssemblyImportResult.bodies`. A part instanced N times therefore
+ships its B-rep fragment ONCE, not N times (the dedup contract, as meshes share
+``mesh_glb_id``): the shape removes response amplification at the source instead
+of only bounding it (``MAX_IMPORT_RESPONSE_BYTES``). Consumers resolve a
+product's body through :meth:`StepAssemblyImportResult.body_step_for` — the ONE
+resolver, never by reaching for a per-product field. ``mesh_glb_id`` is the
+shared presentation mesh; ``properties`` the body's own mass properties.
 
 This slice (2a: geometry-side reader, hardened — the DoS bound is now wired and
 the walk/tessellate phase is guarded) returns the structured result; SLICE-2b
@@ -29,9 +33,9 @@ to the existing single-body MB-4b import.
 """
 
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from py_kit.schemas.assemblies import (
     MAX_ASSEMBLY_INSTANCES,
@@ -61,23 +65,24 @@ from py_kit.schemas.parts import PartResponse
 #: accepts, so the two ceilings can never drift apart.
 MAX_IMPORT_ASSEMBLY_PRODUCTS = MAX_ASSEMBLY_INSTANCES
 
-#: Absolute ceiling (bytes) on the TOTAL ``body_step`` payload the geometry read
-#: may emit across all products — a response-amplification DoS bound (slice-2b
-#: security review, 2026-07-23). The occurrence-count cap
-#: (:data:`MAX_IMPORT_ASSEMBLY_PRODUCTS`) alone does NOT bound the response size:
-#: because the result carries ``body_step`` once per occurrence, ONE large body
-#: (near the 16 MiB single-body ingest cap) instanced up to the occurrence cap can
-#: still amplify into a multi-GB response the gateway buffers whole. The geometry
-#: service tracks the running total of emitted ``body_step`` bytes and rejects
-#: (``import_response_too_large``, a typed 422) before materialising a product past
-#: this ceiling, so the amplification is bounded ABSOLUTELY regardless of
-#: occurrence count or body repetition. Sized at 2x
+#: Absolute ceiling (bytes) on the TOTAL body payload the geometry read may emit
+#: across all products — a response-amplification DoS bound (slice-2b security
+#: review, 2026-07-23). The occurrence-count cap
+#: (:data:`MAX_IMPORT_ASSEMBLY_PRODUCTS`) alone does NOT bound the emitted bytes:
+#: ONE large body (near the 16 MiB single-body ingest cap) instanced up to the
+#: occurrence cap could otherwise amplify into a huge response the gateway buffers
+#: whole. The geometry service tracks the running total of emitted body bytes and
+#: rejects (``import_response_too_large``, a typed 422) before materialising a
+#: product past this ceiling, so the amplification is bounded ABSOLUTELY regardless
+#: of occurrence count or body repetition. Sized at 2x
 #: :data:`~py_kit.schemas.features.MAX_INLINE_STEP_CHARS` (== 32 MiB): a single
 #: product body is bounded by that 16 MiB inline cap, and 2x leaves headroom for a
 #: real assembly of several distinct large-ish part bodies while capping the
-#: buffered response at a defensible ceiling. (The P2 follow-up that carries
-#: ``body_step`` once per ``body_step_id`` — a cross-service DTO reshape — makes
-#: the shape efficient; this byte cap makes the CURRENT shape safe without it.)
+#: buffered response at a defensible ceiling. Since the wire shape now carries each
+#: body ONCE per ``body_step_id`` (:attr:`StepAssemblyImportResult.bodies`), the
+#: repetition amplification is gone from the transport entirely and this cap — which
+#: geometry still counts per OCCURRENCE — is a conservative backstop, not the only
+#: line of defence (defence in depth: reshape + cap).
 MAX_IMPORT_RESPONSE_BYTES = 2 * MAX_INLINE_STEP_CHARS
 
 
@@ -121,22 +126,32 @@ class ImportedProduct(BaseModel):
     identity for a flat single-body STEP), matched to the exported placement
     within the kernel round-trip tolerance.
 
-    Two body surfaces, both content-addressed and SHARED across repeated
-    occurrences of one part (the dedup contract, as slice 1 does for meshes):
+    Two body surfaces, both referenced by CONTENT ADDRESS and SHARED across
+    repeated occurrences of one part (the dedup contract, as slice 1 does for
+    meshes) — neither is inlined per occurrence:
 
-    * ``body_step`` — the product's editable **LOCAL-frame B-rep**, as a STEP
-      AP214 part-21 fragment with the instance placement STRIPPED (that is
-      ``placement``, kept separate). It is exactly what the single-body
-      ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`
-      ``data``), so the documents service seeds each part with ``ImportParamsV1(
-      data=body_step)`` — ZERO new ingest path. A mesh is not editable geometry;
-      this is the field that lets 2b build a REAL part per instance.
+    * ``body_step_id`` — the address (``sha256:<hex>``) of the product's editable
+      **LOCAL-frame B-rep**: a STEP AP214 part-21 fragment with the instance
+      placement STRIPPED (that is ``placement``, kept separate), stored ONCE under
+      this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what
+      the single-body ``import`` feature ingests
+      (:class:`~py_kit.schemas.features.ImportParamsV1` ``data``), so the documents
+      service seeds each part with ``ImportParamsV1(data=<resolved body>)`` — ZERO
+      new ingest path. A mesh is not editable geometry; this is what lets 2b build
+      a REAL part per instance. ``None`` when the product produced no solid.
+      Because the id is EQUAL for two occurrences of one part, the caller groups
+      products by it to create ONE stored B-rep (one part) with N instances.
     * ``mesh_glb_id`` — a content-addressed presentation mesh for the viewport.
 
-    ``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;
-    it is EQUAL for two occurrences of one part, so the caller groups products by
-    it to create ONE stored B-rep (one part) with N instances. ``properties`` are
-    the body's OWN (local-frame) mass properties for BOM / inspection.
+    ``properties`` are the body's OWN (local-frame) mass properties for BOM /
+    inspection.
+
+    ``body_step`` is a PRODUCER-SIDE construction convenience only: a producer may
+    pass the body text alongside the product and the parent result hoists it into
+    its shared ``bodies`` map (so the geometry reader needs no separate bookkeeping),
+    but the field is NEVER serialized — the wire form carries each body once.
+    Consumers MUST resolve through
+    :meth:`StepAssemblyImportResult.body_step_for`.
     """
 
     name: str | None = Field(
@@ -147,16 +162,19 @@ class ImportedProduct(BaseModel):
     )
     body_step: str | None = Field(
         default=None,
-        description="The product's LOCAL-frame B-rep as a STEP AP214 part-21 "
-        "fragment (placement stripped — see `placement`); consumed verbatim as "
-        "ImportParamsV1.data to seed an editable part (the single-body import "
-        "path). Null when the product produced no solid.",
+        exclude=True,
+        description="Producer-side convenience: the product's LOCAL-frame B-rep as "
+        "a STEP AP214 part-21 fragment. NOT serialized — the parent result hoists "
+        "it into its shared `bodies` map so the transport carries each body once; "
+        "consumers resolve via StepAssemblyImportResult.body_step_for().",
     )
     body_step_id: str | None = Field(
         default=None,
-        description="Content address (sha256:<hex>) of `body_step`; EQUAL across "
-        "repeated occurrences of one part, so the caller creates ONE part and N "
-        "instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.",
+        description="Content address (sha256:<hex>) of this product's LOCAL-frame "
+        "B-rep, whose text lives ONCE under this key in the result's `bodies` map. "
+        "EQUAL across repeated occurrences of one part, so the caller creates ONE "
+        "part and N instances (the dedup key, as meshes share mesh_glb_id). Null "
+        "when the product produced no solid.",
     )
     mesh_glb_id: str | None = Field(
         description="Content-addressed shared presentation mesh (sha256:<hex>), "
@@ -169,14 +187,17 @@ class ImportedProduct(BaseModel):
 
 
 class StepAssemblyImportResult(BaseModel):
-    """Structured read of an assembly STEP — the product list + structure flag.
+    """Structured read of an assembly STEP — products + the shared body map.
 
     ``has_assembly_structure`` is True when the file carried
     ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,
     named products); False for a flat / single-body STEP, whose single product
     signals the caller to fall back to the single-body MB-4b import (backward
     compatible). ``products`` are in the deterministic order the geometry service
-    walks the product tree (RESEARCH §9).
+    walks the product tree (RESEARCH §9) and reference their editable B-rep by
+    ``body_step_id``; ``bodies`` holds each distinct B-rep exactly ONCE, keyed by
+    that address, so a part instanced N times ships its (possibly multi-MB) STEP
+    fragment once instead of N times.
     """
 
     has_assembly_structure: bool = Field(
@@ -186,6 +207,45 @@ class StepAssemblyImportResult(BaseModel):
     products: list[ImportedProduct] = Field(
         description="Recovered products, in deterministic product-tree order"
     )
+    bodies: dict[str, str] = Field(
+        default_factory=dict,
+        description="Each distinct product body ONCE: content address "
+        "(sha256:<hex>, == a product's body_step_id) -> its LOCAL-frame STEP "
+        "AP214 part-21 fragment (placement stripped). A part instanced N times "
+        "appears here once; resolve a product's body by its body_step_id.",
+    )
+
+    @model_validator(mode="after")
+    def _hoist_producer_bodies(self) -> Self:
+        """Fold any producer-supplied ``product.body_step`` into ``bodies``.
+
+        Lets a producer build products with their body text attached (the natural
+        shape for the geometry reader's per-product walk) while the SERIALIZED
+        form always carries each distinct body exactly once — the dedup is the
+        content-address dict itself, so N occurrences of one part collapse with no
+        caller bookkeeping. Already-mapped addresses win (an explicit ``bodies``
+        entry is authoritative); products carrying no body/address are untouched.
+        """
+        for product in self.products:
+            address, body = product.body_step_id, product.body_step
+            if address is not None and body is not None:
+                self.bodies.setdefault(address, body)
+        return self
+
+    def body_step_for(self, product: ImportedProduct) -> str | None:
+        """This product's editable LOCAL-frame STEP fragment, or ``None``.
+
+        THE resolver every consumer uses (DRY: one place knows the shared-map
+        indirection). ``None`` means the product carries no usable body — it
+        produced no solid (no ``body_step_id``) or its address is absent from
+        ``bodies`` (a malformed read); callers treat both as "not importable" and
+        surface their own typed error rather than trusting a partial map.
+        """
+        if product.body_step is not None:
+            return product.body_step
+        if product.body_step_id is None:
+            return None
+        return self.bodies.get(product.body_step_id)
 
 
 # --- documents-creation contract (gateway → documents, SLICE-2b) -----------------
@@ -205,11 +265,12 @@ class ImportAssemblyRequest(BaseModel):
     ``result`` is the geometry service's structured read (forwarded verbatim by
     the gateway); ``name`` is the caller-chosen name for the created document —
     the assembly name (``has_assembly_structure=True``) or the single part's name
-    (the MB-4b fallback). Each product's editable ``body_step`` seeds a part's
-    ``import`` feature (:class:`~py_kit.schemas.features.ImportParamsV1` — ZERO new
-    ingest path), products sharing a ``body_step_id`` collapse to ONE part with N
-    instances, and the whole graph is created atomically (all-or-nothing — a
-    failure leaves no orphan docs).
+    (the MB-4b fallback). Each product's editable body — resolved from the read's
+    shared ``bodies`` map by ``body_step_id`` — seeds a part's ``import`` feature
+    (:class:`~py_kit.schemas.features.ImportParamsV1` — ZERO new ingest path),
+    products sharing a ``body_step_id`` collapse to ONE part with N instances, and
+    the whole graph is created atomically (all-or-nothing — a failure leaves no
+    orphan docs).
     """
 
     name: AssemblyName = Field(

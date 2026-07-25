@@ -2997,7 +2997,7 @@
         "type": "object"
       },
       "ImportAssemblyRequest": {
-        "description": "documents-side request: materialise a geometry read into Loft documents.\n\n``result`` is the geometry service's structured read (forwarded verbatim by\nthe gateway); ``name`` is the caller-chosen name for the created document \u2014\nthe assembly name (``has_assembly_structure=True``) or the single part's name\n(the MB-4b fallback). Each product's editable ``body_step`` seeds a part's\n``import`` feature (:class:`~py_kit.schemas.features.ImportParamsV1` \u2014 ZERO new\ningest path), products sharing a ``body_step_id`` collapse to ONE part with N\ninstances, and the whole graph is created atomically (all-or-nothing \u2014 a\nfailure leaves no orphan docs).",
+        "description": "documents-side request: materialise a geometry read into Loft documents.\n\n``result`` is the geometry service's structured read (forwarded verbatim by\nthe gateway); ``name`` is the caller-chosen name for the created document \u2014\nthe assembly name (``has_assembly_structure=True``) or the single part's name\n(the MB-4b fallback). Each product's editable body \u2014 resolved from the read's\nshared ``bodies`` map by ``body_step_id`` \u2014 seeds a part's ``import`` feature\n(:class:`~py_kit.schemas.features.ImportParamsV1` \u2014 ZERO new ingest path),\nproducts sharing a ``body_step_id`` collapse to ONE part with N instances, and\nthe whole graph is created atomically (all-or-nothing \u2014 a failure leaves no\norphan docs).",
         "properties": {
           "name": {
             "description": "Name for the created document \u2014 the assembly's name (product structure present) or the single part's name (single-body fallback)",
@@ -3078,7 +3078,7 @@
         "type": "object"
       },
       "ImportedProduct": {
-        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both content-addressed and SHARED across repeated\noccurrences of one part (the dedup contract, as slice 1 does for meshes):\n\n* ``body_step`` \u2014 the product's editable **LOCAL-frame B-rep**, as a STEP\n  AP214 part-21 fragment with the instance placement STRIPPED (that is\n  ``placement``, kept separate). It is exactly what the single-body\n  ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`\n  ``data``), so the documents service seeds each part with ``ImportParamsV1(\n  data=body_step)`` \u2014 ZERO new ingest path. A mesh is not editable geometry;\n  this is the field that lets 2b build a REAL part per instance.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;\nit is EQUAL for two occurrences of one part, so the caller groups products by\nit to create ONE stored B-rep (one part) with N instances. ``properties`` are\nthe body's OWN (local-frame) mass properties for BOM / inspection.",
+        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both referenced by CONTENT ADDRESS and SHARED across\nrepeated occurrences of one part (the dedup contract, as slice 1 does for\nmeshes) \u2014 neither is inlined per occurrence:\n\n* ``body_step_id`` \u2014 the address (``sha256:<hex>``) of the product's editable\n  **LOCAL-frame B-rep**: a STEP AP214 part-21 fragment with the instance\n  placement STRIPPED (that is ``placement``, kept separate), stored ONCE under\n  this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what\n  the single-body ``import`` feature ingests\n  (:class:`~py_kit.schemas.features.ImportParamsV1` ``data``), so the documents\n  service seeds each part with ``ImportParamsV1(data=<resolved body>)`` \u2014 ZERO\n  new ingest path. A mesh is not editable geometry; this is what lets 2b build\n  a REAL part per instance. ``None`` when the product produced no solid.\n  Because the id is EQUAL for two occurrences of one part, the caller groups\n  products by it to create ONE stored B-rep (one part) with N instances.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``properties`` are the body's OWN (local-frame) mass properties for BOM /\ninspection.\n\n``body_step`` is a PRODUCER-SIDE construction convenience only: a producer may\npass the body text alongside the product and the parent result hoists it into\nits shared ``bodies`` map (so the geometry reader needs no separate bookkeeping),\nbut the field is NEVER serialized \u2014 the wire form carries each body once.\nConsumers MUST resolve through\n:meth:`StepAssemblyImportResult.body_step_for`.",
         "properties": {
           "body_step": {
             "anyOf": [
@@ -3089,7 +3089,7 @@
                 "type": "null"
               }
             ],
-            "description": "The product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment (placement stripped \u2014 see `placement`); consumed verbatim as ImportParamsV1.data to seed an editable part (the single-body import path). Null when the product produced no solid.",
+            "description": "Producer-side convenience: the product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment. NOT serialized \u2014 the parent result hoists it into its shared `bodies` map so the transport carries each body once; consumers resolve via StepAssemblyImportResult.body_step_for().",
             "title": "Body Step"
           },
           "body_step_id": {
@@ -3101,7 +3101,7 @@
                 "type": "null"
               }
             ],
-            "description": "Content address (sha256:<hex>) of `body_step`; EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.",
+            "description": "Content address (sha256:<hex>) of this product's LOCAL-frame B-rep, whose text lives ONCE under this key in the result's `bodies` map. EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when the product produced no solid.",
             "title": "Body Step Id"
           },
           "mesh_glb_id": {
@@ -5657,8 +5657,16 @@
         "type": "object"
       },
       "StepAssemblyImportResult": {
-        "description": "Structured read of an assembly STEP \u2014 the product list + structure flag.\n\n``has_assembly_structure`` is True when the file carried\n``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,\nnamed products); False for a flat / single-body STEP, whose single product\nsignals the caller to fall back to the single-body MB-4b import (backward\ncompatible). ``products`` are in the deterministic order the geometry service\nwalks the product tree (RESEARCH \u00a79).",
+        "description": "Structured read of an assembly STEP \u2014 products + the shared body map.\n\n``has_assembly_structure`` is True when the file carried\n``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,\nnamed products); False for a flat / single-body STEP, whose single product\nsignals the caller to fall back to the single-body MB-4b import (backward\ncompatible). ``products`` are in the deterministic order the geometry service\nwalks the product tree (RESEARCH \u00a79) and reference their editable B-rep by\n``body_step_id``; ``bodies`` holds each distinct B-rep exactly ONCE, keyed by\nthat address, so a part instanced N times ships its (possibly multi-MB) STEP\nfragment once instead of N times.",
         "properties": {
+          "bodies": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each distinct product body ONCE: content address (sha256:<hex>, == a product's body_step_id) -> its LOCAL-frame STEP AP214 part-21 fragment (placement stripped). A part instanced N times appears here once; resolve a product's body by its body_step_id.",
+            "title": "Bodies",
+            "type": "object"
+          },
           "has_assembly_structure": {
             "description": "True when the file carried NAUO product structure; False for a flat / single-body STEP (fall back to single-body import)",
             "title": "Has Assembly Structure",

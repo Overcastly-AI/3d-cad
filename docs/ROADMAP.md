@@ -717,7 +717,14 @@ inside the CPU-bounded child (`import_too_many_products`), and a total-`body_ste
 byte cap (`MAX_IMPORT_RESPONSE_BYTES`=32 MiB) rejects a big body instanced many
 times before materialisation (`import_response_too_large`), so a small STEP can no
 longer make geometry emit a multi-GB response the gateway buffers whole; both typed
-422s. Still deferred past v1 (design doc §5): exploded views, BOM formatting,
+422s. **Transport reshaped 2026-07-25 (backend-builder)**: the read now carries
+each product B-rep ONCE per `body_step_id` — a shared `bodies:
+{content-address -> LOCAL-frame STEP fragment}` map, products referencing by id —
+so a part instanced N times ships its fragment once and the amplification is gone
+from the WIRE, not merely capped (measured on the 3-product/2-body round-trip:
+46,005 → 30,657 chars of body text, and the saving grows with instance count);
+consumers resolve through the one `StepAssemblyImportResult.body_step_for()`.
+Still deferred past v1 (design doc §5): exploded views, BOM formatting,
 flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6

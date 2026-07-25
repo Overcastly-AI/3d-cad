@@ -63,13 +63,18 @@ def _pos(x: float, y: float, z: float) -> Placement:
     return Placement(position=Vec3(x=x, y=y, z=z), orientation=Quat(x=0, y=0, z=0, w=1))
 
 
+def _body_text(body_id: str) -> str:
+    """A distinct STEP fragment per content address (so hops can be byte-counted)."""
+    return f"ISO-10303-21;\nDATA;\n/* body {body_id[7:11]} */\nENDSEC;\n"
+
+
 def _product(
     name: str | None, body_id: str | None, placement: Placement
 ) -> ImportedProduct:
     return ImportedProduct(
         name=name,
         placement=placement,
-        body_step=None if body_id is None else "ISO-10303-21; body",
+        body_step=None if body_id is None else _body_text(body_id),
         body_step_id=body_id,
         mesh_glb_id=None,
     )
@@ -268,6 +273,14 @@ def test_upload_creates_assembly_with_named_placed_instances(db_url: str) -> Non
     forwarded = ImportAssemblyRequest.model_validate_json(doc_req.content)
     assert forwarded.name == "Gearbox"
     assert len(forwarded.result.products) == 3
+    # The repeated part's B-rep crossed BOTH hops once, not once per occurrence
+    # (bodies are carried per content address — the transport reshape).
+    assert set(forwarded.result.bodies) == {BODY_A, BODY_B}
+    assert doc_req.content.decode().count("/* body aaaa */") == 1
+    # …and each product still resolves its body through the shared map.
+    assert [
+        forwarded.result.body_step_for(product) for product in forwarded.result.products
+    ] == [_body_text(BODY_A), _body_text(BODY_A), _body_text(BODY_B)]
 
 
 def test_flat_single_body_fallback_passes_through(db_url: str) -> None:

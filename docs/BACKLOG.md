@@ -212,7 +212,7 @@ frame refactor are v2/§11. Spike de-collected.
       times before the response is materialised past the ceiling
       (`import_response_too_large`, 422). Both typed, never a buffered multi-GB
       response or a 500.
-- [ ] (P2, S) Assembly import: carry `body_step` ONCE per `body_step_id`
+- [x] (P2, S) Assembly import: carry `body_step` ONCE per `body_step_id`
       (transport efficiency + defense-in-depth). Today `StepAssemblyImportResult`
       repeats the full `body_step` text on every `ImportedProduct`, so a part
       instanced N times ships its B-rep fragment N times; the
@@ -222,6 +222,9 @@ frame refactor are v2/§11. Spike de-collected.
       transport. Cross-service DTO change (py-kit + geometry emit + documents
       consume + gateway forward + contracts/ts-client regen) — hence P2, not
       folded into the byte-cap slice. [src: slice-2b security review 2026-07-23]
+      **SHIPPED 2026-07-25 (backend-builder):** `StepAssemblyImportResult.bodies`
+      ({address -> fragment}) + `body_step_for()` as the ONE resolver; geometry's
+      emit needed no change (the per-product field is hoisted, never serialized).
 - [ ] (P2, S) Assembly import: permanent 3-service HTTP integration test. The
       shipped unit suites cover geometry-read and documents-creation in ISOLATION
       but never the real gateway → geometry → documents HTTP chain. Port the
