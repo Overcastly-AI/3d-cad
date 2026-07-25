@@ -474,11 +474,20 @@ frame refactor are v2/§11. Spike de-collected.
             evaluate response is BYTE-identical to the same hole untapped, and
             matrix verb `hole_tapped` (+8 cells) proves pattern/mirror of a tapped
             hole array the BORE. gen-check clean (additive optional field).
-      - [ ] Web authoring: a `Tapped` toggle + ISO designation picker in
-            `HoleEditor` (wire: `thread.standard="iso_metric"`,
-            `thread.nominal_diameter_mm`, `thread.pitch_mm`; the bore `diameter_mm`
-            is the tap drill `D - P`), `friendlyFeatureError` copy for
-            `hole_thread_unsupported` / `hole_thread_mismatch`, e2e + founder shots.
+      - [x] Web authoring (2026-07-25, frontend-builder). A `Tapped` CHECKBOX
+            beside the Type control (not a 4th segment — threading is orthogonal
+            to the recess) reveals a drafting thread note: brass callout stamp,
+            ISO size + pitch pickers (coarse first), tap-drill preset chip.
+            Picking a designation DERIVES `diameter_mm` to `D - P` without
+            locking it (a shop's 6.8 for M8x1.25 still submits); both typed
+            errors are guarded client-side and humanised via
+            `friendlyFeatureError`. ISO 261 table mirrored in
+            `features/thread.ts`, kept honest by a test that parses
+            `geometry/kernel/threads.py`. The FEATURE TREE row carries the
+            designation (`hole · M10x1.5`) — a tapped hole's solid is
+            byte-identical to its bore, so the UI is the only place it exists.
+            e2e (derive → mismatch guard → Solved → survives reload; + a tapped
+            counterbore) + founder shots at 1440/1280. [done 2026-07-25]
       - [ ] Standard drill-size tables (+ MCP/scripting exposure); drawing hole
             callouts read the designation from the feature params (never stored).
 - [x] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
@@ -1362,6 +1371,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-25 — **Tapped-hole authoring (frontend-builder):** `Tapped` checkbox +
+  ISO designation picker in `HoleEditor` derives the tap drill without locking
+  it; the tree row carries `hole · M10x1.5` — the only place a tap is visible.
 - 2026-07-25 — **TAPPED holes, cosmetic threads (kernel-architect):** `thread:
   IsoMetricThread | None` on `HoleParamsV1` cuts the ISO tap drill `D - P` and
   carries the callout; typed `hole_thread_unsupported`/`hole_thread_mismatch`.

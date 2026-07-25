@@ -658,6 +658,23 @@ item:
       the untapped bore) + the evaluate response is byte-identical to the same
       hole untapped; matrix verb `hole_tapped` (+8 cells, pattern/mirror of a
       tapped hole array the BORE). Web authoring is the follow-up.
+- ✅ Dedicated Hole feature — SLICE 2 TAIL: TAPPED holes, WEB authoring
+      (2026-07-25): the `HoleEditor` grows a `Tapped` checkbox — a toggle BESIDE
+      the Type control, never a fourth segment inside it, because threading is
+      orthogonal to the recess (a counterbored tapped hole is one feature) — that
+      reveals a drafting thread note: the callout stamped in brass (`M10x1.5`),
+      an ISO size + pitch picker (coarse first, labelled), and a tap-drill preset
+      chip. Choosing a designation DERIVES the bore to `D - P` but never locks it,
+      so a shop's rounded stock drill (6.8 for M8x1.25) still submits; both typed
+      errors are guarded client-side (`Too small/wide to tap M10x1.5 — use the
+      Ø8.5 mm tap drill`) and humanised via `friendlyFeatureError`. The ISO 261
+      table is mirrored in `features/thread.ts` with a unit test that PARSES
+      `geometry/kernel/threads.py` and asserts equality, so drift is a red test.
+      Because a tapped hole's solid is byte-identical to its bore, the FEATURE
+      TREE row carries the designation (`hole · M10x1.5`) — the only surface on
+      which tapped-ness is visible at all. e2e drills a tapped hole on the real
+      stack (derive → mismatch guard → Solved → designation survives reload) and
+      a tapped counterbore; +52 unit/jsdom tests; founder shots at 1440 + 1280.
 - ✅ Mirror feature — END-TO-END (geometry+DTO 2026-07-23; web authoring
       2026-07-23): `MirrorFeature`/`MirrorParamsV1` reflect the current body about a
       plane (origin datum XY/XZ/YZ or a `datum` feature — the SAME `GeomRef` a

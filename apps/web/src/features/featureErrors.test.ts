@@ -17,6 +17,24 @@ describe("friendlyFeatureError", () => {
     );
   });
 
+  it("humanises the tapped-hole rebuild codes", () => {
+    // Keyed on the CODE, never the prose — the server's message names the exact
+    // pitches / tap drill and is free to change wording; this copy is not.
+    const unsupported = friendlyFeatureError(
+      "hole_thread_unsupported",
+      "M7x1 is not an ISO 261 combination",
+    );
+    expect(unsupported).toMatch(/listed size and pitch/i);
+    expect(unsupported).not.toMatch(/ISO 261 combination/);
+
+    const mismatch = friendlyFeatureError(
+      "hole_thread_mismatch",
+      "A M10x1.5 thread cannot be tapped in a 20mm bore",
+    );
+    expect(mismatch).toMatch(/tap drill/i);
+    expect(mismatch).not.toMatch(/20mm bore/);
+  });
+
   it("humanises the mirror rebuild codes", () => {
     expect(friendlyFeatureError("no_target_body", "raw")).toMatch(
       /no body to mirror/i,

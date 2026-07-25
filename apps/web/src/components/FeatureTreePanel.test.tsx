@@ -128,6 +128,32 @@ function hole(id: string, name: string): FeatureResponse {
   };
 }
 
+/**
+ * The SAME hole, tapped. A tapped hole's solid is byte-identical to its bore
+ * (the thread is a cosmetic callout), so the tree row is the ONLY place the
+ * designation can appear — that is what the badge assertions below defend.
+ */
+function tappedHole(id: string, name: string): FeatureResponse {
+  const base = hole(id, name);
+  const feature = base.feature;
+  if (feature.type !== "hole") throw new Error("expected a hole feature");
+  return {
+    ...base,
+    feature: {
+      ...feature,
+      params: {
+        ...feature.params,
+        diameter_mm: 8.5,
+        thread: {
+          standard: "iso_metric",
+          nominal_diameter_mm: 10,
+          pitch_mm: 1.5,
+        },
+      },
+    },
+  };
+}
+
 function tree(features: FeatureResponse[]): FeatureTreeResponse {
   return {
     part_id: "p1",
@@ -302,6 +328,38 @@ describe("FeatureTreePanel rebuild errors", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("humanises hole_thread_unsupported without leaking the kernel sentence", () => {
+    renderPanel(
+      [sketch("f1", "Sketch 1"), tappedHole("f2", "Hole1")],
+      failing(
+        "f2",
+        "hole_thread_unsupported",
+        "M7x1 is not an ISO 261 combination",
+      ),
+    );
+    const row = screen.getByTestId("feature-error-1");
+    // The code stays visible as the honest technical tag...
+    expect(row).toHaveTextContent("hole_thread_unsupported");
+    // ...and the copy points at the control that fixes it.
+    expect(row).toHaveTextContent("choose a listed size and pitch");
+    expect(row).not.toHaveTextContent("ISO 261 combination");
+  });
+
+  it("humanises hole_thread_mismatch and names the tap drill as the fix", () => {
+    renderPanel(
+      [sketch("f1", "Sketch 1"), tappedHole("f2", "Hole1")],
+      failing(
+        "f2",
+        "hole_thread_mismatch",
+        "A M10x1.5 thread cannot be tapped in a 20mm bore",
+      ),
+    );
+    const row = screen.getByTestId("feature-error-1");
+    expect(row).toHaveTextContent("hole_thread_mismatch");
+    expect(row).toHaveTextContent("tap drill");
+    expect(row).not.toHaveTextContent("cannot be tapped in a 20mm bore");
+  });
+
   it("lists features in build order — the row number IS the build order", () => {
     renderPanel(
       [sketch("f1", "Sketch 1"), extrude("f2", "Extrude 1")],
@@ -310,5 +368,23 @@ describe("FeatureTreePanel rebuild errors", () => {
     const rows = screen.getAllByTestId("feature-row");
     expect(within(rows[0]!).getByText("Sketch 1")).toBeInTheDocument();
     expect(within(rows[1]!).getByText("Extrude 1")).toBeInTheDocument();
+  });
+});
+
+describe("FeatureTreePanel row badge", () => {
+  it("carries the designation for a TAPPED hole — the only place it is visible", () => {
+    renderPanel(
+      [sketch("f1", "Sketch 1"), tappedHole("f2", "Hole1")],
+      undefined,
+    );
+    const row = screen.getAllByTestId("feature-row")[1]!;
+    expect(row).toHaveTextContent("M10x1.5");
+  });
+
+  it("says only 'hole' for an untapped one (no phantom callout)", () => {
+    renderPanel([sketch("f1", "Sketch 1"), hole("f2", "Hole1")], undefined);
+    const row = screen.getAllByTestId("feature-row")[1]!;
+    expect(within(row).getByText("hole")).toBeInTheDocument();
+    expect(within(row).queryByText(/M\d/)).not.toBeInTheDocument();
   });
 });

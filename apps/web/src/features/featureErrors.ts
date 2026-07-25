@@ -36,6 +36,16 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
     "The counterbore doesn't fit — its diameter must be wider than the bore, and it must be shallower than the material. Widen the recess or reduce its depth.",
   hole_csink_invalid:
     "The countersink doesn't fit — its mouth must be wider than the bore. Widen the countersink, or reduce its angle so the cone sits shallower.",
+  // Tapped-hole (slice-2 tail) rebuild errors. Both are checked BEFORE any
+  // geometry runs, so the body in the viewport is the last good one — the copy
+  // says what to change, not what was lost. The server's own message names the
+  // standard pitches / the recommended tap drill for the specific designation;
+  // this copy points at the control that fixes it (keying on the CODE, never
+  // the prose — the stable half of the contract).
+  hole_thread_unsupported:
+    "That thread isn't a standard ISO size and pitch, so it can't be cut. Open the hole and choose a listed size and pitch — the picker only offers real combinations.",
+  hole_thread_mismatch:
+    "The drilled hole is the wrong size for this thread — a tap needs a bore between the thread's minor and nominal diameters. Open the hole and use the tap drill the editor derives, or change the thread.",
   no_prior_body:
     "There's no body to modify yet. Add a feature that creates a body before this one.",
   subshape_unresolved:

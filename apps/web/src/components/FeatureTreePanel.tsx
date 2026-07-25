@@ -30,6 +30,7 @@ import {
   offersRepickFace,
   REPICK_FACE_ACTION,
 } from "../features/featureErrors";
+import { holeThreadDesignation } from "../features/hole";
 import { barSlotIndex, rollbackIdForSlot } from "../features/rollback";
 
 export interface FeatureTreePanelProps {
@@ -94,6 +95,27 @@ const FEATURE_TYPE_LABEL: Record<string, string> = {
 /** The badge text for a feature type — a friendly label, else the raw type. */
 function featureTypeLabel(type: string): string {
   return FEATURE_TYPE_LABEL[type] ?? type;
+}
+
+/**
+ * The row's right-hand badge: what this feature IS. Normally just its type —
+ * with one exception the geometry forces. A TAPPED hole's solid is byte-
+ * identical to a plain bore (the thread is a cosmetic callout, not modelled
+ * helical geometry), so the viewport cannot show it and the tree is the only
+ * place a modeler can tell an M10x1.5 from the Ø8.5 clearance hole beside it.
+ * The badge therefore carries the designation: `hole · M10x1.5`.
+ *
+ * A counterbore/countersink deliberately does NOT extend the badge: its recess
+ * is real geometry you can see in the viewport, so naming it here would be
+ * duplication. Only the invisible parameter earns the pixels.
+ */
+function featureBadge(feature: FeatureResponse["feature"]): string {
+  const label = featureTypeLabel(feature.type);
+  if (feature.type === "hole") {
+    const designation = holeThreadDesignation(feature.params);
+    if (designation !== null) return `${label} · ${designation}`;
+  }
+  return label;
 }
 
 export function FeatureTreePanel({
@@ -260,7 +282,7 @@ export function FeatureTreePanel({
                             }
                           />
                           <span className="shrink-0 font-body text-xs text-gauge">
-                            {featureTypeLabel(feature.feature.type)}
+                            {featureBadge(feature.feature)}
                           </span>
                         </div>
                       ) : (
@@ -287,7 +309,7 @@ export function FeatureTreePanel({
                             {feature.name}
                           </span>
                           <span className="shrink-0 font-body text-xs text-gauge">
-                            {featureTypeLabel(feature.feature.type)}
+                            {featureBadge(feature.feature)}
                           </span>
                         </button>
                       )}

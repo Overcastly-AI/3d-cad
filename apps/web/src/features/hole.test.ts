@@ -13,10 +13,20 @@ import {
   diameterError,
   formFromHoleParams,
   type HoleForm,
+  holeThreadDesignation,
   parseCsinkAngleDeg,
   positionReadout,
   recessDiameterError,
   samePoint,
+  applyTapDrill,
+  applyTapped,
+  applyThreadNominal,
+  applyThreadPitch,
+  boreIsTapDrill,
+  threadBoreError,
+  threadDesignation,
+  threadPitchError,
+  threadSizeError,
 } from "./hole";
 
 const TOP: PlanarFaceSignature = {
@@ -244,6 +254,44 @@ describe("formFromHoleParams round-trip", () => {
     expect(buildHoleParams(form, "mm")).toEqual(params);
   });
 
+  it("round-trips a TAPPED counterbored hole — thread is a SIBLING of type", () => {
+    const params: HoleParams = {
+      face,
+      position: { x: 5, y: 5, z: 10 },
+      diameter_mm: 8.5,
+      depth: { kind: "through_all" },
+      type: {
+        kind: "counterbore",
+        cbore_diameter_mm: 16,
+        cbore_depth_mm: 6,
+      },
+      thread: {
+        standard: "iso_metric",
+        nominal_diameter_mm: 10,
+        pitch_mm: 1.5,
+      },
+    };
+    const form = formFromHoleParams(params, "mm");
+    expect(form.tapped).toBe(true);
+    expect(form.typeKind).toBe("counterbore");
+    expect(threadDesignation(form)).toBe("M10x1.5");
+    expect(buildHoleParams(form, "mm")).toEqual(params);
+  });
+
+  it("round-trips an untapped hole with `thread` still absent from the wire", () => {
+    const params: HoleParams = {
+      face,
+      position: { x: 5, y: 5, z: 10 },
+      diameter_mm: 6,
+      depth: { kind: "through_all" },
+    };
+    const form = formFromHoleParams(params, "mm");
+    expect(form.tapped).toBe(false);
+    const built = buildHoleParams(form, "mm");
+    expect(built).toEqual(params);
+    expect(built !== null && "thread" in built).toBe(false);
+  });
+
   it("round-trips a countersink hole", () => {
     const params: HoleParams = {
       face,
@@ -261,6 +309,133 @@ describe("formFromHoleParams round-trip", () => {
     expect(form.csinkDiameterInput).toBe("12");
     expect(form.csinkAngleInput).toBe("82");
     expect(buildHoleParams(form, "mm")).toEqual(params);
+  });
+});
+
+describe("tapped holes — the derived bore", () => {
+  it("derives the ISO tap drill when Tapped is ticked (M6x1 -> 5)", () => {
+    const f = applyTapped(withFace(), true, "mm");
+    expect(f.tapped).toBe(true);
+    expect(threadDesignation(f)).toBe("M6x1");
+    expect(f.diameterInput).toBe("5");
+    expect(boreIsTapDrill(f, "mm")).toBe(true);
+  });
+
+  it("resets to the COARSE pitch when the size changes, re-deriving the bore", () => {
+    let f = applyTapped(withFace(), true, "mm");
+    f = applyThreadPitch(f, 0.75, "mm"); // a fine M6 pitch
+    expect(f.diameterInput).toBe("5.25");
+    f = applyThreadNominal(f, 10, "mm");
+    expect(f.threadPitchMm).toBe(1.5); // coarse, not the previous 0.75
+    expect(f.diameterInput).toBe("8.5");
+  });
+
+  it("leaves the bore alone when Tapped is unticked", () => {
+    const on = applyTapped(withFace(), true, "mm");
+    const off = applyTapped(on, false, "mm");
+    expect(off.tapped).toBe(false);
+    expect(off.diameterInput).toBe("5");
+  });
+
+  it("keeps an override, and restores the derived value on demand", () => {
+    let f = applyThreadNominal(applyTapped(withFace(), true, "mm"), 8, "mm");
+    expect(f.diameterInput).toBe("6.75");
+    f = { ...f, diameterInput: "6.8" }; // the shop's rounded stock drill
+    expect(boreIsTapDrill(f, "mm")).toBe(false);
+    expect(threadBoreError(f, "mm")).toBeNull(); // inside [minor, nominal)
+    expect(applyTapDrill(f, "mm").diameterInput).toBe("6.75");
+  });
+
+  it("derives in the document unit while the designation stays metric", () => {
+    const f = applyThreadNominal(applyTapped(withFace(), true, "in"), 10, "in");
+    expect(threadDesignation(f)).toBe("M10x1.5");
+    expect(Number(f.diameterInput)).toBeCloseTo(8.5 / 25.4, 6);
+    expect(boreIsTapDrill(f, "in")).toBe(true);
+  });
+});
+
+describe("tapped holes — the two typed thread errors", () => {
+  it("threadBoreError names the direction of the miss and the fix", () => {
+    const base = applyThreadNominal(
+      applyTapped(withFace(), true, "mm"),
+      10,
+      "mm",
+    );
+    expect(threadBoreError(base, "mm")).toBeNull();
+    expect(threadBoreError({ ...base, diameterInput: "8" }, "mm")).toMatch(
+      /Too small to tap M10x1.5.*8\.5 mm tap drill/,
+    );
+    expect(threadBoreError({ ...base, diameterInput: "12" }, "mm")).toMatch(
+      /Too wide to tap M10x1.5/,
+    );
+    // Untapped holes have no thread to mismatch.
+    expect(
+      threadBoreError({ ...base, tapped: false, diameterInput: "12" }, "mm"),
+    ).toBeNull();
+  });
+
+  it("threadSizeError fires for a size off the ISO 261 series", () => {
+    const f = { ...applyTapped(withFace(), true, "mm"), threadNominalMm: 7 };
+    expect(threadSizeError(f)).toMatch(/M7 isn't a standard ISO size/);
+    // The pitch message stays quiet — the size owns the failure.
+    expect(threadPitchError(f)).toBeNull();
+  });
+
+  it("threadPitchError names the pitches that size IS standardised at", () => {
+    const f = {
+      ...applyThreadNominal(applyTapped(withFace(), true, "mm"), 10, "mm"),
+      threadPitchMm: 1.75,
+    };
+    expect(threadSizeError(f)).toBeNull();
+    expect(threadPitchError(f)).toBe(
+      "M10 is standardised at 1.5, 1.25, 1, 0.75 mm. Choose a listed pitch.",
+    );
+  });
+
+  it("blocks the build for either error — the server would build no body", () => {
+    const good = applyThreadNominal(
+      applyTapped(withFace(), true, "mm"),
+      10,
+      "mm",
+    );
+    expect(buildHoleParams(good, "mm")).not.toBeNull();
+    // An unsupported designation.
+    expect(buildHoleParams({ ...good, threadPitchMm: 1.75 }, "mm")).toBeNull();
+    // A bore the tap cannot cut.
+    expect(buildHoleParams({ ...good, diameterInput: "12" }, "mm")).toBeNull();
+  });
+});
+
+describe("holeThreadDesignation", () => {
+  const face: HoleParams["face"] = {
+    kind: "subshape",
+    feature_id: "extrude-1",
+    subshape_type: "face",
+    selector: { selector_version: 1, signature: TOP },
+  };
+  const base: HoleParams = {
+    face,
+    position: { x: 5, y: 5, z: 10 },
+    diameter_mm: 8.5,
+    depth: { kind: "through_all" },
+  };
+
+  it("is null for an untapped hole and the callout for a tapped one", () => {
+    expect(holeThreadDesignation(base)).toBeNull();
+    expect(
+      holeThreadDesignation({
+        ...base,
+        thread: {
+          standard: "iso_metric",
+          nominal_diameter_mm: 10,
+          pitch_mm: 1.5,
+        },
+      }),
+    ).toBe("M10x1.5");
+  });
+
+  it("treats an explicit null thread as untapped (the wire allows both)", () => {
+    expect(holeThreadDesignation({ ...base, thread: null })).toBeNull();
   });
 });
 

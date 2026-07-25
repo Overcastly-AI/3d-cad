@@ -16,17 +16,22 @@
  * dimension grammar (Escape disarms an armed pick first, handled by the parent).
  */
 import {
+  Checkbox,
   cx,
+  formatLength,
   NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
+  SelectField,
   type SegmentOption,
+  type SelectFieldOption,
 } from "@loft/design";
 import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -37,6 +42,11 @@ import type { HoleParams } from "../api/parts";
 import {
   applyHoleFace,
   applyHolePosition,
+  applyTapDrill,
+  applyTapped,
+  applyThreadNominal,
+  applyThreadPitch,
+  boreIsTapDrill,
   buildHoleParams,
   canSubmitHole,
   csinkAngleError,
@@ -53,7 +63,17 @@ import {
   type HoleTypeKind,
   positionReadout,
   recessDiameterError,
+  threadBoreError,
+  threadDesignation,
+  threadPitchError,
+  threadSizeError,
+  threadTapDrillMm,
 } from "../features/hole";
+import {
+  formatThreadNumber,
+  pitchesFor,
+  THREAD_NOMINALS,
+} from "../features/thread";
 
 const DEPTH_OPTIONS: ReadonlyArray<SegmentOption<HoleDepthMode>> = [
   {
@@ -160,25 +180,31 @@ function PickButton({
 }
 
 /**
- * A quiet fastener-standard preset chip (82° / 90°) that fills the countersink
- * angle. Brass when it matches the current value — the standard you're on reads
- * back, so the field and the chips stay in sync.
+ * A quiet SHOP-STANDARD preset chip that fills a field with a published value —
+ * the countersink's 82°/90° fastener angles, and the tap drill of the chosen
+ * thread. Brass when the field already carries that value, so the standard
+ * you're on reads back and the chip doubles as "restore the derived value"
+ * (extracted from the countersink-only `AnglePreset` on its second real use).
  */
-function AnglePreset({
-  angle,
+function PresetChip({
+  label,
   active,
   onClick,
+  testId,
+  ariaLabel,
 }: {
-  angle: number;
+  label: string;
   active: boolean;
   onClick: () => void;
+  testId: string;
+  ariaLabel: string;
 }) {
   return (
     <button
       type="button"
-      data-testid={`hole-csink-angle-${angle}`}
+      data-testid={testId}
       aria-pressed={active}
-      aria-label={`Set countersink angle to ${angle} degrees`}
+      aria-label={ariaLabel}
       onClick={onClick}
       className={cx(
         "rounded-sm border px-2 py-1 font-data text-xs tabular-nums transition-colors duration-fast",
@@ -188,7 +214,7 @@ function AnglePreset({
           : "border-etch text-gauge hover:border-gauge hover:text-mist",
       )}
     >
-      {angle}°
+      {label}
     </button>
   );
 }
@@ -310,6 +336,57 @@ export function HoleEditor({
       ? csinkAngleError(form.csinkAngleInput)
       : null;
 
+  // --- Thread (tapped hole) -------------------------------------------------
+  // Threading is ORTHOGONAL to the recess, so this is a toggle beside the Type
+  // control, never a fourth segment inside it (the wire says the same: `thread`
+  // is a sibling of `type`). The bore is DERIVED from the designation but stays
+  // editable — a shop's rounded stock drill is a legitimate tap drill.
+  const designation = threadDesignation(form);
+  const threadSizeMsg = threadSizeError(form);
+  const threadPitchMsg = threadPitchError(form);
+  const threadBoreMsg = threadBoreError(form, unit);
+  // A stored designation the client's ISO table doesn't list (authored through
+  // the API, or an older client) is SHOWN as a non-choosable option rather than
+  // silently rewritten — the user sees what the feature actually says and can
+  // pick a listed one. This is the `hole_thread_unsupported` repair path.
+  const sizeOptions = useMemo<SelectFieldOption[]>(() => {
+    const listed = THREAD_NOMINALS.map((nominal) => ({
+      value: String(nominal),
+      label: `M${formatThreadNumber(nominal)}`,
+    }));
+    return pitchesFor(form.threadNominalMm).length > 0
+      ? listed
+      : [
+          {
+            value: String(form.threadNominalMm),
+            label: `M${formatThreadNumber(form.threadNominalMm)}`,
+            disabled: true,
+          },
+          ...listed,
+        ];
+  }, [form.threadNominalMm]);
+  const pitchOptions = useMemo<SelectFieldOption[]>(() => {
+    const pitches = pitchesFor(form.threadNominalMm);
+    // Coarse first, and said so: it is the pitch a shop taps by default.
+    const listed = pitches.map((pitch, index) => ({
+      value: String(pitch),
+      label:
+        index === 0
+          ? `${formatThreadNumber(pitch)} (coarse)`
+          : formatThreadNumber(pitch),
+    }));
+    return pitches.some((pitch) => Math.abs(pitch - form.threadPitchMm) <= 1e-9)
+      ? listed
+      : [
+          {
+            value: String(form.threadPitchMm),
+            label: formatThreadNumber(form.threadPitchMm),
+            disabled: true,
+          },
+          ...listed,
+        ];
+  }, [form.threadNominalMm, form.threadPitchMm]);
+
   // While a viewport pick is armed the card slides to the RIGHT edge so it
   // never sits over the face/point the user must click (UX audit #20b — the
   // editor was covering its own pick target at the left seat). It returns to
@@ -392,14 +469,16 @@ export function HoleEditor({
               ) : null}
             </div>
 
-            {/* Diameter — THE parametric handle (brass focus). */}
+            {/* Diameter — THE parametric handle (brass focus). When the hole is
+                tapped this IS the tap drill, so an untappable bore reports here,
+                on the field that has to change. */}
             <NumberField
               label="Diameter"
               unit={unit}
               data-testid="hole-diameter"
               autoFocus
               value={form.diameterInput}
-              error={diameterMsg}
+              error={diameterMsg ?? threadBoreMsg}
               onChange={(e) =>
                 setForm((f) => ({ ...f, diameterInput: e.target.value }))
               }
@@ -506,9 +585,11 @@ export function HoleEditor({
                     className="flex shrink-0 items-center gap-1 pb-1"
                   >
                     {CSINK_STANDARD_ANGLES.map((angle) => (
-                      <AnglePreset
+                      <PresetChip
                         key={angle}
-                        angle={angle}
+                        testId={`hole-csink-angle-${angle}`}
+                        label={`${angle}°`}
+                        ariaLabel={`Set countersink angle to ${angle} degrees`}
                         active={Number(form.csinkAngleInput) === angle}
                         onClick={() =>
                           setForm((f) => ({
@@ -519,6 +600,96 @@ export function HoleEditor({
                       />
                     ))}
                   </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Tapped — a thread callout over the bore. ORTHOGONAL to Type (a
+                counterbored tapped hole is one feature), so it is a toggle, not
+                a fourth segment. The thread adds no geometry: the kernel cuts
+                the tap drill and carries the designation for drawings/BOM, and
+                the description says so rather than leaving the modeler to
+                wonder why the viewport shows no helix. */}
+            <Checkbox
+              label="Tapped"
+              data-testid="hole-tapped"
+              description="Drills the tap drill and carries the callout to drawings — no helix is modelled."
+              checked={form.tapped}
+              onChange={(tapped) =>
+                setForm((f) => applyTapped(f, tapped, unit))
+              }
+            />
+            {form.tapped ? (
+              <div className="flex flex-col gap-2">
+                {/* THE callout — a drafting thread note, stamped: a leader tick
+                    into the designation, then the note rule running out. The one
+                    loud line in a quiet card, and the only place a tapped hole is
+                    visible at all (its solid is byte-identical to a plain bore). */}
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-body text-xs text-gauge">
+                    Thread callout
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden className="h-px w-3 shrink-0 bg-brass" />
+                    <span
+                      data-testid="hole-thread-designation"
+                      className="shrink-0 font-display text-lg leading-none tracking-[0.06em] text-brass"
+                    >
+                      {designation}
+                    </span>
+                    <span
+                      aria-hidden
+                      className="h-px grow bg-brass/40"
+                      data-testid="hole-thread-rule"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <SelectField
+                    className="flex-1"
+                    label="Size"
+                    data-testid="hole-thread-size"
+                    aria-label="Nominal thread size"
+                    value={String(form.threadNominalMm)}
+                    options={sizeOptions}
+                    error={threadSizeMsg}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        applyThreadNominal(f, Number(e.target.value), unit),
+                      )
+                    }
+                  />
+                  <SelectField
+                    className="flex-1"
+                    label="Pitch"
+                    data-testid="hole-thread-pitch"
+                    aria-label="Thread pitch (millimetres)"
+                    value={String(form.threadPitchMm)}
+                    options={pitchOptions}
+                    error={threadPitchMsg}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        applyThreadPitch(f, Number(e.target.value), unit),
+                      )
+                    }
+                  />
+                </div>
+
+                {/* The derived bore, one click away. Brass when the Diameter
+                    above already IS the tap drill, so an override reads back —
+                    and the chip restores it. */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-body text-xs text-gauge">
+                    Tap drill
+                  </span>
+                  <PresetChip
+                    testId="hole-thread-tap-drill"
+                    label={`Ø${formatLength(threadTapDrillMm(form), unit)}`}
+                    ariaLabel={`Set the diameter to the ${designation} tap drill`}
+                    active={boreIsTapDrill(form, unit)}
+                    onClick={() => setForm((f) => applyTapDrill(f, unit))}
+                  />
                 </div>
               </div>
             ) : null}

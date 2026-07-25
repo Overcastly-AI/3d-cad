@@ -264,6 +264,140 @@ test.describe("hole — drill a through-all hole in the UI", () => {
   });
 });
 
+test.describe("hole — a TAPPED hole in the UI", () => {
+  /**
+   * A tapped hole is the one feature whose result is invisible: the kernel cuts
+   * the tap-drill bore and NOTHING else (the thread is a cosmetic callout), and
+   * the evaluate response is byte-identical to the same hole untapped. So the
+   * proof here is not pixels — it is that the designation the editor derives
+   * SURVIVES the write and comes back on reload, on a row the modeler can read.
+   */
+  test("tick Tapped, pick M10x1.5 → the bore derives, drills, and the callout persists", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Tapped plate");
+    await page.goto(`/parts/${part.id}`);
+
+    await buildBaseBox(page);
+    await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId("new-hole").click();
+    await expect(page.getByTestId("hole-editor")).toBeVisible();
+    await page.getByTestId("hole-face-pick").click();
+    await clickTopFace(page);
+    await expect(page.getByTestId("hole-face")).toContainText("10");
+
+    // Untapped: no thread controls at all, and Ø6.
+    await expect(page.getByTestId("hole-thread-designation")).toHaveCount(0);
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("6");
+
+    // Tick Tapped → the callout stamps and the bore DERIVES to the M6x1 tap
+    // drill (D - P = 5). The bore is authored, not locked: it just gets filled.
+    await page.getByTestId("hole-tapped").click();
+    await expect(page.getByTestId("hole-thread-designation")).toHaveText(
+      "M6x1",
+    );
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("5");
+
+    // Choose M10 → the pitch resets to COARSE (1.5) and the bore re-derives to
+    // the published M10x1.5 tap drill, 8.5.
+    await page.getByTestId("hole-thread-size").selectOption("10");
+    await expect(page.getByTestId("hole-thread-pitch")).toHaveValue("1.5");
+    await expect(page.getByTestId("hole-thread-designation")).toHaveText(
+      "M10x1.5",
+    );
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("8.5");
+
+    // The `hole_thread_mismatch` guard bites BEFORE the round-trip: a Ø12 bore
+    // is wider than the M10 nominal, so there's no material for the tap to cut.
+    await page.getByTestId("hole-diameter").fill("12");
+    await expect(page.getByTestId("hole-submit")).toBeDisabled();
+    await expect(page.getByTestId("hole-editor")).toContainText(
+      "Too wide to tap M10x1.5",
+    );
+
+    // One click on the tap-drill chip restores the derived bore.
+    await page.getByTestId("hole-thread-tap-drill").click();
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("8.5");
+    await expect(page.getByTestId("hole-thread-tap-drill")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    const write = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/parts/${part.id}/features`) &&
+        r.request().method() === "POST",
+    );
+    await expect(page.getByTestId("hole-submit")).toBeEnabled();
+    await page.getByTestId("hole-submit").click();
+    expect((await write).status()).toBe(201);
+
+    // THE PROOF: the kernel honoured the callout (an unknown designation or an
+    // untappable bore would be an ERR row, never a plain hole), the body
+    // re-renders with the Ø8.5 bore, and the TREE ROW carries the designation —
+    // the only place a tapped hole is distinguishable from its clearance twin.
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+    await expectRenderedBody(page);
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Hole1" }),
+    ).toContainText("M10x1.5");
+
+    // Reload: the designation round-tripped through the real API — it is stored
+    // in the feature params, not inferred from a geometry that cannot carry it.
+    await page.reload();
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Hole1" }),
+    ).toContainText("M10x1.5");
+
+    // Re-opening the hole seeds the editor from the stored thread.
+    await page.getByTestId("feature-select-2").click();
+    await expect(page.getByTestId("hole-thread-designation")).toHaveText(
+      "M10x1.5",
+    );
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("8.5");
+  });
+
+  test("tapped composes with a counterbore — one feature, not two", async ({
+    page,
+  }) => {
+    // The whole reason Tapped is a toggle and not a fourth Type segment: a
+    // counterbored tapped hole is an everyday feature the kernel builds as ONE.
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Tapped cbore");
+    await page.goto(`/parts/${part.id}`);
+
+    await buildBaseBox(page);
+    await page.getByTestId("new-hole").click();
+    await page.getByTestId("hole-face-pick").click();
+    await clickTopFace(page);
+    await expect(page.getByTestId("hole-face")).toContainText("10");
+
+    await page.getByTestId("hole-type-counterbore").click();
+    await page.getByTestId("hole-tapped").click();
+    await page.getByTestId("hole-thread-size").selectOption("6");
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("5");
+    // A Ø11 x 3 mm cbore over the M6 tap drill, into the 10 mm plate.
+    await page.getByTestId("hole-cbore-depth").fill("3");
+
+    await expect(page.getByTestId("hole-submit")).toBeEnabled();
+    await page.getByTestId("hole-submit").click();
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Hole1" }),
+    ).toContainText("M6x1");
+  });
+});
+
 test.describe("hole — counterbore + countersink recesses in the UI", () => {
   /** Build a box, open the Hole command, and pick the top face — the shared
    * lead-in for both recess tests (the recess is set AFTER a face is chosen). */
@@ -522,6 +656,81 @@ test.describe("hole — founder screenshots", () => {
       await recessAuthoringShot(page, part, "countersink", tag);
     });
   }
+
+  /**
+   * The TAPPED founder shot: the thread callout stamped over the viewport with
+   * an M10x1.5 chosen and the bore derived to its 8.5 mm tap drill. This is the
+   * only surface on which a tapped hole is visible at all, so the shot IS the
+   * feature (the body it drills is a plain Ø8.5 bore, by design).
+   */
+  async function tappedAuthoringShot(
+    page: Page,
+    part: { id: string },
+    tag: string,
+  ): Promise<void> {
+    await page.goto(`/parts/${part.id}`);
+    await buildBaseBox(page);
+    await page.getByTestId("new-hole").click();
+    await expect(page.getByTestId("hole-editor")).toBeVisible();
+    await page.getByTestId("hole-face-pick").click();
+    await clickUnoccludedFace(page);
+    await expect(page.getByTestId("hole-face")).toBeVisible();
+    await page.getByTestId("hole-tapped").click();
+    await page.getByTestId("hole-thread-size").selectOption("10");
+    await expect(page.getByTestId("hole-thread-designation")).toHaveText(
+      "M10x1.5",
+    );
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("8.5");
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/hole-tapped-${tag}.png`,
+    });
+  }
+
+  for (const width of [1440, 1280] as const) {
+    const tag = width === 1440 ? "desktop" : "laptop";
+    const height = width === 1440 ? 900 : 800;
+    test(`tapped authoring (${width}×${height})`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      const account = await seedSession(page);
+      const part = await createPartViaApi(page, account.token, "Tapped shot");
+      await tappedAuthoringShot(page, part, tag);
+    });
+  }
+
+  /**
+   * The TREE shot: a drilled tapped hole whose row carries `hole · M10x1.5`.
+   * The founder asked where tapped-ness lives outside the editor — this is it.
+   */
+  test("tapped hole in the feature tree (desktop 1440×900)", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Tapped tree");
+    await page.goto(`/parts/${part.id}`);
+    await buildBaseBox(page);
+    await page.getByTestId("new-hole").click();
+    await page.getByTestId("hole-face-pick").click();
+    await clickTopFace(page);
+    await expect(page.getByTestId("hole-face")).toContainText("10");
+    await page.getByTestId("hole-tapped").click();
+    await page.getByTestId("hole-thread-size").selectOption("10");
+    await expect(page.getByTestId("hole-submit")).toBeEnabled();
+    await page.getByTestId("hole-submit").click();
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expectRenderedBody(page);
+    await expect(page.getByTestId("body-status")).toHaveText("Up to date", {
+      timeout: 30_000,
+    });
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Hole1" }),
+    ).toContainText("M10x1.5");
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/hole-tapped-tree-desktop.png`,
+    });
+  });
 
   test("counterbore result (desktop 1440×900)", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });

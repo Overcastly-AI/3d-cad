@@ -22,6 +22,17 @@ import { formatLength, type LengthUnit } from "@loft/design";
 import type { HoleParams, PlanarFaceSignature, Vec3 } from "../api/parts";
 import { faceSubshapeRef } from "./face";
 import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
+import {
+  boreFitsThread,
+  coarsePitchFor,
+  DEFAULT_THREAD_NOMINAL_MM,
+  DEFAULT_THREAD_PITCH_MM,
+  formatDesignation,
+  formatThreadNumber,
+  isSupportedDesignation,
+  pitchesFor,
+  tapDrillMm,
+} from "./thread";
 
 /** Through-all cuts fully through; blind drills a finite pocket depth. */
 export type HoleDepthMode = "through_all" | "blind";
@@ -113,6 +124,22 @@ export interface HoleForm {
   csinkDiameterInput: string;
   /** Countersink included angle (deg), as typed — read when `typeKind === "countersink"`. */
   csinkAngleInput: string;
+  /**
+   * The hole is TAPPED — it carries a thread callout. ORTHOGONAL to `typeKind`
+   * (a counterbored tapped hole is one feature, and the wire says so: `thread`
+   * is a sibling of `type`, not a fourth member of it), so this is a toggle, not
+   * a segment.
+   */
+  tapped: boolean;
+  /**
+   * Nominal (major) thread diameter (mm) — the `M` number. Chosen from the ISO
+   * 261 series, so it is a number, not typed text: there is no parse to fail.
+   * Metric BY DEFINITION — never converted to the document unit, because an
+   * M10x1.5 in an inch drawing is still an M10x1.5.
+   */
+  threadNominalMm: number;
+  /** Thread pitch (mm) — one of that nominal's standard pitches, coarse first. */
+  threadPitchMm: number;
 }
 
 /**
@@ -132,6 +159,9 @@ export function defaultHoleForm(): HoleForm {
     cboreDepthInput: "6",
     csinkDiameterInput: "12",
     csinkAngleInput: "90",
+    tapped: false,
+    threadNominalMm: DEFAULT_THREAD_NOMINAL_MM,
+    threadPitchMm: DEFAULT_THREAD_PITCH_MM,
   };
 }
 
@@ -142,6 +172,7 @@ export function formFromHoleParams(
 ): HoleForm {
   const depth = params.depth;
   const type = params.type;
+  const thread = params.thread;
   const base = defaultHoleForm();
   return {
     face: {
@@ -172,6 +203,15 @@ export function formFromHoleParams(
       type?.kind === "countersink"
         ? formatAngle(type.csink_angle_deg)
         : base.csinkAngleInput,
+    // `thread` is optional AND nullable on the wire; absent/null = untapped, so
+    // an existing untapped hole seeds the default (unticked) M6x1 designation
+    // and edits byte-identically. A stored designation is adopted VERBATIM —
+    // including one this client's table doesn't list — so a hole authored
+    // through the API is shown honestly and can be repaired, not silently
+    // rewritten to something the user never chose.
+    tapped: thread != null,
+    threadNominalMm: thread?.nominal_diameter_mm ?? base.threadNominalMm,
+    threadPitchMm: thread?.pitch_mm ?? base.threadPitchMm,
   };
 }
 
@@ -250,6 +290,159 @@ export function csinkAngleError(input: string): string | null {
     : null;
 }
 
+// ---------------------------------------------------------------------------
+// Tapped hole — the thread callout (`thread`, a SIBLING of `type` on the wire).
+//
+// The kernel cuts the tap-drill bore and nothing else, so the drilled diameter
+// and the callout must agree or the part is silently wrong. The editor DERIVES
+// the bore from the chosen designation (`D - P`, the published tap drill) rather
+// than locking it: a shop's rounded stock drill (6.8 for M8x1.25) is a real tap
+// drill, and the kernel accepts the whole band `[minor, nominal)`.
+// ---------------------------------------------------------------------------
+
+/** The designation a form's thread selection spells — `M10x1.5`. */
+export function threadDesignation(form: HoleForm): string {
+  return formatDesignation(form.threadNominalMm, form.threadPitchMm);
+}
+
+/** The ISO tap drill (mm) for a form's designation — the derived bore. */
+export function threadTapDrillMm(form: HoleForm): number {
+  return tapDrillMm(form.threadNominalMm, form.threadPitchMm);
+}
+
+/** The tap drill as the bore field would spell it, in the document unit. */
+export function tapDrillInputValue(form: HoleForm, unit: LengthUnit): string {
+  return lengthInputValue(threadTapDrillMm(form), unit);
+}
+
+/**
+ * Adopt the ISO tap drill as the bore — the "Tap drill" chip's action, and the
+ * fill every designation change performs so the two typed thread errors are
+ * unreachable by accident.
+ */
+export function applyTapDrill(form: HoleForm, unit: LengthUnit): HoleForm {
+  return { ...form, diameterInput: tapDrillInputValue(form, unit) };
+}
+
+/** True when the authored bore already IS the derived tap drill (chip state). */
+export function boreIsTapDrill(form: HoleForm, unit: LengthUnit): boolean {
+  const bore = parsePositiveLengthMm(form.diameterInput, unit);
+  return bore !== null && Math.abs(bore - threadTapDrillMm(form)) <= 1e-6;
+}
+
+/**
+ * Tick/untick Tapped. Ticking derives the bore from the designation (the tap
+ * drill); unticking leaves the bore alone — the drilled size the user has is a
+ * perfectly good plain hole, and silently resizing it would edit geometry the
+ * user didn't touch.
+ */
+export function applyTapped(
+  form: HoleForm,
+  tapped: boolean,
+  unit: LengthUnit,
+): HoleForm {
+  const next = { ...form, tapped };
+  return tapped ? applyTapDrill(next, unit) : next;
+}
+
+/**
+ * Choose a nominal size. The pitch resets to that size's COARSE pitch (what a
+ * shop taps unless a drawing says otherwise) — which also keeps the pair a real
+ * ISO combination, since a fine pitch of the old size may not exist for the new
+ * one. Unknown sizes keep the current pitch so an off-series stored designation
+ * survives until the user picks a listed one.
+ */
+export function applyThreadNominal(
+  form: HoleForm,
+  nominalMm: number,
+  unit: LengthUnit,
+): HoleForm {
+  const pitch = coarsePitchFor(nominalMm) ?? form.threadPitchMm;
+  return applyTapDrill(
+    { ...form, threadNominalMm: nominalMm, threadPitchMm: pitch },
+    unit,
+  );
+}
+
+/** Choose a pitch for the current size, re-deriving the bore. */
+export function applyThreadPitch(
+  form: HoleForm,
+  pitchMm: number,
+  unit: LengthUnit,
+): HoleForm {
+  return applyTapDrill({ ...form, threadPitchMm: pitchMm }, unit);
+}
+
+/**
+ * Field-level message when the nominal SIZE is off the ISO 261 series, or null.
+ * Unreachable from the size picker (it only lists real sizes) — it fires for a
+ * designation authored elsewhere (API/script/import) and opened for edit, which
+ * is exactly the `hole_thread_unsupported` case, caught before the round-trip.
+ */
+export function threadSizeError(form: HoleForm): string | null {
+  if (!form.tapped) return null;
+  return pitchesFor(form.threadNominalMm).length > 0
+    ? null
+    : `M${formatThreadNumber(form.threadNominalMm)} isn't a standard ISO size. Choose a listed size.`;
+}
+
+/**
+ * Field-level message when the PITCH isn't standard for the chosen size, or
+ * null — the other half of `hole_thread_unsupported`. Names the pitches that
+ * size IS standardised at, coarse first, the way the server's message does.
+ */
+export function threadPitchError(form: HoleForm): string | null {
+  if (!form.tapped) return null;
+  const pitches = pitchesFor(form.threadNominalMm);
+  // No pitches at all means the SIZE is wrong; that message owns the failure.
+  if (pitches.length === 0) return null;
+  if (isSupportedDesignation(form.threadNominalMm, form.threadPitchMm)) {
+    return null;
+  }
+  const offered = pitches.map(formatThreadNumber).join(", ");
+  return `M${formatThreadNumber(form.threadNominalMm)} is standardised at ${offered} mm. Choose a listed pitch.`;
+}
+
+/**
+ * Field-level message when the bore can't be tapped to the chosen designation,
+ * or null (empty is pending). Mirrors the kernel's `[minor, nominal)` band, so
+ * the modeler learns before the round-trip what `hole_thread_mismatch` would
+ * tell them after it. Names the direction of the miss and the fix.
+ */
+export function threadBoreError(
+  form: HoleForm,
+  unit: LengthUnit,
+): string | null {
+  if (!form.tapped) return null;
+  if (!isSupportedDesignation(form.threadNominalMm, form.threadPitchMm)) {
+    // The designation itself is the problem — the size/pitch field says so; a
+    // second message on the bore would just be noise.
+    return null;
+  }
+  const bore = parsePositiveLengthMm(form.diameterInput, unit);
+  if (bore === null) return null;
+  if (boreFitsThread(form.threadNominalMm, form.threadPitchMm, bore)) {
+    return null;
+  }
+  const designation = threadDesignation(form);
+  const drill = formatLength(threadTapDrillMm(form), unit);
+  return bore < form.threadNominalMm
+    ? `Too small to tap ${designation} — use the Ø${drill} tap drill.`
+    : `Too wide to tap ${designation} — use the Ø${drill} tap drill.`;
+}
+
+/**
+ * The thread designation an EXISTING hole feature carries, or null when it is
+ * untapped. A tapped hole's solid is byte-identical to its bore, so this string
+ * is the only place tapped-ness exists for the user: the feature tree reads it.
+ */
+export function holeThreadDesignation(params: HoleParams): string | null {
+  const thread = params.thread;
+  return thread == null
+    ? null
+    : formatDesignation(thread.nominal_diameter_mm, thread.pitch_mm);
+}
+
 /**
  * Build the hole params from the form, or null when a required field is
  * missing/invalid (the submit gate). Server-side rebuild resolves the face and
@@ -301,6 +494,26 @@ export function buildHoleParams(
     };
   }
 
+  // The thread callout. Untapped OMITS `thread` entirely, so an untapped hole's
+  // wire is byte-identical to a pre-tapped-holes one. A designation the kernel
+  // can't honour, or a bore it can't be tapped in, are both blocked here (the
+  // same client-guard posture the recess uses) — they'd otherwise come back as
+  // `hole_thread_unsupported` / `hole_thread_mismatch` with no body built.
+  let thread: HoleParams["thread"] | undefined;
+  if (form.tapped) {
+    if (!isSupportedDesignation(form.threadNominalMm, form.threadPitchMm)) {
+      return null;
+    }
+    if (!boreFitsThread(form.threadNominalMm, form.threadPitchMm, diameter)) {
+      return null;
+    }
+    thread = {
+      standard: "iso_metric",
+      nominal_diameter_mm: form.threadNominalMm,
+      pitch_mm: form.threadPitchMm,
+    };
+  }
+
   const params: HoleParams = {
     face: faceSubshapeRef(form.face.anchorId, form.face.signature),
     position: form.position,
@@ -308,6 +521,7 @@ export function buildHoleParams(
     depth,
   };
   if (type !== undefined) params.type = type;
+  if (thread !== undefined) params.thread = thread;
   return params;
 }
 
