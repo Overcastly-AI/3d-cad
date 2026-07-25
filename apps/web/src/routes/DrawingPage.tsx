@@ -553,6 +553,16 @@ export function DrawingPage() {
   // Set-up band + layout actions target its id (createView takes the sheet id, so
   // no per-index guesswork). Appends at the tip → its index is the old count.
   const [addingSheet, setAddingSheet] = useState(false);
+  // `Sheet ${count + 1}` collides after a delete: with Sheet 1/2/3, removing
+  // Sheet 2 leaves count 2, so the next add is another "Sheet 3" — two tabs
+  // with the same label (the tab renders `sheet.name`). Take the lowest free
+  // number instead, so names stay unique and stable across deletes.
+  const nextSheetName = useMemo(() => {
+    const taken = new Set((tree?.sheets ?? []).map((s) => s.sheet.name));
+    let n = 1;
+    while (taken.has(`Sheet ${n}`)) n += 1;
+    return `Sheet ${n}`;
+  }, [tree]);
   const handleAddSheet = useCallback(() => {
     if (addingSheet || sheetCount === 0) return;
     setAddingSheet(true);
@@ -560,7 +570,7 @@ export function DrawingPage() {
     void (async () => {
       try {
         await createSheet(drawingId, {
-          name: `Sheet ${sheetCount + 1}`,
+          name: nextSheetName,
           size: sizeValue,
           orientation: "landscape",
           projection: "third_angle",
@@ -580,7 +590,15 @@ export function DrawingPage() {
         setAddingSheet(false);
       }
     })();
-  }, [addingSheet, sheetCount, drawingId, sizeValue, docVersion, queryClient]);
+  }, [
+    addingSheet,
+    sheetCount,
+    nextSheetName,
+    drawingId,
+    sizeValue,
+    docVersion,
+    queryClient,
+  ]);
 
   const handleReproject = useCallback(() => {
     void queryClient.invalidateQueries({
