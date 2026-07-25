@@ -2,8 +2,28 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: FOUNDER-DIRECTED — daily-driver depth (2026-07-23 product
-audit).** The 2026-07-23 audit re-pointed the queue from the sheet-metal
+**Current focus: FOUNDER-DIRECTED — the FINDINGS burn-down is COMPLETE
+(2026-07-25); next up is Drawings parity #4 (assembly views + BOM/balloons).**
+Founder directive 2026-07-24: *"pause all things and fix items in the findings
+report — we should not proceed until all the items are fixed or implemented."*
+All 25 items in `docs/FINDINGS.md` (the consolidated 4-lens hard audit: P0
+silent-wrong-geometry, UI, novice-UX, engineering) are now fixed or
+implemented, plus two enhancements the work surfaced (per-sheet compose/export
+and drag-to-place view positioning). Certified at each batch boundary and
+finally at `b478100` — `just lint` + `just test` + `just e2e` green (geometry
+gates 188, Playwright 254). Highlights: the three **silent-wrong-geometry**
+seams are gone with composed analytic goldens that fail on the old behaviour
+(cut-aware pattern/mirror `feb4318`, same-face reference resilience
+`2b6b72e`); **feature-localized selection** required a new geometry capability
+— per-face feature provenance (`406b89b`) consumed matcap-preserving in
+`43d7eda`; deploy integrity, assembly STEP identity, per-request work bounds,
+the command-band P0, and the full novice-UX + viewport-polish sweep all
+landed. See `docs/FINDINGS.md` (now a closed historical record) for per-item
+evidence.
+
+**Prior focus — daily-driver depth (2026-07-23 product audit), still the
+standing direction beneath the burn-down.** The 2026-07-23 audit re-pointed
+the queue from the sheet-metal
 parity campaign (below, PAUSED — not abandoned) to closing the assembly
 "one-way street" plus the everyday modeling verbs a working engineer reaches
 for. Shipped this batch, each through the full implement→review→geometry-QA→

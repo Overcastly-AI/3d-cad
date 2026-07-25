@@ -31,6 +31,13 @@ compose incorrectly — plus one UI P0 regression and a deploy-config P1 that
 would have shipped a broken compose stack. Every finding below is filed with
 a concrete fix; the top block is already being actioned.
 
+> **STATUS 2026-07-25 — CLOSED.** Every finding below (#1–#25, P0→P3) is
+> fixed or implemented and certified green (`just lint` + `just test` +
+> `just e2e`; geometry gates 188, Playwright 254). Per-item evidence is
+> inline; the merged action order at the foot of this file carries the
+> commit for each. This file is now a historical record — new findings go
+> to a fresh audit pass, not here.
+
 ## P0 / silent-wrong-geometry (fix first — these betray user trust)
 
 1. **Pattern × Hole duplicates the whole body** (product P1, kernel).
@@ -40,6 +47,7 @@ a concrete fix; the top block is already being actioned.
    is silently broken. _Fix: feature-aware pattern semantics for cut-type
    features (hole joins extrude-cut in the cut-array branch) + a composed
    golden (pattern-of-hole analytic volume)._
+   **✅ FIXED 2026-07-24 `feb4318`** — see #2 (one shared seam).
 2. **Mirror erases holes** (product P1, kernel). Mirroring a plate with a
    hole about a midplane returns the featureless 32000.0 brick — the
    whole-body union fills negative features. The #1 mirror use case silently
@@ -47,6 +55,20 @@ a concrete fix; the top block is already being actioned.
    (with its cuts), not re-union a filled copy; composed golden
    (mirror-of-holed-plate analytic volume). Root cause overlaps #1: both
    pattern and mirror reason about the body chain without cut-awareness._
+   **✅ FIXED 2026-07-24 `feb4318` (kernel-architect, #1+#2 in one seam):**
+   both verbs inferred a cut source from the preceding feature but recognized
+   ONLY extrude-cut, so a Hole source fell through to the whole-body
+   union/reflect-and-union path. `_prev_cut_tools` now also returns a Hole's
+   captured bore(+counterbore/countersink) tools, grabbed at hole-eval time
+   from the pre-cut body (`state.last_hole_tools`) — no brittle post-cut face
+   re-resolution. Pattern arrays those tools; mirror gains `mirror_cut`
+   (reflect the tool + remove it), chosen over `mirror_union` when the source
+   is a cut. `hole.py` factors out the tool builders so cut and reconstruction
+   share one geometry (DRY). Measured: pattern 59497.3 → 34492.04 correct;
+   mirror 32000.0 → 29989.38 correct. Two composed goldens assert analytic
+   volume + exact topology and FAIL on the old behaviour:
+   `pattern-cut-hole-feature-3x-60x60x10` (tol 1e-9) and
+   `mirror-hole-feature-plate-40x40x20` (tol 1e-8).
 3. **Editing one hole orphans its same-face neighbors** (product P1,
    kernel/references). Hole1 Ø6→Ø8 makes same-face Hole2
    `subshape_unresolved` — the planar-face signature (area/centroid) is
@@ -65,7 +87,20 @@ a concrete fix; the top block is already being actioned.
 4. **UI P0 — command band overflows at 1440–1600** (UI audit): whole tool
    groups (SHEET METAL, INSPECT) hidden; hovering a hidden tool horizontally
    scrolls the app. Stale label-tier arithmetic + no overflow management.
-   _Fix in flight: measured tier-stepping + overflow clamp + regression spec._
+   _Fix: measured tier-stepping + overflow clamp + regression spec._
+   **✅ FIXED 2026-07-24 `cc51689` (with the tooltip P1 below):** new
+   `CommandBand` primitive measures whether the fully labeled row fits its own
+   width (sync probe + Resize/MutationObserver) and stamps `data-band-tier`,
+   stepping labeled→icon; `ToolButton` labels collapse via ancestor-attribute
+   CSS, deleting the stale "≥1360px" viewport arithmetic. `overflow-x: clip`
+   clamps the band so it can never widen the root — no app-level horizontal
+   scroll, hover/focus cannot scroll the frame. New `zLayer` token scale
+   (overlay<panel<hud<band<menu) makes page stacking one audited order and
+   lifts band tooltips (incl. disabled-gate reasons) above the floating
+   panels. Guard `e2e/toolbar-overflow.spec.ts` — 7 tests at
+   1280/1440/1600/2400: every group reachable, root `scrollWidth ==
+   clientWidth`, hover/focus no-scroll, tier-fits, labels return when they
+   genuinely fit, tooltip z-order over the tree panel.
 5. **Deploy P1 — the documented `docker compose up` stack served no meshes**
    (engineering G1: S3 creds never passed) and **exposed internal services'
    trusted-header auth to the host** (G3). _FIXED `ec03b89` (creds
@@ -117,21 +152,45 @@ a concrete fix; the top block is already being actioned.
   feature-tree row menu (edit / inline rename / suppress / delete). Every row is
   a WIRED action (mandate 3a); keyboard-navigable, focus-visible, reduced-motion
   safe. _Was: zero context menus in the app._
-- **The UI breaks its own Esc promise** (UX): band advertises "CANCEL ESC"
-  but per-editor `onKeyDown` means Esc is dead when focus is outside the
-  panel — the toolbar locks.
-- **Dimensioning is undiscoverable** (UX): select-edge-then-D is suggested
-  nowhere; the probable novice give-up point. _Fix: contextual verb hints in
-  the sketch status bar._
-- **Open-profile extrude fails with revolve-specific advice** (UX):
-  `featureErrors.ts` shares one string across feature types — actively
-  misleading. _Fix: per-feature error copy._
-- **Tooltip stacking trap** (UI, fix in flight with the band P0): band
-  tooltips render behind floating panels — including disabled-tool "why"
-  explanations (also flagged independently by the UX audit).
-- **Per-request work bounds absent** (engineering G2, fix in flight):
-  frequency-limited but not cost-limited — deflection floor, pattern-count
-  cap, interference instance cap, list caps.
+- ✅ **The UI broke its own Esc promise — FIXED 2026-07-24 `36dedf8`**
+  (frontend-builder, #11): the band advertised "CANCEL ESC" but cancel was
+  wired per-editor via local `onKeyDown`, so Esc was dead whenever focus sat
+  outside the panel (e.g. the viewport) and the toolbar stayed locked. One
+  global `window` Esc handler now disarms any open feature editor regardless
+  of focus, and the redundant Escape branch was removed from all 17 feature
+  editors — a single cancel path (DRY). The hole/datum pick-armed cascade is
+  preserved: the global handler stands down while a pick is armed, so the
+  first Esc still disarms the pick.
+- ✅ **Dimensioning is discoverable — FIXED 2026-07-24 `36dedf8`**
+  (frontend-builder, #12): a quiet `[D] dimension` keycap affordance in the
+  sketch status bar when a single line/circle/arc is selected, driven by
+  `dimensionVerbHint` which reuses `applyConstraintAction`'s real acceptance
+  so it never advertises a dead key. _Was: select-edge-then-D suggested
+  nowhere — the probable novice give-up point._
+- ✅ **Open-profile extrude showed revolve-specific advice — FIXED 2026-07-24
+  `36dedf8`** (frontend-builder, #13): `friendlyFeatureError` shared ONE
+  `profile_not_closed` string, so an open-profile extrude read revolve
+  centerline advice. Copy is now keyed on feature type — extrude/revolve/
+  sweep/loft each read their own guidance and the generic fallback drops the
+  revolve idiom entirely.
+- ✅ **Tooltip stacking trap — FIXED 2026-07-24 `cc51689`** (with the band P0
+  #4): the new `zLayer` token scale (overlay<panel<hud<band<menu) makes page
+  stacking one audited order and lifts band tooltips — including
+  disabled-tool "why" explanations — above the floating panels; call sites
+  migrated off ad-hoc `z-30/40/50`. e2e probes tooltip z-order over the tree
+  panel. _Was: band tooltips rendered behind floating panels._
+- ✅ **Per-request work bounds — FIXED 2026-07-24 `c74bc2d`** (engineering
+  G2): the rate limiter caps request FREQUENCY; these cap per-request COST.
+  Documented constants with pydantic `Field` constraints → typed 422s, never
+  500s: deflection floors 1e-3 mm / 1e-2 rad on every tessellate/export/
+  evaluate path; pattern count ≤ 500 (+ kernel defense-in-depth); tree
+  features ≤ 1000; assembly instances/mates ≤ 500/2000 (STEP-import products
+  tied to the instance cap); interference handler-capped at 200 instances (N²
+  documented, typed `interference_too_many_instances`); drawing views/dims/
+  notes ≤ 32/500/500; sketch entities/constraints/spline points ≤
+  2000/4000/500; loft sections ≤ 100; selector refs ≤ 500. documents
+  write-side `*_limit_exceeded` twins keep persisted docs constructible into
+  the bounded DTOs. 42 new reject/accept tests.
 
 ## P2 — parity gaps / trust dents
 
@@ -210,19 +269,38 @@ aria-disabled tools that explain themselves; analytically exact interference
 (109.9557 mm³ vs π·7·5); honest undo; confirmed deletes; 23.6 s
 signup→solid→STEP.
 
-## Action order (founder's "do these next," merged across lenses)
+## Action order (founder's "do these next," merged across lenses) — ALL ✅
 
-1. **Cut-aware pattern + mirror** (silent-wrong-geometry pair) + composed
-   goldens. _[kernel — queued behind G2 landing]_
-2. **Band overflow P0 + tooltip stacking** _[in flight]_ and **G2 work
-   bounds** _[in flight]_.
-3. **Same-face reference resilience + re-pick repair.**
-4. **Non-overlapping sheet layout + drag-to-place; surface view errors on
-   the sheet; guard undo against breaking dependent drawings.**
-5. **Real names in assembly STEP (out + in).**
-6. **The interaction-depth trio** (✅ live edit preview #8, ✅ feature-localized
-   selection #9, ✅ viewport + tree context menus #10 — 2026-07-24) + **the
-   novice trio** (✅ Esc promise, dimension hints, ✅ per-feature error copy).
+**BURN-DOWN COMPLETE 2026-07-25.** Founder directive 2026-07-24 ("pause all
+things and fix items in the findings report; we should not proceed until all
+the items are fixed or implemented") — every item #1–#25 is fixed or
+implemented, plus the two enhancements this work surfaced.
+
+1. ✅ **Cut-aware pattern + mirror** (silent-wrong-geometry pair) + composed
+   goldens — `feb4318`.
+2. ✅ **Band overflow P0 + tooltip stacking** — `cc51689`; ✅ **G2 work
+   bounds** — `c74bc2d`.
+3. ✅ **Same-face reference resilience + re-pick repair** — `2b6b72e`
+   (kernel) + `05f6cd7` (frontend re-pick).
+4. ✅ **Non-overlapping sheet layout; surface view errors on the sheet** —
+   `0e6c282`; ✅ **guard undo against breaking dependent drawings** —
+   `92181d8`; ✅ **drag-to-place** — `f6ae78c` (backend) + `b478100` (UI).
+5. ✅ **Real names in assembly STEP (out + in)** — `1d8764f`.
+6. ✅ **The interaction-depth trio** (live edit preview #8, feature-localized
+   selection #9 — needing a new geometry enabler `406b89b` for per-face
+   feature provenance, consumed in `43d7eda` — and viewport + tree context
+   menus #10) + ✅ **the novice trio** (Esc promise, dimension hints,
+   per-feature error copy — `36dedf8`).
+
+**Certified:** `just lint` + `just test` + `just e2e` green at each batch
+boundary (final sweep: geometry gates 188, Playwright 254). Two specs that
+asserted superseded behaviour (the reworded extrude gate, the new-part-opens
+navigation) were root-caused and corrected in `80d1af3` rather than waved
+off. Founder before/after screenshots were sent for every UI change.
+
+**Enhancements this burn-down surfaced (beyond the report, both shipped):**
+per-sheet compose/export selection and drag-to-place view positioning —
+`f6ae78c` + `b478100`.
 
 — consolidated by the orchestrator; each source doc carries the full
 evidence chain. BACKLOG restock from this list is the groomer's next pass.
