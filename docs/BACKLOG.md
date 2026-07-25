@@ -63,6 +63,78 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [ ] (P0, S) **CM-1 — a `mirror` re-ERASES a cut when ANY non-cut feature sits
+      between the cut and the mirror.** FINDINGS #2's featureless-brick symptom,
+      reachable again: `plate 40x40x20 -> hole Ø8 -> chamfer -> datum YZ@20 ->
+      mirror` gives **31640.0** mm³ (hole filled, no cylindrical face) vs
+      29629.3807 correct; same with a fillet (31845.4867 vs 29834.8674) or a boss
+      (32640.0 vs 30629.3807). `_prev_cut_tools` reads only
+      `state.prev_body_feature`, so any intervening body-affecting feature falls
+      through to `mirror_union`, whose reflection fills the void. Documented as
+      benign for `pattern`; for `mirror` it destroys geometry and is documented
+      nowhere. Fix: walk back past non-cut features (or track cut tools per
+      feature). Guard already committed as `xfail(strict)` —
+      `test_cm1_mirror_keeps_the_hole_across_an_intervening_feature`; remove the
+      marker with the fix. [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [ ] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
+      body is a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
+      only.** `plate 40x40x10 -> pocket -> linear pattern +X/40/2` returns
+      **14400.0** unchanged with every feature `ok` (28800.0 expected by the
+      mirror precedent); hole source **15497.3452** vs 30994.6904. `mirror_cut`
+      guards with `_reflected_tools_reach_body` and falls back to `mirror_union`;
+      `linear_pattern_cut`/`circular_pattern_cut` -> `_cut_and_finalize`
+      (`kernel/pattern.py`) has no reachability check. Union fallback OR a typed
+      `pattern_removed_nothing` — silence is not acceptable. Guard:
+      `test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op`
+      (`xfail(strict)`). [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [ ] (P1, S) **CM-3 — an `extrude-cut`/`revolve-cut` that removes nothing
+      reports `ok` and returns the input body.** 16000.0 unchanged for a pocket
+      beside the part, a cut in free space above it, and **the same pocket cut
+      twice** (14400.0 both times — the everyday duplicate action); a revolve-cut
+      clear of the body behaves identically. `combine_body`
+      (`kernel/extrude.py`) checks for an empty result and a changed lump count
+      but never "removed nothing"; the Hole feature errors correctly
+      (`hole_off_body`) for the identical user error. Guard:
+      `test_cm3_a_cut_that_removes_nothing_must_error` (`xfail(strict)`).
+      [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [ ] (P2, S) **CM-4 — a composed body loses STEP round-trip topology
+      fidelity.** `plate 40x40x10 -> pocket -> fillet r3 -> shell t2` exports and
+      re-imports with faces 36 == 36 but **edges 96 -> 98** (LINE 64 -> 66);
+      volume delta 8.3e-11, so the geometry survives and only the topology
+      metadata does not. Deterministic; isolated to the triple (every pair, and
+      the same triple on an 80 mm plate, round-trip exactly). Two straight edges
+      are re-read as collinear pairs on import. Matters because picked-edge
+      SIGNATURES and the drawings edge pipeline key off edge identity after a
+      round-trip. Guard: `test_cm4_pocket_fillet_shell_survives_a_step_roundtrip`
+      (`xfail(strict)`). [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [ ] (P3, S) **`draft` propagates along a tangent chain with no UI/doc warning.**
+      After an r4 corner fillet makes all four walls tangent-continuous, drafting
+      the ONE picked +X face tapers all four walls plus the four fillet cylinders
+      (1361.7627 mm³ removed vs 314.9581 for the named face). OCCT-correct
+      (`BRepOffsetAPI_DraftAngle` propagates through tangent continuity) and
+      usually desirable, but a picked-face UI never says so — doc + editor copy.
+      Pinned by `test_observed_limit_draft_propagates_along_a_tangent_chain`.
+      [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [x] (P0, M) **Composition-matrix gate — close the structural blind spot that
+      let all five silent-wrong-geometry defects through. Shipped 2026-07-25**
+      (founder directive: geometry correctness is the single thing capping this
+      product). Every one of this week's five defects was a COMPOSITION of two
+      features that each passed its own golden, because the golden inventory
+      exercises verbs in ISOLATION.
+      `services/geometry/tests/test_composition_matrix.py` composes 8
+      predecessors x 13 composers (96 asserted cells; the diagonal is skipped
+      with a reason and covered by re-issued-id self-composition tests) plus
+      triples, asserting analytic volume where derivable and shape-independent
+      invariants elsewhere (cut never increases volume; a clearing mirror is
+      EXACTLY 2V; a patterned cut removes Nx the seed; removing nothing must
+      error; suppress/unsuppress and edit/revert byte-identical; a same-face
+      reference keeps its plane origin across a sibling edit; STEP round-trip of
+      composed bodies). All five audited defects are seeded cases that fail on
+      the pre-fix behaviour. 198 tests, 24-38 s — no nightly tier needed. Caught
+      4 new live defects (CM-1..CM-4 above) + 2 locked observations. Tolerances
+      are the two existing reviewed golden tiers (1e-9 planar / 1e-8 curved);
+      none loosened. See `docs/GEOMETRY-QA.md` 2026-07-25.
+      [src: founder directive 2026-07-25]
 - [x] (P1, S) **Component-test tier (jsdom) — close the structural blind spot
       the production-readiness assessment surfaced. Shipped 2026-07-25**
       (founder directive). `apps/web` had NO DOM harness, so every defect that

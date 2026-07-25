@@ -24,6 +24,30 @@ the command-band P0, and the full novice-UX + viewport-polish sweep all
 landed. See `docs/FINDINGS.md` (now a closed historical record) for per-item
 evidence.
 
+**✅ COMPOSITION MATRIX gate (2026-07-25, geometry-qa).** The standing guard for
+the defect class that produced all five of this week's silent-wrong-geometry
+findings: they were each a **composition of two features**, and each passed the
+full suite because the goldens exercise verbs in ISOLATION.
+`services/geometry/tests/test_composition_matrix.py` systematically composes
+8 predecessors x 13 composers (96 asserted cells, diagonal covered separately)
+plus triples, and proves correctness by analytic volume where derivable and by
+shape-independent invariants elsewhere — a cut may never increase volume; a
+mirror about a plane the body does not cross must EXACTLY double it; a patterned
+cut must remove exactly Nx the seed; a feature that removes nothing must error;
+suppress/unsuppress and edit/revert must be byte-identical; a same-face
+reference must resolve to the SAME plane origin after a sibling edit. All five
+audited defects are seeded cases that FAIL on the pre-fix behaviour. 198 tests,
+24-38 s (no nightly tier needed). **It immediately caught 4 NEW live defects**
+(2 P0) recorded as `xfail(strict)` so the suite flips red when they are fixed:
+**CM-1** a mirror re-erases a hole when any non-cut feature sits between the cut
+and the mirror (31640.0 vs 29629.3807 — FINDINGS #2 reachable again); **CM-2** a
+pattern of a cut whose tools all clear the body is a silent no-op (14400.0 vs
+28800.0 — the defect `fa30220` fixed for mirror only); **CM-3** extrude-cut /
+revolve-cut that removes nothing reports `ok` (Hole correctly errors); **CM-4** a
+pocket+fillet+shell body loses 2 edges across a STEP round-trip. Full evidence,
+coverage table and tolerance rationale in `docs/GEOMETRY-QA.md` (2026-07-25).
+Fixes belong to the kernel agent — QA does not touch `services/geometry/src/**`.
+
 **Engineering-audit H burn-down (2026-07-25, in progress.)** The fresh
 `docs/AUDIT-ENGINEERING.md` pass (H1-H10) is being worked item-by-item.
 Landed so far: **H2** — a drawing sheet may no longer mix source documents or
